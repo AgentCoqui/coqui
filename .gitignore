@@ -1,0 +1,6 @@
+vendor/
+.env
+*.cache
+.phpunit.result.cache
+data/*.db
+.coqui-session
