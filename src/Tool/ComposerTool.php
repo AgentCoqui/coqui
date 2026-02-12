@@ -71,6 +71,9 @@ final class ComposerTool implements ToolInterface
             Some packages are blocked by a denylist to prevent breaking Coqui
             (e.g. full frameworks like Laravel, Laminas).
             
+            **Tip:** Use the `packagist` tool first to search for and evaluate packages
+            before installing them with `require`.
+            
             After installing a package, use the `package_info` tool to learn its API
             before writing code that uses it.
             DESC;
