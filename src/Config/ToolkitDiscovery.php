@@ -28,10 +28,27 @@ final class ToolkitDiscovery
     /**
      * Scan a newly installed package for ToolkitInterface implementations.
      *
+     * Checks two sources:
+     * 1. The package's composer.json extra.php-agents.toolkits (explicit declaration)
+     * 2. Filesystem scanning of PSR-4 autoloaded namespaces (fallback discovery)
+     *
      * @return string[] Fully-qualified class names of discovered toolkits
      */
     public function discover(string $packageName): array
     {
+        // First: check explicit declarations in composer.json extra
+        $declared = $this->findDeclaredToolkits($packageName);
+        if (!empty($declared)) {
+            // Verify each declared class actually implements ToolkitInterface
+            $validated = array_filter($declared, fn(string $class) => $this->isToolkit($class));
+
+            if (!empty($validated)) {
+                $this->register($packageName, $validated);
+                return $validated;
+            }
+        }
+
+        // Fallback: scan the package's autoloaded namespaces
         $installedPath = $this->projectRoot . '/vendor/composer/installed.json';
 
         if (!file_exists($installedPath)) {
@@ -150,6 +167,31 @@ final class ToolkitDiscovery
     }
 
     /**
+     * Check a package's composer.json for explicitly declared toolkits.
+     *
+     * Looks for: extra.php-agents.toolkits => ["Vendor\\Toolkit\\MyToolkit"]
+     *
+     * @return string[]
+     */
+    private function findDeclaredToolkits(string $packageName): array
+    {
+        $composerJson = $this->projectRoot . '/vendor/' . $packageName . '/composer.json';
+
+        if (!file_exists($composerJson)) {
+            return [];
+        }
+
+        $data = json_decode((string) file_get_contents($composerJson), true);
+        if (!is_array($data)) {
+            return [];
+        }
+
+        $toolkits = $data['extra']['php-agents']['toolkits'] ?? null;
+
+        return is_array($toolkits) ? $toolkits : [];
+    }
+
+    /**
      * Find PSR-4 autoload mappings for a specific package.
      *
      * @param array<int, mixed> $packages
@@ -249,6 +291,11 @@ final class ToolkitDiscovery
 
     /**
      * Attempt to instantiate a toolkit class.
+     *
+     * Tries strategies in order:
+     * 1. Static factory method fromEnv() — toolkit reads config from environment
+     * 2. No constructor / all-optional params — no-arg construction
+     * 3. First required param is string — pass workspacePath
      */
     private function tryInstantiate(string $className): ?ToolkitInterface
     {
@@ -266,15 +313,27 @@ final class ToolkitDiscovery
                 return null;
             }
 
+            // Strategy 1: static fromEnv() factory method
+            if ($reflection->hasMethod('fromEnv')) {
+                $factory = $reflection->getMethod('fromEnv');
+                if ($factory->isStatic() && $factory->isPublic()
+                    && $factory->getNumberOfRequiredParameters() === 0) {
+                    $instance = $factory->invoke(null);
+                    if ($instance instanceof ToolkitInterface) {
+                        return $instance;
+                    }
+                }
+            }
+
             $constructor = $reflection->getConstructor();
 
-            // No constructor or all parameters optional — instantiate with no args
+            // Strategy 2: no constructor or all parameters optional
             if ($constructor === null || $constructor->getNumberOfRequiredParameters() === 0) {
                 /** @var ToolkitInterface */
                 return $reflection->newInstance();
             }
 
-            // Try passing workspacePath as the first argument if it accepts a string
+            // Strategy 3: first required param is string — pass workspacePath
             $params = $constructor->getParameters();
             $firstParam = $params[0] ?? null;
 
