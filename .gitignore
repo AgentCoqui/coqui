@@ -6,3 +6,4 @@ data/*.db
 .coqui-session
 .workspace/
 !.workspace/.gitkeep
+openclaw.json
