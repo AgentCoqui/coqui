@@ -2,18 +2,18 @@
 
 declare(strict_types=1);
 
-namespace Coqui\Command;
+namespace CoquiBot\Coqui\Command;
 
 use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
-use Coqui\Agent\OrchestratorAgent;
-use Coqui\Config\InteractiveApprovalPolicy;
-use Coqui\Config\RoleResolver;
-use Coqui\Config\ToolkitDiscovery;
-use Coqui\Config\WorkspaceResolver;
-use Coqui\Observer\TerminalObserver;
-use Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Agent\OrchestratorAgent;
+use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
+use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Config\WorkspaceResolver;
+use CoquiBot\Coqui\Observer\TerminalObserver;
+use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;

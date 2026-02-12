@@ -2,13 +2,13 @@
 
 declare(strict_types=1);
 
-namespace Coqui\Tool;
+namespace CoquiBot\Coqui\Tool;
 
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Config\ScriptSanitizer;
 
 /**
  * Executes generated PHP code in a subprocess.

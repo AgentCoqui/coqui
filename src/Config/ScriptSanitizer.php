@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Coqui\Config;
+namespace CoquiBot\Coqui\Config;
 
 /**
  * Best-effort static analysis of generated PHP code before execution.

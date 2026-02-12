@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Coqui\Tool;
+namespace CoquiBot\Coqui\Tool;
 
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
@@ -13,10 +13,10 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
-use Coqui\Agent\ChildAgent;
-use Coqui\Config\RoleResolver;
-use Coqui\Observer\TerminalObserver;
-use Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Agent\ChildAgent;
+use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Observer\TerminalObserver;
+use CoquiBot\Coqui\Storage\SessionStorage;
 use SplObserver;
 
 /**

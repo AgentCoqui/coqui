@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Coqui\Agent;
+namespace CoquiBot\Coqui\Agent;
 
 use CarmeloSantana\PHPAgents\Agent\AbstractAgent;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
@@ -14,16 +14,16 @@ use CarmeloSantana\PHPAgents\Memory\FileMemory;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\MemoryToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
-use Coqui\Config\RoleResolver;
-use Coqui\Config\ToolkitDiscovery;
-use Coqui\Observer\TerminalObserver;
-use Coqui\Storage\SessionStorage;
-use Coqui\Tool\ComposerTool;
-use Coqui\Tool\CredentialTool;
-use Coqui\Tool\PackageInfoTool;
-use Coqui\Tool\PackagistTool;
-use Coqui\Tool\PhpExecuteTool;
-use Coqui\Tool\SpawnAgentTool;
+use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Observer\TerminalObserver;
+use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Tool\ComposerTool;
+use CoquiBot\Coqui\Tool\CredentialTool;
+use CoquiBot\Coqui\Tool\PackageInfoTool;
+use CoquiBot\Coqui\Tool\PackagistTool;
+use CoquiBot\Coqui\Tool\PhpExecuteTool;
+use CoquiBot\Coqui\Tool\SpawnAgentTool;
 use Symfony\Component\HttpClient\HttpClient;
 
 /**

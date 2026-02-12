@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
-use Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Config\RoleResolver;
 
 test('resolves configured role to model', function () {
     $config = OpenClawConfig::fromArray([

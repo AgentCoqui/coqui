@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Coqui\Tool\PackageInfoTool;
+use CoquiBot\Coqui\Tool\PackageInfoTool;
 
 beforeEach(function () {
     // Use the real coqui project root so we can inspect actual installed packages

@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Coqui\Tool\CredentialTool;
+use CoquiBot\Coqui\Tool\CredentialTool;
 
 beforeEach(function () {
     $this->tmpDir = sys_get_temp_dir() . '/coqui-test-' . bin2hex(random_bytes(4));

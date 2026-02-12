@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Config\ScriptSanitizer;
 
 test('allows safe code', function () {
     $sanitizer = new ScriptSanitizer();

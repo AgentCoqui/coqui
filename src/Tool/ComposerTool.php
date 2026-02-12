@@ -2,14 +2,14 @@
 
 declare(strict_types=1);
 
-namespace Coqui\Tool;
+namespace CoquiBot\Coqui\Tool;
 
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Config\ToolkitDiscovery;
 
 /**
  * Tool that manages Coqui's own composer dependencies.

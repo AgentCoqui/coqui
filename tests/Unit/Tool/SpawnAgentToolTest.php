@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
-use Coqui\Config\RoleResolver;
-use Coqui\Tool\SpawnAgentTool;
+use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Tool\SpawnAgentTool;
 
 test('has correct name', function () {
     $config = OpenClawConfig::fromArray([

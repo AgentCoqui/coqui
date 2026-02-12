@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Coqui\Tool\PhpExecuteTool;
+use CoquiBot\Coqui\Tool\PhpExecuteTool;
 
 beforeEach(function () {
     $this->projectRoot = dirname(__DIR__, 3);

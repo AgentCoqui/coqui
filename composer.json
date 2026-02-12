@@ -1,5 +1,5 @@
 {
-    "name": "carmelosantana/coqui",
+    "name": "coquibot/coqui",
     "description": "Terminal AI agent REPL with multi-model orchestration and persistent sessions",
     "type": "project",
     "license": "MIT",
@@ -12,6 +12,7 @@
         "php": "^8.4",
         "ext-pdo_sqlite": "*",
         "carmelosantana/php-agents": "@dev",
+        "carmelosantana/porkbun-sdk": "^1.0",
         "symfony/console": "^7.0",
         "symfony/http-client": "^7.0"
     },
@@ -21,12 +22,12 @@
     },
     "autoload": {
         "psr-4": {
-            "Coqui\\": "src/"
+            "CoquiBot\\Coqui\\": "src/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "Coqui\\Tests\\": "tests/"
+            "CoquiBot\\Coqui\\Tests\\": "tests/"
         }
     },
     "repositories": [
