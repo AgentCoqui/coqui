@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Coqui\Agent\OrchestratorAgent;
+use Coqui\Config\InteractiveApprovalPolicy;
 use Coqui\Config\RoleResolver;
 use Coqui\Config\ToolkitDiscovery;
 use Coqui\Config\WorkspaceResolver;
@@ -235,6 +236,14 @@ final class RunCommand extends Command
             sessionId: $this->sessionId,
             observer: $this->observer,
             discovery: $this->discovery,
+            executionPolicy: new InteractiveApprovalPolicy(
+                io: $io,
+                gatedTools: [
+                    'composer' => ['require', 'remove', 'update'],
+                    'exec' => ['*'],
+                    'php_execute' => ['*'],
+                ],
+            ),
         );
 
         $agent->attach($this->observer);
