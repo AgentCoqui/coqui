@@ -21,8 +21,10 @@ use Coqui\Storage\SessionStorage;
 use Coqui\Tool\ComposerTool;
 use Coqui\Tool\CredentialTool;
 use Coqui\Tool\PackageInfoTool;
+use Coqui\Tool\PackagistTool;
 use Coqui\Tool\PhpExecuteTool;
 use Coqui\Tool\SpawnAgentTool;
+use Symfony\Component\HttpClient\HttpClient;
 
 /**
  * The top-level orchestrator agent that receives user input.
@@ -39,6 +41,7 @@ final class OrchestratorAgent extends AbstractAgent
     private ComposerTool $composerTool;
     private CredentialTool $credentialTool;
     private PackageInfoTool $packageInfoTool;
+    private PackagistTool $packagistTool;
     private PhpExecuteTool $phpExecuteTool;
 
     public function __construct(
@@ -106,6 +109,15 @@ final class OrchestratorAgent extends AbstractAgent
             projectRoot: $this->projectRoot,
         );
 
+        // Create Packagist search tool for package discovery
+        $this->packagistTool = new PackagistTool(
+            httpClient: HttpClient::create([
+                'headers' => [
+                    'User-Agent' => 'Coqui/1.0 (https://github.com/carmelosantana/coqui)',
+                ],
+            ]),
+        );
+
         // Create PHP execution tool for running SDK code
         $this->phpExecuteTool = new PhpExecuteTool(
             projectRoot: $this->projectRoot,
@@ -163,6 +175,18 @@ final class OrchestratorAgent extends AbstractAgent
             - The `php_execute` tool auto-loads the Composer autoloader and workspace .env
             - Some packages (full frameworks) are blocked by a denylist
             - Functions like eval(), exec(), system() are not allowed in generated code
+            
+            ## Package Discovery (Packagist)
+            
+            Use the `packagist` tool to search for and evaluate packages BEFORE installing:
+            - `search`: Find packages by keyword, tag, or type
+            - `popular`: Browse most popular packages by weekly downloads
+            - `details`: Get full metadata (downloads, favers, maintainers, repository)
+            - `stats`: Get download statistics
+            - `versions`: List recent tagged releases with PHP requirements
+            - `advisories`: Check for known security vulnerabilities (CVEs)
+            
+            **Recommended workflow:** packagist search → packagist details → packagist advisories → composer require
             
             ## Composer / Package Management
             
@@ -244,6 +268,7 @@ final class OrchestratorAgent extends AbstractAgent
             $this->composerTool,
             $this->credentialTool,
             $this->packageInfoTool,
+            $this->packagistTool,
             $this->phpExecuteTool,
         ];
     }
