@@ -31,7 +31,8 @@ final class SpawnAgentTool implements ToolInterface
     public function __construct(
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
-        private readonly string $workDir,
+        private readonly string $projectRoot,
+        private readonly string $workspacePath,
         private readonly ?SessionStorage $storage = null,
         private readonly ?string $sessionId = null,
         private readonly ?SplObserver $observer = null,
@@ -164,20 +165,20 @@ final class SpawnAgentTool implements ToolInterface
     {
         return match ($role) {
             'coder' => [
-                new FilesystemToolkit(rootPath: $this->workDir),
+                new FilesystemToolkit(rootPath: $this->workspacePath),
                 new ShellToolkit(
-                    workDir: $this->workDir,
-                    allowedCommands: ['composer', 'php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc'],
+                    workDir: $this->projectRoot,
+                    allowedCommands: ['php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc'],
                     timeout: 60,
                 ),
             ],
 
             'reviewer' => [
-                new FilesystemToolkit(rootPath: $this->workDir, readOnly: true),
+                new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true),
             ],
 
             default => [
-                new FilesystemToolkit(rootPath: $this->workDir, readOnly: true),
+                new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true),
             ],
         };
     }

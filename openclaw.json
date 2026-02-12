@@ -1,6 +1,7 @@
 {
     "agents": {
         "defaults": {
+            "workspace": ".workspace",
             "models": {
                 "ollama/qwen3:latest": { "alias": "qwen" },
                 "ollama/qwen3-coder:latest": { "alias": "qwen-coder" },

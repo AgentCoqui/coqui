@@ -4,3 +4,5 @@ vendor/
 .phpunit.result.cache
 data/*.db
 .coqui-session
+.workspace/
+!.workspace/.gitkeep

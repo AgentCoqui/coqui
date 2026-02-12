@@ -9,6 +9,8 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Coqui\Agent\OrchestratorAgent;
 use Coqui\Config\RoleResolver;
+use Coqui\Config\ToolkitDiscovery;
+use Coqui\Config\WorkspaceResolver;
 use Coqui\Observer\TerminalObserver;
 use Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -32,6 +34,8 @@ final class RunCommand extends Command
     private RoleResolver $roleResolver;
     private TerminalObserver $observer;
     private string $workDir;
+    private string $workspacePath;
+    private ToolkitDiscovery $discovery;
 
     protected function configure(): void
     {
@@ -71,8 +75,15 @@ final class RunCommand extends Command
 
         $this->roleResolver = new RoleResolver($this->config);
 
-        // Initialize storage
-        $dbPath = $this->workDir . '/data/coqui.db';
+        // Resolve workspace directory
+        $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir);
+        $this->workspacePath = $workspaceResolver->resolve();
+
+        // Initialize toolkit discovery
+        $this->discovery = new ToolkitDiscovery($this->workDir, $this->workspacePath);
+
+        // Initialize storage inside workspace
+        $dbPath = $this->workspacePath . '/data/coqui.db';
         $this->storage = new SessionStorage($dbPath);
 
         // Handle session
@@ -94,7 +105,8 @@ final class RunCommand extends Command
         $io->text([
             '<fg=gray>Session:</> ' . substr($this->sessionId, 0, 8) . '...',
             '<fg=gray>Model:</> ' . $this->roleResolver->resolve('orchestrator'),
-            '<fg=gray>Working dir:</> ' . $this->workDir,
+            '<fg=gray>Project root:</> ' . $this->workDir,
+            '<fg=gray>Workspace:</> ' . $this->workspacePath,
             '',
             '<fg=gray>Commands: /new, /history, /sessions, /quit</>',
         ]);
@@ -217,10 +229,12 @@ final class RunCommand extends Command
             provider: $provider,
             roleResolver: $this->roleResolver,
             config: $this->config,
-            workDir: $this->workDir,
+            projectRoot: $this->workDir,
+            workspacePath: $this->workspacePath,
             storage: $this->storage,
             sessionId: $this->sessionId,
             observer: $this->observer,
+            discovery: $this->discovery,
         );
 
         $agent->attach($this->observer);
@@ -266,7 +280,7 @@ final class RunCommand extends Command
     private function loadOrCreateSession(SymfonyStyle $io): string
     {
         // Check for session file
-        $sessionFile = $this->workDir . '/' . self::SESSION_FILE;
+        $sessionFile = $this->workspacePath . '/' . self::SESSION_FILE;
         if (file_exists($sessionFile)) {
             $fileContent = file_get_contents($sessionFile);
             if ($fileContent !== false) {
@@ -296,7 +310,7 @@ final class RunCommand extends Command
     private function saveSessionFile(?string $sessionId = null): void
     {
         $sessionId = $sessionId ?? $this->sessionId;
-        $sessionFile = $this->workDir . '/' . self::SESSION_FILE;
+        $sessionFile = $this->workspacePath . '/' . self::SESSION_FILE;
         file_put_contents($sessionFile, $sessionId);
     }
 
