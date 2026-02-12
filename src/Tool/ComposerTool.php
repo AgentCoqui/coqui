@@ -66,9 +66,13 @@ final class ComposerTool implements ToolInterface
             - update: Update a specific package or all packages (creates backup first)
             - validate: Validate composer.json
             - outdated: Show outdated packages
+            - audit: Check installed packages for known security vulnerabilities
             
             Some packages are blocked by a denylist to prevent breaking Coqui
             (e.g. full frameworks like Laravel, Laminas).
+            
+            After installing a package, use the `package_info` tool to learn its API
+            before writing code that uses it.
             DESC;
     }
 
@@ -78,7 +82,7 @@ final class ComposerTool implements ToolInterface
             new EnumParameter(
                 name: 'action',
                 description: 'The composer action to perform',
-                values: ['require', 'remove', 'show', 'installed', 'update', 'validate', 'outdated'],
+                values: ['require', 'remove', 'show', 'installed', 'update', 'validate', 'outdated', 'audit'],
                 required: true,
             ),
             new StringParameter(
@@ -114,6 +118,7 @@ final class ComposerTool implements ToolInterface
             'update' => $this->updatePackage($package),
             'validate' => $this->validate(),
             'outdated' => $this->showOutdated(),
+            'audit' => $this->runAudit(),
             default => ToolResult::error("Unknown action: {$action}"),
         };
     }
@@ -160,6 +165,19 @@ final class ComposerTool implements ToolInterface
                 }
                 $output .= "\nThese toolkits will be available in future sessions.";
             }
+        }
+
+        // Check for php-agents metadata in the installed package
+        $metadata = $this->readPackageMetadata($package);
+        if ($metadata !== null) {
+            $output .= "\n\n### Package Metadata\n\n{$metadata}";
+        }
+
+        // Run a security audit on the newly installed package
+        $auditResult = $this->runCommand('composer audit --no-ansi 2>&1');
+        if ($auditResult['exit_code'] !== 0 && str_contains($auditResult['output'], 'advisories')) {
+            $output .= "\n\n### ⚠ Security Advisory\n\n";
+            $output .= "```\n{$auditResult['output']}\n```";
         }
 
         return ToolResult::success($output);
@@ -284,6 +302,58 @@ final class ComposerTool implements ToolInterface
         return ToolResult::success($result['output'] !== '' ? $result['output'] : 'All packages are up to date.');
     }
 
+    private function runAudit(): ToolResult
+    {
+        $command = 'composer audit --no-ansi 2>&1';
+        $result = $this->runCommand($command);
+
+        $output = "## Security Audit\n\n";
+        $output .= "```\n{$result['output']}\n```";
+
+        // Exit code 0 = no issues found
+        return $result['exit_code'] === 0
+            ? ToolResult::success($output)
+            : ToolResult::error($output);
+    }
+
+    /**
+     * Read php-agents metadata from a package's composer.json extra key.
+     */
+    private function readPackageMetadata(string $package): ?string
+    {
+        $composerJson = $this->projectRoot . '/vendor/' . $package . '/composer.json';
+
+        if (!file_exists($composerJson)) {
+            return null;
+        }
+
+        $data = json_decode((string) file_get_contents($composerJson), true);
+        if (!is_array($data)) {
+            return null;
+        }
+
+        $extra = $data['extra']['php-agents'] ?? null;
+        if (!is_array($extra)) {
+            return null;
+        }
+
+        $output = '';
+
+        if (isset($extra['toolkits']) && is_array($extra['toolkits'])) {
+            $output .= "**Declared toolkits:** " . implode(', ', array_map(fn($c) => "`{$c}`", $extra['toolkits'])) . "\n";
+        }
+
+        if (isset($extra['agents']) && is_array($extra['agents'])) {
+            $output .= "**Declared agents:** " . implode(', ', array_map(fn($c) => "`{$c}`", $extra['agents'])) . "\n";
+        }
+
+        if (isset($extra['description'])) {
+            $output .= "**Description:** {$extra['description']}\n";
+        }
+
+        return $output !== '' ? $output : null;
+    }
+
     private function checkDenylist(string $package): ?string
     {
         foreach (self::DENYLIST_PATTERNS as $pattern) {
@@ -375,7 +445,7 @@ final class ComposerTool implements ToolInterface
                         'action' => [
                             'type' => 'string',
                             'description' => 'The composer action to perform',
-                            'enum' => ['require', 'remove', 'show', 'installed', 'update', 'validate', 'outdated'],
+                            'enum' => ['require', 'remove', 'show', 'installed', 'update', 'validate', 'outdated', 'audit'],
                         ],
                         'package' => [
                             'type' => 'string',
