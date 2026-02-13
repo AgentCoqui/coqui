@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Coqui\Observer;
+namespace CoquiBot\Coqui\Observer;
 
 use CarmeloSantana\PHPAgents\Contract\AgentInterface;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;

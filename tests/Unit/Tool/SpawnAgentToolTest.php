@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
-use Coqui\Config\RoleResolver;
-use Coqui\Tool\SpawnAgentTool;
+use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Tool\SpawnAgentTool;
 
 test('has correct name', function () {
     $config = OpenClawConfig::fromArray([
@@ -19,7 +19,7 @@ test('has correct name', function () {
     $tool = new SpawnAgentTool(
         roleResolver: new RoleResolver($config),
         config: $config,
-        workDir: '/tmp',
+        projectRoot: '/tmp', workspacePath: '/tmp',
     );
 
     expect($tool->name())->toBe('spawn_agent');
@@ -38,7 +38,7 @@ test('has role and task parameters', function () {
     $tool = new SpawnAgentTool(
         roleResolver: new RoleResolver($config),
         config: $config,
-        workDir: '/tmp',
+        projectRoot: '/tmp', workspacePath: '/tmp',
     );
 
     $params = $tool->parameters();
@@ -62,7 +62,7 @@ test('execute returns error for empty role', function () {
     $tool = new SpawnAgentTool(
         roleResolver: new RoleResolver($config),
         config: $config,
-        workDir: '/tmp',
+        projectRoot: '/tmp', workspacePath: '/tmp',
     );
 
     $result = $tool->execute(['role' => '', 'task' => 'test']);
@@ -84,7 +84,7 @@ test('execute returns error for empty task', function () {
     $tool = new SpawnAgentTool(
         roleResolver: new RoleResolver($config),
         config: $config,
-        workDir: '/tmp',
+        projectRoot: '/tmp', workspacePath: '/tmp',
     );
 
     $result = $tool->execute(['role' => 'coder', 'task' => '']);
@@ -109,7 +109,7 @@ test('generates valid function schema', function () {
     $tool = new SpawnAgentTool(
         roleResolver: new RoleResolver($config),
         config: $config,
-        workDir: '/tmp',
+        projectRoot: '/tmp', workspacePath: '/tmp',
     );
 
     $schema = $tool->toFunctionSchema();
@@ -136,7 +136,7 @@ test('description includes available roles', function () {
     $tool = new SpawnAgentTool(
         roleResolver: new RoleResolver($config),
         config: $config,
-        workDir: '/tmp',
+        projectRoot: '/tmp', workspacePath: '/tmp',
     );
 
     $description = $tool->description();

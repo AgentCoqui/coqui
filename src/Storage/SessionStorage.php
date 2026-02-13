@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Coqui\Storage;
+namespace CoquiBot\Coqui\Storage;
 
 use CarmeloSantana\PHPAgents\Enum\Role;
 use CarmeloSantana\PHPAgents\Message\AssistantMessage;

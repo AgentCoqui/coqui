@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "e31b21b2c7d77c28e264bb15fd236866",
+    "content-hash": "b94cb9a40fbe2e21f9a3a3ff93e615f1",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
@@ -12,7 +12,7 @@
             "dist": {
                 "type": "path",
                 "url": "../php-agents",
-                "reference": "0c871b6016f18216f8c530eadb58e73b8a931357"
+                "reference": "fbef2312895b606fceaa593477554cc209b4f593"
             },
             "require": {
                 "php": "^8.4",
@@ -63,7 +63,7 @@
                     "name": "Carmelo Santana"
                 }
             ],
-            "description": "PHP 8.5 agent framework — interfaces, tools, and providers for building AI agents",
+            "description": "PHP 8.4+ agent framework — interfaces, tools, and providers for building AI agents",
             "keywords": [
                 "ai-agent",
                 "function-calling",
