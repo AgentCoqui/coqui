@@ -11,8 +11,7 @@
     "require": {
         "php": "^8.4",
         "ext-pdo_sqlite": "*",
-        "carmelosantana/php-agents": "@dev",
-        "carmelosantana/porkbun-sdk": "^1.0",
+        "carmelosantana/php-agents": "^0.1",
         "symfony/console": "^7.0",
         "symfony/http-client": "^7.0"
     },
@@ -30,12 +29,6 @@
             "CoquiBot\\Coqui\\Tests\\": "tests/"
         }
     },
-    "repositories": [
-        {
-            "type": "path",
-            "url": "../php-agents"
-        }
-    ],
     "bin": [
         "bin/coqui"
     ],
