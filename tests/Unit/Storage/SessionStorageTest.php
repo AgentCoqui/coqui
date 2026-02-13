@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\SessionStorage;
 
 beforeEach(function () {
     $this->dbPath = sys_get_temp_dir() . '/coqui-test-' . bin2hex(random_bytes(8)) . '.db';

@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use Coqui\Command\RunCommand;
+use CoquiBot\Coqui\Command\RunCommand;
 use Symfony\Component\Console\Application;
 
 $app = new Application('coqui', '0.1.0');

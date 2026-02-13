@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Coqui\Config;
+namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 

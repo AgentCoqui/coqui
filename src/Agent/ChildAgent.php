@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Coqui\Agent;
+namespace CoquiBot\Coqui\Agent;
 
 use CarmeloSantana\PHPAgents\Agent\AbstractAgent;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;

@@ -1,210 +1,267 @@
-# 🚀 Coqui - Your Space Rocket Mission Guide
+# Coqui Bot
 
-## Overview
+<center>
+    <img src="assets/coqui.webp" alt="Coqui Logo" width="512">
+</center>
 
-Welcome to [Coqui](https://github.com/carmelosantana/coqui)! This isn't just another terminal agent - it's your mission control center for building a rocket capable of reaching space.
+Terminal AI agent with multi-model orchestration, persistent sessions, and runtime extensibility via Composer.
 
-## 🎯 Mission Objectives
+Coqui is a CLI-first AI assistant that lives in your terminal. Ask it questions, delegate coding tasks, manage packages, execute PHP, and extend its abilities on the fly — powered by [php-agents](https://github.com/carmelosantana/php-agents) and any mix of locally hosted or cloud LLMs.
 
-Before you start your journey to the stars, understand what you're achieving:
+> Coqui is a WIP and under rapid development. Be careful when running this tool. Always test in a safe environment.
 
-1. **Overcome Gravity** - Design and build a rocket that can break free from Earth's atmosphere
-2. **Achieve Orbital Velocity** - Reach speeds needed to orbit our planet (about 28,000 km/h)
-3. **Survive the Vacuum of Space** - Protect your payload from extreme temperatures and radiation
-4. **Return to Earth (Optional)** - Plan for a safe landing or orbital deployment
+Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask questions, and share your creations!
 
-## 📋 Your Development Plan
+## Features
 
-### Phase 1: Foundational Systems (src/)
+- **Multi-model orchestration** — route tasks to the right model: cheap local models for orchestration, powerful cloud models for coding and review
+- **Persistent sessions** — SQLite-backed conversations that survive restarts; resume where you left off
+- **Workspace sandboxing** — all file I/O is sandboxed to a `.workspace` directory, keeping your project safe
+- **Runtime extensibility** — install Composer packages at runtime and Coqui auto-discovers new toolkits
+- **Child agent delegation** — spawns specialized agents (coder, reviewer) using role-appropriate models
+- **Interactive approval** — dangerous operations (package installs, shell exec, PHP execution) require your confirmation
+- **Credential management** — secure `.env`-based secret storage; values are never exposed to the LLM
+- **Script sanitization** — static analysis blocks dangerous functions before any generated code runs
+- **Memory persistence** — saves facts to `MEMORY.md` across sessions so Coqui remembers what matters
+- **Observer pattern** — real-time terminal rendering of agent lifecycle events with nested child output
+- **OpenClaw config** — natively supports the OpenClaw config format for centralized model routing and workspace settings
 
+## Requirements
+
+- PHP 8.4 or later
+- Extensions: `curl`, `json`, `mbstring`, `pdo_sqlite`
+- Composer 2.x
+- [Ollama](https://ollama.ai) (recommended for local inference)
+
+## Installation
+
+```bash
+git clone https://github.com/AgentCoqui/coqui.git
+cd coqui
+composer install
 ```
-src/
-├── Rocket/           # Core rocket structure and propulsion
-├── Guidance/         # Navigation and trajectory planning
-├── Payload/          # Scientific instruments and crew
-├── Telemetry/        # Data collection and transmission
-└── Safety/           # Emergency systems and abort procedures
+
+## Quick Start
+
+```bash
+./bin/coqui
 ```
 
-### Phase 2: Environment (data/)
+That's it. Coqui starts a REPL session and you can start chatting:
 
-- Track atmospheric conditions
-- Monitor ground support systems
-- Historical launch data and mission logs
-- Weather patterns and launch windows
+```txt
+ Coqui v0.1.0
 
-### Phase 3: Testing & Validation (tests/)
+ Session  a3f8b2c1
+ Model    ollama/glm-4.7-flash:latest
+ Project  /home/you/projects/my-app
+ Workspace /home/you/projects/my-app/.workspace
 
-- **Unit Tests**: Verify individual components
-- **Integration Tests**: Ensure systems work together
-- **Simulation Tests**: Virtual launches before real attempts
+ Type /help for commands, /quit to exit.
 
-## 🔬 Scientific Principles You'll Master
+ You > Summarize the README.md file
+ ▸ Using: read_file(path: "README.md")
+ ✓ Done
 
-### The Rocket Equation
+ The README describes a PHP application that...
+```
+
+> Make sure Ollama is running: `ollama serve` and a model is pulled: `ollama pull glm-4.7-flash`
+
+### CLI Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--config` | `-c` | Path to `openclaw.json` config file |
+| `--new` | | Start a fresh session |
+| `--session` | `-s` | Resume a specific session by ID |
+| `--workdir` | `-w` | Working directory (default: current directory) |
+
+## REPL Commands
+
+Once inside the Coqui REPL, use slash commands:
+
+| Command | Description |
+|---------|-------------|
+| `/new` | Start a new session |
+| `/history` | Show conversation history |
+| `/sessions` | List all saved sessions |
+| `/resume <id>` | Resume a session by ID |
+| `/model [role]` | Show model configuration |
+| `/help` | List available commands |
+| `/quit` `/exit` `/q` | Exit Coqui |
+
+## Providers & OpenClaw Config
+
+Coqui uses an `openclaw.json` config file for centralized model routing. It supports three providers out of the box:
+
+### Provider Setup
 
 ```php
-// Calculate Delta-V (change in velocity)
-$deltaV = \Coqui\Astronomy\RocketEquation::calculate(
-    $burnRate,
-    $exhaustVelocity,
-    $wetMass,
-    $dryMass
-);
+// Ollama (local — no API key needed)
+"ollama": {
+    "baseUrl": "http://localhost:11434/v1",
+    "apiKey": "ollama-local",
+    "api": "openai-completions"
+}
+
+// OpenAI
+"openai": {
+    "baseUrl": "https://api.openai.com/v1",
+    "apiKey": "your-openai-api-key",
+    "api": "openai-completions"
+}
+
+// Anthropic
+"anthropic": {
+    "baseUrl": "https://api.anthropic.com/v1",
+    "apiKey": "your-anthropic-api-key",
+    "api": "anthropic"
+}
 ```
 
-Key factors:
-- **Isp (Specific Impulse)**: How efficiently you use propellant
-- **M0 (Initial Mass)**: Rocket + fuel + payload
-- **Mf (Final Mass)**: Rocket without fuel
-- **Ve (Exhaust Velocity)**: Speed of exhaust gases
+Set your API keys as environment variables or directly in `openclaw.json`:
 
-### Key Technologies
+```bash
+export OPENAI_API_KEY="sk-..."
+export ANTHROPIC_API_KEY="sk-ant-..."
+```
 
-1. **Propulsion Systems**
-   - Liquid Rocket Engines (RP-1/Kerosene & Liquid Oxygen)
-   - Solid Rocket Boosters
-   - Cryogenic Fuel Tanks
+### Role-Based Model Routing
 
-2. **Navigation & Guidance**
-   - Inertial Navigation System (INS)
-   - GPS and Star trackers
-   - Flight Control algorithms
+The real power is in role-to-model mapping. Assign the best model for each job:
 
-3. **Thermal Management**
-   - Heat shields using ablative materials
-   - Radiators for active cooling
-   - Multi-layer insulation
-
-## 🏗️ Architecture
-
-### Core Components
-
-```php
-use Coqui\Rocket\Propulsion\FuelTank;
-use Coqui\Rocket\Propulsion\Engine;
-use Coqui\Guidance\Navigation\FlightComputer;
-
-class Rocket
+```json
 {
-    protected FuelTank $tank;
-    protected Engine $engine;
-    protected FlightComputer $guidance;
-
-    public function launch(): void
-    {
-        $this->engine->ignite();
-        $this->guidance->calculateTrajectory();
+    "agents": {
+        "defaults": {
+            "model": {
+                "primary": "ollama/glm-4.7-flash:latest",
+                "fallbacks": ["ollama/qwen3-coder:latest"]
+            },
+            "roles": {
+                "orchestrator": "openai/gpt-4.1",
+                "coder": "anthropic/claude-opus-4-6",
+                "reviewer": "openai/gpt-4o-mini"
+            }
+        }
     }
 }
 ```
 
-### Technology Stack
+The orchestrator runs on a cost-effective model for routing and simple tasks, then delegates to expensive models only when needed — keeping costs low while maintaining quality where it counts.
 
-- **Language**: PHP 8.4+
-- **Testing**: Pest (PHPUnit compatible)
-- **Analysis**: PHPStan
-- **Database**: SQLite for mission logs
+### Model Aliases
 
-## 🚦 Getting Started
+Define short aliases for quick reference:
 
-### Installation
-
-```bash
-# Clone the repository
-git clone https://github.com/carmelosantana/coqui.git
-cd coqui
-
-# Install dependencies
-composer install
-
-# Run tests
-./vendor/bin/test
-
-# Analyze code quality
-./vendor/bin/analyse
+```json
+{
+    "models": {
+        "ollama/qwen3:latest": { "alias": "qwen" },
+        "anthropic/claude-opus-4-6": { "alias": "opus" },
+        "openai/gpt-4.1": { "alias": "gpt4.1" }
+    }
+}
 ```
 
-## 🎮 Features
+## Built-in Tools
 
-- **Component-Based Rocket Design** - Build from modular, testable modules
-- **Mission Simulation** - Run theoretical launches with physics calculations
-- **Telemetry Dashboard** - Monitor flight parameters in real-time
-- **Safety Systems** - Abort protocols and failure scenarios
-- **Research Database** - Access scientific literature and mission data
+Coqui ships with a rich set of tools the agent can use autonomously:
 
-## 📊 Development Roadmap
+### Custom Tools
 
-### Milestone 1: Core Engine (v1.0)
-- Basic rocket equation implementation
-- Fuel tank management system
-- Simple combustion simulation
-- Flight path calculations
+| Tool | Description |
+|------|-------------|
+| `spawn_agent` | Delegate tasks to specialized child agents (coder, reviewer) using role-appropriate models |
+| `composer` | Manage Composer dependencies at runtime — require, remove, update, audit, with framework denylist |
+| `credentials` | Secure credential management via `.env` — values are never exposed to the LLM |
+| `packagist` | Search Packagist for packages by keyword, popularity, advisories |
+| `package_info` | Introspect installed packages — read READMEs, list classes, inspect method signatures |
+| `php_execute` | Execute generated PHP code in a sandboxed subprocess with script sanitization |
 
-### Milestone 2: Guidance Systems (v2.0)
-- Navigation algorithms
-- Real-time trajectory updates
-- Orbit insertion calculations
-- Landing guidance
+### Inherited Toolkits (from php-agents)
 
-### Milestone 3: Payload Integration (v3.0)
-- Scientific instrument data collection
-- Crew life support systems
-- Communication subsystems
-- Mission telemetry
+| Toolkit | Description |
+|---------|-------------|
+| `FilesystemToolkit` | Sandboxed read/write to the `.workspace` directory |
+| `ShellToolkit` | Run shell commands from project root (`git`, `grep`, `find`, `cat`, `ls`, etc.) |
+| `MemoryToolkit` | Persistent memory via `MEMORY.md` for facts that survive across sessions |
 
-### Milestone 4: Safety & Redundancy (v4.0)
-- Emergency abort protocols
-- Failure mode analysis
-- Satellite constellation support
-- Return mission planning
+## Extending Coqui
 
-## 🧪 Testing Your Rocket
+Coqui auto-discovers toolkits from installed Composer packages. Create a package that implements `ToolkitInterface` and Coqui picks it up automatically.
 
-Before attempting to fly to space (which we don't recommend in your backyard!), test virtually:
+### 1. Implement `ToolkitInterface`
 
-```bash
-# Run all tests
-./vendor/bin/test
+```php
+<?php
 
-# Run specific test suite
-./vendor/bin/test --filter Rocket
+declare(strict_types=1);
 
-# Generate coverage report
-./vendor/bin/test --coverage
+namespace Acme\BraveSearch;
+
+use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
+
+final class BraveSearchToolkit implements ToolkitInterface
+{
+    public function tools(): array
+    {
+        return [$this->buildSearchTool()];
+    }
+
+    public function guidelines(): string
+    {
+        return 'Use brave_search to find current information from the web.';
+    }
+}
 ```
 
-## 🤝 Contributing
+### 2. Register in `composer.json`
 
-This project explores the intersection of technology and aerospace engineering through code.
+```json
+{
+    "extra": {
+        "php-agents": {
+            "toolkits": [
+                "Acme\\BraveSearch\\BraveSearchToolkit"
+            ]
+        }
+    }
+}
+```
 
-**Ways to contribute:**
-- Implement new propulsion systems
-- Add physics simulations for atmospheric drag
-- Develop better guidance algorithms
-- Create mission scenarios
-- Improve telemetry formatting
+### 3. Install and go
 
-## 📚 Learning Resources
+```bash
+composer require acme/brave-search
+```
 
-- [NASA Educational Resources](https://www.nasa.gov/education)
-- [The Rocket Equation](https://en.wikipedia.org/wiki/Tsiolkovsky_rocket_equation)
-- [SpaceX Technical Documents](https://www.spacex.com/technology)
-- [Orbital Mechanics for Beginners](https://ocw.mit.edu/courses/aeronautics-and-astronautics)
+Coqui discovers the toolkit on next startup — no configuration needed.
 
-## ⚠️ Important Note
+### Safety
 
-This is a **theoretical/demonstration project** for educational purposes. 
-Never attempt to build, launch, or fly a real rocket without proper authorization, 
-engineering oversight, and adherence to all local laws and regulations.
+Coqui blocks full-framework packages from being installed (`laravel/*`, `symfony/symfony`, `laminas/*`, etc.) to keep the runtime lean and secure. A `ScriptSanitizer` blocks dangerous functions (`eval`, `exec`, `system`, `passthru`, etc.) in any generated PHP code before execution.
 
-**Safety First**: Consult professional aerospace engineers and follow all 
-regulatory requirements for rocket launches.
+## Community
 
-## 📄 License
+We're building a community where people share agents, ask for help, and collaborate on new toolkits.
 
-This project is open source under the MIT License.
+- **Discord** — [Join us](https://discord.gg/TaCpZVqbbT) for support, discussions, and sharing your toolkits
+- **GitHub** — [AgentCoqui/coqui](https://github.com/AgentCoqui/coqui) for issues, PRs, and source code
 
----
+## Contributing
 
-Made with 🚀 by Carmelo Santana | The journey to space begins with a single line of code
+We'd love your help making Coqui even mightier:
+
+- **Build new toolkits** — create Composer packages that implement `ToolkitInterface`
+- **Add child agent roles** — define new specialized roles with tailored system prompts
+- **Improve tools** — enhance existing tools or add new ones in `src/Tool/`
+- **Write tests** — expand coverage in `tests/Unit/`
+- **Fix bugs & improve docs** — every contribution counts
+
+See [AGENTS.md](AGENTS.md) for code conventions and architecture guidelines.
+
+## License
+
+MIT
