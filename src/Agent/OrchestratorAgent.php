@@ -14,6 +14,7 @@ use CarmeloSantana\PHPAgents\Memory\FileMemory;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\MemoryToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Config\CredentialResolver;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
@@ -61,6 +62,10 @@ final class OrchestratorAgent extends AbstractAgent
     ) {
         parent::__construct($provider, $maxIterations, $executionPolicy);
 
+        // Create credential resolver — must be early so toolkits see workspace credentials
+        $credentialResolver = new CredentialResolver(workspacePath: $this->workspacePath);
+        $credentialResolver->loadIntoProcessEnv();
+
         // Filesystem toolkit — sandboxed to workspace (read/write)
         $this->addToolkit(new FilesystemToolkit(rootPath: $this->workspacePath));
 
@@ -103,7 +108,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Create credential tool for API key management
         $this->credentialTool = new CredentialTool(
-            workspacePath: $this->workspacePath,
+            resolver: $credentialResolver,
         );
 
         // Create package info tool for SDK introspection
@@ -215,6 +220,19 @@ final class OrchestratorAgent extends AbstractAgent
             
             CRITICAL: You will never see credential values after storing them. When writing
             code, always access credentials via `getenv('KEY_NAME')`.
+            
+            ### Automatic Credential Checks
+            
+            Installed toolkit packages declare their required credentials. When you call a
+            tool that needs missing credentials, you will receive a structured error listing:
+            - The exact credential key name (e.g. BRAVE_SEARCH_API_KEY)
+            - A description of what the credential is for
+            - The exact `credentials` tool call to save it
+            
+            When this happens:
+            1. Ask the user for the credential value
+            2. Save it using the `credentials` tool with the EXACT key name from the error
+            3. Retry the original tool call — the credential is available immediately
             
             ## When to Delegate
             
