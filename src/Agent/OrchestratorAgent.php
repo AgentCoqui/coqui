@@ -15,6 +15,7 @@ use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\MemoryToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -56,6 +57,7 @@ final class OrchestratorAgent extends AbstractAgent
         ?ToolkitDiscovery $discovery = null,
         int $maxIterations = 25,
         ?ToolExecutionPolicyInterface $executionPolicy = null,
+        private readonly ?ScriptSanitizer $sanitizer = null,
     ) {
         parent::__construct($provider, $maxIterations, $executionPolicy);
 
@@ -122,6 +124,7 @@ final class OrchestratorAgent extends AbstractAgent
         $this->phpExecuteTool = new PhpExecuteTool(
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspacePath,
+            sanitizer: $this->sanitizer,
         );
     }
 
