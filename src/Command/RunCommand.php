@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
+use CarmeloSantana\PHPAgents\Contract\MessageInterface;
+use CarmeloSantana\PHPAgents\Enum\Role;
+use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
@@ -280,7 +284,10 @@ final class RunCommand extends Command
 
     private function runAgent(string $prompt, SymfonyStyle $io): void
     {
-        // Save user message
+        // Load prior conversation history from database
+        $history = $this->storage->loadConversation($this->sessionId);
+
+        // Save user message to database before running agent
         $this->storage->addMessage($this->sessionId, 'user', $prompt);
 
         // Create orchestrator
@@ -333,10 +340,27 @@ final class RunCommand extends Command
         $io->newLine();
 
         try {
-            $output = $agent->run(new UserMessage($prompt));
+            // Apply context window pruning to history before injection
+            // Use a conservative default — 100K tokens (80% of typical 128K context)
+            if ($history->count() > 0) {
+                $history = $history->fitWithinBudget(100000);
+            }
 
-            // Save assistant response
-            $this->storage->addMessage($this->sessionId, 'assistant', $output->content);
+            $output = $agent->run(new UserMessage($prompt), $history);
+
+            // Persist the intermediate messages from this turn (tool calls + results).
+            // The user message was already saved above. We need to save all the
+            // assistant and tool messages that occurred during the agent loop.
+            if ($output->conversation !== null) {
+                $this->persistTurnMessages($output->conversation, $history->count());
+            }
+
+            // Save final assistant response
+            // Only save if there were no intermediate messages persisted,
+            // or if the final content differs from the last persisted assistant message
+            if ($output->conversation === null) {
+                $this->storage->addMessage($this->sessionId, 'assistant', $output->content);
+            }
 
             // Display response
             $io->newLine();
@@ -355,6 +379,61 @@ final class RunCommand extends Command
             $io->newLine();
         } catch (\Throwable $e) {
             $io->error("Agent error: {$e->getMessage()}");
+        }
+    }
+
+    /**
+     * Persist the new messages generated during a single agent turn.
+     *
+     * The conversation returned by AbstractAgent::run() contains:
+     * [SystemMessage, ...history messages..., UserMessage, ...new turn messages...]
+     *
+     * We skip the system message and history (already persisted), and the
+     * new user message (already saved before run()). We persist only the
+     * assistant and tool messages generated during this turn's loop.
+     *
+     * @param int $historyCount Number of messages in the injected history
+     *                          (excluding system prompt). Used to calculate
+     *                          the offset where new messages begin.
+     */
+    private function persistTurnMessages(Conversation $conversation, int $historyCount): void
+    {
+        $messages = $conversation->messages();
+
+        // Offset = 1 (system prompt) + historyCount + 1 (user message from this turn)
+        $newMessageStart = 1 + $historyCount + 1;
+
+        for ($i = $newMessageStart; $i < count($messages); $i++) {
+            $msg = $messages[$i];
+            $role = $msg->role();
+
+            match ($role) {
+                Role::Assistant => $this->storage->addMessage(
+                    $this->sessionId,
+                    'assistant',
+                    is_string($msg->content()) ? $msg->content() : (json_encode($msg->content()) ?: ''),
+                    !empty($msg->toolCalls()) ? json_encode(
+                        array_map(fn(ToolCall $tc) => [
+                            'id' => $tc->id,
+                            'name' => $tc->name,
+                            'arguments' => $tc->arguments,
+                        ], $msg->toolCalls()),
+                        JSON_UNESCAPED_SLASHES,
+                    ) : null,
+                ),
+
+                Role::Tool => $this->storage->addMessage(
+                    $this->sessionId,
+                    'tool',
+                    is_string($msg->content()) ? $msg->content() : (json_encode($msg->content()) ?: ''),
+                    null,
+                    $msg->toolCallId(),
+                ),
+
+                // User and System messages in the middle of a turn are unexpected
+                // but harmless — skip them since they're already persisted
+                default => null,
+            };
         }
     }
 
