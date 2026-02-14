@@ -315,7 +315,7 @@ final class SessionStorage
 
     public function updateTokenCount(string $sessionId, int $tokens): void
     {
-        $this->db->prepare('UPDATE sessions SET token_count = :tokens WHERE id = :id')
+        $this->db->prepare('UPDATE sessions SET token_count = token_count + :tokens WHERE id = :id')
             ->execute(['tokens' => $tokens, 'id' => $sessionId]);
     }
 
