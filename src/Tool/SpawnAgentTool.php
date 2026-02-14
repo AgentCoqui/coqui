@@ -14,6 +14,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
+use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -171,14 +172,17 @@ final class SpawnAgentTool implements ToolInterface
                     allowedCommands: ['php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc'],
                     timeout: 60,
                 ),
+                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             'reviewer' => [
                 new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true),
+                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             default => [
                 new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true),
+                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
         };
     }

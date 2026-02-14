@@ -339,3 +339,44 @@ $db->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
 $db->exec('PRAGMA journal_mode=WAL');
 $db->exec('PRAGMA foreign_keys=ON');
 ```
+
+## Source Map Maintenance
+
+The file `config/source.json` is the structured codebase map that Coqui uses to understand its own source code. It is loaded by the `project_source_map` tool and injected into agent context.
+
+### When to Update
+
+- **Adding a new source file** — add an entry with path, FQCN, layer, description, and key methods.
+- **Renaming or moving a file** — update the path and FQCN in the existing entry.
+- **Significantly changing a file's purpose or API** — update the description and methods list.
+- **Removing a file** — remove its entry from the `files` array.
+- **Adding a new external dependency that agents interact with** — add it to `externalDependencies`.
+
+### Entry Format
+
+Each entry in the `files` array must include:
+
+```json
+{
+    "path": "src/Layer/ClassName.php",
+    "fqcn": "CoquiBot\\Coqui\\Layer\\ClassName",
+    "layer": "agent|command|config|contract|tool|toolkit|observer|storage",
+    "description": "One-paragraph description of what the class does and why it exists.",
+    "methods": [
+        "methodName(params): ReturnType — brief description of what it does"
+    ]
+}
+```
+
+### Validation
+
+Run `project_source_map` after editing to verify the JSON is valid and the structure is correct. Every source file under `src/` should have a corresponding entry.
+
+## Documentation Policy
+
+When making changes to Coqui, keep documentation in sync:
+
+- **README.md** — update when adding user-facing features (new CLI options, new tools, new capabilities, changed behavior). The README is the first thing users see.
+- **AGENTS.md** — update when adding architectural patterns, new conventions, new contributor workflows, or modifying the safety/security model.
+- **config/source.json** — update when adding, renaming, removing, or significantly modifying source files (see Source Map Maintenance above).
+- **CHANGELOG.md** — update for versioned releases with user-visible changes.

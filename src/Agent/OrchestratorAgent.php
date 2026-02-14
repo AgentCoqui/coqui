@@ -20,6 +20,7 @@ use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Tool\ComposerTool;
 use CoquiBot\Coqui\Tool\CredentialTool;
 use CoquiBot\Coqui\Tool\PackageInfoTool;
@@ -80,6 +81,9 @@ final class OrchestratorAgent extends AbstractAgent
         $memoryPath = $this->workspacePath . '/MEMORY.md';
         $memory = new FileMemory($memoryPath);
         $this->addToolkit(new MemoryToolkit($memory));
+
+        // Project source toolkit — read-only access to the Coqui project codebase
+        $this->addToolkit(new ProjectSourceToolkit(projectRoot: $this->projectRoot));
 
         // Register any auto-discovered toolkits from installed packages
         if ($discovery !== null) {
@@ -154,6 +158,20 @@ final class OrchestratorAgent extends AbstractAgent
             To read project source files outside the workspace, use shell commands like
             `cat`, `grep`, `find`, `head`, `tail` which run from the project root:
             **Project root:** {$this->projectRoot}
+            
+            ## Project Source Access
+            
+            You have read-only access to your own project source code via the `project_*` tools:
+            
+            - `project_source_map`: Load the structured codebase map (config/source.json) — start here
+              to understand the file layout, layers, classes, and key methods.
+            - `project_read`: Read any source file from the project root.
+            - `project_list`: List directory contents in the project.
+            - `project_search`: Find files by glob pattern (e.g. "src/**/*.php").
+            
+            These tools are READ-ONLY. To write files, use the workspace file tools.
+            When extending Coqui or creating new toolkits, study the relevant source files
+            first to understand existing patterns and contracts.
             
             ## Available Specialist Agents
             
