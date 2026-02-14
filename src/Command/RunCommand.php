@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
+use CoquiBot\Coqui\Config\CredentialResolver;
 use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -121,7 +122,9 @@ final class RunCommand extends Command
         $workspaceComposer->loadAutoloader();
 
         // Initialize toolkit discovery and run boot-time scan
-        $this->discovery = new ToolkitDiscovery($this->workDir, $this->workspacePath);
+        $credentialResolver = new CredentialResolver(workspacePath: $this->workspacePath);
+        $credentialResolver->loadIntoProcessEnv();
+        $this->discovery = new ToolkitDiscovery($this->workDir, $this->workspacePath, $credentialResolver);
         $newToolkits = $this->discovery->discoverAll();
         if (!empty($newToolkits) && $output->isVerbose()) {
             $io->info('Discovered new toolkits: ' . implode(', ', $newToolkits));
