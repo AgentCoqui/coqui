@@ -22,7 +22,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - **Unsafe mode** — lift function restrictions with `--unsafe` for power users; catastrophic commands are still blocked
 - **Catastrophic blacklist** — hardcoded safety net that blocks destructive commands (`rm -rf /`, `shutdown`, fork bombs, etc.) regardless of mode
 - **Audit logging** — every tool execution decision (approved, denied, blocked) is logged to SQLite for traceability
-- **Credential management** — secure `.env`-based secret storage; values are never exposed to the LLM
+- **Credential management** — secure `.env`-based secret storage with automatic credential guards; toolkits declare required credentials in `composer.json` and Coqui intercepts tool calls with actionable instructions when keys are missing
 - **Script sanitization** — static analysis blocks dangerous functions before any generated code runs
 - **Memory persistence** — saves facts to `MEMORY.md` across sessions so Coqui remembers what matters
 - **Observer pattern** — real-time terminal rendering of agent lifecycle events with nested child output
@@ -179,7 +179,7 @@ Coqui ships with a rich set of tools the agent can use autonomously:
 |------|-------------|
 | `spawn_agent` | Delegate tasks to specialized child agents (coder, reviewer) using role-appropriate models |
 | `composer` | Manage Composer dependencies — target the workspace (default) or project root, with framework denylist |
-| `credentials` | Secure credential management via `.env` — values are never exposed to the LLM |
+| `credentials` | Secure credential management via `.env` — values are never exposed to the LLM; toolkit credential requirements are enforced automatically |
 | `packagist` | Search Packagist for packages by keyword, popularity, advisories |
 | `package_info` | Introspect installed packages — read READMEs, list classes, inspect method signatures |
 | `php_execute` | Execute generated PHP code in a sandboxed subprocess with script sanitization |
@@ -209,6 +209,16 @@ use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 
 final class BraveSearchToolkit implements ToolkitInterface
 {
+    public function __construct(
+        private readonly string $apiKey = '',
+    ) {}
+
+    public static function fromEnv(): self
+    {
+        $key = getenv('BRAVE_SEARCH_API_KEY');
+        return new self(apiKey: $key !== false ? $key : '');
+    }
+
     public function tools(): array
     {
         return [$this->buildSearchTool()];
@@ -223,17 +233,24 @@ final class BraveSearchToolkit implements ToolkitInterface
 
 ### 2. Register in `composer.json`
 
+Declare your toolkit class and any required credentials:
+
 ```json
 {
     "extra": {
         "php-agents": {
             "toolkits": [
                 "Acme\\BraveSearch\\BraveSearchToolkit"
-            ]
+            ],
+            "credentials": {
+                "BRAVE_SEARCH_API_KEY": "Brave Search API key — free tier at https://brave.com/search/api/"
+            }
         }
     }
 }
 ```
+
+When a toolkit declares `credentials`, Coqui automatically wraps its tools with a credential guard. If the user calls a tool before setting the required key, the agent receives a structured error with the exact credential name and instructions for saving it — no token-wasting guesswork.
 
 ### 3. Install and go
 
@@ -241,7 +258,7 @@ final class BraveSearchToolkit implements ToolkitInterface
 composer require acme/brave-search
 ```
 
-Coqui discovers the toolkit on next startup — no configuration needed.
+Coqui discovers the toolkit on next startup — no configuration needed. If credentials are missing, the agent will ask the user and save them with the correct key name automatically.
 
 ### Safety
 
