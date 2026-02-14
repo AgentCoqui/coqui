@@ -21,12 +21,14 @@ final class RoleResolver
 
     public function __construct(
         private readonly ConfigInterface $config,
+        ?DefaultsLoader $defaults = null,
     ) {
         $roles = $this->config->get('agents.defaults.roles', []);
         $this->roles = is_array($roles) ? $roles : [];
 
         $primary = $this->config->getPrimaryModel();
-        $this->primaryModel = $primary !== '' ? $primary : 'ollama/qwen3:latest';
+        $fallback = $defaults !== null ? $defaults->defaultModel() : 'ollama/qwen3:latest';
+        $this->primaryModel = $primary !== '' ? $primary : $fallback;
     }
 
     /**
