@@ -81,8 +81,23 @@ final class SessionStorage
             )
         SQL);
 
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS audit_log (
+                id TEXT PRIMARY KEY,
+                session_id TEXT,
+                tool_name TEXT NOT NULL,
+                arguments TEXT NOT NULL,
+                action TEXT NOT NULL,
+                reason TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE SET NULL
+            )
+        SQL);
+
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_child_runs_session ON child_runs(session_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_session ON audit_log(session_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)');
     }
 
     public function createSession(string $modelRole, string $model): string
@@ -302,6 +317,81 @@ final class SessionStorage
     {
         $this->db->prepare('UPDATE sessions SET token_count = :tokens WHERE id = :id')
             ->execute(['tokens' => $tokens, 'id' => $sessionId]);
+    }
+
+    /**
+     * Log a tool execution audit entry.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    public function logAudit(
+        ?string $sessionId,
+        string $toolName,
+        array $arguments,
+        string $action,
+        ?string $reason = null,
+    ): string {
+        $id = bin2hex(random_bytes(16));
+        $now = date('c');
+
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO audit_log (id, session_id, tool_name, arguments, action, reason, created_at)
+            VALUES (:id, :session_id, :tool_name, :arguments, :action, :reason, :created_at)
+        SQL);
+
+        $stmt->execute([
+            'id' => $id,
+            'session_id' => $sessionId,
+            'tool_name' => $toolName,
+            'arguments' => json_encode($arguments, JSON_UNESCAPED_SLASHES),
+            'action' => $action,
+            'reason' => $reason,
+            'created_at' => $now,
+        ]);
+
+        return $id;
+    }
+
+    /**
+     * Get audit log entries, optionally filtered by session and/or action.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getAuditLog(
+        ?string $sessionId = null,
+        ?string $action = null,
+        int $limit = 100,
+    ): array {
+        $conditions = [];
+        $params = [];
+
+        if ($sessionId !== null) {
+            $conditions[] = 'session_id = :session_id';
+            $params['session_id'] = $sessionId;
+        }
+
+        if ($action !== null) {
+            $conditions[] = 'action = :action';
+            $params['action'] = $action;
+        }
+
+        $where = !empty($conditions) ? 'WHERE ' . implode(' AND ', $conditions) : '';
+
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, tool_name, arguments, action, reason, created_at
+            FROM audit_log
+            {$where}
+            ORDER BY created_at DESC
+            LIMIT :limit
+        SQL);
+
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     public function deleteSession(string $id): void
