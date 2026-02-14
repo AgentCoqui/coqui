@@ -66,7 +66,9 @@ final class ProjectSourceToolkit implements ToolkitInterface
         return new Tool(
             name: 'project_source_map',
             description: 'Returns the Coqui codebase map (config/source.json) — a structured index of every core source file with descriptions, layers, and key methods. Use this first to understand where to look.',
-            parameters: [],
+            parameters: [
+                new StringParameter('section', 'Optional section to filter: "files", "layers", "externalDependencies". If omitted, returns the full map.', required: false),
+            ],
             callback: function (array $input): ToolResult {
                 if (!file_exists($this->sourceMapPath)) {
                     return ToolResult::error('Source map not found at config/source.json');
@@ -75,6 +77,23 @@ final class ProjectSourceToolkit implements ToolkitInterface
                 $content = file_get_contents($this->sourceMapPath);
                 if ($content === false) {
                     return ToolResult::error('Failed to read source map');
+                }
+
+                $section = $input['section'] ?? '';
+                if ($section !== '') {
+                    $data = json_decode($content, true);
+                    if (!is_array($data)) {
+                        return ToolResult::error('Failed to parse source map JSON');
+                    }
+
+                    if (!isset($data[$section])) {
+                        $available = implode(', ', array_keys($data));
+                        return ToolResult::error("Unknown section '{$section}'. Available: {$available}");
+                    }
+
+                    return ToolResult::success(
+                        json_encode($data[$section], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}',
+                    );
                 }
 
                 return ToolResult::success($content);
