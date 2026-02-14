@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
+use CoquiBot\Coqui\Contract\CredentialRequirement;
+use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
 
 /**
  * Discovers and registers ToolkitInterface implementations from installed composer packages.
@@ -21,6 +24,7 @@ final class ToolkitDiscovery
     public function __construct(
         private readonly string $projectRoot,
         private readonly string $workspacePath,
+        private readonly ?CredentialResolverInterface $credentialResolver = null,
     ) {
         $this->registryPath = rtrim($this->workspacePath, '/') . '/toolkits.json';
     }
@@ -265,6 +269,7 @@ final class ToolkitDiscovery
      *
      * Attempts no-arg construction first, then tries passing workspacePath.
      * Silently skips classes that cannot be instantiated.
+     * Wraps toolkits in CredentialGuardToolkit when credential requirements are declared.
      *
      * @return ToolkitInterface[]
      */
@@ -273,12 +278,25 @@ final class ToolkitDiscovery
         $registry = $this->loadRegistry();
         $toolkits = [];
 
-        foreach ($registry as $classes) {
+        foreach ($registry as $packageName => $classes) {
+            $requirements = $this->loadCredentialRequirements($packageName);
+
             foreach ($classes as $className) {
                 $toolkit = $this->tryInstantiate($className);
-                if ($toolkit !== null) {
-                    $toolkits[] = $toolkit;
+                if ($toolkit === null) {
+                    continue;
                 }
+
+                // Wrap with credential guard if the package declares requirements
+                if (!empty($requirements) && $this->credentialResolver !== null) {
+                    $toolkit = new CredentialGuardToolkit(
+                        inner: $toolkit,
+                        requirements: $requirements,
+                        resolver: $this->credentialResolver,
+                    );
+                }
+
+                $toolkits[] = $toolkit;
             }
         }
 
@@ -506,5 +524,61 @@ final class ToolkitDiscovery
             $this->registryPath,
             json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n",
         );
+    }
+
+    /**
+     * Load credential requirements declared in a package's composer.json.
+     *
+     * Reads extra.php-agents.credentials from the package's composer.json:
+     * ```json
+     * {
+     *   "extra": {
+     *     "php-agents": {
+     *       "credentials": {
+     *         "BRAVE_SEARCH_API_KEY": "Brave Search API key — free at https://brave.com/search/api/"
+     *       }
+     *     }
+     *   }
+     * }
+     * ```
+     *
+     * @return CredentialRequirement[]
+     */
+    public function loadCredentialRequirements(string $packageName): array
+    {
+        $requirements = [];
+
+        // Check project vendor first
+        $composerJson = $this->projectRoot . '/vendor/' . $packageName . '/composer.json';
+
+        if (!file_exists($composerJson)) {
+            // Fallback: check workspace vendor
+            $composerJson = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName . '/composer.json';
+        }
+
+        if (!file_exists($composerJson)) {
+            return [];
+        }
+
+        $data = json_decode((string) file_get_contents($composerJson), true);
+        if (!is_array($data)) {
+            return [];
+        }
+
+        $credentials = $data['extra']['php-agents']['credentials'] ?? null;
+        if (!is_array($credentials)) {
+            return [];
+        }
+
+        foreach ($credentials as $name => $description) {
+            if (is_string($name) && is_string($description)) {
+                $requirements[] = new CredentialRequirement(
+                    name: $name,
+                    description: $description,
+                );
+            }
+        }
+
+        return $requirements;
     }
 }
