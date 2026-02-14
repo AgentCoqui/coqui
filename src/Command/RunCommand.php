@@ -8,11 +8,15 @@ use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
+use CoquiBot\Coqui\Config\AutoApprovalPolicy;
+use CoquiBot\Coqui\Config\CatastrophicBlacklist;
 use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SetupWizard;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Config\WorkspaceComposerManager;
 use CoquiBot\Coqui\Config\WorkspaceResolver;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -40,6 +44,9 @@ final class RunCommand extends Command
     private string $workspacePath;
     private ToolkitDiscovery $discovery;
     private DefaultsLoader $defaultsLoader;
+    private CatastrophicBlacklist $blacklist;
+    private bool $unsafeMode = false;
+    private bool $autoApprove = false;
 
     protected function configure(): void
     {
@@ -47,7 +54,9 @@ final class RunCommand extends Command
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to openclaw.json')
             ->addOption('new', null, InputOption::VALUE_NONE, 'Start a new session')
             ->addOption('session', 's', InputOption::VALUE_REQUIRED, 'Resume a specific session ID')
-            ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory', getcwd() ?: '.');
+            ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory', getcwd() ?: '.')
+            ->addOption('unsafe', null, InputOption::VALUE_NONE, 'Disable script sanitization for power users (dangerous)')
+            ->addOption('auto-approve', null, InputOption::VALUE_NONE, 'Auto-approve all tool executions (dangerous)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -56,6 +65,8 @@ final class RunCommand extends Command
         $workDirOption = $input->getOption('workdir');
         $this->workDir = is_string($workDirOption) ? $workDirOption : (getcwd() ?: '.');
         $this->observer = new TerminalObserver($output, (bool) $input->getOption('verbose'));
+        $this->unsafeMode = (bool) $input->getOption('unsafe');
+        $this->autoApprove = (bool) $input->getOption('auto-approve');
 
         // Load defaults
         $this->defaultsLoader = new DefaultsLoader();
@@ -95,6 +106,9 @@ final class RunCommand extends Command
             }
         }
 
+        // Build catastrophic blacklist from config (hardcoded + user additions)
+        $this->blacklist = CatastrophicBlacklist::fromConfig($this->config);
+
         $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader);
 
         // Resolve workspace directory
@@ -120,6 +134,14 @@ final class RunCommand extends Command
             $io->info("Resumed session: {$this->sessionId}");
         } else {
             $this->sessionId = $this->loadOrCreateSession($io);
+        }
+
+        // Display safety mode warnings
+        if ($this->unsafeMode) {
+            $io->warning('UNSAFE MODE — all PHP functions allowed, catastrophic commands still blocked.');
+        }
+        if ($this->autoApprove) {
+            $io->warning('AUTO-APPROVE MODE — all tool executions approved automatically, catastrophic commands still blocked.');
         }
 
         // Display welcome
@@ -253,6 +275,33 @@ final class RunCommand extends Command
         $modelString = $this->roleResolver->resolve('orchestrator');
         $provider = ProviderFactory::fromModelString($modelString, $this->config);
 
+        // Build execution policy based on flags
+        $gatedTools = [
+            'composer' => ['require', 'remove', 'update'],
+            'exec' => ['*'],
+            'php_execute' => ['*'],
+        ];
+
+        $executionPolicy = $this->autoApprove
+            ? new AutoApprovalPolicy(
+                blacklist: $this->blacklist,
+                storage: $this->storage,
+                sessionId: $this->sessionId,
+            )
+            : new InteractiveApprovalPolicy(
+                io: $io,
+                gatedTools: $gatedTools,
+                blacklist: $this->blacklist,
+                storage: $this->storage,
+                sessionId: $this->sessionId,
+            );
+
+        // Build sanitizer for PHP execution (unsafe mode skips denied functions but keeps catastrophic blacklist)
+        $sanitizer = new ScriptSanitizer(
+            unsafe: $this->unsafeMode,
+            blacklist: $this->blacklist,
+        );
+
         $agent = new OrchestratorAgent(
             provider: $provider,
             roleResolver: $this->roleResolver,
@@ -263,14 +312,8 @@ final class RunCommand extends Command
             sessionId: $this->sessionId,
             observer: $this->observer,
             discovery: $this->discovery,
-            executionPolicy: new InteractiveApprovalPolicy(
-                io: $io,
-                gatedTools: [
-                    'composer' => ['require', 'remove', 'update'],
-                    'exec' => ['*'],
-                    'php_execute' => ['*'],
-                ],
-            ),
+            executionPolicy: $executionPolicy,
+            sanitizer: $sanitizer,
         );
 
         $agent->attach($this->observer);

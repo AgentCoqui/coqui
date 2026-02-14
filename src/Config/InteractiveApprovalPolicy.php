@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
+use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -12,6 +13,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *
  * Configured with a map of tool names to actions (or `['*']` for all actions)
  * that require interactive approval before the agent can proceed.
+ *
+ * Catastrophic commands are blocked outright — the user is never prompted.
+ * All decisions (approved, denied, blocked) are logged to the audit_log table.
  *
  * Example:
  *   new InteractiveApprovalPolicy($io, [
@@ -29,10 +33,25 @@ final class InteractiveApprovalPolicy implements ToolExecutionPolicyInterface
     public function __construct(
         private readonly SymfonyStyle $io,
         private readonly array $gatedTools = [],
+        private readonly ?CatastrophicBlacklist $blacklist = null,
+        private readonly ?SessionStorage $storage = null,
+        private readonly ?string $sessionId = null,
     ) {}
 
     public function shouldExecute(string $toolName, array $arguments): true|string
     {
+        // Check catastrophic blacklist first — always enforced, no prompt
+        if ($this->blacklist !== null) {
+            $argumentsText = $this->flattenArguments($arguments);
+            $blocked = $this->blacklist->matches($argumentsText);
+            if ($blocked !== null) {
+                $reason = "CATASTROPHIC BLOCK: {$blocked}";
+                $this->log($toolName, $arguments, 'blocked', $reason);
+
+                return $reason;
+            }
+        }
+
         if (!$this->requiresApproval($toolName, $arguments)) {
             return true;
         }
@@ -45,8 +64,12 @@ final class InteractiveApprovalPolicy implements ToolExecutionPolicyInterface
         $confirmed = $this->io->confirm('Allow this action?', false);
 
         if (!$confirmed) {
+            $this->log($toolName, $arguments, 'denied', 'User denied');
+
             return "User denied execution of '{$toolName}'";
         }
+
+        $this->log($toolName, $arguments, 'approved');
 
         return true;
     }
@@ -103,5 +126,49 @@ final class InteractiveApprovalPolicy implements ToolExecutionPolicyInterface
         }
 
         return mb_substr($text, 0, $maxLength - 3) . '...';
+    }
+
+    /**
+     * @param array<string, mixed> $arguments
+     */
+    private function log(
+        string $toolName,
+        array $arguments,
+        string $action,
+        ?string $reason = null,
+    ): void {
+        if ($this->storage === null || $this->sessionId === null) {
+            return;
+        }
+
+        $this->storage->logAudit(
+            sessionId: $this->sessionId,
+            toolName: $toolName,
+            arguments: $arguments,
+            action: $action,
+            reason: $reason,
+        );
+    }
+
+    /**
+     * Flatten all argument values into a single string for pattern matching.
+     *
+     * @param array<string, mixed> $arguments
+     */
+    private function flattenArguments(array $arguments): string
+    {
+        $parts = [];
+
+        foreach ($arguments as $value) {
+            if (is_string($value)) {
+                $parts[] = $value;
+            } elseif (is_array($value)) {
+                $parts[] = json_encode($value, JSON_UNESCAPED_SLASHES) ?: '';
+            } elseif (is_scalar($value)) {
+                $parts[] = (string) $value;
+            }
+        }
+
+        return implode(' ', $parts);
     }
 }

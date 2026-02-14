@@ -10,11 +10,14 @@ namespace CoquiBot\Coqui\Config;
  * This is defense-in-depth — the interactive approval prompt is the primary
  * security gate. The sanitizer catches obvious dangerous patterns that the
  * LLM might produce (accidentally or via prompt injection).
+ *
+ * In unsafe mode, the standard denied functions/patterns are skipped,
+ * but catastrophic patterns (rm -rf /, fork bombs, etc.) are always enforced.
  */
 final class ScriptSanitizer
 {
     /**
-     * Function calls that are never allowed in generated scripts.
+     * Function calls that are never allowed in generated scripts (safe mode only).
      *
      * @var string[]
      */
@@ -35,7 +38,7 @@ final class ScriptSanitizer
     ];
 
     /**
-     * Regex patterns that indicate dangerous constructs.
+     * Regex patterns that indicate dangerous constructs (safe mode only).
      *
      * @var string[]
      */
@@ -51,14 +54,35 @@ final class ScriptSanitizer
         '/\binclude(_once)?\s*\(\s*[\'"][\/~]/i',             // Include from absolute paths
     ];
 
+    public function __construct(
+        private readonly bool $unsafe = false,
+        private readonly ?CatastrophicBlacklist $blacklist = null,
+    ) {}
+
     /**
      * Validate PHP code and return a list of issues found.
+     *
+     * In safe mode: checks denied functions, denied patterns, and catastrophic patterns.
+     * In unsafe mode: only checks catastrophic patterns.
      *
      * @return string[] List of issues. Empty array means the code passed validation.
      */
     public function validate(string $code): array
     {
         $issues = [];
+
+        // Catastrophic patterns are ALWAYS checked regardless of mode
+        if ($this->blacklist !== null) {
+            $match = $this->blacklist->matches($code);
+            if ($match !== null) {
+                $issues[] = $match;
+            }
+        }
+
+        // In unsafe mode, skip standard denied functions and patterns
+        if ($this->unsafe) {
+            return $issues;
+        }
 
         // Check for denied function calls
         foreach (self::DENIED_FUNCTIONS as $func) {
@@ -84,5 +108,13 @@ final class ScriptSanitizer
     public function isSafe(string $code): bool
     {
         return empty($this->validate($code));
+    }
+
+    /**
+     * Whether this sanitizer is running in unsafe mode.
+     */
+    public function isUnsafe(): bool
+    {
+        return $this->unsafe;
     }
 }

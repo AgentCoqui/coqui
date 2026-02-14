@@ -32,8 +32,9 @@ final class PhpExecuteTool implements ToolInterface
         private readonly string $projectRoot,
         private readonly string $workspacePath,
         private readonly int $defaultTimeout = 30,
+        ?ScriptSanitizer $sanitizer = null,
     ) {
-        $this->sanitizer = new ScriptSanitizer();
+        $this->sanitizer = $sanitizer ?? new ScriptSanitizer();
     }
 
     public function name(): string
