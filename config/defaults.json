@@ -1,0 +1,93 @@
+{
+    "providers": {
+        "ollama": {
+            "name": "Ollama (Local)",
+            "description": "Run models locally via Ollama — no API key needed",
+            "baseUrl": "http://localhost:11434/v1",
+            "apiKeyEnvVar": null,
+            "requiresApiKey": false,
+            "api": "openai-completions",
+            "supportsModelDiscovery": true,
+            "curatedModels": [
+                {"id": "qwen3:latest", "name": "Qwen 3 (General)", "recommended": true},
+                {"id": "llama3.2:latest", "name": "Llama 3.2 (General)"},
+                {"id": "gemma3:latest", "name": "Gemma 3 (General)"},
+                {"id": "deepseek-r1:latest", "name": "DeepSeek R1 (Reasoning)", "reasoning": true},
+                {"id": "qwen3-coder:latest", "name": "Qwen 3 Coder (Programming)"},
+                {"id": "gpt-oss:latest", "name": "GPT OSS (Coding)"},
+                {"id": "devstral:latest", "name": "Devstral (Coding Agents)"},
+                {"id": "qwen3-vl:latest", "name": "Qwen 3 VL (Vision)", "vision": true},
+                {"id": "llama3.2-vision:latest", "name": "Llama 3.2 Vision", "vision": true},
+                {"id": "mistral:latest", "name": "Mistral 7B (Fast)"},
+                {"id": "phi4:latest", "name": "Phi 4 (Compact)"},
+                {"id": "glm-4.7-flash:latest", "name": "GLM 4.7 Flash (Fast)"},
+                {"id": "tinyllama:latest", "name": "TinyLlama (Ultra Fast)"}
+            ]
+        },
+        "openai": {
+            "name": "OpenAI",
+            "description": "GPT models via OpenAI API — requires API key",
+            "baseUrl": "https://api.openai.com/v1",
+            "apiKeyEnvVar": "OPENAI_API_KEY",
+            "requiresApiKey": true,
+            "api": "openai-completions",
+            "supportsModelDiscovery": true,
+            "curatedModels": [
+                {"id": "gpt-5.2", "name": "GPT-5.2 (Flagship)", "recommended": true},
+                {"id": "gpt-5-mini", "name": "GPT-5 Mini (Fast)"},
+                {"id": "gpt-5-nano", "name": "GPT-5 Nano (Cheapest)"},
+                {"id": "gpt-4.1", "name": "GPT-4.1 (Non-Reasoning)"},
+                {"id": "gpt-4.1-mini", "name": "GPT-4.1 Mini"},
+                {"id": "gpt-4o", "name": "GPT-4o (Legacy)"},
+                {"id": "gpt-4o-mini", "name": "GPT-4o Mini (Legacy)"}
+            ]
+        },
+        "anthropic": {
+            "name": "Anthropic",
+            "description": "Claude models via Anthropic API — requires API key",
+            "baseUrl": "https://api.anthropic.com/v1",
+            "apiKeyEnvVar": "ANTHROPIC_API_KEY",
+            "requiresApiKey": true,
+            "api": "anthropic",
+            "supportsModelDiscovery": false,
+            "curatedModels": [
+                {"id": "claude-opus-4-6", "name": "Claude Opus 4.6 (Most Intelligent)", "recommended": true},
+                {"id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5 (Balanced)"},
+                {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5 (Fastest)"}
+            ]
+        },
+        "openrouter": {
+            "name": "OpenRouter",
+            "description": "Access multiple providers through one API — requires API key",
+            "baseUrl": "https://openrouter.ai/api/v1",
+            "apiKeyEnvVar": "OPENROUTER_API_KEY",
+            "requiresApiKey": true,
+            "api": "openai-completions",
+            "supportsModelDiscovery": true,
+            "curatedModels": [
+                {"id": "anthropic/claude-opus-4-6", "name": "Claude Opus 4.6 via OpenRouter"},
+                {"id": "openai/gpt-5.2", "name": "GPT-5.2 via OpenRouter"},
+                {"id": "google/gemini-2.5-flash", "name": "Gemini 2.5 Flash via OpenRouter"},
+                {"id": "meta-llama/llama-3.3-70b-instruct", "name": "Llama 3.3 70B via OpenRouter"}
+            ]
+        }
+    },
+    "roles": {
+        "orchestrator": {
+            "description": "Routes tasks and handles simple queries — use a fast, cost-effective model",
+            "required": true
+        },
+        "coder": {
+            "description": "Writes and refactors code — use a strong coding model",
+            "required": false
+        },
+        "reviewer": {
+            "description": "Reviews code for bugs, security, and style — use a reasoning model",
+            "required": false
+        }
+    },
+    "defaults": {
+        "model": "ollama/qwen3:latest",
+        "workspace": ".workspace"
+    }
+}
