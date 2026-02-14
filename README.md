@@ -14,10 +14,14 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 
 - **Multi-model orchestration** — route tasks to the right model: cheap local models for orchestration, powerful cloud models for coding and review
 - **Persistent sessions** — SQLite-backed conversations that survive restarts; resume where you left off
-- **Workspace sandboxing** — all file I/O is sandboxed to a `.workspace` directory, keeping your project safe
-- **Runtime extensibility** — install Composer packages at runtime and Coqui auto-discovers new toolkits
+- **Workspace sandboxing** — all file I/O is sandboxed to a `.workspace` directory with its own Composer project, keeping your project safe
+- **Runtime extensibility** — install Composer packages at runtime and Coqui auto-discovers new toolkits on every boot
 - **Child agent delegation** — spawns specialized agents (coder, reviewer) using role-appropriate models
 - **Interactive approval** — dangerous operations (package installs, shell exec, PHP execution) require your confirmation
+- **Auto-approve mode** — skip interactive prompts with `--auto-approve` for unattended workflows; catastrophic commands are still blocked
+- **Unsafe mode** — lift function restrictions with `--unsafe` for power users; catastrophic commands are still blocked
+- **Catastrophic blacklist** — hardcoded safety net that blocks destructive commands (`rm -rf /`, `shutdown`, fork bombs, etc.) regardless of mode
+- **Audit logging** — every tool execution decision (approved, denied, blocked) is logged to SQLite for traceability
 - **Credential management** — secure `.env`-based secret storage; values are never exposed to the LLM
 - **Script sanitization** — static analysis blocks dangerous functions before any generated code runs
 - **Memory persistence** — saves facts to `MEMORY.md` across sessions so Coqui remembers what matters
@@ -74,6 +78,8 @@ That's it. Coqui starts a REPL session and you can start chatting:
 | `--new` | | Start a fresh session |
 | `--session` | `-s` | Resume a specific session by ID |
 | `--workdir` | `-w` | Working directory (default: current directory) |
+| `--unsafe` | | Disable denied-function checks in ScriptSanitizer (catastrophic blacklist still active) |
+| `--auto-approve` | | Auto-approve all tool executions without prompting (catastrophic blacklist still active) |
 
 ## REPL Commands
 
@@ -172,7 +178,7 @@ Coqui ships with a rich set of tools the agent can use autonomously:
 | Tool | Description |
 |------|-------------|
 | `spawn_agent` | Delegate tasks to specialized child agents (coder, reviewer) using role-appropriate models |
-| `composer` | Manage Composer dependencies at runtime — require, remove, update, audit, with framework denylist |
+| `composer` | Manage Composer dependencies — target the workspace (default) or project root, with framework denylist |
 | `credentials` | Secure credential management via `.env` — values are never exposed to the LLM |
 | `packagist` | Search Packagist for packages by keyword, popularity, advisories |
 | `package_info` | Introspect installed packages — read READMEs, list classes, inspect method signatures |
@@ -239,7 +245,25 @@ Coqui discovers the toolkit on next startup — no configuration needed.
 
 ### Safety
 
-Coqui blocks full-framework packages from being installed (`laravel/*`, `symfony/symfony`, `laminas/*`, etc.) to keep the runtime lean and secure. A `ScriptSanitizer` blocks dangerous functions (`eval`, `exec`, `system`, `passthru`, etc.) in any generated PHP code before execution.
+Coqui has multiple layers of protection:
+
+1. **Framework denylist** — blocks full-framework packages (`laravel/*`, `symfony/symfony`, `laminas/*`, etc.) from being installed to keep the runtime lean
+2. **ScriptSanitizer** — static analysis blocks dangerous functions (`eval`, `exec`, `system`, `passthru`, etc.) in generated PHP code. Bypass with `--unsafe` for power users
+3. **Catastrophic blacklist** — a hardcoded safety net that *always* blocks destructive commands like `rm -rf /`, `shutdown`, `mkfs`, fork bombs, and credential exfiltration — even in `--unsafe` and `--auto-approve` modes. Additional patterns can be added via `agents.defaults.blacklist` in `openclaw.json`
+4. **Interactive approval** — gated tools require user confirmation before execution. Bypass with `--auto-approve` for unattended workflows
+5. **Audit logging** — every tool execution decision (approved, denied, blocked) is recorded in the session database
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "blacklist": [
+                "custom-pattern-to-block"
+            ]
+        }
+    }
+}
+```
 
 ## Community
 
