@@ -115,8 +115,17 @@ final class RunCommand extends Command
         $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir);
         $this->workspacePath = $workspaceResolver->resolve();
 
-        // Initialize toolkit discovery
+        // Initialize workspace Composer project (bot-managed dependencies)
+        $workspaceComposer = new WorkspaceComposerManager($this->workspacePath);
+        $workspaceComposer->initialize();
+        $workspaceComposer->loadAutoloader();
+
+        // Initialize toolkit discovery and run boot-time scan
         $this->discovery = new ToolkitDiscovery($this->workDir, $this->workspacePath);
+        $newToolkits = $this->discovery->discoverAll();
+        if (!empty($newToolkits) && $output->isVerbose()) {
+            $io->info('Discovered new toolkits: ' . implode(', ', $newToolkits));
+        }
 
         // Initialize storage inside workspace
         $dbPath = $this->workspacePath . '/data/coqui.db';
