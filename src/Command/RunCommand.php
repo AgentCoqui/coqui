@@ -8,8 +8,10 @@ use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
+use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Config\SetupWizard;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\WorkspaceResolver;
 use CoquiBot\Coqui\Observer\TerminalObserver;
@@ -37,6 +39,7 @@ final class RunCommand extends Command
     private string $workDir;
     private string $workspacePath;
     private ToolkitDiscovery $discovery;
+    private DefaultsLoader $defaultsLoader;
 
     protected function configure(): void
     {
@@ -54,8 +57,12 @@ final class RunCommand extends Command
         $this->workDir = is_string($workDirOption) ? $workDirOption : (getcwd() ?: '.');
         $this->observer = new TerminalObserver($output, (bool) $input->getOption('verbose'));
 
+        // Load defaults
+        $this->defaultsLoader = new DefaultsLoader();
+
         // Load config
-        $configPath = $input->getOption('config') ?? $this->workDir . '/openclaw.json';
+        $configOption = $input->getOption('config');
+        $configPath = is_string($configOption) ? $configOption : $this->workDir . '/openclaw.json';
         if (!file_exists($configPath)) {
             $configPath = __DIR__ . '/../../openclaw.json';
         }
@@ -63,18 +70,32 @@ final class RunCommand extends Command
         if (file_exists($configPath)) {
             $this->config = OpenClawConfig::fromFile($configPath);
         } else {
-            $io->warning('No openclaw.json found. Using defaults.');
-            $this->config = OpenClawConfig::fromArray([
-                'agents' => [
-                    'defaults' => [
-                        'model' => ['primary' => 'ollama/qwen3:latest'],
-                        'roles' => ['orchestrator' => 'ollama/qwen3:latest'],
-                    ],
-                ],
+            $io->warning('No openclaw.json configuration found.');
+            $io->text([
+                'Coqui needs an openclaw.json file to know which AI providers and models to use.',
+                'Without it, you may see connection errors like "404 Not Found".',
+                '',
             ]);
+
+            if ($io->confirm('Would you like to run the setup wizard now?', true)) {
+                $outputPath = $this->workDir . '/openclaw.json';
+                $wizard = new SetupWizard($io, $this->defaultsLoader);
+                $saved = $wizard->runAndSave($outputPath);
+
+                if ($saved && file_exists($outputPath)) {
+                    $this->config = OpenClawConfig::fromFile($outputPath);
+                } else {
+                    $io->text('<fg=gray>Using default configuration. Run <fg=cyan>coqui setup</> later to configure.</>'); 
+                    $this->config = $this->buildDefaultConfig();
+                }
+            } else {
+                $defaultModel = $this->defaultsLoader->defaultModel();
+                $io->text("<fg=gray>Using defaults (model: {$defaultModel}). Run <fg=cyan>coqui setup</> to configure.</>");
+                $this->config = $this->buildDefaultConfig();
+            }
         }
 
-        $this->roleResolver = new RoleResolver($this->config);
+        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader);
 
         // Resolve workspace directory
         $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir);
@@ -109,7 +130,7 @@ final class RunCommand extends Command
             '<fg=gray>Project root:</> ' . $this->workDir,
             '<fg=gray>Workspace:</> ' . $this->workspacePath,
             '',
-            '<fg=gray>Commands: /new, /history, /sessions, /quit</>',
+            '<fg=gray>Commands: /new, /history, /sessions, /config, /quit</>',
         ]);
         $io->newLine();
 
@@ -188,6 +209,11 @@ final class RunCommand extends Command
                 return true;
             })(),
 
+            '/config' => (function () use ($io, $arg) {
+                $this->handleConfigCommand($io, $arg);
+                return true;
+            })(),
+
             '/help' => (function () use ($io) {
                 $io->table(
                     ['Command', 'Description'],
@@ -197,6 +223,7 @@ final class RunCommand extends Command
                         ['/sessions', 'List all sessions'],
                         ['/resume <id>', 'Resume a session'],
                         ['/model', 'Show model configuration'],
+                        ['/config', 'Show config (use /config edit to re-run wizard)'],
                         ['/quit', 'Exit Coqui'],
                     ],
                 );
@@ -393,5 +420,93 @@ final class RunCommand extends Command
         }
 
         $io->table(['Role', 'Model'], $rows);
+    }
+
+    private function handleConfigCommand(SymfonyStyle $io, string $subCommand): void
+    {
+        match (trim($subCommand)) {
+            'edit' => $this->runConfigWizard($io),
+            'show' => $this->showConfigFile($io),
+            default => $this->showConfigSummary($io),
+        };
+    }
+
+    private function runConfigWizard(SymfonyStyle $io): void
+    {
+        $outputPath = $this->workDir . '/openclaw.json';
+        $wizard = new SetupWizard($io, $this->defaultsLoader);
+        $saved = $wizard->runAndSave($outputPath);
+
+        if ($saved && file_exists($outputPath)) {
+            $this->config = OpenClawConfig::fromFile($outputPath);
+            $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader);
+
+            $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir);
+            $this->workspacePath = $workspaceResolver->resolve();
+
+            $io->success('Configuration reloaded. Changes take effect on the next agent run.');
+        }
+    }
+
+    private function showConfigFile(SymfonyStyle $io): void
+    {
+        $configPath = $this->workDir . '/openclaw.json';
+
+        if (!file_exists($configPath)) {
+            $io->warning('No openclaw.json found. Run /config edit to create one.');
+            return;
+        }
+
+        $content = file_get_contents($configPath);
+        if ($content === false) {
+            $io->error('Unable to read openclaw.json.');
+            return;
+        }
+
+        $io->section('openclaw.json');
+        $io->writeln($content);
+    }
+
+    private function showConfigSummary(SymfonyStyle $io): void
+    {
+        $io->section('Current Configuration');
+
+        // Primary model
+        $primary = $this->config->getPrimaryModel();
+        $io->writeln('<fg=gray>Primary model:</> ' . ($primary !== '' ? $primary : '<fg=yellow>not set</>'));
+
+        // Roles
+        $roles = $this->roleResolver->toArray();
+        if (!empty($roles)) {
+            $io->newLine();
+            $rows = [];
+            foreach ($roles as $role => $model) {
+                $rows[] = [$role, $model];
+            }
+            $io->table(['Role', 'Model'], $rows);
+        }
+
+        // Workspace
+        $io->writeln('<fg=gray>Workspace:</> ' . $this->workspacePath);
+        $io->writeln('<fg=gray>Project root:</> ' . $this->workDir);
+        $io->newLine();
+        $io->text('<fg=gray>Use <fg=cyan>/config edit</> to re-run the setup wizard, or <fg=cyan>/config show</> to view raw JSON.</>'); 
+    }
+
+    /**
+     * Build a minimal default config from defaults.json values.
+     */
+    private function buildDefaultConfig(): OpenClawConfig
+    {
+        $defaultModel = $this->defaultsLoader->defaultModel();
+
+        return OpenClawConfig::fromArray([
+            'agents' => [
+                'defaults' => [
+                    'model' => ['primary' => $defaultModel],
+                    'roles' => ['orchestrator' => $defaultModel],
+                ],
+            ],
+        ]);
     }
 }
