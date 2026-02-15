@@ -206,7 +206,7 @@
             "path": "src/Tool/ComposerTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\ComposerTool",
             "layer": "tool",
-            "description": "Manages Composer dependencies. Actions: require, remove, show, installed, update, validate, outdated, audit. Supports dual targets: 'workspace' (default, bot-managed) and 'project' (user's project). Has a denylist blocking full frameworks. Auto-creates backups before mutations. Triggers toolkit discovery after install.",
+            "description": "Manages Composer dependencies in the workspace only. Actions: require, remove, show, installed, update, validate, outdated, audit. Has a denylist blocking full frameworks. Auto-creates backups before mutations. Triggers toolkit discovery after install. Cannot target the project root — workspace-only for security.",
             "methods": [
                 "execute(array $input): ToolResult — dispatches to action handler based on 'action' parameter"
             ]
@@ -261,7 +261,7 @@
             "path": "src/Tool/PhpExecuteTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\PhpExecuteTool",
             "layer": "tool",
-            "description": "Executes generated PHP code in a subprocess. Auto-prepends bootstrap preamble (strict_types, autoloader, .env loader). Output truncated to 32KB. Security: ScriptSanitizer (static check) + InteractiveApprovalPolicy (user confirmation) + timeout.",
+            "description": "Executes generated PHP code in a sandboxed subprocess. cwd is workspace, open_basedir restricts filesystem access to workspace (read/write) and project root (read-only). Auto-prepends bootstrap preamble (strict_types, project + workspace autoloaders, .env loader). Output truncated to 32KB. Security: ScriptSanitizer (static check) + open_basedir (runtime restriction) + InteractiveApprovalPolicy (user confirmation) + timeout.",
             "methods": [
                 "execute(array $input): ToolResult — sanitizes code, writes to temp file, runs via proc_open"
             ]

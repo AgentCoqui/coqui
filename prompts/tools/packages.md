@@ -30,7 +30,8 @@ Recommended workflow: packagist search → packagist details → packagist advis
 
 ### Composer
 
-Use the `composer` tool to manage dependencies:
+Use the `composer` tool to manage workspace dependencies:
 - `require`, `remove`, `show`, `installed`, `update`, `validate`, `outdated`, `audit`
 
+All operations target the workspace only — the project's `composer.json` is never modified.
 All mutating operations automatically backup composer.json and composer.lock.

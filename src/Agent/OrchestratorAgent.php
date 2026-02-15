@@ -111,9 +111,8 @@ final class OrchestratorAgent extends AbstractAgent
             observer: $this->observer,
         );
 
-        // Create composer tool for dependency management
+        // Create composer tool for dependency management (workspace only)
         $this->composerTool = new ComposerTool(
-            projectRoot: $this->projectRoot,
             workspacePath: $this->workspacePath,
             discovery: $discovery,
         );

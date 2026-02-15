@@ -38,7 +38,6 @@ final class ComposerTool implements ToolInterface
     private string $workspaceComposerRoot;
 
     public function __construct(
-        private readonly string $projectRoot,
         private readonly string $workspacePath,
         private readonly ?ToolkitDiscovery $discovery = null,
     ) {
@@ -54,18 +53,14 @@ final class ComposerTool implements ToolInterface
     public function description(): string
     {
         return <<<'DESC'
-            Manage Composer dependencies for Coqui or the workspace.
+            Manage Composer dependencies in the workspace.
             
             Use this tool to extend capabilities by installing new PHP packages,
             or to inspect currently installed dependencies. All mutating operations (require,
             remove, update) automatically create backups before executing.
             
-            **Target:** Use `target` parameter to choose where to install:
-            - `workspace` (default): Install to the workspace's own composer project.
-              The bot manages this independently — no approval needed for require/remove.
-              Use this for self-extending capabilities (e.g. installing toolkit packages).
-            - `project`: Install to the main project's composer.json.
-              Requires user approval for mutating operations.
+            All operations target the workspace composer project only. The bot cannot
+            modify the main project's composer.json — this is a security boundary.
             
             Available actions:
             - require: Install a new package (creates backup first)
@@ -112,12 +107,6 @@ final class ComposerTool implements ToolInterface
                 description: 'Whether to use --dev flag (for require/remove). Default: false.',
                 required: false,
             ),
-            new EnumParameter(
-                name: 'target',
-                description: 'Where to manage packages. "workspace" (default) for bot-managed deps, "project" for the main project.',
-                values: ['workspace', 'project'],
-                required: false,
-            ),
         ];
     }
 
@@ -127,13 +116,12 @@ final class ComposerTool implements ToolInterface
         $package = $input['package'] ?? '';
         $version = $input['version'] ?? '';
         $dev = (bool) ($input['dev'] ?? false);
-        $target = $input['target'] ?? 'workspace';
 
-        // Resolve the working directory based on target
-        $workingDir = $target === 'workspace' ? $this->workspaceComposerRoot : $this->projectRoot;
+        // Always target workspace — project root is read-only
+        $workingDir = $this->workspaceComposerRoot;
 
-        // Ensure workspace composer.json exists when targeting workspace
-        if ($target === 'workspace' && !file_exists($workingDir . '/composer.json')) {
+        // Ensure workspace composer.json exists
+        if (!file_exists($workingDir . '/composer.json')) {
             return ToolResult::error(
                 'Workspace composer.json not found. The workspace project should be initialized at startup.',
             );
@@ -176,7 +164,7 @@ final class ComposerTool implements ToolInterface
 
         $output = "## Composer Require\n\n";
         $output .= "**Package:** {$packageArg}\n";
-        $output .= "**Target:** " . ($workingDir === $this->projectRoot ? 'project' : 'workspace') . "\n";
+        $output .= "**Target:** workspace\n";
         $output .= "**Backup:** {$backupPath}\n";
         $output .= "**Exit code:** {$result['exit_code']}\n\n";
         $output .= "```\n{$result['output']}\n```";
@@ -405,7 +393,7 @@ final class ComposerTool implements ToolInterface
     private function backup(string $workingDir): ?string
     {
         $timestamp = date('Y-m-d_His');
-        $label = $workingDir === $this->projectRoot ? 'project' : 'workspace';
+        $label = 'workspace';
         $backupPath = $this->backupDir . '/' . $label . '_' . $timestamp;
 
         if (!is_dir($backupPath)) {
@@ -433,7 +421,7 @@ final class ComposerTool implements ToolInterface
      */
     private function runCommand(string $command, ?string $workingDir = null): array
     {
-        $cwd = $workingDir ?? $this->projectRoot;
+        $cwd = $workingDir ?? $this->workspaceComposerRoot;
 
         $descriptors = [
             0 => ['pipe', 'r'],  // stdin
@@ -491,11 +479,6 @@ final class ComposerTool implements ToolInterface
                         'dev' => [
                             'type' => 'boolean',
                             'description' => 'Whether to use --dev flag. Default: false.',
-                        ],
-                        'target' => [
-                            'type' => 'string',
-                            'description' => 'Where to manage packages. "workspace" (default) for bot-managed deps, "project" for the main project.',
-                            'enum' => ['workspace', 'project'],
                         ],
                     ],
                     'required' => ['action'],
