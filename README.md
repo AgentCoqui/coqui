@@ -1,8 +1,6 @@
 # Coqui Bot
 
-<center>
-    <img src="assets/coqui.webp" alt="Coqui Logo" width="512">
-</center>
+![Coqui Bot](assets/coqui.webp)
 
 Terminal AI agent with multi-model orchestration, persistent sessions, and runtime extensibility via Composer.
 

@@ -6,9 +6,11 @@ declare(strict_types=1);
 require_once __DIR__ . '/../vendor/autoload.php';
 
 use CoquiBot\Coqui\Command\RunCommand;
+use CoquiBot\Coqui\Command\SetupCommand;
 use Symfony\Component\Console\Application;
 
 $app = new Application('coqui', '0.1.0');
 $app->add(new RunCommand());
+$app->add(new SetupCommand());
 $app->setDefaultCommand('run');
 $app->run();
