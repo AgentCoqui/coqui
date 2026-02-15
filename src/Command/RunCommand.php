@@ -57,7 +57,7 @@ final class RunCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $workDirOption = $input->getOption('workdir');
         $this->workDir = is_string($workDirOption) ? $workDirOption : (getcwd() ?: '.');
-        $this->observer = new TerminalObserver($output, (bool) $input->getOption('verbose'));
+        $this->observer = new TerminalObserver($output);
         $this->unsafeMode = (bool) $input->getOption('unsafe');
         $this->autoApprove = (bool) $input->getOption('auto-approve');
 
