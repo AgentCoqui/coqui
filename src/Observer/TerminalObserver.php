@@ -23,7 +23,6 @@ final class TerminalObserver implements SplObserver
 
     public function __construct(
         private readonly OutputInterface $output,
-        private readonly bool $verbose = false,
     ) {}
 
     public function update(SplSubject $subject): void
@@ -51,9 +50,7 @@ final class TerminalObserver implements SplObserver
         match ($event) {
             'agent.start' => $this->output->writeln("{$indent}<fg=cyan>▶ Agent started</>"),
 
-            'agent.iteration' => $this->verbose
-                ? $this->output->writeln("{$indent}<fg=gray>  iteration {$data}</>")
-                : null,
+            'agent.iteration' => $this->output->writeln("{$indent}<fg=gray>  ⟳ Iteration {$data}</>"  ),
 
             'agent.tool_call' => $this->handleToolCall($data, $indent),
 
