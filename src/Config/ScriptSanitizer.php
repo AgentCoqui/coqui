@@ -35,6 +35,23 @@ final class ScriptSanitizer
         'ini_set',
         'ini_alter',
         'apache_setenv',
+        // Filesystem write functions — prevent writes outside workspace
+        'file_put_contents',
+        'fopen',
+        'fwrite',
+        'fputs',
+        'mkdir',
+        'rmdir',
+        'unlink',
+        'rename',
+        'copy',
+        'touch',
+        'chmod',
+        'chown',
+        'chgrp',
+        'symlink',
+        'link',
+        'tempnam',
     ];
 
     /**
@@ -47,9 +64,6 @@ final class ScriptSanitizer
         '/\b(sudo|chmod\s+777|chown)\b/i',                   // Privilege escalation
         '/\bcurl\s.*\|\s*(bash|sh|zsh)\b/i',                 // Pipe to shell
         '/\bwget\s.*-O-?\s*\|\s*(bash|sh|zsh)\b/i',          // wget pipe to shell
-        '/\bfile_put_contents\s*\(\s*[\'"][\/~]/i',           // Write to absolute paths
-        '/\bunlink\s*\(\s*[\'"][\/~]/i',                      // Delete absolute paths
-        '/\brmdir\s*\(\s*[\'"][\/~]/i',                       // Remove absolute dirs
         '/\brequire(_once)?\s*\(\s*[\'"][\/~]/i',             // Include from absolute paths
         '/\binclude(_once)?\s*\(\s*[\'"][\/~]/i',             // Include from absolute paths
     ];
