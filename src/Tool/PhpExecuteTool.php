@@ -60,6 +60,8 @@ final class PhpExecuteTool implements ToolInterface
             - The code is validated for safety before execution
             - Output is truncated to ~32KB
             - Functions like eval(), exec(), system() are not allowed
+            - Filesystem write functions (file_put_contents, fwrite, mkdir, etc.) are blocked
+            - To write files, use the workspace file tools (write_file, create_dir) instead
             DESC;
     }
 
@@ -180,9 +182,10 @@ final class PhpExecuteTool implements ToolInterface
     /**
      * Build the open_basedir restriction string.
      *
-     * Allows read/write to workspace and /tmp, read-only access to project
-     * root (for autoloader + source). PHP enforces this at the runtime level,
-     * blocking file writes outside these paths.
+     * Includes workspace (read/write), project root (for autoloader reads),
+     * and /tmp. While open_basedir cannot distinguish read vs write, the
+     * ScriptSanitizer blocks filesystem write functions at the static
+     * analysis level before code runs.
      */
     private function buildOpenBasedir(): string
     {
