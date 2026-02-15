@@ -16,7 +16,7 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, composer, credentials, package_info, packagist, php_execute, restart_coqui). Contains the master system prompt in instructions(). Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, composer, credentials, package_info, packagist, php_execute, restart_coqui). Contains the master system prompt in instructions(). Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string — returns the full system prompt with role descriptions, security rules, and operational guidelines",
                 "tools(): ToolInterface[] — returns standalone tools (spawn, composer, credentials, package_info, packagist, php_execute, restart_coqui)",
@@ -294,6 +294,16 @@
             "methods": [
                 "tools(): ToolInterface[] — returns project_source_map, project_read, project_list, project_search",
                 "guidelines(): string — usage instructions for project source access"
+            ]
+        },
+        {
+            "path": "src/Toolkit/ToolkitGeneratorToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ToolkitGeneratorToolkit",
+            "layer": "toolkit",
+            "description": "Generates complete toolkit package scaffolds for Coqui. Tools: toolkit_create (scaffolds a new package with composer.json, toolkit class, README, runs composer install), toolkit_add_tool (inserts a new tool into an existing toolkit class), toolkit_list (lists workspace toolkit packages with metadata). All generated packages follow Coqui conventions and are auto-discoverable.",
+            "methods": [
+                "tools(): ToolInterface[] — returns toolkit_create, toolkit_add_tool, toolkit_list",
+                "guidelines(): string — usage instructions for toolkit generation workflow"
             ]
         },
         {
