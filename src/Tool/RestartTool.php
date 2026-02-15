@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Tool;
 
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
+use CarmeloSantana\PHPAgents\Exception\TerminationException;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 
@@ -76,9 +77,9 @@ final class RestartTool implements ToolInterface
 
         ($this->onRestart)();
 
-        return ToolResult::success(
+        throw new TerminationException(
             "Restart scheduled. Reason: {$reason}. "
-            . 'The current turn will complete, then Coqui will restart and resume the session.',
+            . 'Coqui will restart and resume the session.',
         );
     }
 
