@@ -75,6 +75,11 @@ final class WorkspaceComposerManager
     /**
      * Load the workspace autoloader if it exists.
      *
+     * The workspace autoloader is registered with prepend=false so it does NOT
+     * override classes already provided by the project's autoloader. This
+     * prevents stale transitive copies of php-agents (or any shared dependency)
+     * in .workspace/vendor/ from shadowing the project's current version.
+     *
      * Returns true if the autoloader was loaded, false if not available.
      */
     public function loadAutoloader(): bool
@@ -85,7 +90,15 @@ final class WorkspaceComposerManager
             return false;
         }
 
-        require_once $autoloader;
+        // Load and obtain the ClassLoader instance
+        $loader = require $autoloader;
+
+        // If Composer returned a ClassLoader, un-register its default (prepended)
+        // registration and re-register with prepend=false so project classes win.
+        if ($loader instanceof \Composer\Autoload\ClassLoader) {
+            $loader->unregister();
+            $loader->register(false);
+        }
 
         return true;
     }
