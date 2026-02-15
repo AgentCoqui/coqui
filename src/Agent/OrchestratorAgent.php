@@ -26,6 +26,7 @@ use CoquiBot\Coqui\Tool\CredentialTool;
 use CoquiBot\Coqui\Tool\PackageInfoTool;
 use CoquiBot\Coqui\Tool\PackagistTool;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
+use CoquiBot\Coqui\Tool\RestartTool;
 use CoquiBot\Coqui\Tool\SpawnAgentTool;
 use Symfony\Component\HttpClient\HttpClient;
 
@@ -46,6 +47,7 @@ final class OrchestratorAgent extends AbstractAgent
     private PackageInfoTool $packageInfoTool;
     private PackagistTool $packagistTool;
     private PhpExecuteTool $phpExecuteTool;
+    private ?RestartTool $restartTool = null;
 
     public function __construct(
         ProviderInterface $provider,
@@ -60,6 +62,7 @@ final class OrchestratorAgent extends AbstractAgent
         int $maxIterations = 25,
         ?ToolExecutionPolicyInterface $executionPolicy = null,
         private readonly ?ScriptSanitizer $sanitizer = null,
+        ?\Closure $onRestart = null,
     ) {
         parent::__construct($provider, $maxIterations, $executionPolicy);
 
@@ -135,6 +138,11 @@ final class OrchestratorAgent extends AbstractAgent
             workspacePath: $this->workspacePath,
             sanitizer: $this->sanitizer,
         );
+
+        // Create restart tool if callback provided
+        if ($onRestart !== null) {
+            $this->restartTool = new RestartTool(onRestart: $onRestart);
+        }
     }
 
     public function instructions(): string
@@ -273,6 +281,17 @@ final class OrchestratorAgent extends AbstractAgent
             - `memory_load`: Recall previously saved information
             - `memory_forget`: Remove outdated information
             
+            ## Restart
+            
+            Use `restart_coqui` to trigger a graceful restart of the Coqui process:
+            - After installing new toolkit packages (so they get discovered on boot)
+            - After modifying openclaw.json (so config changes take effect)
+            - To recover from an error state or clear corrupted in-memory state
+            - When the user explicitly asks you to restart
+            
+            The current agent turn completes normally before the restart happens.
+            The session is automatically resumed after restart.
+            
             ## Security
             
             1. NEVER include API keys, passwords, or secrets in your responses or code
@@ -302,7 +321,7 @@ final class OrchestratorAgent extends AbstractAgent
      */
     public function tools(): array
     {
-        return [
+        $tools = [
             $this->spawnTool,
             $this->composerTool,
             $this->credentialTool,
@@ -310,6 +329,12 @@ final class OrchestratorAgent extends AbstractAgent
             $this->packagistTool,
             $this->phpExecuteTool,
         ];
+
+        if ($this->restartTool !== null) {
+            $tools[] = $this->restartTool;
+        }
+
+        return $tools;
     }
 
     /**
