@@ -21,6 +21,7 @@ use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
+use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
 use CoquiBot\Coqui\Tool\ComposerTool;
 use CoquiBot\Coqui\Tool\CredentialTool;
 use CoquiBot\Coqui\Tool\PackageInfoTool;
@@ -87,6 +88,9 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Project source toolkit — read-only access to the Coqui project codebase
         $this->addToolkit(new ProjectSourceToolkit(projectRoot: $this->projectRoot));
+
+        // Toolkit generator — scaffold new toolkit packages
+        $this->addToolkit(new ToolkitGeneratorToolkit(workspacePath: $this->workspacePath));
 
         // Register any auto-discovered toolkits from installed packages
         if ($discovery !== null) {
@@ -280,6 +284,20 @@ final class OrchestratorAgent extends AbstractAgent
             - `memory_save`: Save facts, preferences, or context for later
             - `memory_load`: Recall previously saved information
             - `memory_forget`: Remove outdated information
+            
+            ## Creating Toolkits
+            
+            Use the toolkit generator to scaffold new toolkit packages:
+            
+            1. `toolkit_create` — create a new toolkit with composer.json, source class, and README
+               - Pass `dependencies` for Composer packages (comma-separated: "vendor/pkg:^1.0")
+               - Pass `credentials` for API keys (JSON: '{"KEY": "description"}')
+            2. `toolkit_add_tool` — add tools to an existing toolkit package
+            3. `toolkit_list` — list all toolkit packages in the workspace
+            
+            After creating a toolkit:
+            1. Use `composer` tool (action: require, target: workspace) to install it
+            2. Use `restart_coqui` to reload — the toolkit is auto-discovered on boot
             
             ## Restart
             
