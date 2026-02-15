@@ -16,10 +16,10 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, composer, credentials, package_info, packagist, php_execute). Contains the master system prompt in instructions(). Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, composer, credentials, package_info, packagist, php_execute, restart_coqui). Contains the master system prompt in instructions(). Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string — returns the full system prompt with role descriptions, security rules, and operational guidelines",
-                "tools(): ToolInterface[] — returns standalone tools (spawn, composer, credentials, package_info, packagist, php_execute)",
+                "tools(): ToolInterface[] — returns standalone tools (spawn, composer, credentials, package_info, packagist, php_execute, restart_coqui)",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
                 "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking"
             ]
@@ -39,10 +39,11 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --config, --new, --session, --workdir. Contains gated tools definition and approval policy construction.",
+            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction, and restart logic (RESTART_EXIT_CODE = 10, restartRequested flag).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system and enters REPL loop",
-                "handleSlashCommand(string): bool — processes REPL commands (/new, /history, /sessions, /resume, /model, /help, /quit)"
+                "handleCommand(string, SymfonyStyle): int|true — processes REPL commands (/new, /history, /sessions, /resume, /model, /help, /restart, /quit); returns exit code or true to continue",
+                "runAgent(string, SymfonyStyle): void — creates OrchestratorAgent with restart callback, runs agent turn, checks restartRequested flag"
             ]
         },
         {
@@ -263,6 +264,15 @@
             "description": "Executes generated PHP code in a subprocess. Auto-prepends bootstrap preamble (strict_types, autoloader, .env loader). Output truncated to 32KB. Security: ScriptSanitizer (static check) + InteractiveApprovalPolicy (user confirmation) + timeout.",
             "methods": [
                 "execute(array $input): ToolResult — sanitizes code, writes to temp file, runs via proc_open"
+            ]
+        },
+        {
+            "path": "src/Tool/RestartTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\RestartTool",
+            "layer": "tool",
+            "description": "Agent-facing tool that triggers a graceful restart of Coqui. Sets a restartRequested flag on RunCommand via a closure callback. After the current agent turn completes, the REPL loop checks the flag and exits with RESTART_EXIT_CODE (10). The launcher script detects this exit code and relaunches the process. Gated by execution policy — requires user confirmation unless --auto-approve is enabled.",
+            "methods": [
+                "execute(array $input): ToolResult — sets restart flag via closure, returns success message with reason"
             ]
         },
         {

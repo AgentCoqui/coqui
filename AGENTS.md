@@ -195,6 +195,7 @@ test('config loads from valid JSON', function () {
 | `src/Config/WorkspaceComposerManager.php` | Manages `.workspace/composer.json` lifecycle |
 | `src/Config/ToolkitDiscovery.php` | Boot-time discovery of toolkit packages; wraps toolkits with credential guards |
 | `src/Config/CredentialResolver.php` | Workspace `.env` management with hot-reload via `putenv()` |
+| `src/Tool/RestartTool.php` | Agent-facing tool to trigger graceful restart; sets flag via closure, gated by execution policy |
 | `src/Storage/SessionStorage.php` | Sessions, messages, and audit log persistence |
 
 ## Documentation
@@ -227,6 +228,22 @@ When adding new tools or modifying safety checks:
 - Always log decisions through `SessionStorage::logAudit()` in approval policies.
 - The catastrophic blacklist check must run **before** any user prompt or auto-approval.
 - New dangerous operations should be added to the `gatedTools` array in `RunCommand`.
+
+### Restart Architecture
+
+Coqui supports graceful restarts and automatic crash recovery via a three-layer system:
+
+1. **`bin/coqui-launcher`** — Bash wrapper script that runs `bin/coqui` in a loop. On exit code `0` (clean quit), the launcher stops. On exit code `10` (restart requested), it immediately relaunches. On any other exit code (crash), it relaunches up to 3 consecutive times before giving up.
+
+2. **`/restart` REPL command** — User types `/restart` in the REPL, which causes `RunCommand` to return `RESTART_EXIT_CODE` (10). The launcher detects this and relaunches the process.
+
+3. **`restart_coqui` tool** — The LLM agent can trigger a restart via a tool call. The tool sets a `restartRequested` flag on `RunCommand` via a closure callback. After the current agent turn completes, the REPL loop checks the flag and exits with code 10. This tool is gated — it requires user confirmation unless `--auto-approve` is enabled.
+
+When adding restart triggers:
+
+- Always use exit code `10` (`RunCommand::RESTART_EXIT_CODE`) for intentional restarts.
+- The `restartRequested` flag is checked *after* `runAgent()` completes — the agent finishes its current turn gracefully.
+- The launcher's crash counter resets on intentional restarts (code 10); only consecutive unintentional crashes count toward the 3-attempt limit.
 
 ### Workspace Composer Isolation
 

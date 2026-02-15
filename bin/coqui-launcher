@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+#
+# Coqui Launcher — wraps bin/coqui with automatic restart and crash recovery.
+#
+# Exit code behavior:
+#   0  — clean exit (/quit), launcher stops
+#   10 — restart requested (/restart or restart_coqui tool), relaunch immediately
+#   *  — unexpected crash, relaunch up to MAX_CRASHES consecutive times
+#
+# Usage:
+#   ./bin/coqui-launcher [any options forwarded to bin/coqui]
+#
+# Examples:
+#   ./bin/coqui-launcher
+#   ./bin/coqui-launcher --auto-approve
+#   ./bin/coqui-launcher -c my-config.json --unsafe
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+COQUI_BIN="${SCRIPT_DIR}/coqui"
+
+readonly RESTART_EXIT_CODE=10
+readonly MAX_CRASHES=3
+
+crash_count=0
+
+# Trap SIGINT/SIGTERM at the launcher level so we exit cleanly
+# instead of relaunching when the user hits Ctrl+C during the pause
+trap 'echo ""; echo "Launcher stopped."; exit 0' INT TERM
+
+while true; do
+    # Run Coqui, forwarding all arguments
+    # Disable set -e for this call so we can inspect the exit code
+    set +e
+    "${COQUI_BIN}" "$@"
+    exit_code=$?
+    set -e
+
+    case $exit_code in
+        0)
+            # Clean exit — user typed /quit
+            exit 0
+            ;;
+        $RESTART_EXIT_CODE)
+            # Intentional restart — reset crash counter
+            crash_count=0
+            echo ""
+            echo "Restarting Coqui..."
+            echo ""
+            ;;
+        *)
+            # Unexpected exit — crash recovery
+            crash_count=$((crash_count + 1))
+
+            if [ $crash_count -ge $MAX_CRASHES ]; then
+                echo ""
+                echo "Coqui has crashed ${MAX_CRASHES} consecutive times (exit code: ${exit_code})."
+                echo "Exiting to prevent an infinite crash loop."
+                exit $exit_code
+            fi
+
+            echo ""
+            echo "Coqui exited unexpectedly (exit code: ${exit_code}, attempt ${crash_count}/${MAX_CRASHES})."
+            echo "Relaunching in 2 seconds... (Ctrl+C to stop)"
+            sleep 2
+            ;;
+    esac
+done

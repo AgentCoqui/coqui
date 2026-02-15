@@ -40,6 +40,13 @@ final class RunCommand extends Command
 {
     private const SESSION_FILE = '.coqui-session';
 
+    /**
+     * Exit code that signals the launcher script to restart the process.
+     * Chosen to avoid collision with Symfony Console reserved codes (0, 1, 2)
+     * and common signal-based codes (128+N).
+     */
+    public const RESTART_EXIT_CODE = 10;
+
     private SessionStorage $storage;
     private string $sessionId;
     private OpenClawConfig $config;
@@ -52,6 +59,7 @@ final class RunCommand extends Command
     private CatastrophicBlacklist $blacklist;
     private bool $unsafeMode = false;
     private bool $autoApprove = false;
+    private bool $restartRequested = false;
 
     protected function configure(): void
     {
@@ -168,7 +176,7 @@ final class RunCommand extends Command
             '<fg=gray>Project root:</> ' . $this->workDir,
             '<fg=gray>Workspace:</> ' . $this->workspacePath,
             '',
-            '<fg=gray>Commands: /new, /history, /sessions, /config, /quit</>',
+            '<fg=gray>Commands: /new, /history, /sessions, /config, /restart, /quit</>',
         ]);
         $io->newLine();
 
@@ -189,19 +197,30 @@ final class RunCommand extends Command
 
             // Handle commands
             if (str_starts_with($prompt, '/')) {
-                $continue = $this->handleCommand($prompt, $io);
-                if (!$continue) {
-                    return Command::SUCCESS;
+                $result = $this->handleCommand($prompt, $io);
+                if ($result !== true) {
+                    return $result;
                 }
                 continue;
             }
 
             // Run agent
             $this->runAgent($prompt, $io);
+
+            // Check if agent requested a restart via RestartTool
+            if ($this->restartRequested) {
+                $io->info('Restart requested by agent. Restarting...');
+                return self::RESTART_EXIT_CODE;
+            }
         }
     }
 
-    private function handleCommand(string $command, SymfonyStyle $io): bool
+    /**
+     * Handle a REPL slash command.
+     *
+     * @return int|true True to continue the REPL loop, or an exit code to terminate.
+     */
+    private function handleCommand(string $command, SymfonyStyle $io): int|true
     {
         $parts = explode(' ', $command, 2);
         $cmd = $parts[0];
@@ -209,6 +228,11 @@ final class RunCommand extends Command
 
         match ($cmd) {
             '/quit', '/exit', '/q' => false,
+
+            '/restart' => (function () use ($io) {
+                $io->info('Restarting Coqui...');
+                return true;
+            })(),
 
             '/new' => (function () use ($io) {
                 $this->sessionId = $this->createNewSession($io);
@@ -262,6 +286,7 @@ final class RunCommand extends Command
                         ['/resume <id>', 'Resume a session'],
                         ['/model', 'Show model configuration'],
                         ['/config', 'Show config (use /config edit to re-run wizard)'],
+                        ['/restart', 'Restart Coqui (re-reads config, re-discovers toolkits)'],
                         ['/quit', 'Exit Coqui'],
                     ],
                 );
@@ -274,10 +299,9 @@ final class RunCommand extends Command
             })(),
         };
 
-        // The match returns a value but we need to return a bool
-        // Re-handle properly
         return match ($cmd) {
-            '/quit', '/exit', '/q' => false,
+            '/quit', '/exit', '/q' => Command::SUCCESS,
+            '/restart' => self::RESTART_EXIT_CODE,
             default => true,
         };
     }
@@ -299,6 +323,7 @@ final class RunCommand extends Command
             'composer' => ['require', 'remove', 'update'],
             'exec' => ['*'],
             'php_execute' => ['*'],
+            'restart_coqui' => ['*'],
         ];
 
         $executionPolicy = $this->autoApprove
@@ -333,6 +358,7 @@ final class RunCommand extends Command
             discovery: $this->discovery,
             executionPolicy: $executionPolicy,
             sanitizer: $sanitizer,
+            onRestart: fn() => $this->restartRequested = true,
         );
 
         $agent->attach($this->observer);

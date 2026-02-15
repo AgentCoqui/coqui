@@ -51,6 +51,17 @@ composer install
 
 That's it. Coqui starts a REPL session and you can start chatting:
 
+For automatic crash recovery and restart support, use the launcher:
+
+```bash
+./bin/coqui-launcher
+```
+
+The launcher wraps `bin/coqui` and handles:
+- **Clean exit** (exit code 0) — `/quit` stops the launcher
+- **Restart** (exit code 10) — `/restart` or the `restart_coqui` tool triggers an immediate relaunch
+- **Crash recovery** — unexpected exits auto-relaunch up to 3 consecutive times
+
 ```txt
  Coqui v0.1.0
 
@@ -93,6 +104,7 @@ Once inside the Coqui REPL, use slash commands:
 | `/resume <id>` | Resume a session by ID |
 | `/model [role]` | Show model configuration |
 | `/help` | List available commands |
+| `/restart` | Restart Coqui (re-reads config, re-discovers toolkits) |
 | `/quit` `/exit` `/q` | Exit Coqui |
 
 ## Providers & OpenClaw Config
@@ -183,6 +195,7 @@ Coqui ships with a rich set of tools the agent can use autonomously:
 | `packagist` | Search Packagist for packages by keyword, popularity, advisories |
 | `package_info` | Introspect installed packages — read READMEs, list classes, inspect method signatures |
 | `php_execute` | Execute generated PHP code in a sandboxed subprocess with script sanitization |
+| `restart_coqui` | Trigger a graceful restart — re-reads config, re-discovers toolkits, resumes session automatically |
 
 ### Inherited Toolkits (from php-agents)
 
