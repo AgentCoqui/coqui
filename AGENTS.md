@@ -389,6 +389,83 @@ Each entry in the `files` array must include:
 
 Run `project_source_map` after editing to verify the JSON is valid and the structure is correct. Every source file under `src/` should have a corresponding entry.
 
+## Docker
+
+Coqui ships with Docker support for development, testing, and isolated execution. The image is based on `php:8.4-cli` (not a web server) since Coqui is a CLI REPL.
+
+### Architecture
+
+| File | Purpose |
+|------|---------|
+| `Dockerfile` | PHP 8.4 CLI + all extensions + Composer. Xdebug and pcov are installed but disabled by default (enabled via compose overlays). |
+| `compose.yaml` | Base service: bind-mounts source, named volume for `.workspace/`, passes API keys from host, connects to host Ollama via `host.docker.internal`. |
+| `compose.dev.yaml` | Developer overlay: enables Xdebug (debug + profile), mounts workspace parent for Composer path repo resolution (`../php-agents`, `../coqui-brave-search`), adds Webgrind for profiler analysis. |
+| `compose.test.yaml` | Test overlay: non-interactive, enables pcov for coverage, disables OPcache. |
+| `Makefile` | Self-documenting targets: `make run`, `make dev`, `make test`, `make shell`, etc. |
+| `conf.d/coqui.ini` | CLI-optimized PHP config: 512M memory, OPcache + JIT enabled, errors to stderr. |
+| `conf.d/xdebug.ini` | Xdebug config: trigger-based activation, profiler output to `/tmp/xdebug`, IDE key `COQUI`. |
+| `conf.d/test.ini` | Test config: pcov enabled, OPcache disabled, 1G memory. |
+| `.env.example` | Documents all environment variables (API keys, ports, UID/GID). |
+
+### Key Design Decisions
+
+- **CLI base image**: `php:8.4-cli` keeps the image ~300MB smaller than Apache/FPM variants. Coqui has no HTTP server.
+- **`docker compose run` over `up`**: The REPL requires interactive TTY. Use `run --rm` for sessions. Background services (Webgrind) use `up -d` separately.
+- **Host Ollama**: Users connect to `host.docker.internal:11434`. Avoids GPU passthrough complexity and duplicate model storage.
+- **Workspace root mount in dev**: `compose.dev.yaml` mounts the entire parent directory (`..`) as `/workspace` so Composer path repositories (`../php-agents`, `../coqui-brave-search`) resolve identically to the host.
+- **Xdebug + pcov installed but disabled**: Both built into the image at build time but only activated via ini file mounts in their respective overlays. Zero runtime overhead in base mode.
+- **Named volume for `.workspace/`**: Session databases, bot-installed packages, and workspace state persist across `docker compose run` invocations.
+
+### Running in Docker
+
+```bash
+# Build image
+make build
+
+# Interactive REPL
+make run
+
+# Dev mode (Xdebug + path repos)
+make dev
+
+# Start Webgrind
+make dev-up    # http://localhost:9002
+
+# Tests
+make test
+make test-coverage
+
+# Shell access
+make shell
+
+# Composer operations
+make install
+make composer CMD="require foo/bar"
+
+# Cleanup
+make clean             # all containers + volumes
+make clean-workspace   # workspace volume only
+```
+
+### Environment Variables
+
+Copy `.env.example` to `.env` before running. Key variables:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `COQUI_UID` / `COQUI_GID` | `1000` | Match host user to avoid permission issues |
+| `OPENAI_API_KEY` | — | Passed into the container |
+| `ANTHROPIC_API_KEY` | — | Passed into the container |
+| `OLLAMA_HOST` | `http://host.docker.internal:11434` | Ollama endpoint |
+| `COQUI_WEBGRIND_PORT` | `9002` | Webgrind port (dev overlay) |
+
+### Xdebug Profiling Workflow
+
+1. Start Webgrind: `make dev-up`
+2. Run Coqui with Xdebug trigger: `XDEBUG_TRIGGER=1 make dev`
+3. Open Webgrind at `http://localhost:9002`
+4. After profiling, clear output: `make xdebug-clear`
+
 ## Documentation Policy
 
 When making changes to Coqui, keep documentation in sync:
