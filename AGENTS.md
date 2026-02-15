@@ -217,10 +217,11 @@ test('config loads from valid JSON', function () {
 
 Coqui enforces a layered safety model. All layers are always active unless explicitly relaxed by the user via CLI flags — and even then, the catastrophic blacklist cannot be bypassed.
 
-1. **ScriptSanitizer** — static analysis of generated PHP code. Blocks `eval`, `exec`, `system`, `passthru`, and other dangerous functions. Skipped in `--unsafe` mode.
-2. **CatastrophicBlacklist** — hardcoded regex patterns that **always** block destructive commands (e.g. `rm -rf /`, `shutdown`, `mkfs`, fork bombs, credential exfiltration). Cannot be disabled. Additional patterns can be loaded from `agents.defaults.blacklist` in `openclaw.json`.
-3. **InteractiveApprovalPolicy** — gated tools require user confirmation. Replaced by `AutoApprovalPolicy` when `--auto-approve` is passed.
-4. **Audit logging** — every tool execution decision (`approved`, `denied`, `blocked`) is logged to the `audit_log` table in the session database with tool name, arguments, action, and reason.
+1. **Workspace sandboxing** — file writes via `FilesystemToolkit` are sandboxed to the workspace directory. `ComposerTool` targets the workspace only — it cannot modify the project's `composer.json`. `PhpExecuteTool` runs with `cwd` set to the workspace and `open_basedir` restrictions that prevent writes outside workspace boundaries. The project root is read-only, accessible through `ProjectSourceToolkit` and shell commands.
+2. **ScriptSanitizer** — static analysis of generated PHP code. Blocks `eval`, `exec`, `system`, `passthru`, and other dangerous functions. Skipped in `--unsafe` mode.
+3. **CatastrophicBlacklist** — hardcoded regex patterns that **always** block destructive commands (e.g. `rm -rf /`, `shutdown`, `mkfs`, fork bombs, credential exfiltration). Cannot be disabled. Additional patterns can be loaded from `agents.defaults.blacklist` in `openclaw.json`.
+4. **InteractiveApprovalPolicy** — gated tools require user confirmation. Replaced by `AutoApprovalPolicy` when `--auto-approve` is passed.
+5. **Audit logging** — every tool execution decision (`approved`, `denied`, `blocked`) is logged to the `audit_log` table in the session database with tool name, arguments, action, and reason.
 
 When adding new tools or modifying safety checks:
 
@@ -250,7 +251,7 @@ When adding restart triggers:
 The `.workspace/` directory contains its own `composer.json` managed by the bot. This separates bot-installed dependencies from the host project:
 
 - `WorkspaceComposerManager` initializes the workspace Composer project on boot.
-- `ComposerTool` defaults to the `workspace` target. The bot can also target `project` when explicitly requested.
+- `ComposerTool` always targets the workspace. It cannot modify the project's `composer.json` — the `target: 'project'` option has been removed as a security measure.
 - The workspace autoloader is loaded at boot via `WorkspaceComposerManager::loadAutoloader()`.
 - Toolkit discovery (`ToolkitDiscovery::discoverAll()`) scans both the project and workspace `installed.json` files on every boot.
 

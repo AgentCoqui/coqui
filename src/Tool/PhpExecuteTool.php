@@ -131,13 +131,19 @@ final class PhpExecuteTool implements ToolInterface
 
     private function buildScript(string $code): string
     {
-        $autoloader = $this->projectRoot . '/vendor/autoload.php';
+        $projectAutoloader = $this->projectRoot . '/vendor/autoload.php';
+        $workspaceAutoloader = rtrim($this->workspacePath, '/') . '/vendor/autoload.php';
         $envPath = rtrim($this->workspacePath, '/') . '/.env';
 
         $preamble = "<?php\n\ndeclare(strict_types=1);\n\n";
 
-        // Load autoloader
-        $preamble .= "require '{$autoloader}';\n\n";
+        // Load project autoloader (read-only access via open_basedir)
+        $preamble .= "require '{$projectAutoloader}';\n";
+
+        // Load workspace autoloader if it exists (for bot-installed packages)
+        $preamble .= "if (file_exists('{$workspaceAutoloader}')) {\n";
+        $preamble .= "    require '{$workspaceAutoloader}';\n";
+        $preamble .= "}\n\n";
 
         // Load .env if it exists
         $preamble .= <<<'DOTENV'
@@ -172,6 +178,24 @@ final class PhpExecuteTool implements ToolInterface
     }
 
     /**
+     * Build the open_basedir restriction string.
+     *
+     * Allows read/write to workspace and /tmp, read-only access to project
+     * root (for autoloader + source). PHP enforces this at the runtime level,
+     * blocking file writes outside these paths.
+     */
+    private function buildOpenBasedir(): string
+    {
+        $paths = [
+            rtrim($this->workspacePath, '/'),
+            rtrim($this->projectRoot, '/'),
+            sys_get_temp_dir(),
+        ];
+
+        return implode(PATH_SEPARATOR, $paths);
+    }
+
+    /**
      * @return ToolResult
      */
     private function runScript(string $scriptPath, int $timeout): ToolResult
@@ -183,10 +207,10 @@ final class PhpExecuteTool implements ToolInterface
         ];
 
         $process = proc_open(
-            ['php', $scriptPath],
+            ['php', '-d', 'open_basedir=' . $this->buildOpenBasedir(), $scriptPath],
             $descriptors,
             $pipes,
-            $this->projectRoot,
+            $this->workspacePath,
         );
 
         if (!is_resource($process)) {
