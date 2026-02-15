@@ -4,25 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Command;
 
-use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
-use CarmeloSantana\PHPAgents\Contract\MessageInterface;
-use CarmeloSantana\PHPAgents\Enum\Role;
-use CarmeloSantana\PHPAgents\Message\Conversation;
-use CarmeloSantana\PHPAgents\Message\UserMessage;
-use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
-use CarmeloSantana\PHPAgents\Tool\ToolCall;
-use CoquiBot\Coqui\Agent\OrchestratorAgent;
-use CoquiBot\Coqui\Config\AutoApprovalPolicy;
-use CoquiBot\Coqui\Config\CatastrophicBlacklist;
-use CoquiBot\Coqui\Config\CredentialResolver;
-use CoquiBot\Coqui\Config\DefaultsLoader;
-use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
-use CoquiBot\Coqui\Config\RoleResolver;
-use CoquiBot\Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\SetupWizard;
-use CoquiBot\Coqui\Config\ToolkitDiscovery;
-use CoquiBot\Coqui\Config\WorkspaceComposerManager;
-use CoquiBot\Coqui\Config\WorkspaceResolver;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -47,16 +31,12 @@ final class RunCommand extends Command
      */
     public const RESTART_EXIT_CODE = 10;
 
+    private BootManager $boot;
+    private AgentRunner $agentRunner;
     private SessionStorage $storage;
-    private string $sessionId;
-    private OpenClawConfig $config;
-    private RoleResolver $roleResolver;
     private TerminalObserver $observer;
+    private string $sessionId;
     private string $workDir;
-    private string $workspacePath;
-    private ToolkitDiscovery $discovery;
-    private DefaultsLoader $defaultsLoader;
-    private CatastrophicBlacklist $blacklist;
     private bool $unsafeMode = false;
     private bool $autoApprove = false;
     private bool $restartRequested = false;
@@ -81,70 +61,31 @@ final class RunCommand extends Command
         $this->unsafeMode = (bool) $input->getOption('unsafe');
         $this->autoApprove = (bool) $input->getOption('auto-approve');
 
-        // Load defaults
-        $this->defaultsLoader = new DefaultsLoader();
-
-        // Load config
+        // Boot sequence: config, workspace, credentials, toolkit discovery
         $configOption = $input->getOption('config');
-        $configPath = is_string($configOption) ? $configOption : $this->workDir . '/openclaw.json';
-        if (!file_exists($configPath)) {
-            $configPath = __DIR__ . '/../../openclaw.json';
-        }
+        $configPath = is_string($configOption) ? $configOption : null;
 
-        if (file_exists($configPath)) {
-            $this->config = OpenClawConfig::fromFile($configPath);
-        } else {
-            $io->warning('No openclaw.json configuration found.');
-            $io->text([
-                'Coqui needs an openclaw.json file to know which AI providers and models to use.',
-                'Without it, you may see connection errors like "404 Not Found".',
-                '',
-            ]);
-
-            if ($io->confirm('Would you like to run the setup wizard now?', true)) {
-                $outputPath = $this->workDir . '/openclaw.json';
-                $wizard = new SetupWizard($io, $this->defaultsLoader);
-                $saved = $wizard->runAndSave($outputPath);
-
-                if ($saved && file_exists($outputPath)) {
-                    $this->config = OpenClawConfig::fromFile($outputPath);
-                } else {
-                    $io->text('<fg=gray>Using default configuration. Run <fg=cyan>coqui setup</> later to configure.</>'); 
-                    $this->config = $this->buildDefaultConfig();
-                }
-            } else {
-                $defaultModel = $this->defaultsLoader->defaultModel();
-                $io->text("<fg=gray>Using defaults (model: {$defaultModel}). Run <fg=cyan>coqui setup</> to configure.</>");
-                $this->config = $this->buildDefaultConfig();
-            }
-        }
-
-        // Build catastrophic blacklist from config (hardcoded + user additions)
-        $this->blacklist = CatastrophicBlacklist::fromConfig($this->config);
-
-        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader);
-
-        // Resolve workspace directory
-        $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir);
-        $this->workspacePath = $workspaceResolver->resolve();
-
-        // Initialize workspace Composer project (bot-managed dependencies)
-        $workspaceComposer = new WorkspaceComposerManager($this->workspacePath);
-        $workspaceComposer->initialize();
-        $workspaceComposer->loadAutoloader();
-
-        // Initialize toolkit discovery and run boot-time scan
-        $credentialResolver = new CredentialResolver(workspacePath: $this->workspacePath);
-        $credentialResolver->loadIntoProcessEnv();
-        $this->discovery = new ToolkitDiscovery($this->workDir, $this->workspacePath, $credentialResolver);
-        $newToolkits = $this->discovery->discoverAll();
-        if (!empty($newToolkits) && $output->isVerbose()) {
-            $io->info('Discovered new toolkits: ' . implode(', ', $newToolkits));
-        }
+        $this->boot = new BootManager($this->workDir);
+        $this->boot->boot($io, $configPath);
 
         // Initialize storage inside workspace
-        $dbPath = $this->workspacePath . '/data/coqui.db';
+        $dbPath = $this->boot->workspacePath() . '/data/coqui.db';
         $this->storage = new SessionStorage($dbPath);
+
+        // Initialize agent runner
+        $this->agentRunner = new AgentRunner(
+            roleResolver: $this->boot->roleResolver(),
+            config: $this->boot->config(),
+            projectRoot: $this->workDir,
+            workspacePath: $this->boot->workspacePath(),
+            storage: $this->storage,
+            observer: $this->observer,
+            discovery: $this->boot->discovery(),
+            blacklist: $this->boot->blacklist(),
+            credentialResolver: $this->boot->credentialResolver(),
+            unsafeMode: $this->unsafeMode,
+            autoApprove: $this->autoApprove,
+        );
 
         // Handle session
         if ($input->getOption('new')) {
@@ -172,9 +113,9 @@ final class RunCommand extends Command
         $io->title('Coqui REPL');
         $io->text([
             '<fg=gray>Session:</> ' . substr($this->sessionId, 0, 8) . '...',
-            '<fg=gray>Model:</> ' . $this->roleResolver->resolve('orchestrator'),
+            '<fg=gray>Model:</> ' . $this->boot->roleResolver()->resolve('orchestrator'),
             '<fg=gray>Project root:</> ' . $this->workDir,
-            '<fg=gray>Workspace:</> ' . $this->workspacePath,
+            '<fg=gray>Workspace:</> ' . $this->boot->workspacePath(),
             '',
             '<fg=gray>Commands: /new, /history, /sessions, /config, /restart, /quit</>',
         ]);
@@ -205,7 +146,7 @@ final class RunCommand extends Command
             }
 
             // Run agent
-            $this->runAgent($prompt, $io);
+            $this->restartRequested = $this->agentRunner->run($prompt, $this->sessionId, $io);
 
             // Check if agent requested a restart via RestartTool
             if ($this->restartRequested) {
@@ -306,166 +247,9 @@ final class RunCommand extends Command
         };
     }
 
-    private function runAgent(string $prompt, SymfonyStyle $io): void
-    {
-        // Load prior conversation history from database
-        $history = $this->storage->loadConversation($this->sessionId);
-
-        // Save user message to database before running agent
-        $this->storage->addMessage($this->sessionId, 'user', $prompt);
-
-        // Create orchestrator
-        $modelString = $this->roleResolver->resolve('orchestrator');
-        $provider = ProviderFactory::fromModelString($modelString, $this->config);
-
-        // Build execution policy based on flags
-        $gatedTools = [
-            'composer' => ['require', 'remove', 'update'],
-            'exec' => ['*'],
-            'php_execute' => ['*'],
-            'restart_coqui' => ['*'],
-        ];
-
-        $executionPolicy = $this->autoApprove
-            ? new AutoApprovalPolicy(
-                blacklist: $this->blacklist,
-                storage: $this->storage,
-                sessionId: $this->sessionId,
-            )
-            : new InteractiveApprovalPolicy(
-                io: $io,
-                gatedTools: $gatedTools,
-                blacklist: $this->blacklist,
-                storage: $this->storage,
-                sessionId: $this->sessionId,
-            );
-
-        // Build sanitizer for PHP execution (unsafe mode skips denied functions but keeps catastrophic blacklist)
-        $sanitizer = new ScriptSanitizer(
-            unsafe: $this->unsafeMode,
-            blacklist: $this->blacklist,
-        );
-
-        $agent = new OrchestratorAgent(
-            provider: $provider,
-            roleResolver: $this->roleResolver,
-            config: $this->config,
-            projectRoot: $this->workDir,
-            workspacePath: $this->workspacePath,
-            storage: $this->storage,
-            sessionId: $this->sessionId,
-            observer: $this->observer,
-            discovery: $this->discovery,
-            executionPolicy: $executionPolicy,
-            sanitizer: $sanitizer,
-            onRestart: fn() => $this->restartRequested = true,
-        );
-
-        $agent->attach($this->observer);
-
-        $io->newLine();
-
-        try {
-            // Apply context window pruning to history before injection
-            // Use a conservative default — 100K tokens (80% of typical 128K context)
-            if ($history->count() > 0) {
-                $history = $history->fitWithinBudget(100000);
-            }
-
-            $output = $agent->run(new UserMessage($prompt), $history);
-
-            // Persist the intermediate messages from this turn (tool calls + results).
-            // The user message was already saved above. We need to save all the
-            // assistant and tool messages that occurred during the agent loop.
-            if ($output->conversation !== null) {
-                $this->persistTurnMessages($output->conversation, $history->count());
-            }
-
-            // Save final assistant response
-            // Only save if there were no intermediate messages persisted,
-            // or if the final content differs from the last persisted assistant message
-            if ($output->conversation === null) {
-                $this->storage->addMessage($this->sessionId, 'assistant', $output->content);
-            }
-
-            // Display response
-            $io->newLine();
-            $io->writeln('<fg=green>Assistant:</>');
-            $io->writeln($output->content);
-            $io->newLine();
-
-            // Display stats
-            $stats = [];
-            $stats[] = "Iterations: {$output->iterations}";
-            if ($output->usage !== null) {
-                $stats[] = "Tokens: {$output->usage->totalTokens}";
-                $this->storage->updateTokenCount($this->sessionId, $output->usage->totalTokens);
-            }
-            $io->comment(implode(' | ', $stats));
-            $io->newLine();
-        } catch (\Throwable $e) {
-            $io->error("Agent error: {$e->getMessage()}");
-        }
-    }
-
-    /**
-     * Persist the new messages generated during a single agent turn.
-     *
-     * The conversation returned by AbstractAgent::run() contains:
-     * [SystemMessage, ...history messages..., UserMessage, ...new turn messages...]
-     *
-     * We skip the system message and history (already persisted), and the
-     * new user message (already saved before run()). We persist only the
-     * assistant and tool messages generated during this turn's loop.
-     *
-     * @param int $historyCount Number of messages in the injected history
-     *                          (excluding system prompt). Used to calculate
-     *                          the offset where new messages begin.
-     */
-    private function persistTurnMessages(Conversation $conversation, int $historyCount): void
-    {
-        $messages = $conversation->messages();
-
-        // Offset = 1 (system prompt) + historyCount + 1 (user message from this turn)
-        $newMessageStart = 1 + $historyCount + 1;
-
-        for ($i = $newMessageStart; $i < count($messages); $i++) {
-            $msg = $messages[$i];
-            $role = $msg->role();
-
-            match ($role) {
-                Role::Assistant => $this->storage->addMessage(
-                    $this->sessionId,
-                    'assistant',
-                    is_string($msg->content()) ? $msg->content() : (json_encode($msg->content()) ?: ''),
-                    !empty($msg->toolCalls()) ? json_encode(
-                        array_map(fn(ToolCall $tc) => [
-                            'id' => $tc->id,
-                            'name' => $tc->name,
-                            'arguments' => $tc->arguments,
-                        ], $msg->toolCalls()),
-                        JSON_UNESCAPED_SLASHES,
-                    ) : null,
-                ),
-
-                Role::Tool => $this->storage->addMessage(
-                    $this->sessionId,
-                    'tool',
-                    is_string($msg->content()) ? $msg->content() : (json_encode($msg->content()) ?: ''),
-                    null,
-                    $msg->toolCallId(),
-                ),
-
-                // User and System messages in the middle of a turn are unexpected
-                // but harmless — skip them since they're already persisted
-                default => null,
-            };
-        }
-    }
-
     private function createNewSession(SymfonyStyle $io): string
     {
-        $modelString = $this->roleResolver->resolve('orchestrator');
+        $modelString = $this->boot->roleResolver()->resolve('orchestrator');
         $sessionId = $this->storage->createSession('orchestrator', $modelString);
 
         $this->saveSessionFile($sessionId);
@@ -476,7 +260,7 @@ final class RunCommand extends Command
     private function loadOrCreateSession(SymfonyStyle $io): string
     {
         // Check for session file
-        $sessionFile = $this->workspacePath . '/' . self::SESSION_FILE;
+        $sessionFile = $this->boot->workspacePath() . '/' . self::SESSION_FILE;
         if (file_exists($sessionFile)) {
             $fileContent = file_get_contents($sessionFile);
             if ($fileContent !== false) {
@@ -506,7 +290,7 @@ final class RunCommand extends Command
     private function saveSessionFile(?string $sessionId = null): void
     {
         $sessionId = $sessionId ?? $this->sessionId;
-        $sessionFile = $this->workspacePath . '/' . self::SESSION_FILE;
+        $sessionFile = $this->boot->workspacePath() . '/' . self::SESSION_FILE;
         file_put_contents($sessionFile, $sessionId);
     }
 
@@ -566,13 +350,13 @@ final class RunCommand extends Command
     private function showModelInfo(SymfonyStyle $io, string $role = ''): void
     {
         if ($role !== '') {
-            $model = $this->roleResolver->resolve($role);
+            $model = $this->boot->roleResolver()->resolve($role);
             $io->writeln("<fg=gray>{$role}:</> {$model}");
             return;
         }
 
         $io->section('Model Configuration');
-        $roles = $this->roleResolver->toArray();
+        $roles = $this->boot->roleResolver()->toArray();
 
         $rows = [];
         foreach ($roles as $r => $m) {
@@ -594,16 +378,11 @@ final class RunCommand extends Command
     private function runConfigWizard(SymfonyStyle $io): void
     {
         $outputPath = $this->workDir . '/openclaw.json';
-        $wizard = new SetupWizard($io, $this->defaultsLoader);
+        $wizard = new SetupWizard($io, $this->boot->defaultsLoader());
         $saved = $wizard->runAndSave($outputPath);
 
         if ($saved && file_exists($outputPath)) {
-            $this->config = OpenClawConfig::fromFile($outputPath);
-            $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader);
-
-            $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir);
-            $this->workspacePath = $workspaceResolver->resolve();
-
+            $this->boot->reloadConfig($outputPath);
             $io->success('Configuration reloaded. Changes take effect on the next agent run.');
         }
     }
@@ -632,11 +411,11 @@ final class RunCommand extends Command
         $io->section('Current Configuration');
 
         // Primary model
-        $primary = $this->config->getPrimaryModel();
+        $primary = $this->boot->config()->getPrimaryModel();
         $io->writeln('<fg=gray>Primary model:</> ' . ($primary !== '' ? $primary : '<fg=yellow>not set</>'));
 
         // Roles
-        $roles = $this->roleResolver->toArray();
+        $roles = $this->boot->roleResolver()->toArray();
         if (!empty($roles)) {
             $io->newLine();
             $rows = [];
@@ -647,26 +426,9 @@ final class RunCommand extends Command
         }
 
         // Workspace
-        $io->writeln('<fg=gray>Workspace:</> ' . $this->workspacePath);
+        $io->writeln('<fg=gray>Workspace:</> ' . $this->boot->workspacePath());
         $io->writeln('<fg=gray>Project root:</> ' . $this->workDir);
         $io->newLine();
         $io->text('<fg=gray>Use <fg=cyan>/config edit</> to re-run the setup wizard, or <fg=cyan>/config show</> to view raw JSON.</>'); 
-    }
-
-    /**
-     * Build a minimal default config from defaults.json values.
-     */
-    private function buildDefaultConfig(): OpenClawConfig
-    {
-        $defaultModel = $this->defaultsLoader->defaultModel();
-
-        return OpenClawConfig::fromArray([
-            'agents' => [
-                'defaults' => [
-                    'model' => ['primary' => $defaultModel],
-                    'roles' => ['orchestrator' => $defaultModel],
-                ],
-            ],
-        ]);
     }
 }
