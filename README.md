@@ -35,6 +35,8 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - Composer 2.x
 - [Ollama](https://ollama.ai) (recommended for local inference)
 
+Or use **Docker** — no local PHP required. See [Docker](#docker) below.
+
 ## Installation
 
 ```bash
@@ -294,6 +296,113 @@ Coqui has multiple layers of protection:
     }
 }
 ```
+
+## Docker
+
+Run Coqui in a container with zero host dependencies. The Docker setup uses `php:8.4-cli` with all required extensions, Composer, and optional Xdebug/pcov for development and testing.
+
+### Quick Start (Docker)
+
+```bash
+# Build the image
+make build
+
+# Start the interactive REPL
+make run
+```
+
+Pass API keys from your host environment:
+
+```bash
+OPENAI_API_KEY=sk-... make run
+```
+
+Or copy `.env.example` to `.env` and fill in your keys:
+
+```bash
+cp .env.example .env
+```
+
+### Connect to Ollama
+
+Coqui connects to Ollama on your host machine via `host.docker.internal`. Make sure Ollama is running:
+
+```bash
+ollama serve
+```
+
+### Development Mode
+
+Development mode enables Xdebug (step debugging + profiling) and mounts sibling repositories (`php-agents`, `coqui-brave-search`) so Composer path repos resolve inside the container:
+
+```bash
+# Start REPL with Xdebug + path repos
+make dev
+
+# Start Webgrind profiler viewer (background)
+make dev-up
+# Open http://localhost:9002
+
+# Stop Webgrind
+make dev-down
+```
+
+### Running Tests
+
+```bash
+# Run Pest tests
+make test
+
+# Run with code coverage (pcov)
+make test-coverage
+
+# Open a shell in the test container
+make test-shell
+```
+
+### Useful Commands
+
+| Command | Description |
+|---------|-------------|
+| `make run` | Interactive REPL |
+| `make run-launcher` | REPL with crash recovery |
+| `make dev` | REPL with Xdebug + path repos |
+| `make dev-up` | Start Webgrind in background |
+| `make test` | Run Pest tests |
+| `make test-coverage` | Tests with coverage report |
+| `make shell` | Bash shell in container |
+| `make install` | Run `composer install` |
+| `make composer CMD="..."` | Run any Composer command |
+| `make clean` | Remove containers, images, volumes |
+| `make help` | Show all available targets |
+
+### Configuration
+
+Mount your `openclaw.json` config:
+
+```bash
+make run-config CONFIG=openclaw.json
+```
+
+Or pass it directly:
+
+```bash
+docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
+```
+
+### File Overview
+
+| File | Purpose |
+|------|---------|
+| `Dockerfile` | PHP 8.4 CLI + extensions + Composer + Xdebug/pcov (disabled by default) |
+| `compose.yaml` | Base service with workspace volume + host Ollama access |
+| `compose.dev.yaml` | Xdebug, workspace root mount, Webgrind |
+| `compose.test.yaml` | Non-interactive test runner with pcov |
+| `Makefile` | Self-documenting convenience targets |
+| `.env.example` | Environment variable documentation |
+| `conf.d/coqui.ini` | CLI-optimized PHP config (OPcache + JIT) |
+| `conf.d/xdebug.ini` | Xdebug debug + profile config (dev only) |
+| `conf.d/test.ini` | pcov + no OPcache (test only) |
 
 ## Community
 
