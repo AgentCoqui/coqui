@@ -55,7 +55,7 @@ final class RestartTool implements ToolInterface
     }
 
     /**
-     * @return \CarmeloSantana\PHPAgents\Contract\ParameterInterface[]
+     * @return \CarmeloSantana\PHPAgents\Tool\Parameter\Parameter[]
      */
     public function parameters(): array
     {
