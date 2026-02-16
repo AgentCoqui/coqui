@@ -95,6 +95,33 @@ The launcher wraps `bin/coqui` and handles:
 | `--unsafe` | | Disable denied-function checks in ScriptSanitizer (catastrophic blacklist still active) |
 | `--auto-approve` | | Auto-approve all tool executions without prompting (catastrophic blacklist still active) |
 
+### Commands
+
+| Command | Description |
+|---------|-------------|
+| `run` | Start the Coqui REPL (default command) |
+| `setup` | Interactive wizard to create or overwrite `openclaw.json` |
+| `doctor` | Run system health checks and optionally repair issues |
+
+#### Doctor Command
+
+The `doctor` command checks 10 health categories and reports issues:
+
+```bash
+./bin/coqui doctor
+./bin/coqui doctor --repair      # Auto-fix issues where possible
+./bin/coqui doctor --json        # Machine-readable output
+```
+
+| Option | Description |
+|--------|-------------|
+| `--config` | Path to `openclaw.json` config file |
+| `--workdir` | Working directory (default: current directory) |
+| `--repair` | Attempt to auto-fix detected issues |
+| `--json` | Output results as JSON |
+
+**Health checks:** PHP environment, config validation, workspace integrity, database health (including per-session UTF-8 message integrity scans), credentials, provider connectivity, toolkit discovery, skills, launcher, and disk space.
+
 ## REPL Commands
 
 Once inside the Coqui REPL, use slash commands:

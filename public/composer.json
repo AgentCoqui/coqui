@@ -1,0 +1,19 @@
+{
+    "name": "coquibot/coqui-dashboard",
+    "description": "Web dashboard for Coqui — token analytics, session viewer, audit log, config editor",
+    "type": "project",
+    "license": "MIT",
+    "require": {
+        "php": "^8.4",
+        "ext-pdo_sqlite": "*",
+        "bramus/router": "^1.6"
+    },
+    "autoload": {
+        "psr-4": {
+            "CoquiBot\\Dashboard\\": "src/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}
