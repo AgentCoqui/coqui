@@ -30,7 +30,9 @@ require_once __DIR__ . '/vendor/autoload.php';
 
 use CoquiBot\Dashboard\Controller\ApiController;
 use CoquiBot\Dashboard\Controller\ConfigController;
+use CoquiBot\Dashboard\Controller\DocsController;
 use CoquiBot\Dashboard\Controller\FileController;
+use CoquiBot\Dashboard\Controller\WallpaperController;
 use CoquiBot\Dashboard\Service\DashboardQueryService;
 
 // Resolve paths
@@ -78,6 +80,8 @@ $apiController = ($db !== null && $queryService !== null)
 
 $configController = new ConfigController($configPath, $workspacePath);
 $fileController = new FileController($workspacePath);
+$docsController = new DocsController($projectRoot . '/docs');
+$wallpaperController = new WallpaperController($workspacePath);
 
 // Set up router
 $router = new \Bramus\Router\Router();
@@ -179,6 +183,16 @@ $router->get('/api/files/tree', fn() => $fileController->tree());
 $router->get('/api/files/read', fn() => $fileController->readFile());
 $router->put('/api/files/write', fn() => $fileController->writeFile());
 $router->get('/api/files', fn() => $fileController->listFiles());
+
+// Documentation endpoints
+$router->get('/api/docs', fn() => $docsController->list());
+$router->get('/api/docs/([^/]+)', fn(string $name) => $docsController->read($name));
+
+// Wallpaper endpoints
+$router->get('/api/wallpapers', fn() => $wallpaperController->list());
+$router->post('/api/wallpapers', fn() => $wallpaperController->upload());
+$router->get('/api/wallpapers/([^/]+)/file', fn(string $name) => $wallpaperController->serve($name));
+$router->delete('/api/wallpapers/([^/]+)', fn(string $name) => $wallpaperController->delete($name));
 
 // SPA fallback — serve index.html for all non-API routes
 $router->set404(function () {
