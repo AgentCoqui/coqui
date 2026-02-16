@@ -36,6 +36,19 @@
             ]
         },
         {
+            "path": "src/Agent/AgentRunner.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunner",
+            "layer": "agent",
+            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Passes turnId through to execution policies and message persistence for full traceability.",
+            "methods": [
+                "run(string $prompt, string $sessionId, SymfonyStyle $io): bool — runs a single agent turn with turn lifecycle tracking; returns true if restart requested",
+                "createAgent(...): OrchestratorAgent — builds the orchestrator agent with all dependencies",
+                "buildExecutionPolicy(string $sessionId, SymfonyStyle $io, ?string $turnId): ToolExecutionPolicyInterface — creates approval policy with turnId forwarding",
+                "persistTurnMessages(Conversation, int, string, ?string $turnId): void — persists new messages from a turn with turn linkage",
+                "extractToolsUsed(?Conversation): string[] — extracts unique tool names from conversation tool calls"
+            ]
+        },
+        {
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
@@ -59,9 +72,9 @@
             "path": "src/Config/AutoApprovalPolicy.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\AutoApprovalPolicy",
             "layer": "config",
-            "description": "ToolExecutionPolicyInterface implementation. Auto-approves all tool executions except catastrophic blacklist matches. Used when --auto-approve CLI flag is passed. All decisions are logged to the audit_log table.",
+            "description": "ToolExecutionPolicyInterface implementation. Auto-approves all tool executions except catastrophic blacklist matches. Used when --auto-approve CLI flag is passed. All decisions are logged to the audit_log table with turn_id linkage.",
             "methods": [
-                "shouldExecute(string $toolName, array $arguments): true|string — returns true to allow, or denial reason string"
+                "shouldExecute(string $toolName, array $arguments): true|string — returns true to allow, or denial reason string. Forwards turnId to logAudit."
             ]
         },
         {
@@ -110,9 +123,9 @@
             "path": "src/Config/InteractiveApprovalPolicy.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\InteractiveApprovalPolicy",
             "layer": "config",
-            "description": "ToolExecutionPolicyInterface implementation. Prompts user for confirmation on gated tools. Catastrophic blacklist checked first (no prompt — just blocked). Gated tools configured via $gatedTools map (tool name → action list or ['*']).",
+            "description": "ToolExecutionPolicyInterface implementation. Prompts user for confirmation on gated tools. Catastrophic blacklist checked first (no prompt — just blocked). Gated tools configured via $gatedTools map (tool name → action list or ['*']). Forwards turnId to logAudit.",
             "methods": [
-                "shouldExecute(string $toolName, array $arguments): true|string — prompts user, returns true to allow or denial reason"
+                "shouldExecute(string $toolName, array $arguments): true|string — prompts user, returns true to allow or denial reason. Forwards turnId to logAudit."
             ]
         },
         {
@@ -129,7 +142,7 @@
             "path": "src/Config/ScriptSanitizer.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\ScriptSanitizer",
             "layer": "config",
-            "description": "Static analysis of generated PHP code. Blocks dangerous functions (eval, exec, system, passthru, shell_exec, proc_open, etc.) and patterns (backtick execution, privilege escalation, pipe to shell, absolute path writes). In --unsafe mode, only catastrophic patterns are enforced.",
+            "description": "Static analysis of generated PHP code. Blocks dangerous functions (eval, exec, system, passthru, shell_exec, proc_open, etc.) and filesystem write functions (file_put_contents, fwrite, fopen, mkdir, unlink, rename, copy, etc.) to prevent writes to the project root. Also blocks patterns (backtick execution, privilege escalation, pipe to shell). In --unsafe mode, only catastrophic patterns are enforced.",
             "methods": [
                 "validate(string $code): string[] — returns array of issue descriptions (empty means safe)",
                 "isUnsafe(): bool — whether running in unsafe mode"
@@ -261,7 +274,7 @@
             "path": "src/Tool/PhpExecuteTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\PhpExecuteTool",
             "layer": "tool",
-            "description": "Executes generated PHP code in a sandboxed subprocess. cwd is workspace, open_basedir restricts filesystem access to workspace (read/write) and project root (read-only). Auto-prepends bootstrap preamble (strict_types, project + workspace autoloaders, .env loader). Output truncated to 32KB. Security: ScriptSanitizer (static check) + open_basedir (runtime restriction) + InteractiveApprovalPolicy (user confirmation) + timeout.",
+            "description": "Executes generated PHP code in a sandboxed subprocess. cwd is workspace, open_basedir restricts filesystem access. ScriptSanitizer blocks filesystem write functions (file_put_contents, fwrite, mkdir, unlink, etc.) at the static analysis level before code runs, preventing writes to the project root. Auto-prepends bootstrap preamble (strict_types, project + workspace autoloaders, .env loader). Output truncated to 32KB. Security: ScriptSanitizer (static check) + open_basedir (runtime restriction) + InteractiveApprovalPolicy (user confirmation) + timeout.",
             "methods": [
                 "execute(array $input): ToolResult — sanitizes code, writes to temp file, runs via proc_open"
             ]
@@ -279,11 +292,12 @@
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",
-            "description": "Spawns child agents with role-specific models and toolkits. Creates a ChildAgent, attaches observer, runs it with the task prompt, and returns the result. Logs child runs to SessionStorage. The orchestrator uses this to delegate work to Claude (coder), GPT-4 (reviewer), etc.",
+            "description": "Spawns child agents with role-specific models and toolkits. Creates a ChildAgent, attaches observer, runs it with the task prompt, and returns the result. Logs child runs to SessionStorage. Tracks child run count per turn. The orchestrator uses this to delegate work to Claude (coder), GPT-4 (reviewer), etc.",
             "methods": [
                 "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
                 "buildToolkits(string $role): ToolkitInterface[] — returns role-specific toolkit set",
-                "setCurrentIteration(int $iteration): void — tracks parent iteration for logging"
+                "setCurrentIteration(int $iteration): void — tracks parent iteration for logging",
+                "getChildRunCount(): int — returns number of child agents spawned during this turn"
             ]
         },
         {
@@ -320,16 +334,20 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages (rebuilds Conversation objects), logging child runs, audit logging, and token count tracking.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages (rebuilds Conversation objects), logging child runs, audit logging, token count tracking, and turn lifecycle management (createTurn, completeTurn, getTurns, getTurnWithMessages). Idempotent migrations add turn_id FK columns to messages and audit_log tables.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
                 "listSessions(int $limit): array — lists recent sessions",
                 "getSession(string $id): ?array — retrieves session details",
-                "addMessage(string $sessionId, ...): string — persists a message",
+                "addMessage(string $sessionId, ..., ?string $turnId): string — persists a message with optional turn linkage",
                 "loadConversation(string $sessionId): Conversation — rebuilds full conversation history",
                 "logChildRun(...): string — logs a child agent execution",
-                "logAudit(...): string — logs a tool execution decision (approved/denied/blocked)",
-                "getLatestSessionId(): ?string — returns most recent session ID for auto-resume"
+                "logAudit(..., ?string $turnId): string — logs a tool execution decision with optional turn linkage",
+                "getLatestSessionId(): ?string — returns most recent session ID for auto-resume",
+                "createTurn(string $sessionId, string $userPrompt, ?string $model): string — creates a turn record, returns ID",
+                "completeTurn(string $turnId, ...): void — updates turn with response, tokens, duration, tools used",
+                "getTurns(string $sessionId, int $limit): array — returns turns ordered by turn_number ASC",
+                "getTurnWithMessages(string $turnId): ?array — returns turn with nested messages"
             ]
         }
     ],
