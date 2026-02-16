@@ -39,11 +39,11 @@
             "path": "src/Agent/AgentRunner.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunner",
             "layer": "agent",
-            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Passes turnId through to execution policies and message persistence for full traceability.",
+            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Supports per-turn observer injection via runWithObserver() for API mode where each request gets its own SseObserver.",
             "methods": [
-                "run(string $prompt, string $sessionId, SymfonyStyle $io): bool — runs a single agent turn with turn lifecycle tracking; returns true if restart requested",
-                "createAgent(...): OrchestratorAgent — builds the orchestrator agent with all dependencies",
-                "buildExecutionPolicy(string $sessionId, SymfonyStyle $io, ?string $turnId): ToolExecutionPolicyInterface — creates approval policy with turnId forwarding",
+                "run(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy): AgentTurnResult — runs a single agent turn using the default observer",
+                "runWithObserver(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy, SplObserver $observer): AgentTurnResult — runs a turn with a per-turn observer override",
+                "createAgent(..., ?SplObserver $observer): OrchestratorAgent — builds the orchestrator agent with all dependencies",
                 "persistTurnMessages(Conversation, int, string, ?string $turnId): void — persists new messages from a turn with turn linkage",
                 "extractToolsUsed(?Conversation): string[] — extracts unique tool names from conversation tool calls"
             ]
@@ -421,6 +421,191 @@
             "methods": [
                 "update(SplSubject $subject): void — dispatches agent events to terminal rendering",
                 "handleEvent(string $event, mixed $data): void — direct event handling for child spawn notifications"
+            ]
+        },
+        {
+            "path": "src/Observer/NullObserver.php",
+            "fqcn": "CoquiBot\\Coqui\\Observer\\NullObserver",
+            "layer": "observer",
+            "description": "No-op SplObserver for headless and API modes where terminal rendering is not desired. Silently discards all events.",
+            "methods": [
+                "update(SplSubject $subject): void — no-op"
+            ]
+        },
+        {
+            "path": "src/Observer/SseObserver.php",
+            "fqcn": "CoquiBot\\Coqui\\Observer\\SseObserver",
+            "layer": "observer",
+            "description": "SplObserver implementation that writes agent events as Server-Sent Events to a ReactPHP WritableStreamInterface. Maps agent events to SSE event types: agent.start→agent_start, agent.iteration→iteration, agent.tool_call→tool_call, agent.tool_result→tool_result, agent.done→done, agent.error→error, child.start→child_start, child.end→child_end. Includes writeComplete() for the final result event.",
+            "methods": [
+                "update(SplSubject $subject): void — dispatches agent events as SSE",
+                "handleEvent(string $event, mixed $data): void — writes a single SSE event to the stream",
+                "writeComplete(array $result): void — writes the final complete SSE event with turn result"
+            ]
+        },
+        {
+            "path": "src/Contract/AgentTurnResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\AgentTurnResult",
+            "layer": "contract",
+            "description": "Immutable value object returned by AgentRunner::run(). Contains all turn data: content, token counts, duration, tools used, child agent count, restart flag, and optional error. Has toArray() for JSON serialization and statsSummary() for display.",
+            "methods": [
+                "toArray(): array — serializes to associative array for JSON responses",
+                "statsSummary(): string — formatted stats string for terminal display"
+            ]
+        },
+        {
+            "path": "src/Contract/OutputRendererInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\OutputRendererInterface",
+            "layer": "contract",
+            "description": "Interface separating result rendering from agent execution. Implementations render AgentTurnResult to terminal (TerminalRenderer), JSON (JsonRenderer), or nowhere (NullRenderer).",
+            "methods": [
+                "render(AgentTurnResult $result): void — render a successful turn result",
+                "renderError(string $message): void — render an error message"
+            ]
+        },
+        {
+            "path": "src/Renderer/TerminalRenderer.php",
+            "fqcn": "CoquiBot\\Coqui\\Renderer\\TerminalRenderer",
+            "layer": "observer",
+            "description": "OutputRendererInterface implementation that renders AgentTurnResult to SymfonyStyle terminal output. Shows 'Assistant:' header, content, and stats summary.",
+            "methods": [
+                "render(AgentTurnResult $result): void",
+                "renderError(string $message): void"
+            ]
+        },
+        {
+            "path": "src/Renderer/JsonRenderer.php",
+            "fqcn": "CoquiBot\\Coqui\\Renderer\\JsonRenderer",
+            "layer": "observer",
+            "description": "OutputRendererInterface implementation that renders AgentTurnResult as JSON to stdout. Used in --no-terminal --format json mode.",
+            "methods": [
+                "render(AgentTurnResult $result): void",
+                "renderError(string $message): void"
+            ]
+        },
+        {
+            "path": "src/Renderer/NullRenderer.php",
+            "fqcn": "CoquiBot\\Coqui\\Renderer\\NullRenderer",
+            "layer": "observer",
+            "description": "OutputRendererInterface implementation that discards output. Used in API mode where SSE handles streaming.",
+            "methods": [
+                "render(AgentTurnResult $result): void — no-op",
+                "renderError(string $message): void — no-op"
+            ]
+        },
+        {
+            "path": "src/Api/AgentFiberExecutor.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\AgentFiberExecutor",
+            "layer": "agent",
+            "description": "Manages Fiber-based agent execution for the API server. Each prompt submission runs inside a PHP Fiber via AgentRunner::runWithObserver(), with an SseObserver injected per request. Tracks active sessions to prevent concurrent runs on the same session.",
+            "methods": [
+                "execute(string $sessionId, string $prompt): ThroughStream — runs agent in Fiber, returns SSE stream",
+                "activeCount(): int — number of currently running Fibers",
+                "isActive(string $sessionId): bool — whether a session has an active agent run"
+            ]
+        },
+        {
+            "path": "src/Api/Router.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Router",
+            "layer": "config",
+            "description": "Pattern-matching HTTP router for ReactPHP. Supports {param} path parameters via regex. Provides convenience methods (get, post, put, delete), middleware chain support, and a static jsonResponse() helper.",
+            "methods": [
+                "addRoute(string $method, string $path, callable $handler): void",
+                "get/post/put/delete(string $path, callable $handler): void — convenience methods",
+                "setMiddleware(array $middleware): void — set middleware chain",
+                "dispatch(ServerRequestInterface $request): Response"
+            ]
+        },
+        {
+            "path": "src/Api/Middleware/AuthMiddleware.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Middleware\\AuthMiddleware",
+            "layer": "config",
+            "description": "Bearer token API key authentication middleware. Skips auth for OPTIONS and /api/health. Uses hash_equals for timing-safe comparison.",
+            "methods": [
+                "__invoke(ServerRequestInterface $request, callable $next): Response"
+            ]
+        },
+        {
+            "path": "src/Api/Middleware/CorsMiddleware.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Middleware\\CorsMiddleware",
+            "layer": "config",
+            "description": "CORS middleware with configurable allowed origins. Handles OPTIONS preflight (204) and adds CORS headers to all responses.",
+            "methods": [
+                "__invoke(ServerRequestInterface $request, callable $next): Response"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/HealthHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\HealthHandler",
+            "layer": "command",
+            "description": "GET /api/health — liveness check returning status, version, uptime, and active session count.",
+            "methods": [
+                "__invoke(ServerRequestInterface $request): Response"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/SessionHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SessionHandler",
+            "layer": "command",
+            "description": "Session CRUD endpoints: GET /api/sessions (list), POST /api/sessions (create), GET /api/sessions/{id} (detail), DELETE /api/sessions/{id} (delete).",
+            "methods": [
+                "list(request): Response",
+                "create(request): Response",
+                "get(request, id): Response",
+                "delete(request, id): Response"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/MessageHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\MessageHandler",
+            "layer": "command",
+            "description": "Message endpoints including the core SSE streaming endpoint. GET /api/sessions/{id}/messages (list), POST /api/sessions/{id}/messages (send prompt — SSE stream by default, JSON with ?stream=false). Prevents concurrent runs on the same session.",
+            "methods": [
+                "list(request, id): Response",
+                "send(request, id): Response — SSE stream or blocking JSON"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/TurnHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\TurnHandler",
+            "layer": "command",
+            "description": "Turn inspection endpoints: GET /api/sessions/{id}/turns (list), GET /api/sessions/{id}/turns/{turnId} (detail with messages).",
+            "methods": [
+                "list(request, id): Response",
+                "get(request, id, turnId): Response"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/ConfigHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ConfigHandler",
+            "layer": "command",
+            "description": "Configuration endpoints: GET /api/config (sanitized config with apiKeys masked), GET /api/config/roles (role→model mappings), GET /api/config/models (available models with metadata).",
+            "methods": [
+                "get(request): Response",
+                "roles(request): Response",
+                "models(request): Response"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/CredentialHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\CredentialHandler",
+            "layer": "command",
+            "description": "Credential management endpoints: GET /api/credentials (list keys, values hidden), POST /api/credentials (set credential), DELETE /api/credentials/{key} (delete).",
+            "methods": [
+                "list(request): Response",
+                "set(request): Response",
+                "delete(request, key): Response"
+            ]
+        },
+        {
+            "path": "src/Command/ApiCommand.php",
+            "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
+            "layer": "command",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly (no SymfonyStyle), creates all handlers, configures CORS and optional API key auth, and enters the ReactPHP event loop. Supports --port, --host, --config, --workdir, --unsafe, --cors-origin flags.",
+            "methods": [
+                "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
+                "registerRoutes(Router, ...handlers): void — registers all API routes",
+                "resolveApiKey(BootManager): ?string — resolves API key from config/env/workspace"
             ]
         },
         {
