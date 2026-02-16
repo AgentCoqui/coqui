@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coqui Dashboard</title>
+
+    <!-- Theme -->
+    <link rel="stylesheet" href="/css/theme.css">
+
+    <!-- highlight.js (code syntax highlighting) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/php.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/json.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/bash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/sql.min.js"></script>
+
+    <!-- marked.js (Markdown rendering) -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@15.0.12/marked.min.js"></script>
+
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"></script>
+
+    <!-- Monaco Editor AMD loader -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs/loader.min.js"></script>
+
+    <!-- Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.14.9/dist/cdn.min.js"></script>
+
+    <!-- App JS -->
+    <script src="/js/app.js"></script>
+    <script src="/js/charts.js"></script>
+    <script src="/js/editor.js"></script>
+    <script src="/js/session.js"></script>
+</head>
+<body x-data="app" x-init="init()">
+
+    <div class="app-layout">
+        <!-- =============================== Sidebar =============================== -->
+        <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }">
+            <div class="sidebar-header">
+                <svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                </svg>
+                <span class="title" x-show="!sidebarCollapsed">Coqui</span>
+            </div>
+
+            <nav class="sidebar-content">
+                <div class="nav-group">
+                    <div class="nav-group-label" x-show="!sidebarCollapsed">Navigation</div>
+
+                    <button class="nav-item" :class="{ active: currentView === 'dashboard' }"
+                            @click="navigate('dashboard')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                            <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+                        </svg>
+                        <span x-show="!sidebarCollapsed">Dashboard</span>
+                    </button>
+
+                    <button class="nav-item" :class="{ active: currentView === 'sessions' }"
+                            @click="navigate('sessions')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        <span x-show="!sidebarCollapsed">Sessions</span>
+                    </button>
+
+                    <button class="nav-item" :class="{ active: currentView === 'audit' }"
+                            @click="navigate('audit')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        </svg>
+                        <span x-show="!sidebarCollapsed">Audit Log</span>
+                    </button>
+
+                    <button class="nav-item" :class="{ active: currentView === 'settings' }"
+                            @click="navigate('settings')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                        <span x-show="!sidebarCollapsed">Settings</span>
+                    </button>
+
+                    <button class="nav-item" :class="{ active: currentView === 'files' }"
+                            @click="navigate('files')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                        </svg>
+                        <span x-show="!sidebarCollapsed">Workspace</span>
+                    </button>
+                </div>
+            </nav>
+
+            <div class="sidebar-footer" x-show="!sidebarCollapsed">
+                <span class="text-xs text-muted">Coqui Dashboard v0.1.0</span>
+            </div>
+        </aside>
+
+        <!-- =============================== Main =============================== -->
+        <main class="main-content">
+            <!-- Top bar -->
+            <header class="top-bar">
+                <div class="top-bar-left">
+                    <button class="btn btn-ghost btn-icon" @click="sidebarCollapsed = !sidebarCollapsed">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="3" y1="12" x2="21" y2="12"/>
+                            <line x1="3" y1="6" x2="21" y2="6"/>
+                            <line x1="3" y1="18" x2="21" y2="18"/>
+                        </svg>
+                    </button>
+                    <div class="breadcrumb">
+                        <span>Coqui</span>
+                        <span class="breadcrumb-separator">/</span>
+                        <span class="breadcrumb-current" x-text="viewTitle"></span>
+                    </div>
+                </div>
+                <div class="top-bar-right">
+                    <span class="text-xs text-muted" x-text="connectionStatus"></span>
+                </div>
+            </header>
+
+            <!-- Content area — views are toggled via Alpine.js -->
+            <div class="content-area">
+
+                <!-- ==================== Dashboard View ==================== -->
+                <div x-show="currentView === 'dashboard'" x-data="dashboardView" x-init="load()">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2>Dashboard</h2>
+                        <div class="period-selector">
+                            <template x-for="p in periods" :key="p.value">
+                                <button class="period-btn" :class="{ active: period === p.value }"
+                                        @click="period = p.value; load()" x-text="p.label"></button>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Stat cards -->
+                    <div class="grid grid-4 mb-4">
+                        <div class="card stat-card">
+                            <div class="card-header"><span class="card-title">Total Sessions</span></div>
+                            <div class="card-content"><div class="stat-value" x-text="stats.total_sessions ?? '—'"></div></div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="card-header"><span class="card-title">Total Tokens</span></div>
+                            <div class="card-content"><div class="stat-value" x-text="formatNumber(stats.total_tokens)"></div></div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="card-header"><span class="card-title">Total Turns</span></div>
+                            <div class="card-content"><div class="stat-value" x-text="stats.total_turns ?? '—'"></div></div>
+                        </div>
+                        <div class="card stat-card">
+                            <div class="card-header"><span class="card-title">Avg Latency</span></div>
+                            <div class="card-content"><div class="stat-value" x-text="formatLatency(stats.avg_latency_ms)"></div></div>
+                        </div>
+                    </div>
+
+                    <!-- Charts row -->
+                    <div class="grid grid-2 mb-4">
+                        <div class="card">
+                            <div class="card-header"><span class="card-title">Token Usage Over Time</span></div>
+                            <div class="card-content">
+                                <div class="chart-container">
+                                    <canvas id="tokenChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header"><span class="card-title">Tool Usage</span></div>
+                            <div class="card-content">
+                                <div class="chart-container">
+                                    <canvas id="toolChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Model breakdown table -->
+                    <div class="card">
+                        <div class="card-header"><span class="card-title">Model Usage</span></div>
+                        <div class="card-content">
+                            <div class="table-container" x-show="models.length > 0">
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th>Model</th>
+                                            <th class="text-right">Turns</th>
+                                            <th class="text-right">Tokens</th>
+                                            <th class="text-right">Avg Latency</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="m in models" :key="m.model">
+                                            <tr>
+                                                <td><code class="text-sm" x-text="m.model"></code></td>
+                                                <td class="text-right" x-text="m.turn_count"></td>
+                                                <td class="text-right" x-text="formatNumber(m.total_tokens)"></td>
+                                                <td class="text-right" x-text="formatLatency(m.avg_duration_ms)"></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="empty-state" x-show="models.length === 0">
+                                <p>No model usage data yet</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==================== Sessions View ==================== -->
+                <div x-show="currentView === 'sessions'" x-data="sessionsView" x-init="load()">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2>Sessions</h2>
+                    </div>
+
+                    <div class="split-pane" style="height: calc(100vh - 10rem);">
+                        <!-- Session list -->
+                        <div class="split-left">
+                            <div style="padding: 0.75rem;">
+                                <input type="text" class="input" placeholder="Search sessions..."
+                                       x-model="searchQuery" @input.debounce.300ms="filterSessions()">
+                            </div>
+                            <div style="overflow-y: auto;">
+                                <template x-for="s in filteredSessions" :key="s.id">
+                                    <div class="nav-item" :class="{ active: selectedSession?.id === s.id }"
+                                         @click="selectSession(s.id)" style="flex-direction: column; align-items: flex-start; gap: 0.25rem;">
+                                        <div class="flex items-center justify-between" style="width: 100%;">
+                                            <span class="text-sm truncate" style="max-width: 10rem;" x-text="s.id.substring(0, 12) + '...'"></span>
+                                            <span class="badge badge-default" x-text="s.turn_count + ' turns'"></span>
+                                        </div>
+                                        <div class="text-xs text-muted">
+                                            <span x-text="formatDate(s.updated_at)"></span>
+                                            · <span x-text="formatNumber(s.token_count) + ' tokens'"></span>
+                                        </div>
+                                    </div>
+                                </template>
+                                <div class="empty-state" x-show="filteredSessions.length === 0">
+                                    <p class="text-sm">No sessions found</p>
+                                </div>
+                            </div>
+                            <!-- Pagination -->
+                            <div class="pagination" style="padding: 0.5rem 0.75rem;" x-show="totalPages > 1">
+                                <button class="btn btn-ghost btn-sm" @click="prevPage()" :disabled="page <= 1">← Prev</button>
+                                <span class="text-xs" x-text="'Page ' + page + ' of ' + totalPages"></span>
+                                <button class="btn btn-ghost btn-sm" @click="nextPage()" :disabled="page >= totalPages">Next →</button>
+                            </div>
+                        </div>
+
+                        <!-- Session detail -->
+                        <div class="split-right" style="padding: 1rem;">
+                            <div x-show="!selectedSession" class="empty-state" style="height: 100%;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                                </svg>
+                                <p>Select a session to view details</p>
+                            </div>
+
+                            <div x-show="selectedSession">
+                                <!-- Session header -->
+                                <div class="flex items-center justify-between mb-4">
+                                    <div>
+                                        <h3 x-text="'Session ' + (selectedSession?.id?.substring(0, 12) ?? '') + '...'"></h3>
+                                        <p class="text-sm text-muted" x-text="selectedSession?.model"></p>
+                                    </div>
+                                    <div class="flex gap-2">
+                                        <span class="badge badge-info" x-text="(selectedSession?.turn_count ?? 0) + ' turns'"></span>
+                                        <span class="badge badge-default" x-text="formatNumber(selectedSession?.token_count ?? 0) + ' tokens'"></span>
+                                    </div>
+                                </div>
+
+                                <!-- Turns timeline -->
+                                <div class="timeline">
+                                    <template x-for="turn in turns" :key="turn.id">
+                                        <div class="timeline-item" :class="{ active: expandedTurn === turn.id }">
+                                            <div class="card" style="margin-bottom: 0.75rem; cursor: pointer;" @click="toggleTurn(turn.id)">
+                                                <div class="card-header">
+                                                    <div class="flex items-center justify-between">
+                                                        <span class="card-title" x-text="'Turn ' + turn.turn_number"></span>
+                                                        <div class="flex gap-2">
+                                                            <span class="badge badge-default" x-text="formatNumber(turn.total_tokens) + ' tok'"></span>
+                                                            <span class="badge badge-default" x-text="formatLatency(turn.duration_ms)"></span>
+                                                        </div>
+                                                    </div>
+                                                    <p class="card-description truncate" x-text="turn.user_prompt"></p>
+                                                </div>
+
+                                                <!-- Expanded content -->
+                                                <div class="card-content" x-show="expandedTurn === turn.id" x-collapse>
+                                                    <div class="flex gap-2 mb-2" style="flex-wrap: wrap;">
+                                                        <span class="badge badge-info" x-text="turn.model || 'unknown'"></span>
+                                                        <span class="badge badge-default" x-text="turn.iterations + ' iterations'"></span>
+                                                        <template x-if="turn.child_agent_count > 0">
+                                                            <span class="badge badge-warning" x-text="turn.child_agent_count + ' child agents'"></span>
+                                                        </template>
+                                                    </div>
+
+                                                    <!-- Tools used -->
+                                                    <template x-if="turn.tools_used">
+                                                        <div class="mb-2">
+                                                            <span class="text-xs text-muted font-medium">Tools:</span>
+                                                            <div class="flex gap-1 mt-1" style="flex-wrap: wrap;">
+                                                                <template x-for="tool in parseTools(turn.tools_used)" :key="tool">
+                                                                    <span class="badge badge-success" x-text="tool"></span>
+                                                                </template>
+                                                            </div>
+                                                        </div>
+                                                    </template>
+
+                                                    <!-- Token breakdown -->
+                                                    <div class="text-xs text-muted mt-2">
+                                                        <span>Prompt: <strong x-text="formatNumber(turn.prompt_tokens)"></strong></span>
+                                                        <span> · Completion: <strong x-text="formatNumber(turn.completion_tokens)"></strong></span>
+                                                        <span> · Total: <strong x-text="formatNumber(turn.total_tokens)"></strong></span>
+                                                    </div>
+
+                                                    <!-- Response -->
+                                                    <template x-if="turn.response_text">
+                                                        <div class="mt-3">
+                                                            <span class="text-xs text-muted font-medium">Response:</span>
+                                                            <div class="markdown-content mt-1" x-html="renderMarkdown(turn.response_text)"></div>
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <div class="empty-state" x-show="turns.length === 0">
+                                    <p class="text-sm">No turns in this session</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==================== Audit Log View ==================== -->
+                <div x-show="currentView === 'audit'" x-data="auditView" x-init="load()">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2>Audit Log</h2>
+                        <button class="btn btn-secondary btn-sm" @click="exportJson()">Export JSON</button>
+                    </div>
+
+                    <!-- Filters -->
+                    <div class="filter-bar mb-4">
+                        <select class="input" style="width: auto;" x-model="filterAction" @change="load()">
+                            <option value="">All Actions</option>
+                            <option value="approved">Approved</option>
+                            <option value="denied">Denied</option>
+                            <option value="blocked">Blocked</option>
+                        </select>
+                        <select class="input" style="width: auto;" x-model="filterTool" @change="load()">
+                            <option value="">All Tools</option>
+                            <template x-for="t in availableTools" :key="t">
+                                <option :value="t" x-text="t"></option>
+                            </template>
+                        </select>
+                        <div class="period-selector">
+                            <template x-for="p in periods" :key="p.value">
+                                <button class="period-btn" :class="{ active: period === p.value }"
+                                        @click="period = p.value; load()" x-text="p.label"></button>
+                            </template>
+                        </div>
+                    </div>
+
+                    <!-- Table -->
+                    <div class="card">
+                        <div class="table-container">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Timestamp</th>
+                                        <th>Tool</th>
+                                        <th>Action</th>
+                                        <th>Arguments</th>
+                                        <th>Reason</th>
+                                        <th>Session</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <template x-for="entry in entries" :key="entry.id">
+                                        <tr>
+                                            <td class="text-xs text-muted text-mono" x-text="formatDate(entry.created_at)"></td>
+                                            <td><code class="text-sm" x-text="entry.tool_name"></code></td>
+                                            <td>
+                                                <span class="badge"
+                                                      :class="actionBadgeClass(entry.action)"
+                                                      x-text="entry.action"></span>
+                                            </td>
+                                            <td class="text-xs text-mono truncate" style="max-width: 20rem;"
+                                                :title="entry.arguments"
+                                                x-text="truncateArgs(entry.arguments)"></td>
+                                            <td class="text-xs text-muted" x-text="entry.reason || '—'"></td>
+                                            <td class="text-xs text-mono">
+                                                <a href="#" @click.prevent="$dispatch('navigate-session', entry.session_id)"
+                                                   x-text="entry.session_id ? entry.session_id.substring(0, 8) + '...' : '—'"></a>
+                                            </td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <div class="empty-state" x-show="entries.length === 0">
+                            <p>No audit entries found</p>
+                        </div>
+
+                        <!-- Pagination -->
+                        <div class="pagination" style="padding: 0.75rem 1rem;" x-show="totalPages > 1">
+                            <span class="text-xs" x-text="'Showing ' + entries.length + ' of ' + total"></span>
+                            <div class="pagination-buttons">
+                                <button class="btn btn-ghost btn-sm" @click="page--; load()" :disabled="page <= 1">← Prev</button>
+                                <span class="text-xs" style="padding: 0.25rem 0.5rem;" x-text="page + ' / ' + totalPages"></span>
+                                <button class="btn btn-ghost btn-sm" @click="page++; load()" :disabled="page >= totalPages">Next →</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==================== Settings View ==================== -->
+                <div x-show="currentView === 'settings'" x-data="settingsView" x-init="load()">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2>Settings</h2>
+                    </div>
+
+                    <!-- Tabs -->
+                    <div class="tabs mb-4">
+                        <button class="tab" :class="{ active: tab === 'config' }" @click="tab = 'config'">Config Editor</button>
+                        <button class="tab" :class="{ active: tab === 'credentials' }" @click="tab = 'credentials'">Credentials</button>
+                        <button class="tab" :class="{ active: tab === 'env' }" @click="tab = 'env'; loadEnv()">Env Editor</button>
+                    </div>
+
+                    <!-- Config tab -->
+                    <div x-show="tab === 'config'">
+                        <div class="card">
+                            <div class="editor-toolbar">
+                                <span x-text="configPath || 'openclaw.json'"></span>
+                                <div class="flex gap-2">
+                                    <span class="text-xs text-muted" x-show="configDirty">Unsaved changes</span>
+                                    <button class="btn btn-primary btn-sm" @click="saveConfig()" :disabled="!configDirty">Save</button>
+                                </div>
+                            </div>
+                            <div class="editor-container" id="configEditor" style="height: 500px;"></div>
+                        </div>
+                    </div>
+
+                    <!-- Credentials tab -->
+                    <div x-show="tab === 'credentials'">
+                        <div class="card mb-4">
+                            <div class="card-header">
+                                <span class="card-title">Credential Keys</span>
+                                <span class="card-description">Manage API keys and secrets stored in .workspace/.env</span>
+                            </div>
+                            <div class="card-content">
+                                <div class="table-container" x-show="credentials.length > 0">
+                                    <table>
+                                        <thead>
+                                            <tr>
+                                                <th>Key</th>
+                                                <th>Status</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template x-for="cred in credentials" :key="cred.key">
+                                                <tr>
+                                                    <td><code class="text-sm" x-text="cred.key"></code></td>
+                                                    <td><span class="badge badge-success">Set</span></td>
+                                                    <td class="text-right">
+                                                        <button class="btn btn-ghost btn-sm" @click="deleteCredential(cred.key)">Delete</button>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <div class="empty-state" x-show="credentials.length === 0">
+                                    <p>No credentials configured</p>
+                                </div>
+
+                                <!-- Add credential form -->
+                                <div class="mt-4 flex gap-2">
+                                    <input type="text" class="input" placeholder="KEY_NAME" x-model="newCredKey" style="width: 12rem;">
+                                    <input type="password" class="input" placeholder="Value" x-model="newCredValue" style="flex: 1;">
+                                    <button class="btn btn-primary btn-sm" @click="addCredential()" :disabled="!newCredKey || !newCredValue">Add</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Env editor tab -->
+                    <div x-show="tab === 'env'">
+                        <div class="card">
+                            <div class="editor-toolbar">
+                                <span>.workspace/.env</span>
+                                <div class="flex gap-2">
+                                    <span class="text-xs text-muted" x-show="envDirty">Unsaved changes</span>
+                                    <button class="btn btn-primary btn-sm" @click="saveEnv()" :disabled="!envDirty">Save</button>
+                                </div>
+                            </div>
+                            <div class="editor-container" id="envEditor" style="height: 400px;"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ==================== Files View ==================== -->
+                <div x-show="currentView === 'files'" x-data="filesView" x-init="load()">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2>Workspace Files</h2>
+                        <span class="text-sm text-muted">.workspace/</span>
+                    </div>
+
+                    <div class="split-pane" style="height: calc(100vh - 10rem);">
+                        <!-- File tree -->
+                        <div class="split-left">
+                            <div class="file-tree" style="padding: 0.5rem 0;">
+                                <template x-if="tree.length > 0">
+                                    <template x-for="node in tree" :key="node.path">
+                                        <div x-data="{ expanded: false }">
+                                            <div class="file-tree-item"
+                                                 :class="{ selected: selectedFile === node.path }"
+                                                 @click="node.type === 'directory' ? expanded = !expanded : openFile(node.path)">
+                                                <!-- Icon -->
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" x-show="node.type === 'directory'" style="color: hsl(var(--chart-3));">
+                                                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                                </svg>
+                                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" x-show="node.type === 'file'">
+                                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                                                </svg>
+                                                <span x-text="node.name"></span>
+                                            </div>
+                                            <!-- Children (recursive) -->
+                                            <div x-show="expanded && node.children" style="padding-left: 1rem;">
+                                                <template x-for="child in node.children || []" :key="child.path">
+                                                    <div x-data="{ childExpanded: false }">
+                                                        <div class="file-tree-item"
+                                                             :class="{ selected: selectedFile === child.path }"
+                                                             @click="child.type === 'directory' ? childExpanded = !childExpanded : openFile(child.path)">
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" x-show="child.type === 'directory'" style="color: hsl(var(--chart-3));">
+                                                                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                                            </svg>
+                                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" x-show="child.type === 'file'">
+                                                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                                                            </svg>
+                                                            <span x-text="child.name"></span>
+                                                        </div>
+                                                        <div x-show="childExpanded && child.children" style="padding-left: 1rem;">
+                                                            <template x-for="gc in child.children || []" :key="gc.path">
+                                                                <div class="file-tree-item"
+                                                                     :class="{ selected: selectedFile === gc.path }"
+                                                                     @click="gc.type === 'file' ? openFile(gc.path) : null">
+                                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" x-show="gc.type === 'directory'" style="color: hsl(var(--chart-3));">
+                                                                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                                                                    </svg>
+                                                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" x-show="gc.type === 'file'">
+                                                                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                                                                    </svg>
+                                                                    <span x-text="gc.name"></span>
+                                                                </div>
+                                                            </template>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </template>
+
+                                <div class="empty-state" x-show="tree.length === 0">
+                                    <p class="text-sm">Workspace is empty</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- File content -->
+                        <div class="split-right">
+                            <div x-show="!selectedFile" class="empty-state" style="height: 100%;">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                                </svg>
+                                <p>Select a file to view</p>
+                            </div>
+
+                            <div x-show="selectedFile">
+                                <div class="editor-toolbar">
+                                    <span x-text="selectedFile"></span>
+                                    <div class="flex gap-2">
+                                        <span class="text-xs text-muted" x-text="fileInfo.language || ''"></span>
+                                        <span class="text-xs text-muted" x-show="fileDirty">Unsaved changes</span>
+                                        <button class="btn btn-primary btn-sm" @click="saveFile()" :disabled="!fileDirty">Save</button>
+                                    </div>
+                                </div>
+                                <!-- Binary file info -->
+                                <div x-show="fileInfo.binary" class="empty-state" style="padding: 3rem;">
+                                    <p>Binary file (<span x-text="formatBytes(fileInfo.size)"></span>)</p>
+                                </div>
+                                <!-- Editor -->
+                                <div x-show="!fileInfo.binary" class="editor-container" id="fileEditor" style="height: calc(100vh - 14rem);"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Status bar -->
+            <footer class="status-bar">
+                <span x-text="'Workspace: ' + workspacePath"></span>
+                <span x-text="connectionStatus"></span>
+            </footer>
+        </main>
+    </div>
+
+</body>
+</html>

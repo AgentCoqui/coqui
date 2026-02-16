@@ -18,12 +18,75 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_DIR="$(dirname "${SCRIPT_DIR}")"
 COQUI_BIN="${SCRIPT_DIR}/coqui"
 
 readonly RESTART_EXIT_CODE=10
 readonly MAX_CRASHES=3
+readonly GUI_DEFAULT_PORT=8080
 
 crash_count=0
+
+# ─── GUI Mode ────────────────────────────────────────────────────────────────
+# Usage: ./bin/coqui-launcher --gui [--port 8080]
+#
+# Starts the Coqui Dashboard on PHP's built-in server.
+# Ctrl+C to stop.
+
+gui_mode=false
+gui_port=$GUI_DEFAULT_PORT
+remaining_args=()
+
+for arg in "$@"; do
+    case $arg in
+        --gui)
+            gui_mode=true
+            ;;
+        --port)
+            shift_next=true
+            ;;
+        *)
+            if [ "${shift_next:-false}" = true ]; then
+                gui_port="$arg"
+                shift_next=false
+            else
+                remaining_args+=("$arg")
+            fi
+            ;;
+    esac
+done
+
+if [ "$gui_mode" = true ]; then
+    PUBLIC_DIR="${PROJECT_DIR}/public"
+    if [ ! -f "${PUBLIC_DIR}/router.php" ]; then
+        echo "Error: public/router.php not found. Run 'cd public && composer install' first."
+        exit 1
+    fi
+
+    # Install composer deps if needed
+    if [ ! -d "${PUBLIC_DIR}/vendor" ]; then
+        echo "Installing dashboard dependencies..."
+        (cd "${PUBLIC_DIR}" && composer install --no-dev --quiet)
+    fi
+
+    echo ""
+    echo "  Coqui Dashboard"
+    echo "  → http://localhost:${gui_port}"
+    echo "  Press Ctrl+C to stop"
+    echo ""
+
+    # Try to open browser (best effort)
+    if command -v xdg-open &>/dev/null; then
+        xdg-open "http://localhost:${gui_port}" &>/dev/null &
+    elif command -v open &>/dev/null; then
+        open "http://localhost:${gui_port}" &>/dev/null &
+    fi
+
+    exec php -S "localhost:${gui_port}" -t "${PUBLIC_DIR}" "${PUBLIC_DIR}/router.php"
+fi
+
+# ─── REPL Mode (original behavior) ──────────────────────────────────────────
+set -- "${remaining_args[@]+"${remaining_args[@]}"}"
 
 # Trap SIGINT/SIGTERM at the launcher level so we exit cleanly
 # instead of relaunching when the user hits Ctrl+C during the pause
