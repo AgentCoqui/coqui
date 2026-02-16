@@ -94,10 +94,54 @@ final class SessionStorage
             )
         SQL);
 
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS turns (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                turn_number INTEGER NOT NULL,
+                user_prompt TEXT NOT NULL,
+                response_text TEXT,
+                model TEXT,
+                prompt_tokens INTEGER DEFAULT 0,
+                completion_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                iterations INTEGER DEFAULT 0,
+                duration_ms INTEGER DEFAULT 0,
+                tools_used TEXT,
+                child_agent_count INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                completed_at TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+        SQL);
+
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_child_runs_session ON child_runs(session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_session ON audit_log(session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turns_session ON turns(session_id)');
+
+        // Migrations for existing tables — add turn_id FK columns
+        $this->migrateAddColumn('messages', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
+        $this->migrateAddColumn('audit_log', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_messages_turn ON messages(turn_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_turn ON audit_log(turn_id)');
+    }
+
+    private function migrateAddColumn(string $table, string $column, string $definition): void
+    {
+        $stmt = $this->db->query("PRAGMA table_info({$table})");
+
+        if ($stmt === false) {
+            return;
+        }
+
+        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $exists = array_any($columns, fn(array $col): bool => $col['name'] === $column);
+
+        if (!$exists) {
+            $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
+        }
     }
 
     public function createSession(string $modelRole, string $model): string
@@ -166,13 +210,14 @@ final class SessionStorage
         string $content,
         ?string $toolCalls = null,
         ?string $toolCallId = null,
+        ?string $turnId = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO messages (id, session_id, role, content, tool_calls, tool_call_id, created_at)
-            VALUES (:id, :session_id, :role, :content, :tool_calls, :tool_call_id, :created_at)
+            INSERT INTO messages (id, session_id, role, content, tool_calls, tool_call_id, turn_id, created_at)
+            VALUES (:id, :session_id, :role, :content, :tool_calls, :tool_call_id, :turn_id, :created_at)
         SQL);
 
         $stmt->execute([
@@ -182,6 +227,7 @@ final class SessionStorage
             'content' => $content,
             'tool_calls' => $toolCalls,
             'tool_call_id' => $toolCallId,
+            'turn_id' => $turnId,
             'created_at' => $now,
         ]);
 
@@ -330,13 +376,14 @@ final class SessionStorage
         array $arguments,
         string $action,
         ?string $reason = null,
+        ?string $turnId = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO audit_log (id, session_id, tool_name, arguments, action, reason, created_at)
-            VALUES (:id, :session_id, :tool_name, :arguments, :action, :reason, :created_at)
+            INSERT INTO audit_log (id, session_id, tool_name, arguments, action, reason, turn_id, created_at)
+            VALUES (:id, :session_id, :tool_name, :arguments, :action, :reason, :turn_id, :created_at)
         SQL);
 
         $stmt->execute([
@@ -346,6 +393,7 @@ final class SessionStorage
             'arguments' => json_encode($arguments, JSON_UNESCAPED_SLASHES),
             'action' => $action,
             'reason' => $reason,
+            'turn_id' => $turnId,
             'created_at' => $now,
         ]);
 
@@ -398,6 +446,148 @@ final class SessionStorage
     {
         $this->db->prepare('DELETE FROM sessions WHERE id = :id')
             ->execute(['id' => $id]);
+    }
+
+    /**
+     * Create a new turn record for a request-response cycle.
+     *
+     * Turn number is auto-incremented per session.
+     */
+    public function createTurn(
+        string $sessionId,
+        string $userPrompt,
+        ?string $model = null,
+    ): string {
+        $id = bin2hex(random_bytes(16));
+        $now = date('c');
+
+        // Calculate next turn number for this session
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT COALESCE(MAX(turn_number), 0) + 1 AS next_turn
+            FROM turns
+            WHERE session_id = :session_id
+        SQL);
+        $stmt->execute(['session_id' => $sessionId]);
+        $turnNumber = (int) $stmt->fetchColumn();
+
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO turns (id, session_id, turn_number, user_prompt, model, created_at)
+            VALUES (:id, :session_id, :turn_number, :user_prompt, :model, :created_at)
+        SQL);
+
+        $stmt->execute([
+            'id' => $id,
+            'session_id' => $sessionId,
+            'turn_number' => $turnNumber,
+            'user_prompt' => $userPrompt,
+            'model' => $model,
+            'created_at' => $now,
+        ]);
+
+        return $id;
+    }
+
+    /**
+     * Complete a turn with all metadata from the agent execution.
+     */
+    public function completeTurn(
+        string $turnId,
+        string $responseText,
+        int $promptTokens,
+        int $completionTokens,
+        int $totalTokens,
+        int $iterations,
+        int $durationMs,
+        string $toolsUsed,
+        int $childAgentCount,
+    ): void {
+        $now = date('c');
+
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE turns
+            SET response_text = :response_text,
+                prompt_tokens = :prompt_tokens,
+                completion_tokens = :completion_tokens,
+                total_tokens = :total_tokens,
+                iterations = :iterations,
+                duration_ms = :duration_ms,
+                tools_used = :tools_used,
+                child_agent_count = :child_agent_count,
+                completed_at = :completed_at
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'response_text' => $responseText,
+            'prompt_tokens' => $promptTokens,
+            'completion_tokens' => $completionTokens,
+            'total_tokens' => $totalTokens,
+            'iterations' => $iterations,
+            'duration_ms' => $durationMs,
+            'tools_used' => $toolsUsed,
+            'child_agent_count' => $childAgentCount,
+            'completed_at' => $now,
+            'id' => $turnId,
+        ]);
+    }
+
+    /**
+     * Get turns for a session ordered by turn number.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getTurns(string $sessionId, int $limit = 50): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, turn_number, user_prompt, response_text, model,
+                   prompt_tokens, completion_tokens, total_tokens, iterations,
+                   duration_ms, tools_used, child_agent_count, created_at, completed_at
+            FROM turns
+            WHERE session_id = :session_id
+            ORDER BY turn_number ASC
+            LIMIT :limit
+        SQL);
+
+        $stmt->bindValue('session_id', $sessionId);
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Get a turn with its messages nested under a 'messages' key.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getTurnWithMessages(string $turnId): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, turn_number, user_prompt, response_text, model,
+                   prompt_tokens, completion_tokens, total_tokens, iterations,
+                   duration_ms, tools_used, child_agent_count, created_at, completed_at
+            FROM turns
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute(['id' => $turnId]);
+        $turn = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($turn === false) {
+            return null;
+        }
+
+        $msgStmt = $this->db->prepare(<<<SQL
+            SELECT id, role, content, tool_calls, tool_call_id, created_at
+            FROM messages
+            WHERE turn_id = :turn_id
+            ORDER BY created_at ASC
+        SQL);
+
+        $msgStmt->execute(['turn_id' => $turnId]);
+        $turn['messages'] = $msgStmt->fetchAll(PDO::FETCH_ASSOC);
+
+        return $turn;
     }
 
     /**

@@ -22,6 +22,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - **Unsafe mode** — lift function restrictions with `--unsafe` for power users; catastrophic commands are still blocked
 - **Catastrophic blacklist** — hardcoded safety net that blocks destructive commands (`rm -rf /`, `shutdown`, fork bombs, etc.) regardless of mode
 - **Audit logging** — every tool execution decision (approved, denied, blocked) is logged to SQLite for traceability
+- **Turn tracking** — each request-response cycle is tracked as a turn with token usage, duration, tools used, and child agent counts for full observability
 - **Credential management** — secure `.env`-based secret storage with automatic credential guards; toolkits declare required credentials in `composer.json` and Coqui intercepts tool calls with actionable instructions when keys are missing
 - **Script sanitization** — static analysis blocks dangerous functions before any generated code runs
 - **Memory persistence** — saves facts to `MEMORY.md` across sessions so Coqui remembers what matters

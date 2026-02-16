@@ -36,6 +36,7 @@ final class InteractiveApprovalPolicy implements ToolExecutionPolicyInterface
         private readonly ?CatastrophicBlacklist $blacklist = null,
         private readonly ?SessionStorage $storage = null,
         private readonly ?string $sessionId = null,
+        private readonly ?string $turnId = null,
     ) {}
 
     public function shouldExecute(string $toolName, array $arguments): true|string
@@ -147,6 +148,7 @@ final class InteractiveApprovalPolicy implements ToolExecutionPolicyInterface
             arguments: $arguments,
             action: $action,
             reason: $reason,
+            turnId: $this->turnId,
         );
     }
 
