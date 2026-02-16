@@ -321,6 +321,73 @@
             ]
         },
         {
+            "path": "src/Toolkit/SkillToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\SkillToolkit",
+            "layer": "toolkit",
+            "description": "ToolkitInterface implementation providing three tools: skill_list (browse available skills), skill_read (activate a skill by loading full instructions), skill_create (scaffold a new skill directory with SKILL.md). Follows progressive disclosure — skill_read is the activation mechanism that loads full instructions into agent context.",
+            "methods": [
+                "tools(): ToolInterface[] — returns skill_list, skill_read, skill_create tools",
+                "guidelines(): string — XML-wrapped instructions for the skill system"
+            ]
+        },
+        {
+            "path": "src/Contract/SkillProperties.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\SkillProperties",
+            "layer": "contract",
+            "description": "Value object representing parsed SKILL.md frontmatter. Holds name, description, path, and optional license/compatibility/metadata fields per the AgentSkills specification.",
+            "methods": []
+        },
+        {
+            "path": "src/Config/SkillParser.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\SkillParser",
+            "layer": "config",
+            "description": "Stateless parser for AgentSkills SKILL.md files. Handles YAML frontmatter extraction, minimal YAML parsing (no ext-yaml dependency), property construction, body extraction, and spec-compliant validation (name format, length limits, allowed fields).",
+            "methods": [
+                "findSkillMd(string $skillDir): ?string — locates SKILL.md or skill.md in a directory",
+                "parseFrontmatter(string $content): array — splits YAML frontmatter from markdown body",
+                "readProperties(string $skillDir): SkillProperties — parses frontmatter into typed value object",
+                "readBody(string $skillDir): string — returns the markdown body (instructions)",
+                "validate(string $skillDir): string[] — returns validation errors (empty = valid)",
+                "validateName(string $name): string[] — validates name format without directory"
+            ]
+        },
+        {
+            "path": "src/Config/SkillDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\SkillDiscovery",
+            "layer": "config",
+            "description": "Boot-time skill discovery. Scans .workspace/skills/ for directories containing SKILL.md, parses metadata only (progressive disclosure). Provides name resolution, body loading for activation, prompt summary generation, and cache invalidation for newly created skills.",
+            "methods": [
+                "discoverAll(): SkillProperties[] — scans skills directory, returns all valid skills",
+                "getSkill(string $name): SkillProperties — resolves name to properties",
+                "readBody(string $name): string — returns full instructions for skill activation",
+                "skillExists(string $name): bool — checks if a skill exists",
+                "buildPromptSummary(): string — generates <available-skills> XML for system prompt",
+                "ensureSkillsDir(): void — creates the skills directory if missing",
+                "invalidateCache(): void — clears cached discovery results"
+            ]
+        },
+        {
+            "path": "src/Exception/SkillParseException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\SkillParseException",
+            "layer": "config",
+            "description": "Domain exception for SKILL.md parsing failures: missing file, malformed YAML frontmatter, missing required fields.",
+            "methods": []
+        },
+        {
+            "path": "src/Exception/SkillValidationException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\SkillValidationException",
+            "layer": "config",
+            "description": "Domain exception for skill validation failures. Carries an array of individual error strings (name format, length limits, unexpected fields).",
+            "methods": []
+        },
+        {
+            "path": "src/Exception/SkillNotFoundException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\SkillNotFoundException",
+            "layer": "config",
+            "description": "Domain exception thrown when a skill name cannot be resolved. Includes the requested name in the message.",
+            "methods": []
+        },
+        {
             "path": "src/Observer/TerminalObserver.php",
             "fqcn": "CoquiBot\\Coqui\\Observer\\TerminalObserver",
             "layer": "observer",
