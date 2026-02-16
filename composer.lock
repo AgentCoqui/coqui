@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "37221452904cfe46191133d5113b811a",
+    "content-hash": "9e235ffcc4b37b7ae16e180a473e5831",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
@@ -1209,6 +1209,275 @@
                 }
             ],
             "time": "2026-01-08T08:02:38+00:00"
+        },
+        {
+            "name": "coquibot/coqui-toolkit-brave-search",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../coqui-brave-search",
+                "reference": "f4f2b2022caab37921855fec19e455799b688f1f"
+            },
+            "require": {
+                "carmelosantana/php-agents": "^0.3 || ^0.4 || @dev",
+                "php": "^8.4",
+                "symfony/http-client": "^7.0"
+            },
+            "require-dev": {
+                "pestphp/pest": "^3.0",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "php-agents": {
+                    "toolkits": [
+                        "CoquiBot\\Toolkits\\BraveSearch\\BraveSearchToolkit"
+                    ],
+                    "description": "Brave Search — web and news search powered by the Brave Search API",
+                    "credentials": {
+                        "BRAVE_SEARCH_API_KEY": "Brave Search API key — free tier: 2,000 queries/month at https://brave.com/search/api/"
+                    }
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\BraveSearch\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\BraveSearch\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "pest"
+                ],
+                "analyse": [
+                    "phpstan analyse"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Carmelo Santana"
+                }
+            ],
+            "description": "Brave Search toolkit for Coqui — web and news search via the Brave Search API",
+            "keywords": [
+                "brave-search",
+                "coqui",
+                "php-agents",
+                "toolkit",
+                "web-search"
+            ],
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "coquibot/coqui-toolkit-clawhub-skills",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../coqui-clawhub-skills",
+                "reference": "71ba313d96dcfd14d4c5fb3afa1c8f9a986ec789"
+            },
+            "require": {
+                "carmelosantana/php-agents": "^0.3 || ^0.4 || @dev",
+                "ext-json": "*",
+                "ext-zip": "*",
+                "php": "^8.4",
+                "symfony/http-client": "^7.0"
+            },
+            "require-dev": {
+                "pestphp/pest": "^3.0",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "php-agents": {
+                    "toolkits": [
+                        "CoquiBot\\Toolkits\\ClawHubSkills\\ClawHubSkillsToolkit"
+                    ],
+                    "description": "ClawHub skill discovery and local skill lifecycle management for Coqui",
+                    "credentials": {
+                        "CLAWHUB_API_TOKEN": "ClawHub API token for authenticated endpoints. Create one from your ClawHub account settings."
+                    }
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\ClawHubSkills\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\ClawHubSkills\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "pest"
+                ],
+                "analyse": [
+                    "phpstan analyse"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Carmelo Santana"
+                }
+            ],
+            "description": "ClawHub skills toolkit for Coqui — discover, install, and manage AgentSkills from ClawHub",
+            "keywords": [
+                "agentskills",
+                "clawhub",
+                "coqui",
+                "php-agents",
+                "toolkit"
+            ],
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "coquibot/coqui-toolkit-composer",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../coqui-toolkit-composer",
+                "reference": "49d9b1465e537f098e0fb0346b405aeee8ece6d7"
+            },
+            "require": {
+                "carmelosantana/php-agents": "^0.4 || @dev",
+                "ext-json": "*",
+                "php": "^8.4"
+            },
+            "require-dev": {
+                "pestphp/pest": "^3.0",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "php-agents": {
+                    "toolkits": [
+                        "CoquiBot\\Toolkits\\Composer\\ComposerToolkit"
+                    ],
+                    "description": "Composer dependency management for Coqui workspaces"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\Composer\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\Composer\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "pest"
+                ],
+                "analyse": [
+                    "phpstan analyse"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Carmelo Santana"
+                }
+            ],
+            "description": "Composer dependency management toolkit for Coqui — install, remove, inspect, and update packages in the workspace",
+            "keywords": [
+                "composer",
+                "coqui",
+                "package-management",
+                "php-agents",
+                "toolkit"
+            ],
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
+        },
+        {
+            "name": "coquibot/coqui-toolkit-packagist",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "../coqui-toolkit-packagist",
+                "reference": "bbfd779f5d2c62c0bf998eb110c05db0ff5b361b"
+            },
+            "require": {
+                "carmelosantana/php-agents": "^0.4 || @dev",
+                "ext-json": "*",
+                "php": "^8.4",
+                "symfony/http-client": "^7.0"
+            },
+            "require-dev": {
+                "pestphp/pest": "^3.0",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "php-agents": {
+                    "toolkits": [
+                        "CoquiBot\\Toolkits\\Packagist\\PackagistToolkit"
+                    ],
+                    "description": "Packagist package search, evaluation, and security advisory lookup"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\Packagist\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\Packagist\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "pest"
+                ],
+                "analyse": [
+                    "phpstan analyse"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Carmelo Santana"
+                }
+            ],
+            "description": "Packagist package discovery toolkit for Coqui — search, evaluate, and audit PHP packages",
+            "keywords": [
+                "coqui",
+                "package-discovery",
+                "packagist",
+                "php-agents",
+                "toolkit"
+            ],
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "doctrine/deprecations",
@@ -4325,7 +4594,11 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
-        "carmelosantana/php-agents": 20
+        "carmelosantana/php-agents": 20,
+        "coquibot/coqui-toolkit-brave-search": 20,
+        "coquibot/coqui-toolkit-clawhub-skills": 20,
+        "coquibot/coqui-toolkit-composer": 20,
+        "coquibot/coqui-toolkit-packagist": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,

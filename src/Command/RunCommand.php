@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Command;
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\SetupWizard;
+use CoquiBot\Coqui\Config\UpdateManager;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -49,7 +50,8 @@ final class RunCommand extends Command
             ->addOption('session', 's', InputOption::VALUE_REQUIRED, 'Resume a specific session ID')
             ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory', getcwd() ?: '.')
             ->addOption('unsafe', null, InputOption::VALUE_NONE, 'Disable script sanitization for power users (dangerous)')
-            ->addOption('auto-approve', null, InputOption::VALUE_NONE, 'Auto-approve all tool executions (dangerous)');
+            ->addOption('auto-approve', null, InputOption::VALUE_NONE, 'Auto-approve all tool executions (dangerous)')
+            ->addOption('update', null, InputOption::VALUE_NONE, 'Check for and apply dependency updates, then restart');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -67,6 +69,20 @@ final class RunCommand extends Command
 
         $this->boot = new BootManager($this->workDir);
         $this->boot->boot($io, $configPath);
+
+        // Handle --update: apply updates and restart
+        if ((bool) $input->getOption('update')) {
+            $updateResult = $this->runUpdate($io);
+            return $updateResult === true ? Command::SUCCESS : $updateResult;
+        }
+
+        // Startup update check (controlled by COQUI_CHECK_UPDATES env)
+        $this->checkForUpdatesOnStartup($io);
+
+        // If auto-update triggered a restart, exit now
+        if ($this->restartRequested) {
+            return self::RESTART_EXIT_CODE;
+        }
 
         // Initialize storage inside workspace
         $dbPath = $this->boot->workspacePath() . '/data/coqui.db';
@@ -118,7 +134,7 @@ final class RunCommand extends Command
             '<fg=gray>Project root:</> ' . $this->workDir,
             '<fg=gray>Workspace:</> ' . $this->boot->workspacePath(),
             '',
-            '<fg=gray>Commands: /new, /history, /sessions, /config, /restart, /quit</>',
+            '<fg=gray>Commands: /new, /history, /sessions, /config, /update, /restart, /quit</>',
         ]);
         $io->newLine();
 
@@ -218,6 +234,10 @@ final class RunCommand extends Command
                 return true;
             })(),
 
+            '/update' => (function () use ($io) {
+                return true;
+            })(),
+
             '/help' => (function () use ($io) {
                 $io->table(
                     ['Command', 'Description'],
@@ -228,6 +248,7 @@ final class RunCommand extends Command
                         ['/resume <id>', 'Resume a session'],
                         ['/model', 'Show model configuration'],
                         ['/config', 'Show config (use /config edit to re-run wizard)'],
+                        ['/update', 'Check for and apply dependency updates'],
                         ['/restart', 'Restart Coqui (re-reads config, re-discovers toolkits)'],
                         ['/quit', 'Exit Coqui'],
                     ],
@@ -244,6 +265,7 @@ final class RunCommand extends Command
         return match ($cmd) {
             '/quit', '/exit', '/q' => Command::SUCCESS,
             '/restart' => self::RESTART_EXIT_CODE,
+            '/update' => $this->runUpdate($io),
             default => true,
         };
     }
@@ -379,7 +401,7 @@ final class RunCommand extends Command
     private function runConfigWizard(SymfonyStyle $io): void
     {
         $outputPath = $this->workDir . '/openclaw.json';
-        $wizard = new SetupWizard($io, $this->boot->defaultsLoader());
+        $wizard = new SetupWizard($io, $this->boot->defaultsLoader(), $this->boot->credentialResolver());
         $saved = $wizard->runAndSave($outputPath);
 
         if ($saved && file_exists($outputPath)) {
@@ -431,5 +453,76 @@ final class RunCommand extends Command
         $io->writeln('<fg=gray>Project root:</> ' . $this->workDir);
         $io->newLine();
         $io->text('<fg=gray>Use <fg=cyan>/config edit</> to re-run the setup wizard, or <fg=cyan>/config show</> to view raw JSON.</>'); 
+    }
+
+    /**
+     * Run `composer update` in project and workspace, then request restart.
+     */
+    private function runUpdate(SymfonyStyle $io): int|true
+    {
+        $updateManager = new UpdateManager($this->workDir, $this->boot->workspacePath());
+
+        $io->text('<fg=gray>Checking for updates...</>');
+        $check = $updateManager->checkForUpdates();
+
+        if (!$check->hasUpdates) {
+            $io->success('All packages are up to date.');
+            return true;
+        }
+
+        $io->writeln($check->summary());
+        $io->newLine();
+
+        if (!$io->confirm('Apply updates now?', true)) {
+            return true;
+        }
+
+        $io->text('<fg=gray>Updating dependencies...</>');
+        $result = $updateManager->applyUpdates();
+
+        if ($result->error !== '') {
+            $io->error($result->error);
+            return true;
+        }
+
+        $io->success('Updates applied successfully. Restarting...');
+
+        return self::RESTART_EXIT_CODE;
+    }
+
+    /**
+     * Perform a non-blocking startup update check if enabled.
+     */
+    private function checkForUpdatesOnStartup(SymfonyStyle $io): void
+    {
+        $updateManager = new UpdateManager($this->workDir, $this->boot->workspacePath());
+
+        if (!$updateManager->isCheckEnabled()) {
+            return;
+        }
+
+        $check = $updateManager->checkForUpdates();
+
+        if (!$check->hasUpdates) {
+            return;
+        }
+
+        $count = count($check->packages);
+        $io->text("<fg=yellow>{$count} update(s) available.</> Run <fg=cyan>/update</> or <fg=cyan>coqui --update</> to apply.");
+
+        // Auto-update if enabled
+        if ($updateManager->isAutoUpdateEnabled()) {
+            $io->text('<fg=gray>Auto-update enabled. Applying updates...</>');
+            $result = $updateManager->applyUpdates();
+
+            if ($result->error !== '') {
+                $io->warning("Auto-update failed: {$result->error}");
+                return;
+            }
+
+            $io->success('Updates applied. Restarting...');
+            // Set restart flag — the REPL loop will pick this up
+            $this->restartRequested = true;
+        }
     }
 }
