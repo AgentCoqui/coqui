@@ -196,12 +196,18 @@ final class ConfigController
     public function updateEnv(): void
     {
         $envPath = rtrim($this->workspacePath, '/') . '/.env';
-        $body = file_get_contents('php://input');
+        $raw = file_get_contents('php://input');
 
-        if ($body === false) {
+        if ($raw === false || $raw === '') {
             $this->json(['error' => 'Empty request body'], 400);
             return;
         }
+
+        // Frontend sends { "content": "..." } — extract the content field
+        $decoded = json_decode($raw, true);
+        $content = is_array($decoded) && array_key_exists('content', $decoded)
+            ? (string) $decoded['content']
+            : $raw;
 
         $dir = dirname($envPath);
 
@@ -209,7 +215,7 @@ final class ConfigController
             mkdir($dir, 0755, true);
         }
 
-        $result = file_put_contents($envPath, $body);
+        $result = file_put_contents($envPath, $content);
 
         if ($result === false) {
             $this->json(['error' => 'Failed to write .env file'], 500);

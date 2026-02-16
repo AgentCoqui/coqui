@@ -1,157 +1,216 @@
 /**
- * Coqui Dashboard — Monaco Editor Factory
+ * Coqui Dashboard — CodeMirror Editor Factory
  *
- * Uses AMD loader (CDNJS) to load Monaco Editor on demand.
- * Provides dark-themed editor instances for config, env, and file editing.
+ * Provides themed editor instances for config, env, and file editing.
+ * Uses CodeMirror 5 (vendored) — no build step required.
  */
-
-let monacoLoaded = false;
-let monacoLoadPromise = null;
 
 /**
- * Ensure Monaco Editor is loaded via AMD require.
- * Returns a Promise that resolves when monaco is globally available.
+ * Map file extensions to CodeMirror mode names.
  */
-function loadMonaco() {
-    if (monacoLoaded && typeof monaco !== 'undefined') {
-        return Promise.resolve();
-    }
+function getEditorMode(filename) {
+    if (!filename) return 'text/plain';
 
-    if (monacoLoadPromise) {
-        return monacoLoadPromise;
-    }
+    const ext = filename.split('.').pop().toLowerCase();
+    const map = {
+        // JavaScript / TypeScript / JSON
+        js: 'javascript',
+        mjs: 'javascript',
+        cjs: 'javascript',
+        jsx: 'javascript',
+        ts: 'javascript',
+        tsx: 'javascript',
+        json: 'application/json',
+        // Web
+        php: 'php',
+        html: 'htmlmixed',
+        htm: 'htmlmixed',
+        xml: 'xml',
+        svg: 'xml',
+        xsl: 'xml',
+        xsd: 'xml',
+        css: 'css',
+        scss: 'text/x-scss',
+        sass: 'sass',
+        less: 'text/x-less',
+        // Templates
+        twig: 'twig',
+        jinja: 'django',
+        jinja2: 'django',
+        djhtml: 'django',
+        // Markup / docs
+        md: 'markdown',
+        markdown: 'markdown',
+        diff: 'diff',
+        patch: 'diff',
+        // Shell / system
+        sh: 'shell',
+        bash: 'shell',
+        zsh: 'shell',
+        fish: 'shell',
+        // Data
+        sql: 'sql',
+        yaml: 'yaml',
+        yml: 'yaml',
+        toml: 'toml',
+        ini: 'properties',
+        env: 'properties',
+        properties: 'properties',
+        editorconfig: 'properties',
+        // Python
+        py: 'python',
+        pyw: 'python',
+        pyx: 'python',
+        // C-family (clike mode)
+        c: 'text/x-csrc',
+        cpp: 'text/x-c++src',
+        cc: 'text/x-c++src',
+        cxx: 'text/x-c++src',
+        h: 'text/x-csrc',
+        hpp: 'text/x-c++src',
+        hxx: 'text/x-c++src',
+        java: 'text/x-java',
+        cs: 'text/x-csharp',
+        kt: 'text/x-kotlin',
+        kts: 'text/x-kotlin',
+        scala: 'text/x-scala',
+        m: 'text/x-objectivec',
+        mm: 'text/x-objectivec',
+        // Other languages
+        rb: 'ruby',
+        go: 'go',
+        rs: 'rust',
+        swift: 'swift',
+        lua: 'lua',
+        pl: 'perl',
+        pm: 'perl',
+        r: 'r',
+        R: 'r',
+        cmake: 'cmake',
+        mat: 'octave',
+        // Config files
+        dockerfile: 'dockerfile',
+        nginx: 'nginx',
+        htaccess: 'nginx',
+        conf: 'nginx',
+        cfg: 'properties',
+        // Plain text
+        txt: 'text/plain',
+        log: 'text/plain',
+        csv: 'text/plain',
+    };
 
-    monacoLoadPromise = new Promise((resolve, reject) => {
-        if (typeof require === 'undefined' || !require.config) {
-            console.warn('Monaco AMD loader not available');
-            reject(new Error('Monaco AMD loader not found'));
-            return;
+    // Check full filename for special cases
+    const name = filename.split('/').pop().toLowerCase();
+    if (name === 'dockerfile' || name.startsWith('dockerfile.')) return 'dockerfile';
+    if (name === '.env' || name.startsWith('.env.')) return 'properties';
+    if (name === 'makefile' || name === 'gnumakefile') return 'shell';
+    if (name === 'gemfile' || name === 'rakefile' || name === 'vagrantfile') return 'ruby';
+    if (name === 'cmakelists.txt') return 'cmake';
+    if (name === '.htaccess' || name === 'httpd.conf' || name === 'apache2.conf') return 'nginx';
+    if (name === 'nginx.conf') return 'nginx';
+    if (name === '.editorconfig') return 'properties';
+    if (name === 'composer.json' || name === 'package.json' || name === 'tsconfig.json') return 'application/json';
+
+    const mode = map[ext] || 'text/plain';
+
+    // Guard: if the mode isn't actually registered in CodeMirror, fall back
+    // to plain text. This prevents crashes from missing mode scripts.
+    if (typeof CodeMirror !== 'undefined' && mode !== 'text/plain') {
+        const resolved = CodeMirror.findModeByName
+            ? CodeMirror.findModeByName(mode)
+            : null;
+        // CodeMirror.modes contains registered mode constructors.
+        // MIME types (e.g. 'application/json', 'text/x-csrc') are in CodeMirror.mimeModes.
+        const isRegistered = CodeMirror.modes[mode]
+            || CodeMirror.mimeModes[mode]
+            || resolved;
+        if (!isRegistered) {
+            console.warn(`CodeMirror mode "${mode}" not loaded, falling back to plain text`);
+            return 'text/plain';
         }
+    }
 
-        require.config({
-            paths: {
-                vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.52.2/min/vs',
-            },
-        });
-
-        require(['vs/editor/editor.main'], () => {
-            monacoLoaded = true;
-
-            // Define the Coqui dark theme
-            monaco.editor.defineTheme('coqui-dark', {
-                base: 'vs-dark',
-                inherit: true,
-                rules: [
-                    { token: 'comment', foreground: '6a9955', fontStyle: 'italic' },
-                    { token: 'keyword', foreground: '569cd6' },
-                    { token: 'string', foreground: 'ce9178' },
-                    { token: 'number', foreground: 'b5cea8' },
-                    { token: 'type', foreground: '4ec9b0' },
-                    { token: 'variable', foreground: '9cdcfe' },
-                    { token: 'function', foreground: 'dcdcaa' },
-                ],
-                colors: {
-                    'editor.background': '#0a0a0f',
-                    'editor.foreground': '#fafafa',
-                    'editor.lineHighlightBackground': '#ffffff08',
-                    'editor.selectionBackground': '#264f78',
-                    'editorCursor.foreground': '#3b82f6',
-                    'editorLineNumber.foreground': '#4a4a5a',
-                    'editorLineNumber.activeForeground': '#a1a1aa',
-                    'editor.inactiveSelectionBackground': '#3a3d41',
-                    'editorIndentGuide.background1': '#1e1e2e',
-                    'editorWidget.background': '#0a0a0f',
-                    'editorWidget.border': '#27272a',
-                    'input.background': '#18181b',
-                    'input.border': '#27272a',
-                    'input.foreground': '#fafafa',
-                    'scrollbar.shadow': '#00000000',
-                    'scrollbarSlider.activeBackground': '#3b82f660',
-                    'scrollbarSlider.background': '#3b82f630',
-                    'scrollbarSlider.hoverBackground': '#3b82f640',
-                },
-            });
-
-            resolve();
-        });
-    });
-
-    return monacoLoadPromise;
+    return mode;
 }
 
 /**
- * Create a Monaco Editor instance in the given container.
+ * Determine the current theme name based on user preferences.
+ */
+function getEditorTheme() {
+    if (typeof coquiPrefs !== 'undefined' && coquiPrefs.get('colorScheme') === 'light') {
+        return 'default';
+    }
+    return 'monokai';
+}
+
+/**
+ * Create a CodeMirror editor instance in the given container.
+ * Returns the editor instance synchronously (no Promise needed).
  *
  * @param {string} containerId  DOM id of the container element
  * @param {string} value        Initial editor content
- * @param {string} language     Language mode (e.g. 'json', 'ini', 'php', 'javascript')
- * @returns {object|null}       Monaco editor instance, or null if Monaco not loaded yet
+ * @param {string} mode         Language mode (e.g. 'javascript', 'application/json', 'php')
+ * @returns {object|null}       CodeMirror editor instance
  */
-function createMonacoEditor(containerId, value = '', language = 'plaintext') {
+function createCodeMirrorEditor(containerId, value = '', mode = 'text/plain') {
     const container = document.getElementById(containerId);
     if (!container) return null;
 
     // Clear previous editor
     container.innerHTML = '';
 
-    // If Monaco is already loaded, create synchronously
-    if (monacoLoaded && typeof monaco !== 'undefined') {
-        return monaco.editor.create(container, editorOptions(value, language));
+    if (typeof CodeMirror === 'undefined') {
+        console.warn('CodeMirror not available, falling back to textarea');
+        const textarea = document.createElement('textarea');
+        textarea.style.cssText = "width:100%;height:100%;background:var(--background);color:var(--foreground);border:none;resize:none;padding:1rem;font-family:'JetBrains Mono',monospace;font-size:13px;";
+        textarea.value = value;
+        container.appendChild(textarea);
+        return null;
     }
 
-    // Otherwise, load Monaco first, then create
-    let editorInstance = null;
-
-    loadMonaco().then(() => {
-        editorInstance = monaco.editor.create(container, editorOptions(value, language));
-        // Store reference on the container so callers can access it
-        container._monacoEditor = editorInstance;
-    }).catch((e) => {
-        console.warn('Monaco Editor unavailable, falling back to textarea:', e);
-        // Fallback: plain textarea
-        container.innerHTML = `<textarea style="width:100%;height:100%;background:var(--background);color:var(--foreground);border:none;resize:none;padding:1rem;font-family:'JetBrains Mono',monospace;font-size:13px;">${escapeHtml(value)}</textarea>`;
+    // Create editor with matchBrackets and foldGutter DISABLED.
+    // These addons try to measure line positions during construction,
+    // which crashes when the container is hidden or has zero dimensions
+    // (common with Alpine.js x-show panels).
+    const editor = CodeMirror(container, {
+        value: value,
+        mode: mode,
+        theme: getEditorTheme(),
+        lineNumbers: true,
+        matchBrackets: false,
+        autoCloseBrackets: true,
+        styleActiveLine: true,
+        lineWrapping: true,
+        indentUnit: 4,
+        tabSize: 4,
+        indentWithTabs: false,
+        foldGutter: false,
+        gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
     });
 
-    return editorInstance;
+    // Store reference on container for external access
+    container._cmEditor = editor;
+
+    // Enable measurement-dependent addons after a frame, once the
+    // container has had a chance to become visible and gain dimensions.
+    requestAnimationFrame(() => {
+        editor.refresh();
+        editor.setOption('matchBrackets', true);
+        editor.setOption('foldGutter', true);
+    });
+
+    return editor;
 }
 
 /**
- * Standard editor options for all Coqui editors.
+ * Update the theme on all active CodeMirror editors.
+ * Called when the user toggles light/dark mode.
  */
-function editorOptions(value, language) {
-    return {
-        value,
-        language,
-        theme: 'coqui-dark',
-        fontSize: 13,
-        fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace",
-        fontLigatures: true,
-        lineNumbers: 'on',
-        minimap: { enabled: false },
-        scrollBeyondLastLine: false,
-        wordWrap: 'on',
-        automaticLayout: true,
-        renderLineHighlight: 'line',
-        cursorBlinking: 'smooth',
-        cursorSmoothCaretAnimation: 'on',
-        smoothScrolling: true,
-        padding: { top: 12, bottom: 12 },
-        bracketPairColorization: { enabled: true },
-        guides: { indentation: true, bracketPairs: true },
-        tabSize: 4,
-        insertSpaces: true,
-        folding: true,
-        foldingStrategy: 'indentation',
-        overviewRulerBorder: false,
-        scrollbar: {
-            verticalScrollbarSize: 8,
-            horizontalScrollbarSize: 8,
-        },
-    };
-}
-
-function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+function updateAllEditorThemes(theme) {
+    document.querySelectorAll('.editor-container').forEach(container => {
+        if (container._cmEditor) {
+            container._cmEditor.setOption('theme', theme);
+        }
+    });
 }
