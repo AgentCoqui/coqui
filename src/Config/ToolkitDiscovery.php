@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
+use CarmeloSantana\PHPAgents\Contract\PackageEventListenerInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CoquiBot\Coqui\Contract\CredentialRequirement;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
@@ -12,12 +13,12 @@ use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
 /**
  * Discovers and registers ToolkitInterface implementations from installed composer packages.
  *
- * After a package is installed via ComposerTool, this class scans the package's
+ * After a Composer package is installed, this class scans the package's
  * autoloaded namespace for classes implementing ToolkitInterface. Discovered
  * toolkits are persisted in a registry file (toolkits.json) so they survive
  * across sessions and can be auto-loaded by OrchestratorAgent on startup.
  */
-final class ToolkitDiscovery
+final class ToolkitDiscovery implements PackageEventListenerInterface
 {
     private string $registryPath;
 
@@ -323,6 +324,18 @@ final class ToolkitDiscovery
         $registry = $this->loadRegistry();
         unset($registry[$packageName]);
         $this->saveRegistry($registry);
+    }
+
+    #[\Override]
+    public function onPackageInstalled(string $packageName): void
+    {
+        $this->discover($packageName);
+    }
+
+    #[\Override]
+    public function onPackageRemoved(string $packageName): void
+    {
+        $this->unregister($packageName);
     }
 
     /**
