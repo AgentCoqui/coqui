@@ -16,7 +16,6 @@ use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Config\RoleResolver;
-use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use SplObserver;
 
@@ -99,7 +98,7 @@ final class SpawnAgentTool implements ToolInterface
         $modelString = $this->roleResolver->resolve($role);
 
         // Notify observer about child spawn
-        if ($this->observer instanceof TerminalObserver) {
+        if ($this->observer !== null && method_exists($this->observer, 'handleEvent')) {
             $this->observer->handleEvent('child.start', ['role' => $role, 'model' => $modelString]);
         }
 
@@ -146,7 +145,7 @@ final class SpawnAgentTool implements ToolInterface
             }
 
             // Notify observer about child completion
-            if ($this->observer instanceof TerminalObserver) {
+            if ($this->observer !== null && method_exists($this->observer, 'handleEvent')) {
                 $this->observer->handleEvent('child.end', null);
             }
 
@@ -154,7 +153,7 @@ final class SpawnAgentTool implements ToolInterface
 
             return ToolResult::success($output->content);
         } catch (\Throwable $e) {
-            if ($this->observer instanceof TerminalObserver) {
+            if ($this->observer !== null && method_exists($this->observer, 'handleEvent')) {
                 $this->observer->handleEvent('child.end', null);
             }
 

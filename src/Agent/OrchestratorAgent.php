@@ -30,6 +30,8 @@ use CoquiBot\Coqui\Tool\PhpExecuteTool;
 use CoquiBot\Coqui\Tool\RestartTool;
 use CoquiBot\Coqui\Tool\SpawnAgentTool;
 
+use SplObserver;
+
 /**
  * The top-level orchestrator agent that receives user input.
  *
@@ -55,7 +57,7 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly string $workspacePath,
         private readonly ?SessionStorage $storage = null,
         private readonly ?string $sessionId = null,
-        private readonly ?TerminalObserver $observer = null,
+        private readonly ?SplObserver $observer = null,
         ?ToolkitDiscovery $discovery = null,
         int $maxIterations = 25,
         ?ToolExecutionPolicyInterface $executionPolicy = null,

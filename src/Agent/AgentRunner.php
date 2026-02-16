@@ -11,17 +11,15 @@ use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
-use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
-use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
-use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use Symfony\Component\Console\Style\SymfonyStyle;
+use SplObserver;
 
 /**
  * Handles agent creation, execution, and turn message persistence.
@@ -31,37 +29,58 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  */
 final class AgentRunner
 {
-    /** Tool names that require user confirmation in interactive mode. */
-    private const GATED_TOOLS = [
-        'composer' => ['require', 'remove', 'update'],
-        'exec' => ['*'],
-        'php_execute' => ['*'],
-        'restart_coqui' => ['*'],
-    ];
-
     public function __construct(
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
         private readonly string $projectRoot,
         private readonly string $workspacePath,
         private readonly SessionStorage $storage,
-        private readonly TerminalObserver $observer,
+        private readonly ?SplObserver $observer,
         private readonly ToolkitDiscovery $discovery,
         private readonly CatastrophicBlacklist $blacklist,
         private readonly CredentialResolverInterface $credentialResolver,
         private readonly ?SkillDiscovery $skillDiscovery = null,
         private readonly bool $unsafeMode = false,
-        private readonly bool $autoApprove = false,
         private readonly ?ProviderFactory $providerFactory = null,
     ) {}
 
     /**
-     * Run a single agent turn: create agent, execute, persist messages, display output.
+     * Run a single agent turn with a per-turn observer override.
      *
-     * @return bool True if a restart was requested by the agent.
+     * Used by the API server where each request gets its own SseObserver.
+     * Falls through to run() after temporarily overriding the observer.
      */
-    public function run(string $prompt, string $sessionId, SymfonyStyle $io): bool
-    {
+    public function runWithObserver(
+        string $prompt,
+        string $sessionId,
+        ToolExecutionPolicyInterface $executionPolicy,
+        SplObserver $observer,
+    ): AgentTurnResult {
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer);
+    }
+
+    /**
+     * Run a single agent turn: create agent, execute, persist messages.
+     *
+     * Returns a result DTO — rendering is the caller's responsibility.
+     */
+    public function run(
+        string $prompt,
+        string $sessionId,
+        ToolExecutionPolicyInterface $executionPolicy,
+    ): AgentTurnResult {
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer);
+    }
+
+    /**
+     * Internal implementation shared by run() and runWithObserver().
+     */
+    private function doRun(
+        string $prompt,
+        string $sessionId,
+        ToolExecutionPolicyInterface $executionPolicy,
+        ?SplObserver $observer = null,
+    ): AgentTurnResult {
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
 
@@ -74,9 +93,6 @@ final class AgentRunner
 
         // Save user message to database before running agent
         $this->storage->addMessage($sessionId, 'user', $prompt, turnId: $turnId);
-
-        // Build execution policy based on flags
-        $executionPolicy = $this->buildExecutionPolicy($sessionId, $io, $turnId);
 
         // Build sanitizer for PHP execution
         $sanitizer = new ScriptSanitizer(
@@ -94,11 +110,12 @@ final class AgentRunner
             onRestart: function () use (&$restartRequested): void {
                 $restartRequested = true;
             },
+            observer: $observer,
         );
 
-        $agent->attach($this->observer);
-
-        $io->newLine();
+        if ($observer !== null) {
+            $agent->attach($observer);
+        }
 
         try {
             // Apply context window pruning — conservative 100K token budget (80% of 128K)
@@ -118,21 +135,10 @@ final class AgentRunner
                 $this->storage->addMessage($sessionId, 'assistant', $output->content, turnId: $turnId);
             }
 
-            // Display response
-            $io->newLine();
-            $io->writeln('<fg=green>Assistant:</>');
-            $io->writeln($output->content);
-            $io->newLine();
-
-            // Display stats
-            $stats = [];
-            $stats[] = "Iterations: {$output->iterations}";
+            // Update session token count
             if ($output->usage !== null) {
-                $stats[] = "Tokens: {$output->usage->totalTokens}";
                 $this->storage->updateTokenCount($sessionId, $output->usage->totalTokens);
             }
-            $io->comment(implode(' | ', $stats));
-            $io->newLine();
 
             // Complete turn with metadata
             $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
@@ -150,9 +156,19 @@ final class AgentRunner
                 toolsUsed: json_encode($toolsUsed, JSON_UNESCAPED_SLASHES) ?: '[]',
                 childAgentCount: $childAgentCount,
             );
-        } catch (\Throwable $e) {
-            $io->error("Agent error: {$e->getMessage()}");
 
+            return new AgentTurnResult(
+                content: $output->content,
+                iterations: $output->iterations,
+                promptTokens: $output->usage !== null ? $output->usage->promptTokens : 0,
+                completionTokens: $output->usage !== null ? $output->usage->completionTokens : 0,
+                totalTokens: $output->usage !== null ? $output->usage->totalTokens : 0,
+                durationMs: $durationMs,
+                toolsUsed: $toolsUsed,
+                childAgentCount: $childAgentCount,
+                restartRequested: $restartRequested,
+            );
+        } catch (\Throwable $e) {
             // Complete turn even on error so duration/state is tracked
             $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
             $this->storage->completeTurn(
@@ -166,9 +182,20 @@ final class AgentRunner
                 toolsUsed: '[]',
                 childAgentCount: 0,
             );
-        }
 
-        return $restartRequested;
+            return new AgentTurnResult(
+                content: '',
+                iterations: 0,
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+                durationMs: $durationMs,
+                toolsUsed: [],
+                childAgentCount: 0,
+                restartRequested: $restartRequested,
+                error: $e->getMessage(),
+            );
+        }
     }
 
     private function createAgent(
@@ -176,6 +203,7 @@ final class AgentRunner
         ToolExecutionPolicyInterface $executionPolicy,
         ScriptSanitizer $sanitizer,
         \Closure $onRestart,
+        ?SplObserver $observer = null,
     ): OrchestratorAgent {
         $modelString = $this->roleResolver->resolve('orchestrator');
         $factory = $this->providerFactory ?? new ProviderFactory($this->config);
@@ -189,37 +217,13 @@ final class AgentRunner
             workspacePath: $this->workspacePath,
             storage: $this->storage,
             sessionId: $sessionId,
-            observer: $this->observer,
+            observer: $observer,
             discovery: $this->discovery,
             executionPolicy: $executionPolicy,
             sanitizer: $sanitizer,
             onRestart: $onRestart,
             credentialResolver: $this->credentialResolver,
             skillDiscovery: $this->skillDiscovery,
-        );
-    }
-
-    private function buildExecutionPolicy(
-        string $sessionId,
-        SymfonyStyle $io,
-        ?string $turnId = null,
-    ): ToolExecutionPolicyInterface {
-        if ($this->autoApprove) {
-            return new AutoApprovalPolicy(
-                blacklist: $this->blacklist,
-                storage: $this->storage,
-                sessionId: $sessionId,
-                turnId: $turnId,
-            );
-        }
-
-        return new InteractiveApprovalPolicy(
-            io: $io,
-            gatedTools: self::GATED_TOOLS,
-            blacklist: $this->blacklist,
-            storage: $this->storage,
-            sessionId: $sessionId,
-            turnId: $turnId,
         );
     }
 
