@@ -2,12 +2,14 @@
 
 declare(strict_types=1);
 
+use CoquiBot\Coqui\Config\CredentialResolver;
 use CoquiBot\Coqui\Tool\CredentialTool;
 
 beforeEach(function () {
     $this->tmpDir = sys_get_temp_dir() . '/coqui-test-' . bin2hex(random_bytes(4));
     mkdir($this->tmpDir, 0755, true);
-    $this->tool = new CredentialTool(workspacePath: $this->tmpDir);
+    $this->resolver = new CredentialResolver(workspacePath: $this->tmpDir);
+    $this->tool = new CredentialTool(resolver: $this->resolver);
 });
 
 afterEach(function () {

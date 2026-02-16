@@ -1,0 +1,35 @@
+# Dependencies (installed inside container)
+vendor/
+
+# Workspace (managed by Coqui at runtime)
+.workspace/
+
+# User config (mounted as volumes)
+openclaw.json
+openclaw-*.json
+.env
+
+# Git
+.git/
+.gitignore
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Cache and build artifacts
+*.cache
+.phpunit.result.cache
+.phpstan-cache/
+
+# Docker files (not needed in build context)
+compose*.yaml
+Makefile
+.dockerignore
+
+# OS files
+.DS_Store
+Thumbs.db

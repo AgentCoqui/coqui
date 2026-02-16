@@ -32,8 +32,9 @@ final class PhpExecuteTool implements ToolInterface
         private readonly string $projectRoot,
         private readonly string $workspacePath,
         private readonly int $defaultTimeout = 30,
+        ?ScriptSanitizer $sanitizer = null,
     ) {
-        $this->sanitizer = new ScriptSanitizer();
+        $this->sanitizer = $sanitizer ?? new ScriptSanitizer();
     }
 
     public function name(): string
@@ -59,6 +60,8 @@ final class PhpExecuteTool implements ToolInterface
             - The code is validated for safety before execution
             - Output is truncated to ~32KB
             - Functions like eval(), exec(), system() are not allowed
+            - Filesystem write functions (file_put_contents, fwrite, mkdir, etc.) are blocked
+            - To write files, use the workspace file tools (write_file, create_dir) instead
             DESC;
     }
 
@@ -130,13 +133,19 @@ final class PhpExecuteTool implements ToolInterface
 
     private function buildScript(string $code): string
     {
-        $autoloader = $this->projectRoot . '/vendor/autoload.php';
+        $projectAutoloader = $this->projectRoot . '/vendor/autoload.php';
+        $workspaceAutoloader = rtrim($this->workspacePath, '/') . '/vendor/autoload.php';
         $envPath = rtrim($this->workspacePath, '/') . '/.env';
 
         $preamble = "<?php\n\ndeclare(strict_types=1);\n\n";
 
-        // Load autoloader
-        $preamble .= "require '{$autoloader}';\n\n";
+        // Load project autoloader (read-only access via open_basedir)
+        $preamble .= "require '{$projectAutoloader}';\n";
+
+        // Load workspace autoloader if it exists (for bot-installed packages)
+        $preamble .= "if (file_exists('{$workspaceAutoloader}')) {\n";
+        $preamble .= "    require '{$workspaceAutoloader}';\n";
+        $preamble .= "}\n\n";
 
         // Load .env if it exists
         $preamble .= <<<'DOTENV'
@@ -171,6 +180,25 @@ final class PhpExecuteTool implements ToolInterface
     }
 
     /**
+     * Build the open_basedir restriction string.
+     *
+     * Includes workspace (read/write), project root (for autoloader reads),
+     * and /tmp. While open_basedir cannot distinguish read vs write, the
+     * ScriptSanitizer blocks filesystem write functions at the static
+     * analysis level before code runs.
+     */
+    private function buildOpenBasedir(): string
+    {
+        $paths = [
+            rtrim($this->workspacePath, '/'),
+            rtrim($this->projectRoot, '/'),
+            sys_get_temp_dir(),
+        ];
+
+        return implode(PATH_SEPARATOR, $paths);
+    }
+
+    /**
      * @return ToolResult
      */
     private function runScript(string $scriptPath, int $timeout): ToolResult
@@ -182,10 +210,10 @@ final class PhpExecuteTool implements ToolInterface
         ];
 
         $process = proc_open(
-            ['php', $scriptPath],
+            ['php', '-d', 'open_basedir=' . $this->buildOpenBasedir(), $scriptPath],
             $descriptors,
             $pipes,
-            $this->projectRoot,
+            $this->workspacePath,
         );
 
         if (!is_resource($process)) {

@@ -1,0 +1,469 @@
+{
+    "$schema": "Coqui source map — describes every core source file so the agent can understand its own codebase.",
+    "version": "1.0.0",
+    "layers": {
+        "agent": "Agent classes — the orchestrator and child agent implementations",
+        "command": "Symfony Console commands — CLI entry points and REPL loop",
+        "config": "Configuration, safety, and discovery — workspace management, credential resolution, toolkit discovery",
+        "contract": "Interfaces and value objects — the contracts that define extensibility points",
+        "tool": "Tools — individual capabilities the agent can invoke during conversation",
+        "toolkit": "Toolkits — groups of related tools with shared guidelines",
+        "observer": "Observers — real-time event rendering for terminal output",
+        "storage": "Storage — SQLite-backed session and audit persistence"
+    },
+    "files": [
+        {
+            "path": "src/Agent/OrchestratorAgent.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
+            "layer": "agent",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, composer, credentials, package_info, packagist, php_execute, restart_coqui). Contains the master system prompt in instructions(). Constructed fresh on every REPL turn.",
+            "methods": [
+                "instructions(): string — returns the full system prompt with role descriptions, security rules, and operational guidelines",
+                "tools(): ToolInterface[] — returns standalone tools (spawn, composer, credentials, package_info, packagist, php_execute, restart_coqui)",
+                "requiredCapabilities(): ModelCapability[] — Text + Tools",
+                "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking"
+            ]
+        },
+        {
+            "path": "src/Agent/ChildAgent.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\ChildAgent",
+            "layer": "agent",
+            "description": "Flexible child agent spawned by SpawnAgentTool. Receives role, task instructions, and toolkits at construction time. Has role-specific instructions for 'coder' (PHP expert), 'reviewer' (code analyst), and a generic default.",
+            "methods": [
+                "instructions(): string — role-specific system prompt (coder/reviewer/default) + task injection",
+                "requiredCapabilities(): ModelCapability[] — Text + Tools",
+                "getRole(): string — returns the agent's role"
+            ]
+        },
+        {
+            "path": "src/Agent/AgentRunner.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunner",
+            "layer": "agent",
+            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Passes turnId through to execution policies and message persistence for full traceability.",
+            "methods": [
+                "run(string $prompt, string $sessionId, SymfonyStyle $io): bool — runs a single agent turn with turn lifecycle tracking; returns true if restart requested",
+                "createAgent(...): OrchestratorAgent — builds the orchestrator agent with all dependencies",
+                "buildExecutionPolicy(string $sessionId, SymfonyStyle $io, ?string $turnId): ToolExecutionPolicyInterface — creates approval policy with turnId forwarding",
+                "persistTurnMessages(Conversation, int, string, ?string $turnId): void — persists new messages from a turn with turn linkage",
+                "extractToolsUsed(?Conversation): string[] — extracts unique tool names from conversation tool calls"
+            ]
+        },
+        {
+            "path": "src/Command/RunCommand.php",
+            "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
+            "layer": "command",
+            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction, and restart logic (RESTART_EXIT_CODE = 10, restartRequested flag).",
+            "methods": [
+                "execute(InputInterface, OutputInterface): int — main entry point; boots system and enters REPL loop",
+                "handleCommand(string, SymfonyStyle): int|true — processes REPL commands (/new, /history, /sessions, /resume, /model, /help, /restart, /quit); returns exit code or true to continue",
+                "runAgent(string, SymfonyStyle): void — creates OrchestratorAgent with restart callback, runs agent turn, checks restartRequested flag"
+            ]
+        },
+        {
+            "path": "src/Command/SetupCommand.php",
+            "fqcn": "CoquiBot\\Coqui\\Command\\SetupCommand",
+            "layer": "command",
+            "description": "Standalone 'setup' command that runs the SetupWizard to create or overwrite openclaw.json.",
+            "methods": [
+                "execute(InputInterface, OutputInterface): int — runs the interactive setup wizard"
+            ]
+        },
+        {
+            "path": "src/Config/AutoApprovalPolicy.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\AutoApprovalPolicy",
+            "layer": "config",
+            "description": "ToolExecutionPolicyInterface implementation. Auto-approves all tool executions except catastrophic blacklist matches. Used when --auto-approve CLI flag is passed. All decisions are logged to the audit_log table with turn_id linkage.",
+            "methods": [
+                "shouldExecute(string $toolName, array $arguments): true|string — returns true to allow, or denial reason string. Forwards turnId to logAudit."
+            ]
+        },
+        {
+            "path": "src/Config/CatastrophicBlacklist.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\CatastrophicBlacklist",
+            "layer": "config",
+            "description": "Hardcoded regex patterns for destructive commands (rm -rf /, shutdown, fork bombs, dd, curl | bash, etc.) that can NEVER be bypassed. Also supports user additions via agents.defaults.blacklist in openclaw.json.",
+            "methods": [
+                "isBlocked(string $command): bool — checks command against all patterns",
+                "getMatchedPattern(string $command): ?string — returns the matched pattern or null"
+            ]
+        },
+        {
+            "path": "src/Config/CredentialResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\CredentialResolver",
+            "layer": "config",
+            "description": "CredentialResolverInterface implementation. Reads/writes workspace .env file. No caching — re-reads on every get() for hot-reload. set() calls putenv() for immediate availability. File permissions set to 0600.",
+            "methods": [
+                "get(string $key): ?string — reads credential from .env, returns null if missing",
+                "has(string $key): bool — checks if credential exists",
+                "set(string $key, string $value): void — writes to .env AND calls putenv()",
+                "delete(string $key): void — removes from .env and unsets env var",
+                "loadIntoProcessEnv(): void — loads all .env values into process environment",
+                "keys(): string[] — returns all stored key names",
+                "envPath(): string — returns the .env file path"
+            ]
+        },
+        {
+            "path": "src/Config/DefaultsLoader.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\DefaultsLoader",
+            "layer": "config",
+            "description": "Loads and provides typed access to config/defaults.json. Centralizes all hardcoded defaults (providers, models, base URLs, roles) into a single editable JSON file shipped with the package.",
+            "methods": [
+                "providerNames(): string[] — all provider keys (ollama, openai, anthropic, openrouter)",
+                "provider(string $name): array — full provider config block",
+                "providers(): array — all providers and their configurations",
+                "defaultBaseUrl(string $provider): string — default API base URL",
+                "requiresApiKey(string $provider): bool — whether the provider needs an API key",
+                "curatedModels(string $provider): array — list of recommended models",
+                "roleDefinitions(): array — all role definitions with descriptions",
+                "defaultModel(): string — default model string (provider/model)",
+                "defaultWorkspace(): string — default workspace directory path"
+            ]
+        },
+        {
+            "path": "src/Config/InteractiveApprovalPolicy.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\InteractiveApprovalPolicy",
+            "layer": "config",
+            "description": "ToolExecutionPolicyInterface implementation. Prompts user for confirmation on gated tools. Catastrophic blacklist checked first (no prompt — just blocked). Gated tools configured via $gatedTools map (tool name → action list or ['*']). Forwards turnId to logAudit.",
+            "methods": [
+                "shouldExecute(string $toolName, array $arguments): true|string — prompts user, returns true to allow or denial reason. Forwards turnId to logAudit."
+            ]
+        },
+        {
+            "path": "src/Config/RoleResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\RoleResolver",
+            "layer": "config",
+            "description": "Maps role names (orchestrator, coder, reviewer) to provider/model strings from openclaw.json. Falls back to primary model when a role is undefined.",
+            "methods": [
+                "resolve(string $role): string — returns provider/model string for the given role",
+                "availableRoles(): string[] — returns all configured role names"
+            ]
+        },
+        {
+            "path": "src/Config/ScriptSanitizer.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ScriptSanitizer",
+            "layer": "config",
+            "description": "Static analysis of generated PHP code. Blocks dangerous functions (eval, exec, system, passthru, shell_exec, proc_open, etc.) and filesystem write functions (file_put_contents, fwrite, fopen, mkdir, unlink, rename, copy, etc.) to prevent writes to the project root. Also blocks patterns (backtick execution, privilege escalation, pipe to shell). In --unsafe mode, only catastrophic patterns are enforced.",
+            "methods": [
+                "validate(string $code): string[] — returns array of issue descriptions (empty means safe)",
+                "isUnsafe(): bool — whether running in unsafe mode"
+            ]
+        },
+        {
+            "path": "src/Config/SetupWizard.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\SetupWizard",
+            "layer": "config",
+            "description": "Interactive wizard for building openclaw.json. Steps: select providers → configure each (base URL, API key, model discovery) → assign roles → set primary model → configure workspace. Supports live model discovery via Ollama/OpenAI APIs.",
+            "methods": [
+                "run(): array — runs the interactive wizard, returns the generated config array"
+            ]
+        },
+        {
+            "path": "src/Config/ToolkitDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ToolkitDiscovery",
+            "layer": "config",
+            "description": "Discovers ToolkitInterface implementations from installed Composer packages. Checks extra.php-agents.toolkits in package composer.json. Persists discovered toolkits in toolkits.json registry. Scans both project and workspace vendor directories. Wraps toolkits with CredentialGuardToolkit when credential requirements are declared.",
+            "methods": [
+                "discover(string $packageName): string[] — scan a single package for toolkit classes",
+                "discoverAll(): array — scan all installed packages (project + workspace)",
+                "instantiateRegistered(): ToolkitInterface[] — instantiate all registered toolkit classes",
+                "register(string $packageName, string[] $classNames): void — persist toolkit registry",
+                "unregister(string $packageName): void — remove from registry",
+                "loadCredentialRequirements(string $packageName): CredentialRequirement[] — load credential declarations"
+            ]
+        },
+        {
+            "path": "src/Config/WorkspaceComposerManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\WorkspaceComposerManager",
+            "layer": "config",
+            "description": "Manages a separate Composer project inside the workspace directory (.workspace/composer.json). The workspace has its own vendor/ so the bot can self-install packages without touching the user's main project.",
+            "methods": [
+                "initialize(): void — creates scaffold composer.json if missing",
+                "loadAutoloader(): bool — loads workspace vendor/autoload.php",
+                "isInitialized(): bool — checks if composer.json exists",
+                "composerJsonPath(): string — path to workspace composer.json",
+                "workspacePath(): string — workspace root path"
+            ]
+        },
+        {
+            "path": "src/Config/WorkspaceResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\WorkspaceResolver",
+            "layer": "config",
+            "description": "Resolves the workspace directory from openclaw.json config. Supports relative paths (resolved against project root), absolute paths, and ~ expansion. Default: .workspace. Creates directory and .gitkeep if missing.",
+            "methods": [
+                "resolve(): string — returns the absolute workspace path"
+            ]
+        },
+        {
+            "path": "src/Contract/CredentialRequirement.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\CredentialRequirement",
+            "layer": "contract",
+            "description": "Final readonly value object representing a credential requirement: name (env var name) + description (human-readable). Used by the CredentialGuard system to declare what keys a toolkit needs.",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/CredentialResolverInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\CredentialResolverInterface",
+            "layer": "contract",
+            "description": "Interface for credential management with hot-reload support. Implementations must persist to .env and call putenv() on set() for immediate availability without restart.",
+            "methods": [
+                "get(string $key): ?string",
+                "has(string $key): bool",
+                "set(string $key, string $value): void",
+                "delete(string $key): void",
+                "loadIntoProcessEnv(): void",
+                "keys(): string[]",
+                "envPath(): string"
+            ]
+        },
+        {
+            "path": "src/Tool/ComposerTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ComposerTool",
+            "layer": "tool",
+            "description": "Manages Composer dependencies in the workspace only. Actions: require, remove, show, installed, update, validate, outdated, audit. Has a denylist blocking full frameworks. Auto-creates backups before mutations. Triggers toolkit discovery after install. Cannot target the project root — workspace-only for security.",
+            "methods": [
+                "execute(array $input): ToolResult — dispatches to action handler based on 'action' parameter"
+            ]
+        },
+        {
+            "path": "src/Tool/CredentialGuardTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\CredentialGuardTool",
+            "layer": "tool",
+            "description": "ToolInterface decorator that intercepts execute() and checks if required credentials exist. Returns structured error with exact key names and credentials tool call syntax when missing. The inner tool is never invoked when credentials are missing.",
+            "methods": [
+                "execute(array $input): ToolResult — checks credentials, delegates to inner tool if all present"
+            ]
+        },
+        {
+            "path": "src/Tool/CredentialGuardToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\CredentialGuardToolkit",
+            "layer": "tool",
+            "description": "ToolkitInterface decorator that wraps all inner toolkit tools with CredentialGuardTool. Appends credential status (configured/MISSING) to the guidelines string.",
+            "methods": [
+                "tools(): ToolInterface[] — returns wrapped tools",
+                "guidelines(): string — inner guidelines + credential status appendix"
+            ]
+        },
+        {
+            "path": "src/Tool/CredentialTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\CredentialTool",
+            "layer": "tool",
+            "description": "LLM-facing CRUD tool for credentials. Actions: set, get, list, delete. Values are never returned to the LLM after storing. Key names must be UPPER_SNAKE_CASE. Delegates to CredentialResolverInterface.",
+            "methods": [
+                "execute(array $input): ToolResult — dispatches to set/get/list/delete handlers"
+            ]
+        },
+        {
+            "path": "src/Tool/PackageInfoTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\PackageInfoTool",
+            "layer": "tool",
+            "description": "Introspects installed Composer packages on-demand. Actions: readme (8KB truncated), classes (reflection-based listing), methods (deep inspect with param/return types), source (read file, 12KB truncated). Lets the agent learn how to use an SDK without pre-injecting documentation.",
+            "methods": [
+                "execute(array $input): ToolResult — dispatches to readme/classes/methods/source handlers"
+            ]
+        },
+        {
+            "path": "src/Tool/PackagistTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\PackagistTool",
+            "layer": "tool",
+            "description": "Queries Packagist.org API. Actions: search, popular, details, stats, versions, advisories. Uses HttpClientInterface. All anonymous endpoints. Used to discover and evaluate packages before installing.",
+            "methods": [
+                "execute(array $input): ToolResult — dispatches to search/popular/details/stats/versions/advisories"
+            ]
+        },
+        {
+            "path": "src/Tool/PhpExecuteTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\PhpExecuteTool",
+            "layer": "tool",
+            "description": "Executes generated PHP code in a sandboxed subprocess. cwd is workspace, open_basedir restricts filesystem access. ScriptSanitizer blocks filesystem write functions (file_put_contents, fwrite, mkdir, unlink, etc.) at the static analysis level before code runs, preventing writes to the project root. Auto-prepends bootstrap preamble (strict_types, project + workspace autoloaders, .env loader). Output truncated to 32KB. Security: ScriptSanitizer (static check) + open_basedir (runtime restriction) + InteractiveApprovalPolicy (user confirmation) + timeout.",
+            "methods": [
+                "execute(array $input): ToolResult — sanitizes code, writes to temp file, runs via proc_open"
+            ]
+        },
+        {
+            "path": "src/Tool/RestartTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\RestartTool",
+            "layer": "tool",
+            "description": "Agent-facing tool that triggers a graceful restart of Coqui. Sets a restartRequested flag on RunCommand via a closure callback. After the current agent turn completes, the REPL loop checks the flag and exits with RESTART_EXIT_CODE (10). The launcher script detects this exit code and relaunches the process. Gated by execution policy — requires user confirmation unless --auto-approve is enabled.",
+            "methods": [
+                "execute(array $input): ToolResult — sets restart flag via closure, returns success message with reason"
+            ]
+        },
+        {
+            "path": "src/Tool/SpawnAgentTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
+            "layer": "tool",
+            "description": "Spawns child agents with role-specific models and toolkits. Creates a ChildAgent, attaches observer, runs it with the task prompt, and returns the result. Logs child runs to SessionStorage. Tracks child run count per turn. The orchestrator uses this to delegate work to Claude (coder), GPT-4 (reviewer), etc.",
+            "methods": [
+                "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
+                "buildToolkits(string $role): ToolkitInterface[] — returns role-specific toolkit set",
+                "setCurrentIteration(int $iteration): void — tracks parent iteration for logging",
+                "getChildRunCount(): int — returns number of child agents spawned during this turn"
+            ]
+        },
+        {
+            "path": "src/Toolkit/ProjectSourceToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ProjectSourceToolkit",
+            "layer": "toolkit",
+            "description": "Read-only toolkit providing structured access to the Coqui project source code. Tools: project_source_map (returns config/source.json), project_read (reads a file from project root), project_list (lists a directory), project_search (glob search). Enables the agent to understand and navigate its own codebase.",
+            "methods": [
+                "tools(): ToolInterface[] — returns project_source_map, project_read, project_list, project_search",
+                "guidelines(): string — usage instructions for project source access"
+            ]
+        },
+        {
+            "path": "src/Toolkit/ToolkitGeneratorToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ToolkitGeneratorToolkit",
+            "layer": "toolkit",
+            "description": "Generates complete toolkit package scaffolds for Coqui. Tools: toolkit_create (scaffolds a new package with composer.json, toolkit class, README, runs composer install), toolkit_add_tool (inserts a new tool into an existing toolkit class), toolkit_list (lists workspace toolkit packages with metadata). All generated packages follow Coqui conventions and are auto-discoverable.",
+            "methods": [
+                "tools(): ToolInterface[] — returns toolkit_create, toolkit_add_tool, toolkit_list",
+                "guidelines(): string — usage instructions for toolkit generation workflow"
+            ]
+        },
+        {
+            "path": "src/Toolkit/SkillToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\SkillToolkit",
+            "layer": "toolkit",
+            "description": "ToolkitInterface implementation providing three tools: skill_list (browse available skills), skill_read (activate a skill by loading full instructions), skill_create (scaffold a new skill directory with SKILL.md). Follows progressive disclosure — skill_read is the activation mechanism that loads full instructions into agent context.",
+            "methods": [
+                "tools(): ToolInterface[] — returns skill_list, skill_read, skill_create tools",
+                "guidelines(): string — XML-wrapped instructions for the skill system"
+            ]
+        },
+        {
+            "path": "src/Contract/SkillProperties.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\SkillProperties",
+            "layer": "contract",
+            "description": "Value object representing parsed SKILL.md frontmatter. Holds name, description, path, and optional license/compatibility/metadata fields per the AgentSkills specification.",
+            "methods": []
+        },
+        {
+            "path": "src/Config/SkillParser.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\SkillParser",
+            "layer": "config",
+            "description": "Stateless parser for AgentSkills SKILL.md files. Handles YAML frontmatter extraction, minimal YAML parsing (no ext-yaml dependency), property construction, body extraction, and spec-compliant validation (name format, length limits, allowed fields).",
+            "methods": [
+                "findSkillMd(string $skillDir): ?string — locates SKILL.md or skill.md in a directory",
+                "parseFrontmatter(string $content): array — splits YAML frontmatter from markdown body",
+                "readProperties(string $skillDir): SkillProperties — parses frontmatter into typed value object",
+                "readBody(string $skillDir): string — returns the markdown body (instructions)",
+                "validate(string $skillDir): string[] — returns validation errors (empty = valid)",
+                "validateName(string $name): string[] — validates name format without directory"
+            ]
+        },
+        {
+            "path": "src/Config/SkillDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\SkillDiscovery",
+            "layer": "config",
+            "description": "Boot-time skill discovery. Scans .workspace/skills/ for directories containing SKILL.md, parses metadata only (progressive disclosure). Provides name resolution, body loading for activation, prompt summary generation, and cache invalidation for newly created skills.",
+            "methods": [
+                "discoverAll(): SkillProperties[] — scans skills directory, returns all valid skills",
+                "getSkill(string $name): SkillProperties — resolves name to properties",
+                "readBody(string $name): string — returns full instructions for skill activation",
+                "skillExists(string $name): bool — checks if a skill exists",
+                "buildPromptSummary(): string — generates <available-skills> XML for system prompt",
+                "ensureSkillsDir(): void — creates the skills directory if missing",
+                "invalidateCache(): void — clears cached discovery results"
+            ]
+        },
+        {
+            "path": "src/Exception/SkillParseException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\SkillParseException",
+            "layer": "config",
+            "description": "Domain exception for SKILL.md parsing failures: missing file, malformed YAML frontmatter, missing required fields.",
+            "methods": []
+        },
+        {
+            "path": "src/Exception/SkillValidationException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\SkillValidationException",
+            "layer": "config",
+            "description": "Domain exception for skill validation failures. Carries an array of individual error strings (name format, length limits, unexpected fields).",
+            "methods": []
+        },
+        {
+            "path": "src/Exception/SkillNotFoundException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\SkillNotFoundException",
+            "layer": "config",
+            "description": "Domain exception thrown when a skill name cannot be resolved. Includes the requested name in the message.",
+            "methods": []
+        },
+        {
+            "path": "src/Observer/TerminalObserver.php",
+            "fqcn": "CoquiBot\\Coqui\\Observer\\TerminalObserver",
+            "layer": "observer",
+            "description": "SplObserver implementation that streams agent events to the terminal. Handles events: agent.start, agent.iteration, agent.tool_call, agent.tool_result, agent.done, agent.error, child.start, child.end. Manages indent level for nested child agent output.",
+            "methods": [
+                "update(SplSubject $subject): void — dispatches agent events to terminal rendering",
+                "handleEvent(string $event, mixed $data): void — direct event handling for child spawn notifications"
+            ]
+        },
+        {
+            "path": "src/Storage/SessionStorage.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
+            "layer": "storage",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages (rebuilds Conversation objects), logging child runs, audit logging, token count tracking, and turn lifecycle management (createTurn, completeTurn, getTurns, getTurnWithMessages). Idempotent migrations add turn_id FK columns to messages and audit_log tables.",
+            "methods": [
+                "createSession(string $modelRole, string $model): string — creates new session, returns ID",
+                "listSessions(int $limit): array — lists recent sessions",
+                "getSession(string $id): ?array — retrieves session details",
+                "addMessage(string $sessionId, ..., ?string $turnId): string — persists a message with optional turn linkage",
+                "loadConversation(string $sessionId): Conversation — rebuilds full conversation history",
+                "logChildRun(...): string — logs a child agent execution",
+                "logAudit(..., ?string $turnId): string — logs a tool execution decision with optional turn linkage",
+                "getLatestSessionId(): ?string — returns most recent session ID for auto-resume",
+                "createTurn(string $sessionId, string $userPrompt, ?string $model): string — creates a turn record, returns ID",
+                "completeTurn(string $turnId, ...): void — updates turn with response, tokens, duration, tools used",
+                "getTurns(string $sessionId, int $limit): array — returns turns ordered by turn_number ASC",
+                "getTurnWithMessages(string $turnId): ?array — returns turn with nested messages"
+            ]
+        }
+    ],
+    "externalDependencies": [
+        {
+            "package": "carmelosantana/php-agents",
+            "description": "Core library providing agents, toolkits, providers, and the tool-use loop",
+            "keyFiles": [
+                {
+                    "path": "src/Contract/ToolInterface.php",
+                    "description": "Contract for tools: name(), description(), parameters(), execute(), toFunctionSchema()"
+                },
+                {
+                    "path": "src/Contract/ToolkitInterface.php",
+                    "description": "Contract for tool groups: tools(), guidelines()"
+                },
+                {
+                    "path": "src/Contract/AgentInterface.php",
+                    "description": "Contract for agents: instructions(), tools(), run()"
+                },
+                {
+                    "path": "src/Agent/AbstractAgent.php",
+                    "description": "Base agent with tool-use loop, observer pattern, toolkit registration, system prompt building"
+                },
+                {
+                    "path": "src/Tool/Tool.php",
+                    "description": "Generic Tool implementation — takes name, description, parameters, callback closure"
+                },
+                {
+                    "path": "src/Tool/ToolResult.php",
+                    "description": "Immutable result from tool execution: success(content) or error(message)"
+                },
+                {
+                    "path": "src/Toolkit/FilesystemToolkit.php",
+                    "description": "Read/write filesystem tools (read_file, write_file, list_dir, search_files, file_info, create_dir, delete_file). Supports readOnly mode."
+                },
+                {
+                    "path": "src/Toolkit/ShellToolkit.php",
+                    "description": "Shell command execution with allowedCommands whitelist and built-in safety patterns"
+                },
+                {
+                    "path": "src/Toolkit/MemoryToolkit.php",
+                    "description": "Persistent key-value memory (memory_save, memory_load, memory_forget) backed by FileMemory"
+                },
+                {
+                    "path": "src/Provider/ProviderFactory.php",
+                    "description": "Creates provider instances from 'provider/model' strings using OpenClaw config"
+                }
+            ]
+        }
+    ]
+}

@@ -1,48 +1,57 @@
 {
-    "name": "coquibot/coqui",
-    "description": "Terminal AI agent REPL with multi-model orchestration and persistent sessions",
-    "type": "project",
-    "license": "MIT",
-    "authors": [
-        {
-            "name": "Carmelo Santana"
-        }
-    ],
-    "require": {
-        "php": "^8.4",
-        "ext-pdo_sqlite": "*",
-        "carmelosantana/php-agents": "^0.1",
-        "symfony/console": "^7.0",
-        "symfony/http-client": "^7.0"
-    },
-    "require-dev": {
-        "pestphp/pest": "^3.0",
-        "phpstan/phpstan": "^2.0"
-    },
-    "autoload": {
-        "psr-4": {
-            "CoquiBot\\Coqui\\": "src/"
-        }
-    },
-    "autoload-dev": {
-        "psr-4": {
-            "CoquiBot\\Coqui\\Tests\\": "tests/"
-        }
-    },
-    "bin": [
-        "bin/coqui"
-    ],
-    "config": {
-        "optimize-autoloader": true,
-        "sort-packages": true,
-        "allow-plugins": {
-            "pestphp/pest-plugin": true
-        }
-    },
-    "scripts": {
-        "test": "pest",
-        "analyse": "phpstan analyse"
-    },
-    "minimum-stability": "dev",
-    "prefer-stable": true
+  "name": "coquibot/coqui",
+  "description": "Terminal AI agent REPL with multi-model orchestration and persistent sessions",
+  "type": "project",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Carmelo Santana"
+    }
+  ],
+  "repositories": [
+    {
+      "type": "path",
+      "url": "../php-agents",
+      "options": {
+        "symlink": true
+      }
+    }
+  ],
+  "require": {
+    "php": "^8.4",
+    "ext-pdo_sqlite": "*",
+    "carmelosantana/php-agents": "^0.4 || @dev",
+    "symfony/console": "^7.0",
+    "symfony/http-client": "^7.0"
+  },
+  "require-dev": {
+    "pestphp/pest": "^3.0",
+    "phpstan/phpstan": "^2.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "CoquiBot\\Coqui\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "CoquiBot\\Coqui\\Tests\\": "tests/"
+    }
+  },
+  "bin": [
+    "bin/coqui"
+  ],
+  "config": {
+    "optimize-autoloader": true,
+    "sort-packages": true,
+    "allow-plugins": {
+      "pestphp/pest-plugin": true
+    }
+  },
+  "scripts": {
+    "test": "pest",
+    "analyse": "phpstan analyse"
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true
 }

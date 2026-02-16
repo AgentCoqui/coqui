@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
+use CoquiBot\Coqui\Contract\CredentialRequirement;
+use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
 
 /**
  * Discovers and registers ToolkitInterface implementations from installed composer packages.
@@ -21,6 +24,7 @@ final class ToolkitDiscovery
     public function __construct(
         private readonly string $projectRoot,
         private readonly string $workspacePath,
+        private readonly ?CredentialResolverInterface $credentialResolver = null,
     ) {
         $this->registryPath = rtrim($this->workspacePath, '/') . '/toolkits.json';
     }
@@ -104,6 +108,147 @@ final class ToolkitDiscovery
     }
 
     /**
+     * Scan ALL installed Composer packages for toolkit declarations.
+     *
+     * Reads vendor/composer/installed.json and checks each package for
+     * extra.php-agents.toolkits. Compares against the persisted registry
+     * and updates it with any newly discovered or removed packages.
+     *
+     * Called at boot to ensure the registry is always in sync with
+     * actually installed packages — no manual setup needed.
+     *
+     * @return string[] Newly discovered toolkit class names (not previously registered)
+     */
+    public function discoverAll(): array
+    {
+        $installedPath = $this->projectRoot . '/vendor/composer/installed.json';
+
+        if (!file_exists($installedPath)) {
+            return [];
+        }
+
+        $installedData = json_decode((string) file_get_contents($installedPath), true);
+        if (!is_array($installedData)) {
+            return [];
+        }
+
+        $packages = $installedData['packages'] ?? $installedData;
+        if (!is_array($packages)) {
+            return [];
+        }
+
+        $currentRegistry = $this->loadRegistry();
+        $discoveredRegistry = [];
+        $newlyDiscovered = [];
+
+        foreach ($packages as $pkg) {
+            if (!is_array($pkg)) {
+                continue;
+            }
+
+            $packageName = $pkg['name'] ?? '';
+            if ($packageName === '') {
+                continue;
+            }
+
+            // Check for explicit toolkit declarations in the package's extra key
+            $toolkitClasses = $this->findDeclaredToolkitsFromInstalled($pkg);
+
+            if (empty($toolkitClasses)) {
+                // Fallback: check the vendor-local composer.json
+                $toolkitClasses = $this->findDeclaredToolkits($packageName);
+            }
+
+            if (empty($toolkitClasses)) {
+                continue;
+            }
+
+            // Validate each declared class implements ToolkitInterface
+            $validated = array_filter($toolkitClasses, fn(string $class) => $this->isToolkit($class));
+
+            if (empty($validated)) {
+                continue;
+            }
+
+            $discoveredRegistry[$packageName] = array_values($validated);
+
+            // Track what's new compared to the current registry
+            if (!isset($currentRegistry[$packageName])) {
+                foreach ($validated as $className) {
+                    $newlyDiscovered[] = $className;
+                }
+            }
+        }
+
+        // Also scan workspace packages if the workspace has its own vendor
+        $workspaceInstalledPath = rtrim($this->workspacePath, '/') . '/vendor/composer/installed.json';
+        if (file_exists($workspaceInstalledPath)) {
+            $workspaceData = json_decode((string) file_get_contents($workspaceInstalledPath), true);
+            if (is_array($workspaceData)) {
+                $workspacePackages = $workspaceData['packages'] ?? $workspaceData;
+                if (is_array($workspacePackages)) {
+                    foreach ($workspacePackages as $pkg) {
+                        if (!is_array($pkg)) {
+                            continue;
+                        }
+
+                        $packageName = $pkg['name'] ?? '';
+                        if ($packageName === '' || isset($discoveredRegistry[$packageName])) {
+                            continue;
+                        }
+
+                        $toolkitClasses = $this->findDeclaredToolkitsFromInstalled($pkg);
+
+                        if (empty($toolkitClasses)) {
+                            $vendorComposer = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName . '/composer.json';
+                            if (file_exists($vendorComposer)) {
+                                $data = json_decode((string) file_get_contents($vendorComposer), true);
+                                $toolkitClasses = is_array($data) ? ($data['extra']['php-agents']['toolkits'] ?? []) : [];
+                                if (!is_array($toolkitClasses)) {
+                                    $toolkitClasses = [];
+                                }
+                            }
+                        }
+
+                        if (empty($toolkitClasses)) {
+                            continue;
+                        }
+
+                        $validated = array_filter($toolkitClasses, fn(string $class) => $this->isToolkit($class));
+
+                        if (!empty($validated)) {
+                            $discoveredRegistry[$packageName] = array_values($validated);
+                            if (!isset($currentRegistry[$packageName])) {
+                                foreach ($validated as $className) {
+                                    $newlyDiscovered[] = $className;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Persist the full updated registry
+        $this->saveRegistry($discoveredRegistry);
+
+        return $newlyDiscovered;
+    }
+
+    /**
+     * Extract toolkit class declarations from an installed.json package entry.
+     *
+     * @param array<string, mixed> $packageEntry A single package entry from installed.json
+     * @return string[]
+     */
+    private function findDeclaredToolkitsFromInstalled(array $packageEntry): array
+    {
+        $extra = $packageEntry['extra']['php-agents']['toolkits'] ?? null;
+
+        return is_array($extra) ? $extra : [];
+    }
+
+    /**
      * Get all registered toolkit classes from the registry.
      *
      * @return array<string, string[]> Package name => array of class names
@@ -124,6 +269,7 @@ final class ToolkitDiscovery
      *
      * Attempts no-arg construction first, then tries passing workspacePath.
      * Silently skips classes that cannot be instantiated.
+     * Wraps toolkits in CredentialGuardToolkit when credential requirements are declared.
      *
      * @return ToolkitInterface[]
      */
@@ -132,12 +278,25 @@ final class ToolkitDiscovery
         $registry = $this->loadRegistry();
         $toolkits = [];
 
-        foreach ($registry as $classes) {
+        foreach ($registry as $packageName => $classes) {
+            $requirements = $this->loadCredentialRequirements($packageName);
+
             foreach ($classes as $className) {
                 $toolkit = $this->tryInstantiate($className);
-                if ($toolkit !== null) {
-                    $toolkits[] = $toolkit;
+                if ($toolkit === null) {
+                    continue;
                 }
+
+                // Wrap with credential guard if the package declares requirements
+                if (!empty($requirements) && $this->credentialResolver !== null) {
+                    $toolkit = new CredentialGuardToolkit(
+                        inner: $toolkit,
+                        requirements: $requirements,
+                        resolver: $this->credentialResolver,
+                    );
+                }
+
+                $toolkits[] = $toolkit;
             }
         }
 
@@ -365,5 +524,61 @@ final class ToolkitDiscovery
             $this->registryPath,
             json_encode($registry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n",
         );
+    }
+
+    /**
+     * Load credential requirements declared in a package's composer.json.
+     *
+     * Reads extra.php-agents.credentials from the package's composer.json:
+     * ```json
+     * {
+     *   "extra": {
+     *     "php-agents": {
+     *       "credentials": {
+     *         "BRAVE_SEARCH_API_KEY": "Brave Search API key — free at https://brave.com/search/api/"
+     *       }
+     *     }
+     *   }
+     * }
+     * ```
+     *
+     * @return CredentialRequirement[]
+     */
+    public function loadCredentialRequirements(string $packageName): array
+    {
+        $requirements = [];
+
+        // Check project vendor first
+        $composerJson = $this->projectRoot . '/vendor/' . $packageName . '/composer.json';
+
+        if (!file_exists($composerJson)) {
+            // Fallback: check workspace vendor
+            $composerJson = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName . '/composer.json';
+        }
+
+        if (!file_exists($composerJson)) {
+            return [];
+        }
+
+        $data = json_decode((string) file_get_contents($composerJson), true);
+        if (!is_array($data)) {
+            return [];
+        }
+
+        $credentials = $data['extra']['php-agents']['credentials'] ?? null;
+        if (!is_array($credentials)) {
+            return [];
+        }
+
+        foreach ($credentials as $name => $description) {
+            if (is_string($name) && is_string($description)) {
+                $requirements[] = new CredentialRequirement(
+                    name: $name,
+                    description: $description,
+                );
+            }
+        }
+
+        return $requirements;
     }
 }

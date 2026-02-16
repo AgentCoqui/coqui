@@ -1,0 +1,32 @@
+{
+    "name": "coquibot/hello-toolkit",
+    "description": "Hello World toolkit for Coqui — demonstrates how to create custom toolkits",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Carmelo Santana"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "CoquiBot\\HelloToolkit\\": "src/"
+        }
+    },
+    "require": {
+        "php": "^8.4",
+        "carmelosantana/php-agents": "^0.2 || @dev"
+    },
+    "extra": {
+        "php-agents": {
+            "toolkits": [
+                "CoquiBot\\HelloToolkit\\HelloToolkit"
+            ]
+        }
+    },
+    "config": {
+        "sort-packages": true
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
