@@ -71,6 +71,16 @@ function destroyChart(id) {
     }
 }
 
+/**
+ * Resize all active chart instances.
+ * Call after the chart container becomes visible (e.g. x-show toggle).
+ */
+function resizeAllCharts() {
+    for (const chart of Object.values(chartInstances)) {
+        chart.resize();
+    }
+}
+
 // ─── Token Usage Line Chart ────────────────────────────────────────────────────
 
 function renderTokenChart(canvasId, data) {
@@ -78,9 +88,21 @@ function renderTokenChart(canvasId, data) {
     const canvas = document.getElementById(canvasId);
     if (!canvas || !data || !Array.isArray(data) || data.length === 0) return;
 
-    const labels = data.map(d => d.period || d.date || '');
-    const promptTokens = data.map(d => Number(d.prompt_tokens) || 0);
-    const completionTokens = data.map(d => Number(d.completion_tokens) || 0);
+    // Aggregate across models per time bucket (backend groups by bucket + model)
+    const bucketMap = new Map();
+    for (const d of data) {
+        const key = d.bucket || d.period || d.date || '';
+        if (!bucketMap.has(key)) {
+            bucketMap.set(key, { prompt: 0, completion: 0 });
+        }
+        const entry = bucketMap.get(key);
+        entry.prompt += Number(d.prompt_tokens) || 0;
+        entry.completion += Number(d.completion_tokens) || 0;
+    }
+
+    const labels = [...bucketMap.keys()];
+    const promptTokens = labels.map(k => bucketMap.get(k).prompt);
+    const completionTokens = labels.map(k => bucketMap.get(k).completion);
 
     chartInstances[canvasId] = new Chart(canvas, {
         type: 'line',
@@ -147,9 +169,9 @@ function renderToolChart(canvasId, data) {
     if (!canvas || !data || !Array.isArray(data) || data.length === 0) return;
 
     // Sort by usage count descending, take top 10
-    const sorted = [...data].sort((a, b) => (b.usage_count || 0) - (a.usage_count || 0)).slice(0, 10);
+    const sorted = [...data].sort((a, b) => (Number(b.total) || 0) - (Number(a.total) || 0)).slice(0, 10);
     const labels = sorted.map(d => d.tool_name || d.tool || '');
-    const counts = sorted.map(d => Number(d.usage_count) || 0);
+    const counts = sorted.map(d => Number(d.total) || 0);
     const colors = labels.map((_, i) => chartPalette[i % chartPalette.length]);
 
     chartInstances[canvasId] = new Chart(canvas, {
