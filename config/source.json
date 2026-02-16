@@ -16,10 +16,10 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, composer, credentials, package_info, packagist, php_execute, restart_coqui). Contains the master system prompt in instructions(). Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, restart_coqui). ComposerTool and PackagistTool have been extracted to separate toolkit packages (coqui-toolkit-composer, coqui-toolkit-packagist) and are now auto-discovered. Contains the master system prompt in instructions(). Constructed fresh on every REPL turn.",
             "methods": [
-                "instructions(): string — returns the full system prompt with role descriptions, security rules, and operational guidelines",
-                "tools(): ToolInterface[] — returns standalone tools (spawn, composer, credentials, package_info, packagist, php_execute, restart_coqui)",
+                "instructions(): string \u2014 returns the full system prompt with role descriptions, security rules, and operational guidelines",
+                "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, restart_coqui)",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
                 "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking"
             ]
@@ -52,7 +52,7 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction, and restart logic (RESTART_EXIT_CODE = 10, restartRequested flag).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction, restart logic (RESTART_EXIT_CODE = 10, restartRequested flag), and startup update checking (COQUI_CHECK_UPDATES, COQUI_AUTO_UPDATE env vars).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system and enters REPL loop",
                 "handleCommand(string, SymfonyStyle): int|true — processes REPL commands (/new, /history, /sessions, /resume, /model, /help, /restart, /quit); returns exit code or true to continue",
@@ -258,15 +258,7 @@
             ]
         },
         {
-            "path": "src/Tool/ComposerTool.php",
-            "fqcn": "CoquiBot\\Coqui\\Tool\\ComposerTool",
-            "layer": "tool",
-            "description": "Manages Composer dependencies in the workspace only. Actions: require, remove, show, installed, update, validate, outdated, audit. Has a denylist blocking full frameworks. Auto-creates backups before mutations. Triggers toolkit discovery after install. Cannot target the project root — workspace-only for security.",
-            "methods": [
-                "execute(array $input): ToolResult — dispatches to action handler based on 'action' parameter"
-            ]
-        },
-        {
+
             "path": "src/Tool/CredentialGuardTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\CredentialGuardTool",
             "layer": "tool",
@@ -304,15 +296,7 @@
             ]
         },
         {
-            "path": "src/Tool/PackagistTool.php",
-            "fqcn": "CoquiBot\\Coqui\\Tool\\PackagistTool",
-            "layer": "tool",
-            "description": "Queries Packagist.org API. Actions: search, popular, details, stats, versions, advisories. Uses HttpClientInterface. All anonymous endpoints. Used to discover and evaluate packages before installing.",
-            "methods": [
-                "execute(array $input): ToolResult — dispatches to search/popular/details/stats/versions/advisories"
-            ]
-        },
-        {
+
             "path": "src/Tool/PhpExecuteTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\PhpExecuteTool",
             "layer": "tool",
