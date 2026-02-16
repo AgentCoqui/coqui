@@ -26,6 +26,7 @@ final class SetupWizard
     public function __construct(
         private readonly SymfonyStyle $io,
         private readonly DefaultsLoader $defaults,
+        private readonly ?CredentialResolver $credentialResolver = null,
     ) {}
 
     /**
@@ -68,7 +69,10 @@ final class SetupWizard
         // Step 5: Configure workspace
         $workspace = $this->configureWorkspace();
 
-        // Step 6: Build and preview
+        // Step 6: Update preferences (ENV-based, not in openclaw.json)
+        $this->configureUpdatePreferences();
+
+        // Step 7: Build and preview
         $config = $this->buildConfig($primaryModel, $roles, $workspace);
 
         $this->io->section('Configuration Preview');
@@ -387,6 +391,32 @@ final class SetupWizard
         $workspace = $this->io->ask('Workspace directory', $default);
 
         return is_string($workspace) ? $workspace : $default;
+    }
+
+    /**
+     * Step 6: Configure update preferences (stored as ENV vars, not in openclaw.json).
+     */
+    private function configureUpdatePreferences(): void
+    {
+        $this->io->section('Step 6: Updates');
+
+        $this->io->text('Coqui can check for dependency updates on startup and optionally apply them automatically.');
+
+        $checkUpdates = $this->io->confirm('Check for updates on startup?', true);
+        $autoUpdate = false;
+
+        if ($checkUpdates) {
+            $autoUpdate = $this->io->confirm('Automatically apply updates on startup? (will restart Coqui)', false);
+        }
+
+        // Persist to workspace .env via CredentialResolver (reuses the same .env mechanism)
+        if ($this->credentialResolver !== null) {
+            $this->credentialResolver->set('COQUI_CHECK_UPDATES', $checkUpdates ? 'true' : 'false');
+            $this->credentialResolver->set('COQUI_AUTO_UPDATE', $autoUpdate ? 'true' : 'false');
+            $this->io->text('<fg=gray>Update preferences saved to workspace .env</>');
+        } else {
+            $this->io->text('<fg=gray>Set COQUI_CHECK_UPDATES and COQUI_AUTO_UPDATE in your .env to control update behavior.</>');
+        }
     }
 
     /**
