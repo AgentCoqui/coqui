@@ -1,0 +1,38 @@
+###############################################################################
+# Coqui — Test Overlay
+#
+# Runs Pest tests in a non-interactive container with pcov for code coverage.
+#
+# Usage:
+#   docker compose -f compose.yaml -f compose.test.yaml run --rm coqui
+#   docker compose -f compose.yaml -f compose.test.yaml run --rm coqui vendor/bin/pest --coverage
+#
+# Or via Makefile:
+#   make test
+#   make test-coverage
+###############################################################################
+
+services:
+  # ===========================================================================
+  # Override: Coqui — non-interactive test runner
+  # ===========================================================================
+  coqui:
+    stdin_open: false
+    tty: false
+    entrypoint: ["php"]
+    command: ["vendor/bin/pest", "--no-coverage"]
+
+    volumes:
+      # Source code
+      - .:/app
+
+      # Mount the workspace parent for path repo resolution during tests
+      - ..:/workspace
+
+      # pcov + test PHP config — enables coverage extension, disables OPcache
+      - ./conf.d/test.ini:/usr/local/etc/php/conf.d/99-test.ini:ro
+
+    working_dir: /app
+
+    environment:
+      COQUI_TEST: "1"

@@ -1,0 +1,76 @@
+###############################################################################
+# Coqui — Base Compose
+#
+# Runs Coqui as an interactive CLI REPL in a container.
+# Connects to Ollama on the host machine via host.docker.internal.
+#
+# Usage:
+#   docker compose run --rm coqui                    # interactive REPL
+#   docker compose run --rm coqui --auto-approve     # unattended mode
+#   docker compose run --rm coqui --help             # CLI help
+#
+# NOTE: Use `docker compose run` (not `up`) — Coqui is an interactive REPL
+# that requires a TTY, not a background daemon.
+###############################################################################
+
+services:
+  # ===========================================================================
+  # Coqui — Terminal AI Agent
+  # ===========================================================================
+  coqui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        COQUI_UID: ${COQUI_UID:-1000}
+        COQUI_GID: ${COQUI_GID:-1000}
+    image: coqui:dev
+    container_name: coqui
+    init: true
+    stdin_open: true
+    tty: true
+    volumes:
+      # Source code — bind-mounted for live editing
+      - .:/app
+
+      # Workspace — named volume for persistence across runs
+      # Contains: .workspace/data/coqui.db, .workspace/vendor/, bot-managed files
+      - coqui_workspace:/app/.workspace
+
+      # User config — mount if present (create openclaw.json first)
+      # Uncomment below or use: docker compose run -v ./openclaw.json:/app/openclaw.json:ro coqui
+      # - ./openclaw.json:/app/openclaw.json:ro
+
+    environment:
+      # API keys — passed from host environment
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+
+      # Ollama — connect to host instance
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+
+      # Composer
+      COMPOSER_ALLOW_SUPERUSER: 0
+
+    # Resolve host.docker.internal on Linux (automatic on macOS/Windows)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    networks:
+      - coqui
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  coqui_workspace:
+    name: coqui_workspace
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  coqui:
+    name: coqui
+    driver: bridge

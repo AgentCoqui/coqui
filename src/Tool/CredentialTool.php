@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 
 /**
  * Manages credentials stored in a workspace .env file.
@@ -18,13 +19,9 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
  */
 final class CredentialTool implements ToolInterface
 {
-    private readonly string $envPath;
-
     public function __construct(
-        private readonly string $workspacePath,
-    ) {
-        $this->envPath = rtrim($this->workspacePath, '/') . '/.env';
-    }
+        private readonly CredentialResolverInterface $resolver,
+    ) {}
 
     public function name(): string
     {
@@ -103,9 +100,7 @@ final class CredentialTool implements ToolInterface
             );
         }
 
-        $entries = $this->loadEnvFile();
-        $entries[$key] = $value;
-        $this->saveEnvFile($entries);
+        $this->resolver->set($key, $value);
 
         return ToolResult::success(
             "Credential '{$key}' has been saved. Use getenv('{$key}') in your PHP code to access it.",
@@ -118,9 +113,7 @@ final class CredentialTool implements ToolInterface
             return ToolResult::error('Key name is required for get action.');
         }
 
-        $entries = $this->loadEnvFile();
-
-        if (!isset($entries[$key])) {
+        if (!$this->resolver->has($key)) {
             return ToolResult::error("Credential '{$key}' not found.");
         }
 
@@ -132,9 +125,9 @@ final class CredentialTool implements ToolInterface
 
     private function listCredentials(): ToolResult
     {
-        $entries = $this->loadEnvFile();
+        $keys = $this->resolver->keys();
 
-        if (empty($entries)) {
+        if (empty($keys)) {
             return ToolResult::success('No credentials stored.');
         }
 
@@ -142,7 +135,7 @@ final class CredentialTool implements ToolInterface
         $output .= "| Key | Status |\n";
         $output .= "|-----|--------|\n";
 
-        foreach (array_keys($entries) as $key) {
+        foreach ($keys as $key) {
             $output .= "| {$key} | ✓ set |\n";
         }
 
@@ -157,14 +150,11 @@ final class CredentialTool implements ToolInterface
             return ToolResult::error('Key name is required for delete action.');
         }
 
-        $entries = $this->loadEnvFile();
-
-        if (!isset($entries[$key])) {
+        if (!$this->resolver->has($key)) {
             return ToolResult::error("Credential '{$key}' not found.");
         }
 
-        unset($entries[$key]);
-        $this->saveEnvFile($entries);
+        $this->resolver->delete($key);
 
         return ToolResult::success("Credential '{$key}' has been deleted.");
     }
@@ -175,91 +165,11 @@ final class CredentialTool implements ToolInterface
     }
 
     /**
-     * Parse the .env file into key-value pairs.
-     *
-     * @return array<string, string>
-     */
-    private function loadEnvFile(): array
-    {
-        if (!file_exists($this->envPath)) {
-            return [];
-        }
-
-        $content = file_get_contents($this->envPath);
-        if ($content === false) {
-            return [];
-        }
-
-        $entries = [];
-
-        foreach (explode("\n", $content) as $line) {
-            $line = trim($line);
-
-            // Skip empty lines and comments
-            if ($line === '' || str_starts_with($line, '#')) {
-                continue;
-            }
-
-            $equalsPos = strpos($line, '=');
-            if ($equalsPos === false) {
-                continue;
-            }
-
-            $key = trim(substr($line, 0, $equalsPos));
-            $value = trim(substr($line, $equalsPos + 1));
-
-            // Strip surrounding quotes
-            if (
-                (str_starts_with($value, '"') && str_ends_with($value, '"'))
-                || (str_starts_with($value, "'") && str_ends_with($value, "'"))
-            ) {
-                $value = substr($value, 1, -1);
-            }
-
-            if ($key !== '') {
-                $entries[$key] = $value;
-            }
-        }
-
-        return $entries;
-    }
-
-    /**
-     * Write key-value pairs back to the .env file.
-     *
-     * @param array<string, string> $entries
-     */
-    private function saveEnvFile(array $entries): void
-    {
-        $dir = dirname($this->envPath);
-        if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
-        }
-
-        $lines = ["# Coqui workspace credentials — managed by CredentialTool\n"];
-
-        foreach ($entries as $key => $value) {
-            // Quote values containing spaces or special characters
-            if (preg_match('/[\s#"\'\\\\]/', $value)) {
-                $escaped = str_replace(['\\', '"'], ['\\\\', '\\"'], $value);
-                $lines[] = "{$key}=\"{$escaped}\"";
-            } else {
-                $lines[] = "{$key}={$value}";
-            }
-        }
-
-        file_put_contents($this->envPath, implode("\n", $lines) . "\n");
-
-        // Restrict file permissions (owner read/write only)
-        chmod($this->envPath, 0600);
-    }
-
-    /**
      * Get the path to the .env file (used by PhpExecuteTool for bootstrapping).
      */
     public function envPath(): string
     {
-        return $this->envPath;
+        return $this->resolver->envPath();
     }
 
     public function toFunctionSchema(): array

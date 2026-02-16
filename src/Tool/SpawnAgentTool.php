@@ -14,6 +14,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
+use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -27,6 +28,7 @@ use SplObserver;
 final class SpawnAgentTool implements ToolInterface
 {
     private int $currentIteration = 0;
+    private int $childRunCount = 0;
 
     public function __construct(
         private readonly RoleResolver $roleResolver,
@@ -148,6 +150,8 @@ final class SpawnAgentTool implements ToolInterface
                 $this->observer->handleEvent('child.end', null);
             }
 
+            $this->childRunCount++;
+
             return ToolResult::success($output->content);
         } catch (\Throwable $e) {
             if ($this->observer instanceof TerminalObserver) {
@@ -171,14 +175,17 @@ final class SpawnAgentTool implements ToolInterface
                     allowedCommands: ['php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc'],
                     timeout: 60,
                 ),
+                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             'reviewer' => [
                 new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true),
+                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             default => [
                 new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true),
+                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
         };
     }
@@ -186,6 +193,11 @@ final class SpawnAgentTool implements ToolInterface
     public function setCurrentIteration(int $iteration): void
     {
         $this->currentIteration = $iteration;
+    }
+
+    public function getChildRunCount(): int
+    {
+        return $this->childRunCount;
     }
 
     public function toFunctionSchema(): array
