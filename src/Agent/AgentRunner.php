@@ -63,11 +63,18 @@ final class AgentRunner
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
 
+        // Resolve the orchestrator model string for turn tracking
+        $modelString = $this->roleResolver->resolve('orchestrator');
+
+        // Create turn record before execution
+        $turnId = $this->storage->createTurn($sessionId, $prompt, $modelString);
+        $startTime = hrtime(true);
+
         // Save user message to database before running agent
-        $this->storage->addMessage($sessionId, 'user', $prompt);
+        $this->storage->addMessage($sessionId, 'user', $prompt, turnId: $turnId);
 
         // Build execution policy based on flags
-        $executionPolicy = $this->buildExecutionPolicy($sessionId, $io);
+        $executionPolicy = $this->buildExecutionPolicy($sessionId, $io, $turnId);
 
         // Build sanitizer for PHP execution
         $sanitizer = new ScriptSanitizer(
@@ -101,12 +108,12 @@ final class AgentRunner
 
             // Persist intermediate messages from this turn (tool calls + results)
             if ($output->conversation !== null) {
-                $this->persistTurnMessages($output->conversation, $history->count(), $sessionId);
+                $this->persistTurnMessages($output->conversation, $history->count(), $sessionId, $turnId);
             }
 
             // Save final assistant response if not already persisted
             if ($output->conversation === null) {
-                $this->storage->addMessage($sessionId, 'assistant', $output->content);
+                $this->storage->addMessage($sessionId, 'assistant', $output->content, turnId: $turnId);
             }
 
             // Display response
@@ -124,8 +131,39 @@ final class AgentRunner
             }
             $io->comment(implode(' | ', $stats));
             $io->newLine();
+
+            // Complete turn with metadata
+            $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
+            $toolsUsed = $this->extractToolsUsed($output->conversation);
+            $childAgentCount = $agent->getSpawnTool()->getChildRunCount();
+
+            $this->storage->completeTurn(
+                turnId: $turnId,
+                responseText: $output->content,
+                promptTokens: $output->usage !== null ? $output->usage->promptTokens : 0,
+                completionTokens: $output->usage !== null ? $output->usage->completionTokens : 0,
+                totalTokens: $output->usage !== null ? $output->usage->totalTokens : 0,
+                iterations: $output->iterations,
+                durationMs: $durationMs,
+                toolsUsed: json_encode($toolsUsed, JSON_UNESCAPED_SLASHES) ?: '[]',
+                childAgentCount: $childAgentCount,
+            );
         } catch (\Throwable $e) {
             $io->error("Agent error: {$e->getMessage()}");
+
+            // Complete turn even on error so duration/state is tracked
+            $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
+            $this->storage->completeTurn(
+                turnId: $turnId,
+                responseText: "Error: {$e->getMessage()}",
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+                iterations: 0,
+                durationMs: $durationMs,
+                toolsUsed: '[]',
+                childAgentCount: 0,
+            );
         }
 
         return $restartRequested;
@@ -161,12 +199,14 @@ final class AgentRunner
     private function buildExecutionPolicy(
         string $sessionId,
         SymfonyStyle $io,
+        ?string $turnId = null,
     ): ToolExecutionPolicyInterface {
         if ($this->autoApprove) {
             return new AutoApprovalPolicy(
                 blacklist: $this->blacklist,
                 storage: $this->storage,
                 sessionId: $sessionId,
+                turnId: $turnId,
             );
         }
 
@@ -176,6 +216,7 @@ final class AgentRunner
             blacklist: $this->blacklist,
             storage: $this->storage,
             sessionId: $sessionId,
+            turnId: $turnId,
         );
     }
 
@@ -193,6 +234,7 @@ final class AgentRunner
         Conversation $conversation,
         int $historyCount,
         string $sessionId,
+        ?string $turnId = null,
     ): void {
         $messages = $conversation->messages();
 
@@ -216,6 +258,7 @@ final class AgentRunner
                         ], $msg->toolCalls()),
                         JSON_UNESCAPED_SLASHES,
                     ) ?: null) : null,
+                    turnId: $turnId,
                 ),
 
                 Role::Tool => $this->storage->addMessage(
@@ -224,11 +267,36 @@ final class AgentRunner
                     is_string($msg->content()) ? $msg->content() : (json_encode($msg->content()) ?: ''),
                     null,
                     $msg->toolCallId(),
+                    turnId: $turnId,
                 ),
 
                 // User and System messages mid-turn are unexpected but harmless — skip
                 default => null,
             };
         }
+    }
+
+    /**
+     * Extract unique tool names from the conversation's tool calls.
+     *
+     * @return string[]
+     */
+    private function extractToolsUsed(?Conversation $conversation): array
+    {
+        if ($conversation === null) {
+            return [];
+        }
+
+        $tools = [];
+
+        foreach ($conversation->messages() as $msg) {
+            if ($msg->role() === Role::Assistant && !empty($msg->toolCalls())) {
+                foreach ($msg->toolCalls() as $tc) {
+                    $tools[$tc->name] = true;
+                }
+            }
+        }
+
+        return array_keys($tools);
     }
 }
