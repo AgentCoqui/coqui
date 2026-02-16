@@ -256,6 +256,11 @@ final class SessionStorage
 
     /**
      * Rebuild a Conversation object from persisted messages.
+     *
+     * Each row is wrapped in a try/catch so a single corrupted message
+     * (malformed UTF-8, invalid role, bad JSON) does not kill the entire
+     * conversation. Skipped rows are silently dropped — the doctor
+     * command can surface them.
      */
     public function loadConversation(string $sessionId): Conversation
     {
@@ -263,23 +268,28 @@ final class SessionStorage
         $conversation = new Conversation();
 
         foreach ($messages as $msg) {
-            $role = Role::from($msg['role']);
-            $content = $msg['content'];
-            $toolCalls = $msg['tool_calls'] !== null
-                ? $this->decodeToolCalls($msg['tool_calls'])
-                : [];
-            $toolCallId = $msg['tool_call_id'];
+            try {
+                $role = Role::from($msg['role']);
+                $content = $this->sanitizeUtf8($msg['content'] ?? '');
+                $toolCalls = $msg['tool_calls'] !== null
+                    ? $this->decodeToolCalls($msg['tool_calls'])
+                    : [];
+                $toolCallId = $msg['tool_call_id'] ?? ('unknown_' . $msg['id']);
 
-            $message = match ($role) {
-                Role::System => new SystemMessage($content),
-                Role::User => new UserMessage($content),
-                Role::Assistant => new AssistantMessage($content, $toolCalls),
-                Role::Tool => new ToolResultMessage(
-                    (new ToolResult(ToolResultStatus::Success, $content))->withCallId($toolCallId),
-                ),
-            };
+                $message = match ($role) {
+                    Role::System => new SystemMessage($content),
+                    Role::User => new UserMessage($content),
+                    Role::Assistant => new AssistantMessage($content, $toolCalls),
+                    Role::Tool => new ToolResultMessage(
+                        (new ToolResult(ToolResultStatus::Success, $content))->withCallId($toolCallId),
+                    ),
+                };
 
-            $conversation->add($message);
+                $conversation->add($message);
+            } catch (\Throwable) {
+                // Skip corrupted message — doctor command can diagnose these
+                continue;
+            }
         }
 
         return $conversation;
@@ -290,7 +300,11 @@ final class SessionStorage
      */
     private function decodeToolCalls(string $json): array
     {
-        $data = json_decode($json, true);
+        try {
+            $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return [];
+        }
 
         if (!is_array($data)) {
             return [];
@@ -308,6 +322,159 @@ final class SessionStorage
         }
 
         return $calls;
+    }
+
+    /**
+     * Replace invalid UTF-8 sequences with the Unicode replacement character.
+     *
+     * This prevents malformed content (e.g., from web scraping results)
+     * from poisoning the entire conversation when sent to a provider
+     * that requires valid JSON (and therefore valid UTF-8).
+     */
+    private function sanitizeUtf8(string $value): string
+    {
+        if (mb_check_encoding($value, 'UTF-8')) {
+            return $value;
+        }
+
+        return mb_convert_encoding($value, 'UTF-8', 'UTF-8');
+    }
+
+    /**
+     * Run integrity checks on session data for the doctor command.
+     *
+     * @return array{ok: bool, issues: list<array{id: string, role: string, issue: string}>}
+     */
+    public function checkMessageIntegrity(string $sessionId, int $limit = 200): array
+    {
+        $issues = [];
+
+        // Read raw bytes to detect malformed UTF-8
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, role, content, tool_calls, tool_call_id
+            FROM messages
+            WHERE session_id = :session_id
+            ORDER BY created_at DESC
+            LIMIT :limit
+        SQL);
+        $stmt->bindValue('session_id', $sessionId);
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $id = $row['id'];
+            $role = $row['role'];
+
+            // Check valid role
+            if (!in_array($role, ['user', 'assistant', 'tool', 'system'], true)) {
+                $issues[] = ['id' => $id, 'role' => $role, 'issue' => "Invalid role: {$role}"];
+            }
+
+            // Check UTF-8 validity
+            if (is_string($row['content']) && !mb_check_encoding($row['content'], 'UTF-8')) {
+                $issues[] = ['id' => $id, 'role' => $role, 'issue' => 'Malformed UTF-8 in content'];
+            }
+
+            // Check tool_calls JSON validity
+            if ($row['tool_calls'] !== null) {
+                $decoded = json_decode($row['tool_calls'], true);
+                if (json_last_error() !== JSON_ERROR_NONE) {
+                    $issues[] = ['id' => $id, 'role' => $role, 'issue' => 'Invalid JSON in tool_calls: ' . json_last_error_msg()];
+                }
+            }
+
+            // Check tool messages have tool_call_id
+            if ($role === 'tool' && ($row['tool_call_id'] === null || $row['tool_call_id'] === '')) {
+                $issues[] = ['id' => $id, 'role' => $role, 'issue' => 'Tool message missing tool_call_id'];
+            }
+        }
+
+        return ['ok' => empty($issues), 'issues' => $issues];
+    }
+
+    /**
+     * Delete specific messages by ID. Used by doctor --repair.
+     *
+     * @param string[] $messageIds
+     * @return int Number of rows deleted
+     */
+    public function deleteMessages(array $messageIds): int
+    {
+        if (empty($messageIds)) {
+            return 0;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
+        $stmt = $this->db->prepare("DELETE FROM messages WHERE id IN ({$placeholders})");
+        $stmt->execute(array_values($messageIds));
+
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Repair malformed UTF-8 content in messages by replacing invalid bytes.
+     *
+     * @return int Number of rows repaired
+     */
+    public function repairUtf8Content(string $sessionId): int
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, content FROM messages WHERE session_id = :session_id
+        SQL);
+        $stmt->execute(['session_id' => $sessionId]);
+
+        $repaired = 0;
+        $update = $this->db->prepare('UPDATE messages SET content = :content WHERE id = :id');
+
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            if (is_string($row['content']) && !mb_check_encoding($row['content'], 'UTF-8')) {
+                $clean = mb_convert_encoding($row['content'], 'UTF-8', 'UTF-8');
+                $update->execute(['content' => $clean, 'id' => $row['id']]);
+                $repaired++;
+            }
+        }
+
+        return $repaired;
+    }
+
+    /**
+     * Get database summary statistics for the doctor command.
+     *
+     * @return array{sessions: int, messages: int, turns: int, audit_entries: int, db_size_bytes: int}
+     */
+    public function getDatabaseStats(): array
+    {
+        return [
+            'sessions' => (int) $this->db->query('SELECT COUNT(*) FROM sessions')->fetchColumn(),
+            'messages' => (int) $this->db->query('SELECT COUNT(*) FROM messages')->fetchColumn(),
+            'turns' => (int) $this->db->query('SELECT COUNT(*) FROM turns')->fetchColumn(),
+            'audit_entries' => (int) $this->db->query('SELECT COUNT(*) FROM audit_log')->fetchColumn(),
+            'db_size_bytes' => (int) $this->db->query('PRAGMA page_count')->fetchColumn()
+                * (int) $this->db->query('PRAGMA page_size')->fetchColumn(),
+        ];
+    }
+
+    /**
+     * Verify all expected tables exist.
+     *
+     * @return array{ok: bool, missing: string[]}
+     */
+    public function checkTablesExist(): array
+    {
+        $expected = ['sessions', 'messages', 'turns', 'audit_log', 'child_runs'];
+        $missing = [];
+
+        foreach ($expected as $table) {
+            $stmt = $this->db->prepare(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name = :name",
+            );
+            $stmt->execute(['name' => $table]);
+            if ($stmt->fetch() === false) {
+                $missing[] = $table;
+            }
+        }
+
+        return ['ok' => empty($missing), 'missing' => $missing];
     }
 
     public function logChildRun(
