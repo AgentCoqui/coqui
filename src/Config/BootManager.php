@@ -19,6 +19,7 @@ final class BootManager
     private string $workspacePath;
     private CredentialResolver $credentialResolver;
     private ToolkitDiscovery $discovery;
+    private SkillDiscovery $skillDiscovery;
     private RoleResolver $roleResolver;
     private CatastrophicBlacklist $blacklist;
     private DefaultsLoader $defaultsLoader;
@@ -41,6 +42,7 @@ final class BootManager
         $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader);
         $this->initializeWorkspace($io);
         $this->initializeCredentials();
+        $this->discoverSkills();
         $this->discoverToolkits($io);
 
         return true;
@@ -79,6 +81,11 @@ final class BootManager
     public function defaultsLoader(): DefaultsLoader
     {
         return $this->defaultsLoader;
+    }
+
+    public function skillDiscovery(): SkillDiscovery
+    {
+        return $this->skillDiscovery;
     }
 
     /**
@@ -143,6 +150,12 @@ final class BootManager
     {
         $this->credentialResolver = new CredentialResolver(workspacePath: $this->workspacePath);
         $this->credentialResolver->loadIntoProcessEnv();
+    }
+
+    private function discoverSkills(): void
+    {
+        $this->skillDiscovery = new SkillDiscovery($this->workspacePath);
+        $this->skillDiscovery->ensureSkillsDir();
     }
 
     private function discoverToolkits(SymfonyStyle $io): void
