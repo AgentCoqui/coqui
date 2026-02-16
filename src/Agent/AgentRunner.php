@@ -16,6 +16,7 @@ use CoquiBot\Coqui\Config\CatastrophicBlacklist;
 use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Observer\TerminalObserver;
@@ -48,6 +49,7 @@ final class AgentRunner
         private readonly ToolkitDiscovery $discovery,
         private readonly CatastrophicBlacklist $blacklist,
         private readonly CredentialResolverInterface $credentialResolver,
+        private readonly ?SkillDiscovery $skillDiscovery = null,
         private readonly bool $unsafeMode = false,
         private readonly bool $autoApprove = false,
         private readonly ?ProviderFactory $providerFactory = null,
@@ -193,6 +195,7 @@ final class AgentRunner
             sanitizer: $sanitizer,
             onRestart: $onRestart,
             credentialResolver: $this->credentialResolver,
+            skillDiscovery: $this->skillDiscovery,
         );
     }
 

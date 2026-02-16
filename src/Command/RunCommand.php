@@ -83,6 +83,7 @@ final class RunCommand extends Command
             discovery: $this->boot->discovery(),
             blacklist: $this->boot->blacklist(),
             credentialResolver: $this->boot->credentialResolver(),
+            skillDiscovery: $this->boot->skillDiscovery(),
             unsafeMode: $this->unsafeMode,
             autoApprove: $this->autoApprove,
         );

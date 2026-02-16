@@ -21,6 +21,7 @@ final readonly class OrchestratorPrompt
         private string $workspacePath,
         private string $projectRoot,
         private string $availableRoles,
+        private string $availableSkills = '',
         ?string $promptsDir = null,
     ) {
         $this->loader = new PromptLoader(
@@ -29,6 +30,7 @@ final readonly class OrchestratorPrompt
                 'workspace_path' => $this->workspacePath,
                 'project_root' => $this->projectRoot,
                 'available_roles' => $this->availableRoles,
+                'available_skills' => $this->availableSkills,
             ],
         );
     }
