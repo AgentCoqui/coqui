@@ -105,13 +105,39 @@ xdebug-clear: ## Clear Xdebug profiler output files
 # =============================================================================
 
 clean: ## Remove all containers, images, and volumes (destructive!)
-	@docker compose -f compose.yaml -f compose.dev.yaml -f compose.test.yaml \
+	@docker compose -f compose.yaml -f compose.dev.yaml -f compose.test.yaml -f compose.api.yaml \
 		down -v --remove-orphans --rmi local
 	@echo "Cleaned up"
 
 clean-workspace: ## Remove only the workspace volume (resets sessions/data)
 	@docker volume rm coqui_workspace 2>/dev/null || true
 	@echo "Workspace volume removed"
+
+# =============================================================================
+# API Server
+# =============================================================================
+
+api: ## Start the Coqui API server (port 8080)
+	@docker compose -f compose.yaml -f compose.api.yaml up -d
+	@echo "API server running at http://localhost:$${COQUI_API_PORT:-8080}"
+
+api-port: ## Start API server on custom port (make api-port PORT=3000)
+	@if [ -z "$(PORT)" ]; then \
+		echo "Usage: make api-port PORT=3000"; \
+		exit 1; \
+	fi
+	@COQUI_API_PORT=$(PORT) docker compose -f compose.yaml -f compose.api.yaml up -d
+	@echo "API server running at http://localhost:$(PORT)"
+
+api-down: ## Stop the API server
+	@docker compose -f compose.yaml -f compose.api.yaml down
+	@echo "API server stopped"
+
+api-logs: ## Follow API server logs
+	@docker compose -f compose.yaml -f compose.api.yaml logs -f
+
+api-local: ## Start API server locally (no Docker)
+	@php bin/coqui api --host 127.0.0.1 --port 8080
 
 # =============================================================================
 # Dashboard (GUI)
