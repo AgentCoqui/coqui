@@ -92,13 +92,13 @@ The `extra.php-agents` section is what makes a package a toolkit:
 
 ```json
 {
-    "name": "coquibot/my-toolkit",
+    "name": "coquibot/coqui-toolkit-my-toolkit",
     "description": "My awesome toolkit for Coqui",
     "type": "library",
     "license": "MIT",
     "autoload": {
         "psr-4": {
-            "CoquiBot\\MyToolkit\\": "src/"
+            "CoquiBot\\Toolkits\\MyToolkit\\": "src/"
         }
     },
     "require": {
@@ -108,7 +108,7 @@ The `extra.php-agents` section is what makes a package a toolkit:
     "extra": {
         "php-agents": {
             "toolkits": [
-                "CoquiBot\\MyToolkit\\MyToolkit"
+                "CoquiBot\\Toolkits\\MyToolkit\\MyToolkit"
             ]
         }
     },
@@ -139,7 +139,7 @@ The toolkit class implements two methods:
 
 declare(strict_types=1);
 
-namespace CoquiBot\MyToolkit;
+namespace CoquiBot\Toolkits\MyToolkit;
 
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
@@ -211,13 +211,13 @@ mkdir -p .workspace/packages/my-toolkit/src
 
 ```json
 {
-    "name": "coquibot/my-toolkit",
+    "name": "coquibot/coqui-toolkit-my-toolkit",
     "description": "My custom toolkit",
     "type": "library",
     "license": "MIT",
     "autoload": {
         "psr-4": {
-            "CoquiBot\\MyToolkit\\": "src/"
+            "CoquiBot\\Toolkits\\MyToolkit\\": "src/"
         }
     },
     "require": {
@@ -227,7 +227,7 @@ mkdir -p .workspace/packages/my-toolkit/src
     "extra": {
         "php-agents": {
             "toolkits": [
-                "CoquiBot\\MyToolkit\\MyToolkit"
+                "CoquiBot\\Toolkits\\MyToolkit\\MyToolkit"
             ]
         }
     },
@@ -241,7 +241,7 @@ mkdir -p .workspace/packages/my-toolkit/src
 4. Install and activate:
 
 ```bash
-cd .workspace && composer require coquibot/my-toolkit
+cd .workspace && composer require coquibot/coqui-toolkit-my-toolkit
 ```
 
 Then restart Coqui for auto-discovery to pick up the new toolkit.
@@ -576,11 +576,11 @@ Discovered toolkits are persisted in `.workspace/toolkits.json`:
 
 ```json
 {
-    "coquibot/coqui-brave-search": [
-        "CoquiBrave\\BraveSearch\\BraveSearchToolkit"
+    "coquibot/coqui-toolkit-brave-search": [
+        "CoquiBot\\Toolkits\\BraveSearch\\BraveSearchToolkit"
     ],
-    "coquibot/hello-toolkit": [
-        "CoquiBot\\HelloToolkit\\HelloToolkit"
+    "coquibot/coqui-toolkit-hello": [
+        "CoquiBot\\Toolkits\\HelloToolkit\\HelloToolkit"
     ]
 }
 ```
@@ -605,7 +605,7 @@ Use [Pest 3.x](https://pestphp.com/) for testing toolkits.
 
 declare(strict_types=1);
 
-use CoquiBot\MyToolkit\MyToolkit;
+use CoquiBot\Toolkits\MyToolkit\MyToolkit;
 
 test('toolkit provides expected tools', function () {
     $toolkit = new MyToolkit();
@@ -858,7 +858,7 @@ See the [Hello Toolkit README](../examples/hello-toolkit/README.md) for full det
 
 A production toolkit with credentials, HTTP client, and auto-discovery.
 
-**Package:** `coquibot/coqui-brave-search`
+**Package:** `coquibot/coqui-toolkit-brave-search`
 
 Key patterns demonstrated:
 - `fromEnv()` factory method for discovery
@@ -868,7 +868,7 @@ Key patterns demonstrated:
 - Structured JSON output formatting
 - Error handling with HTTP status codes
 
-See the [Brave Search README](https://github.com/coquibot/coqui-brave-search) for full details.
+See the [Brave Search README](https://github.com/coquibot/coqui-toolkit-brave-search) for full details.
 
 ### Weather Toolkit
 
