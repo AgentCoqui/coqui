@@ -1,0 +1,102 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CoquiBot\Coqui\Api\Handler;
+
+use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use React\Http\Message\Response;
+
+/**
+ * Credential management endpoints.
+ *
+ * GET    /api/credentials       — list credential keys (values hidden)
+ * POST   /api/credentials       — set a credential
+ * DELETE /api/credentials/{key} — delete a credential
+ */
+final readonly class CredentialHandler
+{
+    public function __construct(
+        private CredentialResolverInterface $credentialResolver,
+    ) {}
+
+    /**
+     * GET /api/credentials — list all credential keys.
+     *
+     * Values are never exposed — only existence is returned.
+     */
+    public function list(ServerRequestInterface $request): Response
+    {
+        $keys = $this->credentialResolver->keys();
+
+        $credentials = array_map(
+            fn(string $key): array => [
+                'key' => $key,
+                'is_set' => true,
+            ],
+            $keys,
+        );
+
+        return Router::jsonResponse([
+            'credentials' => $credentials,
+            'count' => count($credentials),
+        ]);
+    }
+
+    /**
+     * POST /api/credentials  { "key": "NAME", "value": "secret" }
+     */
+    public function set(ServerRequestInterface $request): Response
+    {
+        $body = json_decode((string) $request->getBody(), true);
+
+        if (
+            !is_array($body)
+            || !isset($body['key'])
+            || !isset($body['value'])
+            || trim((string) $body['key']) === ''
+        ) {
+            return Router::jsonResponse([
+                'error' => 'Missing required fields: "key" and "value"',
+            ], 400);
+        }
+
+        $key = strtoupper(trim((string) $body['key']));
+        $value = (string) $body['value'];
+
+        // Validate key format (uppercase, underscores, digits)
+        if (!preg_match('/^[A-Z][A-Z0-9_]*$/', $key)) {
+            return Router::jsonResponse([
+                'error' => 'Invalid key format. Use UPPER_SNAKE_CASE (e.g. MY_API_KEY)',
+            ], 400);
+        }
+
+        $this->credentialResolver->set($key, $value);
+
+        return Router::jsonResponse([
+            'key' => $key,
+            'set' => true,
+        ], 201);
+    }
+
+    /**
+     * DELETE /api/credentials/{key}
+     */
+    public function delete(ServerRequestInterface $request, string $key): Response
+    {
+        $key = strtoupper($key);
+
+        if (!$this->credentialResolver->has($key)) {
+            return Router::jsonResponse(['error' => 'Credential not found'], 404);
+        }
+
+        $this->credentialResolver->delete($key);
+
+        return Router::jsonResponse([
+            'key' => $key,
+            'deleted' => true,
+        ]);
+    }
+}
