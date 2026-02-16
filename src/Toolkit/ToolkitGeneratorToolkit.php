@@ -89,7 +89,7 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
                 ),
                 new StringParameter(
                     'namespace',
-                    'PHP namespace for the toolkit (default: auto-generated from name, e.g. CoquiBot\MyToolkit)',
+                    'PHP namespace for the toolkit (default: auto-generated from name, e.g. CoquiBot\Toolkits\MyToolkit)',
                     required: false,
                 ),
                 new StringParameter(
@@ -186,7 +186,7 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
         // Resolve namespace
         $namespace = trim($input['namespace'] ?? '');
         if ($namespace === '') {
-            $namespace = 'CoquiBot\\' . $this->toPascalCase($name);
+            $namespace = 'CoquiBot\\Toolkits\\' . $this->toPascalCase($name);
         }
         $namespace = rtrim($namespace, '\\');
 
@@ -414,7 +414,7 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
         array $credentials,
     ): string {
         $composerData = [
-            'name' => 'coquibot/' . $name,
+            'name' => 'coquibot/coqui-toolkit-' . $name,
             'description' => $description,
             'type' => 'library',
             'license' => 'MIT',
