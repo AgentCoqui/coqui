@@ -24,14 +24,11 @@ use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
-use CoquiBot\Coqui\Tool\ComposerTool;
 use CoquiBot\Coqui\Tool\CredentialTool;
 use CoquiBot\Coqui\Tool\PackageInfoTool;
-use CoquiBot\Coqui\Tool\PackagistTool;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
 use CoquiBot\Coqui\Tool\RestartTool;
 use CoquiBot\Coqui\Tool\SpawnAgentTool;
-use Symfony\Component\HttpClient\HttpClient;
 
 /**
  * The top-level orchestrator agent that receives user input.
@@ -45,10 +42,8 @@ use Symfony\Component\HttpClient\HttpClient;
 final class OrchestratorAgent extends AbstractAgent
 {
     private SpawnAgentTool $spawnTool;
-    private ComposerTool $composerTool;
     private CredentialTool $credentialTool;
     private PackageInfoTool $packageInfoTool;
-    private PackagistTool $packagistTool;
     private PhpExecuteTool $phpExecuteTool;
     private ?RestartTool $restartTool = null;
 
@@ -78,7 +73,7 @@ final class OrchestratorAgent extends AbstractAgent
         // Filesystem toolkit — sandboxed to workspace (read/write)
         $this->addToolkit(new FilesystemToolkit(rootPath: $this->workspacePath));
 
-        // Shell toolkit — runs in project root for read access (no composer — handled by ComposerTool)
+        // Shell toolkit — runs in project root for read access
         $this->addToolkit(new ShellToolkit(
             workDir: $this->projectRoot,
             allowedCommands: ['php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls'],
@@ -119,12 +114,6 @@ final class OrchestratorAgent extends AbstractAgent
             observer: $this->observer,
         );
 
-        // Create composer tool for dependency management (workspace only)
-        $this->composerTool = new ComposerTool(
-            workspacePath: $this->workspacePath,
-            discovery: $discovery,
-        );
-
         // Create credential tool for API key management
         $this->credentialTool = new CredentialTool(
             resolver: $credentialResolver,
@@ -133,15 +122,6 @@ final class OrchestratorAgent extends AbstractAgent
         // Create package info tool for SDK introspection
         $this->packageInfoTool = new PackageInfoTool(
             projectRoot: $this->projectRoot,
-        );
-
-        // Create Packagist search tool for package discovery
-        $this->packagistTool = new PackagistTool(
-            httpClient: HttpClient::create([
-                'headers' => [
-                    'User-Agent' => 'Coqui/1.0 (https://github.com/carmelosantana/coqui)',
-                ],
-            ]),
         );
 
         // Create PHP execution tool for running SDK code
@@ -179,10 +159,8 @@ final class OrchestratorAgent extends AbstractAgent
     {
         $tools = [
             $this->spawnTool,
-            $this->composerTool,
             $this->credentialTool,
             $this->packageInfoTool,
-            $this->packagistTool,
             $this->phpExecuteTool,
         ];
 
