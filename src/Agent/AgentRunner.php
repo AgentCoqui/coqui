@@ -232,6 +232,10 @@ final class AgentRunner
      * Skip the system message and history (already persisted), and the
      * new user message (already saved before run()). Persist only the
      * assistant and tool messages from this turn's loop.
+     *
+     * Content is sanitized for valid UTF-8 before storage to prevent
+     * malformed bytes (e.g., from web scraping) from poisoning the
+     * conversation on reload.
      */
     private function persistTurnMessages(
         Conversation $conversation,
@@ -248,35 +252,56 @@ final class AgentRunner
             $msg = $messages[$i];
             $role = $msg->role();
 
-            match ($role) {
-                Role::Assistant => $this->storage->addMessage(
-                    $sessionId,
-                    'assistant',
-                    is_string($msg->content()) ? $msg->content() : (json_encode($msg->content()) ?: ''),
-                    !empty($msg->toolCalls()) ? (json_encode(
-                        array_map(fn(ToolCall $tc) => [
-                            'id' => $tc->id,
-                            'name' => $tc->name,
-                            'arguments' => $tc->arguments,
-                        ], $msg->toolCalls()),
-                        JSON_UNESCAPED_SLASHES,
-                    ) ?: null) : null,
-                    turnId: $turnId,
-                ),
+            try {
+                match ($role) {
+                    Role::Assistant => $this->storage->addMessage(
+                        $sessionId,
+                        'assistant',
+                        $this->sanitizeContent($msg->content()),
+                        !empty($msg->toolCalls()) ? json_encode(
+                            array_map(fn(ToolCall $tc) => [
+                                'id' => $tc->id,
+                                'name' => $tc->name,
+                                'arguments' => $tc->arguments,
+                            ], $msg->toolCalls()),
+                            JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+                        ) : null,
+                        turnId: $turnId,
+                    ),
 
-                Role::Tool => $this->storage->addMessage(
-                    $sessionId,
-                    'tool',
-                    is_string($msg->content()) ? $msg->content() : (json_encode($msg->content()) ?: ''),
-                    null,
-                    $msg->toolCallId(),
-                    turnId: $turnId,
-                ),
+                    Role::Tool => $this->storage->addMessage(
+                        $sessionId,
+                        'tool',
+                        $this->sanitizeContent($msg->content()),
+                        null,
+                        $msg->toolCallId(),
+                        turnId: $turnId,
+                    ),
 
-                // User and System messages mid-turn are unexpected but harmless — skip
-                default => null,
-            };
+                    // User and System messages mid-turn are unexpected but harmless — skip
+                    default => null,
+                };
+            } catch (\Throwable) {
+                // Skip messages that fail to serialize — prevents partial persistence
+                continue;
+            }
         }
+    }
+
+    /**
+     * Sanitize message content for safe UTF-8 storage.
+     */
+    private function sanitizeContent(mixed $content): string
+    {
+        if (!is_string($content)) {
+            return json_encode($content, JSON_THROW_ON_ERROR) ?: '';
+        }
+
+        if (!mb_check_encoding($content, 'UTF-8')) {
+            return mb_convert_encoding($content, 'UTF-8', 'UTF-8');
+        }
+
+        return $content;
     }
 
     /**
