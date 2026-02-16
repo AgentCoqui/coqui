@@ -1,0 +1,35 @@
+###############################################################################
+# Coqui — API Server Compose Overlay
+#
+# Runs Coqui as an HTTP API server (not a REPL).
+# Uses ReactPHP for long-running server process.
+#
+# Usage:
+#   docker compose -f compose.yaml -f compose.api.yaml up -d  # background
+#   docker compose -f compose.yaml -f compose.api.yaml logs -f # follow logs
+#
+# Or via Makefile:
+#   make api               # start API server on default port (8080)
+#   make api-port PORT=3000 # custom port
+#   make api-down           # stop API server
+###############################################################################
+
+services:
+  coqui:
+    # Override: run API server instead of REPL
+    command: ["php", "bin/coqui", "api", "--host", "0.0.0.0", "--port", "8080"]
+
+    # API mode: not interactive — run as daemon
+    stdin_open: false
+    tty: false
+
+    # Expose the API port
+    ports:
+      - "${COQUI_API_PORT:-8080}:8080"
+
+    # Restart on crash (replaces bin/coqui-launcher for API mode)
+    restart: unless-stopped
+
+    environment:
+      # API authentication key — REQUIRED for production
+      COQUI_API_KEY: ${COQUI_API_KEY:-}
