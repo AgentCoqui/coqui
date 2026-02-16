@@ -8,10 +8,19 @@
       "name": "Carmelo Santana"
     }
   ],
+  "repositories": [
+    {
+      "type": "path",
+      "url": "../php-agents",
+      "options": {
+        "symlink": true
+      }
+    }
+  ],
   "require": {
     "php": "^8.4",
     "ext-pdo_sqlite": "*",
-    "carmelosantana/php-agents": "^0.4",
+    "carmelosantana/php-agents": "^0.4 || @dev",
     "symfony/console": "^7.0",
     "symfony/http-client": "^7.0"
   },

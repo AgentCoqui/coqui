@@ -4,15 +4,15 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "e0cb15f65356a136d64f96882819c08a",
+    "content-hash": "37221452904cfe46191133d5113b811a",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "dev-chore-fix-400",
+            "version": "dev-main",
             "dist": {
                 "type": "path",
                 "url": "../php-agents",
-                "reference": "7093f6c7cc6823e1042ab2c67f5dbabe7f0f69b7"
+                "reference": "565617741b4f8cfe8a47a3e01589b4841a037f6d"
             },
             "require": {
                 "php": "^8.4",
@@ -4322,14 +4322,7 @@
             "time": "2026-02-13T21:01:40+00:00"
         }
     ],
-    "aliases": [
-        {
-            "package": "carmelosantana/php-agents",
-            "version": "dev-chore-fix-400",
-            "alias": "0.3.1",
-            "alias_normalized": "0.3.1.0"
-        }
-    ],
+    "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
         "carmelosantana/php-agents": 20
