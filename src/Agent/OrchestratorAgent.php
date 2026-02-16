@@ -17,10 +17,12 @@ use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
+use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
 use CoquiBot\Coqui\Tool\ComposerTool;
 use CoquiBot\Coqui\Tool\CredentialTool;
@@ -65,6 +67,7 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?ScriptSanitizer $sanitizer = null,
         ?\Closure $onRestart = null,
         ?CredentialResolverInterface $credentialResolver = null,
+        private readonly ?SkillDiscovery $skillDiscovery = null,
     ) {
         parent::__construct($provider, $maxIterations, $executionPolicy);
 
@@ -92,6 +95,11 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Toolkit generator — scaffold new toolkit packages
         $this->addToolkit(new ToolkitGeneratorToolkit(workspacePath: $this->workspacePath));
+
+        // Skill toolkit — discover and use Agent Skills
+        if ($this->skillDiscovery !== null) {
+            $this->addToolkit(new SkillToolkit($this->skillDiscovery));
+        }
 
         // Register any auto-discovered toolkits from installed packages
         if ($discovery !== null) {
@@ -152,11 +160,13 @@ final class OrchestratorAgent extends AbstractAgent
     public function instructions(): string
     {
         $roles = implode(', ', $this->roleResolver->availableRoles());
+        $skillsSummary = $this->skillDiscovery?->buildPromptSummary() ?? 'No skills installed.';
 
         $prompt = new OrchestratorPrompt(
             workspacePath: $this->workspacePath,
             projectRoot: $this->projectRoot,
             availableRoles: $roles,
+            availableSkills: $skillsSummary,
         );
 
         return $prompt->render();
