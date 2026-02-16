@@ -6,7 +6,8 @@
 
 .PHONY: help build run run-launcher dev dev-up dev-down \
         test test-coverage test-shell shell \
-        clean xdebug-clear install composer
+        clean xdebug-clear install composer \
+        gui gui-install
 
 # Default target
 help: ## Show this help message
@@ -111,6 +112,24 @@ clean: ## Remove all containers, images, and volumes (destructive!)
 clean-workspace: ## Remove only the workspace volume (resets sessions/data)
 	@docker volume rm coqui_workspace 2>/dev/null || true
 	@echo "Workspace volume removed"
+
+# =============================================================================
+# Dashboard (GUI)
+# =============================================================================
+
+gui: ## Start the Coqui Dashboard (web UI)
+	@./bin/coqui-launcher --gui
+
+gui-port: ## Start Dashboard on custom port (make gui-port PORT=9000)
+	@if [ -z "$(PORT)" ]; then \
+		echo "Usage: make gui-port PORT=9000"; \
+		exit 1; \
+	fi
+	@./bin/coqui-launcher --gui --port $(PORT)
+
+gui-install: ## Install dashboard Composer dependencies
+	@cd public && composer install --no-dev
+	@echo "Dashboard dependencies installed"
 
 # =============================================================================
 # Shortcuts

@@ -15,16 +15,47 @@
       "options": {
         "symlink": true
       }
+    },
+    {
+      "type": "path",
+      "url": "../coqui-clawhub-skills",
+      "options": {
+        "symlink": true
+      }
+    },
+    {
+      "type": "path",
+      "url": "../coqui-toolkit-composer",
+      "options": {
+        "symlink": true
+      }
+    },
+    {
+      "type": "path",
+      "url": "../coqui-toolkit-packagist",
+      "options": {
+        "symlink": true
+      }
+    },
+    {
+      "type": "path",
+      "url": "../coqui-brave-search",
+      "options": {
+        "symlink": true
+      }
     }
   ],
   "require": {
     "php": "^8.4",
     "ext-pdo_sqlite": "*",
     "carmelosantana/php-agents": "^0.4 || @dev",
-    "symfony/console": "^7.0",
-    "symfony/http-client": "^7.0"
+    "symfony/console": "^7.0"
   },
   "require-dev": {
+    "coquibot/coqui-toolkit-clawhub-skills": "@dev",
+    "coquibot/coqui-toolkit-composer": "@dev",
+    "coquibot/coqui-toolkit-packagist": "@dev",
+    "coquibot/coqui-toolkit-brave-search": "@dev",
     "pestphp/pest": "^3.0",
     "phpstan/phpstan": "^2.0"
   },

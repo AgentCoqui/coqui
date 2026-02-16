@@ -193,8 +193,9 @@ test('config loads from valid JSON', function () {
 | `src/Config/AutoApprovalPolicy.php` | Auto-approves tools except catastrophic commands |
 | `src/Config/InteractiveApprovalPolicy.php` | Interactive user confirmation with audit logging |
 | `src/Config/WorkspaceComposerManager.php` | Manages `.workspace/composer.json` lifecycle |
-| `src/Config/ToolkitDiscovery.php` | Boot-time discovery of toolkit packages; wraps toolkits with credential guards |
+| `src/Config/ToolkitDiscovery.php` | Boot-time discovery of toolkit packages; implements `PackageEventListenerInterface`; wraps toolkits with credential guards |
 | `src/Config/CredentialResolver.php` | Workspace `.env` management with hot-reload via `putenv()` |
+| `src/Config/UpdateManager.php` | Dependency update checking and application; controlled by `COQUI_CHECK_UPDATES` / `COQUI_AUTO_UPDATE` env vars |
 | `src/Tool/RestartTool.php` | Agent-facing tool to trigger graceful restart; sets flag via closure, gated by execution policy |
 | `src/Storage/SessionStorage.php` | Sessions, messages, and audit log persistence |
 
@@ -217,7 +218,7 @@ test('config loads from valid JSON', function () {
 
 Coqui enforces a layered safety model. All layers are always active unless explicitly relaxed by the user via CLI flags — and even then, the catastrophic blacklist cannot be bypassed.
 
-1. **Workspace sandboxing** — file writes via `FilesystemToolkit` are sandboxed to the workspace directory. `ComposerTool` targets the workspace only — it cannot modify the project's `composer.json`. `PhpExecuteTool` runs with `cwd` set to the workspace and `open_basedir` restrictions that prevent writes outside workspace boundaries. The project root is read-only, accessible through `ProjectSourceToolkit` and shell commands.
+1. **Workspace sandboxing** — file writes via `FilesystemToolkit` are sandboxed to the workspace directory. The Composer toolkit (extracted to `coqui-toolkit-composer`) targets the workspace only — it cannot modify the project's `composer.json`. `PhpExecuteTool` runs with `cwd` set to the workspace and `open_basedir` restrictions that prevent writes outside workspace boundaries. The project root is read-only, accessible through `ProjectSourceToolkit` and shell commands.
 2. **ScriptSanitizer** — static analysis of generated PHP code. Blocks `eval`, `exec`, `system`, `passthru`, and other dangerous functions. Skipped in `--unsafe` mode.
 3. **CatastrophicBlacklist** — hardcoded regex patterns that **always** block destructive commands (e.g. `rm -rf /`, `shutdown`, `mkfs`, fork bombs, credential exfiltration). Cannot be disabled. Additional patterns can be loaded from `agents.defaults.blacklist` in `openclaw.json`.
 4. **InteractiveApprovalPolicy** — gated tools require user confirmation. Replaced by `AutoApprovalPolicy` when `--auto-approve` is passed.
@@ -246,12 +247,34 @@ When adding restart triggers:
 - The `restartRequested` flag is checked *after* `runAgent()` completes — the agent finishes its current turn gracefully.
 - The launcher's crash counter resets on intentional restarts (code 10); only consecutive unintentional crashes count toward the 3-attempt limit.
 
+### Update Management
+
+Coqui supports dependency update checking and application via `UpdateManager`. The system is controlled entirely through ENV vars stored in the workspace `.env` (not in `openclaw.json`):
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `COQUI_CHECK_UPDATES` | `true` | Check for outdated packages on startup |
+| `COQUI_AUTO_UPDATE` | `false` | Automatically apply updates and restart on startup |
+
+**Update triggers:**
+
+1. **`--update` CLI flag** — `coqui --update` checks for and applies updates, then restarts via exit code 10.
+2. **`/update` REPL command** — same behavior from within a running session.
+3. **Startup check** — on every boot, if `COQUI_CHECK_UPDATES` is enabled, `UpdateManager::checkForUpdates()` runs `composer outdated --format=json --direct` in both the project root and workspace. If updates are found and `COQUI_AUTO_UPDATE` is enabled, they are applied automatically and Coqui restarts.
+
+**Update scope:**
+
+- Project root: `composer update` updates Coqui itself and all its dependencies.
+- Workspace: `composer update` updates bot-installed packages in `.workspace/`.
+
+The setup wizard (`SetupWizard`) includes a step to configure these preferences, persisting them via `CredentialResolver::set()` to the workspace `.env`.
+
 ### Workspace Composer Isolation
 
 The `.workspace/` directory contains its own `composer.json` managed by the bot. This separates bot-installed dependencies from the host project:
 
 - `WorkspaceComposerManager` initializes the workspace Composer project on boot.
-- `ComposerTool` always targets the workspace. It cannot modify the project's `composer.json` — the `target: 'project'` option has been removed as a security measure.
+- The Composer toolkit (auto-discovered from `coqui-toolkit-composer`) always targets the workspace. It cannot modify the project's `composer.json`.
 - The workspace autoloader is loaded at boot via `WorkspaceComposerManager::loadAutoloader()`.
 - Toolkit discovery (`ToolkitDiscovery::discoverAll()`) scans both the project and workspace `installed.json` files on every boot.
 
@@ -400,7 +423,7 @@ Coqui ships with Docker support for development, testing, and isolated execution
 |------|---------|
 | `Dockerfile` | PHP 8.4 CLI + all extensions + Composer. Xdebug and pcov are installed but disabled by default (enabled via compose overlays). |
 | `compose.yaml` | Base service: bind-mounts source, named volume for `.workspace/`, passes API keys from host, connects to host Ollama via `host.docker.internal`. |
-| `compose.dev.yaml` | Developer overlay: enables Xdebug (debug + profile), mounts workspace parent for Composer path repo resolution (`../php-agents`, `../coqui-brave-search`), adds Webgrind for profiler analysis. |
+| `compose.dev.yaml` | Developer overlay: enables Xdebug (debug + profile), mounts workspace parent for Composer path repo resolution (`../php-agents`, `../coqui-brave-search`, `../coqui-toolkit-composer`, `../coqui-toolkit-packagist`), adds Webgrind for profiler analysis. |
 | `compose.test.yaml` | Test overlay: non-interactive, enables pcov for coverage, disables OPcache. |
 | `Makefile` | Self-documenting targets: `make run`, `make dev`, `make test`, `make shell`, etc. |
 | `conf.d/coqui.ini` | CLI-optimized PHP config: 512M memory, OPcache + JIT enabled, errors to stderr. |
@@ -413,7 +436,7 @@ Coqui ships with Docker support for development, testing, and isolated execution
 - **CLI base image**: `php:8.4-cli` keeps the image ~300MB smaller than Apache/FPM variants. Coqui has no HTTP server.
 - **`docker compose run` over `up`**: The REPL requires interactive TTY. Use `run --rm` for sessions. Background services (Webgrind) use `up -d` separately.
 - **Host Ollama**: Users connect to `host.docker.internal:11434`. Avoids GPU passthrough complexity and duplicate model storage.
-- **Workspace root mount in dev**: `compose.dev.yaml` mounts the entire parent directory (`..`) as `/workspace` so Composer path repositories (`../php-agents`, `../coqui-brave-search`) resolve identically to the host.
+- **Workspace root mount in dev**: `compose.dev.yaml` mounts the entire parent directory (`..`) as `/workspace` so Composer path repositories (`../php-agents`, `../coqui-brave-search`, `../coqui-toolkit-composer`, `../coqui-toolkit-packagist`) resolve identically to the host.
 - **Xdebug + pcov installed but disabled**: Both built into the image at build time but only activated via ini file mounts in their respective overlays. Zero runtime overhead in base mode.
 - **Named volume for `.workspace/`**: Session databases, bot-installed packages, and workspace state persist across `docker compose run` invocations.
 
@@ -466,6 +489,76 @@ Copy `.env.example` to `.env` before running. Key variables:
 2. Run Coqui with Xdebug trigger: `XDEBUG_TRIGGER=1 make dev`
 3. Open Webgrind at `http://localhost:9002`
 4. After profiling, clear output: `make xdebug-clear`
+
+## Dashboard GUI
+
+The Coqui Dashboard is a standalone SPA in `public/` with its own `composer.json`. It provides a web interface for monitoring sessions, tokens, audit logs, files, documentation, and preferences.
+
+### Technology Constraints
+
+- **No build step.** No Node.js, webpack, Vite, or any JS bundler.
+- **No large JS frameworks.** Alpine.js 3.x is the reactive layer. No React, Vue, Angular.
+- **All assets vendored locally.** Every external library lives in `public/vendor/` and is committed to git. Zero CDN dependencies at runtime.
+- **PHP 8.4 backend.** Uses `bramus/router` for API dispatch. No Symfony/Laravel.
+- **SQLite read-only.** The dashboard reads the Coqui session database but never writes to it. Only workspace files and `.env` are writable.
+
+### Key Architecture Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| Alpine.js `x-data` stores per view | Keeps state isolated, enables lazy loading |
+| CodeMirror 5 (synchronous) | Lightweight editor, `createCodeMirrorEditor()` returns directly — no async loading |
+| `x-effect` lazy loading | Views only call `load()` when navigated to, reducing initial API calls |
+| `coquiPrefs` localStorage manager | Preferences persist without backend, applied before first paint |
+| Toast notifications via `showToast()` | Non-blocking save feedback, auto-dismiss after 2.5s |
+| CSS custom properties for theming | Dark/light theme via `[data-theme]` selector without reloading |
+
+### Frontend Files
+
+| File | Purpose |
+|------|---------|
+| `public/index.html` | SPA shell — all views, sidebar, status bar |
+| `public/js/app.js` | API client, format helpers, all Alpine `data()` stores |
+| `public/js/charts.js` | Chart.js rendering for token/tool usage |
+| `public/js/editor.js` | CodeMirror editor factory + language mode mapping |
+| `public/js/preferences.js` | `coquiPrefs` — font size, color scheme, wallpaper, stats.js FPS |
+| `public/js/session.js` | Session detail view helpers |
+| `public/css/theme.css` | shadcn-inspired theme with dark + light mode |
+
+### Backend Controllers
+
+| Controller | Routes | Purpose |
+|-----------|--------|---------|
+| `ApiController` | `/api/stats`, `/api/sessions/*`, `/api/audit`, `/api/tokens`, `/api/tools`, `/api/models` | Read-only session/stats queries |
+| `ConfigController` | `/api/config`, `/api/env`, `/api/credentials` | Config and credential management |
+| `FileController` | `/api/files/*` | Workspace file browse/read/write (sandboxed) |
+| `DocsController` | `/api/docs`, `/api/docs/{name}` | Serve markdown docs from `docs/` |
+| `WallpaperController` | `/api/wallpapers` | Wallpaper image upload/serve/delete |
+
+### Adding a New View
+
+1. Create an `Alpine.data('myView', ...)` store in `app.js` with a `_loaded` flag
+2. Add the view HTML in `index.html` with `x-show="currentView === 'myview'"` and `x-effect="if (currentView === 'myview' && !_loaded) load()"`
+3. Add a sidebar nav button in `index.html`
+4. Add `'myview'` to the `viewTitle` map in the `app` store
+5. If the view needs a backend endpoint, create a controller in `public/src/Controller/` and register routes in `router.php`
+
+### Updating Vendored Libraries
+
+```bash
+# Small libraries (direct download)
+curl -sL "https://cdn.jsdelivr.net/npm/PACKAGE@VERSION/dist/FILE" -o public/vendor/DIR/FILE
+
+# CodeMirror 5 (download zip + extract what you need)
+curl -sL "https://codemirror.net/5/codemirror.zip" -o /tmp/codemirror5.zip
+unzip /tmp/codemirror5.zip -d /tmp/codemirror5
+cp -r /tmp/codemirror5/codemirror-VERSION/lib public/vendor/codemirror5/
+cp -r /tmp/codemirror5/codemirror-VERSION/mode public/vendor/codemirror5/
+cp -r /tmp/codemirror5/codemirror-VERSION/theme public/vendor/codemirror5/
+cp -r /tmp/codemirror5/codemirror-VERSION/addon public/vendor/codemirror5/
+```
+
+Detailed API documentation is in `public/DASHBOARD.md`.
 
 ## Documentation Policy
 
