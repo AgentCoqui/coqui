@@ -71,7 +71,7 @@ final readonly class SessionHandler
         $session = $this->storage->getSession($id);
 
         if ($session === null) {
-            return Router::jsonResponse(['error' => 'Session not found'], 404);
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
         }
 
         return Router::jsonResponse($session);
@@ -115,7 +115,7 @@ final readonly class SessionHandler
         $session = $this->storage->getSession($id);
 
         if ($session === null) {
-            return Router::jsonResponse(['error' => 'Session not found'], 404);
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
         }
 
         $this->storage->deleteSession($id);
