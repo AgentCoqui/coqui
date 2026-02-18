@@ -7,10 +7,10 @@ namespace CoquiBot\Coqui\Config;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 
 /**
- * Resolves role-based model assignments from openclaw.json.
+ * Resolves role-based model assignments.
  *
- * Reads agents.defaults.roles to map role names (orchestrator, coder, reviewer)
- * to provider/model strings. Falls back to the primary model when a role is undefined.
+ * Priority: role file model field → openclaw.json → primary model.
+ * Merges config-defined roles with file-based roles from RoleDiscovery.
  */
 final class RoleResolver
 {
@@ -22,6 +22,7 @@ final class RoleResolver
     public function __construct(
         private readonly ConfigInterface $config,
         ?DefaultsLoader $defaults = null,
+        private readonly ?RoleDiscovery $roleDiscovery = null,
     ) {
         $roles = $this->config->get('agents.defaults.roles', []);
         $this->roles = is_array($roles) ? $roles : [];
@@ -34,47 +35,92 @@ final class RoleResolver
     /**
      * Resolve a role name to a provider/model string.
      *
-     * If the role is not defined in config, falls back to the primary model.
+     * Priority: role file model field → openclaw.json → primary model.
      */
     public function resolve(string $role): string
     {
+        // 1. Check if the role file defines a model override
+        if ($this->roleDiscovery !== null) {
+            try {
+                $properties = $this->roleDiscovery->getRole($role);
+                if ($properties->model !== null) {
+                    return $this->config->resolveModel($properties->model);
+                }
+            } catch (\Throwable) {
+                // Fall through to config-based resolution
+            }
+        }
+
+        // 2. Check openclaw.json roles mapping
         $modelOrAlias = $this->roles[$role] ?? $this->primaryModel;
 
-        // Resolve aliases through the config
         return $this->config->resolveModel($modelOrAlias);
     }
 
     /**
-     * Check if a role is explicitly configured.
+     * Check if a role is explicitly configured (in config or discovered).
      */
     public function hasRole(string $role): bool
     {
-        return isset($this->roles[$role]);
+        if (isset($this->roles[$role])) {
+            return true;
+        }
+
+        return $this->roleDiscovery !== null && $this->roleDiscovery->roleExists($role);
     }
 
     /**
-     * Get all configured role names.
+     * Get all available role names (union of config and discovered roles).
      *
      * @return string[]
      */
     public function availableRoles(): array
     {
-        return array_keys($this->roles);
+        $roles = array_keys($this->roles);
+
+        if ($this->roleDiscovery !== null) {
+            $discovered = $this->roleDiscovery->availableRoles();
+            $roles = array_unique(array_merge($roles, $discovered));
+        }
+
+        sort($roles);
+
+        return $roles;
     }
 
     /**
-     * Get the full role-to-model mapping.
+     * Get the full role-to-model mapping with display metadata.
      *
-     * @return array<string, string>
+     * @return array<string, array{model: string, display_name?: string, description?: string}>
      */
     public function toArray(): array
     {
-        $resolved = [];
+        $result = [];
 
+        // Start with config-defined roles
         foreach ($this->roles as $role => $model) {
-            $resolved[$role] = $this->config->resolveModel($model);
+            $result[$role] = [
+                'model' => $this->config->resolveModel($model),
+            ];
         }
 
-        return $resolved;
+        // Merge discovered roles (file properties take precedence for metadata)
+        if ($this->roleDiscovery !== null) {
+            foreach ($this->roleDiscovery->discoverAll() as $name => $properties) {
+                $model = $properties->model !== null
+                    ? $this->config->resolveModel($properties->model)
+                    : ($result[$name]['model'] ?? $this->config->resolveModel($this->primaryModel));
+
+                $result[$name] = [
+                    'model' => $model,
+                    'display_name' => $properties->displayName,
+                    'description' => $properties->description,
+                    'access_level' => $properties->accessLevel,
+                    'is_builtin' => $properties->isBuiltin,
+                ];
+            }
+        }
+
+        return $result;
     }
 }

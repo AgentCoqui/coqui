@@ -5,10 +5,16 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
 use CoquiBot\Coqui\Config\SetupWizard;
 use CoquiBot\Coqui\Config\UpdateManager;
+use CoquiBot\Coqui\Contract\OutputRendererInterface;
+use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Observer\TerminalObserver;
+use CoquiBot\Coqui\Renderer\JsonRenderer;
+use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -32,10 +38,17 @@ final class RunCommand extends Command
      */
     public const RESTART_EXIT_CODE = 10;
 
+    /** Tool names that require user confirmation in interactive mode. */
+    private const GATED_TOOLS = [
+        'composer' => ['require', 'remove', 'update'],
+        'exec' => ['*'],
+        'php_execute' => ['*'],
+        'restart_coqui' => ['*'],
+    ];
+
     private BootManager $boot;
     private AgentRunner $agentRunner;
     private SessionStorage $storage;
-    private TerminalObserver $observer;
     private string $sessionId;
     private string $workDir;
     private bool $unsafeMode = false;
@@ -51,7 +64,10 @@ final class RunCommand extends Command
             ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory', getcwd() ?: '.')
             ->addOption('unsafe', null, InputOption::VALUE_NONE, 'Disable script sanitization for power users (dangerous)')
             ->addOption('auto-approve', null, InputOption::VALUE_NONE, 'Auto-approve all tool executions (dangerous)')
-            ->addOption('update', null, InputOption::VALUE_NONE, 'Check for and apply dependency updates, then restart');
+            ->addOption('update', null, InputOption::VALUE_NONE, 'Check for and apply dependency updates, then restart')
+            ->addOption('no-terminal', null, InputOption::VALUE_NONE, 'Headless mode: run a single prompt without the REPL')
+            ->addOption('prompt', 'p', InputOption::VALUE_REQUIRED, 'Prompt to send in --no-terminal mode')
+            ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'Output format for --no-terminal mode (text or json)', 'text');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -59,21 +75,30 @@ final class RunCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $workDirOption = $input->getOption('workdir');
         $this->workDir = is_string($workDirOption) ? $workDirOption : (getcwd() ?: '.');
-        $this->observer = new TerminalObserver($output);
         $this->unsafeMode = (bool) $input->getOption('unsafe');
         $this->autoApprove = (bool) $input->getOption('auto-approve');
+        $noTerminal = (bool) $input->getOption('no-terminal');
 
         // Boot sequence: config, workspace, credentials, toolkit discovery
         $configOption = $input->getOption('config');
         $configPath = is_string($configOption) ? $configOption : null;
 
         $this->boot = new BootManager($this->workDir);
-        $this->boot->boot($io, $configPath);
+        $this->boot->boot($noTerminal ? null : $io, $configPath);
 
         // Handle --update: apply updates and restart
         if ((bool) $input->getOption('update')) {
             $updateResult = $this->runUpdate($io);
             return $updateResult === true ? Command::SUCCESS : $updateResult;
+        }
+
+        // Initialize storage inside workspace
+        $dbPath = $this->boot->workspacePath() . '/data/coqui.db';
+        $this->storage = new SessionStorage($dbPath);
+
+        // Headless mode: run a single prompt and exit
+        if ($noTerminal) {
+            return $this->runHeadless($input, $output);
         }
 
         // Startup update check (controlled by COQUI_CHECK_UPDATES env)
@@ -84,9 +109,8 @@ final class RunCommand extends Command
             return self::RESTART_EXIT_CODE;
         }
 
-        // Initialize storage inside workspace
-        $dbPath = $this->boot->workspacePath() . '/data/coqui.db';
-        $this->storage = new SessionStorage($dbPath);
+        // Choose observer for terminal mode
+        $observer = new TerminalObserver($output);
 
         // Initialize agent runner
         $this->agentRunner = new AgentRunner(
@@ -95,13 +119,13 @@ final class RunCommand extends Command
             projectRoot: $this->workDir,
             workspacePath: $this->boot->workspacePath(),
             storage: $this->storage,
-            observer: $this->observer,
+            observer: $observer,
             discovery: $this->boot->discovery(),
             blacklist: $this->boot->blacklist(),
             credentialResolver: $this->boot->credentialResolver(),
             skillDiscovery: $this->boot->skillDiscovery(),
+            roleDiscovery: $this->boot->roleDiscovery(),
             unsafeMode: $this->unsafeMode,
-            autoApprove: $this->autoApprove,
         );
 
         // Handle session
@@ -162,11 +186,18 @@ final class RunCommand extends Command
                 continue;
             }
 
+            // Build execution policy for this turn
+            $executionPolicy = $this->buildInteractiveExecutionPolicy($this->sessionId, $io);
+
             // Run agent
-            $this->restartRequested = $this->agentRunner->run($prompt, $this->sessionId, $io);
+            $result = $this->agentRunner->run($prompt, $this->sessionId, $executionPolicy);
+
+            // Render output
+            $renderer = new TerminalRenderer($io);
+            $renderer->render($result);
 
             // Check if agent requested a restart via RestartTool
-            if ($this->restartRequested) {
+            if ($result->restartRequested) {
                 $io->info('Restart requested by agent. Restarting...');
                 return self::RESTART_EXIT_CODE;
             }
@@ -453,6 +484,129 @@ final class RunCommand extends Command
         $io->writeln('<fg=gray>Project root:</> ' . $this->workDir);
         $io->newLine();
         $io->text('<fg=gray>Use <fg=cyan>/config edit</> to re-run the setup wizard, or <fg=cyan>/config show</> to view raw JSON.</>'); 
+    }
+
+    /**
+     * Run a single prompt in headless mode (no REPL, no terminal I/O).
+     */
+    private function runHeadless(InputInterface $input, OutputInterface $output): int
+    {
+        // Get prompt from --prompt flag or stdin
+        $promptOption = $input->getOption('prompt');
+        $prompt = is_string($promptOption) ? $promptOption : null;
+
+        if ($prompt === null || trim($prompt) === '') {
+            // Try reading from stdin (piped input)
+            if (!posix_isatty(STDIN)) {
+                $prompt = stream_get_contents(STDIN);
+            }
+        }
+
+        if ($prompt === null || trim($prompt) === '') {
+            $output->writeln('<error>No prompt provided. Use --prompt "..." or pipe via stdin.</error>');
+            return Command::FAILURE;
+        }
+
+        $prompt = trim($prompt);
+
+        // Headless always implies auto-approve
+        $this->autoApprove = true;
+
+        // Initialize agent runner with NullObserver (no terminal output during execution)
+        $this->agentRunner = new AgentRunner(
+            roleResolver: $this->boot->roleResolver(),
+            config: $this->boot->config(),
+            projectRoot: $this->workDir,
+            workspacePath: $this->boot->workspacePath(),
+            storage: $this->storage,
+            observer: new NullObserver(),
+            discovery: $this->boot->discovery(),
+            blacklist: $this->boot->blacklist(),
+            credentialResolver: $this->boot->credentialResolver(),
+            skillDiscovery: $this->boot->skillDiscovery(),
+            roleDiscovery: $this->boot->roleDiscovery(),
+            unsafeMode: $this->unsafeMode,
+        );
+
+        // Handle session
+        $sessionOption = $input->getOption('session');
+        if (is_string($sessionOption) && $sessionOption !== '') {
+            $this->sessionId = $sessionOption;
+            if ($this->storage->getSession($this->sessionId) === null) {
+                $output->writeln("<error>Session not found: {$this->sessionId}</error>");
+                return Command::FAILURE;
+            }
+        } else {
+            $modelString = $this->boot->roleResolver()->resolve('orchestrator');
+            $this->sessionId = $this->storage->createSession('orchestrator', $modelString);
+        }
+
+        // Build policy and run
+        $executionPolicy = $this->buildExecutionPolicy($this->sessionId);
+        $result = $this->agentRunner->run($prompt, $this->sessionId, $executionPolicy);
+
+        // Choose renderer based on --format
+        $format = $input->getOption('format');
+        $renderer = match ($format) {
+            'json' => new JsonRenderer($output),
+            default => new TerminalRenderer(new SymfonyStyle($input, $output)),
+        };
+
+        $renderer->render($result);
+
+        return $result->isError() ? Command::FAILURE : Command::SUCCESS;
+    }
+
+    /**
+     * Build the execution policy for an agent turn.
+     *
+     * In auto-approve mode: returns AutoApprovalPolicy.
+     * Otherwise: returns InteractiveApprovalPolicy with gated tools.
+     */
+    private function buildExecutionPolicy(string $sessionId, ?string $turnId = null): \CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface
+    {
+        if ($this->autoApprove) {
+            return new AutoApprovalPolicy(
+                blacklist: $this->boot->blacklist(),
+                storage: $this->storage,
+                sessionId: $sessionId,
+                turnId: $turnId,
+            );
+        }
+
+        // InteractiveApprovalPolicy requires $io — RunCommand always has it in REPL mode
+        // This method is only called from contexts where $io is available
+        throw new \LogicException(
+            'buildExecutionPolicy() for interactive mode must be called from the REPL context. '
+            . 'Use the overload that accepts SymfonyStyle.',
+        );
+    }
+
+    /**
+     * Build an interactive execution policy (REPL mode only).
+     */
+    private function buildInteractiveExecutionPolicy(
+        string $sessionId,
+        SymfonyStyle $io,
+        ?string $turnId = null,
+    ): \CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface {
+        if ($this->autoApprove) {
+            return new AutoApprovalPolicy(
+                blacklist: $this->boot->blacklist(),
+                storage: $this->storage,
+                sessionId: $sessionId,
+                turnId: $turnId,
+            );
+        }
+
+        return new InteractiveApprovalPolicy(
+            io: $io,
+            gatedTools: self::GATED_TOOLS,
+            blacklist: $this->boot->blacklist(),
+            storage: $this->storage,
+            sessionId: $sessionId,
+            turnId: $turnId,
+        );
     }
 
     /**

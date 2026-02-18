@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Agent\AbstractAgent;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
+use CoquiBot\Coqui\Config\RoleDiscovery;
 
 /**
  * A flexible child agent that receives its instructions and toolkits at construction time.
@@ -26,6 +27,7 @@ final class ChildAgent extends AbstractAgent
         private readonly string $taskInstructions,
         array $toolkits = [],
         int $maxIterations = 25,
+        private readonly ?RoleDiscovery $roleDiscovery = null,
     ) {
         parent::__construct($provider, $maxIterations);
 
@@ -36,7 +38,34 @@ final class ChildAgent extends AbstractAgent
 
     public function instructions(): string
     {
-        $roleInstructions = match ($this->role) {
+        $roleInstructions = $this->resolveRoleInstructions();
+
+        return <<<PROMPT
+            {$roleInstructions}
+            
+            ## Your Task
+            
+            {$this->taskInstructions}
+            
+            ## Completion
+            
+            When you have fully completed the task, call the `done` tool with your final response.
+            Do NOT end without calling the done tool.
+            PROMPT;
+    }
+
+    /**
+     * Resolve role instructions from file-based roles, falling back to hardcoded defaults.
+     */
+    private function resolveRoleInstructions(): string
+    {
+        // Try file-based role discovery first
+        if ($this->roleDiscovery !== null && $this->roleDiscovery->roleExists($this->role)) {
+            return $this->roleDiscovery->readInstructions($this->role);
+        }
+
+        // Fall back to hardcoded defaults for backward compatibility
+        return match ($this->role) {
             'coder' => <<<INSTRUCTIONS
                 You are an expert PHP developer. Your task is to write clean, well-documented code.
                 
@@ -67,19 +96,6 @@ final class ChildAgent extends AbstractAgent
                 Be thorough and complete the task fully before signaling done.
                 INSTRUCTIONS,
         };
-
-        return <<<PROMPT
-            {$roleInstructions}
-            
-            ## Your Task
-            
-            {$this->taskInstructions}
-            
-            ## Completion
-            
-            When you have fully completed the task, call the `done` tool with your final response.
-            Do NOT end without calling the done tool.
-            PROMPT;
     }
 
     /**
