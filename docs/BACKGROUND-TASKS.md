@@ -19,14 +19,18 @@ Because each task runs in its own process, the API server's event loop stays ful
 ```
 pending  -->  running  -->  completed
                        -->  failed
-                       -->  cancelled
+         -->  cancelled
+              running  -->  cancelling  -->  cancelled
 ```
 
 - **Pending** — queued, waiting for a slot (concurrency limit)
 - **Running** — a child process is actively executing the agent
+- **Cancelling** — cancel requested; the manager will send SIGTERM on its next tick
 - **Completed** — finished successfully with a result
 - **Failed** — encountered an error (agent error, process crash, etc.)
 - **Cancelled** — stopped by user or agent request (cooperative, finishes current iteration)
+
+Pending tasks can be cancelled immediately (status goes straight to `cancelled`). Running tasks transition through `cancelling` first — the `BackgroundTaskManager` detects this on its next tick and sends SIGTERM to the child process, which then finishes its current iteration and exits.
 
 ### Concurrency
 
@@ -54,7 +58,9 @@ Background tasks are **automatically available** when running the API server. No
 php bin/coqui api
 ```
 
-The feature is API-only. It is not available in the terminal REPL because it requires the ReactPHP event loop to manage child processes and serve SSE event streams.
+Background task **tools** are available in both API and REPL modes. In REPL mode, the agent can create, list, check status, and cancel tasks. Task records are written to SQLite and remain queued until the API server picks them up for execution.
+
+The API server is still the sole executor — the ReactPHP event loop manages child processes and SSE event streams. The REPL acts as a producer: it writes task records, and the API server consumes and executes them.
 
 ### Requirements
 
@@ -81,11 +87,23 @@ The agent calls `task_status` and reports back with the current state and recent
 | Tool | Description |
 |------|-------------|
 | `start_background_task` | Create and queue a new task with a prompt, title, and optional role/iteration limit |
-| `task_status` | Check the status, result, and recent events of a specific task |
+| `task_status` | Check the status, result, and recent events of a specific task (result/error capped at 2000 chars) |
 | `list_tasks` | List tasks with optional status filter |
 | `cancel_task` | Cancel a pending or running task |
 
-> These tools are only available to agents running in API mode. They are intentionally excluded from background task agents themselves to prevent recursive task spawning.
+> These tools are available in both API and REPL modes. They are intentionally excluded from background task agents themselves to prevent recursive task spawning.
+
+### Via REPL Slash Commands
+
+The REPL provides three slash commands for quick task management without going through the LLM:
+
+| Command | Description |
+|---------|-------------|
+| `/tasks [status]` | List tasks, optionally filtered by status |
+| `/task <id>` | Show detailed status, events, and result for a task |
+| `/task-cancel <id>` | Cancel a pending or running task |
+
+Task IDs support prefix matching — you only need to type enough characters to uniquely identify a task.
 
 ### Via the HTTP API
 
@@ -221,7 +239,7 @@ Cancellation is cooperative. The agent finishes its current iteration before sto
 | `id` | string | Task ID |
 | `session_id` | string | Dedicated session for this task |
 | `parent_session_id` | string\|null | Session that spawned this task |
-| `status` | string | `pending`, `running`, `completed`, `failed`, `cancelled` |
+| `status` | string | `pending`, `running`, `cancelling`, `completed`, `failed`, `cancelled` |
 | `title` | string\|null | Task title |
 | `prompt` | string | Original prompt |
 | `role` | string | Model role used |
@@ -242,12 +260,15 @@ API Server (ReactPHP event loop)
   |
   |-- BackgroundTaskManager.tick() [every 1s via periodic timer]
   |     |-- reap finished processes
+  |     |-- process cancel requests (cancelling -> SIGTERM)
   |     |-- start pending tasks (up to maxConcurrent)
+  |     |-- lazy purge of old task events (every ~5 min)
   |
   |-- proc_open("php bin/coqui task:run {taskId}")
         |-- TaskRunCommand boots full agent stack
+        |-- Reads role + max_iterations from task record
         |-- Registers SIGTERM handler for cancellation
-        |-- AgentRunner.runForTask() with:
+        |-- AgentRunner.runForTask(role, maxIterations) with:
         |     |-- BackgroundTaskObserver (events -> SQLite)
         |     |-- DatabasePendingInputProvider (input injection)
         |     |-- ProcessCancellationToken (cooperative cancel)
@@ -261,6 +282,14 @@ API Server (ReactPHP event loop)
 - Each task gets its own memory space and error handling
 - Clean signal-based cancellation via SIGTERM
 
+### Event Retention
+
+Task events (iterations, tool calls, results) are stored in the `task_events` table. To prevent unbounded growth, the `BackgroundTaskManager` periodically purges old events:
+
+- Events for completed, failed, and cancelled tasks older than **7 days** are deleted
+- Cleanup runs lazily every ~5 minutes (300 ticks) during normal operation
+- Running and pending task events are never purged
+
 ### Key Components
 
 | Component | Purpose |
@@ -270,5 +299,5 @@ API Server (ReactPHP event loop)
 | `BackgroundTaskObserver` | Persists agent events to `task_events` table |
 | `DatabasePendingInputProvider` | Reads injected input from `task_inputs` table |
 | `ProcessCancellationToken` | Converts SIGTERM to cooperative cancellation |
-| `BackgroundTaskToolkit` | LLM-facing tools for the orchestrator agent |
+| `BackgroundTaskToolkit` | LLM-facing tools for the orchestrator agent (API + REPL) |
 | `TaskHandler` | HTTP API handler for all task endpoints |
