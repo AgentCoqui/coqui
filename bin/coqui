@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Command\ApiCommand;
 use CoquiBot\Coqui\Command\DoctorCommand;
 use CoquiBot\Coqui\Command\RunCommand;
 use CoquiBot\Coqui\Command\SetupCommand;
+use CoquiBot\Coqui\Command\TaskRunCommand;
 use Symfony\Component\Console\Application;
 
 $app = new Application('coqui', '0.1.0');
@@ -16,5 +17,6 @@ $app->add(new RunCommand());
 $app->add(new SetupCommand());
 $app->add(new DoctorCommand());
 $app->add(new ApiCommand());
+$app->add(new TaskRunCommand());
 $app->setDefaultCommand('run');
 $app->run();
