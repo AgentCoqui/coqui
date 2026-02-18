@@ -21,6 +21,7 @@ final class BootManager
     private CredentialResolver $credentialResolver;
     private ToolkitDiscovery $discovery;
     private SkillDiscovery $skillDiscovery;
+    private RoleDiscovery $roleDiscovery;
     private RoleResolver $roleResolver;
     private CatastrophicBlacklist $blacklist;
     private DefaultsLoader $defaultsLoader;
@@ -43,8 +44,9 @@ final class BootManager
     {
         $this->loadConfig($io, $configPath);
         $this->blacklist = CatastrophicBlacklist::fromConfig($this->config);
-        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader);
         $this->initializeWorkspace();
+        $this->discoverRoles();
+        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
         $this->initializeCredentials();
         $this->discoverSkills();
         $this->discoverToolkits($io);
@@ -92,13 +94,19 @@ final class BootManager
         return $this->skillDiscovery;
     }
 
+    public function roleDiscovery(): RoleDiscovery
+    {
+        return $this->roleDiscovery;
+    }
+
     /**
      * Reload config after setup wizard — updates resolver and workspace.
      */
     public function reloadConfig(string $configPath): void
     {
         $this->config = OpenClawConfig::fromFile($configPath);
-        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader);
+        $this->roleDiscovery->invalidateCache();
+        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
 
         $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir);
         $this->workspacePath = $workspaceResolver->resolve();
@@ -158,6 +166,12 @@ final class BootManager
     {
         $this->credentialResolver = new CredentialResolver(workspacePath: $this->workspacePath);
         $this->credentialResolver->loadIntoProcessEnv();
+    }
+
+    private function discoverRoles(): void
+    {
+        $this->roleDiscovery = new RoleDiscovery($this->workspacePath, $this->workDir);
+        $this->roleDiscovery->seedBuiltinRoles();
     }
 
     private function discoverSkills(): void

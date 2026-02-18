@@ -78,6 +78,19 @@ final class Router
         $this->addRoute('DELETE', $path, $handler);
     }
 
+    public function patch(string $path, callable $handler): void
+    {
+        $this->addRoute('PATCH', $path, $handler);
+    }
+
+    /**
+     * Create a standard error response using ApiErrorCode.
+     */
+    public static function errorResponse(ApiErrorCode $code, string $message, mixed $details = null): Response
+    {
+        return self::jsonResponse($code->toPayload($message, $details), $code->httpStatus());
+    }
+
     /**
      * Dispatch a request to the matching handler.
      */
