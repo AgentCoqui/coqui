@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
+use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -20,6 +21,7 @@ final class BootManager
     private CredentialResolver $credentialResolver;
     private ToolkitDiscovery $discovery;
     private SkillDiscovery $skillDiscovery;
+    private RoleDiscovery $roleDiscovery;
     private RoleResolver $roleResolver;
     private CatastrophicBlacklist $blacklist;
     private DefaultsLoader $defaultsLoader;
@@ -33,14 +35,18 @@ final class BootManager
     /**
      * Run the full boot sequence.
      *
+     * @param OutputInterface|SymfonyStyle|null $io  Pass SymfonyStyle for interactive mode,
+     *                                               OutputInterface for verbose logging,
+     *                                               or null for headless/API mode.
      * @return bool True if boot succeeded, false if it should abort.
      */
-    public function boot(SymfonyStyle $io, ?string $configPath = null): bool
+    public function boot(OutputInterface|SymfonyStyle|null $io = null, ?string $configPath = null): bool
     {
         $this->loadConfig($io, $configPath);
         $this->blacklist = CatastrophicBlacklist::fromConfig($this->config);
-        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader);
-        $this->initializeWorkspace($io);
+        $this->initializeWorkspace();
+        $this->discoverRoles();
+        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
         $this->initializeCredentials();
         $this->discoverSkills();
         $this->discoverToolkits($io);
@@ -88,19 +94,25 @@ final class BootManager
         return $this->skillDiscovery;
     }
 
+    public function roleDiscovery(): RoleDiscovery
+    {
+        return $this->roleDiscovery;
+    }
+
     /**
      * Reload config after setup wizard — updates resolver and workspace.
      */
     public function reloadConfig(string $configPath): void
     {
         $this->config = OpenClawConfig::fromFile($configPath);
-        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader);
+        $this->roleDiscovery->invalidateCache();
+        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
 
         $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir);
         $this->workspacePath = $workspaceResolver->resolve();
     }
 
-    private function loadConfig(SymfonyStyle $io, ?string $configPath): void
+    private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
     {
         $configPath ??= $this->workDir . '/openclaw.json';
 
@@ -113,30 +125,34 @@ final class BootManager
             return;
         }
 
-        $io->warning('No openclaw.json configuration found.');
-        $io->text([
-            'Coqui needs an openclaw.json file to know which AI providers and models to use.',
-            'Without it, you may see connection errors like "404 Not Found".',
-            '',
-        ]);
+        // Interactive setup wizard — only available with SymfonyStyle
+        if ($io instanceof SymfonyStyle) {
+            $io->warning('No openclaw.json configuration found.');
+            $io->text([
+                'Coqui needs an openclaw.json file to know which AI providers and models to use.',
+                'Without it, you may see connection errors like "404 Not Found".',
+                '',
+            ]);
 
-        if ($io->confirm('Would you like to run the setup wizard now?', true)) {
-            $outputPath = $this->workDir . '/openclaw.json';
-            $wizard = new SetupWizard($io, $this->defaultsLoader);
-            $saved = $wizard->runAndSave($outputPath);
+            if ($io->confirm('Would you like to run the setup wizard now?', true)) {
+                $outputPath = $this->workDir . '/openclaw.json';
+                $wizard = new SetupWizard($io, $this->defaultsLoader);
+                $saved = $wizard->runAndSave($outputPath);
 
-            if ($saved && file_exists($outputPath)) {
-                $this->config = OpenClawConfig::fromFile($outputPath);
-                return;
+                if ($saved && file_exists($outputPath)) {
+                    $this->config = OpenClawConfig::fromFile($outputPath);
+                    return;
+                }
             }
+
+            $defaultModel = $this->defaultsLoader->defaultModel();
+            $io->text("<fg=gray>Using defaults (model: {$defaultModel}). Run <fg=cyan>coqui setup</> to configure.</>");
         }
 
-        $defaultModel = $this->defaultsLoader->defaultModel();
-        $io->text("<fg=gray>Using defaults (model: {$defaultModel}). Run <fg=cyan>coqui setup</> to configure.</>");
         $this->config = $this->buildDefaultConfig();
     }
 
-    private function initializeWorkspace(SymfonyStyle $io): void
+    private function initializeWorkspace(): void
     {
         $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir);
         $this->workspacePath = $workspaceResolver->resolve();
@@ -152,19 +168,25 @@ final class BootManager
         $this->credentialResolver->loadIntoProcessEnv();
     }
 
+    private function discoverRoles(): void
+    {
+        $this->roleDiscovery = new RoleDiscovery($this->workspacePath, $this->workDir);
+        $this->roleDiscovery->seedBuiltinRoles();
+    }
+
     private function discoverSkills(): void
     {
         $this->skillDiscovery = new SkillDiscovery($this->workspacePath);
         $this->skillDiscovery->ensureSkillsDir();
     }
 
-    private function discoverToolkits(SymfonyStyle $io): void
+    private function discoverToolkits(OutputInterface|SymfonyStyle|null $io): void
     {
         $this->discovery = new ToolkitDiscovery($this->workDir, $this->workspacePath, $this->credentialResolver);
         $newToolkits = $this->discovery->discoverAll();
 
-        if (!empty($newToolkits) && $io->isVerbose()) {
-            $io->info('Discovered new toolkits: ' . implode(', ', $newToolkits));
+        if (!empty($newToolkits) && $io !== null && $io->isVerbose()) {
+            $io->writeln('Discovered new toolkits: ' . implode(', ', $newToolkits));
         }
     }
 

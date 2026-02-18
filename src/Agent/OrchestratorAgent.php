@@ -15,6 +15,7 @@ use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\MemoryToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
@@ -29,6 +30,8 @@ use CoquiBot\Coqui\Tool\PackageInfoTool;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
 use CoquiBot\Coqui\Tool\RestartTool;
 use CoquiBot\Coqui\Tool\SpawnAgentTool;
+
+use SplObserver;
 
 /**
  * The top-level orchestrator agent that receives user input.
@@ -55,7 +58,7 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly string $workspacePath,
         private readonly ?SessionStorage $storage = null,
         private readonly ?string $sessionId = null,
-        private readonly ?TerminalObserver $observer = null,
+        private readonly ?SplObserver $observer = null,
         ?ToolkitDiscovery $discovery = null,
         int $maxIterations = 25,
         ?ToolExecutionPolicyInterface $executionPolicy = null,
@@ -63,6 +66,7 @@ final class OrchestratorAgent extends AbstractAgent
         ?\Closure $onRestart = null,
         ?CredentialResolverInterface $credentialResolver = null,
         private readonly ?SkillDiscovery $skillDiscovery = null,
+        private readonly ?RoleDiscovery $roleDiscovery = null,
     ) {
         parent::__construct($provider, $maxIterations, $executionPolicy);
 
@@ -109,6 +113,7 @@ final class OrchestratorAgent extends AbstractAgent
             config: $this->config,
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspacePath,
+            roleDiscovery: $this->roleDiscovery,
             storage: $this->storage,
             sessionId: $this->sessionId,
             observer: $this->observer,
