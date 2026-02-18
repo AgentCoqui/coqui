@@ -201,22 +201,32 @@ final class RoleDiscovery
     /**
      * Create a new role file.
      *
+     * @param array<string, mixed>|RoleProperties $properties Frontmatter data or value object.
+     *
      * @throws \RuntimeException If the role already exists.
+     * @throws RoleParseException If properties are invalid.
      */
-    public function createRole(RoleProperties $properties, string $instructions): void
+    public function createRole(array|RoleProperties $properties, string $instructions): RoleProperties
     {
         $this->ensureRolesDir();
 
-        $filename = $properties->name . '.md';
+        $props = $properties instanceof RoleProperties
+            ? $properties
+            : $this->buildPropertiesFromArray($properties);
+
+        $filename = $props->name . '.md';
         $filePath = $this->rolesDir . '/' . $filename;
 
         if (file_exists($filePath)) {
-            throw new \RuntimeException(sprintf('Role "%s" already exists.', $properties->name));
+            throw new \RuntimeException(sprintf('Role "%s" already exists.', $props->name));
         }
 
-        $content = $this->parser->buildRoleFile($properties, $instructions);
+        $content = $this->parser->buildRoleFile($props, $instructions);
         file_put_contents($filePath, $content);
         $this->invalidateCache();
+
+        // Re-read from disk to get the canonical properties with correct path
+        return $this->getRole($props->name);
     }
 
     /**
@@ -224,19 +234,29 @@ final class RoleDiscovery
      *
      * Creates a backup before overwriting.
      *
+     * @param array<string, mixed>|RoleProperties $properties Frontmatter data or value object.
+     *
      * @throws RoleNotFoundException If the role doesn't exist.
+     * @throws RoleParseException If properties are invalid.
      */
-    public function updateRole(string $name, RoleProperties $properties, string $instructions): void
+    public function updateRole(string $name, array|RoleProperties $properties, string $instructions): RoleProperties
     {
         $existing = $this->getRole($name);
+
+        $props = $properties instanceof RoleProperties
+            ? $properties
+            : $this->buildPropertiesFromArray($properties, $existing->path);
 
         // Create backup
         $this->backupRole($existing);
 
         // Write updated file
-        $content = $this->parser->buildRoleFile($properties, $instructions);
+        $content = $this->parser->buildRoleFile($props, $instructions);
         file_put_contents($existing->path, $content);
         $this->invalidateCache();
+
+        // Re-read from disk to get the canonical properties
+        return $this->getRole($name);
     }
 
     /**
@@ -284,5 +304,26 @@ final class RoleDiscovery
     public function invalidateCache(): void
     {
         $this->discovered = null;
+    }
+
+    /**
+     * Build a RoleProperties value object from a frontmatter array.
+     *
+     * @param array<string, mixed> $data Frontmatter key-value pairs.
+     * @param string $path File path (empty string for new roles).
+     */
+    private function buildPropertiesFromArray(array $data, string $path = ''): RoleProperties
+    {
+        return new RoleProperties(
+            name: (string) ($data['name'] ?? ''),
+            displayName: (string) ($data['display_name'] ?? ''),
+            description: (string) ($data['description'] ?? ''),
+            path: $path,
+            version: isset($data['version']) ? (int) $data['version'] : 1,
+            accessLevel: (string) ($data['access_level'] ?? 'readonly'),
+            isBuiltin: (bool) ($data['is_builtin'] ?? false),
+            model: isset($data['model']) && is_string($data['model']) && $data['model'] !== '' ? $data['model'] : null,
+            titleModel: isset($data['title_model']) && is_string($data['title_model']) && $data['title_model'] !== '' ? $data['title_model'] : null,
+        );
     }
 }

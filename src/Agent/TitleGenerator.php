@@ -19,7 +19,7 @@ use CoquiBot\Coqui\Config\RoleResolver;
  */
 final class TitleGenerator
 {
-    private const string ROLE = 'title_generator';
+    private const string ROLE = 'title-generator';
 
     private const string FALLBACK_INSTRUCTIONS = <<<'PROMPT'
         Generate a concise title (3-7 words) that captures the essence of the user's request.

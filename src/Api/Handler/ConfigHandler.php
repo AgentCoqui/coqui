@@ -41,17 +41,6 @@ final readonly class ConfigHandler
     }
 
     /**
-     * GET /api/config/roles — return role→model mappings.
-     */
-    public function roles(ServerRequestInterface $request): Response
-    {
-        return Router::jsonResponse([
-            'roles' => $this->roleResolver->toArray(),
-            'available' => $this->roleResolver->availableRoles(),
-        ]);
-    }
-
-    /**
      * GET /api/config/models — list available models with metadata.
      */
     public function models(ServerRequestInterface $request): Response
