@@ -33,6 +33,7 @@ make api-port PORT=3000    # custom port
 | `--config` | `-c` | `./openclaw.json` | Path to openclaw.json config |
 | `--workdir` | `-w` | Current directory | Working directory (project root) |
 | `--unsafe` | | `false` | Disable script sanitization (dangerous) |
+| `--no-auth` | | `false` | Run without API key authentication (forces 127.0.0.1 binding) |
 | `--cors-origin` | | `*` | Allowed CORS origins (comma-separated) |
 
 ## Authentication
@@ -51,7 +52,17 @@ The server resolves the API key from these sources (first match wins):
 2. `COQUI_API_KEY` environment variable
 3. `COQUI_API_KEY` in the workspace `.env` file
 
-If no key is found, the server runs **without authentication** (suitable for local-only use).
+If no key is found, the server **refuses to start**. This is a security-by-default policy.
+
+To run without authentication during local development, use:
+
+```bash
+php bin/coqui api --no-auth
+```
+
+The `--no-auth` flag forces binding to `127.0.0.1` regardless of the `--host` option.
+
+You can generate an API key automatically by running `coqui setup`.
 
 ### Error Responses
 
@@ -59,10 +70,8 @@ Unauthenticated requests receive:
 
 ```json
 {
-  "error": {
-    "code": 401,
-    "message": "Missing Authorization header"
-  }
+  "error": "Missing Authorization header",
+  "code": "unauthorized"
 }
 ```
 
@@ -81,15 +90,41 @@ All responses return `Content-Type: application/json` unless noted otherwise.
 
 ## Error Format
 
-All error responses use a consistent shape:
+All error responses use a consistent envelope:
 
 ```json
 {
-  "error": "Human-readable error description"
+  "error": "Human-readable error description",
+  "code": "machine_readable_code"
 }
 ```
 
-HTTP status codes follow standard conventions: `400` for bad input, `401` for auth failures, `404` for not found, `409` for conflicts, `500` for server errors.
+The `code` field is a stable machine-readable string that clients can branch on without parsing the `error` message. Some errors include an additional `details` field with structured context.
+
+**Error codes:**
+
+| Code | HTTP Status | Description |
+|------|-------------|-------------|
+| `not_found` | 404 | Resource not found |
+| `session_not_found` | 404 | Session does not exist |
+| `turn_not_found` | 404 | Turn does not exist |
+| `role_not_found` | 404 | Role does not exist |
+| `credential_not_found` | 404 | Credential does not exist |
+| `validation_error` | 400 | Invalid input data |
+| `missing_field` | 400 | Required field not provided |
+| `invalid_format` | 400 | Field value has wrong format |
+| `conflict` | 409 | Resource already exists |
+| `agent_busy` | 409 | Session already has an active agent run |
+| `role_builtin` | 409 | Cannot modify a built-in role |
+| `role_reserved` | 409 | Cannot create a role with a reserved name |
+| `unauthorized` | 401 | Missing or invalid API key |
+| `forbidden` | 403 | Access denied |
+| `rate_limited` | 429 | Too many requests |
+| `payload_too_large` | 413 | Request body exceeds size limit |
+| `unsupported_media_type` | 415 | Content-Type must be application/json |
+| `internal_error` | 500 | Internal server error |
+
+HTTP status codes follow standard conventions.
 
 ## Endpoints
 
@@ -156,7 +191,7 @@ Create a new session.
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `model_role` | string | No | `"orchestrator"` | Role to resolve the model from config |
+| `model_role` | string | No | `"orchestrator"` | Role to resolve the model from config. Must be a known role. |
 
 **Response `201`**
 
@@ -165,6 +200,15 @@ Create a new session.
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5"
+}
+```
+
+**Response `400`** — Unknown role:
+
+```json
+{
+  "error": "Unknown model_role 'nonexistent'. Available roles: orchestrator, coder",
+  "code": "validation_error"
 }
 ```
 
@@ -189,7 +233,8 @@ Get session details.
 
 ```json
 {
-  "error": "Session not found"
+  "error": "Session not found",
+  "code": "session_not_found"
 }
 ```
 
@@ -371,13 +416,18 @@ When streaming is disabled, the server blocks until the agent completes and retu
 }
 ```
 
+**Prompt Size Limit**
+
+The `prompt` field is limited to **100 KB** (102,400 bytes). Prompts exceeding this limit return a `400` error with code `validation_error`.
+
 **Error Responses**
 
-| Status | Condition |
-|--------|-----------|
-| `400` | Missing or empty `prompt` field |
-| `404` | Session not found |
-| `409` | Session already has an active agent run |
+| Status | Code | Condition |
+|--------|------|-----------|
+| `400` | `missing_field` | Missing or empty `prompt` field |
+| `400` | `validation_error` | Prompt exceeds 100 KB size limit |
+| `404` | `session_not_found` | Session does not exist |
+| `409` | `agent_busy` | Session already has an active agent run |
 
 ### Turns
 
@@ -496,18 +546,161 @@ Returns the full Coqui configuration. API keys in provider configs are masked as
 
 #### `GET /api/config/roles`
 
-Returns the role-to-model mappings.
+Returns all roles with full metadata. The response merges three layers:
+
+1. **System roles** (e.g. `orchestrator`) — always present, `is_system: true`, `editable: false`.
+2. **Config roles** — defined in `openclaw.json` under `agents.defaults.roles`.
+3. **Custom roles** — user-created role files in `roles/`.
 
 **Response `200`**
 
 ```json
 {
-  "roles": {
-    "orchestrator": "openai/gpt-5",
-    "coder": "openai/gpt-5",
-    "reviewer": "openai/gpt-5"
-  },
-  "available": ["orchestrator", "coder", "reviewer"]
+  "roles": [
+    {
+      "name": "orchestrator",
+      "model": "openai/gpt-5",
+      "display_name": "Orchestrator",
+      "description": "Primary system role with full tool access...",
+      "access_level": "full",
+      "is_builtin": true,
+      "is_system": true,
+      "editable": false
+    },
+    {
+      "name": "coder",
+      "model": "openai/gpt-5",
+      "display_name": "Coder",
+      "description": "Writes and refactors code",
+      "access_level": "full",
+      "is_builtin": false,
+      "is_system": false,
+      "editable": true
+    }
+  ],
+  "count": 2
+}
+```
+
+#### `GET /api/config/roles/{name}`
+
+Get a single role with full details. System roles return metadata without instructions. Custom roles include the full instruction text.
+
+**Response `200`** (custom role):
+
+```json
+{
+  "name": "coder",
+  "display_name": "Coder",
+  "description": "Writes and refactors code",
+  "version": 1,
+  "access_level": "full",
+  "is_builtin": false,
+  "is_system": false,
+  "editable": true,
+  "model": "openai/gpt-5",
+  "instructions": "You are a coding specialist..."
+}
+```
+
+**Response `404`**
+
+```json
+{
+  "error": "Role 'nonexistent' not found",
+  "code": "role_not_found"
+}
+```
+
+#### `POST /api/config/roles`
+
+Create a new custom role.
+
+**Request Body**
+
+```json
+{
+  "name": "debugger",
+  "display_name": "Debugger",
+  "description": "Specializes in finding and fixing bugs",
+  "access_level": "full",
+  "model": "anthropic/claude-sonnet-4-20250514",
+  "instructions": "You are a debugging specialist..."
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | Yes | Unique role name (cannot be a reserved name) |
+| `instructions` | string | Yes | System prompt for the role |
+| `display_name` | string | No | Human-readable name (defaults to capitalized name) |
+| `description` | string | No | Brief description |
+| `access_level` | string | No | `full`, `readonly`, or `minimal` (default: `readonly`) |
+| `model` | string | No | Model override for this role |
+
+**Response `201`**
+
+Returns the created role properties with instructions.
+
+**Response `409`** — reserved name:
+
+```json
+{
+  "error": "Role name 'orchestrator' is reserved and cannot be created",
+  "code": "role_reserved"
+}
+```
+
+**Response `409`** — already exists:
+
+```json
+{
+  "error": "Role 'coder' already exists",
+  "code": "conflict"
+}
+```
+
+#### `PATCH /api/config/roles/{name}`
+
+Update an existing custom role. All fields are optional — only provided fields are changed.
+
+**Request Body**
+
+```json
+{
+  "description": "Updated description",
+  "instructions": "Updated system prompt..."
+}
+```
+
+System roles cannot be modified:
+
+```json
+{
+  "error": "System role 'orchestrator' cannot be modified",
+  "code": "role_builtin"
+}
+```
+
+#### `DELETE /api/config/roles/{name}`
+
+Delete a custom role.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "name": "debugger"
+}
+```
+
+System and built-in roles cannot be deleted:
+
+```json
+{
+  "error": "System role 'orchestrator' cannot be deleted",
+  "code": "role_builtin"
 }
 ```
 
@@ -597,7 +790,8 @@ Set or update a credential. The value is stored in the workspace `.env` file and
 
 ```json
 {
-  "error": "Invalid key format. Use UPPER_SNAKE_CASE (e.g. MY_API_KEY)"
+  "error": "Invalid key format. Use UPPER_SNAKE_CASE (e.g. MY_API_KEY)",
+  "code": "invalid_format"
 }
 ```
 
@@ -618,7 +812,73 @@ Delete a credential.
 
 ```json
 {
-  "error": "Credential not found"
+  "error": "Credential not found",
+  "code": "credential_not_found"
+}
+```
+
+## Middleware
+
+### Rate Limiting
+
+The API enforces per-IP rate limiting using an in-memory token bucket. When the limit is exceeded, requests receive `429 Too Many Requests`.
+
+**Default:** 30 requests per 60 seconds per IP.
+
+Configure via `openclaw.json`:
+
+```json
+{
+  "api": {
+    "rateLimit": {
+      "maxRequests": 30,
+      "windowSeconds": 60
+    }
+  }
+}
+```
+
+**Response headers** (on all requests):
+
+| Header | Description |
+|--------|-------------|
+| `X-RateLimit-Limit` | Maximum requests allowed per window |
+| `X-RateLimit-Remaining` | Remaining requests in current window |
+
+**Rate limited response (`429`):**
+
+```json
+{
+  "error": "Rate limit exceeded. Try again later.",
+  "code": "rate_limited"
+}
+```
+
+The response includes a `Retry-After` header with the number of seconds to wait.
+
+Exempt endpoints: `GET /api/health`, `OPTIONS` (preflight).
+
+### Request Size Limit
+
+Request bodies are limited to **1 MB** (1,048,576 bytes). Requests exceeding this limit receive `413 Payload Too Large`.
+
+```json
+{
+  "error": "Request body too large. Maximum size: 1048576 bytes",
+  "code": "payload_too_large"
+}
+```
+
+Only `POST`, `PUT`, and `PATCH` requests are checked.
+
+### Content-Type Enforcement
+
+All `POST`, `PUT`, and `PATCH` requests must include a `Content-Type` header containing `application/json`. Missing or incorrect content types receive `415 Unsupported Media Type`.
+
+```json
+{
+  "error": "Content-Type must be application/json",
+  "code": "unsupported_media_type"
 }
 ```
 
@@ -658,7 +918,11 @@ Each prompt submission runs inside a PHP Fiber. The ReactPHP event loop remains 
 | `GET` | `/api/sessions/{id}/turns` | Yes | List turns |
 | `GET` | `/api/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
 | `GET` | `/api/config` | Yes | Get config (sanitized) |
-| `GET` | `/api/config/roles` | Yes | Get role mappings |
+| `GET` | `/api/config/roles` | Yes | List all roles |
+| `GET` | `/api/config/roles/{name}` | Yes | Get role detail |
+| `POST` | `/api/config/roles` | Yes | Create custom role |
+| `PATCH` | `/api/config/roles/{name}` | Yes | Update custom role |
+| `DELETE` | `/api/config/roles/{name}` | Yes | Delete custom role |
 | `GET` | `/api/config/models` | Yes | List available models |
 | `GET` | `/api/credentials` | Yes | List credential keys |
 | `POST` | `/api/credentials` | Yes | Set a credential |

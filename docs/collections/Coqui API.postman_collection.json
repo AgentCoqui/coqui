@@ -1,0 +1,825 @@
+{
+	"info": {
+		"_postman_id": "coqui-api-collection",
+		"name": "Coqui API",
+		"description": "Complete API collection for the Coqui HTTP API server. Covers session management, agent prompt submission with SSE streaming, turn inspection, configuration, and credential management.\n\nSet the `base_url` and `api_key` variables before using.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{api_key}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://127.0.0.1:8080",
+			"type": "string"
+		},
+		{
+			"key": "api_key",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "session_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "turn_id",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Health",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/health",
+							"host": ["{{base_url}}"],
+							"path": ["api", "health"]
+						},
+						"description": "Server liveness check. Returns status, version, uptime, and the number of currently active agent sessions. Does not require authentication."
+					},
+					"response": [
+						{
+							"name": "Health Check — OK",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"status\": \"ok\",\n  \"version\": \"dev\",\n  \"uptime_seconds\": 3421,\n  \"active_sessions\": 1\n}"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Sessions",
+			"item": [
+				{
+					"name": "List Sessions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions?limit=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions"],
+							"query": [
+								{
+									"key": "limit",
+									"value": "50",
+									"description": "Max sessions to return (max 200)"
+								}
+							]
+						},
+						"description": "List sessions ordered by most recently updated."
+					},
+					"response": [
+						{
+							"name": "List Sessions — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"sessions\": [\n    {\n      \"id\": \"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\",\n      \"model_role\": \"orchestrator\",\n      \"model\": \"openai/gpt-5\",\n      \"created_at\": \"2026-02-16T14:30:00+00:00\",\n      \"updated_at\": \"2026-02-16T15:45:12+00:00\",\n      \"token_count\": 12450\n    }\n  ],\n  \"count\": 1\n}"
+						}
+					]
+				},
+				{
+					"name": "Create Session",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"var jsonData = pm.response.json();",
+									"if (jsonData.id) {",
+									"    pm.collectionVariables.set('session_id', jsonData.id);",
+									"    console.log('Saved session_id: ' + jsonData.id);",
+									"}"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"model_role\": \"orchestrator\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/sessions",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions"]
+						},
+						"description": "Create a new session. The model_role field is optional and defaults to \"orchestrator\". The session ID is automatically saved to the session_id collection variable."
+					},
+					"response": [
+						{
+							"name": "Create Session — Success",
+							"status": "Created",
+							"code": 201,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"id\": \"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\",\n  \"model_role\": \"orchestrator\",\n  \"model\": \"openai/gpt-5\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Get Session",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions/{{session_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "{{session_id}}"]
+						},
+						"description": "Get details for a specific session."
+					},
+					"response": [
+						{
+							"name": "Get Session — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"id\": \"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\",\n  \"model_role\": \"orchestrator\",\n  \"model\": \"openai/gpt-5\",\n  \"created_at\": \"2026-02-16T14:30:00+00:00\",\n  \"updated_at\": \"2026-02-16T15:45:12+00:00\",\n  \"token_count\": 12450\n}"
+						},
+						{
+							"name": "Get Session — Not Found",
+							"status": "Not Found",
+							"code": 404,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"error\": \"Session not found\",\n  \"code\": \"session_not_found\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Delete Session",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions/{{session_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "{{session_id}}"]
+						},
+						"description": "Delete a session and all its associated messages, turns, and data."
+					},
+					"response": [
+						{
+							"name": "Delete Session — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"deleted\": true,\n  \"id\": \"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\"\n}"
+						},
+						{
+							"name": "Delete Session — Not Found",
+							"status": "Not Found",
+							"code": 404,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"error\": \"Session not found\",\n  \"code\": \"session_not_found\"\n}"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Messages",
+			"item": [
+				{
+					"name": "List Messages",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions/{{session_id}}/messages",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "{{session_id}}", "messages"]
+						},
+						"description": "List all messages in a session, ordered chronologically. Messages include user prompts, assistant responses, and tool call/result records."
+					},
+					"response": [
+						{
+							"name": "List Messages — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"session_id\": \"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\",\n  \"messages\": [\n    {\n      \"id\": \"m1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6\",\n      \"role\": \"user\",\n      \"content\": \"What files are in the current directory?\",\n      \"tool_calls\": null,\n      \"tool_call_id\": null,\n      \"created_at\": \"2026-02-16T14:30:05+00:00\"\n    },\n    {\n      \"id\": \"m2a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6\",\n      \"role\": \"assistant\",\n      \"content\": \"Here are the files in the current directory:\\n\\n- README.md\\n- src/\\n- tests/\",\n      \"tool_calls\": null,\n      \"tool_call_id\": null,\n      \"created_at\": \"2026-02-16T14:30:10+00:00\"\n    }\n  ],\n  \"count\": 2\n}"
+						}
+					]
+				},
+				{
+					"name": "Send Prompt (SSE Stream)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Accept",
+								"value": "text/event-stream"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"prompt\": \"What files are in the src directory?\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/sessions/{{session_id}}/messages",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "{{session_id}}", "messages"]
+						},
+						"description": "Send a prompt to the agent. Returns a Server-Sent Event (SSE) stream with real-time updates: tool calls, tool results, child agent activity, and the final response.\n\nSSE Event Types:\n- agent_start: Agent turn has begun\n- iteration: Agent loop iteration number\n- tool_call: Agent is invoking a tool (includes tool name and arguments)\n- tool_result: Tool execution result\n- child_start / child_end: Child agent lifecycle\n- done: Agent content is ready\n- error: An error occurred\n- complete: Final event with full turn result (tokens, duration, tools used)\n\nNote: Postman's built-in SSE support will show the event stream. For programmatic use, parse each event block separated by blank lines."
+					},
+					"response": [
+						{
+							"name": "Send Prompt — SSE Stream",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "text/event-stream"
+								},
+								{
+									"key": "Cache-Control",
+									"value": "no-cache"
+								},
+								{
+									"key": "Connection",
+									"value": "keep-alive"
+								}
+							],
+							"body": "event: agent_start\ndata: {}\n\nevent: iteration\ndata: {\"number\":1}\n\nevent: tool_call\ndata: {\"id\":\"call_abc\",\"tool\":\"list_dir\",\"arguments\":{\"path\":\"src\"}}\n\nevent: tool_result\ndata: {\"content\":\"Agent/\\nApi/\\nCommand/\\nConfig/\",\"success\":true}\n\nevent: iteration\ndata: {\"number\":2}\n\nevent: done\ndata: {\"content\":\"Here are the directories inside `src/`:\\n\\n- Agent/\\n- Api/\\n- Command/\\n- Config/\"}\n\nevent: complete\ndata: {\"content\":\"Here are the directories inside `src/`:\\n\\n- Agent/\\n- Api/\\n- Command/\\n- Config/\",\"iterations\":2,\"prompt_tokens\":1250,\"completion_tokens\":340,\"total_tokens\":1590,\"duration_ms\":4521,\"tools_used\":[\"list_dir\"],\"child_agent_count\":0,\"restart_requested\":false,\"error\":null}\n\n"
+						},
+						{
+							"name": "Send Prompt — Missing Prompt",
+							"status": "Bad Request",
+							"code": 400,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"error\": \"Missing or empty \\\"prompt\\\" field\",\n  \"code\": \"missing_field\"\n}"
+						},
+						{
+							"name": "Send Prompt — Session Busy",
+							"status": "Conflict",
+							"code": 409,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"error\": \"Session already has an active agent run\",\n  \"code\": \"agent_busy\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Send Prompt (Blocking JSON)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"prompt\": \"What is 2 + 2?\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/sessions/{{session_id}}/messages?stream=false",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "{{session_id}}", "messages"],
+							"query": [
+								{
+									"key": "stream",
+									"value": "false",
+									"description": "Disable SSE streaming. Blocks until the agent completes and returns a JSON response."
+								}
+							]
+						},
+						"description": "Send a prompt to the agent with streaming disabled. The request blocks until the agent completes and returns a single JSON response with the full turn result. Use this for clients that do not support SSE."
+					},
+					"response": [
+						{
+							"name": "Send Prompt — Blocking JSON Response",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"content\": \"2 + 2 = 4\",\n  \"iterations\": 1,\n  \"prompt_tokens\": 800,\n  \"completion_tokens\": 15,\n  \"total_tokens\": 815,\n  \"duration_ms\": 1200,\n  \"tools_used\": [],\n  \"child_agent_count\": 0,\n  \"restart_requested\": false,\n  \"error\": null\n}"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Turns",
+			"item": [
+				{
+					"name": "List Turns",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions/{{session_id}}/turns?limit=50",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "{{session_id}}", "turns"],
+							"query": [
+								{
+									"key": "limit",
+									"value": "50",
+									"description": "Max turns to return (max 200)"
+								}
+							]
+						},
+						"description": "List all turns in a session, ordered by turn number. Each turn represents a single prompt-response cycle with metadata (tokens, duration, tools used)."
+					},
+					"response": [
+						{
+							"name": "List Turns — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"session_id\": \"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\",\n  \"turns\": [\n    {\n      \"id\": \"t1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6\",\n      \"session_id\": \"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\",\n      \"turn_number\": 1,\n      \"user_prompt\": \"List the files in the current directory\",\n      \"response_text\": \"Here are the files...\",\n      \"model\": \"openai/gpt-5\",\n      \"prompt_tokens\": 1250,\n      \"completion_tokens\": 340,\n      \"total_tokens\": 1590,\n      \"iterations\": 2,\n      \"duration_ms\": 4521,\n      \"tools_used\": \"[\\\"list_dir\\\"]\",\n      \"child_agent_count\": 0,\n      \"created_at\": \"2026-02-16T14:30:05+00:00\",\n      \"completed_at\": \"2026-02-16T14:30:10+00:00\"\n    }\n  ],\n  \"count\": 1\n}"
+						}
+					]
+				},
+				{
+					"name": "Get Turn with Messages",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"type": "text/javascript",
+								"exec": [
+									"// Save turn_id from a list response for use here",
+									"// pm.collectionVariables.set('turn_id', jsonData.turns[0].id);"
+								]
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions/{{session_id}}/turns/{{turn_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "{{session_id}}", "turns", "{{turn_id}}"]
+						},
+						"description": "Get a single turn with its full list of associated messages. The messages array includes user prompts, assistant responses, and tool call/result records for this turn."
+					},
+					"response": [
+						{
+							"name": "Get Turn — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"id\": \"t1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6\",\n  \"session_id\": \"a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6\",\n  \"turn_number\": 1,\n  \"user_prompt\": \"List the files\",\n  \"response_text\": \"Here are the files...\",\n  \"model\": \"openai/gpt-5\",\n  \"prompt_tokens\": 1250,\n  \"completion_tokens\": 340,\n  \"total_tokens\": 1590,\n  \"iterations\": 2,\n  \"duration_ms\": 4521,\n  \"tools_used\": \"[\\\"list_dir\\\"]\",\n  \"child_agent_count\": 0,\n  \"created_at\": \"2026-02-16T14:30:05+00:00\",\n  \"completed_at\": \"2026-02-16T14:30:10+00:00\",\n  \"messages\": [\n    {\n      \"id\": \"m1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6\",\n      \"role\": \"user\",\n      \"content\": \"List the files\",\n      \"tool_calls\": null,\n      \"tool_call_id\": null,\n      \"created_at\": \"2026-02-16T14:30:05+00:00\"\n    },\n    {\n      \"id\": \"m2a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6\",\n      \"role\": \"assistant\",\n      \"content\": \"Here are the files...\",\n      \"tool_calls\": null,\n      \"tool_call_id\": null,\n      \"created_at\": \"2026-02-16T14:30:10+00:00\"\n    }\n  ]\n}"
+						},
+						{
+							"name": "Get Turn — Not Found",
+							"status": "Not Found",
+							"code": 404,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"error\": \"Turn not found\",\n  \"code\": \"turn_not_found\"\n}"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Configuration",
+			"item": [
+				{
+					"name": "Get Config",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/config",
+							"host": ["{{base_url}}"],
+							"path": ["api", "config"]
+						},
+						"description": "Returns the full Coqui configuration. API keys in provider configs are masked as \"***\" to prevent credential leakage."
+					},
+					"response": [
+						{
+							"name": "Get Config — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"agents\": {\n    \"defaults\": {\n      \"workspace\": \".workspace\",\n      \"model\": {\n        \"primary\": \"openai/gpt-5\"\n      },\n      \"roles\": {\n        \"orchestrator\": \"openai/gpt-5\",\n        \"coder\": \"openai/gpt-5\",\n        \"reviewer\": \"openai/gpt-5\"\n      }\n    }\n  },\n  \"models\": {\n    \"mode\": \"merge\",\n    \"providers\": {\n      \"openai\": {\n        \"baseUrl\": \"https://api.openai.com/v1\",\n        \"api\": \"openai-completions\",\n        \"apiKey\": \"***\"\n      }\n    }\n  }\n}"
+						}
+					]
+				},
+				{
+					"name": "List Roles",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/config/roles",
+							"host": ["{{base_url}}"],
+							"path": ["api", "config", "roles"]
+						},
+						"description": "Returns all roles with full metadata. Merges system roles (orchestrator), config-defined roles, and custom file-based roles. System roles have is_system=true and editable=false."
+					},
+					"response": [
+						{
+							"name": "List Roles — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"roles\": [\n    {\n      \"name\": \"orchestrator\",\n      \"model\": \"openai/gpt-5\",\n      \"display_name\": \"Orchestrator\",\n      \"description\": \"Primary system role with full tool access.\",\n      \"access_level\": \"full\",\n      \"is_builtin\": true,\n      \"is_system\": true,\n      \"editable\": false\n    },\n    {\n      \"name\": \"coder\",\n      \"model\": \"openai/gpt-5\",\n      \"display_name\": \"Coder\",\n      \"description\": \"Writes and refactors code\",\n      \"access_level\": \"full\",\n      \"is_builtin\": false,\n      \"is_system\": false,\n      \"editable\": true\n    }\n  ],\n  \"count\": 2\n}"
+						}
+					]
+				},
+				{
+					"name": "Get Role",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/config/roles/coder",
+							"host": ["{{base_url}}"],
+							"path": ["api", "config", "roles", "coder"]
+						},
+						"description": "Get a single role with full details. System roles return metadata with editable=false. Custom roles include the full instruction text."
+					},
+					"response": [
+						{
+							"name": "Get Role — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"name\": \"coder\",\n  \"display_name\": \"Coder\",\n  \"description\": \"Writes and refactors code\",\n  \"version\": 1,\n  \"access_level\": \"full\",\n  \"is_builtin\": false,\n  \"is_system\": false,\n  \"editable\": true,\n  \"model\": \"openai/gpt-5\",\n  \"instructions\": \"You are a coding specialist...\"\n}"
+						},
+						{
+							"name": "Get Role — Not Found",
+							"status": "Not Found",
+							"code": 404,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"error\": \"Role 'nonexistent' not found\",\n  \"code\": \"role_not_found\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Create Role",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"debugger\",\n  \"display_name\": \"Debugger\",\n  \"description\": \"Specializes in finding and fixing bugs\",\n  \"access_level\": \"full\",\n  \"instructions\": \"You are a debugging specialist...\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/config/roles",
+							"host": ["{{base_url}}"],
+							"path": ["api", "config", "roles"]
+						},
+						"description": "Create a new custom role. The name cannot be a reserved name (e.g. 'orchestrator')."
+					},
+					"response": [
+						{
+							"name": "Create Role — Success",
+							"status": "Created",
+							"code": 201,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"name\": \"debugger\",\n  \"display_name\": \"Debugger\",\n  \"description\": \"Specializes in finding and fixing bugs\",\n  \"version\": 1,\n  \"access_level\": \"full\",\n  \"is_builtin\": false,\n  \"is_system\": false,\n  \"editable\": true,\n  \"instructions\": \"You are a debugging specialist...\"\n}"
+						},
+						{
+							"name": "Create Role — Reserved Name",
+							"status": "Conflict",
+							"code": 409,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"error\": \"Role name 'orchestrator' is reserved and cannot be created\",\n  \"code\": \"role_reserved\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Delete Role",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/config/roles/debugger",
+							"host": ["{{base_url}}"],
+							"path": ["api", "config", "roles", "debugger"]
+						},
+						"description": "Delete a custom role. System and built-in roles cannot be deleted."
+					},
+					"response": [
+						{
+							"name": "Delete Role — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"deleted\": true,\n  \"name\": \"debugger\"\n}"
+						},
+						{
+							"name": "Delete Role — System Role",
+							"status": "Conflict",
+							"code": 409,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"error\": \"System role 'orchestrator' cannot be deleted\",\n  \"code\": \"role_builtin\"\n}"
+						}
+					]
+				},
+				{
+					"name": "List Models",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/config/models",
+							"host": ["{{base_url}}"],
+							"path": ["api", "config", "models"]
+						},
+						"description": "Lists all available models from all configured providers, with metadata (reasoning capability, input types)."
+					},
+					"response": [
+						{
+							"name": "List Models — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"models\": [\n    {\n      \"provider\": \"openai\",\n      \"id\": \"openai/gpt-5\",\n      \"name\": \"gpt-5\",\n      \"reasoning\": false,\n      \"input\": [\"text\"]\n    },\n    {\n      \"provider\": \"anthropic\",\n      \"id\": \"anthropic/claude-sonnet-4-20250514\",\n      \"name\": \"claude-sonnet-4-20250514\",\n      \"reasoning\": true,\n      \"input\": [\"text\"]\n    }\n  ],\n  \"count\": 2,\n  \"primary\": \"openai/gpt-5\"\n}"
+						}
+					]
+				}
+			]
+		},
+		{
+			"name": "Credentials",
+			"item": [
+				{
+					"name": "List Credentials",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/credentials",
+							"host": ["{{base_url}}"],
+							"path": ["api", "credentials"]
+						},
+						"description": "List all stored credential keys. Values are never exposed — only key names and existence are returned."
+					},
+					"response": [
+						{
+							"name": "List Credentials — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"credentials\": [\n    {\n      \"key\": \"OPENAI_API_KEY\",\n      \"is_set\": true\n    },\n    {\n      \"key\": \"BRAVE_API_KEY\",\n      \"is_set\": true\n    }\n  ],\n  \"count\": 2\n}"
+						}
+					]
+				},
+				{
+					"name": "Set Credential",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"key\": \"BRAVE_API_KEY\",\n  \"value\": \"BSA1234567890abcdef\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/credentials",
+							"host": ["{{base_url}}"],
+							"path": ["api", "credentials"]
+						},
+						"description": "Set or update a credential. The key must be UPPER_SNAKE_CASE. The value is stored in the workspace .env file and made available immediately via putenv() — no restart needed."
+					},
+					"response": [
+						{
+							"name": "Set Credential — Success",
+							"status": "Created",
+							"code": 201,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"key\": \"BRAVE_API_KEY\",\n  \"set\": true\n}"
+						},
+						{
+							"name": "Set Credential — Invalid Key Format",
+							"status": "Bad Request",
+							"code": 400,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"error\": \"Invalid key format. Use UPPER_SNAKE_CASE (e.g. MY_API_KEY)\",\n  \"code\": \"invalid_format\"\n}"
+						},
+						{
+							"name": "Set Credential — Missing Fields",
+							"status": "Bad Request",
+							"code": 400,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"error\": \"Missing required fields: \\\"key\\\" and \\\"value\\\"\",\n  \"code\": \"missing_field\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Delete Credential",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/credentials/BRAVE_API_KEY",
+							"host": ["{{base_url}}"],
+							"path": ["api", "credentials", "BRAVE_API_KEY"]
+						},
+						"description": "Delete a credential by key name. The key is automatically uppercased."
+					},
+					"response": [
+						{
+							"name": "Delete Credential — Success",
+							"status": "OK",
+							"code": 200,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"key\": \"BRAVE_API_KEY\",\n  \"deleted\": true\n}"
+						},
+						{
+							"name": "Delete Credential — Not Found",
+							"status": "Not Found",
+							"code": 404,
+							"header": [
+								{
+									"key": "Content-Type",
+									"value": "application/json"
+								}
+							],
+							"body": "{\n  \"error\": \"Credential not found\",\n  \"code\": \"credential_not_found\"\n}"
+						}
+					]
+				}
+			]
+		}
+	]
+}
