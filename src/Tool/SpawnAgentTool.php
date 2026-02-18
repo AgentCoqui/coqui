@@ -14,6 +14,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
+use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -34,6 +35,7 @@ final class SpawnAgentTool implements ToolInterface
         private readonly ConfigInterface $config,
         private readonly string $projectRoot,
         private readonly string $workspacePath,
+        private readonly ?RoleDiscovery $roleDiscovery = null,
         private readonly ?SessionStorage $storage = null,
         private readonly ?string $sessionId = null,
         private readonly ?SplObserver $observer = null,
@@ -116,6 +118,7 @@ final class SpawnAgentTool implements ToolInterface
                 taskInstructions: $task,
                 toolkits: $toolkits,
                 maxIterations: 15,
+                roleDiscovery: $this->roleDiscovery,
             );
 
             // Attach observer if available
@@ -166,8 +169,10 @@ final class SpawnAgentTool implements ToolInterface
      */
     private function buildToolkits(string $role): array
     {
-        return match ($role) {
-            'coder' => [
+        $accessLevel = $this->resolveAccessLevel($role);
+
+        return match ($accessLevel) {
+            'full' => [
                 new FilesystemToolkit(rootPath: $this->workspacePath),
                 new ShellToolkit(
                     workDir: $this->projectRoot,
@@ -177,15 +182,34 @@ final class SpawnAgentTool implements ToolInterface
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
-            'reviewer' => [
+            'readonly' => [
                 new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
-            default => [
-                new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true),
-                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
-            ],
+            // 'minimal' — no toolkits
+            default => [],
+        };
+    }
+
+    /**
+     * Resolve access_level from RoleProperties, falling back to hardcoded defaults.
+     */
+    private function resolveAccessLevel(string $role): string
+    {
+        if ($this->roleDiscovery !== null) {
+            try {
+                $properties = $this->roleDiscovery->getRole($role);
+                return $properties->accessLevel;
+            } catch (\Throwable) {
+                // Fall through to hardcoded defaults
+            }
+        }
+
+        // Backward-compatible fallback
+        return match ($role) {
+            'coder' => 'full',
+            default => 'readonly',
         };
     }
 
