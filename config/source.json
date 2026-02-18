@@ -28,9 +28,9 @@
             "path": "src/Agent/ChildAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\ChildAgent",
             "layer": "agent",
-            "description": "Flexible child agent spawned by SpawnAgentTool. Receives role, task instructions, and toolkits at construction time. Has role-specific instructions for 'coder' (PHP expert), 'reviewer' (code analyst), and a generic default.",
+            "description": "Flexible child agent spawned by SpawnAgentTool. Receives role, task instructions, and toolkits at construction time. Loads role instructions from file-based roles via RoleDiscovery, falling back to hardcoded instructions for backward compatibility.",
             "methods": [
-                "instructions(): string — role-specific system prompt (coder/reviewer/default) + task injection",
+                "instructions(): string — resolves role instructions from file or hardcoded fallback + task injection",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
                 "getRole(): string — returns the agent's role"
             ]
@@ -151,10 +151,11 @@
             "path": "src/Config/RoleResolver.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleResolver",
             "layer": "config",
-            "description": "Maps role names (orchestrator, coder, reviewer) to provider/model strings from openclaw.json. Falls back to primary model when a role is undefined.",
+            "description": "Maps role names to provider/model strings. Priority: role file model field → openclaw.json → primary model. Merges config-defined roles with file-based roles from RoleDiscovery. toArray() returns enriched metadata with display_name, description, access_level.",
             "methods": [
-                "resolve(string $role): string — returns provider/model string for the given role",
-                "availableRoles(): string[] — returns all configured role names"
+                "resolve(string $role): string — returns provider/model string (file model → config → primary)",
+                "availableRoles(): string[] — union of config and discovered role names",
+                "toArray(): array — enriched role-to-model mapping with metadata"
             ]
         },
         {
@@ -318,10 +319,11 @@
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",
-            "description": "Spawns child agents with role-specific models and toolkits. Creates a ChildAgent, attaches observer, runs it with the task prompt, and returns the result. Logs child runs to SessionStorage. Tracks child run count per turn. The orchestrator uses this to delegate work to Claude (coder), GPT-4 (reviewer), etc.",
+            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/minimal) to determine toolkit assignment, falling back to hardcoded defaults. Passes RoleDiscovery to ChildAgent for file-based role instructions.",
             "methods": [
                 "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
-                "buildToolkits(string $role): ToolkitInterface[] — returns role-specific toolkit set",
+                "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level",
+                "resolveAccessLevel(string $role): string — looks up access_level from RoleProperties",
                 "setCurrentIteration(int $iteration): void — tracks parent iteration for logging",
                 "getChildRunCount(): int — returns number of child agents spawned during this turn"
             ]
@@ -436,11 +438,12 @@
             "path": "src/Observer/SseObserver.php",
             "fqcn": "CoquiBot\\Coqui\\Observer\\SseObserver",
             "layer": "observer",
-            "description": "SplObserver implementation that writes agent events as Server-Sent Events to a ReactPHP WritableStreamInterface. Maps agent events to SSE event types: agent.start→agent_start, agent.iteration→iteration, agent.tool_call→tool_call, agent.tool_result→tool_result, agent.done→done, agent.error→error, child.start→child_start, child.end→child_end. Includes writeComplete() for the final result event.",
+            "description": "SplObserver implementation that writes agent events as Server-Sent Events to a ReactPHP WritableStreamInterface. Maps agent events to SSE event types. Includes writeComplete() for the final result and writeTitle() for generated session titles.",
             "methods": [
                 "update(SplSubject $subject): void — dispatches agent events as SSE",
                 "handleEvent(string $event, mixed $data): void — writes a single SSE event to the stream",
-                "writeComplete(array $result): void — writes the final complete SSE event with turn result"
+                "writeComplete(array $result): void — writes the final complete SSE event with turn result",
+                "writeTitle(string $title): void — writes a title SSE event after completion"
             ]
         },
         {
@@ -497,22 +500,23 @@
             "path": "src/Api/AgentFiberExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\AgentFiberExecutor",
             "layer": "agent",
-            "description": "Manages Fiber-based agent execution for the API server. Each prompt submission runs inside a PHP Fiber via AgentRunner::runWithObserver(), with an SseObserver injected per request. Tracks active sessions to prevent concurrent runs on the same session.",
+            "description": "Manages Fiber-based agent execution for the API server. Each prompt runs inside a PHP Fiber. After completion, generates a session title via TitleGenerator on the first turn (if no title exists), emitting a title SSE event before stream close.",
             "methods": [
                 "execute(string $sessionId, string $prompt): ThroughStream — runs agent in Fiber, returns SSE stream",
                 "activeCount(): int — number of currently running Fibers",
-                "isActive(string $sessionId): bool — whether a session has an active agent run"
+                "isActive(string $sessionId): bool — whether a session has an active agent run",
+                "maybeGenerateTitle(string $sessionId, string $prompt, SseObserver $observer): void — generates+stores+streams title on first turn"
             ]
         },
         {
             "path": "src/Api/Router.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Router",
             "layer": "config",
-            "description": "Pattern-matching HTTP router for ReactPHP. Supports {param} path parameters via regex. Provides convenience methods (get, post, put, delete), middleware chain support, and a static jsonResponse() helper.",
+            "description": "Pattern-matching HTTP router for ReactPHP. Supports {param} path parameters via regex. Provides convenience methods (get, post, put, patch, delete), middleware chain, jsonResponse(), and errorResponse() with ApiErrorCode.",
             "methods": [
                 "addRoute(string $method, string $path, callable $handler): void",
-                "get/post/put/delete(string $path, callable $handler): void — convenience methods",
-                "setMiddleware(array $middleware): void — set middleware chain",
+                "get/post/put/patch/delete(string $path, callable $handler): void — convenience methods",
+                "errorResponse(ApiErrorCode $code, string $message, mixed $details): Response — structured error response",
                 "dispatch(ServerRequestInterface $request): Response"
             ]
         },
@@ -547,11 +551,12 @@
             "path": "src/Api/Handler/SessionHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SessionHandler",
             "layer": "command",
-            "description": "Session CRUD endpoints: GET /api/sessions (list), POST /api/sessions (create), GET /api/sessions/{id} (detail), DELETE /api/sessions/{id} (delete).",
+            "description": "Session CRUD endpoints: GET /api/sessions (list), POST /api/sessions (create), GET /api/sessions/{id} (detail), PATCH /api/sessions/{id} (update title), DELETE /api/sessions/{id} (delete).",
             "methods": [
                 "list(request): Response",
                 "create(request): Response",
                 "get(request, id): Response",
+                "update(request, id): Response — PATCH to update session title",
                 "delete(request, id): Response"
             ]
         },
@@ -579,10 +584,9 @@
             "path": "src/Api/Handler/ConfigHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ConfigHandler",
             "layer": "command",
-            "description": "Configuration endpoints: GET /api/config (sanitized config with apiKeys masked), GET /api/config/roles (role→model mappings), GET /api/config/models (available models with metadata).",
+            "description": "Configuration endpoints: GET /api/config (sanitized config with apiKeys masked), GET /api/config/models (available models with metadata). Role management moved to RoleHandler.",
             "methods": [
                 "get(request): Response",
-                "roles(request): Response",
                 "models(request): Response"
             ]
         },
@@ -601,7 +605,7 @@
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly (no SymfonyStyle), creates all handlers, configures CORS and optional API key auth, and enters the ReactPHP event loop. Supports --port, --host, --config, --workdir, --unsafe, --cors-origin flags.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including RoleHandler and TitleGenerator, configures CORS (with PATCH support) and optional API key auth, and enters the ReactPHP event loop.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
                 "registerRoutes(Router, ...handlers): void — registers all API routes",
@@ -612,11 +616,12 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages (rebuilds Conversation objects), logging child runs, audit logging, token count tracking, and turn lifecycle management (createTurn, completeTurn, getTurns, getTurnWithMessages). Idempotent migrations add turn_id FK columns to messages and audit_log tables.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, and session title management. Idempotent migrations add turn_id FK columns and title column.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
-                "listSessions(int $limit): array — lists recent sessions",
-                "getSession(string $id): ?array — retrieves session details",
+                "listSessions(int $limit): array — lists recent sessions (includes title)",
+                "getSession(string $id): ?array — retrieves session details (includes title)",
+                "updateSessionTitle(string $sessionId, string $title): void — updates session title",
                 "addMessage(string $sessionId, ..., ?string $turnId): string — persists a message with optional turn linkage",
                 "loadConversation(string $sessionId): Conversation — rebuilds full conversation history",
                 "logChildRun(...): string — logs a child agent execution",
@@ -626,6 +631,95 @@
                 "completeTurn(string $turnId, ...): void — updates turn with response, tokens, duration, tools used",
                 "getTurns(string $sessionId, int $limit): array — returns turns ordered by turn_number ASC",
                 "getTurnWithMessages(string $turnId): ?array — returns turn with nested messages"
+            ]
+        },
+        {
+            "path": "src/Agent/TitleGenerator.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\TitleGenerator",
+            "layer": "agent",
+            "description": "Generates a concise session title from the first user prompt using a lightweight model. Single-shot LLM call with title_generator role instructions. Best-effort — returns null on failure, never blocks the main response.",
+            "methods": [
+                "generate(string $userPrompt): ?string — generates title or returns null on failure"
+            ]
+        },
+        {
+            "path": "src/Config/RoleParser.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\RoleParser",
+            "layer": "config",
+            "description": "Stateless parser for role .md files with YAML frontmatter. Reads properties (metadata only) and body (instructions) separately for progressive disclosure. Validates names, access levels, and can build role files from properties+instructions.",
+            "methods": [
+                "readProperties(string $filePath): RoleProperties — parses frontmatter into value object",
+                "readBody(string $filePath): string — returns instruction text after frontmatter",
+                "validateName(string $name): string[] — returns validation error messages",
+                "buildRoleFile(array $properties, string $instructions): string — serializes to role .md format"
+            ]
+        },
+        {
+            "path": "src/Config/RoleDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\RoleDiscovery",
+            "layer": "config",
+            "description": "Boot-time role discovery. Scans .workspace/roles/ for .md files, parses metadata only (progressive disclosure). Seeds built-in roles from config/roles/ on first boot. Provides CRUD operations with backup support for updates.",
+            "methods": [
+                "discoverAll(): array<string, RoleProperties> — scan and cache all roles",
+                "getRole(string $name): RoleProperties — get role or throw RoleNotFoundException",
+                "readInstructions(string $name): string — load role body for activation",
+                "seedBuiltinRoles(): void — copy config/roles/ to .workspace/roles/ if not present",
+                "createRole(array, string): RoleProperties — create new role file",
+                "updateRole(string, array, string): RoleProperties — update with backup",
+                "deleteRole(string): void — delete non-builtin role"
+            ]
+        },
+        {
+            "path": "src/Contract/RoleProperties.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\RoleProperties",
+            "layer": "contract",
+            "description": "Readonly value object for parsed role file frontmatter. Holds name, displayName, description, path, version, accessLevel (full/readonly/minimal), isBuiltin flag, and optional model overrides.",
+            "methods": [
+                "toArray(): array — serializes to API-friendly associative array"
+            ]
+        },
+        {
+            "path": "src/Exception/RoleNotFoundException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\RoleNotFoundException",
+            "layer": "contract",
+            "description": "Thrown when a role name cannot be resolved to a role file.",
+            "methods": [
+                "forName(string $name): self — static factory"
+            ]
+        },
+        {
+            "path": "src/Exception/RoleParseException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\RoleParseException",
+            "layer": "contract",
+            "description": "Thrown when a role .md file cannot be parsed. Static factories for common failure modes: missing file, malformed frontmatter, missing required fields, invalid field values.",
+            "methods": [
+                "missingRoleFile(string $path): self",
+                "malformedFrontmatter(string $path, string $reason): self",
+                "missingRequiredField(string $path, string $field): self",
+                "invalidFieldValue(string $path, string $field, string $reason): self"
+            ]
+        },
+        {
+            "path": "src/Api/ApiErrorCode.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\ApiErrorCode",
+            "layer": "config",
+            "description": "Backed string enum for structured API error codes. Maps each code to an HTTP status. toPayload() builds standard error response payloads with code, message, and optional details.",
+            "methods": [
+                "toPayload(string $message, mixed $details): array — builds error response payload",
+                "httpStatus(): int — maps error code to HTTP status"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/RoleHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\RoleHandler",
+            "layer": "command",
+            "description": "Role CRUD endpoints: GET /api/config/roles (list), GET /api/config/roles/{name} (detail with instructions), POST /api/config/roles (create), PATCH /api/config/roles/{name} (update), DELETE /api/config/roles/{name} (delete, blocked for built-ins).",
+            "methods": [
+                "list(request): Response",
+                "get(request, name): Response",
+                "create(request): Response",
+                "update(request, name): Response",
+                "delete(request, name): Response"
             ]
         }
     ],
