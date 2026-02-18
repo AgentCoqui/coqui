@@ -943,6 +943,22 @@ final class SessionStorage
     }
 
     /**
+     * Get all tasks with a specific status.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getTasksByStatus(string $status): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT * FROM background_tasks WHERE status = :status ORDER BY created_at ASC
+        SQL);
+
+        $stmt->execute(['status' => $status]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
      * List background tasks with optional status filter.
      *
      * @return array<array<string, mixed>>
@@ -1087,14 +1103,14 @@ final class SessionStorage
     }
 
     /**
-     * Mark all 'running' tasks as 'failed' during crash recovery.
+     * Mark all 'running' or 'cancelling' tasks as 'failed' during crash recovery.
      */
     public function markOrphanedTasksFailed(string $error = 'Server restarted — task process was lost'): int
     {
         $stmt = $this->db->prepare(<<<SQL
             UPDATE background_tasks
             SET status = 'failed', error = :error, completed_at = :now
-            WHERE status = 'running'
+            WHERE status IN ('running', 'cancelling')
         SQL);
 
         $stmt->execute(['error' => $error, 'now' => date('c')]);
@@ -1157,5 +1173,31 @@ final class SessionStorage
         }
 
         return $counts;
+    }
+
+    /**
+     * Purge old task events for tasks in terminal states.
+     *
+     * Deletes events older than the given number of days for tasks
+     * that are completed, failed, or cancelled. Running/pending
+     * task events are never purged.
+     *
+     * @return int Number of events deleted
+     */
+    public function purgeOldTaskEvents(int $maxAgeDays = 7): int
+    {
+        $cutoff = date('c', time() - ($maxAgeDays * 86400));
+
+        $stmt = $this->db->prepare(<<<SQL
+            DELETE FROM task_events
+            WHERE task_id IN (
+                SELECT id FROM background_tasks WHERE status IN ('completed', 'failed', 'cancelled')
+            )
+            AND created_at < :cutoff
+        SQL);
+
+        $stmt->execute(['cutoff' => $cutoff]);
+
+        return $stmt->rowCount();
     }
 }

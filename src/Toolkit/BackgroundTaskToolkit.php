@@ -16,8 +16,9 @@ use CoquiBot\Coqui\Storage\SessionStorage;
  * LLM-facing tools for managing background tasks.
  *
  * These tools let the agent create, monitor, and cancel long-running
- * background tasks that execute in separate processes. Available only
- * when the API server is running (not in REPL mode).
+ * background tasks that execute in separate processes. Available in both
+ * API mode (tasks start immediately) and REPL mode (tasks queue as
+ * 'pending' and execute when the API server picks them up).
  *
  * Task creation writes a database record; the BackgroundTaskManager
  * (running in the API server process) picks up pending tasks and
@@ -52,6 +53,9 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
 
         Background tasks run in a separate process with their own agent instance.
         You can monitor their progress and inject additional input while they run.
+
+        Tasks are queued in the database and executed by the API server's task manager.
+        If the API server is not running, tasks remain in 'pending' status until it starts.
         GUIDELINES;
     }
 
@@ -187,6 +191,8 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: 'Task created');
     }
 
+    private const RESULT_PREVIEW_LENGTH = 2000;
+
     private function executeTaskStatus(array $args): ToolResult
     {
         $taskId = trim((string) ($args['task_id'] ?? ''));
@@ -215,11 +221,24 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         ];
 
         if ($task['result'] !== null) {
-            $summary['result'] = $task['result'];
+            $result = $task['result'];
+            if (mb_strlen($result) > self::RESULT_PREVIEW_LENGTH) {
+                $summary['result'] = mb_substr($result, 0, self::RESULT_PREVIEW_LENGTH);
+                $summary['result_truncated'] = true;
+                $summary['result_full_length'] = mb_strlen($result);
+            } else {
+                $summary['result'] = $result;
+            }
         }
 
         if ($task['error'] !== null) {
-            $summary['error'] = $task['error'];
+            $error = $task['error'];
+            if (mb_strlen($error) > self::RESULT_PREVIEW_LENGTH) {
+                $summary['error'] = mb_substr($error, 0, self::RESULT_PREVIEW_LENGTH);
+                $summary['error_truncated'] = true;
+            } else {
+                $summary['error'] = $error;
+            }
         }
 
         if (!empty($events)) {
@@ -306,8 +325,8 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         }
 
         // For running tasks, mark as cancelling — the BackgroundTaskManager
-        // will detect this and send SIGTERM to the process
-        $this->storage->updateTaskStatus($taskId, 'cancelled');
+        // will detect this on its next tick and send SIGTERM to the process
+        $this->storage->updateTaskStatus($taskId, 'cancelling');
         $this->storage->appendTaskEvent($taskId, 'cancel_requested', [
             'message' => 'Cancellation requested by agent',
         ]);

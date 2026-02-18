@@ -78,6 +78,8 @@ final class AgentRunner
         SplObserver $observer,
         CancellationTokenInterface $cancellationToken,
         PendingInputProviderInterface $pendingInputProvider,
+        ?string $role = null,
+        ?int $maxIterations = null,
     ): AgentTurnResult {
         return $this->doRun(
             $prompt,
@@ -87,6 +89,8 @@ final class AgentRunner
             $cancellationToken,
             $pendingInputProvider,
             enableBackgroundTasks: false,
+            role: $role,
+            maxIterations: $maxIterations,
         );
     }
 
@@ -114,12 +118,15 @@ final class AgentRunner
         ?CancellationTokenInterface $cancellationToken = null,
         ?PendingInputProviderInterface $pendingInputProvider = null,
         bool $enableBackgroundTasks = true,
+        ?string $role = null,
+        ?int $maxIterations = null,
     ): AgentTurnResult {
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
 
-        // Resolve the orchestrator model string for turn tracking
-        $modelString = $this->roleResolver->resolve('orchestrator');
+        // Resolve the model string for turn tracking (use task role if provided)
+        $effectiveRole = $role ?? 'orchestrator';
+        $modelString = $this->roleResolver->resolve($effectiveRole);
 
         // Create turn record before execution
         $turnId = $this->storage->createTurn($sessionId, $prompt, $modelString);
@@ -148,6 +155,8 @@ final class AgentRunner
             cancellationToken: $cancellationToken,
             pendingInputProvider: $pendingInputProvider,
             enableBackgroundTasks: $enableBackgroundTasks,
+            role: $effectiveRole,
+            maxIterations: $maxIterations,
         );
 
         if ($observer !== null) {
@@ -244,8 +253,10 @@ final class AgentRunner
         ?CancellationTokenInterface $cancellationToken = null,
         ?PendingInputProviderInterface $pendingInputProvider = null,
         bool $enableBackgroundTasks = true,
+        string $role = 'orchestrator',
+        ?int $maxIterations = null,
     ): OrchestratorAgent {
-        $modelString = $this->roleResolver->resolve('orchestrator');
+        $modelString = $this->roleResolver->resolve($role);
         $factory = $this->providerFactory ?? new ProviderFactory($this->config);
         $provider = $factory->create($modelString);
 
@@ -259,6 +270,7 @@ final class AgentRunner
             sessionId: $sessionId,
             observer: $observer,
             discovery: $this->discovery,
+            maxIterations: $maxIterations ?? 25,
             executionPolicy: $executionPolicy,
             sanitizer: $sanitizer,
             onRestart: $onRestart,

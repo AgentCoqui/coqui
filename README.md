@@ -134,6 +134,9 @@ Once inside the Coqui REPL, use slash commands:
 | `/sessions` | List all saved sessions |
 | `/resume <id>` | Resume a session by ID |
 | `/model [role]` | Show model configuration |
+| `/tasks [status]` | List background tasks (optional status filter) |
+| `/task <id>` | Show background task details |
+| `/task-cancel <id>` | Cancel a background task |
 | `/help` | List available commands |
 | `/restart` | Restart Coqui (re-reads config, re-discovers toolkits) |
 | `/quit` `/exit` `/q` | Exit Coqui |

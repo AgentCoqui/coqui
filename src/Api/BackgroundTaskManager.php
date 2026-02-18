@@ -19,11 +19,16 @@ use CoquiBot\Coqui\Storage\SessionStorage;
  */
 final class BackgroundTaskManager
 {
+    private const EVENT_RETENTION_DAYS = 7;
+    private const CLEANUP_INTERVAL_TICKS = 300;
+
     /** @var array<string, resource> Process handles keyed by task ID */
     private array $processes = [];
 
     /** @var array<string, array{0: resource, 1: resource, 2: resource}> Pipe handles per task */
     private array $pipes = [];
+
+    private int $tickCount = 0;
 
     public function __construct(
         private readonly SessionStorage $storage,
@@ -35,14 +40,22 @@ final class BackgroundTaskManager
     ) {}
 
     /**
-     * Periodic tick — check running processes and start pending tasks.
+     * Periodic tick — check running processes, handle cancel requests, and start pending tasks.
      *
      * Called by the ReactPHP event loop timer every ~1 second.
      */
     public function tick(): void
     {
         $this->reapFinishedProcesses();
+        $this->processCancelRequests();
         $this->startPendingTasks();
+
+        // Lazy cleanup of old task events (~every 5 minutes)
+        $this->tickCount++;
+        if ($this->tickCount >= self::CLEANUP_INTERVAL_TICKS) {
+            $this->tickCount = 0;
+            $this->storage->purgeOldTaskEvents(self::EVENT_RETENTION_DAYS);
+        }
     }
 
     /**
@@ -253,6 +266,37 @@ final class BackgroundTaskManager
         if (isset($this->processes[$taskId])) {
             proc_close($this->processes[$taskId]);
             unset($this->processes[$taskId]);
+        }
+    }
+
+    /**
+     * Handle tasks marked as 'cancelling' by the toolkit or REPL.
+     *
+     * Sends SIGTERM to the child process so it can shut down cooperatively.
+     * If the process isn't tracked (orphan cancel request), mark as cancelled directly.
+     */
+    private function processCancelRequests(): void
+    {
+        $tasks = $this->storage->getTasksByStatus('cancelling');
+
+        foreach ($tasks as $task) {
+            $taskId = $task['id'];
+
+            if (isset($this->processes[$taskId])) {
+                $process = $this->processes[$taskId];
+                $status = proc_get_status($process);
+
+                if ($status['running'] && $status['pid'] > 0) {
+                    posix_kill($status['pid'], SIGTERM);
+                }
+                // Process will be reaped on next tick — TaskRunCommand sets final status
+            } else {
+                // No tracked process — cancel directly
+                $this->storage->updateTaskStatus($taskId, 'cancelled');
+                $this->storage->appendTaskEvent($taskId, 'cancelled', [
+                    'message' => 'Cancelled (no active process found)',
+                ]);
+            }
         }
     }
 }

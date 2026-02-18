@@ -39,11 +39,12 @@
             "path": "src/Agent/AgentRunner.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunner",
             "layer": "agent",
-            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Supports per-turn observer injection via runWithObserver() for API mode where each request gets its own SseObserver.",
+            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Supports per-turn observer injection via runWithObserver() for API mode where each request gets its own SseObserver. Background tasks use runForTask() which threads role and maxIterations through to the agent.",
             "methods": [
                 "run(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy): AgentTurnResult — runs a single agent turn using the default observer",
                 "runWithObserver(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy, SplObserver $observer): AgentTurnResult — runs a turn with a per-turn observer override",
-                "createAgent(..., ?SplObserver $observer): OrchestratorAgent — builds the orchestrator agent with all dependencies",
+                "runForTask(..., ?string $role, ?int $maxIterations): AgentTurnResult — runs a background task with specified role and iteration limit",
+                "createAgent(..., ?SplObserver $observer, string $role, ?int $maxIterations): OrchestratorAgent — builds the orchestrator agent with role-resolved model and iteration limit",
                 "persistTurnMessages(Conversation, int, string, ?string $turnId): void — persists new messages from a turn with turn linkage",
                 "extractToolsUsed(?Conversation): string[] — extracts unique tool names from conversation tool calls"
             ]
@@ -52,11 +53,15 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction, restart logic (RESTART_EXIT_CODE = 10, restartRequested flag), and startup update checking (COQUI_CHECK_UPDATES, COQUI_AUTO_UPDATE env vars).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction, restart logic (RESTART_EXIT_CODE = 10, restartRequested flag), startup update checking (COQUI_CHECK_UPDATES, COQUI_AUTO_UPDATE env vars), and background task REPL commands (/tasks, /task, /task-cancel).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system and enters REPL loop",
-                "handleCommand(string, SymfonyStyle): int|true — processes REPL commands (/new, /history, /sessions, /resume, /model, /help, /restart, /quit); returns exit code or true to continue",
-                "runAgent(string, SymfonyStyle): void — creates OrchestratorAgent with restart callback, runs agent turn, checks restartRequested flag"
+                "handleCommand(string, SymfonyStyle): int|true — processes REPL commands (/new, /history, /sessions, /resume, /model, /tasks, /task, /task-cancel, /help, /restart, /quit); returns exit code or true to continue",
+                "runAgent(string, SymfonyStyle): void — creates OrchestratorAgent with restart callback, runs agent turn, checks restartRequested flag",
+                "listTasksCommand(?string $statusFilter, SymfonyStyle $io): void — /tasks command: lists tasks with optional status filter",
+                "taskStatusCommand(string $idPrefix, SymfonyStyle $io): void — /task command: shows detailed task status with events",
+                "taskCancelCommand(string $idPrefix, SymfonyStyle $io): void — /task-cancel command: cancels pending or running tasks",
+                "resolveTaskByPrefix(string $prefix): ?array — resolves a task by ID prefix match"
             ]
         },
         {
@@ -500,12 +505,14 @@
             "path": "src/Api/AgentFiberExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\AgentFiberExecutor",
             "layer": "agent",
-            "description": "Manages Fiber-based agent execution for the API server. Each prompt runs inside a PHP Fiber. After completion, generates a session title via TitleGenerator on the first turn (if no title exists), emitting a title SSE event before stream close.",
+            "description": "Manages Fiber-based agent execution for the API server. Each prompt runs inside a PHP Fiber. Provides both SSE streaming (execute) and blocking Promise-based execution (executeBlocking) for stream=false mode. After completion, generates a session title via TitleGenerator on the first turn. Error messages are sanitized before reaching clients.",
             "methods": [
                 "execute(string $sessionId, string $prompt): ThroughStream — runs agent in Fiber, returns SSE stream",
+                "executeBlocking(string $sessionId, string $prompt): PromiseInterface — runs agent in Fiber with NullObserver, resolves with turn result array",
                 "activeCount(): int — number of currently running Fibers",
                 "isActive(string $sessionId): bool — whether a session has an active agent run",
-                "maybeGenerateTitle(string $sessionId, string $prompt, SseObserver $observer): void — generates+stores+streams title on first turn"
+                "maybeGenerateTitle(string $sessionId, string $prompt, SseObserver $observer): void — generates+stores+streams title on first turn",
+                "maybeGenerateTitleBlocking(string $sessionId, string $prompt): void — blocking title generation for non-SSE mode"
             ]
         },
         {
@@ -534,6 +541,33 @@
             "fqcn": "CoquiBot\\Coqui\\Api\\Middleware\\CorsMiddleware",
             "layer": "config",
             "description": "CORS middleware with configurable allowed origins. Handles OPTIONS preflight (204) and adds CORS headers to all responses.",
+            "methods": [
+                "__invoke(ServerRequestInterface $request, callable $next): Response"
+            ]
+        },
+        {
+            "path": "src/Api/Middleware/RateLimitMiddleware.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Middleware\\RateLimitMiddleware",
+            "layer": "config",
+            "description": "Per-IP token bucket rate limiter. Configurable max requests per window (default 30/60s). Exempts /api/health and OPTIONS. Adds X-RateLimit-Limit and X-RateLimit-Remaining headers. Returns 429 with Retry-After header when exceeded.",
+            "methods": [
+                "__invoke(ServerRequestInterface $request, callable $next): Response"
+            ]
+        },
+        {
+            "path": "src/Api/Middleware/RequestSizeMiddleware.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Middleware\\RequestSizeMiddleware",
+            "layer": "config",
+            "description": "Request body size limiter. Rejects POST/PUT/PATCH bodies exceeding configurable max bytes (default 1MB) with 413 Payload Too Large.",
+            "methods": [
+                "__invoke(ServerRequestInterface $request, callable $next): Response"
+            ]
+        },
+        {
+            "path": "src/Api/Middleware/ContentTypeMiddleware.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Middleware\\ContentTypeMiddleware",
+            "layer": "config",
+            "description": "JSON content type enforcement for POST/PUT/PATCH requests. Returns 415 Unsupported Media Type if Content-Type does not contain 'json'. Allows empty bodies through.",
             "methods": [
                 "__invoke(ServerRequestInterface $request, callable $next): Response"
             ]
@@ -616,7 +650,7 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, and session title management. Idempotent migrations add turn_id FK columns and title column.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, session title management, and background task queries. Idempotent migrations add turn_id FK columns and title column.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
                 "listSessions(int $limit): array — lists recent sessions (includes title)",
@@ -630,7 +664,9 @@
                 "createTurn(string $sessionId, string $userPrompt, ?string $model): string — creates a turn record, returns ID",
                 "completeTurn(string $turnId, ...): void — updates turn with response, tokens, duration, tools used",
                 "getTurns(string $sessionId, int $limit): array — returns turns ordered by turn_number ASC",
-                "getTurnWithMessages(string $turnId): ?array — returns turn with nested messages"
+                "getTurnWithMessages(string $turnId): ?array — returns turn with nested messages",
+                "getTasksByStatus(string $status): array — returns all tasks with a given status",
+                "purgeOldTaskEvents(int $maxAgeDays): int — deletes old events for terminal tasks, returns count"
             ]
         },
         {
@@ -703,7 +739,7 @@
             "path": "src/Api/ApiErrorCode.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\ApiErrorCode",
             "layer": "config",
-            "description": "Backed string enum for structured API error codes. Maps each code to an HTTP status. toPayload() builds standard error response payloads with code, message, and optional details.",
+            "description": "Backed string enum for structured API error codes. 18 cases covering auth, validation, not-found, conflict, rate-limiting, and server errors. Maps each code to an HTTP status. toPayload() builds standard error response payloads with code, message, and optional details.",
             "methods": [
                 "toPayload(string $message, mixed $details): array — builds error response payload",
                 "httpStatus(): int — maps error code to HTTP status"
@@ -720,6 +756,83 @@
                 "create(request): Response",
                 "update(request, name): Response",
                 "delete(request, name): Response"
+            ]
+        },
+        {
+            "path": "src/Api/BackgroundTaskManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\BackgroundTaskManager",
+            "layer": "api",
+            "description": "Manages background task child processes via proc_open. Ticked periodically by the ReactPHP event loop to reap finished processes, process cancel requests (cancelling → SIGTERM), start pending tasks, and lazily purge old task events. Handles process spawning, SIGTERM cancellation, crash detection, and event retention.",
+            "methods": [
+                "tick(): void — periodic check: reap finished, process cancels, start pending, lazy cleanup",
+                "start(taskId): bool — start a task immediately if under limit",
+                "cancel(taskId): bool — send SIGTERM or cancel pending",
+                "processCancelRequests(): void — find tasks with 'cancelling' status and send SIGTERM",
+                "purgeOldTaskEvents(): void — delete events older than EVENT_RETENTION_DAYS for terminal tasks",
+                "activeCount(): int — number of running processes",
+                "isRunning(taskId): bool — check if task has active process",
+                "pendingCount(): int — number of pending tasks in queue"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/TaskHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\TaskHandler",
+            "layer": "command",
+            "description": "Background task API endpoints: create tasks, list/get tasks, SSE event streaming, input injection, and cancellation.",
+            "methods": [
+                "create(request): Response — POST /api/tasks",
+                "list(request): Response — GET /api/tasks",
+                "get(request, id): Response — GET /api/tasks/{id}",
+                "events(request, id): Response — GET /api/tasks/{id}/events (SSE stream)",
+                "addInput(request, id): Response — POST /api/tasks/{id}/input",
+                "cancel(request, id): Response — POST /api/tasks/{id}/cancel"
+            ]
+        },
+        {
+            "path": "src/Api/DatabasePendingInputProvider.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\DatabasePendingInputProvider",
+            "layer": "api",
+            "description": "PendingInputProviderInterface implementation that reads task_inputs from SQLite. Used by TaskRunCommand to inject external user input into background task agent conversations.",
+            "methods": [
+                "consumePendingInputs(): MessageInterface[] — atomically consume and return pending inputs"
+            ]
+        },
+        {
+            "path": "src/Api/ProcessCancellationToken.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\ProcessCancellationToken",
+            "layer": "api",
+            "description": "Mutable CancellationTokenInterface implementation. cancel() is called from the SIGTERM handler in TaskRunCommand; isCancelled() is checked by AbstractAgent at iteration boundaries.",
+            "methods": [
+                "cancel(): void — set cancelled flag",
+                "isCancelled(): bool — check if cancelled"
+            ]
+        },
+        {
+            "path": "src/Command/TaskRunCommand.php",
+            "fqcn": "CoquiBot\\Coqui\\Command\\TaskRunCommand",
+            "layer": "command",
+            "description": "Hidden Symfony Console command that executes a single background task in a child process. Boots the full agent stack, reads role and max_iterations from the task record, registers SIGTERM handler, runs the agent with role-resolved model and iteration limit, and updates task status on completion.",
+            "methods": [
+                "execute(input, output): int — run task by ID with role/maxIterations from DB, exit 0=completed, 1=failed, 2=cancelled"
+            ]
+        },
+        {
+            "path": "src/Observer/BackgroundTaskObserver.php",
+            "fqcn": "CoquiBot\\Coqui\\Observer\\BackgroundTaskObserver",
+            "layer": "observer",
+            "description": "SplObserver that persists agent events to the task_events SQLite table. Used by TaskRunCommand to stream events from background task agent execution.",
+            "methods": [
+                "update(subject): void — handle agent events, persist to task_events"
+            ]
+        },
+        {
+            "path": "src/Toolkit/BackgroundTaskToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\BackgroundTaskToolkit",
+            "layer": "toolkit",
+            "description": "LLM-facing toolkit providing 4 tools for managing background tasks: start_background_task, task_status, list_tasks, cancel_task. Available in both API and REPL modes. In REPL mode tasks are queued in SQLite for the API server to execute. Cancel for running tasks uses transient 'cancelling' status. task_status caps result/error at 2000 chars.",
+            "methods": [
+                "tools(): ToolInterface[] — returns 4 background task tools",
+                "guidelines(): string — usage guidelines for the LLM"
             ]
         }
     ],
@@ -741,8 +854,16 @@
                     "description": "Contract for agents: instructions(), tools(), run()"
                 },
                 {
+                    "path": "src/Contract/CancellationTokenInterface.php",
+                    "description": "Cooperative cancellation contract: isCancelled() checked at iteration boundaries"
+                },
+                {
+                    "path": "src/Contract/PendingInputProviderInterface.php",
+                    "description": "Contract for injecting external input into agent conversation: consumePendingInputs()"
+                },
+                {
                     "path": "src/Agent/AbstractAgent.php",
-                    "description": "Base agent with tool-use loop, observer pattern, toolkit registration, system prompt building"
+                    "description": "Base agent with tool-use loop, observer pattern, toolkit registration, system prompt building. Supports cooperative cancellation via CancellationTokenInterface and mid-run input injection via PendingInputProviderInterface."
                 },
                 {
                     "path": "src/Tool/Tool.php",

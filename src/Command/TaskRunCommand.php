@@ -92,6 +92,8 @@ final class TaskRunCommand extends Command
 
         $sessionId = $task['session_id'];
         $prompt = $task['prompt'];
+        $role = $task['role'] ?? 'orchestrator';
+        $maxIterations = (int) ($task['max_iterations'] ?? 25);
 
         // Update status to running
         $storage->updateTaskStatus($taskId, 'running', ['pid' => getmypid()]);
@@ -145,6 +147,8 @@ final class TaskRunCommand extends Command
                 observer: $taskObserver,
                 cancellationToken: $cancellationToken,
                 pendingInputProvider: $inputProvider,
+                role: $role,
+                maxIterations: $maxIterations,
             );
 
             if ($cancellationToken->isCancelled()) {

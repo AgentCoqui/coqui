@@ -126,6 +126,7 @@ final class RunCommand extends Command
             skillDiscovery: $this->boot->skillDiscovery(),
             roleDiscovery: $this->boot->roleDiscovery(),
             unsafeMode: $this->unsafeMode,
+            backgroundTasksEnabled: true,
         );
 
         // Handle session
@@ -158,7 +159,7 @@ final class RunCommand extends Command
             '<fg=gray>Project root:</> ' . $this->workDir,
             '<fg=gray>Workspace:</> ' . $this->boot->workspacePath(),
             '',
-            '<fg=gray>Commands: /new, /history, /sessions, /config, /update, /restart, /quit</>',
+            '<fg=gray>Commands: /new, /history, /sessions, /tasks, /config, /update, /restart, /quit</>',
         ]);
         $io->newLine();
 
@@ -265,6 +266,21 @@ final class RunCommand extends Command
                 return true;
             })(),
 
+            '/tasks' => (function () use ($io, $arg) {
+                $this->listTasksCommand($io, $arg);
+                return true;
+            })(),
+
+            '/task' => (function () use ($io, $arg) {
+                $this->taskStatusCommand($io, $arg);
+                return true;
+            })(),
+
+            '/task-cancel' => (function () use ($io, $arg) {
+                $this->taskCancelCommand($io, $arg);
+                return true;
+            })(),
+
             '/update' => (function () use ($io) {
                 return true;
             })(),
@@ -279,6 +295,9 @@ final class RunCommand extends Command
                         ['/resume <id>', 'Resume a session'],
                         ['/model', 'Show model configuration'],
                         ['/config', 'Show config (use /config edit to re-run wizard)'],
+                        ['/tasks [status]', 'List background tasks (optionally filter by status)'],
+                        ['/task <id>', 'Show background task status and recent events'],
+                        ['/task-cancel <id>', 'Cancel a pending or running background task'],
                         ['/update', 'Check for and apply dependency updates'],
                         ['/restart', 'Restart Coqui (re-reads config, re-discovers toolkits)'],
                         ['/quit', 'Exit Coqui'],
@@ -399,6 +418,161 @@ final class RunCommand extends Command
         }
 
         $io->table(['ID', 'Role', 'Tokens', 'Updated'], $rows);
+    }
+
+    private function listTasksCommand(SymfonyStyle $io, string $statusFilter = ''): void
+    {
+        $status = trim($statusFilter) !== '' ? trim($statusFilter) : null;
+        $tasks = $this->storage->listTasks($status, 20);
+
+        if (empty($tasks)) {
+            $io->info($status !== null ? "No tasks with status '{$status}'." : 'No background tasks found.');
+            return;
+        }
+
+        $rows = [];
+        foreach ($tasks as $task) {
+            $rows[] = [
+                substr($task['id'], 0, 8) . '...',
+                $task['status'],
+                $task['title'] ?? '(untitled)',
+                $task['role'],
+                $task['created_at'],
+            ];
+        }
+
+        $io->table(['ID', 'Status', 'Title', 'Role', 'Created'], $rows);
+
+        $counts = $this->storage->getTaskCounts();
+        $parts = [];
+        foreach ($counts as $s => $c) {
+            $parts[] = "{$s}: {$c}";
+        }
+        if (!empty($parts)) {
+            $io->text('<fg=gray>' . implode(' | ', $parts) . '</>');
+        }
+    }
+
+    private function taskStatusCommand(SymfonyStyle $io, string $taskIdPrefix = ''): void
+    {
+        if ($taskIdPrefix === '') {
+            $io->error('Usage: /task <task-id>');
+            return;
+        }
+
+        // Support prefix matching for convenience
+        $task = $this->resolveTaskByPrefix($taskIdPrefix);
+
+        if ($task === null) {
+            $io->error("Task not found: {$taskIdPrefix}");
+            return;
+        }
+
+        $io->section('Task: ' . ($task['title'] ?? $task['id']));
+        $io->definitionList(
+            ['ID' => $task['id']],
+            ['Status' => $task['status']],
+            ['Role' => $task['role']],
+            ['Max Iterations' => $task['max_iterations']],
+            ['Created' => $task['created_at']],
+            ['Started' => $task['started_at'] ?? '(not started)'],
+            ['Completed' => $task['completed_at'] ?? '(not completed)'],
+        );
+
+        if ($task['result'] !== null) {
+            $result = $task['result'];
+            if (mb_strlen($result) > 500) {
+                $result = mb_substr($result, 0, 500) . '... (' . mb_strlen($task['result']) . ' chars total)';
+            }
+            $io->text('<fg=green>Result:</> ' . $result);
+        }
+
+        if ($task['error'] !== null) {
+            $io->text('<fg=red>Error:</> ' . $task['error']);
+        }
+
+        // Show recent events
+        $events = $this->storage->getTaskEvents($task['id'], limit: 10);
+        if (!empty($events)) {
+            $io->newLine();
+            $io->text('<fg=gray>Recent events:</>');
+            foreach ($events as $event) {
+                $data = json_decode($event['data'] ?? '{}', true);
+                $detail = match ($event['event_type']) {
+                    'tool_call' => $data['tool'] ?? '',
+                    'tool_result' => mb_substr($data['content'] ?? '', 0, 80),
+                    'iteration' => 'iteration ' . ($data['number'] ?? '?'),
+                    default => json_encode($data, JSON_UNESCAPED_SLASHES) ?: '',
+                };
+                $io->writeln(sprintf(
+                    '  <fg=gray>%s</> <fg=cyan>%s</> %s',
+                    $event['created_at'],
+                    $event['event_type'],
+                    mb_strlen($detail) > 100 ? mb_substr($detail, 0, 100) . '...' : $detail,
+                ));
+            }
+        }
+    }
+
+    private function taskCancelCommand(SymfonyStyle $io, string $taskIdPrefix = ''): void
+    {
+        if ($taskIdPrefix === '') {
+            $io->error('Usage: /task-cancel <task-id>');
+            return;
+        }
+
+        $task = $this->resolveTaskByPrefix($taskIdPrefix);
+
+        if ($task === null) {
+            $io->error("Task not found: {$taskIdPrefix}");
+            return;
+        }
+
+        if (in_array($task['status'], ['completed', 'failed', 'cancelled'], true)) {
+            $io->warning(sprintf('Task is already in terminal state "%s".', $task['status']));
+            return;
+        }
+
+        if ($task['status'] === 'pending') {
+            $this->storage->updateTaskStatus($task['id'], 'cancelled');
+            $this->storage->appendTaskEvent($task['id'], 'cancelled', [
+                'message' => 'Cancelled from REPL',
+            ]);
+            $io->success('Task cancelled.');
+            return;
+        }
+
+        // Running task — mark as cancelling for BackgroundTaskManager to handle
+        $this->storage->updateTaskStatus($task['id'], 'cancelling');
+        $this->storage->appendTaskEvent($task['id'], 'cancel_requested', [
+            'message' => 'Cancellation requested from REPL',
+        ]);
+        $io->success('Cancellation requested. The task will stop after its current iteration.');
+    }
+
+    /**
+     * Resolve a task by full ID or prefix match.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function resolveTaskByPrefix(string $prefix): ?array
+    {
+        // Try exact match first
+        $task = $this->storage->getTask($prefix);
+        if ($task !== null) {
+            return $task;
+        }
+
+        // Try prefix match
+        $tasks = $this->storage->listTasks(limit: 100);
+        $matches = array_filter($tasks, fn(array $t): bool => str_starts_with($t['id'], $prefix));
+
+        if (count($matches) === 1) {
+            $match = reset($matches);
+            return $this->storage->getTask($match['id']);
+        }
+
+        return null;
     }
 
     private function showModelInfo(SymfonyStyle $io, string $role = ''): void
