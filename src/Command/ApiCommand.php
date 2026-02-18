@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\AgentFiberExecutor;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
+use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Api\Middleware\AuthMiddleware;
@@ -96,7 +98,15 @@ final class ApiCommand extends Command
             blacklist: $boot->blacklist(),
             credentialResolver: $boot->credentialResolver(),
             skillDiscovery: $boot->skillDiscovery(),
+            roleDiscovery: $boot->roleDiscovery(),
             unsafeMode: $unsafeMode,
+        );
+
+        // Create title generator
+        $titleGenerator = new TitleGenerator(
+            roleResolver: $boot->roleResolver(),
+            config: $boot->config(),
+            roleDiscovery: $boot->roleDiscovery(),
         );
 
         // Create Fiber executor
@@ -104,6 +114,7 @@ final class ApiCommand extends Command
             agentRunner: $agentRunner,
             storage: $storage,
             blacklist: $boot->blacklist(),
+            titleGenerator: $titleGenerator,
         );
 
         $startTime = microtime(true);
@@ -115,10 +126,11 @@ final class ApiCommand extends Command
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler($boot->config(), $boot->roleResolver());
         $credentialHandler = new CredentialHandler($boot->credentialResolver());
+        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler);
 
         // Build middleware stack
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -181,6 +193,7 @@ final class ApiCommand extends Command
         TurnHandler $turn,
         ConfigHandler $config,
         CredentialHandler $credential,
+        RoleHandler $role,
     ): void {
         // Health
         $router->get('/api/health', $health);
@@ -189,6 +202,7 @@ final class ApiCommand extends Command
         $router->get('/api/sessions', [$session, 'list']);
         $router->post('/api/sessions', [$session, 'create']);
         $router->get('/api/sessions/{id}', [$session, 'get']);
+        $router->patch('/api/sessions/{id}', [$session, 'update']);
         $router->delete('/api/sessions/{id}', [$session, 'delete']);
 
         // Messages
@@ -201,8 +215,14 @@ final class ApiCommand extends Command
 
         // Config
         $router->get('/api/config', [$config, 'get']);
-        $router->get('/api/config/roles', [$config, 'roles']);
         $router->get('/api/config/models', [$config, 'models']);
+
+        // Roles
+        $router->get('/api/config/roles', [$role, 'list']);
+        $router->post('/api/config/roles', [$role, 'create']);
+        $router->get('/api/config/roles/{name}', [$role, 'get']);
+        $router->patch('/api/config/roles/{name}', [$role, 'update']);
+        $router->delete('/api/config/roles/{name}', [$role, 'delete']);
 
         // Credentials
         $router->get('/api/credentials', [$credential, 'list']);

@@ -124,6 +124,7 @@ final class RunCommand extends Command
             blacklist: $this->boot->blacklist(),
             credentialResolver: $this->boot->credentialResolver(),
             skillDiscovery: $this->boot->skillDiscovery(),
+            roleDiscovery: $this->boot->roleDiscovery(),
             unsafeMode: $this->unsafeMode,
         );
 
@@ -523,6 +524,7 @@ final class RunCommand extends Command
             blacklist: $this->boot->blacklist(),
             credentialResolver: $this->boot->credentialResolver(),
             skillDiscovery: $this->boot->skillDiscovery(),
+            roleDiscovery: $this->boot->roleDiscovery(),
             unsafeMode: $this->unsafeMode,
         );
 
