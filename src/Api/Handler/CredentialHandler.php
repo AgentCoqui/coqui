@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
+use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -58,9 +59,7 @@ final readonly class CredentialHandler
             || !isset($body['value'])
             || trim((string) $body['key']) === ''
         ) {
-            return Router::jsonResponse([
-                'error' => 'Missing required fields: "key" and "value"',
-            ], 400);
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'Missing required fields: "key" and "value"');
         }
 
         $key = strtoupper(trim((string) $body['key']));
@@ -68,9 +67,7 @@ final readonly class CredentialHandler
 
         // Validate key format (uppercase, underscores, digits)
         if (!preg_match('/^[A-Z][A-Z0-9_]*$/', $key)) {
-            return Router::jsonResponse([
-                'error' => 'Invalid key format. Use UPPER_SNAKE_CASE (e.g. MY_API_KEY)',
-            ], 400);
+            return Router::errorResponse(ApiErrorCode::INVALID_FORMAT, 'Invalid key format. Use UPPER_SNAKE_CASE (e.g. MY_API_KEY)');
         }
 
         $this->credentialResolver->set($key, $value);
@@ -89,7 +86,7 @@ final readonly class CredentialHandler
         $key = strtoupper($key);
 
         if (!$this->credentialResolver->has($key)) {
-            return Router::jsonResponse(['error' => 'Credential not found'], 404);
+            return Router::errorResponse(ApiErrorCode::CREDENTIAL_NOT_FOUND, 'Credential not found');
         }
 
         $this->credentialResolver->delete($key);

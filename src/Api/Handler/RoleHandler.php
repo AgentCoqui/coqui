@@ -31,29 +31,36 @@ final readonly class RoleHandler
 
     /**
      * GET /api/config/roles
+     *
+     * Sources from RoleResolver::toArray() which merges system roles
+     * (orchestrator), config roles, and file-based discovered roles.
      */
     public function list(ServerRequestInterface $request): Response
     {
-        $roles = $this->roleDiscovery->discoverAll();
-
-        $result = [];
-        foreach ($roles as $name => $properties) {
-            $entry = $properties->toArray();
-            $entry['model'] = $this->roleResolver->resolve($name);
-            $result[] = $entry;
-        }
+        $roles = $this->roleResolver->toArray();
 
         return Router::jsonResponse([
-            'roles' => $result,
-            'count' => count($result),
+            'roles' => array_values($roles),
+            'count' => count($roles),
         ]);
     }
 
     /**
      * GET /api/config/roles/{name}
+     *
+     * System roles (orchestrator) return metadata with editable=false.
+     * Non-system roles include full instructions.
      */
     public function get(ServerRequestInterface $request, string $name): Response
     {
+        // Check if it's a system role (synthesized by RoleResolver)
+        if ($this->roleResolver->isSystemRole($name)) {
+            $roles = $this->roleResolver->toArray();
+            if (isset($roles[$name])) {
+                return Router::jsonResponse($roles[$name]);
+            }
+        }
+
         try {
             $properties = $this->roleDiscovery->getRole($name);
             $instructions = $this->roleDiscovery->readInstructions($name);
@@ -91,6 +98,11 @@ final readonly class RoleHandler
             return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'Field "instructions" is required');
         }
 
+        // Block reserved role names
+        if ($this->roleDiscovery->isReservedName($name)) {
+            return Router::errorResponse(ApiErrorCode::ROLE_RESERVED, "Role name '{$name}' is reserved and cannot be created");
+        }
+
         if ($this->roleDiscovery->roleExists($name)) {
             return Router::errorResponse(ApiErrorCode::CONFLICT, "Role '{$name}' already exists");
         }
@@ -126,6 +138,11 @@ final readonly class RoleHandler
      */
     public function update(ServerRequestInterface $request, string $name): Response
     {
+        // Block updates to system roles
+        if ($this->roleResolver->isSystemRole($name)) {
+            return Router::errorResponse(ApiErrorCode::ROLE_BUILTIN, "System role '{$name}' cannot be modified");
+        }
+
         try {
             $existing = $this->roleDiscovery->getRole($name);
         } catch (RoleNotFoundException) {
@@ -179,6 +196,11 @@ final readonly class RoleHandler
      */
     public function delete(ServerRequestInterface $request, string $name): Response
     {
+        // Block deletion of system roles
+        if ($this->roleResolver->isSystemRole($name)) {
+            return Router::errorResponse(ApiErrorCode::ROLE_BUILTIN, "System role '{$name}' cannot be deleted");
+        }
+
         try {
             $properties = $this->roleDiscovery->getRole($name);
         } catch (RoleNotFoundException) {

@@ -93,8 +93,30 @@ final class Router
 
     /**
      * Dispatch a request to the matching handler.
+     *
+     * Wraps the entire dispatch in a try/catch to prevent internal
+     * details from leaking to clients in uncaught exceptions.
      */
     public function dispatch(ServerRequestInterface $request): Response
+    {
+        try {
+            return $this->doDispatch($request);
+        } catch (\Throwable $e) {
+            error_log(sprintf(
+                '[Coqui API] Uncaught exception: %s in %s:%d',
+                $e->getMessage(),
+                $e->getFile(),
+                $e->getLine(),
+            ));
+
+            return self::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Internal error');
+        }
+    }
+
+    /**
+     * Internal dispatch logic.
+     */
+    private function doDispatch(ServerRequestInterface $request): Response
     {
         $method = strtoupper($request->getMethod());
         $path = $request->getUri()->getPath();
@@ -127,7 +149,7 @@ final class Router
         }
 
         // 404
-        $handler = static fn(): Response => self::jsonResponse(['error' => ['code' => 404, 'message' => 'Not found']], 404);
+        $handler = static fn(): Response => self::errorResponse(ApiErrorCode::NOT_FOUND, 'Not found');
         return $this->applyMiddleware($request, $handler);
     }
 
