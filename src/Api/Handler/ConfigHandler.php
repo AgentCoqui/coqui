@@ -14,8 +14,9 @@ use React\Http\Message\Response;
  * Configuration endpoints.
  *
  * GET /api/config          — get full config (sanitized)
- * GET /api/config/roles    — get role→model mappings
  * GET /api/config/models   — list available models
+ *
+ * Role management moved to RoleHandler (/api/config/roles/*).
  */
 final readonly class ConfigHandler
 {

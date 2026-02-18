@@ -81,6 +81,14 @@ final class SseObserver implements SplObserver
         $this->writeEvent('complete', $resultData);
     }
 
+    /**
+     * Write a "title" event with the generated session title.
+     */
+    public function writeTitle(string $title): void
+    {
+        $this->writeEvent('title', ['title' => $title]);
+    }
+
     private function handleToolCall(mixed $data): void
     {
         if (!$data instanceof ToolCall) {

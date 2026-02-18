@@ -126,6 +126,9 @@ final class SessionStorage
         $this->migrateAddColumn('audit_log', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_messages_turn ON messages(turn_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_turn ON audit_log(turn_id)');
+
+        // Migration: add title column to sessions
+        $this->migrateAddColumn('sessions', 'title', 'TEXT DEFAULT NULL');
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
@@ -171,7 +174,7 @@ final class SessionStorage
     public function listSessions(int $limit = 50): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, model_role, model, created_at, updated_at, token_count
+            SELECT id, model_role, model, title, created_at, updated_at, token_count
             FROM sessions
             ORDER BY updated_at DESC
             LIMIT :limit
@@ -189,7 +192,7 @@ final class SessionStorage
     public function getSession(string $id): ?array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, model_role, model, created_at, updated_at, token_count
+            SELECT id, model_role, model, title, created_at, updated_at, token_count
             FROM sessions
             WHERE id = :id
         SQL);
@@ -202,6 +205,22 @@ final class SessionStorage
         }
 
         return $session;
+    }
+
+    /**
+     * Update a session's title.
+     */
+    public function updateSessionTitle(string $sessionId, string $title): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions SET title = :title, updated_at = :updated_at WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'title' => $title,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
     }
 
     public function addMessage(
