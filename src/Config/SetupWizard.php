@@ -72,7 +72,10 @@ final class SetupWizard
         // Step 6: Update preferences (ENV-based, not in openclaw.json)
         $this->configureUpdatePreferences();
 
-        // Step 7: Build and preview
+        // Step 7: Generate API key for HTTP API server
+        $this->configureApiKey();
+
+        // Step 8: Build and preview
         $config = $this->buildConfig($primaryModel, $roles, $workspace);
 
         $this->io->section('Configuration Preview');
@@ -416,6 +419,53 @@ final class SetupWizard
             $this->io->text('<fg=gray>Update preferences saved to workspace .env</>');
         } else {
             $this->io->text('<fg=gray>Set COQUI_CHECK_UPDATES and COQUI_AUTO_UPDATE in your .env to control update behavior.</>');
+        }
+    }
+
+    /**
+     * Step 7: Generate an API key for the HTTP API server.
+     *
+     * The key is stored in the workspace .env file via CredentialResolver.
+     * Required for running `coqui api` — the server refuses to start
+     * without a key unless --no-auth is explicitly passed.
+     */
+    private function configureApiKey(): void
+    {
+        $this->io->section('Step 7: API Server Key');
+
+        $this->io->text([
+            'The HTTP API server requires an API key for authentication.',
+            'This key is used with <fg=cyan>Authorization: Bearer <key></> when calling the API.',
+        ]);
+
+        // Check if key already exists
+        $existingKey = $this->credentialResolver?->get('COQUI_API_KEY');
+        if ($existingKey !== null && $existingKey !== '') {
+            $this->io->text('<fg=gray>An API key is already configured.</>');
+            if (!$this->io->confirm('Generate a new API key? (replaces existing)', false)) {
+                return;
+            }
+        }
+
+        $generateKey = $this->io->confirm('Generate an API key now?', true);
+
+        if (!$generateKey) {
+            $this->io->text('<fg=gray>Skipped. Set COQUI_API_KEY manually or use --no-auth for local-only access.</>');
+            return;
+        }
+
+        $apiKey = bin2hex(random_bytes(16));
+
+        if ($this->credentialResolver !== null) {
+            $this->credentialResolver->set('COQUI_API_KEY', $apiKey);
+            $this->io->newLine();
+            $this->io->text('<fg=green>API key generated and saved to workspace .env</>');
+            $this->io->text(sprintf('Your API key: <fg=cyan>%s</>', $apiKey));
+            $this->io->text('<fg=yellow>Save this key now — it will not be shown again.</>');
+            $this->io->newLine();
+        } else {
+            $this->io->text(sprintf('Generated key: <fg=cyan>%s</>', $apiKey));
+            $this->io->text('Set it manually: <fg=gray>COQUI_API_KEY=%s in your .env</>');
         }
     }
 
