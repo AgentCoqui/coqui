@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\AgentFiberExecutor;
+use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Psr\Http\Message\ServerRequestInterface;
@@ -19,6 +20,9 @@ use React\Http\Message\Response;
  */
 final readonly class MessageHandler
 {
+    /** Maximum prompt length in bytes (100 KB). */
+    private const int MAX_PROMPT_BYTES = 102_400;
+
     public function __construct(
         private SessionStorage $storage,
         private AgentFiberExecutor $executor,
@@ -32,7 +36,7 @@ final readonly class MessageHandler
         $session = $this->storage->getSession($id);
 
         if ($session === null) {
-            return Router::jsonResponse(['error' => 'Session not found'], 404);
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
         }
 
         $messages = $this->storage->getMessages($id);
@@ -55,22 +59,28 @@ final readonly class MessageHandler
         $session = $this->storage->getSession($id);
 
         if ($session === null) {
-            return Router::jsonResponse(['error' => 'Session not found'], 404);
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
         }
 
         $body = json_decode((string) $request->getBody(), true);
 
         if (!is_array($body) || !isset($body['prompt']) || trim((string) $body['prompt']) === '') {
-            return Router::jsonResponse(['error' => 'Missing or empty "prompt" field'], 400);
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'Missing or empty "prompt" field');
         }
 
         $prompt = trim((string) $body['prompt']);
 
+        // Enforce prompt length cap
+        if (strlen($prompt) > self::MAX_PROMPT_BYTES) {
+            return Router::errorResponse(
+                ApiErrorCode::PAYLOAD_TOO_LARGE,
+                sprintf('Prompt exceeds maximum length of %s bytes', number_format(self::MAX_PROMPT_BYTES)),
+            );
+        }
+
         // Check for already-active agent run on this session
         if ($this->executor->isActive($id)) {
-            return Router::jsonResponse([
-                'error' => 'Session already has an active agent run',
-            ], 409);
+            return Router::errorResponse(ApiErrorCode::AGENT_BUSY, 'Session already has an active agent run');
         }
 
         // Check for streaming preference
@@ -106,49 +116,25 @@ final readonly class MessageHandler
     /**
      * Blocking JSON response — for clients that don't support SSE.
      *
-     * Note: This blocks the Fiber until the agent completes, but the
-     * event loop can still service other requests.
+     * Uses executeBlocking() which runs the agent in a Fiber and resolves
+     * a Promise with the AgentTurnResult directly — no SSE parsing needed.
      */
     private function sendBlocking(string $sessionId, string $prompt): Response
     {
-        // Execute and collect output via a ThroughStream
-        $stream = $this->executor->execute($sessionId, $prompt);
+        $promise = $this->executor->executeBlocking($sessionId, $prompt);
 
-        $output = '';
-        $finalResult = null;
-
-        $stream->on('data', function (string $data) use (&$output, &$finalResult): void {
-            $output .= $data;
-
-            // Parse SSE events to find the final "complete" event
-            foreach (explode("\n\n", $data) as $block) {
-                if (str_starts_with($block, 'event: complete')) {
-                    $lines = explode("\n", $block);
-                    foreach ($lines as $line) {
-                        if (str_starts_with($line, 'data: ')) {
-                            $json = json_decode(substr($line, 6), true);
-                            if (is_array($json)) {
-                                $finalResult = $json;
-                            }
-                        }
-                    }
-                }
-            }
+        // In v1, the Promise is already resolved synchronously.
+        // Extract the resolved value directly.
+        $result = null;
+        $promise->then(function (array $data) use (&$result): void {
+            $result = $data;
         });
 
-        // Wait for stream to end (Fiber will resume once done)
-        $stream->on('end', function () use (&$done): void {
-            $done = true;
-        });
-
-        // If we captured a final result from the SSE stream, return it
-        if ($finalResult !== null) {
-            return Router::jsonResponse($finalResult);
+        if (is_array($result)) {
+            $hasError = isset($result['error']) && $result['error'] !== null;
+            return Router::jsonResponse($result, $hasError ? 500 : 200);
         }
 
-        return Router::jsonResponse([
-            'content' => '',
-            'error' => 'Agent run completed without result',
-        ], 500);
+        return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Agent run completed without result');
     }
 }

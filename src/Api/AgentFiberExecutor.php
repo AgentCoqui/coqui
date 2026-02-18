@@ -9,8 +9,11 @@ use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
+use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Observer\SseObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use React\Promise\Deferred;
+use React\Promise\PromiseInterface;
 use React\Stream\ThroughStream;
 
 /**
@@ -69,9 +72,18 @@ final class AgentFiberExecutor
                 // Generate title on first turn if no title exists
                 $this->maybeGenerateTitle($sessionId, $prompt, $sseObserver);
             } catch (\Throwable $e) {
-                $sseObserver->handleEvent('agent.error', $e->getMessage());
+                // Log the full error for operators, surface only a safe message to clients
+                error_log(sprintf(
+                    '[Coqui API] Agent error in session %s: %s in %s:%d',
+                    $sessionId,
+                    $e->getMessage(),
+                    $e->getFile(),
+                    $e->getLine(),
+                ));
+
+                $sseObserver->handleEvent('agent.error', 'Internal error');
                 $sseObserver->writeComplete([
-                    'error' => $e->getMessage(),
+                    'error' => 'Internal error',
                     'content' => '',
                 ]);
             } finally {
@@ -90,7 +102,12 @@ final class AgentFiberExecutor
         try {
             $fiber->start();
         } catch (\Throwable $e) {
-            $sseObserver->handleEvent('agent.error', $e->getMessage());
+            error_log(sprintf(
+                '[Coqui API] Fiber start error in session %s: %s',
+                $sessionId,
+                $e->getMessage(),
+            ));
+            $sseObserver->handleEvent('agent.error', 'Internal error');
             if ($stream->isWritable()) {
                 $stream->end();
             }
@@ -129,6 +146,68 @@ final class AgentFiberExecutor
                 unset($this->activeFibers[$sessionId]);
             }
         }
+    }
+
+    /**
+     * Execute an agent turn and return a Promise that resolves with the result.
+     *
+     * Used for blocking (non-streaming) mode. The agent runs in a Fiber
+     * without SSE output, and the Promise resolves with the AgentTurnResult
+     * once the Fiber completes.
+     *
+     * @return PromiseInterface<array<string, mixed>>
+     */
+    public function executeBlocking(string $sessionId, string $prompt): PromiseInterface
+    {
+        $deferred = new Deferred();
+
+        $fiber = new \Fiber(function () use ($sessionId, $prompt, $deferred): void {
+            $executionPolicy = new AutoApprovalPolicy(
+                blacklist: $this->blacklist,
+                storage: $this->storage,
+                sessionId: $sessionId,
+            );
+
+            try {
+                $result = $this->agentRunner->runWithObserver(
+                    $prompt,
+                    $sessionId,
+                    $executionPolicy,
+                    new NullObserver(),
+                );
+
+                // Generate title on first turn (best-effort, no observer needed)
+                $this->maybeGenerateTitleBlocking($sessionId, $prompt);
+
+                $deferred->resolve($result->toArray());
+            } catch (\Throwable $e) {
+                $deferred->resolve([
+                    'error' => 'Internal error',
+                    'content' => '',
+                ]);
+            } finally {
+                unset($this->activeFibers[$sessionId]);
+            }
+        });
+
+        $this->activeFibers[$sessionId] = $fiber;
+
+        try {
+            $fiber->start();
+        } catch (\Throwable) {
+            $deferred->resolve([
+                'error' => 'Internal error',
+                'content' => '',
+            ]);
+        }
+
+        // In v1, the Fiber runs synchronously to completion during start().
+        // The Promise is already resolved by this point.
+        if ($fiber->isTerminated()) {
+            unset($this->activeFibers[$sessionId]);
+        }
+
+        return $deferred->promise();
     }
 
     /**
@@ -173,5 +252,29 @@ final class AgentFiberExecutor
         // Persist and stream the title event
         $this->storage->updateSessionTitle($sessionId, $title);
         $observer->writeTitle($title);
+    }
+
+    /**
+     * Generate a title for blocking mode (no observer needed).
+     *
+     * Runs after the agent completes. Best-effort — failures are silently ignored.
+     */
+    private function maybeGenerateTitleBlocking(string $sessionId, string $prompt): void
+    {
+        if ($this->titleGenerator === null) {
+            return;
+        }
+
+        $session = $this->storage->getSession($sessionId);
+        if ($session === null || ($session['title'] ?? null) !== null) {
+            return;
+        }
+
+        $title = $this->titleGenerator->generate($prompt);
+        if ($title === null) {
+            return;
+        }
+
+        $this->storage->updateSessionTitle($sessionId, $title);
     }
 }

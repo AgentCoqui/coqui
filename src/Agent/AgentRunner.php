@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Agent;
 
+use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
+use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Enum\Role;
 use CarmeloSantana\PHPAgents\Message\Conversation;
@@ -20,6 +22,7 @@ use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
 
 /**
@@ -44,6 +47,7 @@ final class AgentRunner
         private readonly ?RoleDiscovery $roleDiscovery = null,
         private readonly bool $unsafeMode = false,
         private readonly ?ProviderFactory $providerFactory = null,
+        private readonly bool $backgroundTasksEnabled = false,
     ) {}
 
     /**
@@ -62,6 +66,31 @@ final class AgentRunner
     }
 
     /**
+     * Run an agent turn for a background task with cancellation and input injection.
+     *
+     * Used by TaskRunCommand where the agent runs in a separate process
+     * and needs cooperative cancellation and mid-run input injection.
+     */
+    public function runForTask(
+        string $prompt,
+        string $sessionId,
+        ToolExecutionPolicyInterface $executionPolicy,
+        SplObserver $observer,
+        CancellationTokenInterface $cancellationToken,
+        PendingInputProviderInterface $pendingInputProvider,
+    ): AgentTurnResult {
+        return $this->doRun(
+            $prompt,
+            $sessionId,
+            $executionPolicy,
+            $observer,
+            $cancellationToken,
+            $pendingInputProvider,
+            enableBackgroundTasks: false,
+        );
+    }
+
+    /**
      * Run a single agent turn: create agent, execute, persist messages.
      *
      * Returns a result DTO — rendering is the caller's responsibility.
@@ -75,13 +104,16 @@ final class AgentRunner
     }
 
     /**
-     * Internal implementation shared by run() and runWithObserver().
+     * Internal implementation shared by run(), runWithObserver(), and runForTask().
      */
     private function doRun(
         string $prompt,
         string $sessionId,
         ToolExecutionPolicyInterface $executionPolicy,
         ?SplObserver $observer = null,
+        ?CancellationTokenInterface $cancellationToken = null,
+        ?PendingInputProviderInterface $pendingInputProvider = null,
+        bool $enableBackgroundTasks = true,
     ): AgentTurnResult {
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
@@ -113,6 +145,9 @@ final class AgentRunner
                 $restartRequested = true;
             },
             observer: $observer,
+            cancellationToken: $cancellationToken,
+            pendingInputProvider: $pendingInputProvider,
+            enableBackgroundTasks: $enableBackgroundTasks,
         );
 
         if ($observer !== null) {
@@ -206,6 +241,9 @@ final class AgentRunner
         ScriptSanitizer $sanitizer,
         \Closure $onRestart,
         ?SplObserver $observer = null,
+        ?CancellationTokenInterface $cancellationToken = null,
+        ?PendingInputProviderInterface $pendingInputProvider = null,
+        bool $enableBackgroundTasks = true,
     ): OrchestratorAgent {
         $modelString = $this->roleResolver->resolve('orchestrator');
         $factory = $this->providerFactory ?? new ProviderFactory($this->config);
@@ -227,6 +265,11 @@ final class AgentRunner
             credentialResolver: $this->credentialResolver,
             skillDiscovery: $this->skillDiscovery,
             roleDiscovery: $this->roleDiscovery,
+            cancellationToken: $cancellationToken,
+            pendingInputProvider: $pendingInputProvider,
+            backgroundTaskToolkit: ($enableBackgroundTasks && $this->backgroundTasksEnabled)
+                ? new BackgroundTaskToolkit($this->storage, $sessionId)
+                : null,
         );
     }
 

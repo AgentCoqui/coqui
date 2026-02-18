@@ -24,7 +24,13 @@ enum ApiErrorCode: string
     case INVALID_FORMAT = 'invalid_format';
     case ROLE_NOT_FOUND = 'role_not_found';
     case ROLE_BUILTIN = 'role_builtin';
+    case ROLE_RESERVED = 'role_reserved';
     case SESSION_NOT_FOUND = 'session_not_found';
+    case TURN_NOT_FOUND = 'turn_not_found';
+    case CREDENTIAL_NOT_FOUND = 'credential_not_found';
+    case RATE_LIMITED = 'rate_limited';
+    case PAYLOAD_TOO_LARGE = 'payload_too_large';
+    case UNSUPPORTED_MEDIA_TYPE = 'unsupported_media_type';
 
     /**
      * Build a standard error response payload.
@@ -51,12 +57,14 @@ enum ApiErrorCode: string
     public function httpStatus(): int
     {
         return match ($this) {
-            self::NOT_FOUND, self::ROLE_NOT_FOUND, self::SESSION_NOT_FOUND => 404,
+            self::NOT_FOUND, self::ROLE_NOT_FOUND, self::SESSION_NOT_FOUND, self::TURN_NOT_FOUND, self::CREDENTIAL_NOT_FOUND => 404,
             self::VALIDATION_ERROR, self::MISSING_FIELD, self::INVALID_FORMAT => 400,
-            self::CONFLICT, self::ROLE_BUILTIN => 409,
+            self::CONFLICT, self::ROLE_BUILTIN, self::ROLE_RESERVED, self::AGENT_BUSY => 409,
             self::UNAUTHORIZED => 401,
             self::FORBIDDEN => 403,
-            self::AGENT_BUSY => 429,
+            self::RATE_LIMITED => 429,
+            self::PAYLOAD_TOO_LARGE => 413,
+            self::UNSUPPORTED_MEDIA_TYPE => 415,
             self::INTERNAL_ERROR => 500,
         };
     }
