@@ -15,6 +15,7 @@ use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\MemoryToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
@@ -65,6 +66,7 @@ final class OrchestratorAgent extends AbstractAgent
         ?\Closure $onRestart = null,
         ?CredentialResolverInterface $credentialResolver = null,
         private readonly ?SkillDiscovery $skillDiscovery = null,
+        private readonly ?RoleDiscovery $roleDiscovery = null,
     ) {
         parent::__construct($provider, $maxIterations, $executionPolicy);
 
@@ -111,6 +113,7 @@ final class OrchestratorAgent extends AbstractAgent
             config: $this->config,
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspacePath,
+            roleDiscovery: $this->roleDiscovery,
             storage: $this->storage,
             sessionId: $this->sessionId,
             observer: $this->observer,

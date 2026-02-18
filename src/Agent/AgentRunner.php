@@ -12,6 +12,7 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
+use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
@@ -40,6 +41,7 @@ final class AgentRunner
         private readonly CatastrophicBlacklist $blacklist,
         private readonly CredentialResolverInterface $credentialResolver,
         private readonly ?SkillDiscovery $skillDiscovery = null,
+        private readonly ?RoleDiscovery $roleDiscovery = null,
         private readonly bool $unsafeMode = false,
         private readonly ?ProviderFactory $providerFactory = null,
     ) {}
@@ -224,6 +226,7 @@ final class AgentRunner
             onRestart: $onRestart,
             credentialResolver: $this->credentialResolver,
             skillDiscovery: $this->skillDiscovery,
+            roleDiscovery: $this->roleDiscovery,
         );
     }
 
