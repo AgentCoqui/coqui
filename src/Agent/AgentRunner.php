@@ -103,8 +103,9 @@ final class AgentRunner
         string $prompt,
         string $sessionId,
         ToolExecutionPolicyInterface $executionPolicy,
+        ?CancellationTokenInterface $cancellationToken = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer, $cancellationToken);
     }
 
     /**
