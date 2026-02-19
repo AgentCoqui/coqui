@@ -1,19 +1,33 @@
 #!/usr/bin/env bash
 #
-# Coqui Launcher — wraps bin/coqui with automatic restart and crash recovery.
+# Coqui Launcher — unified service manager for REPL, API, and Dashboard.
 #
-# Exit code behavior:
+# Modes:
+#   (no args)            Start REPL (foreground) + API (background)
+#   --repl-only          Start REPL only — no background API
+#   --api-only           Start API only (foreground)
+#   --dashboard          Start Dashboard only (foreground)
+#   --with-dashboard     Start REPL + API + Dashboard
+#   stop                 Stop all background services
+#   stop-api             Stop just the API
+#   stop-dashboard       Stop just the Dashboard
+#   status               Show which services are running
+#
+# Flags:
+#   --port PORT          API port (default 3300)
+#   --dashboard-port P   Dashboard port (default 3380)
+#   --auto-approve       Forwarded to bin/coqui run
+#   --unsafe             Forwarded to bin/coqui run and api
+#   --no-auth            Forwarded to bin/coqui api
+#   --config PATH        Forwarded to bin/coqui run and api
+#   --workdir PATH       Forwarded to bin/coqui run and api
+#   --background         Background all daemon services, return to shell
+#   --verbose            Set COQUI_VERBOSE=1 for detailed logging
+#
+# REPL exit codes:
 #   0  — clean exit (/quit), launcher stops
-#   10 — restart requested (/restart or restart_coqui tool), relaunch immediately
-#   *  — unexpected crash, relaunch up to MAX_CRASHES consecutive times
-#
-# Usage:
-#   ./bin/coqui-launcher [any options forwarded to bin/coqui]
-#
-# Examples:
-#   ./bin/coqui-launcher
-#   ./bin/coqui-launcher --auto-approve
-#   ./bin/coqui-launcher -c my-config.json --unsafe
+#   10 — restart requested (/restart or restart_coqui tool), relaunch
+#   *  — crash, relaunch up to MAX_CRASHES consecutive times
 
 set -euo pipefail
 
@@ -23,110 +37,350 @@ COQUI_BIN="${SCRIPT_DIR}/coqui"
 
 readonly RESTART_EXIT_CODE=10
 readonly MAX_CRASHES=3
-readonly GUI_DEFAULT_PORT=8080
+readonly API_DEFAULT_PORT=3300
+readonly DASHBOARD_DEFAULT_PORT=3380
+readonly PID_DIR="${PROJECT_DIR}/.workspace/pids"
 
-crash_count=0
+# ─── Parse arguments ─────────────────────────────────────────────────────────
 
-# ─── GUI Mode ────────────────────────────────────────────────────────────────
-# Usage: ./bin/coqui-launcher --gui [--port 8080]
-#
-# Starts the Coqui Dashboard on PHP's built-in server.
-# Ctrl+C to stop.
+mode=""                    # "", "repl-only", "api-only", "dashboard", "with-dashboard"
+subcommand=""              # "stop", "stop-api", "stop-dashboard", "status"
+api_port="${API_DEFAULT_PORT}"
+dashboard_port="${DASHBOARD_DEFAULT_PORT}"
+background=false
+coqui_args=()              # args forwarded to bin/coqui run
+api_args=()                # args forwarded to bin/coqui api
+verbose=false
 
-gui_mode=false
-gui_port=$GUI_DEFAULT_PORT
-remaining_args=()
-
-for arg in "$@"; do
-    case $arg in
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        stop|stop-api|stop-dashboard|status)
+            subcommand="$1"; shift ;;
+        --repl-only)
+            mode="repl-only"; shift ;;
+        --api-only)
+            mode="api-only"; shift ;;
+        --dashboard)
+            mode="dashboard"; shift ;;
         --gui)
-            gui_mode=true
-            ;;
+            # Backward-compat alias — deprecated
+            echo "[deprecated] --gui is deprecated, use --dashboard" >&2
+            mode="dashboard"; shift ;;
+        --with-dashboard)
+            mode="with-dashboard"; shift ;;
         --port)
-            shift_next=true
-            ;;
+            api_port="$2"; shift 2 ;;
+        --dashboard-port)
+            dashboard_port="$2"; shift 2 ;;
+        --background)
+            background=true; shift ;;
+        --verbose)
+            verbose=true; export COQUI_VERBOSE=1; shift ;;
+        --auto-approve)
+            coqui_args+=("--auto-approve"); shift ;;
+        --unsafe)
+            coqui_args+=("--unsafe"); api_args+=("--unsafe"); shift ;;
+        --no-auth)
+            api_args+=("--no-auth"); shift ;;
+        --config|-c)
+            coqui_args+=("--config" "$2"); api_args+=("--config" "$2"); shift 2 ;;
+        --workdir|-w)
+            coqui_args+=("--workdir" "$2"); api_args+=("--workdir" "$2"); shift 2 ;;
         *)
-            if [ "${shift_next:-false}" = true ]; then
-                gui_port="$arg"
-                shift_next=false
-            else
-                remaining_args+=("$arg")
-            fi
-            ;;
+            coqui_args+=("$1"); shift ;;
     esac
 done
 
-if [ "$gui_mode" = true ]; then
-    PUBLIC_DIR="${PROJECT_DIR}/public"
-    if [ ! -f "${PUBLIC_DIR}/router.php" ]; then
-        echo "Error: public/router.php not found. Run 'cd public && composer install' first."
-        exit 1
+# ─── Helper functions ────────────────────────────────────────────────────────
+
+log() {
+    echo "  $*"
+}
+
+log_verbose() {
+    if [[ "$verbose" == true ]]; then
+        echo "  [verbose] $*"
+    fi
+}
+
+ensure_pid_dir() {
+    mkdir -p "${PID_DIR}"
+}
+
+write_pid() {
+    local name="$1" pid="$2"
+    ensure_pid_dir
+    echo "$pid" > "${PID_DIR}/${name}.pid"
+    log_verbose "Wrote PID ${pid} to ${name}.pid"
+}
+
+read_pid() {
+    local name="$1"
+    local pidfile="${PID_DIR}/${name}.pid"
+    if [[ -f "$pidfile" ]]; then
+        cat "$pidfile"
+    fi
+}
+
+is_running() {
+    local pid="$1"
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+stop_service() {
+    local name="$1"
+    local pid
+    pid=$(read_pid "$name")
+    if [[ -z "$pid" ]]; then
+        log "${name}: not running (no PID file)"
+        return 0
+    fi
+    if is_running "$pid"; then
+        log "${name}: stopping (PID ${pid})..."
+        kill "$pid" 2>/dev/null || true
+        # Wait up to 5 seconds for graceful shutdown
+        local waited=0
+        while is_running "$pid" && [[ $waited -lt 50 ]]; do
+            sleep 0.1
+            waited=$((waited + 1))
+        done
+        if is_running "$pid"; then
+            log "${name}: force-killing (PID ${pid})"
+            kill -9 "$pid" 2>/dev/null || true
+        fi
+        log "${name}: stopped"
+    else
+        log "${name}: already stopped (stale PID ${pid})"
+    fi
+    rm -f "${PID_DIR}/${name}.pid"
+}
+
+show_status() {
+    local name="$1"
+    local pid
+    pid=$(read_pid "$name")
+    if [[ -z "$pid" ]]; then
+        log "${name}: stopped"
+    elif is_running "$pid"; then
+        log "${name}: running (PID ${pid})"
+    else
+        log "${name}: dead (stale PID ${pid})"
+        rm -f "${PID_DIR}/${name}.pid"
+    fi
+}
+
+# Track services started in this session for cleanup on exit
+session_services=()
+
+cleanup_session() {
+    echo ""
+    for svc in "${session_services[@]}"; do
+        stop_service "$svc"
+    done
+    log "Launcher stopped."
+}
+
+# ─── Subcommands ──────────────────────────────────────────────────────────────
+
+if [[ -n "$subcommand" ]]; then
+    case $subcommand in
+        stop)
+            log "Stopping all services..."
+            stop_service "api"
+            stop_service "dashboard"
+            exit 0 ;;
+        stop-api)
+            stop_service "api"
+            exit 0 ;;
+        stop-dashboard)
+            stop_service "dashboard"
+            exit 0 ;;
+        status)
+            echo ""
+            echo "  Coqui Service Status"
+            echo ""
+            show_status "api"
+            show_status "dashboard"
+            echo ""
+            exit 0 ;;
+    esac
+fi
+
+# ─── Start API (background) ──────────────────────────────────────────────────
+
+start_api_bg() {
+    local existing_pid
+    existing_pid=$(read_pid "api")
+    if [[ -n "$existing_pid" ]] && is_running "$existing_pid"; then
+        log "API: already running (PID ${existing_pid})"
+        return 0
+    fi
+
+    log_verbose "Starting API on port ${api_port}..."
+    "${COQUI_BIN}" api --host 127.0.0.1 --port "${api_port}" "${api_args[@]+"${api_args[@]}"}" &
+    local pid=$!
+    write_pid "api" "$pid"
+    session_services+=("api")
+
+    # Brief pause to verify it started
+    sleep 0.3
+    if is_running "$pid"; then
+        log "API: running on http://localhost:${api_port} (PID ${pid})"
+    else
+        log "API: failed to start"
+        rm -f "${PID_DIR}/api.pid"
+    fi
+}
+
+# ─── Start Dashboard (background) ────────────────────────────────────────────
+
+start_dashboard_bg() {
+    local existing_pid
+    existing_pid=$(read_pid "dashboard")
+    if [[ -n "$existing_pid" ]] && is_running "$existing_pid"; then
+        log "Dashboard: already running (PID ${existing_pid})"
+        return 0
+    fi
+
+    local public_dir="${PROJECT_DIR}/public"
+    if [[ ! -f "${public_dir}/router.php" ]]; then
+        log "Error: public/router.php not found. Run 'make dashboard-install' first."
+        return 1
     fi
 
     # Install composer deps if needed
-    if [ ! -d "${PUBLIC_DIR}/vendor" ]; then
+    if [[ ! -d "${public_dir}/vendor" ]]; then
+        log "Installing dashboard dependencies..."
+        (cd "${public_dir}" && composer install --no-dev --quiet)
+    fi
+
+    log_verbose "Starting Dashboard on port ${dashboard_port}..."
+    php -S "localhost:${dashboard_port}" -t "${public_dir}" "${public_dir}/router.php" &>/dev/null &
+    local pid=$!
+    write_pid "dashboard" "$pid"
+    session_services+=("dashboard")
+
+    sleep 0.3
+    if is_running "$pid"; then
+        log "Dashboard: running on http://localhost:${dashboard_port} (PID ${pid})"
+    else
+        log "Dashboard: failed to start"
+        rm -f "${PID_DIR}/dashboard.pid"
+    fi
+}
+
+# ─── Start Dashboard (foreground) ────────────────────────────────────────────
+
+start_dashboard_fg() {
+    local public_dir="${PROJECT_DIR}/public"
+    if [[ ! -f "${public_dir}/router.php" ]]; then
+        echo "Error: public/router.php not found. Run 'make dashboard-install' first."
+        exit 1
+    fi
+
+    if [[ ! -d "${public_dir}/vendor" ]]; then
         echo "Installing dashboard dependencies..."
-        (cd "${PUBLIC_DIR}" && composer install --no-dev --quiet)
+        (cd "${public_dir}" && composer install --no-dev --quiet)
     fi
 
     echo ""
     echo "  Coqui Dashboard"
-    echo "  → http://localhost:${gui_port}"
+    echo "  -> http://localhost:${dashboard_port}"
     echo "  Press Ctrl+C to stop"
     echo ""
 
     # Try to open browser (best effort)
     if command -v xdg-open &>/dev/null; then
-        xdg-open "http://localhost:${gui_port}" &>/dev/null &
+        xdg-open "http://localhost:${dashboard_port}" &>/dev/null &
     elif command -v open &>/dev/null; then
-        open "http://localhost:${gui_port}" &>/dev/null &
+        open "http://localhost:${dashboard_port}" &>/dev/null &
     fi
 
-    exec php -S "localhost:${gui_port}" -t "${PUBLIC_DIR}" "${PUBLIC_DIR}/router.php"
-fi
+    exec php -S "localhost:${dashboard_port}" -t "${public_dir}" "${public_dir}/router.php"
+}
 
-# ─── REPL Mode (original behavior) ──────────────────────────────────────────
-set -- "${remaining_args[@]+"${remaining_args[@]}"}"
+# ─── REPL loop with crash recovery ───────────────────────────────────────────
 
-# Trap SIGINT/SIGTERM at the launcher level so we exit cleanly
-# instead of relaunching when the user hits Ctrl+C during the pause
-trap 'echo ""; echo "Launcher stopped."; exit 0' INT TERM
+run_repl() {
+    local crash_count=0
 
-while true; do
-    # Run Coqui, forwarding all arguments
-    # Disable set -e for this call so we can inspect the exit code
-    set +e
-    "${COQUI_BIN}" "$@"
-    exit_code=$?
-    set -e
+    # On exit, clean up background services started in this session
+    trap cleanup_session INT TERM EXIT
 
-    case $exit_code in
-        0)
-            # Clean exit — user typed /quit
-            exit 0
-            ;;
-        $RESTART_EXIT_CODE)
-            # Intentional restart — reset crash counter
-            crash_count=0
-            echo ""
-            echo "Restarting Coqui..."
-            echo ""
-            ;;
-        *)
-            # Unexpected exit — crash recovery
-            crash_count=$((crash_count + 1))
+    while true; do
+        set +e
+        "${COQUI_BIN}" "${coqui_args[@]+"${coqui_args[@]}"}"
+        local exit_code=$?
+        set -e
 
-            if [ $crash_count -ge $MAX_CRASHES ]; then
+        case $exit_code in
+            0)
+                exit 0 ;;
+            $RESTART_EXIT_CODE)
+                crash_count=0
                 echo ""
-                echo "Coqui has crashed ${MAX_CRASHES} consecutive times (exit code: ${exit_code})."
-                echo "Exiting to prevent an infinite crash loop."
-                exit $exit_code
-            fi
+                echo "Restarting Coqui..."
+                echo "" ;;
+            *)
+                crash_count=$((crash_count + 1))
+                if [[ $crash_count -ge $MAX_CRASHES ]]; then
+                    echo ""
+                    echo "Coqui has crashed ${MAX_CRASHES} consecutive times (exit code: ${exit_code})."
+                    echo "Exiting to prevent an infinite crash loop."
+                    exit $exit_code
+                fi
+                echo ""
+                echo "Coqui exited unexpectedly (exit code: ${exit_code}, attempt ${crash_count}/${MAX_CRASHES})."
+                echo "Relaunching in 2 seconds... (Ctrl+C to stop)"
+                sleep 2 ;;
+        esac
+    done
+}
 
+# ─── Mode dispatch ────────────────────────────────────────────────────────────
+
+case "${mode}" in
+    repl-only)
+        echo ""
+        echo "  Coqui — REPL only"
+        echo ""
+        run_repl
+        ;;
+    api-only)
+        if [[ "$background" == true ]]; then
+            start_api_bg
+        else
             echo ""
-            echo "Coqui exited unexpectedly (exit code: ${exit_code}, attempt ${crash_count}/${MAX_CRASHES})."
-            echo "Relaunching in 2 seconds... (Ctrl+C to stop)"
-            sleep 2
-            ;;
-    esac
-done
+            echo "  Coqui API Server"
+            echo "  -> http://localhost:${api_port}"
+            echo "  Press Ctrl+C to stop"
+            echo ""
+            exec "${COQUI_BIN}" api --host 127.0.0.1 --port "${api_port}" "${api_args[@]+"${api_args[@]}"}"
+        fi
+        ;;
+    dashboard)
+        if [[ "$background" == true ]]; then
+            start_dashboard_bg
+        else
+            start_dashboard_fg
+        fi
+        ;;
+    with-dashboard)
+        echo ""
+        echo "  Coqui — REPL + API + Dashboard"
+        echo ""
+        start_api_bg
+        start_dashboard_bg
+        echo ""
+        run_repl
+        ;;
+    *)
+        # Default: REPL + API
+        echo ""
+        echo "  Coqui — REPL + API"
+        echo ""
+        start_api_bg
+        echo ""
+        run_repl
+        ;;
+esac

@@ -61,10 +61,11 @@ For automatic crash recovery and restart support, use the launcher:
 ./bin/coqui-launcher
 ```
 
-The launcher wraps `bin/coqui` and handles:
-- **Clean exit** (exit code 0) — `/quit` stops the launcher
+The launcher starts the REPL (foreground) + API server (background on port 3300) by default. It also handles:
+- **Clean exit** (exit code 0) — `/quit` stops the launcher and all background services
 - **Restart** (exit code 10) — `/restart` or the `restart_coqui` tool triggers an immediate relaunch
 - **Crash recovery** — unexpected exits auto-relaunch up to 3 consecutive times
+- **Service management** — `./bin/coqui-launcher stop` / `status` to manage background services
 
 ```txt
  Coqui v0.1.0
@@ -364,16 +365,16 @@ Run Coqui in a container with zero host dependencies. The Docker setup uses `php
 
 ```bash
 # Build the image
-make build
+make docker-build
 
-# Start the interactive REPL
-make run
+# Start REPL + API
+make docker-start
 ```
 
 Pass API keys from your host environment:
 
 ```bash
-OPENAI_API_KEY=sk-... make run
+OPENAI_API_KEY=sk-... make docker-start
 ```
 
 Or copy `.env.example` to `.env` and fill in your keys:
@@ -392,18 +393,14 @@ ollama serve
 
 ### Development Mode
 
-Development mode enables Xdebug (step debugging + profiling) and mounts sibling repositories (`php-agents`, `coqui-brave-search`) so Composer path repos resolve inside the container:
+Development mode enables Xdebug (step debugging + profiling) and mounts sibling repositories so Composer path repos resolve inside the container:
 
 ```bash
 # Start REPL with Xdebug + path repos
-make dev
+make docker-dev
 
-# Start Webgrind profiler viewer (background)
-make dev-up
-# Open http://localhost:9002
-
-# Stop Webgrind
-make dev-down
+# Webgrind profiler viewer runs automatically
+# Open http://localhost:3390
 ```
 
 ### Running Tests
@@ -423,29 +420,34 @@ make test-shell
 
 | Command | Description |
 |---------|-------------|
-| `make run` | Interactive REPL |
-| `make run-launcher` | REPL with crash recovery |
-| `make dev` | REPL with Xdebug + path repos |
-| `make dev-up` | Start Webgrind in background |
+| `make start` | Start REPL + API (native) |
+| `make stop` | Stop all native services |
+| `make status` | Show service status |
+| `make repl` | REPL only (native) |
+| `make api` | API only (native) |
+| `make dashboard` | Dashboard (native) |
+| `make docker-start` | REPL + API (Docker) |
+| `make docker-repl` | REPL only (Docker) |
+| `make docker-api` | API only (Docker) |
+| `make docker-dashboard` | Dashboard (Docker) |
+| `make docker-all` | REPL + API + Dashboard (Docker) |
+| `make docker-dev` | Dev mode with Xdebug + Webgrind |
+| `make docker-shell` | Bash shell in container |
 | `make test` | Run Pest tests |
 | `make test-coverage` | Tests with coverage report |
-| `make shell` | Bash shell in container |
 | `make install` | Run `composer install` |
-| `make composer CMD="..."` | Run any Composer command |
 | `make clean` | Remove containers, images, volumes |
 | `make help` | Show all available targets |
 
 ### Configuration
 
-Mount your `openclaw.json` config:
+Pass a config file via the launcher or directly:
 
 ```bash
-make run-config CONFIG=openclaw.json
-```
+# Native
+./bin/coqui-launcher --config openclaw.json
 
-Or pass it directly:
-
-```bash
+# Docker
 docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 ```
 
@@ -455,9 +457,11 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 |------|---------|
 | `Dockerfile` | PHP 8.4 CLI + extensions + Composer + Xdebug/pcov (disabled by default) |
 | `compose.yaml` | Base service with workspace volume + host Ollama access |
-| `compose.dev.yaml` | Xdebug, workspace root mount, Webgrind |
+| `compose.api.yaml` | API server service (port 3300) — runs alongside REPL |
+| `compose.dashboard.yaml` | Dashboard service (port 3380) — read-only workspace access |
+| `compose.dev.yaml` | Xdebug, workspace root mount, Webgrind (port 3390) |
 | `compose.test.yaml` | Non-interactive test runner with pcov |
-| `Makefile` | Self-documenting convenience targets |
+| `Makefile` | Self-documenting targets: native (`start`, `api`) and Docker (`docker-*`) |
 | `.env.example` | Environment variable documentation |
 | `conf.d/coqui.ini` | CLI-optimized PHP config (OPcache + JIT) |
 | `conf.d/xdebug.ini` | Xdebug debug + profile config (dev only) |

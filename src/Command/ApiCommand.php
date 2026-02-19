@@ -43,7 +43,7 @@ final class ApiCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('port', null, InputOption::VALUE_REQUIRED, 'Port to listen on', '8080')
+            ->addOption('port', null, InputOption::VALUE_REQUIRED, 'Port to listen on', '3300')
             ->addOption('host', null, InputOption::VALUE_REQUIRED, 'Host to bind to', '127.0.0.1')
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to openclaw.json')
             ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory', getcwd() ?: '.')
@@ -58,9 +58,11 @@ final class ApiCommand extends Command
             ? $input->getOption('workdir')
             : (getcwd() ?: '.');
         $host = is_string($input->getOption('host')) ? $input->getOption('host') : '127.0.0.1';
-        $port = is_string($input->getOption('port')) ? $input->getOption('port') : '8080';
-        $unsafeMode = (bool) $input->getOption('unsafe');
-        $noAuth = (bool) $input->getOption('no-auth');
+        $port = is_string($input->getOption('port')) ? $input->getOption('port') : '3300';
+        $unsafeMode = (bool) $input->getOption('unsafe')
+            || filter_var(getenv('COQUI_UNSAFE'), FILTER_VALIDATE_BOOLEAN);
+        $noAuth = (bool) $input->getOption('no-auth')
+            || filter_var(getenv('COQUI_NO_AUTH'), FILTER_VALIDATE_BOOLEAN);
         $corsOrigin = is_string($input->getOption('cors-origin'))
             ? $input->getOption('cors-origin')
             : '*';
