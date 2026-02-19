@@ -1,6 +1,7 @@
 {
   "name": "coquibot/coqui",
   "description": "Terminal AI agent REPL with multi-model orchestration and persistent sessions",
+  "version": "0.1.0",
   "type": "project",
   "license": "MIT",
   "authors": [
@@ -8,56 +9,22 @@
       "name": "Carmelo Santana"
     }
   ],
-  "repositories": [
-    {
-      "type": "path",
-      "url": "../php-agents",
-      "options": {
-        "symlink": true
-      }
-    },
-    {
-      "type": "path",
-      "url": "../coqui-clawhub-skills",
-      "options": {
-        "symlink": true
-      }
-    },
-    {
-      "type": "path",
-      "url": "../coqui-toolkit-composer",
-      "options": {
-        "symlink": true
-      }
-    },
-    {
-      "type": "path",
-      "url": "../coqui-toolkit-packagist",
-      "options": {
-        "symlink": true
-      }
-    },
-    {
-      "type": "path",
-      "url": "../coqui-brave-search",
-      "options": {
-        "symlink": true
-      }
-    }
-  ],
   "require": {
     "php": "^8.4",
     "ext-pdo_sqlite": "*",
-    "carmelosantana/php-agents": "^0.4 || @dev",
+    "carmelosantana/php-agents": "^0.5",
+    "coquibot/coqui-toolkit-composer": "^0.1",
+    "coquibot/coqui-toolkit-packagist": "^0.1",
+    "react/http": "^1.11",
     "symfony/console": "^7.0"
   },
   "require-dev": {
-    "coquibot/coqui-toolkit-clawhub-skills": "@dev",
-    "coquibot/coqui-toolkit-composer": "@dev",
-    "coquibot/coqui-toolkit-packagist": "@dev",
-    "coquibot/coqui-toolkit-brave-search": "@dev",
     "pestphp/pest": "^3.0",
     "phpstan/phpstan": "^2.0"
+  },
+  "suggest": {
+    "ext-pcntl": "Required for background task cancellation via SIGTERM",
+    "ext-posix": "Required for background task process management"
   },
   "autoload": {
     "psr-4": {

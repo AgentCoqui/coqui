@@ -101,16 +101,29 @@ log_verbose() {
     if [[ "$verbose" == true ]]; then
         echo "  [verbose] $*"
     fi
+    return 0
 }
 
 ensure_pid_dir() {
-    mkdir -p "${PID_DIR}"
+    mkdir -p "${PID_DIR}" 2>/dev/null || true
+    chmod 755 "${PID_DIR}" 2>/dev/null || true
+
+    # If the directory is still not writable (e.g. owned by root from Docker),
+    # fall back to a user-scoped temp directory
+    if [[ ! -w "${PID_DIR}" ]]; then
+        PID_DIR="/tmp/coqui-pids-$(id -u)"
+        mkdir -p "${PID_DIR}" 2>/dev/null || true
+        log_verbose "PID dir fallback: ${PID_DIR}"
+    fi
 }
 
 write_pid() {
     local name="$1" pid="$2"
     ensure_pid_dir
-    echo "$pid" > "${PID_DIR}/${name}.pid"
+    if ! echo "$pid" > "${PID_DIR}/${name}.pid" 2>/dev/null; then
+        log "Warning: could not write PID file for ${name} (PID ${pid})"
+        return 0
+    fi
     log_verbose "Wrote PID ${pid} to ${name}.pid"
 }
 
@@ -124,15 +137,92 @@ read_pid() {
 
 is_running() {
     local pid="$1"
-    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || return 1
+}
+
+# Find and kill any process listening on a given port.
+# Returns 0 if the port is free (or was freed), 1 if still occupied.
+kill_port() {
+    local port="$1"
+    local pids
+
+    # Try lsof first, then ss + grep as fallback
+    if command -v lsof &>/dev/null; then
+        pids=$(lsof -ti "tcp:${port}" 2>/dev/null || true)
+    elif command -v ss &>/dev/null; then
+        pids=$(ss -tlnp "sport = :${port}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
+    fi
+
+    if [[ -z "$pids" ]]; then
+        return 0
+    fi
+
+    for pid in $pids; do
+        log_verbose "Killing process ${pid} on port ${port}"
+        kill "$pid" 2>/dev/null || true
+    done
+
+    # Wait briefly for processes to exit
+    local waited=0
+    while [[ $waited -lt 20 ]]; do
+        sleep 0.1
+        waited=$((waited + 1))
+        local remaining
+        if command -v lsof &>/dev/null; then
+            remaining=$(lsof -ti "tcp:${port}" 2>/dev/null || true)
+        elif command -v ss &>/dev/null; then
+            remaining=$(ss -tlnp "sport = :${port}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
+        fi
+        if [[ -z "$remaining" ]]; then
+            return 0
+        fi
+    done
+
+    # Force kill any remaining
+    if command -v lsof &>/dev/null; then
+        pids=$(lsof -ti "tcp:${port}" 2>/dev/null || true)
+    elif command -v ss &>/dev/null; then
+        pids=$(ss -tlnp "sport = :${port}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
+    fi
+    for pid in $pids; do
+        kill -9 "$pid" 2>/dev/null || true
+    done
+
+    sleep 0.2
+    return 0
+}
+
+# Check if a port is currently in use
+port_in_use() {
+    local port="$1"
+    if command -v lsof &>/dev/null; then
+        lsof -ti "tcp:${port}" &>/dev/null && return 0
+    elif command -v ss &>/dev/null; then
+        ss -tlnp "sport = :${port}" 2>/dev/null | grep -q ":${port}" && return 0
+    fi
+    return 1
 }
 
 stop_service() {
     local name="$1"
+    local port=""
+
+    # Map service name to port for port-level cleanup
+    case "$name" in
+        api) port="$api_port" ;;
+        dashboard) port="$dashboard_port" ;;
+    esac
+
     local pid
     pid=$(read_pid "$name")
     if [[ -z "$pid" ]]; then
-        log "${name}: not running (no PID file)"
+        # No PID file — try port-level cleanup as fallback
+        if [[ -n "$port" ]] && port_in_use "$port"; then
+            log "${name}: no PID file, but port ${port} is occupied — cleaning up"
+            kill_port "$port"
+        else
+            log "${name}: not running"
+        fi
         return 0
     fi
     if is_running "$pid"; then
@@ -152,7 +242,13 @@ stop_service() {
     else
         log "${name}: already stopped (stale PID ${pid})"
     fi
-    rm -f "${PID_DIR}/${name}.pid"
+    rm -f "${PID_DIR}/${name}.pid" 2>/dev/null || true
+
+    # Verify port is actually free after PID-based stop
+    if [[ -n "$port" ]] && port_in_use "$port"; then
+        log_verbose "${name}: port ${port} still occupied after PID stop — cleaning up"
+        kill_port "$port"
+    fi
 }
 
 show_status() {
@@ -171,8 +267,13 @@ show_status() {
 
 # Track services started in this session for cleanup on exit
 session_services=()
+cleanup_done=false
 
 cleanup_session() {
+    if [[ "$cleanup_done" == true ]]; then
+        return 0
+    fi
+    cleanup_done=true
     echo ""
     for svc in "${session_services[@]}"; do
         stop_service "$svc"
@@ -216,19 +317,36 @@ start_api_bg() {
         return 0
     fi
 
+    # Clean stale PID file if process is dead
+    if [[ -n "$existing_pid" ]]; then
+        rm -f "${PID_DIR}/api.pid" 2>/dev/null || true
+    fi
+
+    # Check if port is already occupied (orphaned process from a previous crash)
+    if port_in_use "$api_port"; then
+        log "API: port ${api_port} is already in use — cleaning up stale process"
+        kill_port "$api_port"
+        sleep 0.2
+        if port_in_use "$api_port"; then
+            log "API: could not free port ${api_port} — skipping API start"
+            log "     Another service may be using this port. Try: make api-stop"
+            return 0
+        fi
+    fi
+
     log_verbose "Starting API on port ${api_port}..."
-    "${COQUI_BIN}" api --host 127.0.0.1 --port "${api_port}" "${api_args[@]+"${api_args[@]}"}" &
+    setsid "${COQUI_BIN}" api --host 127.0.0.1 --port "${api_port}" "${api_args[@]+"${api_args[@]}"}" &
     local pid=$!
     write_pid "api" "$pid"
     session_services+=("api")
 
     # Brief pause to verify it started
-    sleep 0.3
+    sleep 0.5
     if is_running "$pid"; then
         log "API: running on http://localhost:${api_port} (PID ${pid})"
     else
         log "API: failed to start"
-        rm -f "${PID_DIR}/api.pid"
+        rm -f "${PID_DIR}/api.pid" 2>/dev/null || true
     fi
 }
 
@@ -255,7 +373,7 @@ start_dashboard_bg() {
     fi
 
     log_verbose "Starting Dashboard on port ${dashboard_port}..."
-    php -S "localhost:${dashboard_port}" -t "${public_dir}" "${public_dir}/router.php" &>/dev/null &
+    setsid php -S "localhost:${dashboard_port}" -t "${public_dir}" "${public_dir}/router.php" &>/dev/null &
     local pid=$!
     write_pid "dashboard" "$pid"
     session_services+=("dashboard")
@@ -304,9 +422,6 @@ start_dashboard_fg() {
 run_repl() {
     local crash_count=0
 
-    # On exit, clean up background services started in this session
-    trap cleanup_session INT TERM EXIT
-
     while true; do
         set +e
         "${COQUI_BIN}" "${coqui_args[@]+"${coqui_args[@]}"}"
@@ -314,7 +429,8 @@ run_repl() {
         set -e
 
         case $exit_code in
-            0)
+            0|130)
+                # 0 = clean /quit, 130 = Ctrl+C (SIGINT)
                 exit 0 ;;
             $RESTART_EXIT_CODE)
                 crash_count=0
@@ -369,6 +485,7 @@ case "${mode}" in
         echo ""
         echo "  Coqui — REPL + API + Dashboard"
         echo ""
+        trap cleanup_session INT TERM EXIT
         start_api_bg
         start_dashboard_bg
         echo ""
@@ -379,6 +496,7 @@ case "${mode}" in
         echo ""
         echo "  Coqui — REPL + API"
         echo ""
+        trap cleanup_session INT TERM EXIT
         start_api_bg
         echo ""
         run_repl

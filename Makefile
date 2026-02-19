@@ -11,14 +11,14 @@
 ###############################################################################
 
 .PHONY: help \
-        start stop status repl api api-stop \
+        start stop status repl api api-stop restart \
         dashboard dashboard-stop dashboard-install \
         dev serve \
         docker-build docker-start docker-stop docker-status \
         docker-repl docker-api docker-api-stop docker-api-logs \
         docker-dashboard docker-dashboard-stop \
         docker-serve docker-all docker-dev docker-shell \
-        test test-coverage install clean clean-workspace \
+        test test-coverage install clean clean-workspace clean-pids \
         composer xdebug-clear
 
 # Default target
@@ -60,6 +60,10 @@ endif
 
 api-stop: ## Stop the API server
 	@./bin/coqui-launcher stop-api
+
+restart: ## Restart REPL + API (clean stop then start)
+	@./bin/coqui-launcher stop 2>/dev/null || true
+	@./bin/coqui-launcher $(ARGS)
 
 dashboard: ## Start the Dashboard (foreground, port 3380)
 ifdef PORT
@@ -199,3 +203,15 @@ clean: ## Remove all Docker containers, images, and volumes
 clean-workspace: ## Remove only the workspace volume
 	@docker volume rm coqui_workspace 2>/dev/null || true
 	@echo "Workspace volume removed"
+
+clean-pids: ## Remove PID files and kill orphaned processes on known ports
+	@rm -f .workspace/pids/*.pid 2>/dev/null || true
+	@rm -f /tmp/coqui-pids-$$(id -u)/*.pid 2>/dev/null || true
+	@for port in 3300 3380; do \
+		pids=$$(lsof -ti tcp:$$port 2>/dev/null || true); \
+		if [ -n "$$pids" ]; then \
+			echo "Killing process(es) on port $$port: $$pids"; \
+			echo "$$pids" | xargs kill 2>/dev/null || true; \
+		fi; \
+	done
+	@echo "PID files cleaned"

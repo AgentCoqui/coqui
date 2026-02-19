@@ -108,6 +108,26 @@ final class BackgroundTaskManager
     }
 
     /**
+     * Gracefully shut down all running task processes.
+     *
+     * Sends SIGTERM to each running task and closes all process handles.
+     * Called during API server shutdown.
+     */
+    public function shutdown(): void
+    {
+        foreach (array_keys($this->processes) as $taskId) {
+            $process = $this->processes[$taskId];
+            $status = proc_get_status($process);
+
+            if ($status['running'] && $status['pid'] > 0 && function_exists('posix_kill')) {
+                posix_kill($status['pid'], SIGTERM);
+            }
+
+            $this->closeProcess($taskId);
+        }
+    }
+
+    /**
      * Number of currently running task processes.
      */
     public function activeCount(): int
