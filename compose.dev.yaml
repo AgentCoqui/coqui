@@ -52,7 +52,7 @@ services:
     container_name: coqui_webgrind
     restart: unless-stopped
     ports:
-      - "${COQUI_WEBGRIND_PORT:-9002}:8080"
+      - "${COQUI_WEBGRIND_PORT:-3390}:8080"
     volumes:
       - xdebug_data:/mnt/xdebug:ro
       - webgrind_storage:/tmp/webgrind

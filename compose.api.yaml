@@ -1,35 +1,60 @@
 ###############################################################################
 # Coqui — API Server Compose Overlay
 #
-# Runs Coqui as an HTTP API server (not a REPL).
-# Uses ReactPHP for long-running server process.
+# Defines a separate coqui-api service that runs alongside the REPL.
+# Uses ReactPHP for a long-running HTTP server process.
 #
 # Usage:
-#   docker compose -f compose.yaml -f compose.api.yaml up -d  # background
-#   docker compose -f compose.yaml -f compose.api.yaml logs -f # follow logs
+#   docker compose -f compose.yaml -f compose.api.yaml up -d coqui-api
+#   docker compose -f compose.yaml -f compose.api.yaml logs -f coqui-api
 #
 # Or via Makefile:
-#   make api               # start API server on default port (8080)
-#   make api-port PORT=3000 # custom port
-#   make api-down           # stop API server
+#   make docker-api              # start API server (port 3300)
+#   make docker-api PORT=3500    # custom port
+#   make docker-api-stop         # stop API server
 ###############################################################################
 
 services:
-  coqui:
-    # Override: run API server instead of REPL
-    command: ["php", "bin/coqui", "api", "--host", "0.0.0.0", "--port", "8080"]
+  coqui-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        COQUI_UID: ${COQUI_UID:-1000}
+        COQUI_GID: ${COQUI_GID:-1000}
+    image: coqui:dev
+    container_name: coqui-api
+    init: true
+    command: ["php", "bin/coqui", "api", "--host", "0.0.0.0", "--port", "3300"]
 
     # API mode: not interactive — run as daemon
     stdin_open: false
     tty: false
 
+    volumes:
+      - .:/app
+      - coqui_workspace:/app/.workspace
+
     # Expose the API port
     ports:
-      - "${COQUI_API_PORT:-8080}:8080"
+      - "${COQUI_API_PORT:-3300}:3300"
 
-    # Restart on crash (replaces bin/coqui-launcher for API mode)
+    # Restart on crash
     restart: unless-stopped
 
     environment:
-      # API authentication key — REQUIRED for production
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      COMPOSER_ALLOW_SUPERUSER: 0
       COQUI_API_KEY: ${COQUI_API_KEY:-}
+      COQUI_AUTO_APPROVE: ${COQUI_AUTO_APPROVE:-false}
+      COQUI_UNSAFE: ${COQUI_UNSAFE:-false}
+      COQUI_NO_AUTH: ${COQUI_NO_AUTH:-false}
+
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    networks:
+      - coqui
