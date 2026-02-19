@@ -594,4 +594,65 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
 
         return $requirements;
     }
+
+    /**
+     * Discover all package-bundled skill directories from registered packages.
+     *
+     * Reads extra.php-agents.skills from each package's composer.json. The value
+     * is a relative path (e.g. "skills") pointing to a directory that contains
+     * skill subdirectories with SKILL.md files.
+     *
+     * @return string[] Absolute paths to skill directories within packages
+     */
+    public function discoverPackageSkillPaths(): array
+    {
+        $registry = $this->loadRegistry();
+        $paths = [];
+
+        foreach (array_keys($registry) as $packageName) {
+            $skillPath = $this->loadSkillPath($packageName);
+            if ($skillPath !== null) {
+                $paths[] = $skillPath;
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
+     * Load the skill directory path declared in a package's composer.json.
+     *
+     * Reads extra.php-agents.skills — a string relative path to the directory
+     * containing skill subdirectories within the package.
+     */
+    private function loadSkillPath(string $packageName): ?string
+    {
+        // Check project vendor first
+        $composerJson = $this->projectRoot . '/vendor/' . $packageName . '/composer.json';
+        $vendorRoot = $this->projectRoot . '/vendor/' . $packageName;
+
+        if (!file_exists($composerJson)) {
+            // Fallback: check workspace vendor
+            $composerJson = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName . '/composer.json';
+            $vendorRoot = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName;
+        }
+
+        if (!file_exists($composerJson)) {
+            return null;
+        }
+
+        $data = json_decode((string) file_get_contents($composerJson), true);
+        if (!is_array($data)) {
+            return null;
+        }
+
+        $skillsDir = $data['extra']['php-agents']['skills'] ?? null;
+        if (!is_string($skillsDir) || $skillsDir === '') {
+            return null;
+        }
+
+        $fullPath = $vendorRoot . '/' . ltrim($skillsDir, '/');
+
+        return is_dir($fullPath) ? realpath($fullPath) ?: $fullPath : null;
+    }
 }
