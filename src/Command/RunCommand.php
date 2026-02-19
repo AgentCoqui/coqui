@@ -169,16 +169,49 @@ final class RunCommand extends Command
         return $this->runRepl($io);
     }
 
+    /**
+     * Interactive REPL loop — reads user input, dispatches commands and agent turns.
+     *
+     * Signal handling:
+     *   During readline (idle prompt), a custom SIGINT handler catches Ctrl+C and
+     *   exits cleanly with code 0. During agent execution, SIGINT is restored to
+     *   SIG_DFL so Ctrl+C kills the process immediately — this is the only reliable
+     *   way to interrupt blocking HTTP calls to LLM providers. The launcher treats
+     *   exit code 130 (SIGINT default) as a clean exit and stops background services.
+     */
     private function runRepl(SymfonyStyle $io): int
     {
-        while (true) {
-            $prompt = $io->ask('<fg=cyan>You</>');
+        $shutdown = false;
+        $hasSignals = function_exists('pcntl_signal') && function_exists('pcntl_async_signals');
 
-            if ($prompt === null || trim($prompt) === '') {
+        if ($hasSignals) {
+            pcntl_async_signals(true);
+        }
+
+        while (true) {
+            // During input: catch SIGINT for a clean exit (code 0)
+            if ($hasSignals) {
+                pcntl_signal(SIGINT, static function () use (&$shutdown): void {
+                    $shutdown = true;
+                });
+            }
+
+            $io->writeln('');
+            $io->writeln(' <fg=cyan>You:</>');
+            $line = readline(' > ');
+
+            // Ctrl+C during readline — exit cleanly
+            if ($shutdown) {
+                $io->newLine();
+                return 0;
+            }
+
+            if ($line === false || trim($line) === '') {
                 continue;
             }
 
-            $prompt = trim($prompt);
+            $prompt = trim($line);
+            readline_add_history($prompt);
 
             // Handle commands
             if (str_starts_with($prompt, '/')) {
@@ -191,6 +224,14 @@ final class RunCommand extends Command
 
             // Build execution policy for this turn
             $executionPolicy = $this->buildInteractiveExecutionPolicy($this->sessionId, $io);
+
+            // During agent execution: restore default SIGINT so Ctrl+C kills
+            // the process immediately (exit 130). This is the only way to
+            // interrupt blocking HTTP calls to LLM providers — cooperative
+            // cancellation tokens can't fire while PHP is inside curl_exec().
+            if ($hasSignals) {
+                pcntl_signal(SIGINT, SIG_DFL);
+            }
 
             // Run agent
             $result = $this->agentRunner->run($prompt, $this->sessionId, $executionPolicy);

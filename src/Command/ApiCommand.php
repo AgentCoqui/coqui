@@ -217,7 +217,24 @@ final class ApiCommand extends Command
         });
 
         $listenAddress = "{$host}:{$port}";
-        $socket = new SocketServer($listenAddress);
+        $context = ['socket' => ['so_reuseaddr' => true]];
+        $socket = new SocketServer($listenAddress, $context);
+
+        // Graceful shutdown on SIGTERM/SIGINT — close socket + stop event loop
+        $shutdownHandler = static function (int $signal) use ($socket, $output, $taskManager): void {
+            $output->writeln('');
+            $output->writeln(sprintf('<comment>Received signal %d, shutting down...</comment>', $signal));
+            $taskManager->shutdown();
+            $socket->close();
+            Loop::stop();
+        };
+
+        if (defined('SIGTERM')) {
+            Loop::addSignal(SIGTERM, $shutdownHandler);
+        }
+        if (defined('SIGINT')) {
+            Loop::addSignal(SIGINT, $shutdownHandler);
+        }
 
         $output->writeln(sprintf('Listening on <info>http://%s</info>', $listenAddress));
         $output->writeln(sprintf('Project root: <fg=gray>%s</>', $workDir));
