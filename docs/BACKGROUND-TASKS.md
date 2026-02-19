@@ -112,7 +112,7 @@ The API provides full programmatic control over background tasks.
 #### Create a Task
 
 ```bash
-curl -X POST http://localhost:8080/api/tasks \
+curl -X POST http://localhost:3300/api/tasks \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -141,18 +141,18 @@ curl -X POST http://localhost:8080/api/tasks \
 
 ```bash
 # All tasks
-curl http://localhost:8080/api/tasks \
+curl http://localhost:3300/api/tasks \
   -H "Authorization: Bearer $API_KEY"
 
 # Filter by status
-curl "http://localhost:8080/api/tasks?status=running" \
+curl "http://localhost:3300/api/tasks?status=running" \
   -H "Authorization: Bearer $API_KEY"
 ```
 
 #### Get Task Details
 
 ```bash
-curl http://localhost:8080/api/tasks/{id} \
+curl http://localhost:3300/api/tasks/{id} \
   -H "Authorization: Bearer $API_KEY"
 ```
 
@@ -161,7 +161,7 @@ curl http://localhost:8080/api/tasks/{id} \
 Monitor a task in real time using Server-Sent Events:
 
 ```bash
-curl -N http://localhost:8080/api/tasks/{id}/events \
+curl -N http://localhost:3300/api/tasks/{id}/events \
   -H "Authorization: Bearer $API_KEY"
 ```
 
@@ -187,7 +187,7 @@ data: {"status":"completed"}
 The stream closes automatically when the task reaches a terminal state (completed, failed, or cancelled). Use the `since_id` query parameter to resume from a specific event:
 
 ```bash
-curl -N "http://localhost:8080/api/tasks/{id}/events?since_id=42" \
+curl -N "http://localhost:3300/api/tasks/{id}/events?since_id=42" \
   -H "Authorization: Bearer $API_KEY"
 ```
 
@@ -196,7 +196,7 @@ curl -N "http://localhost:8080/api/tasks/{id}/events?since_id=42" \
 Send additional instructions to a running task. The input is consumed by the agent at the start of its next iteration:
 
 ```bash
-curl -X POST http://localhost:8080/api/tasks/{id}/input \
+curl -X POST http://localhost:3300/api/tasks/{id}/input \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"content": "Focus on the database layer first"}'
@@ -205,7 +205,7 @@ curl -X POST http://localhost:8080/api/tasks/{id}/input \
 #### Cancel a Task
 
 ```bash
-curl -X POST http://localhost:8080/api/tasks/{id}/cancel \
+curl -X POST http://localhost:3300/api/tasks/{id}/cancel \
   -H "Authorization: Bearer $API_KEY"
 ```
 
