@@ -48,8 +48,8 @@ final class BootManager
         $this->discoverRoles();
         $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
         $this->initializeCredentials();
-        $this->discoverSkills();
         $this->discoverToolkits($io);
+        $this->discoverSkills();
 
         return true;
     }
@@ -176,7 +176,8 @@ final class BootManager
 
     private function discoverSkills(): void
     {
-        $this->skillDiscovery = new SkillDiscovery($this->workspacePath);
+        $packageSkillDirs = $this->discovery->discoverPackageSkillPaths();
+        $this->skillDiscovery = new SkillDiscovery($this->workspacePath, $packageSkillDirs);
         $this->skillDiscovery->ensureSkillsDir();
     }
 

@@ -23,5 +23,6 @@ final readonly class SkillProperties
         public ?string $compatibility = null,
         public ?string $allowedTools = null,
         public array $metadata = [],
+        public bool $isPackageBundled = false,
     ) {}
 }

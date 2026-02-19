@@ -12,9 +12,12 @@ use CoquiBot\Coqui\Exception\SkillParseException;
  * Boot-time skill discovery.
  *
  * Scans .workspace/skills/ for directories containing SKILL.md, parses
- * metadata only (progressive disclosure). Provides name resolution, body
- * loading for activation, prompt summary generation, and cache invalidation
- * for newly created skills.
+ * metadata only (progressive disclosure). Also scans package-bundled skill
+ * directories declared via extra.php-agents.skills in composer.json.
+ * Workspace skills override package-bundled skills with the same name.
+ *
+ * Provides name resolution, body loading for activation, prompt summary
+ * generation, and cache invalidation for newly created skills.
  */
 final class SkillDiscovery
 {
@@ -24,18 +27,23 @@ final class SkillDiscovery
     /** @var SkillProperties[]|null Cached discovery results */
     private ?array $discovered = null;
 
+    /**
+     * @param string[] $packageSkillDirs Additional directories from toolkit packages to scan for skills
+     */
     public function __construct(
         string $workspacePath,
+        private readonly array $packageSkillDirs = [],
     ) {
         $this->skillsDir = rtrim($workspacePath, '/') . '/skills';
         $this->parser = new SkillParser();
     }
 
     /**
-     * Scan the skills directory and return all valid skills.
+     * Scan the skills directory and package-bundled directories for all valid skills.
      *
      * Only reads frontmatter (progressive disclosure). Silently skips
-     * directories that lack a valid SKILL.md.
+     * directories that lack a valid SKILL.md. Workspace skills override
+     * package-bundled skills with the same name.
      *
      * @return SkillProperties[]
      */
@@ -47,35 +55,87 @@ final class SkillDiscovery
 
         $this->discovered = [];
 
-        if (!is_dir($this->skillsDir)) {
-            return $this->discovered;
+        // First: scan package-bundled skill directories (lower priority)
+        $packageSkills = $this->scanDirectories($this->packageSkillDirs, isPackageBundled: true);
+        foreach ($packageSkills as $skill) {
+            $this->discovered[] = $skill;
         }
 
-        $entries = scandir($this->skillsDir);
-        if ($entries === false) {
-            return $this->discovered;
-        }
+        // Second: scan workspace skills directory (higher priority — overrides package skills)
+        $workspaceSkills = $this->scanDirectories(
+            is_dir($this->skillsDir) ? [$this->skillsDir] : [],
+            isPackageBundled: false,
+        );
 
-        foreach ($entries as $entry) {
-            if ($entry === '.' || $entry === '..') {
-                continue;
-            }
-
-            $skillDir = $this->skillsDir . '/' . $entry;
-            if (!is_dir($skillDir)) {
-                continue;
-            }
-
-            try {
-                $properties = $this->parser->readProperties($skillDir);
-                $this->discovered[] = $properties;
-            } catch (SkillParseException) {
-                // Not a valid skill — silently skip
-                continue;
-            }
+        foreach ($workspaceSkills as $skill) {
+            // Override any package-bundled skill with the same name
+            $this->discovered = array_filter(
+                $this->discovered,
+                fn(SkillProperties $existing) => $existing->name !== $skill->name,
+            );
+            $this->discovered = array_values($this->discovered);
+            $this->discovered[] = $skill;
         }
 
         return $this->discovered;
+    }
+
+    /**
+     * Scan multiple directories for skill subdirectories containing SKILL.md.
+     *
+     * @param string[] $directories Directories to scan
+     * @return SkillProperties[]
+     */
+    private function scanDirectories(array $directories, bool $isPackageBundled): array
+    {
+        $skills = [];
+
+        foreach ($directories as $dir) {
+            if (!is_dir($dir)) {
+                continue;
+            }
+
+            $entries = scandir($dir);
+            if ($entries === false) {
+                continue;
+            }
+
+            foreach ($entries as $entry) {
+                if ($entry === '.' || $entry === '..') {
+                    continue;
+                }
+
+                $skillDir = $dir . '/' . $entry;
+                if (!is_dir($skillDir)) {
+                    continue;
+                }
+
+                try {
+                    $properties = $this->parser->readProperties($skillDir);
+
+                    if ($isPackageBundled) {
+                        // Reconstruct with isPackageBundled flag set
+                        $properties = new SkillProperties(
+                            name: $properties->name,
+                            description: $properties->description,
+                            path: $properties->path,
+                            license: $properties->license,
+                            compatibility: $properties->compatibility,
+                            allowedTools: $properties->allowedTools,
+                            metadata: $properties->metadata,
+                            isPackageBundled: true,
+                        );
+                    }
+
+                    $skills[] = $properties;
+                } catch (SkillParseException) {
+                    // Not a valid skill — silently skip
+                    continue;
+                }
+            }
+        }
+
+        return $skills;
     }
 
     /**
