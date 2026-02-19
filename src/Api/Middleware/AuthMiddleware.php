@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Middleware;
 
+use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\Router;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -61,14 +63,6 @@ final class AuthMiddleware
 
     private function unauthorized(string $message): Response
     {
-        $json = json_encode([
-            'error' => ['code' => 401, 'message' => $message],
-        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-
-        return new Response(
-            401,
-            ['Content-Type' => 'application/json', 'WWW-Authenticate' => 'Bearer'],
-            $json,
-        );
+        return Router::errorResponse(ApiErrorCode::UNAUTHORIZED, $message);
     }
 }

@@ -129,6 +129,56 @@ final class SessionStorage
 
         // Migration: add title column to sessions
         $this->migrateAddColumn('sessions', 'title', 'TEXT DEFAULT NULL');
+
+        // Background tasks tables
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS background_tasks (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                parent_session_id TEXT,
+                pid INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                title TEXT,
+                prompt TEXT NOT NULL,
+                role TEXT NOT NULL DEFAULT 'orchestrator',
+                result TEXT,
+                error TEXT,
+                max_iterations INTEGER DEFAULT 25,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                cancelled_at TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+        SQL);
+
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS task_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                data TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (task_id) REFERENCES background_tasks(id) ON DELETE CASCADE
+            )
+        SQL);
+
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS task_inputs (
+                id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                content TEXT NOT NULL,
+                consumed INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (task_id) REFERENCES background_tasks(id) ON DELETE CASCADE
+            )
+        SQL);
+
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON background_tasks(status)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_session ON background_tasks(session_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_task_inputs_task ON task_inputs(task_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_task_inputs_consumed ON task_inputs(consumed)');
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
@@ -171,12 +221,17 @@ final class SessionStorage
     /**
      * @return array<array<string, mixed>>
      */
-    public function listSessions(int $limit = 50): array
+    public function listSessions(int $limit = 50, bool $excludeTaskSessions = true): array
     {
+        $where = $excludeTaskSessions
+            ? 'WHERE s.id NOT IN (SELECT session_id FROM background_tasks)'
+            : '';
+
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, model_role, model, title, created_at, updated_at, token_count
-            FROM sessions
-            ORDER BY updated_at DESC
+            SELECT s.id, s.model_role, s.model, s.title, s.created_at, s.updated_at, s.token_count
+            FROM sessions s
+            {$where}
+            ORDER BY s.updated_at DESC
             LIMIT :limit
         SQL);
 
@@ -480,7 +535,7 @@ final class SessionStorage
      */
     public function checkTablesExist(): array
     {
-        $expected = ['sessions', 'messages', 'turns', 'audit_log', 'child_runs'];
+        $expected = ['sessions', 'messages', 'turns', 'audit_log', 'child_runs', 'background_tasks', 'task_events', 'task_inputs'];
         $missing = [];
 
         foreach ($expected as $table) {
@@ -792,5 +847,357 @@ final class SessionStorage
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Background Tasks
+    // -------------------------------------------------------------------------
+
+    /**
+     * Create a new background task record.
+     */
+    public function createTask(
+        string $sessionId,
+        string $prompt,
+        string $role = 'orchestrator',
+        ?string $parentSessionId = null,
+        ?string $title = null,
+        int $maxIterations = 25,
+    ): string {
+        $id = bin2hex(random_bytes(16));
+        $now = date('c');
+
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, max_iterations, created_at)
+            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :max_iterations, :created_at)
+        SQL);
+
+        $stmt->execute([
+            'id' => $id,
+            'session_id' => $sessionId,
+            'parent_session_id' => $parentSessionId,
+            'title' => $title,
+            'prompt' => $prompt,
+            'role' => $role,
+            'max_iterations' => $maxIterations,
+            'created_at' => $now,
+        ]);
+
+        return $id;
+    }
+
+    /**
+     * Update task status and optionally set result/error/PID fields.
+     *
+     * @param array<string, mixed> $extra Additional columns to update (result, error, pid)
+     */
+    public function updateTaskStatus(string $taskId, string $status, array $extra = []): void
+    {
+        $sets = ['status = :status'];
+        $params = ['status' => $status, 'id' => $taskId];
+
+        $now = date('c');
+
+        // Auto-set timestamp columns based on status transition
+        match ($status) {
+            'running' => $sets[] = 'started_at = :started_at',
+            'completed', 'failed' => $sets[] = 'completed_at = :completed_at',
+            'cancelled' => $sets[] = 'cancelled_at = :cancelled_at',
+            default => null,
+        };
+
+        if ($status === 'running') {
+            $params['started_at'] = $now;
+        } elseif ($status === 'completed' || $status === 'failed') {
+            $params['completed_at'] = $now;
+        } elseif ($status === 'cancelled') {
+            $params['cancelled_at'] = $now;
+        }
+
+        foreach ($extra as $col => $val) {
+            if (in_array($col, ['result', 'error', 'pid'], true)) {
+                $sets[] = "{$col} = :{$col}";
+                $params[$col] = $val;
+            }
+        }
+
+        $setClause = implode(', ', $sets);
+
+        $stmt = $this->db->prepare("UPDATE background_tasks SET {$setClause} WHERE id = :id");
+        $stmt->execute($params);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getTask(string $id): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT * FROM background_tasks WHERE id = :id
+        SQL);
+
+        $stmt->execute(['id' => $id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    /**
+     * Get all tasks with a specific status.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getTasksByStatus(string $status): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT * FROM background_tasks WHERE status = :status ORDER BY created_at ASC
+        SQL);
+
+        $stmt->execute(['status' => $status]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * List background tasks with optional status filter.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function listTasks(?string $status = null, int $limit = 50): array
+    {
+        $where = '';
+        $params = [];
+
+        if ($status !== null && $status !== 'all') {
+            $where = 'WHERE status = :status';
+            $params['status'] = $status;
+        }
+
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, parent_session_id, pid, status, title, prompt, role,
+                   max_iterations, created_at, started_at, completed_at, cancelled_at
+            FROM background_tasks
+            {$where}
+            ORDER BY created_at DESC
+            LIMIT :limit
+        SQL);
+
+        foreach ($params as $key => $val) {
+            $stmt->bindValue($key, $val);
+        }
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Append an event to the task event log.
+     */
+    public function appendTaskEvent(string $taskId, string $eventType, mixed $data = null): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO task_events (task_id, event_type, data, created_at)
+            VALUES (:task_id, :event_type, :data, :created_at)
+        SQL);
+
+        $stmt->execute([
+            'task_id' => $taskId,
+            'event_type' => $eventType,
+            'data' => json_encode($data ?? new \stdClass(), JSON_UNESCAPED_SLASHES) ?: '{}',
+            'created_at' => date('c'),
+        ]);
+    }
+
+    /**
+     * Get task events, optionally starting after a given event ID.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getTaskEvents(string $taskId, ?int $sinceId = null, int $limit = 100): array
+    {
+        $where = 'task_id = :task_id';
+        $params = ['task_id' => $taskId];
+
+        if ($sinceId !== null) {
+            $where .= ' AND id > :since_id';
+            $params['since_id'] = $sinceId;
+        }
+
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, event_type, data, created_at
+            FROM task_events
+            WHERE {$where}
+            ORDER BY id ASC
+            LIMIT :limit
+        SQL);
+
+        foreach ($params as $key => $val) {
+            $stmt->bindValue($key, $val);
+        }
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Add pending user input for a running task.
+     */
+    public function addTaskInput(string $taskId, string $content): string
+    {
+        $id = bin2hex(random_bytes(16));
+
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO task_inputs (id, task_id, content, consumed, created_at)
+            VALUES (:id, :task_id, :content, 0, :created_at)
+        SQL);
+
+        $stmt->execute([
+            'id' => $id,
+            'task_id' => $taskId,
+            'content' => $content,
+            'created_at' => date('c'),
+        ]);
+
+        return $id;
+    }
+
+    /**
+     * Consume all unconsumed inputs for a task.
+     *
+     * Marks them as consumed atomically and returns the content strings.
+     *
+     * @return string[]
+     */
+    public function consumeTaskInputs(string $taskId): array
+    {
+        $this->db->beginTransaction();
+
+        try {
+            $stmt = $this->db->prepare(<<<SQL
+                SELECT id, content FROM task_inputs
+                WHERE task_id = :task_id AND consumed = 0
+                ORDER BY created_at ASC
+            SQL);
+            $stmt->execute(['task_id' => $taskId]);
+            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (empty($rows)) {
+                $this->db->commit();
+                return [];
+            }
+
+            $ids = array_column($rows, 'id');
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $update = $this->db->prepare("UPDATE task_inputs SET consumed = 1 WHERE id IN ({$placeholders})");
+            $update->execute(array_values($ids));
+
+            $this->db->commit();
+
+            return array_column($rows, 'content');
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Mark all 'running' or 'cancelling' tasks as 'failed' during crash recovery.
+     */
+    public function markOrphanedTasksFailed(string $error = 'Server restarted — task process was lost'): int
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE background_tasks
+            SET status = 'failed', error = :error, completed_at = :now
+            WHERE status IN ('running', 'cancelling')
+        SQL);
+
+        $stmt->execute(['error' => $error, 'now' => date('c')]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Get pending tasks ordered by creation time (FIFO).
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getPendingTasks(int $limit = 10): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, prompt, role, max_iterations, title
+            FROM background_tasks
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT :limit
+        SQL);
+
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Check if a session belongs to a background task.
+     */
+    public function isTaskSession(string $sessionId): bool
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT COUNT(*) FROM background_tasks WHERE session_id = :session_id
+        SQL);
+        $stmt->execute(['session_id' => $sessionId]);
+
+        return (int) $stmt->fetchColumn() > 0;
+    }
+
+    /**
+     * Get the count of tasks by status.
+     *
+     * @return array<string, int>
+     */
+    public function getTaskCounts(): array
+    {
+        $stmt = $this->db->query(<<<SQL
+            SELECT status, COUNT(*) as count FROM background_tasks GROUP BY status
+        SQL);
+
+        if ($stmt === false) {
+            return [];
+        }
+
+        $counts = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $counts[$row['status']] = (int) $row['count'];
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Purge old task events for tasks in terminal states.
+     *
+     * Deletes events older than the given number of days for tasks
+     * that are completed, failed, or cancelled. Running/pending
+     * task events are never purged.
+     *
+     * @return int Number of events deleted
+     */
+    public function purgeOldTaskEvents(int $maxAgeDays = 7): int
+    {
+        $cutoff = date('c', time() - ($maxAgeDays * 86400));
+
+        $stmt = $this->db->prepare(<<<SQL
+            DELETE FROM task_events
+            WHERE task_id IN (
+                SELECT id FROM background_tasks WHERE status IN ('completed', 'failed', 'cancelled')
+            )
+            AND created_at < :cutoff
+        SQL);
+
+        $stmt->execute(['cutoff' => $cutoff]);
+
+        return $stmt->rowCount();
     }
 }

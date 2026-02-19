@@ -53,6 +53,14 @@ final readonly class SessionHandler
             ? (string) $body['model_role']
             : 'orchestrator';
 
+        // Validate that the role exists
+        if (!$this->roleResolver->hasRole($modelRole)) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                sprintf('Unknown role "%s". Use GET /api/config/roles to see available roles.', $modelRole),
+            );
+        }
+
         $model = $this->roleResolver->resolve($modelRole);
         $sessionId = $this->storage->createSession($modelRole, $model);
 

@@ -21,6 +21,8 @@ final readonly class RoleProperties
         public int $version = 1,
         public string $accessLevel = 'readonly',
         public bool $isBuiltin = false,
+        public bool $isSystem = false,
+        public bool $editable = true,
         public ?string $model = null,
         public ?string $titleModel = null,
         public ?string $allowedTools = null,
@@ -40,6 +42,8 @@ final readonly class RoleProperties
             'version' => $this->version,
             'access_level' => $this->accessLevel,
             'is_builtin' => $this->isBuiltin,
+            'is_system' => $this->isSystem,
+            'editable' => $this->editable,
             'model' => $this->model,
             'title_model' => $this->titleModel,
         ];

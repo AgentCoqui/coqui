@@ -7,19 +7,25 @@ namespace CoquiBot\Coqui\Command;
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\AgentFiberExecutor;
+use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
+use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Api\Middleware\AuthMiddleware;
+use CoquiBot\Coqui\Api\Middleware\ContentTypeMiddleware;
 use CoquiBot\Coqui\Api\Middleware\CorsMiddleware;
+use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
+use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use React\EventLoop\Loop;
 use React\Http\HttpServer;
 use React\Socket\SocketServer;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -42,6 +48,7 @@ final class ApiCommand extends Command
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to openclaw.json')
             ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory', getcwd() ?: '.')
             ->addOption('unsafe', null, InputOption::VALUE_NONE, 'Disable script sanitization (dangerous)')
+            ->addOption('no-auth', null, InputOption::VALUE_NONE, 'Run without API key authentication (binds to 127.0.0.1 only)')
             ->addOption('cors-origin', null, InputOption::VALUE_REQUIRED, 'Allowed CORS origins (comma-separated)', '*');
     }
 
@@ -53,6 +60,7 @@ final class ApiCommand extends Command
         $host = is_string($input->getOption('host')) ? $input->getOption('host') : '127.0.0.1';
         $port = is_string($input->getOption('port')) ? $input->getOption('port') : '8080';
         $unsafeMode = (bool) $input->getOption('unsafe');
+        $noAuth = (bool) $input->getOption('no-auth');
         $corsOrigin = is_string($input->getOption('cors-origin'))
             ? $input->getOption('cors-origin')
             : '*';
@@ -79,10 +87,25 @@ final class ApiCommand extends Command
         // Read API key from config
         $apiKey = $this->resolveApiKey($boot);
 
-        if ($apiKey === null) {
-            $output->writeln('<comment>Warning: No API key configured.</comment>');
-            $output->writeln('<comment>Set "api.key" in openclaw.json or COQUI_API_KEY env var.</comment>');
-            $output->writeln('<comment>Server will run WITHOUT authentication.</comment>');
+        if ($apiKey === null && !$noAuth) {
+            // Require API key after setup unless --no-auth is explicitly passed
+            $output->writeln('<error>No API key configured.</error>');
+            $output->writeln('');
+            $output->writeln('Set an API key using one of these methods:');
+            $output->writeln('  1. Set <fg=cyan>"api.key"</> in your openclaw.json');
+            $output->writeln('  2. Set the <fg=cyan>COQUI_API_KEY</> environment variable');
+            $output->writeln('  3. Run <fg=cyan>coqui setup</> to generate one automatically');
+            $output->writeln('');
+            $output->writeln('Or use <fg=yellow>--no-auth</> to run without authentication (localhost only).');
+            $output->writeln('');
+            return Command::FAILURE;
+        }
+
+        if ($noAuth) {
+            // Force localhost binding for safety when running without auth
+            $host = '127.0.0.1';
+            $apiKey = null;
+            $output->writeln('<comment>WARNING: Running without authentication. Binding to 127.0.0.1 only.</comment>');
             $output->writeln('');
         }
 
@@ -100,6 +123,7 @@ final class ApiCommand extends Command
             skillDiscovery: $boot->skillDiscovery(),
             roleDiscovery: $boot->roleDiscovery(),
             unsafeMode: $unsafeMode,
+            backgroundTasksEnabled: true,
         );
 
         // Create title generator
@@ -117,26 +141,56 @@ final class ApiCommand extends Command
             titleGenerator: $titleGenerator,
         );
 
+        // Create background task manager
+        $coquiBinPath = realpath(dirname(__DIR__, 2) . '/bin/coqui') ?: dirname(__DIR__, 2) . '/bin/coqui';
+        $maxConcurrentTasks = (int) ($boot->config()->get('api.tasks.maxConcurrent') ?? 1);
+
+        $taskManager = new BackgroundTaskManager(
+            storage: $storage,
+            coquiBinPath: $coquiBinPath,
+            configPath: $configPath ?? '',
+            workDir: $workDir,
+            maxConcurrent: max(1, $maxConcurrentTasks),
+            unsafeMode: $unsafeMode,
+        );
+
+        // Crash recovery: mark orphaned tasks from previous server run as failed
+        $orphanCount = $storage->markOrphanedTasksFailed();
+        if ($orphanCount > 0) {
+            $output->writeln(sprintf('<comment>Recovered %d orphaned task(s) from previous run</comment>', $orphanCount));
+        }
+
         $startTime = microtime(true);
 
         // Create handlers
-        $healthHandler = new HealthHandler($startTime, $executor);
+        $healthHandler = new HealthHandler($startTime, $executor, $taskManager);
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
         $messageHandler = new MessageHandler($storage, $executor);
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler($boot->config(), $boot->roleResolver());
         $credentialHandler = new CredentialHandler($boot->credentialResolver());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
+        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler);
 
-        // Build middleware stack
+        // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
         $cors = new CorsMiddleware($corsOrigins);
 
-        $middlewareStack = [$cors];
+        // Rate limiting: configurable via openclaw.json, default 30 req/min
+        $rateLimitConfig = $boot->config()->get('api.rateLimit', []);
+        $rateLimitMax = is_array($rateLimitConfig) ? (int) ($rateLimitConfig['maxRequests'] ?? 30) : 30;
+        $rateLimitWindow = is_array($rateLimitConfig) ? (int) ($rateLimitConfig['windowSeconds'] ?? 60) : 60;
+
+        $middlewareStack = [
+            $cors,
+            new RateLimitMiddleware($rateLimitMax, $rateLimitWindow),
+            new RequestSizeMiddleware(),
+            new ContentTypeMiddleware(),
+        ];
 
         if ($apiKey !== null) {
             $middlewareStack[] = new AuthMiddleware($apiKey);
@@ -179,6 +233,11 @@ final class ApiCommand extends Command
 
         $server->listen($socket);
 
+        // Periodic timer: tick the background task manager every second
+        Loop::addPeriodicTimer(1.0, static function () use ($taskManager): void {
+            $taskManager->tick();
+        });
+
         return Command::SUCCESS;
     }
 
@@ -194,6 +253,7 @@ final class ApiCommand extends Command
         ConfigHandler $config,
         CredentialHandler $credential,
         RoleHandler $role,
+        TaskHandler $task,
     ): void {
         // Health
         $router->get('/api/health', $health);
@@ -228,6 +288,14 @@ final class ApiCommand extends Command
         $router->get('/api/credentials', [$credential, 'list']);
         $router->post('/api/credentials', [$credential, 'set']);
         $router->delete('/api/credentials/{key}', [$credential, 'delete']);
+
+        // Background tasks
+        $router->post('/api/tasks', [$task, 'create']);
+        $router->get('/api/tasks', [$task, 'list']);
+        $router->get('/api/tasks/{id}', [$task, 'get']);
+        $router->get('/api/tasks/{id}/events', [$task, 'events']);
+        $router->post('/api/tasks/{id}/input', [$task, 'addInput']);
+        $router->post('/api/tasks/{id}/cancel', [$task, 'cancel']);
     }
 
     /**
