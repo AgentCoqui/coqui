@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
+use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Psr\Http\Message\ServerRequestInterface;
@@ -29,7 +30,7 @@ final readonly class TurnHandler
         $session = $this->storage->getSession($id);
 
         if ($session === null) {
-            return Router::jsonResponse(['error' => 'Session not found'], 404);
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
         }
 
         $params = $request->getQueryParams();
@@ -52,18 +53,18 @@ final readonly class TurnHandler
         $session = $this->storage->getSession($id);
 
         if ($session === null) {
-            return Router::jsonResponse(['error' => 'Session not found'], 404);
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
         }
 
         $turn = $this->storage->getTurnWithMessages($turnId);
 
         if ($turn === null) {
-            return Router::jsonResponse(['error' => 'Turn not found'], 404);
+            return Router::errorResponse(ApiErrorCode::TURN_NOT_FOUND, 'Turn not found');
         }
 
         // Verify the turn belongs to the requested session
         if ($turn['session_id'] !== $id) {
-            return Router::jsonResponse(['error' => 'Turn does not belong to this session'], 404);
+            return Router::errorResponse(ApiErrorCode::TURN_NOT_FOUND, 'Turn does not belong to this session');
         }
 
         return Router::jsonResponse($turn);

@@ -199,11 +199,25 @@ final class RoleDiscovery
     }
 
     /**
+     * Reserved role names that cannot be created via CRUD.
+     * These are system-managed roles synthesized by RoleResolver.
+     */
+    private const array RESERVED_NAMES = ['orchestrator'];
+
+    /**
+     * Check if a role name is reserved (system-managed).
+     */
+    public function isReservedName(string $name): bool
+    {
+        return in_array($name, self::RESERVED_NAMES, true);
+    }
+
+    /**
      * Create a new role file.
      *
      * @param array<string, mixed>|RoleProperties $properties Frontmatter data or value object.
      *
-     * @throws \RuntimeException If the role already exists.
+     * @throws \RuntimeException If the role already exists or name is reserved.
      * @throws RoleParseException If properties are invalid.
      */
     public function createRole(array|RoleProperties $properties, string $instructions): RoleProperties
@@ -213,6 +227,10 @@ final class RoleDiscovery
         $props = $properties instanceof RoleProperties
             ? $properties
             : $this->buildPropertiesFromArray($properties);
+
+        if ($this->isReservedName($props->name)) {
+            throw new \RuntimeException(sprintf('Role name "%s" is reserved and cannot be created.', $props->name));
+        }
 
         $filename = $props->name . '.md';
         $filePath = $this->rolesDir . '/' . $filename;

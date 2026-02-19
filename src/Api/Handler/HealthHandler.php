@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\AgentFiberExecutor;
+use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Router;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
@@ -17,18 +18,26 @@ final readonly class HealthHandler
     public function __construct(
         private float $startTime,
         private AgentFiberExecutor $executor,
+        private ?BackgroundTaskManager $taskManager = null,
     ) {}
 
     public function __invoke(ServerRequestInterface $request): Response
     {
         $uptimeSeconds = (int) (microtime(true) - $this->startTime);
 
-        return Router::jsonResponse([
+        $data = [
             'status' => 'ok',
             'version' => self::version(),
             'uptime_seconds' => $uptimeSeconds,
             'active_sessions' => $this->executor->activeCount(),
-        ]);
+        ];
+
+        if ($this->taskManager !== null) {
+            $data['active_tasks'] = $this->taskManager->activeCount();
+            $data['pending_tasks'] = $this->taskManager->pendingCount();
+        }
+
+        return Router::jsonResponse($data);
     }
 
     private static function version(): string

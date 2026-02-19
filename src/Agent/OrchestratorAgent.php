@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Agent;
 
 use CarmeloSantana\PHPAgents\Agent\AbstractAgent;
+use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
+use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
@@ -22,6 +24,7 @@ use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
@@ -67,8 +70,11 @@ final class OrchestratorAgent extends AbstractAgent
         ?CredentialResolverInterface $credentialResolver = null,
         private readonly ?SkillDiscovery $skillDiscovery = null,
         private readonly ?RoleDiscovery $roleDiscovery = null,
+        ?CancellationTokenInterface $cancellationToken = null,
+        ?PendingInputProviderInterface $pendingInputProvider = null,
+        ?BackgroundTaskToolkit $backgroundTaskToolkit = null,
     ) {
-        parent::__construct($provider, $maxIterations, $executionPolicy);
+        parent::__construct($provider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider);
 
         // Use injected resolver or create one (backward compat for standalone use)
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);
@@ -139,6 +145,11 @@ final class OrchestratorAgent extends AbstractAgent
         // Create restart tool if callback provided
         if ($onRestart !== null) {
             $this->restartTool = new RestartTool(onRestart: $onRestart);
+        }
+
+        // Background task toolkit — only in API mode
+        if ($backgroundTaskToolkit !== null) {
+            $this->addToolkit($backgroundTaskToolkit);
         }
     }
 

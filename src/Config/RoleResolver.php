@@ -89,38 +89,93 @@ final class RoleResolver
     }
 
     /**
-     * Get the full role-to-model mapping with display metadata.
+     * System roles that are always present and never editable.
      *
-     * @return array<string, array{model: string, display_name?: string, description?: string}>
+     * These roles are synthesized by the resolver — they have no role file
+     * and their instructions live in agent classes. They always appear in
+     * the roles API output with is_system=true and editable=false.
+     */
+    private const array SYSTEM_ROLES = [
+        'orchestrator' => [
+            'display_name' => 'Orchestrator',
+            'description' => 'Primary system role with full tool access. Routes tasks, manages sessions, and delegates to child agents. All conversations start with this role.',
+            'access_level' => 'full',
+        ],
+    ];
+
+    /**
+     * Get all roles with full metadata for API output.
+     *
+     * Merges system roles (orchestrator), config-defined roles, and
+     * file-based discovered roles. System roles always appear with
+     * is_system=true and editable=false.
+     *
+     * @return array<string, array<string, mixed>>
      */
     public function toArray(): array
     {
         $result = [];
 
-        // Start with config-defined roles
+        // 1. Synthesize system roles (always present, never editable)
+        foreach (self::SYSTEM_ROLES as $name => $meta) {
+            $result[$name] = [
+                'name' => $name,
+                'model' => $this->resolve($name),
+                'display_name' => $meta['display_name'],
+                'description' => $meta['description'],
+                'access_level' => $meta['access_level'],
+                'is_builtin' => true,
+                'is_system' => true,
+                'editable' => false,
+            ];
+        }
+
+        // 2. Merge config-defined roles (those only in openclaw.json, no file)
         foreach ($this->roles as $role => $model) {
+            if (isset($result[$role])) {
+                // System role — update model only
+                $result[$role]['model'] = $this->config->resolveModel($model);
+                continue;
+            }
             $result[$role] = [
+                'name' => $role,
                 'model' => $this->config->resolveModel($model),
             ];
         }
 
-        // Merge discovered roles (file properties take precedence for metadata)
+        // 3. Merge discovered roles (file properties take precedence for metadata)
         if ($this->roleDiscovery !== null) {
             foreach ($this->roleDiscovery->discoverAll() as $name => $properties) {
+                if (isset($result[$name]) && ($result[$name]['is_system'] ?? false)) {
+                    // System role — do not override with file-based data
+                    continue;
+                }
+
                 $model = $properties->model !== null
                     ? $this->config->resolveModel($properties->model)
                     : ($result[$name]['model'] ?? $this->config->resolveModel($this->primaryModel));
 
                 $result[$name] = [
+                    'name' => $name,
                     'model' => $model,
                     'display_name' => $properties->displayName,
                     'description' => $properties->description,
                     'access_level' => $properties->accessLevel,
                     'is_builtin' => $properties->isBuiltin,
+                    'is_system' => false,
+                    'editable' => true,
                 ];
             }
         }
 
         return $result;
+    }
+
+    /**
+     * Check if a role is a system-managed role (not editable).
+     */
+    public function isSystemRole(string $name): bool
+    {
+        return isset(self::SYSTEM_ROLES[$name]);
     }
 }

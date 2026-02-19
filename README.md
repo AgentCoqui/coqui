@@ -26,6 +26,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - **Credential management** — secure `.env`-based secret storage with automatic credential guards; toolkits declare required credentials in `composer.json` and Coqui intercepts tool calls with actionable instructions when keys are missing
 - **Script sanitization** — static analysis blocks dangerous functions before any generated code runs
 - **Memory persistence** — saves facts to `MEMORY.md` across sessions so Coqui remembers what matters
+- **Background tasks** — run long-running agent work in separate processes while the main conversation continues (API mode)
 - **Observer pattern** — real-time terminal rendering of agent lifecycle events with nested child output
 - **OpenClaw config** — natively supports the OpenClaw config format for centralized model routing and workspace settings
 
@@ -133,6 +134,9 @@ Once inside the Coqui REPL, use slash commands:
 | `/sessions` | List all saved sessions |
 | `/resume <id>` | Resume a session by ID |
 | `/model [role]` | Show model configuration |
+| `/tasks [status]` | List background tasks (optional status filter) |
+| `/task <id>` | Show background task details |
+| `/task-cancel <id>` | Cancel a background task |
 | `/help` | List available commands |
 | `/restart` | Restart Coqui (re-reads config, re-discovers toolkits) |
 | `/quit` `/exit` `/q` | Exit Coqui |
@@ -226,6 +230,10 @@ Coqui ships with a rich set of tools the agent can use autonomously:
 | `package_info` | Introspect installed packages — read READMEs, list classes, inspect method signatures |
 | `php_execute` | Execute generated PHP code in a sandboxed subprocess with script sanitization |
 | `restart_coqui` | Trigger a graceful restart — re-reads config, re-discovers toolkits, resumes session automatically |
+| `start_background_task` | Start a long-running task in a background process — keeps the main conversation responsive |
+| `task_status` | Check a background task's status and recent output |
+| `list_tasks` | List all background tasks in the current session |
+| `cancel_task` | Cancel a running background task |
 
 ### Inherited Toolkits (from php-agents)
 
@@ -234,6 +242,29 @@ Coqui ships with a rich set of tools the agent can use autonomously:
 | `FilesystemToolkit` | Sandboxed read/write to the `.workspace` directory |
 | `ShellToolkit` | Run shell commands from project root (`git`, `grep`, `find`, `cat`, `ls`, etc.) |
 | `MemoryToolkit` | Persistent memory via `MEMORY.md` for facts that survive across sessions |
+
+## Background Tasks
+
+Coqui can run long-running agent work in separate processes so the main conversation stays responsive. The agent spawns a background task, continues answering questions, and reports back when the task finishes.
+
+Background tasks are automatically available when running the API server — no configuration required:
+
+```bash
+php bin/coqui api
+```
+
+Each task runs as an isolated PHP process (`task:run`) with its own agent stack, session storage, and lifecycle. Tasks support:
+
+- **Process isolation** — each task is a separate OS process managed via `proc_open`
+- **Live progress** — events stream via Server-Sent Events (SSE)
+- **User input** — send follow-up messages to running tasks
+- **Cancellation** — cooperative cancellation via `SIGTERM`
+- **Crash recovery** — orphaned tasks are automatically marked as failed on server restart
+- **Concurrency control** — configurable via `api.tasks.maxConcurrent` in `openclaw.json` (default: 1)
+
+The agent can start, monitor, and cancel tasks using four built-in tools (`start_background_task`, `task_status`, `list_tasks`, `cancel_task`). The HTTP API exposes the same capabilities for external clients.
+
+For full API reference, architecture details, and usage examples, see [docs/BACKGROUND-TASKS.md](docs/BACKGROUND-TASKS.md).
 
 ## Extending Coqui
 
