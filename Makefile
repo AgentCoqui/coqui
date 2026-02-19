@@ -1,92 +1,179 @@
 ###############################################################################
-# Coqui — Docker Management Makefile
+# Coqui — Development Makefile
 #
 # Self-documenting: run `make` or `make help` to see all targets.
+#
+# Naming convention:
+#   bare names   — native (no Docker)
+#   docker-*     — Docker compose operations
+#
+# Port defaults: API=3300, Dashboard=3380, Webgrind=3390
 ###############################################################################
 
-.PHONY: help build run run-launcher dev dev-up dev-down \
-        test test-coverage test-shell shell \
-        clean xdebug-clear install composer \
-        gui gui-install
+.PHONY: help \
+        start stop status repl api api-stop \
+        dashboard dashboard-stop dashboard-install \
+        dev serve \
+        docker-build docker-start docker-stop docker-status \
+        docker-repl docker-api docker-api-stop docker-api-logs \
+        docker-dashboard docker-dashboard-stop \
+        docker-serve docker-all docker-dev docker-shell \
+        test test-coverage install clean clean-workspace \
+        composer xdebug-clear
 
 # Default target
 help: ## Show this help message
 	@echo ""
-	@echo "  Coqui — Docker Development Environment"
+	@echo "  Coqui — Development Environment"
 	@echo ""
 	@echo "Usage: make [target]"
 	@echo ""
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@echo "  Native:"
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / && !/^docker-/ {printf "    %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@echo ""
+	@echo "  Docker:"
+	@awk 'BEGIN {FS = ":.*?## "} /^docker-[a-zA-Z_-]+:.*?## / {printf "    %-22s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@echo ""
 
 # =============================================================================
-# Build
+# Native
 # =============================================================================
 
-build: ## Build the Coqui Docker image
+start: ## Start REPL + API (default)
+	@./bin/coqui-launcher $(ARGS)
+
+stop: ## Stop all running services
+	@./bin/coqui-launcher stop
+
+status: ## Show running service status
+	@./bin/coqui-launcher status
+
+repl: ## Start REPL only (no background API)
+	@./bin/coqui-launcher --repl-only $(ARGS)
+
+api: ## Start API only (foreground, port 3300)
+ifdef PORT
+	@./bin/coqui-launcher --api-only --port $(PORT) $(ARGS)
+else
+	@./bin/coqui-launcher --api-only $(ARGS)
+endif
+
+api-stop: ## Stop the API server
+	@./bin/coqui-launcher stop-api
+
+dashboard: ## Start the Dashboard (foreground, port 3380)
+ifdef PORT
+	@./bin/coqui-launcher --dashboard --dashboard-port $(PORT) $(ARGS)
+else
+	@./bin/coqui-launcher --dashboard $(ARGS)
+endif
+
+dashboard-stop: ## Stop the Dashboard
+	@./bin/coqui-launcher stop-dashboard
+
+dashboard-install: ## Install Dashboard Composer dependencies
+	@cd public && composer install --no-dev
+	@echo "Dashboard dependencies installed"
+
+dev: ## Start REPL + API in dev mode (Xdebug)
+	@XDEBUG_MODE=debug XDEBUG_CONFIG="client_host=localhost" ./bin/coqui-launcher $(ARGS)
+
+serve: ## Start API + Dashboard (background)
+	@./bin/coqui-launcher --api-only --background $(ARGS)
+	@./bin/coqui-launcher --dashboard --background $(ARGS)
+
+# =============================================================================
+# Docker
+# =============================================================================
+
+COMPOSE_API := -f compose.yaml -f compose.api.yaml
+COMPOSE_DASH := -f compose.yaml -f compose.dashboard.yaml
+COMPOSE_DEV := -f compose.yaml -f compose.dev.yaml
+COMPOSE_TEST := -f compose.yaml -f compose.test.yaml
+COMPOSE_ALL := -f compose.yaml -f compose.api.yaml -f compose.dashboard.yaml
+
+docker-build: ## Build the Coqui Docker image
 	@docker compose build
 	@echo "Image built"
 
-# =============================================================================
-# Run
-# =============================================================================
-
-run: ## Start interactive REPL
-	@docker compose run --rm coqui
-
-run-args: ## Start REPL with args (make run-args ARGS="--auto-approve")
+docker-start: ## Start REPL (interactive) + API (background)
+	@docker compose $(COMPOSE_API) up -d coqui-api
+	@echo "API running at http://localhost:$${COQUI_API_PORT:-3300}"
 	@docker compose run --rm coqui $(ARGS)
 
-run-launcher: ## Start REPL with crash recovery (coqui-launcher)
-	@docker compose run --rm --entrypoint ./bin/coqui-launcher coqui
+docker-stop: ## Stop all Docker services
+	@docker compose $(COMPOSE_ALL) -f compose.dev.yaml -f compose.test.yaml \
+		down --remove-orphans 2>/dev/null || true
+	@echo "All services stopped"
 
-run-config: ## Start REPL with a specific config file (make run-config CONFIG=openclaw.json)
-	@if [ -z "$(CONFIG)" ]; then \
-		echo "Usage: make run-config CONFIG=openclaw.json"; \
-		exit 1; \
-	fi
-	@docker compose run --rm -v ./$(CONFIG):/app/openclaw.json:ro coqui
+docker-status: ## Show Docker container status
+	@docker compose $(COMPOSE_ALL) ps 2>/dev/null || true
+
+docker-repl: ## Start REPL only (Docker)
+	@docker compose run --rm coqui $(ARGS)
+
+docker-api: ## Start API only (daemon, port 3300)
+ifdef PORT
+	@COQUI_API_PORT=$(PORT) docker compose $(COMPOSE_API) up -d coqui-api
+	@echo "API running at http://localhost:$(PORT)"
+else
+	@docker compose $(COMPOSE_API) up -d coqui-api
+	@echo "API running at http://localhost:$${COQUI_API_PORT:-3300}"
+endif
+
+docker-api-stop: ## Stop the API container
+	@docker compose $(COMPOSE_API) stop coqui-api
+	@echo "API stopped"
+
+docker-api-logs: ## Follow API server logs
+	@docker compose $(COMPOSE_API) logs -f coqui-api
+
+docker-dashboard: ## Start Dashboard (daemon, port 3380)
+ifdef PORT
+	@COQUI_DASHBOARD_PORT=$(PORT) docker compose $(COMPOSE_DASH) up -d dashboard
+	@echo "Dashboard running at http://localhost:$(PORT)"
+else
+	@docker compose $(COMPOSE_DASH) up -d dashboard
+	@echo "Dashboard running at http://localhost:$${COQUI_DASHBOARD_PORT:-3380}"
+endif
+
+docker-dashboard-stop: ## Stop the Dashboard container
+	@docker compose $(COMPOSE_DASH) stop dashboard
+	@echo "Dashboard stopped"
+
+docker-serve: ## Start API + Dashboard (daemon)
+	@docker compose $(COMPOSE_ALL) up -d coqui-api dashboard
+	@echo "API: http://localhost:$${COQUI_API_PORT:-3300}"
+	@echo "Dashboard: http://localhost:$${COQUI_DASHBOARD_PORT:-3380}"
+
+docker-all: ## Start REPL + API + Dashboard
+	@docker compose $(COMPOSE_ALL) up -d coqui-api dashboard
+	@echo "API: http://localhost:$${COQUI_API_PORT:-3300}"
+	@echo "Dashboard: http://localhost:$${COQUI_DASHBOARD_PORT:-3380}"
+	@docker compose run --rm coqui $(ARGS)
+
+docker-dev: ## Dev mode: REPL + Xdebug + Webgrind
+	@docker compose $(COMPOSE_DEV) up -d webgrind
+	@echo "Webgrind: http://localhost:$${COQUI_WEBGRIND_PORT:-3390}"
+	@docker compose $(COMPOSE_DEV) run --rm coqui $(ARGS)
+
+docker-shell: ## Open a bash shell in the container
+	@docker compose run --rm --entrypoint /bin/bash coqui
 
 # =============================================================================
-# Development
+# Build & Test
 # =============================================================================
 
-dev: ## Start REPL with Xdebug + path repos mounted
-	@docker compose -f compose.yaml -f compose.dev.yaml run --rm coqui
-
-dev-up: ## Start dev background services (Webgrind)
-	@docker compose -f compose.yaml -f compose.dev.yaml up -d webgrind
-	@echo "Webgrind: http://localhost:$${COQUI_WEBGRIND_PORT:-9002}"
-
-dev-down: ## Stop dev background services
-	@docker compose -f compose.yaml -f compose.dev.yaml down webgrind
-	@echo "Dev services stopped"
-
-# =============================================================================
-# Testing
-# =============================================================================
-
-test: ## Run Pest tests in Docker
-	@docker compose -f compose.yaml -f compose.test.yaml run --rm coqui
+test: ## Run Pest tests (Docker)
+	@docker compose $(COMPOSE_TEST) run --rm coqui
 	@echo "Tests complete"
 
 test-coverage: ## Run tests with code coverage
-	@docker compose -f compose.yaml -f compose.test.yaml run --rm coqui \
+	@docker compose $(COMPOSE_TEST) run --rm coqui \
 		vendor/bin/pest --coverage --min=0
 	@echo "Coverage report complete"
 
-test-shell: ## Open interactive shell in test container
-	@docker compose -f compose.yaml -f compose.test.yaml run --rm \
-		--entrypoint /bin/bash coqui
-
-# =============================================================================
-# Utilities
-# =============================================================================
-
-shell: ## Open a bash shell in the container
-	@docker compose run --rm --entrypoint /bin/bash coqui
-
-install: ## Run composer install inside the container
+install: ## Run composer install (Docker)
 	@docker compose run --rm --entrypoint composer coqui install
 
 composer: ## Run composer command (make composer CMD="require foo/bar")
@@ -96,7 +183,7 @@ composer: ## Run composer command (make composer CMD="require foo/bar")
 	fi
 	@docker compose run --rm --entrypoint composer coqui $(CMD)
 
-xdebug-clear: ## Clear Xdebug profiler output files
+xdebug-clear: ## Clear Xdebug profiler output
 	@docker compose run --rm --entrypoint clear-xdebug coqui
 	@echo "Xdebug files cleared"
 
@@ -104,62 +191,11 @@ xdebug-clear: ## Clear Xdebug profiler output files
 # Cleanup
 # =============================================================================
 
-clean: ## Remove all containers, images, and volumes (destructive!)
-	@docker compose -f compose.yaml -f compose.dev.yaml -f compose.test.yaml -f compose.api.yaml \
-		down -v --remove-orphans --rmi local
+clean: ## Remove all Docker containers, images, and volumes
+	@docker compose $(COMPOSE_ALL) -f compose.dev.yaml -f compose.test.yaml \
+		down -v --remove-orphans --rmi local 2>/dev/null || true
 	@echo "Cleaned up"
 
-clean-workspace: ## Remove only the workspace volume (resets sessions/data)
+clean-workspace: ## Remove only the workspace volume
 	@docker volume rm coqui_workspace 2>/dev/null || true
 	@echo "Workspace volume removed"
-
-# =============================================================================
-# API Server
-# =============================================================================
-
-api: ## Start the Coqui API server (port 8080)
-	@docker compose -f compose.yaml -f compose.api.yaml up -d
-	@echo "API server running at http://localhost:$${COQUI_API_PORT:-8080}"
-
-api-port: ## Start API server on custom port (make api-port PORT=3000)
-	@if [ -z "$(PORT)" ]; then \
-		echo "Usage: make api-port PORT=3000"; \
-		exit 1; \
-	fi
-	@COQUI_API_PORT=$(PORT) docker compose -f compose.yaml -f compose.api.yaml up -d
-	@echo "API server running at http://localhost:$(PORT)"
-
-api-down: ## Stop the API server
-	@docker compose -f compose.yaml -f compose.api.yaml down
-	@echo "API server stopped"
-
-api-logs: ## Follow API server logs
-	@docker compose -f compose.yaml -f compose.api.yaml logs -f
-
-api-local: ## Start API server locally (no Docker)
-	@php bin/coqui api --host 127.0.0.1 --port 8080
-
-# =============================================================================
-# Dashboard (GUI)
-# =============================================================================
-
-gui: ## Start the Coqui Dashboard (web UI)
-	@./bin/coqui-launcher --gui
-
-gui-port: ## Start Dashboard on custom port (make gui-port PORT=9000)
-	@if [ -z "$(PORT)" ]; then \
-		echo "Usage: make gui-port PORT=9000"; \
-		exit 1; \
-	fi
-	@./bin/coqui-launcher --gui --port $(PORT)
-
-gui-install: ## Install dashboard Composer dependencies
-	@cd public && composer install --no-dev
-	@echo "Dashboard dependencies installed"
-
-# =============================================================================
-# Shortcuts
-# =============================================================================
-
-up: dev-up      ## Alias for dev-up
-down: dev-down  ## Alias for dev-down

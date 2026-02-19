@@ -7,7 +7,7 @@ The API is built on ReactPHP and runs as a long-lived PHP process. It shares the
 ## Starting the Server
 
 ```bash
-# Default: localhost:8080
+# Default: localhost:3300
 php bin/coqui api
 
 # Custom host and port
@@ -20,15 +20,15 @@ php bin/coqui api --config /path/to/openclaw.json
 php bin/coqui api --cors-origin "http://localhost:3000,https://app.example.com"
 
 # Docker
-make api                   # port 8080
-make api-port PORT=3000    # custom port
+make docker-api              # port 3300
+make docker-api PORT=3000    # custom port
 ```
 
 ### CLI Options
 
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--port` | | `8080` | Port to listen on |
+| `--port` | | `3300` | Port to listen on |
 | `--host` | | `127.0.0.1` | Host to bind to |
 | `--config` | `-c` | `./openclaw.json` | Path to openclaw.json config |
 | `--workdir` | `-w` | Current directory | Working directory (project root) |
@@ -80,7 +80,7 @@ Unauthenticated requests receive:
 All endpoints are prefixed with `/api`. The default base URL is:
 
 ```
-http://127.0.0.1:8080
+http://127.0.0.1:3300
 ```
 
 ## Content Type

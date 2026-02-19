@@ -75,8 +75,10 @@ final class RunCommand extends Command
         $io = new SymfonyStyle($input, $output);
         $workDirOption = $input->getOption('workdir');
         $this->workDir = is_string($workDirOption) ? $workDirOption : (getcwd() ?: '.');
-        $this->unsafeMode = (bool) $input->getOption('unsafe');
-        $this->autoApprove = (bool) $input->getOption('auto-approve');
+        $this->unsafeMode = (bool) $input->getOption('unsafe')
+            || filter_var(getenv('COQUI_UNSAFE'), FILTER_VALIDATE_BOOLEAN);
+        $this->autoApprove = (bool) $input->getOption('auto-approve')
+            || filter_var(getenv('COQUI_AUTO_APPROVE'), FILTER_VALIDATE_BOOLEAN);
         $noTerminal = (bool) $input->getOption('no-terminal');
 
         // Boot sequence: config, workspace, credentials, toolkit discovery

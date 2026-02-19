@@ -6,7 +6,7 @@ declare(strict_types=1);
  * Coqui Dashboard — Router Entry Point
  *
  * Serves as the router script for PHP's built-in server:
- *   php -S localhost:8080 -t public/ public/router.php
+ *   php -S localhost:3380 -t public/ public/router.php
  *
  * Static files (CSS, JS, vendor assets) are served directly.
  * API routes are dispatched via bramus/router.

@@ -60,7 +60,7 @@ public/
 ```bash
 cd public/
 composer install
-php -S localhost:8080 router.php
+php -S localhost:3380 router.php
 ```
 
 The dashboard reads the SQLite database at `.workspace/data/coqui.db` and the config at `openclaw.json` (both relative to the project root).
