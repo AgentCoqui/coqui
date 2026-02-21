@@ -128,8 +128,8 @@ final class Router
         }
 
         // Find matching route
-        foreach ($this->routes as $route) {
-            $routeMethod = strtoupper(explode(':', array_search($route, $this->routes, true) ?: '')[0] ?? '');
+        foreach ($this->routes as $routeKey => $route) {
+            $routeMethod = strtoupper(explode(':', $routeKey)[0]);
 
             if ($routeMethod !== $method) {
                 continue;
@@ -174,6 +174,7 @@ final class Router
      * Create a JSON response.
      *
      * @param array<string, mixed>|list<mixed> $data
+     * @param array<string, string> $headers
      */
     public static function jsonResponse(array $data, int $status = 200, array $headers = []): Response
     {

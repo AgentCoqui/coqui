@@ -324,7 +324,7 @@ final class RunCommand extends Command
                 return true;
             })(),
 
-            '/update' => (function () use ($io) {
+            '/update' => (function () {
                 return true;
             })(),
 
@@ -715,7 +715,8 @@ final class RunCommand extends Command
         if ($prompt === null || trim($prompt) === '') {
             // Try reading from stdin (piped input)
             if (!posix_isatty(STDIN)) {
-                $prompt = stream_get_contents(STDIN);
+                $stdinContent = stream_get_contents(STDIN);
+                $prompt = $stdinContent !== false ? $stdinContent : null;
             }
         }
 

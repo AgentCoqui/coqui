@@ -131,7 +131,7 @@ final readonly class MessageHandler
         });
 
         if (is_array($result)) {
-            $hasError = isset($result['error']) && $result['error'] !== null;
+            $hasError = isset($result['error']);
             return Router::jsonResponse($result, $hasError ? 500 : 200);
         }
 

@@ -18,21 +18,9 @@ use CoquiBot\Coqui\Exception\RoleParseException;
 final class RoleParser
 {
     private const int MAX_NAME_LENGTH = 64;
-    private const int MAX_DESCRIPTION_LENGTH = 1024;
 
+    /** @var list<string> */
     private const array VALID_ACCESS_LEVELS = ['full', 'readonly', 'minimal'];
-
-    private const array ALLOWED_FIELDS = [
-        'name',
-        'display_name',
-        'description',
-        'version',
-        'access_level',
-        'is_builtin',
-        'model',
-        'title_model',
-        'allowed-tools',
-    ];
 
     /**
      * Parse a role markdown file into a RoleProperties value object.
