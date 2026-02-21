@@ -197,13 +197,17 @@ final readonly class TaskHandler
 
                     $stream->write("event: done\ndata: {\"status\":\"{$task['status']}\"}\n\n");
                     $stream->end();
-                    \React\EventLoop\Loop::cancelTimer($timer);
+                    if ($timer instanceof \React\EventLoop\TimerInterface) {
+                        \React\EventLoop\Loop::cancelTimer($timer);
+                    }
                 }
             } catch (\Throwable) {
                 // Best effort — stream may have been closed by client
                 try {
                     $stream->end();
-                    \React\EventLoop\Loop::cancelTimer($timer);
+                    if ($timer instanceof \React\EventLoop\TimerInterface) {
+                        \React\EventLoop\Loop::cancelTimer($timer);
+                    }
                 } catch (\Throwable) {
                     // Already closed
                 }
@@ -212,7 +216,8 @@ final readonly class TaskHandler
 
         // Clean up timer when client disconnects
         $stream->on('close', function () use (&$timer): void {
-            if ($timer !== null) {
+            /** @phpstan-ignore instanceof.alwaysTrue */
+            if ($timer instanceof \React\EventLoop\TimerInterface) {
                 \React\EventLoop\Loop::cancelTimer($timer);
             }
         });

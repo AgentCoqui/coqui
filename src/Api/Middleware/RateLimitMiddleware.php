@@ -52,11 +52,14 @@ final class RateLimitMiddleware
         if (!$this->consume($clientIp)) {
             $retryAfter = (int) ceil($this->windowSeconds / $this->maxRequests);
 
-            return Router::errorResponse(
+            /** @phpstan-ignore method.internalClass */
+            $rateLimitResponse = Router::errorResponse(
                 ApiErrorCode::RATE_LIMITED,
                 'Too many requests. Please try again later.',
                 ['retry_after' => $retryAfter],
             )->withHeader('Retry-After', (string) $retryAfter);
+
+            return $rateLimitResponse;
         }
 
         $response = $next($request);
@@ -65,6 +68,7 @@ final class RateLimitMiddleware
         $bucket = $this->buckets[$clientIp] ?? null;
         $remaining = $bucket !== null ? max(0, (int) floor($bucket['tokens'])) : $this->maxRequests;
 
+        /** @phpstan-ignore method.internalClass, method.internalClass */
         return $response
             ->withHeader('X-RateLimit-Limit', (string) $this->maxRequests)
             ->withHeader('X-RateLimit-Remaining', (string) $remaining);

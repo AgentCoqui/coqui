@@ -75,7 +75,7 @@ test('availableRoles returns all role names', function () {
 
     $resolver = new RoleResolver($config);
 
-    expect($resolver->availableRoles())->toBe(['orchestrator', 'coder', 'reviewer']);
+    expect($resolver->availableRoles())->toEqualCanonicalizing(['orchestrator', 'coder', 'reviewer']);
 });
 
 test('toArray returns resolved mappings', function () {
@@ -93,9 +93,21 @@ test('toArray returns resolved mappings', function () {
 
     $resolver = new RoleResolver($config);
 
-    expect($resolver->toArray())->toBe([
-        'orchestrator' => 'ollama/qwen3:latest',
-        'coder' => 'anthropic/claude-sonnet-4-20250514',
+    $array = $resolver->toArray();
+
+    // System role (orchestrator) returns rich metadata
+    expect($array['orchestrator'])->toMatchArray([
+        'name' => 'orchestrator',
+        'model' => 'ollama/qwen3:latest',
+        'display_name' => 'Orchestrator',
+        'is_system' => true,
+        'editable' => false,
+    ]);
+
+    // Config-defined role returns name + model
+    expect($array['coder'])->toMatchArray([
+        'name' => 'coder',
+        'model' => 'anthropic/claude-sonnet-4-20250514',
     ]);
 });
 
