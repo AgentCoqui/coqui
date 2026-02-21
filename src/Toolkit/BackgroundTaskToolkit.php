@@ -150,6 +150,9 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         );
     }
 
+    /**
+     * @param array<string, mixed> $args
+     */
     private function executeStartTask(array $args): ToolResult
     {
         $prompt = trim((string) ($args['prompt'] ?? ''));
@@ -193,6 +196,9 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
 
     private const RESULT_PREVIEW_LENGTH = 2000;
 
+    /**
+     * @param array<string, mixed> $args
+     */
     private function executeTaskStatus(array $args): ToolResult
     {
         $taskId = trim((string) ($args['task_id'] ?? ''));
@@ -257,6 +263,9 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         );
     }
 
+    /**
+     * @param array<string, mixed> $args
+     */
     private function executeListTasks(array $args): ToolResult
     {
         $status = isset($args['status']) ? trim((string) $args['status']) : null;
@@ -288,6 +297,9 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: 'Task list');
     }
 
+    /**
+     * @param array<string, mixed> $args
+     */
     private function executeCancelTask(array $args): ToolResult
     {
         $taskId = trim((string) ($args['task_id'] ?? ''));

@@ -25,7 +25,7 @@ final class BackgroundTaskManager
     /** @var array<string, resource> Process handles keyed by task ID */
     private array $processes = [];
 
-    /** @var array<string, array{0: resource, 1: resource, 2: resource}> Pipe handles per task */
+    /** @var array<string, array<int, resource>> Pipe handles per task */
     private array $pipes = [];
 
     private int $tickCount = 0;

@@ -57,6 +57,7 @@ final class CorsMiddleware
         $response = $next($request);
 
         foreach ($corsHeaders as $name => $value) {
+            /** @phpstan-ignore method.internalClass */
             $response = $response->withHeader($name, $value);
         }
 

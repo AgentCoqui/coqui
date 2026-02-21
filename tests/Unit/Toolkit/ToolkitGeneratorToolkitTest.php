@@ -115,10 +115,10 @@ test('create generates valid composer.json', function () {
     $data = json_decode(file_get_contents($composerPath), true);
 
     expect($data)->toBeArray();
-    expect($data['name'])->toBe('coquibot/my-api');
+    expect($data['name'])->toBe('coquibot/coqui-toolkit-my-api');
     expect($data['description'])->toBe('My API toolkit');
-    expect($data['autoload']['psr-4'])->toHaveKey('CoquiBot\\MyApi\\');
-    expect($data['extra']['php-agents']['toolkits'])->toBe(['CoquiBot\\MyApi\\MyApiToolkit']);
+    expect($data['autoload']['psr-4'])->toHaveKey('CoquiBot\\Toolkits\\MyApi\\');
+    expect($data['extra']['php-agents']['toolkits'])->toBe(['CoquiBot\\Toolkits\\MyApi\\MyApiToolkit']);
     expect($data['require']['php'])->toBe('^8.4');
     expect($data['require']['carmelosantana/php-agents'])->toBe('^0.2 || @dev');
 });
@@ -171,7 +171,7 @@ test('create generates toolkit class with credentials support', function () {
     expect($content)->toContain('resolveApiKey()');
     expect($content)->toContain('CRED_API_KEY');
     expect($content)->toContain('declare(strict_types=1)');
-    expect($content)->toContain('namespace CoquiBot\\CredToolkit');
+    expect($content)->toContain('namespace CoquiBot\\Toolkits\\CredToolkit');
     expect($content)->toContain('implements ToolkitInterface');
 });
 
@@ -411,8 +411,8 @@ test('list shows created packages', function () {
     $result = $listTool->execute([]);
 
     expect($result->status->value)->toBe('success');
-    expect($result->content)->toContain('coquibot/listed-one');
-    expect($result->content)->toContain('coquibot/listed-two');
+    expect($result->content)->toContain('coquibot/coqui-toolkit-listed-one');
+    expect($result->content)->toContain('coquibot/coqui-toolkit-listed-two');
     expect($result->content)->toContain('First listed toolkit');
     expect($result->content)->toContain('Second listed toolkit');
 });
