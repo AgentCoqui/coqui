@@ -519,13 +519,27 @@ final class SessionStorage
     public function getDatabaseStats(): array
     {
         return [
-            'sessions' => (int) $this->db->query('SELECT COUNT(*) FROM sessions')->fetchColumn(),
-            'messages' => (int) $this->db->query('SELECT COUNT(*) FROM messages')->fetchColumn(),
-            'turns' => (int) $this->db->query('SELECT COUNT(*) FROM turns')->fetchColumn(),
-            'audit_entries' => (int) $this->db->query('SELECT COUNT(*) FROM audit_log')->fetchColumn(),
-            'db_size_bytes' => (int) $this->db->query('PRAGMA page_count')->fetchColumn()
-                * (int) $this->db->query('PRAGMA page_size')->fetchColumn(),
+            'sessions' => $this->queryScalarInt('SELECT COUNT(*) FROM sessions'),
+            'messages' => $this->queryScalarInt('SELECT COUNT(*) FROM messages'),
+            'turns' => $this->queryScalarInt('SELECT COUNT(*) FROM turns'),
+            'audit_entries' => $this->queryScalarInt('SELECT COUNT(*) FROM audit_log'),
+            'db_size_bytes' => $this->queryScalarInt('PRAGMA page_count')
+                * $this->queryScalarInt('PRAGMA page_size'),
         ];
+    }
+
+    /**
+     * Execute a scalar query and return the result as an integer.
+     */
+    private function queryScalarInt(string $sql): int
+    {
+        $stmt = $this->db->query($sql);
+
+        if ($stmt === false) {
+            throw new \RuntimeException(sprintf('Query failed: %s', $sql));
+        }
+
+        return (int) $stmt->fetchColumn();
     }
 
     /**
@@ -1091,7 +1105,7 @@ final class SessionStorage
             $ids = array_column($rows, 'id');
             $placeholders = implode(',', array_fill(0, count($ids), '?'));
             $update = $this->db->prepare("UPDATE task_inputs SET consumed = 1 WHERE id IN ({$placeholders})");
-            $update->execute(array_values($ids));
+            $update->execute($ids);
 
             $this->db->commit();
 

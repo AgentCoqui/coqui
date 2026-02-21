@@ -169,7 +169,7 @@ final class ApiCommand extends Command
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
         $messageHandler = new MessageHandler($storage, $executor);
         $turnHandler = new TurnHandler($storage);
-        $configHandler = new ConfigHandler($boot->config(), $boot->roleResolver());
+        $configHandler = new ConfigHandler($boot->config());
         $credentialHandler = new CredentialHandler($boot->credentialResolver());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());

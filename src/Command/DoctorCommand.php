@@ -90,35 +90,25 @@ final class DoctorCommand extends Command
         $results['workspace'] = $this->checkWorkspace($io, $workspacePath, $repair, $jsonOutput);
 
         // 4. Database
-        if ($workspacePath !== null) {
-            $results['database'] = $this->checkDatabase($io, $workspacePath, $repair, $jsonOutput);
-        }
+        $results['database'] = $this->checkDatabase($io, $workspacePath, $repair, $jsonOutput);
 
         // 5. Credentials
-        if ($workspacePath !== null) {
-            $results['credentials'] = $this->checkCredentials($io, $workspacePath, $repair, $jsonOutput);
-        }
+        $results['credentials'] = $this->checkCredentials($io, $workspacePath, $repair, $jsonOutput);
 
         // 6. Provider connectivity
         $results['providers'] = $this->checkProviders($io, $workDir, $configPath, $jsonOutput);
 
         // 7. Toolkit discovery
-        if ($workspacePath !== null) {
-            $results['toolkits'] = $this->checkToolkits($io, $workspacePath, $jsonOutput);
-        }
+        $results['toolkits'] = $this->checkToolkits($io, $workspacePath, $jsonOutput);
 
         // 8. Skills
-        if ($workspacePath !== null) {
-            $results['skills'] = $this->checkSkills($io, $workspacePath, $jsonOutput);
-        }
+        $results['skills'] = $this->checkSkills($io, $workspacePath, $jsonOutput);
 
         // 9. Launcher
         $results['launcher'] = $this->checkLauncher($io, $jsonOutput);
 
         // 10. Disk space
-        if ($workspacePath !== null) {
-            $results['disk_space'] = $this->checkDiskSpace($io, $workspacePath, $jsonOutput);
-        }
+        $results['disk_space'] = $this->checkDiskSpace($io, $workspacePath, $jsonOutput);
 
         if ($jsonOutput) {
             $output->writeln(json_encode([
@@ -129,7 +119,7 @@ final class DoctorCommand extends Command
                     'errors' => $this->failCount,
                 ],
                 'checks' => $results,
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
 
             return $this->failCount > 0 ? 2 : ($this->warnCount > 0 ? 1 : 0);
         }
@@ -236,7 +226,7 @@ final class DoctorCommand extends Command
 
         $foundPath = null;
         foreach ($paths as $path) {
-            if ($path !== null && file_exists($path)) {
+            if (file_exists($path)) {
                 $foundPath = $path;
                 break;
             }
@@ -660,6 +650,9 @@ final class DoctorCommand extends Command
         return $results;
     }
 
+    /**
+     * @param array<string, mixed> $results
+     */
     private function checkOllamaConnectivity(SymfonyStyle $io, string $baseUrl, array &$results, bool $jsonOutput): void
     {
         $ch = curl_init($baseUrl);
@@ -694,6 +687,9 @@ final class DoctorCommand extends Command
         }
     }
 
+    /**
+     * @param array<string, mixed> $results
+     */
     private function checkOllamaModels(SymfonyStyle $io, string $baseUrl, array &$results, bool $jsonOutput): void
     {
         $ch = curl_init("{$baseUrl}/api/tags");
@@ -899,7 +895,7 @@ final class DoctorCommand extends Command
         return $results;
     }
 
-    private function resolveWorkspacePath(string $workDir, ?string $configPath): ?string
+    private function resolveWorkspacePath(string $workDir, ?string $configPath): string
     {
         try {
             $configPath ??= $workDir . '/openclaw.json';

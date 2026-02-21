@@ -6,7 +6,6 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
 use CoquiBot\Coqui\Api\Router;
-use CoquiBot\Coqui\Config\RoleResolver;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -22,7 +21,6 @@ final readonly class ConfigHandler
 {
     public function __construct(
         private OpenClawConfig $config,
-        private RoleResolver $roleResolver,
     ) {}
 
     /**

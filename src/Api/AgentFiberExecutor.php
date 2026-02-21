@@ -29,7 +29,7 @@ use React\Stream\ThroughStream;
  */
 final class AgentFiberExecutor
 {
-    /** @var array<string, \Fiber> */
+    /** @var array<string, \Fiber<void, void, void, void>> */
     private array $activeFibers = [];
 
     public function __construct(
@@ -123,6 +123,8 @@ final class AgentFiberExecutor
 
     /**
      * Schedule periodic Fiber resumption via the event loop.
+     *
+     * @param \Fiber<void, void, void, void> $fiber
      */
     private function scheduleFiberResumption(\Fiber $fiber, string $sessionId, ThroughStream $stream): void
     {
