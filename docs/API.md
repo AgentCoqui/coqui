@@ -85,8 +85,9 @@ http://127.0.0.1:3300
 
 ## Content Type
 
-All request bodies must be JSON with `Content-Type: application/json`.  
-All responses return `Content-Type: application/json` unless noted otherwise.
+Most request bodies must be JSON with `Content-Type: application/json`.
+File upload endpoints accept `Content-Type: multipart/form-data`.
+All responses return `Content-Type: application/json` unless noted otherwise (SSE streams use `text/event-stream`, file downloads use the file's MIME type).
 
 ## Error Format
 
@@ -312,13 +313,17 @@ By default, the response is a **Server-Sent Event (SSE) stream** that delivers r
 
 ```json
 {
-  "prompt": "What files are in the src directory?"
+  "prompt": "What files are in the src directory?",
+  "files": ["a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"]
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `prompt` | string | Yes | The user prompt to send to the agent |
+| `files` | string[] | No | Array of file IDs from prior uploads (see [Files](#files)) |
+
+When `files` are provided, the referenced uploads are attached to the message. Image files (JPEG, PNG, GIF, WebP) are sent to the LLM as vision content. Text and document files are read and injected as context blocks in the prompt.
 
 **Query Parameters**
 
@@ -427,7 +432,151 @@ The `prompt` field is limited to **100 KB** (102,400 bytes). Prompts exceeding t
 | `400` | `missing_field` | Missing or empty `prompt` field |
 | `400` | `validation_error` | Prompt exceeds 100 KB size limit |
 | `404` | `session_not_found` | Session does not exist |
+| `404` | `not_found` | Referenced file ID not found in this session |
 | `409` | `agent_busy` | Session already has an active agent run |
+
+### Files
+
+Files are session-scoped uploads that can be attached to messages for multimodal context. Images are sent to the LLM via vision APIs; text and document files are injected as context in the prompt.
+
+**Supported MIME types:**
+
+| Category | Types |
+|----------|-------|
+| Images | `image/jpeg`, `image/png`, `image/gif`, `image/webp` |
+| Text | `text/plain`, `text/markdown`, `text/csv`, `text/html`, `text/xml`, `text/x-php`, `text/javascript` |
+| Documents | `application/json`, `application/xml`, `application/pdf`, `application/x-yaml` |
+
+**Limits:**
+
+- Maximum file size: **50 MiB** per file
+- Maximum files per request: **20**
+
+#### `POST /api/sessions/{id}/files`
+
+Upload one or more files to a session. Uses `multipart/form-data` encoding.
+
+**Request**
+
+Send files as form fields named `files[]`. Multiple files can be uploaded in a single request.
+
+```bash
+curl -X POST http://127.0.0.1:3300/api/sessions/{id}/files \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -F "files[]=@screenshot.png" \
+  -F "files[]=@notes.txt"
+```
+
+**Response `201`**
+
+```json
+{
+  "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "files": [
+    {
+      "id": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+      "original_name": "screenshot.png",
+      "mime_type": "image/png",
+      "size": 245760,
+      "is_image": true,
+      "created_at": "2026-02-16T14:30:05+00:00"
+    },
+    {
+      "id": "f2a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+      "original_name": "notes.txt",
+      "mime_type": "text/plain",
+      "size": 1024,
+      "is_image": false,
+      "created_at": "2026-02-16T14:30:05+00:00"
+    }
+  ],
+  "count": 2
+}
+```
+
+If some files succeed and others fail, the response includes both:
+
+```json
+{
+  "session_id": "...",
+  "files": [{ "id": "...", "..." : "..." }],
+  "count": 1,
+  "errors": [
+    {
+      "file": "malware.exe",
+      "error": "File type \"application/x-msdownload\" is not allowed"
+    }
+  ]
+}
+```
+
+**Error Responses**
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| `400` | `missing_field` | No files in the request |
+| `404` | `session_not_found` | Session does not exist |
+| `413` | `payload_too_large` | More than 20 files in a single request |
+
+#### `GET /api/sessions/{id}/files`
+
+List all uploaded files for a session.
+
+**Response `200`**
+
+```json
+{
+  "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "files": [
+    {
+      "id": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+      "original_name": "screenshot.png",
+      "mime_type": "image/png",
+      "size": 245760,
+      "is_image": true,
+      "created_at": "2026-02-16T14:30:05+00:00"
+    }
+  ],
+  "count": 1
+}
+```
+
+#### `GET /api/sessions/{id}/files/{fileId}`
+
+Download a specific file. Returns the raw file content with appropriate headers.
+
+**Response `200`**
+
+Returns the file binary with:
+- `Content-Type`: the file's MIME type
+- `Content-Length`: file size in bytes
+- `Content-Disposition`: `inline; filename="original_name.ext"`
+
+**Error Responses**
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| `404` | `session_not_found` | Session does not exist |
+| `404` | `not_found` | File not found |
+
+#### `DELETE /api/sessions/{id}/files/{fileId}`
+
+Delete a specific uploaded file.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true
+}
+```
+
+**Error Responses**
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| `404` | `session_not_found` | Session does not exist |
+| `404` | `not_found` | File not found |
 
 ### Turns
 
@@ -915,6 +1064,10 @@ Each prompt submission runs inside a PHP Fiber. The ReactPHP event loop remains 
 | `DELETE` | `/api/sessions/{id}` | Yes | Delete session |
 | `GET` | `/api/sessions/{id}/messages` | Yes | List messages |
 | `POST` | `/api/sessions/{id}/messages` | Yes | Send prompt (SSE stream) |
+| `POST` | `/api/sessions/{id}/files` | Yes | Upload files (multipart) |
+| `GET` | `/api/sessions/{id}/files` | Yes | List uploaded files |
+| `GET` | `/api/sessions/{id}/files/{fileId}` | Yes | Download a file |
+| `DELETE` | `/api/sessions/{id}/files/{fileId}` | Yes | Delete a file |
 | `GET` | `/api/sessions/{id}/turns` | Yes | List turns |
 | `GET` | `/api/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
 | `GET` | `/api/config` | Yes | Get config (sanitized) |

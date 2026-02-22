@@ -264,6 +264,15 @@
             ]
         },
         {
+            "path": "src/Contract/FileUploadMetadata.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\FileUploadMetadata",
+            "layer": "contract",
+            "description": "Final readonly value object for uploaded file metadata. Implements JsonSerializable — serialized form excludes storedPath for security. Tracks id, originalName, mimeType, size, isImage flag, storedPath (internal only), and createdAt.",
+            "methods": [
+                "jsonSerialize(): array — returns public fields (excludes storedPath)"
+            ]
+        },
+        {
 
             "path": "src/Tool/CredentialGuardTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\CredentialGuardTool",
@@ -636,6 +645,18 @@
             ]
         },
         {
+            "path": "src/Api/Handler/FileUploadHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\FileUploadHandler",
+            "layer": "command",
+            "description": "Handles file upload API endpoints. POST uploads multipart/form-data files to per-session storage, GET lists session files or streams a single file, DELETE removes a file. Flattens nested UploadedFile arrays from ReactPHP's multipart parser.",
+            "methods": [
+                "upload(request, sessionId): Response — handles multipart file upload, returns file metadata",
+                "list(request, sessionId): Response — lists all files for a session",
+                "get(request, sessionId, fileId): Response — streams raw file content with correct MIME type",
+                "delete(request, sessionId, fileId): Response — deletes a file from session storage"
+            ]
+        },
+        {
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
@@ -667,6 +688,22 @@
                 "getTurnWithMessages(string $turnId): ?array — returns turn with nested messages",
                 "getTasksByStatus(string $status): array — returns all tasks with a given status",
                 "purgeOldTaskEvents(int $maxAgeDays): int — deletes old events for terminal tasks, returns count"
+            ]
+        },
+        {
+            "path": "src/Storage/FileUploadStorage.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\FileUploadStorage",
+            "layer": "storage",
+            "description": "Manages per-session file uploads in .workspace/uploads/{session_id}/. Stores files with UUID-based names, maintains a manifest.json per session with FileUploadMetadata entries. Supports image detection, MIME type validation, size limits (50 MiB per file, 20 per request), and session cleanup.",
+            "methods": [
+                "store(string $sessionId, UploadedFileInterface $file): FileUploadMetadata — stores file, returns metadata",
+                "list(string $sessionId): array<FileUploadMetadata> — returns all file metadata for a session",
+                "get(string $sessionId, string $fileId): ?FileUploadMetadata — returns metadata or null",
+                "getFilePath(string $sessionId, string $fileId): ?string — returns absolute file path or null",
+                "delete(string $sessionId, string $fileId): bool — removes file and manifest entry",
+                "cleanup(string $sessionId): void — removes entire session upload directory",
+                "isImageMimeType(string $mimeType): bool — checks if MIME type is a supported image format",
+                "isAllowedMimeType(string $mimeType): bool — checks if MIME type is in the allow list"
             ]
         },
         {

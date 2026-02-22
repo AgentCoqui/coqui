@@ -142,3 +142,52 @@ test('updateTokenCount updates session tokens', function () {
     $session = $this->storage->getSession($sessionId);
     expect($session['token_count'])->toBe(500);
 });
+
+test('loadConversation reconstructs plain user messages', function () {
+    $sessionId = $this->storage->createSession('test', 'model');
+
+    $this->storage->addMessage($sessionId, 'user', 'Hello, how are you?');
+    $this->storage->addMessage($sessionId, 'assistant', 'I am doing well!');
+
+    $conversation = $this->storage->loadConversation($sessionId);
+    $messages = $conversation->messages();
+
+    expect($messages)->toHaveCount(2);
+    expect($messages[0]->content())->toBe('Hello, how are you?');
+});
+
+test('loadConversation decodes multimodal user content', function () {
+    $sessionId = $this->storage->createSession('test', 'model');
+
+    // Store JSON-encoded multimodal content (as would be stored by sanitizeContent)
+    $multimodal = json_encode([
+        ['type' => 'text', 'text' => 'Describe this image'],
+        ['type' => 'image_url', 'image_url' => ['url' => 'data:image/png;base64,iVBORw0KGgo=']],
+    ], JSON_THROW_ON_ERROR);
+
+    $this->storage->addMessage($sessionId, 'user', $multimodal);
+
+    $conversation = $this->storage->loadConversation($sessionId);
+    $messages = $conversation->messages();
+
+    expect($messages)->toHaveCount(1);
+    // The content should be decoded back to an array
+    $content = $messages[0]->content();
+    expect($content)->toBeArray();
+    expect($content[0]['type'])->toBe('text');
+    expect($content[0]['text'])->toBe('Describe this image');
+    expect($content[1]['type'])->toBe('image_url');
+});
+
+test('loadConversation preserves non-JSON user content', function () {
+    $sessionId = $this->storage->createSession('test', 'model');
+
+    // Content that starts with [ but is NOT valid multimodal JSON
+    $this->storage->addMessage($sessionId, 'user', '[this is just a regular message]');
+
+    $conversation = $this->storage->loadConversation($sessionId);
+    $messages = $conversation->messages();
+
+    expect($messages)->toHaveCount(1);
+    expect($messages[0]->content())->toBe('[this is just a regular message]');
+});
