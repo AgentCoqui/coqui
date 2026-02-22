@@ -957,6 +957,101 @@ The API server enforces the same layered safety model as the terminal client:
 3. **Script Sanitizer** — Static analysis blocks dangerous PHP functions (`eval`, `exec`, `system`). Can be disabled with `--unsafe`.
 4. **Audit Logging** — Every tool execution decision is logged to the `audit_log` table.
 
+## File Uploads
+
+The API supports uploading files and images to sessions. Uploaded files can be referenced in messages to provide multimodal context to the agent.
+
+### Upload Flow
+
+1. **Upload files** to a session using `POST /api/sessions/{id}/files` with `multipart/form-data`
+2. **Reference file IDs** in the `files` array when sending a message via `POST /api/sessions/{id}/messages`
+3. The agent receives images as vision content and text files as inline context
+
+### Example: Upload and Reference an Image
+
+```bash
+# Step 1: Upload an image
+curl -X POST http://127.0.0.1:3300/api/sessions/$SESSION_ID/files \
+  -H "Authorization: Bearer $API_KEY" \
+  -F "files[]=@screenshot.png"
+```
+
+```json
+{
+  "session_id": "abc123...",
+  "files": [
+    {
+      "id": "f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6",
+      "original_name": "screenshot.png",
+      "mime_type": "image/png",
+      "size": 245760,
+      "is_image": true,
+      "created_at": "2026-02-16T14:30:05+00:00"
+    }
+  ],
+  "count": 1
+}
+```
+
+```bash
+# Step 2: Send a prompt referencing the uploaded file
+curl -X POST http://127.0.0.1:3300/api/sessions/$SESSION_ID/messages \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "What do you see in this screenshot?",
+    "files": ["f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6"]
+  }'
+```
+
+The agent will analyze the image using the LLM's vision capabilities and respond based on what it sees.
+
+### Example: Upload a Text File for Context
+
+```bash
+# Upload a code file
+curl -X POST http://127.0.0.1:3300/api/sessions/$SESSION_ID/files \
+  -H "Authorization: Bearer $API_KEY" \
+  -F "files[]=@src/handler.php"
+
+# Ask about it
+curl -X POST http://127.0.0.1:3300/api/sessions/$SESSION_ID/messages \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "Review this code for potential bugs",
+    "files": ["FILE_ID_FROM_UPLOAD"]
+  }'
+```
+
+Text files are read and injected directly into the prompt as context blocks, so the agent can analyze their contents.
+
+### Managing Uploads
+
+```bash
+# List all files in a session
+curl http://127.0.0.1:3300/api/sessions/$SESSION_ID/files \
+  -H "Authorization: Bearer $API_KEY"
+
+# Download a file
+curl http://127.0.0.1:3300/api/sessions/$SESSION_ID/files/$FILE_ID \
+  -H "Authorization: Bearer $API_KEY" -o downloaded_file.png
+
+# Delete a file
+curl -X DELETE http://127.0.0.1:3300/api/sessions/$SESSION_ID/files/$FILE_ID \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+### Supported File Types
+
+| Category | MIME Types |
+|----------|-----------|
+| Images (vision) | `image/jpeg`, `image/png`, `image/gif`, `image/webp` |
+| Text | `text/plain`, `text/markdown`, `text/csv`, `text/html`, `text/xml`, `text/x-php`, `text/javascript` |
+| Documents | `application/json`, `application/xml`, `application/pdf`, `application/x-yaml` |
+
+**Limits:** 50 MiB per file, 20 files per upload request.
+
 ## Quick Reference: All Endpoints
 
 | Method | Path | Auth | Description |
@@ -968,6 +1063,10 @@ The API server enforces the same layered safety model as the terminal client:
 | DELETE | `/api/sessions/{id}` | Yes | Delete a session |
 | GET | `/api/sessions/{id}/messages` | Yes | List messages in session |
 | POST | `/api/sessions/{id}/messages` | Yes | Send prompt (SSE stream) |
+| POST | `/api/sessions/{id}/files` | Yes | Upload files (multipart) |
+| GET | `/api/sessions/{id}/files` | Yes | List uploaded files |
+| GET | `/api/sessions/{id}/files/{fileId}` | Yes | Download a file |
+| DELETE | `/api/sessions/{id}/files/{fileId}` | Yes | Delete a file |
 | GET | `/api/sessions/{id}/turns` | Yes | List turns in session |
 | GET | `/api/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
 | GET | `/api/config` | Yes | Get sanitized configuration |

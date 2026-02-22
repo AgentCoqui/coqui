@@ -389,6 +389,172 @@
 			]
 		},
 		{
+			"name": "Files",
+			"item": [
+				{
+					"name": "Upload Files",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "files[]",
+									"type": "file",
+									"src": "",
+									"description": "Select one or more files to upload"
+								}
+							]
+						},
+						"url": {
+							"raw": "{{base_url}}/api/sessions/{{session_id}}/files",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "{{session_id}}", "files"]
+						},
+						"description": "Upload one or more files to a session. Uses multipart/form-data. Supports images (JPEG, PNG, GIF, WebP) and documents (text, JSON, XML, PDF, YAML, etc.). Max 50 MiB per file, 20 files per request."
+					},
+					"response": [
+						{
+							"name": "Upload Files — Success",
+							"originalRequest": {
+								"method": "POST",
+								"header": [],
+								"body": {
+									"mode": "formdata",
+									"formdata": [
+										{
+											"key": "files[]",
+											"type": "file",
+											"src": ""
+										}
+									]
+								},
+								"url": {
+									"raw": "{{base_url}}/api/sessions/{{session_id}}/files",
+									"host": ["{{base_url}}"],
+									"path": ["api", "sessions", "{{session_id}}", "files"]
+								}
+							},
+							"status": "Created",
+							"code": 201,
+							"header": [{"key": "Content-Type", "value": "application/json"}],
+							"body": "{\n  \"session_id\": \"abc123\",\n  \"files\": [\n    {\n      \"id\": \"f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6\",\n      \"original_name\": \"screenshot.png\",\n      \"mime_type\": \"image/png\",\n      \"size\": 245760,\n      \"is_image\": true,\n      \"created_at\": \"2026-02-16T14:30:05+00:00\"\n    }\n  ],\n  \"count\": 1\n}"
+						}
+					]
+				},
+				{
+					"name": "List Files",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions/{{session_id}}/files",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "{{session_id}}", "files"]
+						},
+						"description": "List all uploaded files for a session."
+					},
+					"response": [
+						{
+							"name": "List Files — Success",
+							"originalRequest": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/sessions/{{session_id}}/files",
+									"host": ["{{base_url}}"],
+									"path": ["api", "sessions", "{{session_id}}", "files"]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"header": [{"key": "Content-Type", "value": "application/json"}],
+							"body": "{\n  \"session_id\": \"abc123\",\n  \"files\": [\n    {\n      \"id\": \"f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6\",\n      \"original_name\": \"screenshot.png\",\n      \"mime_type\": \"image/png\",\n      \"size\": 245760,\n      \"is_image\": true,\n      \"created_at\": \"2026-02-16T14:30:05+00:00\"\n    }\n  ],\n  \"count\": 1\n}"
+						}
+					]
+				},
+				{
+					"name": "Download File",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions/{{session_id}}/files/{{file_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "{{session_id}}", "files", "{{file_id}}"]
+						},
+						"description": "Download a specific uploaded file. Returns raw file content with appropriate Content-Type header."
+					},
+					"response": [
+						{
+							"name": "Download File — Not Found",
+							"originalRequest": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/sessions/{{session_id}}/files/nonexistent",
+									"host": ["{{base_url}}"],
+									"path": ["api", "sessions", "{{session_id}}", "files", "nonexistent"]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"header": [{"key": "Content-Type", "value": "application/json"}],
+							"body": "{\n  \"error\": \"File not found\",\n  \"code\": \"not_found\"\n}"
+						}
+					]
+				},
+				{
+					"name": "Delete File",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/sessions/{{session_id}}/files/{{file_id}}",
+							"host": ["{{base_url}}"],
+							"path": ["api", "sessions", "{{session_id}}", "files", "{{file_id}}"]
+						},
+						"description": "Delete a specific uploaded file from a session."
+					},
+					"response": [
+						{
+							"name": "Delete File — Success",
+							"originalRequest": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/sessions/{{session_id}}/files/{{file_id}}",
+									"host": ["{{base_url}}"],
+									"path": ["api", "sessions", "{{session_id}}", "files", "{{file_id}}"]
+								}
+							},
+							"status": "OK",
+							"code": 200,
+							"header": [{"key": "Content-Type", "value": "application/json"}],
+							"body": "{\n  \"deleted\": true\n}"
+						},
+						{
+							"name": "Delete File — Not Found",
+							"originalRequest": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/api/sessions/{{session_id}}/files/nonexistent",
+									"host": ["{{base_url}}"],
+									"path": ["api", "sessions", "{{session_id}}", "files", "nonexistent"]
+								}
+							},
+							"status": "Not Found",
+							"code": 404,
+							"header": [{"key": "Content-Type", "value": "application/json"}],
+							"body": "{\n  \"error\": \"File not found\",\n  \"code\": \"not_found\"\n}"
+						}
+					]
+				}
+			]
+		},
+		{
 			"name": "Turns",
 			"item": [
 				{

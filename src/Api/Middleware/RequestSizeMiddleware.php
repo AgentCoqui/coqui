@@ -18,10 +18,10 @@ use React\Http\Message\Response;
 final class RequestSizeMiddleware
 {
     /**
-     * @param int $maxBytes  Maximum allowed request body size in bytes. Default: 1 MB.
+     * @param int $maxBytes  Maximum allowed request body size in bytes. Default: 50 MiB.
      */
     public function __construct(
-        private readonly int $maxBytes = 1_048_576,
+        private readonly int $maxBytes = 52_428_800,
     ) {}
 
     /**

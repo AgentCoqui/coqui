@@ -12,8 +12,8 @@ use React\Http\Message\Response;
 /**
  * Content-Type validation middleware.
  *
- * Requires POST, PUT, and PATCH requests to include a JSON content type.
- * Rejects requests with missing or non-JSON Content-Type headers.
+ * Requires POST, PUT, and PATCH requests to include a JSON or multipart content type.
+ * Rejects requests with missing or unsupported Content-Type headers.
  */
 final class ContentTypeMiddleware
 {
@@ -31,8 +31,15 @@ final class ContentTypeMiddleware
 
         $contentType = $request->getHeaderLine('Content-Type');
 
+        $lower = strtolower($contentType);
+
         // Accept any JSON content type (application/json, application/vnd.api+json, etc.)
-        if ($contentType !== '' && str_contains(strtolower($contentType), 'json')) {
+        if ($contentType !== '' && str_contains($lower, 'json')) {
+            return $next($request);
+        }
+
+        // Accept multipart/form-data for file uploads
+        if ($contentType !== '' && str_contains($lower, 'multipart/form-data')) {
             return $next($request);
         }
 
@@ -44,7 +51,7 @@ final class ContentTypeMiddleware
 
         return Router::errorResponse(
             ApiErrorCode::UNSUPPORTED_MEDIA_TYPE,
-            'Content-Type must be application/json',
+            'Content-Type must be application/json or multipart/form-data',
         );
     }
 }

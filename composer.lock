@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "b710a8bcdd604191a1f9f500da88145f",
+    "content-hash": "3d9d23323c0d6ee4928c700a318ff0ca",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "v0.5.0",
+            "version": "0.6.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "7def6bf7715024b7f54e337505092df6627f31fe"
+                "reference": "1585902b052c546babbee8a2d400e86f4d618763"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/7def6bf7715024b7f54e337505092df6627f31fe",
-                "reference": "7def6bf7715024b7f54e337505092df6627f31fe",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/1585902b052c546babbee8a2d400e86f4d618763",
+                "reference": "1585902b052c546babbee8a2d400e86f4d618763",
                 "shasum": ""
             },
             "require": {
@@ -67,26 +67,26 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.5.0"
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.6.1"
             },
-            "time": "2026-02-19T04:36:55+00:00"
+            "time": "2026-02-22T20:12:22+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-composer",
-            "version": "0.1.0",
+            "version": "0.1.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/coqui-toolkit-composer.git",
-                "reference": "5b9a8763ed6ad51663d827eb4d27b7949cbb1de9"
+                "reference": "c751f678cfc69736e1d7d219db4823e56377f9a2"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-composer/zipball/5b9a8763ed6ad51663d827eb4d27b7949cbb1de9",
-                "reference": "5b9a8763ed6ad51663d827eb4d27b7949cbb1de9",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-composer/zipball/c751f678cfc69736e1d7d219db4823e56377f9a2",
+                "reference": "c751f678cfc69736e1d7d219db4823e56377f9a2",
                 "shasum": ""
             },
             "require": {
-                "carmelosantana/php-agents": "^0.5",
+                "carmelosantana/php-agents": "^0.6",
                 "ext-json": "*",
                 "php": "^8.4"
             },
@@ -127,9 +127,9 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/coqui-toolkit-composer/issues",
-                "source": "https://github.com/carmelosantana/coqui-toolkit-composer/tree/v0.1.0"
+                "source": "https://github.com/carmelosantana/coqui-toolkit-composer/tree/v0.1.1"
             },
-            "time": "2026-02-19T05:03:25+00:00"
+            "time": "2026-02-22T00:07:02+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-packagist",
