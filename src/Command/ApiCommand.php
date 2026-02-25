@@ -10,6 +10,7 @@ use CoquiBot\Coqui\Api\AgentFiberExecutor;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
+use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
@@ -24,9 +25,14 @@ use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Observer\NullObserver;
+use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use React\EventLoop\Loop;
 use React\Http\HttpServer;
+use React\Http\Middleware\LimitConcurrentRequestsMiddleware;
+use React\Http\Middleware\RequestBodyBufferMiddleware;
+use React\Http\Middleware\RequestBodyParserMiddleware;
+use React\Http\Middleware\StreamingRequestMiddleware;
 use React\Socket\SocketServer;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -85,6 +91,7 @@ final class ApiCommand extends Command
         // Initialize storage
         $dbPath = $boot->workspacePath() . '/data/coqui.db';
         $storage = new SessionStorage($dbPath);
+        $uploadStorage = new FileUploadStorage($boot->workspacePath());
 
         // Read API key from config
         $apiKey = $this->resolveApiKey($boot);
@@ -167,16 +174,17 @@ final class ApiCommand extends Command
         // Create handlers
         $healthHandler = new HealthHandler($startTime, $executor, $taskManager);
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
-        $messageHandler = new MessageHandler($storage, $executor);
+        $messageHandler = new MessageHandler($storage, $executor, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler($boot->config());
         $credentialHandler = new CredentialHandler($boot->credentialResolver());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());
+        $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -202,19 +210,28 @@ final class ApiCommand extends Command
             $router->addMiddleware($mw);
         }
 
-        // Create ReactPHP HTTP server
-        $server = new HttpServer(function (\Psr\Http\Message\ServerRequestInterface $request) use ($router, $output): \Psr\Http\Message\ResponseInterface {
-            $method = $request->getMethod();
-            $path = $request->getUri()->getPath();
-            $output->writeln(sprintf(
-                '<fg=gray>[%s]</> %s %s',
-                date('H:i:s'),
-                $method,
-                $path,
-            ), OutputInterface::VERBOSITY_VERBOSE);
+        // Create ReactPHP HTTP server with explicit middleware for file upload support.
+        // The default auto-registered middleware caps body at 64 KiB which is too small
+        // for file uploads. We configure a 50 MiB buffer and multipart parser.
+        $maxUploadBytes = 50 * 1024 * 1024; // 50 MiB
+        $server = new HttpServer(
+            new StreamingRequestMiddleware(),
+            new LimitConcurrentRequestsMiddleware(100),
+            new RequestBodyBufferMiddleware($maxUploadBytes),
+            new RequestBodyParserMiddleware($maxUploadBytes, 20),
+            function (\Psr\Http\Message\ServerRequestInterface $request) use ($router, $output): \Psr\Http\Message\ResponseInterface {
+                $method = $request->getMethod();
+                $path = $request->getUri()->getPath();
+                $output->writeln(sprintf(
+                    '<fg=gray>[%s]</> %s %s',
+                    date('H:i:s'),
+                    $method,
+                    $path,
+                ), OutputInterface::VERBOSITY_VERBOSE);
 
-            return $router->dispatch($request);
-        });
+                return $router->dispatch($request);
+            },
+        );
 
         $listenAddress = "{$host}:{$port}";
         $context = ['socket' => ['so_reuseaddr' => true]];
@@ -273,6 +290,7 @@ final class ApiCommand extends Command
         CredentialHandler $credential,
         RoleHandler $role,
         TaskHandler $task,
+        FileUploadHandler $fileUpload,
     ): void {
         // Health
         $router->get('/api/health', $health);
@@ -287,6 +305,12 @@ final class ApiCommand extends Command
         // Messages
         $router->get('/api/sessions/{id}/messages', [$message, 'list']);
         $router->post('/api/sessions/{id}/messages', [$message, 'send']);
+
+        // File uploads
+        $router->post('/api/sessions/{id}/files', [$fileUpload, 'upload']);
+        $router->get('/api/sessions/{id}/files', [$fileUpload, 'list']);
+        $router->get('/api/sessions/{id}/files/{fileId}', [$fileUpload, 'get']);
+        $router->delete('/api/sessions/{id}/files/{fileId}', [$fileUpload, 'delete']);
 
         // Turns
         $router->get('/api/sessions/{id}/turns', [$turn, 'list']);

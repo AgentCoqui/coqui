@@ -42,15 +42,16 @@ final class AgentFiberExecutor
     /**
      * Execute an agent turn in a Fiber, streaming SSE events to the given stream.
      *
+     * @param string[]|null $filePaths  Optional file paths to attach to the message.
      * @return ThroughStream  The readable stream that emits SSE data.
      */
-    public function execute(string $sessionId, string $prompt): ThroughStream
+    public function execute(string $sessionId, string $prompt, ?array $filePaths = null): ThroughStream
     {
         $stream = new ThroughStream();
         $sseObserver = new SseObserver($stream);
 
         // Create a Fiber for this agent run
-        $fiber = new \Fiber(function () use ($sessionId, $prompt, $stream, $sseObserver): void {
+        $fiber = new \Fiber(function () use ($sessionId, $prompt, $filePaths, $stream, $sseObserver): void {
             $executionPolicy = new AutoApprovalPolicy(
                 blacklist: $this->blacklist,
                 storage: $this->storage,
@@ -64,6 +65,7 @@ final class AgentFiberExecutor
                     $sessionId,
                     $executionPolicy,
                     $sseObserver,
+                    $filePaths,
                 );
 
                 // Write the final complete event
@@ -157,13 +159,14 @@ final class AgentFiberExecutor
      * without SSE output, and the Promise resolves with the AgentTurnResult
      * once the Fiber completes.
      *
+     * @param string[]|null $filePaths  Optional file paths to attach to the message.
      * @return PromiseInterface<array<string, mixed>>
      */
-    public function executeBlocking(string $sessionId, string $prompt): PromiseInterface
+    public function executeBlocking(string $sessionId, string $prompt, ?array $filePaths = null): PromiseInterface
     {
         $deferred = new Deferred();
 
-        $fiber = new \Fiber(function () use ($sessionId, $prompt, $deferred): void {
+        $fiber = new \Fiber(function () use ($sessionId, $prompt, $filePaths, $deferred): void {
             $executionPolicy = new AutoApprovalPolicy(
                 blacklist: $this->blacklist,
                 storage: $this->storage,
@@ -176,6 +179,7 @@ final class AgentFiberExecutor
                     $sessionId,
                     $executionPolicy,
                     new NullObserver(),
+                    $filePaths,
                 );
 
                 // Generate title on first turn (best-effort, no observer needed)

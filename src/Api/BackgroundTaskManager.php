@@ -220,9 +220,13 @@ final class BackgroundTaskManager
             $this->coquiBinPath,
             'task:run',
             $taskId,
-            '--config', $this->configPath,
             '--workdir', $this->workDir,
         ];
+
+        if ($this->configPath !== '') {
+            $cmd[] = '--config';
+            $cmd[] = $this->configPath;
+        }
 
         if ($this->unsafeMode) {
             $cmd[] = '--unsafe';
