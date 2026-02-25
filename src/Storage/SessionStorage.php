@@ -352,7 +352,7 @@ final class SessionStorage
 
                 $message = match ($role) {
                     Role::System => new SystemMessage($content),
-                    Role::User => new UserMessage($content),
+                    Role::User => new UserMessage($this->decodeUserContent($content)),
                     Role::Assistant => new AssistantMessage($content, $toolCalls),
                     Role::Tool => new ToolResultMessage(
                         (new ToolResult(ToolResultStatus::Success, $content))->withCallId($toolCallId),
@@ -396,6 +396,43 @@ final class SessionStorage
         }
 
         return $calls;
+    }
+
+    /**
+     * Decode user message content, detecting multimodal JSON arrays.
+     *
+     * UserMessage content is stored as TEXT in the database. For plain text
+     * messages, the string is returned as-is. For multimodal messages (with
+     * images), the content was JSON-encoded before storage — this method
+     * detects and decodes it back to the array format UserMessage expects.
+     *
+     * @return string|array<array{type: string, text?: string, image_url?: array<string, mixed>}>
+     */
+    private function decodeUserContent(string $content): string|array
+    {
+        // Fast check: multimodal content is a JSON array starting with [{"type":
+        if (!str_starts_with(trim($content), '[{"type"')) {
+            return $content;
+        }
+
+        try {
+            $decoded = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return $content;
+        }
+
+        // Validate structure: must be an array of objects with 'type' keys
+        if (!is_array($decoded) || $decoded === []) {
+            return $content;
+        }
+
+        foreach ($decoded as $item) {
+            if (!is_array($item) || !isset($item['type'])) {
+                return $content;
+            }
+        }
+
+        return $decoded;
     }
 
     /**

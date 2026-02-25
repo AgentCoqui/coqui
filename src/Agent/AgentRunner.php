@@ -55,14 +55,17 @@ final class AgentRunner
      *
      * Used by the API server where each request gets its own SseObserver.
      * Falls through to run() after temporarily overriding the observer.
+     *
+     * @param string[]|null $filePaths  Optional file paths to attach as context.
      */
     public function runWithObserver(
         string $prompt,
         string $sessionId,
         ToolExecutionPolicyInterface $executionPolicy,
         SplObserver $observer,
+        ?array $filePaths = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths);
     }
 
     /**
@@ -110,6 +113,8 @@ final class AgentRunner
 
     /**
      * Internal implementation shared by run(), runWithObserver(), and runForTask().
+     *
+     * @param string[]|null $filePaths
      */
     private function doRun(
         string $prompt,
@@ -121,6 +126,7 @@ final class AgentRunner
         bool $enableBackgroundTasks = true,
         ?string $role = null,
         ?int $maxIterations = null,
+        ?array $filePaths = null,
     ): AgentTurnResult {
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
@@ -170,7 +176,7 @@ final class AgentRunner
                 $history = $history->fitWithinBudget(100000);
             }
 
-            $output = $agent->run(new UserMessage($prompt), $history);
+            $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $history);
 
             // Persist intermediate messages from this turn (tool calls + results)
             if ($output->conversation !== null) {
@@ -365,6 +371,67 @@ final class AgentRunner
         }
 
         return $content;
+    }
+
+    /**
+     * Build a UserMessage, optionally with attached files/images.
+     *
+     * Image files (JPEG, PNG, GIF, WebP) are sent to the LLM as vision
+     * content via UserMessage::withImages(). Non-image files (text, code,
+     * JSON, etc.) are read and injected as context blocks in the prompt.
+     *
+     * @param string[]|null $filePaths  Optional file paths to attach.
+     */
+    private function buildUserMessage(string $prompt, ?array $filePaths): UserMessage
+    {
+        if ($filePaths === null || $filePaths === []) {
+            return new UserMessage($prompt);
+        }
+
+        $imagePaths = [];
+        $textContext = '';
+
+        foreach ($filePaths as $filePath) {
+            if (!file_exists($filePath)) {
+                continue;
+            }
+
+            $mimeType = mime_content_type($filePath) ?: 'application/octet-stream';
+
+            if ($this->isImageMimeType($mimeType)) {
+                $imagePaths[] = $filePath;
+            } else {
+                // Read text/document files and inject as context
+                $contents = file_get_contents($filePath);
+                if ($contents === false) {
+                    continue;
+                }
+
+                $filename = basename($filePath);
+                $textContext .= "\n\n--- Attached file: {$filename} ---\n{$contents}\n--- End of {$filename} ---";
+            }
+        }
+
+        $enrichedPrompt = $textContext !== '' ? $prompt . $textContext : $prompt;
+
+        if ($imagePaths !== []) {
+            return UserMessage::withImages($enrichedPrompt, $imagePaths);
+        }
+
+        return new UserMessage($enrichedPrompt);
+    }
+
+    /**
+     * Check if a MIME type represents an image.
+     */
+    private function isImageMimeType(string $mimeType): bool
+    {
+        return in_array($mimeType, [
+            'image/jpeg',
+            'image/png',
+            'image/gif',
+            'image/webp',
+        ], true);
     }
 
     /**
