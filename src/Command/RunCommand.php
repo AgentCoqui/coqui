@@ -154,7 +154,15 @@ final class RunCommand extends Command
         }
 
         // Display welcome
-        $io->title('Coqui REPL');
+        $io->writeln([
+            '', 
+            '<fg=green>▄█████  ▄▄▄   ▄▄▄  ▄▄ ▄▄ ▄▄   █████▄  ▄▄▄ ▄▄▄▄▄▄</>',
+            '<fg=green>██     ██▀██ ██▀██ ██ ██ ██   ██▄▄██ ██▀██  ██  </>',
+            '<fg=green>▀█████ ▀███▀ ▀███▀ ▀███▀ ██   ██▄▄█▀ ▀███▀  ██  </>',
+            '<fg=green>                ▀▀                              </>',
+            '',
+        ]);
+        $io->section('REPL');
         $io->text([
             '<fg=gray>Session:</> ' . substr($this->sessionId, 0, 8) . '...',
             '<fg=gray>Model:</> ' . $this->boot->roleResolver()->resolve('orchestrator'),
