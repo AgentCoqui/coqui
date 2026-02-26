@@ -335,7 +335,7 @@ start_api_bg() {
     fi
 
     log_verbose "Starting API on port ${api_port}..."
-    setsid "${COQUI_BIN}" api --host 127.0.0.1 --port "${api_port}" "${api_args[@]+"${api_args[@]}"}" &
+    "${COQUI_BIN}" api --host 127.0.0.1 --port "${api_port}" "${api_args[@]+"${api_args[@]}"}" </dev/null &
     local pid=$!
     write_pid "api" "$pid"
     session_services+=("api")
@@ -373,7 +373,7 @@ start_dashboard_bg() {
     fi
 
     log_verbose "Starting Dashboard on port ${dashboard_port}..."
-    setsid php -S "localhost:${dashboard_port}" -t "${public_dir}" "${public_dir}/router.php" &>/dev/null &
+    php -S "localhost:${dashboard_port}" -t "${public_dir}" "${public_dir}/router.php" </dev/null &>/dev/null &
     local pid=$!
     write_pid "dashboard" "$pid"
     session_services+=("dashboard")
