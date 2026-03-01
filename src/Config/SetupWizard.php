@@ -273,6 +273,11 @@ final class SetupWizard
 
         $displayName = $this->defaults->providerDisplayName($provider);
 
+        // Sort models alphabetically by name
+        usort($models, fn(array $a, array $b): int =>
+            strcasecmp($a['name'] ?? $a['id'], $b['name'] ?? $b['id'])
+        );
+
         // Build choice list
         $choices = [];
         foreach ($models as $model) {
@@ -322,6 +327,7 @@ final class SetupWizard
         foreach ($this->availableModels as $fullId => $name) {
             $modelChoices[$fullId] = "{$name} ({$fullId})";
         }
+        asort($modelChoices);
 
         $roles = [];
         $roleDefinitions = $this->defaults->roles();
@@ -331,15 +337,19 @@ final class SetupWizard
             $required = $roleDef['required'] ?? false;
 
             if (!$required) {
+                // Optional roles: "Same as orchestrator" at [0], models start at [1]
                 $choices = ['Same as orchestrator', ...array_values($modelChoices)];
+                $defaultChoice = $choices[0];
             } else {
-                $choices = array_values($modelChoices);
+                // Required roles: models start at [1] for consistent numbering
+                $choices = array_combine(range(1, count($modelChoices)), array_values($modelChoices));
+                $defaultChoice = !empty($choices) ? reset($choices) : '';
             }
 
             $selected = $this->io->choice(
                 "<fg=cyan>{$roleName}</> — {$description}",
                 $choices,
-                $choices[0],
+                $defaultChoice,
             );
 
             if ($selected === 'Same as orchestrator' && isset($roles['orchestrator'])) {
@@ -374,8 +384,10 @@ final class SetupWizard
         foreach ($this->availableModels as $fullId => $name) {
             $modelChoices[$fullId] = "{$name} ({$fullId})";
         }
+        asort($modelChoices);
 
-        $selected = $this->io->choice('Select primary model', array_values($modelChoices));
+        $indexedChoices = array_combine(range(1, count($modelChoices)), array_values($modelChoices));
+        $selected = $this->io->choice('Select primary model', $indexedChoices, reset($indexedChoices));
         $flipped = array_flip($modelChoices);
 
         return is_string($selected) ? ($flipped[$selected] ?? $orchestratorModel) : $orchestratorModel;
