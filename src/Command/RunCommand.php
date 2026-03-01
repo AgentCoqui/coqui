@@ -639,7 +639,7 @@ final class RunCommand extends Command
 
         $rows = [];
         foreach ($roles as $r => $m) {
-            $rows[] = [$r, $m];
+            $rows[] = [$r, $m['model'] ?? ''];
         }
 
         $io->table(['Role', 'Model'], $rows);
@@ -699,7 +699,7 @@ final class RunCommand extends Command
             $io->newLine();
             $rows = [];
             foreach ($roles as $role => $model) {
-                $rows[] = [$role, $model];
+                $rows[] = [$role, $model['model'] ?? ''];
             }
             $io->table(['Role', 'Model'], $rows);
         }
