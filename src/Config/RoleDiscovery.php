@@ -342,6 +342,7 @@ final class RoleDiscovery
             isBuiltin: (bool) ($data['is_builtin'] ?? false),
             model: isset($data['model']) && is_string($data['model']) && $data['model'] !== '' ? $data['model'] : null,
             titleModel: isset($data['title_model']) && is_string($data['title_model']) && $data['title_model'] !== '' ? $data['title_model'] : null,
+            maxIterations: isset($data['max_iterations']) && is_numeric($data['max_iterations']) ? (int) $data['max_iterations'] : null,
         );
     }
 }

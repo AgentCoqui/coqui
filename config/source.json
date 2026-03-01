@@ -156,11 +156,12 @@
             "path": "src/Config/RoleResolver.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleResolver",
             "layer": "config",
-            "description": "Maps role names to provider/model strings. Priority: role file model field → openclaw.json → primary model. Merges config-defined roles with file-based roles from RoleDiscovery. toArray() returns enriched metadata with display_name, description, access_level.",
+            "description": "Maps role names to provider/model strings and resolves per-role iteration limits. Model priority: role file model field → openclaw.json → primary model. Iteration priority: role file max_iterations → agents.defaults.maxIterations → DEFAULT_MAX_ITERATIONS (25). toArray() returns enriched metadata with display_name, description, access_level, max_iterations.",
             "methods": [
                 "resolve(string $role): string — returns provider/model string (file model → config → primary)",
+                "resolveMaxIterations(string $role): int — returns iteration limit (role file → openclaw.json → 25). 0 = unlimited",
                 "availableRoles(): string[] — union of config and discovered role names",
-                "toArray(): array — enriched role-to-model mapping with metadata"
+                "toArray(): array — enriched role-to-model mapping with metadata and max_iterations"
             ]
         },
         {
@@ -719,7 +720,7 @@
             "path": "src/Config/RoleParser.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleParser",
             "layer": "config",
-            "description": "Stateless parser for role .md files with YAML frontmatter. Reads properties (metadata only) and body (instructions) separately for progressive disclosure. Validates names, access levels, and can build role files from properties+instructions.",
+            "description": "Stateless parser for role .md files with YAML frontmatter. Reads properties (metadata only) and body (instructions) separately for progressive disclosure. Validates names, access levels, parses max_iterations from frontmatter, and can build role files from properties+instructions.",
             "methods": [
                 "readProperties(string $filePath): RoleProperties — parses frontmatter into value object",
                 "readBody(string $filePath): string — returns instruction text after frontmatter",
@@ -746,7 +747,7 @@
             "path": "src/Contract/RoleProperties.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\RoleProperties",
             "layer": "contract",
-            "description": "Readonly value object for parsed role file frontmatter. Holds name, displayName, description, path, version, accessLevel (full/readonly/minimal), isBuiltin flag, and optional model overrides.",
+            "description": "Readonly value object for parsed role file frontmatter. Holds name, displayName, description, path, version, accessLevel (full/readonly/minimal), isBuiltin flag, optional model overrides, and optional maxIterations (0 = unlimited, null = inherit global default).",
             "methods": [
                 "toArray(): array — serializes to API-friendly associative array"
             ]

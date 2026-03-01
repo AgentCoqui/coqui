@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
+use CarmeloSantana\PHPAgents\Agent\AbstractAgent;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 
 /**
@@ -70,6 +71,39 @@ final class RoleResolver
     }
 
     /**
+     * Resolve the max iterations for a given role.
+     *
+     * Priority: role file max_iterations field → agents.defaults.maxIterations
+     * from openclaw.json → AbstractAgent::DEFAULT_MAX_ITERATIONS (25).
+     *
+     * A return value of 0 means unlimited (sentinel handled by AbstractAgent).
+     */
+    public function resolveMaxIterations(string $role): int
+    {
+        // 1. Check if the role file defines a max_iterations override
+        if ($this->roleDiscovery !== null) {
+            try {
+                $properties = $this->roleDiscovery->getRole($role);
+                if ($properties->maxIterations !== null) {
+                    return $properties->maxIterations;
+                }
+            } catch (\Throwable) {
+                // Fall through to config-based resolution
+            }
+        }
+
+        // 2. Check openclaw.json global default
+        $configValue = $this->config->get('agents.defaults.maxIterations');
+
+        if (is_int($configValue) || (is_string($configValue) && is_numeric($configValue))) {
+            return (int) $configValue;
+        }
+
+        // 3. Hardcoded fallback
+        return AbstractAgent::DEFAULT_MAX_ITERATIONS;
+    }
+
+    /**
      * Get all available role names (union of config and discovered roles).
      *
      * @return string[]
@@ -127,6 +161,7 @@ final class RoleResolver
                 'is_builtin' => true,
                 'is_system' => true,
                 'editable' => false,
+                'max_iterations' => $this->resolveMaxIterations($name),
             ];
         }
 
@@ -140,6 +175,7 @@ final class RoleResolver
             $result[$role] = [
                 'name' => $role,
                 'model' => $this->config->resolveModel($model),
+                'max_iterations' => $this->resolveMaxIterations($role),
             ];
         }
 
@@ -164,6 +200,7 @@ final class RoleResolver
                     'is_builtin' => $properties->isBuiltin,
                     'is_system' => false,
                     'editable' => true,
+                    'max_iterations' => $this->resolveMaxIterations($name),
                 ];
             }
         }
