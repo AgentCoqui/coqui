@@ -19,7 +19,7 @@ final class JsonRenderer implements OutputRendererInterface
         private readonly OutputInterface $output,
     ) {}
 
-    public function render(AgentTurnResult $result): void
+    public function render(AgentTurnResult $result, bool $contentStreamed = false): void
     {
         $json = json_encode($result->toArray(), JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
         $this->output->writeln($json);

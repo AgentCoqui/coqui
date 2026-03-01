@@ -19,7 +19,7 @@ final class TerminalRenderer implements OutputRendererInterface
         private readonly SymfonyStyle $io,
     ) {}
 
-    public function render(AgentTurnResult $result): void
+public function render(AgentTurnResult $result, bool $contentStreamed = false): void
     {
         $this->io->newLine();
 
@@ -28,11 +28,38 @@ final class TerminalRenderer implements OutputRendererInterface
             return;
         }
 
-        $this->io->writeln('<fg=green>Assistant:</>');
-        $this->io->writeln($result->content);
+        if (!$contentStreamed) {
+            $this->io->writeln('<fg=green>Assistant:</>');
+            $this->io->writeln($result->content);
+        }
+
         $this->io->newLine();
-        $this->io->comment($result->statsSummary());
+        $this->renderStatsSummary($result);
         $this->io->newLine();
+    }
+
+    private function renderStatsSummary(AgentTurnResult $result): void
+    {
+        $line = "<fg=gray>  | Iteration </>{$result->iterations}";
+
+        if ($result->totalTokens > 0) {
+            $line .= '<fg=gray> | Tokens: </>' . number_format($result->totalTokens);
+        }
+
+        if ($result->durationMs > 0) {
+            $seconds = round($result->durationMs / 1000, 1);
+            $line .= "<fg=gray> | Duration: </>{$seconds}s";
+        }
+
+        $this->io->writeln($line);
+
+        if (!empty($result->toolsUsed)) {
+            $yellowTools = array_map(
+                fn(string $tool): string => "<fg=yellow>{$tool}</>",
+                $result->toolsUsed,
+            );
+            $this->io->writeln('<fg=gray>  | Tools: </>' . implode('<fg=gray>, </>', $yellowTools));
+        }
     }
 
     public function renderError(string $message): void
