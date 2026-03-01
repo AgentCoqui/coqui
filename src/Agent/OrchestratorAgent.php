@@ -63,7 +63,7 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?string $sessionId = null,
         private readonly ?SplObserver $observer = null,
         ?ToolkitDiscovery $discovery = null,
-        int $maxIterations = 25,
+        int $maxIterations = AbstractAgent::DEFAULT_MAX_ITERATIONS,
         ?ToolExecutionPolicyInterface $executionPolicy = null,
         private readonly ?ScriptSanitizer $sanitizer = null,
         ?\Closure $onRestart = null,

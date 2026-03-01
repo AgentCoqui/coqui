@@ -26,7 +26,7 @@ final class ChildAgent extends AbstractAgent
         private readonly string $role,
         private readonly string $taskInstructions,
         array $toolkits = [],
-        int $maxIterations = 25,
+        int $maxIterations = AbstractAgent::DEFAULT_MAX_ITERATIONS,
         private readonly ?RoleDiscovery $roleDiscovery = null,
     ) {
         parent::__construct($provider, $maxIterations);

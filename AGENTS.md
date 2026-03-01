@@ -342,10 +342,76 @@ Follow the patterns in `src/Tool/`. Each tool:
 
 ### Adding a New Child Agent Role
 
-Roles are defined in `ChildAgent::instructions()` and mapped to models in `openclaw.json` under `agents.defaults.roles`. To add a new role:
-1. Add a case in `ChildAgent::instructions()` with a tailored system prompt
-2. Map the role to a model in `openclaw.json`
-3. Add the role to `SpawnAgentTool`'s enum parameter
+Roles are defined as `.md` files with YAML frontmatter in `.workspace/roles/` (user-created) or `config/roles/` (built-in). On first boot, built-in roles are seeded into the workspace. To add a new role:
+
+1. Create a `.md` file in `.workspace/roles/` with the required frontmatter fields
+2. Optionally map the role to a model in `openclaw.json` under `agents.defaults.roles`
+3. The role is auto-discovered — no code changes needed
+
+#### Role Frontmatter Schema
+
+```yaml
+---
+name: coder                    # required — lowercase, alphanumeric + hyphens
+display_name: Coder            # required
+description: Expert PHP dev... # required
+version: 1                     # optional (default: 1)
+access_level: full             # full | readonly | minimal
+is_builtin: true               # optional
+model: anthropic/claude-...    # optional — overrides openclaw.json
+title_model: ollama/...        # optional
+allowed-tools: ...             # optional
+max_iterations: 30             # optional — per-role iteration limit (0 = unlimited)
+---
+<markdown instructions body>
+```
+
+### Max Iterations Configuration
+
+Controls how many agent loop iterations a role can perform before stopping.
+
+**Resolution priority:** role file `max_iterations` → `agents.defaults.maxIterations` in `openclaw.json` → hardcoded fallback (25).
+
+#### Global Default
+
+Set in `openclaw.json`:
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "maxIterations": 25
+        }
+    }
+}
+```
+
+#### Per-Role Override
+
+Add `max_iterations` to a role's `.md` frontmatter:
+
+```yaml
+---
+name: coder
+max_iterations: 30
+---
+```
+
+#### Unlimited Iterations (Sentinel: 0)
+
+Setting `max_iterations: 0` means "run until the task is done" — the agent loops until it calls the `done` tool, a provider error occurs, or cancellation is triggered. Internally this maps to `PHP_INT_MAX`. A warning is logged when unlimited mode activates.
+
+**Background tasks are always clamped to 100 iterations** regardless of role configuration, since they run unattended without human oversight.
+
+#### Built-in Role Defaults
+
+| Role | `max_iterations` | Rationale |
+|------|------------------|-----------|
+| orchestrator | global default | Main agent — uses `agents.defaults.maxIterations` |
+| coder | 30 | Complex coding tasks need more iterations |
+| reviewer | 15 | Read-only analysis is usually quick |
+| assistant | global default | General purpose — inherits global |
+| title-generator | 5 | Single-shot title generation |
 
 ## Quick Reference: PHP 8.4 Features to Use
 

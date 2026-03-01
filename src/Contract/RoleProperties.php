@@ -26,6 +26,7 @@ final readonly class RoleProperties
         public ?string $model = null,
         public ?string $titleModel = null,
         public ?string $allowedTools = null,
+        public ?int $maxIterations = null,
     ) {}
 
     /**
@@ -46,6 +47,7 @@ final readonly class RoleProperties
             'editable' => $this->editable,
             'model' => $this->model,
             'title_model' => $this->titleModel,
+            'max_iterations' => $this->maxIterations,
         ];
     }
 }

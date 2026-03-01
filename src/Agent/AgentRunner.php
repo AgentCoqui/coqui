@@ -277,7 +277,7 @@ final class AgentRunner
             sessionId: $sessionId,
             observer: $observer,
             discovery: $this->discovery,
-            maxIterations: $maxIterations ?? 25,
+            maxIterations: $maxIterations ?? $this->roleResolver->resolveMaxIterations($role),
             executionPolicy: $executionPolicy,
             sanitizer: $sanitizer,
             onRestart: $onRestart,
@@ -287,7 +287,7 @@ final class AgentRunner
             cancellationToken: $cancellationToken,
             pendingInputProvider: $pendingInputProvider,
             backgroundTaskToolkit: ($enableBackgroundTasks && $this->backgroundTasksEnabled)
-                ? new BackgroundTaskToolkit($this->storage, $sessionId)
+                ? new BackgroundTaskToolkit($this->storage, $sessionId, $this->roleResolver)
                 : null,
         );
     }
