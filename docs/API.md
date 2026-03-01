@@ -349,6 +349,7 @@ Events are separated by a blank line. The stream ends when the `complete` event 
 |-------|-------------|------------|
 | `agent_start` | Agent turn has begun | `{}` |
 | `iteration` | Agent loop iteration | `{"number": 1}` |
+| `text_delta` | Streaming text token from LLM | `{"content": "token"}` |
 | `tool_call` | Agent is calling a tool | `{"id": "call_abc", "tool": "list_dir", "arguments": {"path": "."}}` |
 | `tool_result` | Tool execution completed | `{"content": "...", "success": true}` |
 | `child_start` | Child agent spawned | `{"role": "coder", "depth": 0}` |
@@ -393,6 +394,18 @@ data: {"content":"Agent/\nApi/\nCommand/\nConfig/\n","success":true}
 
 event: iteration
 data: {"number":2}
+
+event: text_delta
+data: {"content":"Here"}
+
+event: text_delta
+data: {"content":" are"}
+
+event: text_delta
+data: {"content":" the files..."}
+
+event: done
+data: {"content":"Here are the files..."}
 
 event: done
 data: {"content":"Here are the directories inside `src/`:\n\n- Agent/\n- Api/\n- Command/\n- Config/"}

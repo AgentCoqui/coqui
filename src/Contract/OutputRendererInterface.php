@@ -15,8 +15,11 @@ interface OutputRendererInterface
 {
     /**
      * Render a completed agent turn result.
+     *
+     * @param bool $contentStreamed  When true, content was already streamed
+     *                               via observer events — skip reprinting it.
      */
-    public function render(AgentTurnResult $result): void;
+    public function render(AgentTurnResult $result, bool $contentStreamed = false): void;
 
     /**
      * Render an error message outside of a turn context.

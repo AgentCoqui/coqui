@@ -57,6 +57,10 @@ final class SseObserver implements SplObserver
 
             'agent.tool_result' => $this->handleToolResult($data),
 
+            'agent.text_delta' => $this->writeEvent('text_delta', [
+                'content' => is_string($data) ? $data : '',
+            ]),
+
             'agent.done' => $this->handleDone($data),
 
             'agent.error' => $this->writeEvent('error', [

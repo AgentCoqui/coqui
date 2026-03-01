@@ -266,8 +266,13 @@ sequenceDiagram
         AgentRunner->>SseObserver: notify("agent.iteration")
         SseObserver-->>Client: event: iteration
 
-        AgentRunner->>LLM: Send conversation + tools
-        LLM-->>AgentRunner: Response (may include tool_calls)
+        AgentRunner->>LLM: Send conversation + tools (streaming)
+        loop Text Streaming
+            LLM-->>AgentRunner: Text delta
+            AgentRunner->>SseObserver: notify("agent.text_delta")
+            SseObserver-->>Client: event: text_delta
+        end
+        LLM-->>AgentRunner: Response complete (may include tool_calls)
 
         opt Tool Calls
             AgentRunner->>SseObserver: notify("agent.tool_call")
@@ -434,6 +439,15 @@ data: {"content":"Agent/\nApi/\nCommand/\nConfig/","success":true}
 
 event: iteration
 data: {"number":2}
+
+event: text_delta
+data: {"content":"Here"}
+
+event: text_delta
+data: {"content":" are the directories"}
+
+event: text_delta
+data: {"content":" inside src/:\n\n- Agent/\n- Api/\n- Command/\n- Config/"}
 
 event: done
 data: {"content":"Here are the directories inside src/:\n\n- Agent/\n- Api/\n- Command/\n- Config/"}
@@ -660,6 +674,7 @@ client.send_prompt(review_session, "Check for SQL injection vulnerabilities")
 |-------|------|-------------|
 | `agent_start` | Agent turn begins | `{}` |
 | `iteration` | Each agent loop cycle | `number` (1-based) |
+| `text_delta` | Streaming text token from LLM | `content` |
 | `tool_call` | Agent invokes a tool | `id`, `tool`, `arguments` |
 | `tool_result` | Tool returns a result | `content`, `success` |
 | `child_start` | Child agent spawned | `role`, `depth` |
