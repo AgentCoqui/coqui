@@ -246,9 +246,7 @@ final class RunCommand extends Command
 
             // Render output
             $renderer = new TerminalRenderer($io);
-            $renderer->render($result);
-
-            // Check if agent requested a restart via RestartTool
+        $renderer->render($result, contentStreamed: true);
             if ($result->restartRequested) {
                 $io->info('Restart requested by agent. Restarting...');
                 return self::RESTART_EXIT_CODE;

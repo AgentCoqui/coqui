@@ -45,6 +45,7 @@ final class BackgroundTaskObserver implements SplObserver
         $eventData = match ($event) {
             'agent.start' => [],
             'agent.iteration' => ['number' => $data],
+            'agent.text_delta' => ['content' => is_string($data) ? $data : ''],
             'agent.tool_call' => $this->formatToolCall($data),
             'agent.tool_result' => $this->formatToolResult($data),
             'agent.done' => $this->formatDone($data),
@@ -62,6 +63,7 @@ final class BackgroundTaskObserver implements SplObserver
         $eventType = match ($event) {
             'agent.start' => 'agent_start',
             'agent.iteration' => 'iteration',
+            'agent.text_delta' => 'text_delta',
             'agent.tool_call' => 'tool_call',
             'agent.tool_result' => 'tool_result',
             'agent.done' => 'done',

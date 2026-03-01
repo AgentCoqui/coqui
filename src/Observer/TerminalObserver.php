@@ -20,6 +20,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 final class TerminalObserver implements SplObserver
 {
     private int $indentLevel = 0;
+    private bool $hasStreamedText = false;
 
     public function __construct(
         private readonly OutputInterface $output,
@@ -48,9 +49,14 @@ final class TerminalObserver implements SplObserver
         $indent = str_repeat('  ', $this->indentLevel);
 
         match ($event) {
-            'agent.start' => $this->output->writeln("{$indent}<fg=cyan>▶ Agent started</>"),
+            'agent.start' => (function () use ($indent): void {
+                $this->hasStreamedText = false;
+                $this->output->writeln("{$indent}<fg=cyan>▶ Agent started</>");
+            })(),
 
-            'agent.iteration' => $this->output->writeln("{$indent}<fg=gray>  ⟳ Iteration {$data}</>"  ),
+            'agent.iteration' => $this->output->writeln("{$indent}<fg=gray>  ⟳ Iteration {$data}</>"),
+
+            'agent.text_delta' => $this->handleTextDelta($data),
 
             'agent.tool_call' => $this->handleToolCall($data, $indent),
 
@@ -72,6 +78,13 @@ final class TerminalObserver implements SplObserver
     {
         if (!$data instanceof ToolCall) {
             return;
+        }
+
+        // If text was being streamed, add a newline to separate
+        // the streamed content from the tool call display.
+        if ($this->hasStreamedText) {
+            $this->output->writeln('');
+            $this->hasStreamedText = false;
         }
 
         $args = $this->formatArguments($data->arguments);
@@ -98,8 +111,24 @@ final class TerminalObserver implements SplObserver
         $this->output->writeln("{$indent}    <fg={$color}>{$icon}</> <fg=gray>{$content}</>");
     }
 
+    private function handleTextDelta(mixed $data): void
+    {
+        if (!is_string($data) || $data === '') {
+            return;
+        }
+
+        $this->hasStreamedText = true;
+        $this->output->write($data);
+    }
+
     private function handleDone(mixed $data, string $indent): void
     {
+        if ($this->hasStreamedText) {
+            $this->output->writeln('');
+            $this->hasStreamedText = false;
+            return;
+        }
+
         if (is_array($data) && isset($data['response'])) {
             $preview = substr((string) $data['response'], 0, 50);
             if (strlen((string) $data['response']) > 50) {

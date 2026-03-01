@@ -45,6 +45,10 @@ final readonly class AgentTurnResult
             $parts[] = "Tokens: {$this->totalTokens}";
         }
 
+        if (!empty($this->toolsUsed)) {
+            $parts[] = 'Tools: ' . implode(', ', $this->toolsUsed);
+        }
+
         if ($this->durationMs > 0) {
             $seconds = round($this->durationMs / 1000, 1);
             $parts[] = "Duration: {$seconds}s";

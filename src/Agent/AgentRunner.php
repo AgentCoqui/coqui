@@ -195,7 +195,7 @@ final class AgentRunner
 
             // Complete turn with metadata
             $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
-            $toolsUsed = $this->extractToolsUsed($output->conversation);
+            $toolsUsed = $this->extractToolsUsed($output->conversation, $history->count());
             $childAgentCount = $agent->getSpawnTool()->getChildRunCount();
 
             $this->storage->completeTurn(
@@ -435,22 +435,32 @@ final class AgentRunner
     }
 
     /**
-     * Extract unique tool names from the conversation's tool calls.
+     * Extract unique tool names from tool calls made during this turn only.
+     *
+     * Uses the same offset formula as persistTurnMessages() to skip
+     * history messages and only scan new assistant messages.
      *
      * @return string[]
      */
-    private function extractToolsUsed(?Conversation $conversation): array
+    private function extractToolsUsed(?Conversation $conversation, int $historyCount = 0): array
     {
         if ($conversation === null) {
             return [];
         }
 
         $tools = [];
+        $messages = $conversation->messages();
 
-        foreach ($conversation->messages() as $msg) {
+        // Offset: 1 (system prompt) + historyCount (prior messages) + 1 (user input)
+        $newMessageStart = 1 + $historyCount + 1;
+
+        for ($i = $newMessageStart; $i < count($messages); $i++) {
+            $msg = $messages[$i];
             if ($msg->role() === Role::Assistant && !empty($msg->toolCalls())) {
                 foreach ($msg->toolCalls() as $tc) {
-                    $tools[$tc->name] = true;
+                    if ($tc->name !== 'done') {
+                        $tools[$tc->name] = true;
+                    }
                 }
             }
         }

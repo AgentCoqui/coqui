@@ -15,7 +15,7 @@ use CoquiBot\Coqui\Contract\OutputRendererInterface;
  */
 final class NullRenderer implements OutputRendererInterface
 {
-    public function render(AgentTurnResult $result): void
+    public function render(AgentTurnResult $result, bool $contentStreamed = false): void
     {
         // Intentionally empty — output handled elsewhere.
     }
