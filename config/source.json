@@ -16,7 +16,7 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, restart_coqui). ComposerTool and PackagistTool have been extracted to separate toolkit packages (coqui-toolkit-composer, coqui-toolkit-packagist) and are now auto-discovered. Contains the master system prompt in instructions(). Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, restart_coqui). Memory is now SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string \u2014 returns the full system prompt with role descriptions, security rules, and operational guidelines",
                 "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, restart_coqui)",
@@ -708,6 +708,45 @@
             ]
         },
         {
+            "path": "src/Memory/MemoryStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Memory\\MemoryStore",
+            "layer": "storage",
+            "description": "SQLite-backed memory store with FTS5 full-text search and optional vector embeddings. Stores memories in .workspace/data/memory.db with area classification (preferences, facts, solutions, context) and tag-based organization. Hybrid search combines cosine similarity (when embedding provider available) with FTS5 keyword matching and LIKE fallback. Supports full CRUD, bulk import for migration, and core summary generation grouped by area.",
+            "methods": [
+                "save(string $content, string $area, array $tags): string — saves memory with optional embedding, returns ID",
+                "search(string $query, int $limit): array — hybrid vector+FTS5 search with LIKE fallback",
+                "update(string $id, ?string $content, ?string $area, ?array $tags): bool — updates memory fields, rebuilds FTS index and re-embeds",
+                "delete(string $id): bool — deletes memory, embedding, and FTS entry",
+                "getById(string $id): ?MemoryEntry — retrieves single memory by ID",
+                "listAll(int $limit, int $offset, ?string $area, ?array $tags): array — filtered listing with pagination",
+                "listByTags(array $tags, int $limit): array — finds memories containing ALL specified tags",
+                "count(): int — total memory count",
+                "getCoreSummary(): string — formatted summary grouped by area for system prompt injection",
+                "importLegacyEntries(array $entries): int — bulk import from migration",
+                "hasVectorSearch(): bool — whether embedding provider is available"
+            ]
+        },
+        {
+            "path": "src/Memory/MemorySummarizer.php",
+            "fqcn": "CoquiBot\\Coqui\\Memory\\MemorySummarizer",
+            "layer": "storage",
+            "description": "Generates compressed memory summaries for system prompt injection. Caches summaries in a memory_summary SQLite table, invalidating when memory count changes. Optionally compresses via LLM provider for concise summaries within ~500 token budget. Falls back to raw MemoryStore::getCoreSummary() when no provider is available.",
+            "methods": [
+                "getSummary(): ?string — returns cached or freshly generated summary, null if no memories exist",
+                "invalidate(): void — forces summary regeneration on next call"
+            ]
+        },
+        {
+            "path": "src/Toolkit/MemoryToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\MemoryToolkit",
+            "layer": "toolkit",
+            "description": "Agent-facing memory toolkit providing 6 tools: memory_save (with area enum and tags), memory_search (hybrid vector+FTS5), memory_update (by ID), memory_delete (by ID), memory_forget (bulk by query), memory_list (filtered by area/tags). Replaces php-agents' simpler 3-tool MemoryToolkit. Guidelines include dynamic memory count and vector search status.",
+            "methods": [
+                "tools(): array — returns 6 Tool instances for full CRUD memory operations",
+                "guidelines(): string — dynamic guidelines with memory count and vector search availability"
+            ]
+        },
+        {
             "path": "src/Agent/TitleGenerator.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\TitleGenerator",
             "layer": "agent",
@@ -921,7 +960,7 @@
                 },
                 {
                     "path": "src/Toolkit/MemoryToolkit.php",
-                    "description": "Persistent key-value memory (memory_save, memory_load, memory_forget) backed by FileMemory"
+                    "description": "Persistent key-value memory (memory_save, memory_load, memory_forget) backed by FileMemory — superseded by Coqui's SQLite-backed MemoryToolkit"
                 },
                 {
                     "path": "src/Provider/ProviderFactory.php",

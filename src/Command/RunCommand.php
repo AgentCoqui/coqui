@@ -129,6 +129,8 @@ final class RunCommand extends Command
             roleDiscovery: $this->boot->roleDiscovery(),
             unsafeMode: $this->unsafeMode,
             backgroundTasksEnabled: true,
+            memoryStore: $this->boot->memoryStore(),
+            memorySummarizer: $this->boot->memorySummarizer(),
         );
 
         // Handle session
@@ -750,6 +752,8 @@ final class RunCommand extends Command
             skillDiscovery: $this->boot->skillDiscovery(),
             roleDiscovery: $this->boot->roleDiscovery(),
             unsafeMode: $this->unsafeMode,
+            memoryStore: $this->boot->memoryStore(),
+            memorySummarizer: $this->boot->memorySummarizer(),
         );
 
         // Handle session

@@ -128,6 +128,8 @@ final class TaskRunCommand extends Command
             skillDiscovery: $boot->skillDiscovery(),
             roleDiscovery: $boot->roleDiscovery(),
             unsafeMode: $unsafeMode,
+            memoryStore: $boot->memoryStore(),
+            memorySummarizer: $boot->memorySummarizer(),
         );
 
         // Create execution policy (auto-approve — no human in the loop)

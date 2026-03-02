@@ -21,6 +21,8 @@ use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Memory\MemoryStore;
+use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
@@ -48,6 +50,8 @@ final class AgentRunner
         private readonly bool $unsafeMode = false,
         private readonly ?ProviderFactory $providerFactory = null,
         private readonly bool $backgroundTasksEnabled = false,
+        private readonly ?MemoryStore $memoryStore = null,
+        private readonly ?MemorySummarizer $memorySummarizer = null,
     ) {}
 
     /**
@@ -289,6 +293,8 @@ final class AgentRunner
             backgroundTaskToolkit: ($enableBackgroundTasks && $this->backgroundTasksEnabled)
                 ? new BackgroundTaskToolkit($this->storage, $sessionId, $this->roleResolver)
                 : null,
+            memoryStore: $this->memoryStore,
+            memorySummarizer: $this->memorySummarizer,
         );
     }
 

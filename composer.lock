@@ -4,21 +4,15 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "3d9d23323c0d6ee4928c700a318ff0ca",
+    "content-hash": "ae342ac1dfdff414b1cd185a362726bc",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
             "version": "0.6.1",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "1585902b052c546babbee8a2d400e86f4d618763"
-            },
             "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/1585902b052c546babbee8a2d400e86f4d618763",
-                "reference": "1585902b052c546babbee8a2d400e86f4d618763",
-                "shasum": ""
+                "type": "path",
+                "url": "../php-agents",
+                "reference": "31e9c539177f97047d40fc56465e14519b21d3f8"
             },
             "require": {
                 "php": "^8.4",
@@ -48,7 +42,19 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "autoload-dev": {
+                "psr-4": {
+                    "Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "pest"
+                ],
+                "analyse": [
+                    "phpstan analyse"
+                ]
+            },
             "license": [
                 "MIT"
             ],
@@ -65,25 +71,18 @@
                 "php-agents",
                 "tools"
             ],
-            "support": {
-                "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.6.1"
-            },
-            "time": "2026-02-22T20:12:22+00:00"
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "coquibot/coqui-toolkit-composer",
             "version": "0.1.1",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/carmelosantana/coqui-toolkit-composer.git",
-                "reference": "c751f678cfc69736e1d7d219db4823e56377f9a2"
-            },
             "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-composer/zipball/c751f678cfc69736e1d7d219db4823e56377f9a2",
-                "reference": "c751f678cfc69736e1d7d219db4823e56377f9a2",
-                "shasum": ""
+                "type": "path",
+                "url": "../../Toolkits/coqui-toolkit-composer",
+                "reference": "c751f678cfc69736e1d7d219db4823e56377f9a2"
             },
             "require": {
                 "carmelosantana/php-agents": "^0.6",
@@ -108,7 +107,19 @@
                     "CoquiBot\\Toolkits\\Composer\\": "src/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "autoload-dev": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\Composer\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "pest"
+                ],
+                "analyse": [
+                    "phpstan analyse"
+                ]
+            },
             "license": [
                 "MIT"
             ],
@@ -125,28 +136,21 @@
                 "php-agents",
                 "toolkit"
             ],
-            "support": {
-                "issues": "https://github.com/carmelosantana/coqui-toolkit-composer/issues",
-                "source": "https://github.com/carmelosantana/coqui-toolkit-composer/tree/v0.1.1"
-            },
-            "time": "2026-02-22T00:07:02+00:00"
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "coquibot/coqui-toolkit-packagist",
-            "version": "0.1.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/carmelosantana/coqui-toolkit-packagist.git",
-                "reference": "2572d28b17c3367554dedc6e7831824cde52036b"
-            },
+            "version": "0.1.1",
             "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-packagist/zipball/2572d28b17c3367554dedc6e7831824cde52036b",
-                "reference": "2572d28b17c3367554dedc6e7831824cde52036b",
-                "shasum": ""
+                "type": "path",
+                "url": "../../Toolkits/coqui-toolkit-packagist",
+                "reference": "9714bd9baf6bdf65eabbbd056ae303de192c173f"
             },
             "require": {
-                "carmelosantana/php-agents": "^0.4 || @dev",
+                "carmelosantana/php-agents": "^0.6",
                 "ext-json": "*",
                 "php": "^8.4",
                 "symfony/http-client": "^7.0"
@@ -169,7 +173,19 @@
                     "CoquiBot\\Toolkits\\Packagist\\": "src/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "autoload-dev": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\Packagist\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "pest"
+                ],
+                "analyse": [
+                    "phpstan analyse"
+                ]
+            },
             "license": [
                 "MIT"
             ],
@@ -186,11 +202,10 @@
                 "php-agents",
                 "toolkit"
             ],
-            "support": {
-                "issues": "https://github.com/carmelosantana/coqui-toolkit-packagist/issues",
-                "source": "https://github.com/carmelosantana/coqui-toolkit-packagist/tree/v0.1.0"
-            },
-            "time": "2026-02-19T05:04:57+00:00"
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "evenement/evenement",
@@ -995,16 +1010,16 @@
         },
         {
             "name": "symfony/console",
-            "version": "v7.4.4",
+            "version": "v7.4.6",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/console.git",
-                "reference": "41e38717ac1dd7a46b6bda7d6a82af2d98a78894"
+                "reference": "6d643a93b47398599124022eb24d97c153c12f27"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/console/zipball/41e38717ac1dd7a46b6bda7d6a82af2d98a78894",
-                "reference": "41e38717ac1dd7a46b6bda7d6a82af2d98a78894",
+                "url": "https://api.github.com/repos/symfony/console/zipball/6d643a93b47398599124022eb24d97c153c12f27",
+                "reference": "6d643a93b47398599124022eb24d97c153c12f27",
                 "shasum": ""
             },
             "require": {
@@ -1069,7 +1084,7 @@
                 "terminal"
             ],
             "support": {
-                "source": "https://github.com/symfony/console/tree/v7.4.4"
+                "source": "https://github.com/symfony/console/tree/v7.4.6"
             },
             "funding": [
                 {
@@ -1089,7 +1104,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-01-13T11:36:38+00:00"
+            "time": "2026-02-25T17:02:47+00:00"
         },
         {
             "name": "symfony/deprecation-contracts",
@@ -1160,16 +1175,16 @@
         },
         {
             "name": "symfony/http-client",
-            "version": "v7.4.5",
+            "version": "v7.4.6",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/http-client.git",
-                "reference": "84bb634857a893cc146cceb467e31b3f02c5fe9f"
+                "reference": "2bde8afd5ab2fe0b05a9c2d4c3c0e28ceb98a154"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/http-client/zipball/84bb634857a893cc146cceb467e31b3f02c5fe9f",
-                "reference": "84bb634857a893cc146cceb467e31b3f02c5fe9f",
+                "url": "https://api.github.com/repos/symfony/http-client/zipball/2bde8afd5ab2fe0b05a9c2d4c3c0e28ceb98a154",
+                "reference": "2bde8afd5ab2fe0b05a9c2d4c3c0e28ceb98a154",
                 "shasum": ""
             },
             "require": {
@@ -1237,7 +1252,7 @@
                 "http"
             ],
             "support": {
-                "source": "https://github.com/symfony/http-client/tree/v7.4.5"
+                "source": "https://github.com/symfony/http-client/tree/v7.4.6"
             },
             "funding": [
                 {
@@ -1257,7 +1272,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-01-27T16:16:02+00:00"
+            "time": "2026-02-18T09:46:18+00:00"
         },
         {
             "name": "symfony/http-client-contracts",
@@ -1841,16 +1856,16 @@
         },
         {
             "name": "symfony/string",
-            "version": "v8.0.4",
+            "version": "v8.0.6",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/string.git",
-                "reference": "758b372d6882506821ed666032e43020c4f57194"
+                "reference": "6c9e1108041b5dce21a9a4984b531c4923aa9ec4"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/string/zipball/758b372d6882506821ed666032e43020c4f57194",
-                "reference": "758b372d6882506821ed666032e43020c4f57194",
+                "url": "https://api.github.com/repos/symfony/string/zipball/6c9e1108041b5dce21a9a4984b531c4923aa9ec4",
+                "reference": "6c9e1108041b5dce21a9a4984b531c4923aa9ec4",
                 "shasum": ""
             },
             "require": {
@@ -1907,7 +1922,7 @@
                 "utf8"
             ],
             "support": {
-                "source": "https://github.com/symfony/string/tree/v8.0.4"
+                "source": "https://github.com/symfony/string/tree/v8.0.6"
             },
             "funding": [
                 {
@@ -1927,7 +1942,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-01-12T12:37:40+00:00"
+            "time": "2026-02-09T10:14:57+00:00"
         }
     ],
     "packages-dev": [
@@ -3232,11 +3247,11 @@
         },
         {
             "name": "phpstan/phpstan",
-            "version": "2.1.39",
+            "version": "2.1.40",
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/c6f73a2af4cbcd99c931d0fb8f08548cc0fa8224",
-                "reference": "c6f73a2af4cbcd99c931d0fb8f08548cc0fa8224",
+                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/9b2c7aeb83a75d8680ea5e7c9b7fca88052b766b",
+                "reference": "9b2c7aeb83a75d8680ea5e7c9b7fca88052b766b",
                 "shasum": ""
             },
             "require": {
@@ -3281,7 +3296,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-02-11T14:48:56+00:00"
+            "time": "2026-02-23T15:04:35+00:00"
         },
         {
             "name": "phpunit/php-code-coverage",
@@ -4830,16 +4845,16 @@
         },
         {
             "name": "symfony/finder",
-            "version": "v8.0.5",
+            "version": "v8.0.6",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/finder.git",
-                "reference": "8bd576e97c67d45941365bf824e18dc8538e6eb0"
+                "reference": "441404f09a54de6d1bd6ad219e088cdf4c91f97c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/finder/zipball/8bd576e97c67d45941365bf824e18dc8538e6eb0",
-                "reference": "8bd576e97c67d45941365bf824e18dc8538e6eb0",
+                "url": "https://api.github.com/repos/symfony/finder/zipball/441404f09a54de6d1bd6ad219e088cdf4c91f97c",
+                "reference": "441404f09a54de6d1bd6ad219e088cdf4c91f97c",
                 "shasum": ""
             },
             "require": {
@@ -4874,7 +4889,7 @@
             "description": "Finds files and directories via an intuitive fluent interface",
             "homepage": "https://symfony.com",
             "support": {
-                "source": "https://github.com/symfony/finder/tree/v8.0.5"
+                "source": "https://github.com/symfony/finder/tree/v8.0.6"
             },
             "funding": [
                 {
@@ -4894,7 +4909,7 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-01-26T15:08:38+00:00"
+            "time": "2026-01-29T09:41:02+00:00"
         },
         {
             "name": "symfony/process",
@@ -5072,16 +5087,16 @@
         },
         {
             "name": "webmozart/assert",
-            "version": "2.1.5",
+            "version": "2.1.6",
             "source": {
                 "type": "git",
                 "url": "https://github.com/webmozarts/assert.git",
-                "reference": "79155f94852fa27e2f73b459f6503f5e87e2c188"
+                "reference": "ff31ad6efc62e66e518fbab1cde3453d389bcdc8"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/webmozarts/assert/zipball/79155f94852fa27e2f73b459f6503f5e87e2c188",
-                "reference": "79155f94852fa27e2f73b459f6503f5e87e2c188",
+                "url": "https://api.github.com/repos/webmozarts/assert/zipball/ff31ad6efc62e66e518fbab1cde3453d389bcdc8",
+                "reference": "ff31ad6efc62e66e518fbab1cde3453d389bcdc8",
                 "shasum": ""
             },
             "require": {
@@ -5128,14 +5143,18 @@
             ],
             "support": {
                 "issues": "https://github.com/webmozarts/assert/issues",
-                "source": "https://github.com/webmozarts/assert/tree/2.1.5"
+                "source": "https://github.com/webmozarts/assert/tree/2.1.6"
             },
-            "time": "2026-02-18T14:09:36+00:00"
+            "time": "2026-02-27T10:28:38+00:00"
         }
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {},
+    "stability-flags": {
+        "carmelosantana/php-agents": 20,
+        "coquibot/coqui-toolkit-composer": 20,
+        "coquibot/coqui-toolkit-packagist": 20
+    },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
