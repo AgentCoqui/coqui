@@ -57,6 +57,63 @@ The `CredentialGuardTool` handles the missing-credential UX — your toolkit doe
 
 
 
+## Memory System Architecture
+
+Coqui provides a persistent, cross-session memory system backed by SQLite. The system supports full CRUD operations, hybrid search (FTS5 full-text + optional vector embeddings), area-based organization, and automatic core memory injection into the agent's system prompt.
+
+### How It Works
+
+1. **`MemoryStore`** is the core storage engine. It manages a dedicated SQLite database at `.workspace/data/memory.db` with FTS5 virtual tables for keyword search and an optional `memory_embeddings` table for vector similarity search.
+2. **`MemorySummarizer`** generates a compressed summary of core memories, cached in a `memory_summary` table. The summary is invalidated when the memory count changes. Optionally uses an LLM provider for compression.
+3. **`MemoryToolkit`** (in Coqui, not php-agents) exposes 6 tools to the agent: `memory_save`, `memory_search`, `memory_update`, `memory_delete`, `memory_forget`, `memory_list`.
+4. **At boot**, `BootManager::initializeMemory()` creates the `MemoryStore`, resolves an optional embedding provider, and creates the `MemorySummarizer`.
+5. **In the system prompt**, `OrchestratorAgent::instructions()` appends the core memory summary (from `MemorySummarizer`) as a `# CORE MEMORIES` section. This gives the agent ambient awareness of what it knows about the user.
+
+### Search Strategy
+
+Search uses a 3-tier fallback:
+
+1. **Vector search** (if embedding provider available) — cosine similarity on stored embeddings, merged with FTS5 results.
+2. **FTS5 full-text search** — Porter-tokenized keyword matching via SQLite FTS5.
+3. **LIKE fallback** — simple substring matching when FTS5 returns no results.
+
+### Embedding Provider Resolution
+
+Resolved at boot time via `BootManager::resolveEmbeddingProvider()`:
+
+1. Explicit config: `agents.defaults.memory.embeddingModel` in `openclaw.json` (e.g. `ollama/nomic-embed-text` or `openai/text-embedding-3-small`).
+2. Auto-detect: If an `OPENAI_API_KEY` is set, uses `text-embedding-3-small` automatically.
+3. Fallback: No provider — FTS5-only mode. Fully functional, just no semantic search.
+
+### Memory Organization
+
+Memories are classified by **area** (`preferences`, `facts`, `solutions`, `context`) and optionally tagged with free-form **tags** (stored as comma-separated strings). The core summary groups memories by area for structured system prompt injection.
+
+### Key Source Files
+
+| File | Purpose |
+|------|---------|
+| `src/Memory/MemoryStore.php` | SQLite + FTS5 + optional vector storage — full CRUD |
+| `src/Memory/MemorySummarizer.php` | Cached summary generation for system prompt injection |
+| `src/Toolkit/MemoryToolkit.php` | 6 agent-facing tools (save, search, update, delete, forget, list) |
+
+### Configuration
+
+No explicit configuration is required. The memory system initializes automatically on boot. Optional settings in `openclaw.json`:
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "memory": {
+                "embeddingModel": "ollama/nomic-embed-text"
+            }
+        }
+    }
+}
+```
+
+
 ## Language & Runtime
 
 - **PHP 8.4** — use all modern features including readonly properties, enums, fibers, typed class constants, intersection types, `#[\Override]`, DNF types, property hooks, asymmetric visibility.
@@ -412,6 +469,12 @@ Setting `max_iterations: 0` means "run until the task is done" — the agent loo
 | reviewer | 15 | Read-only analysis is usually quick |
 | assistant | global default | General purpose — inherits global |
 | title-generator | 5 | Single-shot title generation |
+
+#### Iteration Budget Awareness
+
+Agents are automatically informed of their iteration budget via the system prompt. `SystemPrompt::withIterationBudget()` injects an `# ITERATION BUDGET` section between `# TOOLS` and `# TOOL USAGE RULES` that tells the agent how many iterations it has, what an iteration represents, and how to manage resources wisely (batch tool calls, prioritize impactful actions, prepare continuation questions when nearing the limit).
+
+When `max_iterations` is `0` (unlimited), the budget section is omitted entirely — the agent receives no iteration constraint messaging.
 
 ## Quick Reference: PHP 8.4 Features to Use
 

@@ -133,6 +133,8 @@ final class ApiCommand extends Command
             roleDiscovery: $boot->roleDiscovery(),
             unsafeMode: $unsafeMode,
             backgroundTasksEnabled: true,
+            memoryStore: $boot->memoryStore(),
+            memorySummarizer: $boot->memorySummarizer(),
         );
 
         // Create title generator

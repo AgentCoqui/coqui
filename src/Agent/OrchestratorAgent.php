@@ -12,9 +12,7 @@ use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
-use CarmeloSantana\PHPAgents\Memory\FileMemory;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
-use CarmeloSantana\PHPAgents\Toolkit\MemoryToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Config\RoleDiscovery;
@@ -22,9 +20,12 @@ use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Memory\MemoryStore;
+use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
+use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
@@ -73,6 +74,8 @@ final class OrchestratorAgent extends AbstractAgent
         ?CancellationTokenInterface $cancellationToken = null,
         ?PendingInputProviderInterface $pendingInputProvider = null,
         ?BackgroundTaskToolkit $backgroundTaskToolkit = null,
+        private readonly ?MemoryStore $memoryStore = null,
+        private readonly ?MemorySummarizer $memorySummarizer = null,
     ) {
         parent::__construct($provider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider);
 
@@ -90,10 +93,10 @@ final class OrchestratorAgent extends AbstractAgent
             timeout: 60,
         ));
 
-        // Memory toolkit — persisted inside workspace
-        $memoryPath = $this->workspacePath . '/MEMORY.md';
-        $memory = new FileMemory($memoryPath);
-        $this->addToolkit(new MemoryToolkit($memory));
+        // Memory toolkit — SQLite-backed with optional vector search
+        if ($this->memoryStore !== null) {
+            $this->addToolkit(new MemoryToolkit($this->memoryStore));
+        }
 
         // Project source toolkit — read-only access to the Coqui project codebase
         $this->addToolkit(new ProjectSourceToolkit(projectRoot: $this->projectRoot));
@@ -165,7 +168,15 @@ final class OrchestratorAgent extends AbstractAgent
             availableSkills: $skillsSummary,
         );
 
-        return $prompt->render();
+        $rendered = $prompt->render();
+
+        // Inject core memory summary if available
+        $memorySummary = $this->memorySummarizer?->getSummary();
+        if ($memorySummary !== null && $memorySummary !== '') {
+            $rendered .= "\n\n# CORE MEMORIES\n\n" . $memorySummary;
+        }
+
+        return $rendered;
     }
 
     /**

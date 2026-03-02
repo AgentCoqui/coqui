@@ -5,6 +5,12 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
+use CarmeloSantana\PHPAgents\Contract\EmbeddingProviderInterface;
+use CarmeloSantana\PHPAgents\Embedding\OllamaEmbeddingProvider;
+use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
+
+use CoquiBot\Coqui\Memory\MemoryStore;
+use CoquiBot\Coqui\Memory\MemorySummarizer;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -25,6 +31,8 @@ final class BootManager
     private RoleResolver $roleResolver;
     private CatastrophicBlacklist $blacklist;
     private DefaultsLoader $defaultsLoader;
+    private MemoryStore $memoryStore;
+    private MemorySummarizer $memorySummarizer;
 
     public function __construct(
         private readonly string $workDir,
@@ -48,6 +56,7 @@ final class BootManager
         $this->discoverRoles();
         $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
         $this->initializeCredentials();
+        $this->initializeMemory();
         $this->discoverToolkits($io);
         $this->discoverSkills();
 
@@ -97,6 +106,16 @@ final class BootManager
     public function roleDiscovery(): RoleDiscovery
     {
         return $this->roleDiscovery;
+    }
+
+    public function memoryStore(): MemoryStore
+    {
+        return $this->memoryStore;
+    }
+
+    public function memorySummarizer(): MemorySummarizer
+    {
+        return $this->memorySummarizer;
     }
 
     /**
@@ -172,6 +191,63 @@ final class BootManager
     {
         $this->roleDiscovery = new RoleDiscovery($this->workspacePath, $this->workDir);
         $this->roleDiscovery->seedBuiltinRoles();
+    }
+
+    private function initializeMemory(): void
+    {
+        $dbPath = $this->workspacePath . '/data/memory.db';
+        $embeddingProvider = $this->resolveEmbeddingProvider();
+
+        $this->memoryStore = new MemoryStore($dbPath, $embeddingProvider);
+        $this->memorySummarizer = new MemorySummarizer($this->memoryStore);
+    }
+
+    /**
+     * Resolve the embedding provider from config and available credentials.
+     *
+     * Priority: explicit config > OpenAI key detected > Ollama available > null (FTS5 only).
+     */
+    private function resolveEmbeddingProvider(): ?EmbeddingProviderInterface
+    {
+        $embeddingModel = $this->config->get('agents.defaults.memory.embeddingModel');
+
+        // Explicit config: "ollama/nomic-embed-text" or "openai/text-embedding-3-small"
+        if (is_string($embeddingModel) && $embeddingModel !== '') {
+            $parts = explode('/', $embeddingModel, 2);
+            $provider = $parts[0] ?? '';
+            $model = $parts[1] ?? $embeddingModel;
+
+            if ($provider === 'openai') {
+                $apiKey = $this->credentialResolver->get('OPENAI_API_KEY') ?? '';
+                if ($apiKey !== '') {
+                    return new OpenAIEmbeddingProvider(modelName: $model, apiKey: $apiKey);
+                }
+            }
+
+            if ($provider === 'ollama') {
+                $baseUrl = $this->credentialResolver->get('OLLAMA_HOST') ?? 'http://localhost:11434';
+                return new OllamaEmbeddingProvider(modelName: $model, baseUrl: $baseUrl);
+            }
+        }
+
+        // Auto-detect: try Ollama first (free, local), then OpenAI
+        $ollamaHost = $this->credentialResolver->get('OLLAMA_HOST') ?? 'http://localhost:11434';
+        $openaiKey = $this->credentialResolver->get('OPENAI_API_KEY') ?? '';
+
+        // Check if memory is explicitly disabled
+        $memoryEnabled = $this->config->get('agents.defaults.memory.enabled');
+        if ($memoryEnabled === false) {
+            return null;
+        }
+
+        // Default to Ollama if available (non-blocking check skipped — let it fail gracefully)
+        // Only auto-enable embeddings if a key or host is explicitly set
+        if ($openaiKey !== '') {
+            return new OpenAIEmbeddingProvider(apiKey: $openaiKey);
+        }
+
+        // Return null — FTS5 keyword search is the baseline
+        return null;
     }
 
     private function discoverSkills(): void
