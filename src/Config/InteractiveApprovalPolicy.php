@@ -11,24 +11,34 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 /**
  * Gates tool execution by prompting the user for confirmation.
  *
- * Configured with a map of tool names to actions (or `['*']` for all actions)
- * that require interactive approval before the agent can proceed.
+ * Configured with a map of tool names to gating rules that determine which
+ * invocations require interactive approval before the agent can proceed.
+ *
+ * Rules can be:
+ *   - `['*']` — gate every invocation of the tool
+ *   - `['action_name']` — gate when `action`/`command` argument matches
+ *   - `[{'arg': value}]` — gate when a specific argument has a specific value
+ *   - `[{'arg': '*'}]` — gate when a specific argument is present and truthy
  *
  * Catastrophic commands are blocked outright — the user is never prompted.
  * All decisions (approved, denied, blocked) are logged to the audit_log table.
  *
  * Example:
  *   new InteractiveApprovalPolicy($io, [
- *       'composer' => ['require', 'remove', 'update'],
- *       'exec'     => ['*'],
- *       'php_execute' => ['*'],
+ *       'composer'     => ['require', 'remove', 'update'],
+ *       'exec'         => ['*'],
+ *       'git_push'     => ['*'],
+ *       'git_commit'   => [['amend' => true]],
+ *       'git_checkout' => [['files' => '*']],
  *   ]);
  */
 final class InteractiveApprovalPolicy implements ToolExecutionPolicyInterface
 {
     /**
-     * @param array<string, string[]> $gatedTools Tool name => list of actions requiring approval.
-     *                                             Use ['*'] to gate all invocations of a tool.
+     * @param array<string, list<mixed>> $gatedTools Tool name => list of gating rules.
+     *                                                Use ['*'] to gate all invocations.
+     *                                                Use string values to match action/command arg.
+     *                                                Use associative arrays for argument predicates.
      */
     public function __construct(
         private readonly SymfonyStyle $io,
@@ -82,22 +92,93 @@ final class InteractiveApprovalPolicy implements ToolExecutionPolicyInterface
             return false;
         }
 
-        $gatedActions = $this->gatedTools[$toolName];
+        $rules = $this->gatedTools[$toolName];
 
         // Wildcard — gate every invocation
-        if ($gatedActions === ['*']) {
+        if ($rules === ['*']) {
             return true;
         }
 
-        // Check if the specific action is gated
-        $action = $arguments['action'] ?? $arguments['command'] ?? null;
+        foreach ($rules as $rule) {
+            // String rule — match against `action` or `command` argument value
+            if (is_string($rule)) {
+                $action = $arguments['action'] ?? $arguments['command'] ?? null;
 
-        if ($action === null) {
-            // No action field — gate by default if the tool is listed
-            return true;
+                if ($action === null) {
+                    // No action field — gate by default if the tool is listed
+                    return true;
+                }
+
+                if ((string) $action === $rule) {
+                    return true;
+                }
+
+                continue;
+            }
+
+            // Associative array rule — predicate matching on argument values
+            // e.g. ['amend' => true], ['force' => true], ['files' => '*']
+            if (is_array($rule)) {
+                if ($this->matchesPredicate($rule, $arguments)) {
+                    return true;
+                }
+            }
         }
 
-        return in_array((string) $action, $gatedActions, true);
+        return false;
+    }
+
+    /**
+     * Check if tool arguments match a predicate rule.
+     *
+     * Predicate rules are associative arrays where each key is an argument
+     * name and each value is the expected value:
+     *   - `'*'` — matches when the argument is present and truthy
+     *   - `true`/`false` — matches when the argument is the exact boolean value
+     *   - A string — matches when the argument is that exact string value
+     *
+     * All predicates in the rule must match (AND semantics).
+     *
+     * @param array<string, mixed> $predicate
+     * @param array<string, mixed> $arguments
+     */
+    private function matchesPredicate(array $predicate, array $arguments): bool
+    {
+        foreach ($predicate as $argName => $expectedValue) {
+            $actualValue = $arguments[$argName] ?? null;
+
+            // Wildcard: gate when argument is present and truthy
+            if ($expectedValue === '*') {
+                if (empty($actualValue)) {
+                    return false;
+                }
+
+                continue;
+            }
+
+            // Boolean match
+            if (is_bool($expectedValue)) {
+                if ((bool) $actualValue !== $expectedValue) {
+                    return false;
+                }
+
+                continue;
+            }
+
+            // String match
+            if (is_string($expectedValue)) {
+                if ((string) ($actualValue ?? '') !== $expectedValue) {
+                    return false;
+                }
+
+                continue;
+            }
+
+            // Unknown predicate type — reject
+            return false;
+        }
+
+        return true;
     }
 
     /**

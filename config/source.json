@@ -16,7 +16,7 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, restart_coqui). ComposerTool and PackagistTool have been extracted to separate toolkit packages (coqui-toolkit-composer, coqui-toolkit-packagist) and are now auto-discovered. Contains the master system prompt in instructions(). Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, restart_coqui). Memory is now SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string \u2014 returns the full system prompt with role descriptions, security rules, and operational guidelines",
                 "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, restart_coqui)",
@@ -53,7 +53,7 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction, restart logic (RESTART_EXIT_CODE = 10, restartRequested flag), startup update checking (COQUI_CHECK_UPDATES, COQUI_AUTO_UPDATE env vars), and background task REPL commands (/tasks, /task, /task-cancel).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction with mergeGatedTools() combining hardcoded + package-declared gates, restart logic (RESTART_EXIT_CODE = 10, restartRequested flag), startup update checking (COQUI_CHECK_UPDATES, COQUI_AUTO_UPDATE env vars), and background task REPL commands (/tasks, /task, /task-cancel).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system and enters REPL loop",
                 "handleCommand(string, SymfonyStyle): int|true — processes REPL commands (/new, /history, /sessions, /resume, /model, /tasks, /task, /task-cancel, /help, /restart, /quit); returns exit code or true to continue",
@@ -61,7 +61,8 @@
                 "listTasksCommand(?string $statusFilter, SymfonyStyle $io): void — /tasks command: lists tasks with optional status filter",
                 "taskStatusCommand(string $idPrefix, SymfonyStyle $io): void — /task command: shows detailed task status with events",
                 "taskCancelCommand(string $idPrefix, SymfonyStyle $io): void — /task-cancel command: cancels pending or running tasks",
-                "resolveTaskByPrefix(string $prefix): ?array — resolves a task by ID prefix match"
+                "resolveTaskByPrefix(string $prefix): ?array — resolves a task by ID prefix match",
+                "mergeGatedTools(): array — merges hardcoded GATED_TOOLS with package-declared extra.php-agents.gated from ToolkitDiscovery"
             ]
         },
         {
@@ -147,20 +148,23 @@
             "path": "src/Config/InteractiveApprovalPolicy.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\InteractiveApprovalPolicy",
             "layer": "config",
-            "description": "ToolExecutionPolicyInterface implementation. Prompts user for confirmation on gated tools. Catastrophic blacklist checked first (no prompt — just blocked). Gated tools configured via $gatedTools map (tool name → action list or ['*']). Forwards turnId to logAudit.",
+            "description": "ToolExecutionPolicyInterface implementation. Prompts user for confirmation on gated tools. Catastrophic blacklist checked first (no prompt — just blocked). Gated tools configured via $gatedTools map (tool name → rule list). Supports four rule types: wildcard ['*'], action-string matching, predicate objects {'arg': value}, and presence checks {'arg': '*'}. Rules use OR semantics; predicate internals use AND. Forwards turnId to logAudit.",
             "methods": [
-                "shouldExecute(string $toolName, array $arguments): true|string — prompts user, returns true to allow or denial reason. Forwards turnId to logAudit."
+                "shouldExecute(string $toolName, array $arguments): true|string — prompts user, returns true to allow or denial reason. Forwards turnId to logAudit.",
+                "requiresApproval(string $toolName, array $arguments): bool — evaluates gating rules including predicate matching",
+                "matchesPredicate(array $predicate, array $arguments): bool — checks argument predicates with AND semantics"
             ]
         },
         {
             "path": "src/Config/RoleResolver.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleResolver",
             "layer": "config",
-            "description": "Maps role names to provider/model strings. Priority: role file model field → openclaw.json → primary model. Merges config-defined roles with file-based roles from RoleDiscovery. toArray() returns enriched metadata with display_name, description, access_level.",
+            "description": "Maps role names to provider/model strings and resolves per-role iteration limits. Model priority: role file model field → openclaw.json → primary model. Iteration priority: role file max_iterations → agents.defaults.maxIterations → DEFAULT_MAX_ITERATIONS (25). toArray() returns enriched metadata with display_name, description, access_level, max_iterations.",
             "methods": [
                 "resolve(string $role): string — returns provider/model string (file model → config → primary)",
+                "resolveMaxIterations(string $role): int — returns iteration limit (role file → openclaw.json → 25). 0 = unlimited",
                 "availableRoles(): string[] — union of config and discovered role names",
-                "toArray(): array — enriched role-to-model mapping with metadata"
+                "toArray(): array — enriched role-to-model mapping with metadata and max_iterations"
             ]
         },
         {
@@ -186,14 +190,16 @@
             "path": "src/Config/ToolkitDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\ToolkitDiscovery",
             "layer": "config",
-            "description": "Discovers ToolkitInterface implementations from installed Composer packages. Checks extra.php-agents.toolkits in package composer.json. Persists discovered toolkits in toolkits.json registry. Scans both project and workspace vendor directories. Wraps toolkits with CredentialGuardToolkit when credential requirements are declared.",
+            "description": "Discovers ToolkitInterface implementations from installed Composer packages. Checks extra.php-agents.toolkits in package composer.json. Persists discovered toolkits in toolkits.json registry. Scans both project and workspace vendor directories. Wraps toolkits with CredentialGuardToolkit when credential requirements are declared. Reads extra.php-agents.gated declarations for destructive-command gating.",
             "methods": [
                 "discover(string $packageName): string[] — scan a single package for toolkit classes",
                 "discoverAll(): array — scan all installed packages (project + workspace)",
                 "instantiateRegistered(): ToolkitInterface[] — instantiate all registered toolkit classes",
                 "register(string $packageName, string[] $classNames): void — persist toolkit registry",
                 "unregister(string $packageName): void — remove from registry",
-                "loadCredentialRequirements(string $packageName): CredentialRequirement[] — load credential declarations"
+                "loadCredentialRequirements(string $packageName): CredentialRequirement[] — load credential declarations (supports string shorthand and object format with optional flag)",
+                "loadGatedTools(string $packageName): array — load gated tool declarations from extra.php-agents.gated",
+                "collectAllGatedTools(): array — merge gated tool declarations from all registered packages"
             ]
         },
         {
@@ -245,7 +251,7 @@
             "path": "src/Contract/CredentialRequirement.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\CredentialRequirement",
             "layer": "contract",
-            "description": "Final readonly value object representing a credential requirement: name (env var name) + description (human-readable). Used by the CredentialGuard system to declare what keys a toolkit needs.",
+            "description": "Final readonly value object representing a credential requirement: name (env var name) + description (human-readable) + optional flag. Used by the CredentialGuard system to declare what keys a toolkit needs. Optional credentials do not block tool execution when missing.",
             "methods": []
         },
         {
@@ -277,7 +283,7 @@
             "path": "src/Tool/CredentialGuardTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\CredentialGuardTool",
             "layer": "tool",
-            "description": "ToolInterface decorator that intercepts execute() and checks if required credentials exist. Returns structured error with exact key names and credentials tool call syntax when missing. The inner tool is never invoked when credentials are missing.",
+            "description": "ToolInterface decorator that intercepts execute() and checks if required (non-optional) credentials exist. Returns structured error with exact key names and credentials tool call syntax when missing. Optional credentials are skipped — they do not block execution. The inner tool is never invoked when required credentials are missing.",
             "methods": [
                 "execute(array $input): ToolResult — checks credentials, delegates to inner tool if all present"
             ]
@@ -286,7 +292,7 @@
             "path": "src/Tool/CredentialGuardToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\CredentialGuardToolkit",
             "layer": "tool",
-            "description": "ToolkitInterface decorator that wraps all inner toolkit tools with CredentialGuardTool. Appends credential status (configured/MISSING) to the guidelines string.",
+            "description": "ToolkitInterface decorator that wraps all inner toolkit tools with CredentialGuardTool. Appends credential status (configured/MISSING/optional) to the guidelines string. Optional credentials show ○ indicator.",
             "methods": [
                 "tools(): ToolInterface[] — returns wrapped tools",
                 "guidelines(): string — inner guidelines + credential status appendix"
@@ -707,6 +713,45 @@
             ]
         },
         {
+            "path": "src/Memory/MemoryStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Memory\\MemoryStore",
+            "layer": "storage",
+            "description": "SQLite-backed memory store with FTS5 full-text search and optional vector embeddings. Stores memories in .workspace/data/memory.db with area classification (preferences, facts, solutions, context) and tag-based organization. Hybrid search combines cosine similarity (when embedding provider available) with FTS5 keyword matching and LIKE fallback. Supports full CRUD, bulk import for migration, and core summary generation grouped by area.",
+            "methods": [
+                "save(string $content, string $area, array $tags): string — saves memory with optional embedding, returns ID",
+                "search(string $query, int $limit): array — hybrid vector+FTS5 search with LIKE fallback",
+                "update(string $id, ?string $content, ?string $area, ?array $tags): bool — updates memory fields, rebuilds FTS index and re-embeds",
+                "delete(string $id): bool — deletes memory, embedding, and FTS entry",
+                "getById(string $id): ?MemoryEntry — retrieves single memory by ID",
+                "listAll(int $limit, int $offset, ?string $area, ?array $tags): array — filtered listing with pagination",
+                "listByTags(array $tags, int $limit): array — finds memories containing ALL specified tags",
+                "count(): int — total memory count",
+                "getCoreSummary(): string — formatted summary grouped by area for system prompt injection",
+                "importLegacyEntries(array $entries): int — bulk import from migration",
+                "hasVectorSearch(): bool — whether embedding provider is available"
+            ]
+        },
+        {
+            "path": "src/Memory/MemorySummarizer.php",
+            "fqcn": "CoquiBot\\Coqui\\Memory\\MemorySummarizer",
+            "layer": "storage",
+            "description": "Generates compressed memory summaries for system prompt injection. Caches summaries in a memory_summary SQLite table, invalidating when memory count changes. Optionally compresses via LLM provider for concise summaries within ~500 token budget. Falls back to raw MemoryStore::getCoreSummary() when no provider is available.",
+            "methods": [
+                "getSummary(): ?string — returns cached or freshly generated summary, null if no memories exist",
+                "invalidate(): void — forces summary regeneration on next call"
+            ]
+        },
+        {
+            "path": "src/Toolkit/MemoryToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\MemoryToolkit",
+            "layer": "toolkit",
+            "description": "Agent-facing memory toolkit providing 6 tools: memory_save (with area enum and tags), memory_search (hybrid vector+FTS5), memory_update (by ID), memory_delete (by ID), memory_forget (bulk by query), memory_list (filtered by area/tags). Replaces php-agents' simpler 3-tool MemoryToolkit. Guidelines include dynamic memory count and vector search status.",
+            "methods": [
+                "tools(): array — returns 6 Tool instances for full CRUD memory operations",
+                "guidelines(): string — dynamic guidelines with memory count and vector search availability"
+            ]
+        },
+        {
             "path": "src/Agent/TitleGenerator.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\TitleGenerator",
             "layer": "agent",
@@ -719,7 +764,7 @@
             "path": "src/Config/RoleParser.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleParser",
             "layer": "config",
-            "description": "Stateless parser for role .md files with YAML frontmatter. Reads properties (metadata only) and body (instructions) separately for progressive disclosure. Validates names, access levels, and can build role files from properties+instructions.",
+            "description": "Stateless parser for role .md files with YAML frontmatter. Reads properties (metadata only) and body (instructions) separately for progressive disclosure. Validates names, access levels, parses max_iterations from frontmatter, and can build role files from properties+instructions.",
             "methods": [
                 "readProperties(string $filePath): RoleProperties — parses frontmatter into value object",
                 "readBody(string $filePath): string — returns instruction text after frontmatter",
@@ -746,7 +791,7 @@
             "path": "src/Contract/RoleProperties.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\RoleProperties",
             "layer": "contract",
-            "description": "Readonly value object for parsed role file frontmatter. Holds name, displayName, description, path, version, accessLevel (full/readonly/minimal), isBuiltin flag, and optional model overrides.",
+            "description": "Readonly value object for parsed role file frontmatter. Holds name, displayName, description, path, version, accessLevel (full/readonly/minimal), isBuiltin flag, optional model overrides, and optional maxIterations (0 = unlimited, null = inherit global default).",
             "methods": [
                 "toArray(): array — serializes to API-friendly associative array"
             ]
@@ -920,7 +965,7 @@
                 },
                 {
                     "path": "src/Toolkit/MemoryToolkit.php",
-                    "description": "Persistent key-value memory (memory_save, memory_load, memory_forget) backed by FileMemory"
+                    "description": "Persistent key-value memory (memory_save, memory_load, memory_forget) backed by FileMemory — superseded by Coqui's SQLite-backed MemoryToolkit"
                 },
                 {
                     "path": "src/Provider/ProviderFactory.php",

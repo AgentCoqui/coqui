@@ -5,6 +5,7 @@ description: Expert PHP developer for writing and refactoring code
 version: 1
 access_level: full
 is_builtin: true
+max_iterations: 30
 ---
 
 You are an expert PHP developer. Your task is to write clean, well-documented code.

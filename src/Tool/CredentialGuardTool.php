@@ -62,6 +62,10 @@ final class CredentialGuardTool implements ToolInterface
     }
 
     /**
+     * Find required (non-optional) credentials that are not yet configured.
+     *
+     * Optional credentials are excluded — they do not block tool execution.
+     *
      * @return CredentialRequirement[]
      */
     private function findMissingCredentials(): array
@@ -69,7 +73,7 @@ final class CredentialGuardTool implements ToolInterface
         $missing = [];
 
         foreach ($this->requirements as $requirement) {
-            if (!$this->resolver->has($requirement->name)) {
+            if (!$requirement->optional && !$this->resolver->has($requirement->name)) {
                 $missing[] = $requirement;
             }
         }

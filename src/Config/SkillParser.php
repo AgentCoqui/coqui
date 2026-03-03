@@ -37,14 +37,20 @@ final class SkillParser
      */
     public function findSkillMd(string $skillDir): ?string
     {
-        $upper = rtrim($skillDir, '/') . '/SKILL.md';
-        if (file_exists($upper)) {
-            return $upper;
+        $dir = rtrim($skillDir, '/');
+        $entries = @scandir($dir);
+
+        if ($entries === false) {
+            return null;
         }
 
-        $lower = rtrim($skillDir, '/') . '/skill.md';
-        if (file_exists($lower)) {
-            return $lower;
+        // Prefer uppercase SKILL.md — use strict in_array to respect actual filename case
+        if (in_array('SKILL.md', $entries, true)) {
+            return $dir . '/SKILL.md';
+        }
+
+        if (in_array('skill.md', $entries, true)) {
+            return $dir . '/skill.md';
         }
 
         return null;

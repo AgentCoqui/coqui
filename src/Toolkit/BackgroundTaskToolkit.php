@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
 /**
@@ -29,6 +30,7 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
     public function __construct(
         private SessionStorage $storage,
         private string $parentSessionId,
+        private ?RoleResolver $roleResolver = null,
     ) {}
 
     public function tools(): array
@@ -168,7 +170,7 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         }
 
         $role = trim((string) ($args['role'] ?? 'orchestrator'));
-        $maxIterations = (int) ($args['max_iterations'] ?? 25);
+        $maxIterations = (int) ($args['max_iterations'] ?? ($this->roleResolver?->resolveMaxIterations($role) ?? 25));
         $maxIterations = max(1, min($maxIterations, 100));
 
         // Create a dedicated session for the task
