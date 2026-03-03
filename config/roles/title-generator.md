@@ -5,6 +5,7 @@ description: Generates concise session titles from conversation content
 version: 1
 access_level: minimal
 is_builtin: true
+max_iterations: 5
 ---
 
 Generate a concise 3-8 word title for this conversation based on the user's message.

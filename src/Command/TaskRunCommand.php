@@ -93,7 +93,10 @@ final class TaskRunCommand extends Command
         $sessionId = $task['session_id'];
         $prompt = $task['prompt'];
         $role = $task['role'] ?? 'orchestrator';
-        $maxIterations = (int) ($task['max_iterations'] ?? 25);
+        $resolvedMax = $boot->roleResolver()->resolveMaxIterations($role);
+        $dbMax = isset($task['max_iterations']) ? (int) $task['max_iterations'] : $resolvedMax;
+        // Background tasks are always clamped to 100 for safety (even if role allows unlimited)
+        $maxIterations = max(1, min($dbMax, 100));
 
         // Update status to running
         $storage->updateTaskStatus($taskId, 'running', ['pid' => getmypid()]);
@@ -125,6 +128,8 @@ final class TaskRunCommand extends Command
             skillDiscovery: $boot->skillDiscovery(),
             roleDiscovery: $boot->roleDiscovery(),
             unsafeMode: $unsafeMode,
+            memoryStore: $boot->memoryStore(),
+            memorySummarizer: $boot->memorySummarizer(),
         );
 
         // Create execution policy (auto-approve — no human in the loop)

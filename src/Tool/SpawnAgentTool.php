@@ -117,7 +117,7 @@ final class SpawnAgentTool implements ToolInterface
                 role: $role,
                 taskInstructions: $task,
                 toolkits: $toolkits,
-                maxIterations: 15,
+                maxIterations: $this->roleResolver->resolveMaxIterations($role),
                 roleDiscovery: $this->roleDiscovery,
             );
 

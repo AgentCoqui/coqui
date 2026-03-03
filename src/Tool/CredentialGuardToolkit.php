@@ -58,12 +58,12 @@ final class CredentialGuardToolkit implements ToolkitInterface
         foreach ($this->requirements as $requirement) {
             $hasCredential = $this->resolver->has($requirement->name);
 
-            if (!$hasCredential) {
+            if (!$hasCredential && !$requirement->optional) {
                 $allConfigured = false;
             }
 
-            $status = $hasCredential ? 'configured' : 'MISSING';
-            $icon = $hasCredential ? '✓' : '✗';
+            $status = $hasCredential ? 'configured' : ($requirement->optional ? 'not set (optional)' : 'MISSING');
+            $icon = $hasCredential ? '✓' : ($requirement->optional ? '○' : '✗');
             $statusLines[] = "  - {$icon} `{$requirement->name}`: {$status} — {$requirement->description}";
         }
 

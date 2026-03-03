@@ -5,6 +5,7 @@ description: Code analyst for reviewing quality, finding bugs, and security audi
 version: 1
 access_level: readonly
 is_builtin: true
+max_iterations: 15
 ---
 
 You are a code reviewer. Analyze the provided code for:

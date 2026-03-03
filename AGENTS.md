@@ -40,6 +40,31 @@ Add credential declarations to your `composer.json`:
 }
 ```
 
+#### Optional Credentials
+
+Some credentials are optional — the toolkit works without them but gains additional capabilities when they're set. Declare optional credentials using the object format:
+
+```json
+{
+    "extra": {
+        "php-agents": {
+            "credentials": {
+                "REQUIRED_KEY": "This key is required — tools will not execute without it",
+                "OPTIONAL_KEY": {
+                    "description": "Optional config — enhances functionality but not required",
+                    "optional": true
+                }
+            }
+        }
+    }
+}
+```
+
+Optional credentials:
+- Do **not** block tool execution when missing
+- Are shown in the credential status guidelines with an `○` indicator (vs `✗` for required)
+- Can be set at any time via the `credentials` tool
+
 Use lazy resolution in your toolkit so hot-reload works:
 
 ```php
@@ -55,6 +80,119 @@ private function resolveApiKey(): string
 
 The `CredentialGuardTool` handles the missing-credential UX — your toolkit does not need to produce its own "key not configured" errors.
 
+
+
+## Tool Gating Architecture
+
+Coqui provides declarative destructive-command confirmation for toolkit packages. Toolkits declare which operations are dangerous in `composer.json`, and Coqui automatically prompts the user for confirmation before executing them. The `--auto-approve` flag bypasses all confirmation prompts for power users.
+
+### How It Works
+
+1. **Toolkit packages declare gated operations** in `composer.json` via `extra.php-agents.gated` — a map of `tool_name` → array of gating rules.
+2. **`ToolkitDiscovery::collectAllGatedTools()`** reads gated declarations from all registered packages and merges them into a single map.
+3. **`RunCommand::mergeGatedTools()`** merges the package-declared gates with Coqui's hardcoded `GATED_TOOLS` (composer, exec, php_execute, restart_coqui).
+4. **`InteractiveApprovalPolicy`** receives the merged map and checks every tool call against it. Matching calls trigger an interactive confirmation prompt. Denied calls return `ToolResult::error()` — the agent sees the denial and can inform the user.
+5. **`AutoApprovalPolicy`** (activated by `--auto-approve`) skips all confirmation. Only the `CatastrophicBlacklist` still blocks.
+
+### Gating Rule Types
+
+| Rule | Format | Example | Behavior |
+|------|--------|---------|----------|
+| Wildcard | `["*"]` | `"git_push": ["*"]` | Gates every invocation of the tool |
+| Action match | `["action_name"]` | `"git_branch": ["delete"]` | Gates when `action`/`command` argument matches |
+| Predicate | `[{"arg": value}]` | `"git_commit": [{"amend": true}]` | Gates when argument equals value |
+| Presence | `[{"arg": "*"}]` | `"git_checkout": [{"files": "*"}]` | Gates when argument is present and truthy |
+
+Rules are evaluated with OR semantics — any matching rule triggers confirmation. Predicate objects use AND semantics internally (all key-value pairs must match).
+
+### For Toolkit Authors
+
+Add gated tool declarations to your `composer.json`:
+
+```json
+{
+    "extra": {
+        "php-agents": {
+            "toolkits": ["Acme\\MyToolkit\\MyToolkit"],
+            "gated": {
+                "my_deploy": ["*"],
+                "my_delete": ["*"],
+                "my_update": [{"force": true}]
+            }
+        }
+    }
+}
+```
+
+The gating system handles the confirmation UX — your toolkit does not need to implement its own confirmation logic. Read-only tools should not be gated.
+
+### Key Source Files
+
+| File | Purpose |
+|------|---------|
+| `src/Config/InteractiveApprovalPolicy.php` | Prompt-based gating with predicate rule matching |
+| `src/Config/AutoApprovalPolicy.php` | Auto-approves all tools (blacklist still active) |
+| `src/Config/CatastrophicBlacklist.php` | Hardcoded patterns that always block, regardless of mode |
+| `src/Config/ToolkitDiscovery.php` | Reads `extra.php-agents.gated` from packages; `collectAllGatedTools()` merges all declarations |
+| `src/Command/RunCommand.php` | `mergeGatedTools()` combines hardcoded + discovered gates |
+
+
+
+## Memory System Architecture
+
+Coqui provides a persistent, cross-session memory system backed by SQLite. The system supports full CRUD operations, hybrid search (FTS5 full-text + optional vector embeddings), area-based organization, and automatic core memory injection into the agent's system prompt.
+
+### How It Works
+
+1. **`MemoryStore`** is the core storage engine. It manages a dedicated SQLite database at `.workspace/data/memory.db` with FTS5 virtual tables for keyword search and an optional `memory_embeddings` table for vector similarity search.
+2. **`MemorySummarizer`** generates a compressed summary of core memories, cached in a `memory_summary` table. The summary is invalidated when the memory count changes. Optionally uses an LLM provider for compression.
+3. **`MemoryToolkit`** (in Coqui, not php-agents) exposes 6 tools to the agent: `memory_save`, `memory_search`, `memory_update`, `memory_delete`, `memory_forget`, `memory_list`.
+4. **At boot**, `BootManager::initializeMemory()` creates the `MemoryStore`, resolves an optional embedding provider, and creates the `MemorySummarizer`.
+5. **In the system prompt**, `OrchestratorAgent::instructions()` appends the core memory summary (from `MemorySummarizer`) as a `# CORE MEMORIES` section. This gives the agent ambient awareness of what it knows about the user.
+
+### Search Strategy
+
+Search uses a 3-tier fallback:
+
+1. **Vector search** (if embedding provider available) — cosine similarity on stored embeddings, merged with FTS5 results.
+2. **FTS5 full-text search** — Porter-tokenized keyword matching via SQLite FTS5.
+3. **LIKE fallback** — simple substring matching when FTS5 returns no results.
+
+### Embedding Provider Resolution
+
+Resolved at boot time via `BootManager::resolveEmbeddingProvider()`:
+
+1. Explicit config: `agents.defaults.memory.embeddingModel` in `openclaw.json` (e.g. `ollama/nomic-embed-text` or `openai/text-embedding-3-small`).
+2. Auto-detect: If an `OPENAI_API_KEY` is set, uses `text-embedding-3-small` automatically.
+3. Fallback: No provider — FTS5-only mode. Fully functional, just no semantic search.
+
+### Memory Organization
+
+Memories are classified by **area** (`preferences`, `facts`, `solutions`, `context`) and optionally tagged with free-form **tags** (stored as comma-separated strings). The core summary groups memories by area for structured system prompt injection.
+
+### Key Source Files
+
+| File | Purpose |
+|------|---------|
+| `src/Memory/MemoryStore.php` | SQLite + FTS5 + optional vector storage — full CRUD |
+| `src/Memory/MemorySummarizer.php` | Cached summary generation for system prompt injection |
+| `src/Toolkit/MemoryToolkit.php` | 6 agent-facing tools (save, search, update, delete, forget, list) |
+
+### Configuration
+
+No explicit configuration is required. The memory system initializes automatically on boot. Optional settings in `openclaw.json`:
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "memory": {
+                "embeddingModel": "ollama/nomic-embed-text"
+            }
+        }
+    }
+}
+```
 
 
 ## Language & Runtime
@@ -342,10 +480,82 @@ Follow the patterns in `src/Tool/`. Each tool:
 
 ### Adding a New Child Agent Role
 
-Roles are defined in `ChildAgent::instructions()` and mapped to models in `openclaw.json` under `agents.defaults.roles`. To add a new role:
-1. Add a case in `ChildAgent::instructions()` with a tailored system prompt
-2. Map the role to a model in `openclaw.json`
-3. Add the role to `SpawnAgentTool`'s enum parameter
+Roles are defined as `.md` files with YAML frontmatter in `.workspace/roles/` (user-created) or `config/roles/` (built-in). On first boot, built-in roles are seeded into the workspace. To add a new role:
+
+1. Create a `.md` file in `.workspace/roles/` with the required frontmatter fields
+2. Optionally map the role to a model in `openclaw.json` under `agents.defaults.roles`
+3. The role is auto-discovered — no code changes needed
+
+#### Role Frontmatter Schema
+
+```yaml
+---
+name: coder                    # required — lowercase, alphanumeric + hyphens
+display_name: Coder            # required
+description: Expert PHP dev... # required
+version: 1                     # optional (default: 1)
+access_level: full             # full | readonly | minimal
+is_builtin: true               # optional
+model: anthropic/claude-...    # optional — overrides openclaw.json
+title_model: ollama/...        # optional
+allowed-tools: ...             # optional
+max_iterations: 30             # optional — per-role iteration limit (0 = unlimited)
+---
+<markdown instructions body>
+```
+
+### Max Iterations Configuration
+
+Controls how many agent loop iterations a role can perform before stopping.
+
+**Resolution priority:** role file `max_iterations` → `agents.defaults.maxIterations` in `openclaw.json` → hardcoded fallback (25).
+
+#### Global Default
+
+Set in `openclaw.json`:
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "maxIterations": 25
+        }
+    }
+}
+```
+
+#### Per-Role Override
+
+Add `max_iterations` to a role's `.md` frontmatter:
+
+```yaml
+---
+name: coder
+max_iterations: 30
+---
+```
+
+#### Unlimited Iterations (Sentinel: 0)
+
+Setting `max_iterations: 0` means "run until the task is done" — the agent loops until it calls the `done` tool, a provider error occurs, or cancellation is triggered. Internally this maps to `PHP_INT_MAX`. A warning is logged when unlimited mode activates.
+
+**Background tasks are always clamped to 100 iterations** regardless of role configuration, since they run unattended without human oversight.
+
+#### Built-in Role Defaults
+
+| Role | `max_iterations` | Rationale |
+|------|------------------|-----------|
+| orchestrator | global default | Main agent — uses `agents.defaults.maxIterations` |
+| coder | 30 | Complex coding tasks need more iterations |
+| reviewer | 15 | Read-only analysis is usually quick |
+| assistant | global default | General purpose — inherits global |
+| title-generator | 5 | Single-shot title generation |
+
+#### Iteration Budget Awareness
+
+Agents are automatically informed of their iteration budget via the system prompt. `SystemPrompt::withIterationBudget()` injects an `# ITERATION BUDGET` section between `# TOOLS` and `# TOOL USAGE RULES` that tells the agent how many iterations it has, what an iteration represents, and how to manage resources wisely (batch tool calls, prioritize impactful actions, prepare continuation questions when nearing the limit).
+
+When `max_iterations` is `0` (unlimited), the budget section is omitted entirely — the agent receives no iteration constraint messaging.
 
 ## Quick Reference: PHP 8.4 Features to Use
 
