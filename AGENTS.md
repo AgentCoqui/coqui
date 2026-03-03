@@ -40,6 +40,31 @@ Add credential declarations to your `composer.json`:
 }
 ```
 
+#### Optional Credentials
+
+Some credentials are optional — the toolkit works without them but gains additional capabilities when they're set. Declare optional credentials using the object format:
+
+```json
+{
+    "extra": {
+        "php-agents": {
+            "credentials": {
+                "REQUIRED_KEY": "This key is required — tools will not execute without it",
+                "OPTIONAL_KEY": {
+                    "description": "Optional config — enhances functionality but not required",
+                    "optional": true
+                }
+            }
+        }
+    }
+}
+```
+
+Optional credentials:
+- Do **not** block tool execution when missing
+- Are shown in the credential status guidelines with an `○` indicator (vs `✗` for required)
+- Can be set at any time via the `credentials` tool
+
 Use lazy resolution in your toolkit so hot-reload works:
 
 ```php
@@ -54,6 +79,62 @@ private function resolveApiKey(): string
 ```
 
 The `CredentialGuardTool` handles the missing-credential UX — your toolkit does not need to produce its own "key not configured" errors.
+
+
+
+## Tool Gating Architecture
+
+Coqui provides declarative destructive-command confirmation for toolkit packages. Toolkits declare which operations are dangerous in `composer.json`, and Coqui automatically prompts the user for confirmation before executing them. The `--auto-approve` flag bypasses all confirmation prompts for power users.
+
+### How It Works
+
+1. **Toolkit packages declare gated operations** in `composer.json` via `extra.php-agents.gated` — a map of `tool_name` → array of gating rules.
+2. **`ToolkitDiscovery::collectAllGatedTools()`** reads gated declarations from all registered packages and merges them into a single map.
+3. **`RunCommand::mergeGatedTools()`** merges the package-declared gates with Coqui's hardcoded `GATED_TOOLS` (composer, exec, php_execute, restart_coqui).
+4. **`InteractiveApprovalPolicy`** receives the merged map and checks every tool call against it. Matching calls trigger an interactive confirmation prompt. Denied calls return `ToolResult::error()` — the agent sees the denial and can inform the user.
+5. **`AutoApprovalPolicy`** (activated by `--auto-approve`) skips all confirmation. Only the `CatastrophicBlacklist` still blocks.
+
+### Gating Rule Types
+
+| Rule | Format | Example | Behavior |
+|------|--------|---------|----------|
+| Wildcard | `["*"]` | `"git_push": ["*"]` | Gates every invocation of the tool |
+| Action match | `["action_name"]` | `"git_branch": ["delete"]` | Gates when `action`/`command` argument matches |
+| Predicate | `[{"arg": value}]` | `"git_commit": [{"amend": true}]` | Gates when argument equals value |
+| Presence | `[{"arg": "*"}]` | `"git_checkout": [{"files": "*"}]` | Gates when argument is present and truthy |
+
+Rules are evaluated with OR semantics — any matching rule triggers confirmation. Predicate objects use AND semantics internally (all key-value pairs must match).
+
+### For Toolkit Authors
+
+Add gated tool declarations to your `composer.json`:
+
+```json
+{
+    "extra": {
+        "php-agents": {
+            "toolkits": ["Acme\\MyToolkit\\MyToolkit"],
+            "gated": {
+                "my_deploy": ["*"],
+                "my_delete": ["*"],
+                "my_update": [{"force": true}]
+            }
+        }
+    }
+}
+```
+
+The gating system handles the confirmation UX — your toolkit does not need to implement its own confirmation logic. Read-only tools should not be gated.
+
+### Key Source Files
+
+| File | Purpose |
+|------|---------|
+| `src/Config/InteractiveApprovalPolicy.php` | Prompt-based gating with predicate rule matching |
+| `src/Config/AutoApprovalPolicy.php` | Auto-approves all tools (blacklist still active) |
+| `src/Config/CatastrophicBlacklist.php` | Hardcoded patterns that always block, regardless of mode |
+| `src/Config/ToolkitDiscovery.php` | Reads `extra.php-agents.gated` from packages; `collectAllGatedTools()` merges all declarations |
+| `src/Command/RunCommand.php` | `mergeGatedTools()` combines hardcoded + discovered gates |
 
 
 

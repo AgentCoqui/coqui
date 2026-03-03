@@ -53,7 +53,7 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction, restart logic (RESTART_EXIT_CODE = 10, restartRequested flag), startup update checking (COQUI_CHECK_UPDATES, COQUI_AUTO_UPDATE env vars), and background task REPL commands (/tasks, /task, /task-cancel).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction with mergeGatedTools() combining hardcoded + package-declared gates, restart logic (RESTART_EXIT_CODE = 10, restartRequested flag), startup update checking (COQUI_CHECK_UPDATES, COQUI_AUTO_UPDATE env vars), and background task REPL commands (/tasks, /task, /task-cancel).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system and enters REPL loop",
                 "handleCommand(string, SymfonyStyle): int|true — processes REPL commands (/new, /history, /sessions, /resume, /model, /tasks, /task, /task-cancel, /help, /restart, /quit); returns exit code or true to continue",
@@ -61,7 +61,8 @@
                 "listTasksCommand(?string $statusFilter, SymfonyStyle $io): void — /tasks command: lists tasks with optional status filter",
                 "taskStatusCommand(string $idPrefix, SymfonyStyle $io): void — /task command: shows detailed task status with events",
                 "taskCancelCommand(string $idPrefix, SymfonyStyle $io): void — /task-cancel command: cancels pending or running tasks",
-                "resolveTaskByPrefix(string $prefix): ?array — resolves a task by ID prefix match"
+                "resolveTaskByPrefix(string $prefix): ?array — resolves a task by ID prefix match",
+                "mergeGatedTools(): array — merges hardcoded GATED_TOOLS with package-declared extra.php-agents.gated from ToolkitDiscovery"
             ]
         },
         {
@@ -147,9 +148,11 @@
             "path": "src/Config/InteractiveApprovalPolicy.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\InteractiveApprovalPolicy",
             "layer": "config",
-            "description": "ToolExecutionPolicyInterface implementation. Prompts user for confirmation on gated tools. Catastrophic blacklist checked first (no prompt — just blocked). Gated tools configured via $gatedTools map (tool name → action list or ['*']). Forwards turnId to logAudit.",
+            "description": "ToolExecutionPolicyInterface implementation. Prompts user for confirmation on gated tools. Catastrophic blacklist checked first (no prompt — just blocked). Gated tools configured via $gatedTools map (tool name → rule list). Supports four rule types: wildcard ['*'], action-string matching, predicate objects {'arg': value}, and presence checks {'arg': '*'}. Rules use OR semantics; predicate internals use AND. Forwards turnId to logAudit.",
             "methods": [
-                "shouldExecute(string $toolName, array $arguments): true|string — prompts user, returns true to allow or denial reason. Forwards turnId to logAudit."
+                "shouldExecute(string $toolName, array $arguments): true|string — prompts user, returns true to allow or denial reason. Forwards turnId to logAudit.",
+                "requiresApproval(string $toolName, array $arguments): bool — evaluates gating rules including predicate matching",
+                "matchesPredicate(array $predicate, array $arguments): bool — checks argument predicates with AND semantics"
             ]
         },
         {
@@ -187,14 +190,16 @@
             "path": "src/Config/ToolkitDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\ToolkitDiscovery",
             "layer": "config",
-            "description": "Discovers ToolkitInterface implementations from installed Composer packages. Checks extra.php-agents.toolkits in package composer.json. Persists discovered toolkits in toolkits.json registry. Scans both project and workspace vendor directories. Wraps toolkits with CredentialGuardToolkit when credential requirements are declared.",
+            "description": "Discovers ToolkitInterface implementations from installed Composer packages. Checks extra.php-agents.toolkits in package composer.json. Persists discovered toolkits in toolkits.json registry. Scans both project and workspace vendor directories. Wraps toolkits with CredentialGuardToolkit when credential requirements are declared. Reads extra.php-agents.gated declarations for destructive-command gating.",
             "methods": [
                 "discover(string $packageName): string[] — scan a single package for toolkit classes",
                 "discoverAll(): array — scan all installed packages (project + workspace)",
                 "instantiateRegistered(): ToolkitInterface[] — instantiate all registered toolkit classes",
                 "register(string $packageName, string[] $classNames): void — persist toolkit registry",
                 "unregister(string $packageName): void — remove from registry",
-                "loadCredentialRequirements(string $packageName): CredentialRequirement[] — load credential declarations"
+                "loadCredentialRequirements(string $packageName): CredentialRequirement[] — load credential declarations (supports string shorthand and object format with optional flag)",
+                "loadGatedTools(string $packageName): array — load gated tool declarations from extra.php-agents.gated",
+                "collectAllGatedTools(): array — merge gated tool declarations from all registered packages"
             ]
         },
         {
@@ -246,7 +251,7 @@
             "path": "src/Contract/CredentialRequirement.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\CredentialRequirement",
             "layer": "contract",
-            "description": "Final readonly value object representing a credential requirement: name (env var name) + description (human-readable). Used by the CredentialGuard system to declare what keys a toolkit needs.",
+            "description": "Final readonly value object representing a credential requirement: name (env var name) + description (human-readable) + optional flag. Used by the CredentialGuard system to declare what keys a toolkit needs. Optional credentials do not block tool execution when missing.",
             "methods": []
         },
         {
@@ -278,7 +283,7 @@
             "path": "src/Tool/CredentialGuardTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\CredentialGuardTool",
             "layer": "tool",
-            "description": "ToolInterface decorator that intercepts execute() and checks if required credentials exist. Returns structured error with exact key names and credentials tool call syntax when missing. The inner tool is never invoked when credentials are missing.",
+            "description": "ToolInterface decorator that intercepts execute() and checks if required (non-optional) credentials exist. Returns structured error with exact key names and credentials tool call syntax when missing. Optional credentials are skipped — they do not block execution. The inner tool is never invoked when required credentials are missing.",
             "methods": [
                 "execute(array $input): ToolResult — checks credentials, delegates to inner tool if all present"
             ]
@@ -287,7 +292,7 @@
             "path": "src/Tool/CredentialGuardToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\CredentialGuardToolkit",
             "layer": "tool",
-            "description": "ToolkitInterface decorator that wraps all inner toolkit tools with CredentialGuardTool. Appends credential status (configured/MISSING) to the guidelines string.",
+            "description": "ToolkitInterface decorator that wraps all inner toolkit tools with CredentialGuardTool. Appends credential status (configured/MISSING/optional) to the guidelines string. Optional credentials show ○ indicator.",
             "methods": [
                 "tools(): ToolInterface[] — returns wrapped tools",
                 "guidelines(): string — inner guidelines + credential status appendix"

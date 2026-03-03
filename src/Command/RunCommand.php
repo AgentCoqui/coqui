@@ -829,12 +829,47 @@ final class RunCommand extends Command
 
         return new InteractiveApprovalPolicy(
             io: $io,
-            gatedTools: self::GATED_TOOLS,
+            gatedTools: $this->mergeGatedTools(),
             blacklist: $this->boot->blacklist(),
             storage: $this->storage,
             sessionId: $sessionId,
             turnId: $turnId,
         );
+    }
+
+    /**
+     * Merge hardcoded gated tools with package-declared gated tools.
+     *
+     * Packages declare gated operations in composer.json via extra.php-agents.gated.
+     * These are merged with the hardcoded GATED_TOOLS constant so that both
+     * core and toolkit-declared gates are enforced.
+     *
+     * @return array<string, list<mixed>>
+     */
+    private function mergeGatedTools(): array
+    {
+        $discoveredGated = $this->boot->discovery()->collectAllGatedTools();
+
+        if (empty($discoveredGated)) {
+            return self::GATED_TOOLS;
+        }
+
+        $merged = self::GATED_TOOLS;
+
+        foreach ($discoveredGated as $toolName => $rules) {
+            if (!isset($merged[$toolName])) {
+                $merged[$toolName] = $rules;
+            } else {
+                // If either set contains a wildcard, keep the wildcard
+                if ($rules === ['*'] || $merged[$toolName] === ['*']) {
+                    $merged[$toolName] = ['*'];
+                } else {
+                    $merged[$toolName] = array_merge($merged[$toolName], $rules);
+                }
+            }
+        }
+
+        return $merged;
     }
 
     /**
