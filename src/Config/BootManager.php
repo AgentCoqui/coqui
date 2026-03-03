@@ -214,7 +214,7 @@ final class BootManager
         // Explicit config: "ollama/nomic-embed-text" or "openai/text-embedding-3-small"
         if (is_string($embeddingModel) && $embeddingModel !== '') {
             $parts = explode('/', $embeddingModel, 2);
-            $provider = $parts[0] ?? '';
+            $provider = $parts[0];
             $model = $parts[1] ?? $embeddingModel;
 
             if ($provider === 'openai') {

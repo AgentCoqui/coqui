@@ -177,6 +177,10 @@ final class MemoryStore implements MemoryInterface
         $tags ??= $existing->metadata['tags'] ?? '';
         $now = (new DateTimeImmutable())->format('Y-m-d\TH:i:s');
 
+        // Delete FTS index BEFORE updating the memories table — FTS5 delete
+        // command requires the original content, which is read via subquery.
+        $this->deleteFts($id);
+
         $stmt = $this->db->prepare(<<<SQL
             UPDATE memories
             SET content = :content, area = :area, tags = :tags, updated_at = :updated_at
@@ -191,8 +195,7 @@ final class MemoryStore implements MemoryInterface
             ':updated_at' => $now,
         ]);
 
-        // Rebuild FTS index for this entry
-        $this->deleteFts($id);
+        // Rebuild FTS index with the new content
         $this->insertFts($id, $content, $tags);
 
         // Regenerate embedding
@@ -299,12 +302,20 @@ final class MemoryStore implements MemoryInterface
 
         if ($area !== null) {
             $stmt = $this->db->prepare('SELECT COUNT(*) FROM memories WHERE area = :area');
+            if ($stmt === false) {
+                return 0;
+            }
             $stmt->execute([':area' => $area]);
-        } else {
-            $stmt = $this->db->query('SELECT COUNT(*) FROM memories');
+
+            return (int) $stmt->fetchColumn();
         }
 
-        return (int) ($stmt?->fetchColumn() ?? 0);
+        $stmt = $this->db->query('SELECT COUNT(*) FROM memories');
+        if ($stmt === false) {
+            return 0;
+        }
+
+        return (int) $stmt->fetchColumn();
     }
 
     /**
