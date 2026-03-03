@@ -583,16 +583,128 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
             return [];
         }
 
-        foreach ($credentials as $name => $description) {
-            if (is_string($name) && is_string($description)) {
+        foreach ($credentials as $name => $value) {
+            if (!is_string($name)) {
+                continue;
+            }
+
+            // Support both string shorthand and object format:
+            //   "KEY": "description"                         (required)
+            //   "KEY": {"description": "...", "optional": true}  (optional)
+            if (is_string($value)) {
                 $requirements[] = new CredentialRequirement(
                     name: $name,
-                    description: $description,
+                    description: $value,
+                );
+            } elseif (is_array($value) && isset($value['description']) && is_string($value['description'])) {
+                $requirements[] = new CredentialRequirement(
+                    name: $name,
+                    description: $value['description'],
+                    optional: (bool) ($value['optional'] ?? false),
                 );
             }
         }
 
         return $requirements;
+    }
+
+    /**
+     * Load gated tool declarations from a package's composer.json.
+     *
+     * Reads extra.php-agents.gated — a map of tool names to gating rules.
+     * Each rule is one of:
+     *   - `"*"` — gate all invocations of the tool
+     *   - A string — gate when the `action`/`command` argument matches this value
+     *   - An object `{"arg": value}` — gate when argument equals value (bool, string)
+     *   - An object `{"arg": "*"}` — gate when argument is present and truthy
+     *
+     * Example composer.json:
+     * ```json
+     * {
+     *   "extra": {
+     *     "php-agents": {
+     *       "gated": {
+     *         "git_push": ["*"],
+     *         "git_branch": ["delete"],
+     *         "git_commit": [{"amend": true}]
+     *       }
+     *     }
+     *   }
+     * }
+     * ```
+     *
+     * @return array<string, list<string|array<string, mixed>>> Tool name => gating rules
+     */
+    public function loadGatedTools(string $packageName): array
+    {
+        // Check project vendor first
+        $composerJson = $this->projectRoot . '/vendor/' . $packageName . '/composer.json';
+
+        if (!file_exists($composerJson)) {
+            // Fallback: check workspace vendor
+            $composerJson = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName . '/composer.json';
+        }
+
+        if (!file_exists($composerJson)) {
+            return [];
+        }
+
+        $data = json_decode((string) file_get_contents($composerJson), true);
+        if (!is_array($data)) {
+            return [];
+        }
+
+        $gated = $data['extra']['php-agents']['gated'] ?? null;
+        if (!is_array($gated)) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach ($gated as $toolName => $rules) {
+            if (!is_string($toolName) || !is_array($rules)) {
+                continue;
+            }
+
+            /** @var list<string|array<string, mixed>> $rules */
+            $result[$toolName] = $rules;
+        }
+
+        return $result;
+    }
+
+    /**
+     * Collect gated tool declarations from all registered packages.
+     *
+     * Iterates every registered toolkit package and merges their
+     * extra.php-agents.gated declarations into a single map.
+     * When multiple packages gate the same tool, their rules are merged.
+     *
+     * @return array<string, list<mixed>> Tool name => merged gating rules
+     */
+    public function collectAllGatedTools(): array
+    {
+        $registry = $this->loadRegistry();
+        $merged = [];
+
+        foreach (array_keys($registry) as $packageName) {
+            $gated = $this->loadGatedTools($packageName);
+
+            foreach ($gated as $toolName => $rules) {
+                if (!isset($merged[$toolName])) {
+                    $merged[$toolName] = $rules;
+                } else {
+                    // If either set contains a wildcard, keep the wildcard
+                    if ($rules === ['*'] || $merged[$toolName] === ['*']) {
+                        $merged[$toolName] = ['*'];
+                    } else {
+                        $merged[$toolName] = array_merge($merged[$toolName], $rules);
+                    }
+                }
+            }
+        }
+
+        return $merged;
     }
 
     /**

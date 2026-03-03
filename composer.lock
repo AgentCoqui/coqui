@@ -4,15 +4,21 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "ae342ac1dfdff414b1cd185a362726bc",
+    "content-hash": "ed69d06e66ed44aa7c09dcb8b9f3a12f",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "0.6.1",
+            "version": "0.7.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/php-agents.git",
+                "reference": "3a098562d24391acf0a911ae8a5fa0f68f90ec4d"
+            },
             "dist": {
-                "type": "path",
-                "url": "../php-agents",
-                "reference": "31e9c539177f97047d40fc56465e14519b21d3f8"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/3a098562d24391acf0a911ae8a5fa0f68f90ec4d",
+                "reference": "3a098562d24391acf0a911ae8a5fa0f68f90ec4d",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4",
@@ -42,19 +48,7 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -71,25 +65,32 @@
                 "php-agents",
                 "tools"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/php-agents/issues",
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.7.0"
+            },
+            "time": "2026-03-02T14:58:15+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-composer",
-            "version": "0.1.1",
+            "version": "v0.1.2",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/coqui-toolkit-composer.git",
+                "reference": "4d9d1e7b185763e507ad212e3e57de8b3a4136a9"
+            },
             "dist": {
-                "type": "path",
-                "url": "../../Toolkits/coqui-toolkit-composer",
-                "reference": "c751f678cfc69736e1d7d219db4823e56377f9a2"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-composer/zipball/4d9d1e7b185763e507ad212e3e57de8b3a4136a9",
+                "reference": "4d9d1e7b185763e507ad212e3e57de8b3a4136a9",
+                "shasum": ""
             },
             "require": {
-                "carmelosantana/php-agents": "^0.6",
                 "ext-json": "*",
                 "php": "^8.4"
             },
             "require-dev": {
+                "carmelosantana/php-agents": "^0.7",
                 "pestphp/pest": "^3.0",
                 "phpstan/phpstan": "^2.0"
             },
@@ -107,19 +108,7 @@
                     "CoquiBot\\Toolkits\\Composer\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "CoquiBot\\Toolkits\\Composer\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -136,26 +125,33 @@
                 "php-agents",
                 "toolkit"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/coqui-toolkit-composer/issues",
+                "source": "https://github.com/carmelosantana/coqui-toolkit-composer/tree/v0.1.2"
+            },
+            "time": "2026-03-02T17:29:13+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-packagist",
-            "version": "0.1.1",
+            "version": "v0.1.2",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/coqui-toolkit-packagist.git",
+                "reference": "1523ca7cc76869de782ef58bd90306017ed633f5"
+            },
             "dist": {
-                "type": "path",
-                "url": "../../Toolkits/coqui-toolkit-packagist",
-                "reference": "9714bd9baf6bdf65eabbbd056ae303de192c173f"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-packagist/zipball/1523ca7cc76869de782ef58bd90306017ed633f5",
+                "reference": "1523ca7cc76869de782ef58bd90306017ed633f5",
+                "shasum": ""
             },
             "require": {
-                "carmelosantana/php-agents": "^0.6",
                 "ext-json": "*",
                 "php": "^8.4",
                 "symfony/http-client": "^7.0"
             },
             "require-dev": {
+                "carmelosantana/php-agents": "^0.7",
                 "pestphp/pest": "^3.0",
                 "phpstan/phpstan": "^2.0"
             },
@@ -173,19 +169,7 @@
                     "CoquiBot\\Toolkits\\Packagist\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "CoquiBot\\Toolkits\\Packagist\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -202,10 +186,11 @@
                 "php-agents",
                 "toolkit"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/coqui-toolkit-packagist/issues",
+                "source": "https://github.com/carmelosantana/coqui-toolkit-packagist/tree/v0.1.2"
+            },
+            "time": "2026-03-02T17:37:39+00:00"
         },
         {
             "name": "evenement/evenement",
@@ -3077,16 +3062,16 @@
         },
         {
             "name": "phpdocumentor/reflection-docblock",
-            "version": "6.0.1",
+            "version": "6.0.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpDocumentor/ReflectionDocBlock.git",
-                "reference": "2f5cbed597cb261d1ea458f3da3a9ad32e670b1e"
+                "reference": "897b5986ece6b4f9d8413fea345c7d49c757d6bf"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpDocumentor/ReflectionDocBlock/zipball/2f5cbed597cb261d1ea458f3da3a9ad32e670b1e",
-                "reference": "2f5cbed597cb261d1ea458f3da3a9ad32e670b1e",
+                "url": "https://api.github.com/repos/phpDocumentor/ReflectionDocBlock/zipball/897b5986ece6b4f9d8413fea345c7d49c757d6bf",
+                "reference": "897b5986ece6b4f9d8413fea345c7d49c757d6bf",
                 "shasum": ""
             },
             "require": {
@@ -3136,9 +3121,9 @@
             "description": "With this component, a library can provide support for annotations via DocBlocks or otherwise retrieve information that is embedded in a DocBlock.",
             "support": {
                 "issues": "https://github.com/phpDocumentor/ReflectionDocBlock/issues",
-                "source": "https://github.com/phpDocumentor/ReflectionDocBlock/tree/6.0.1"
+                "source": "https://github.com/phpDocumentor/ReflectionDocBlock/tree/6.0.2"
             },
-            "time": "2026-01-20T15:30:42+00:00"
+            "time": "2026-03-01T18:43:49+00:00"
         },
         {
             "name": "phpdocumentor/type-resolver",
@@ -5150,11 +5135,7 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {
-        "carmelosantana/php-agents": 20,
-        "coquibot/coqui-toolkit-composer": 20,
-        "coquibot/coqui-toolkit-packagist": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
