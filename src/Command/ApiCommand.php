@@ -135,6 +135,7 @@ final class ApiCommand extends Command
             backgroundTasksEnabled: true,
             memoryStore: $boot->memoryStore(),
             memorySummarizer: $boot->memorySummarizer(),
+            mountManager: $boot->mountManager(),
         );
 
         // Create title generator

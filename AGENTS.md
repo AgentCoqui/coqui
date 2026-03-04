@@ -138,6 +138,81 @@ The gating system handles the confirmation UX — your toolkit does not need to 
 
 
 
+## Mount System Architecture
+
+Coqui supports declarative directory mounts that give agents access to external directories beyond the primary workspace. Mounts are configured in `openclaw.json` and surfaced as symlinks under `.workspace/mnt/` for agent discoverability.
+
+### How It Works
+
+1. **Mount declarations** are read from `agents.defaults.mounts` in `openclaw.json` — an array of `{path, alias, access, description}` objects.
+2. **`MountDefinition`** is a validated value object for each mount. It enforces: path must exist as a directory, alias must not contain path separators, access must be `ro` or `rw`.
+3. **`MountManager`** creates/updates symlinks in `.workspace/mnt/{alias}` → real path. It provides:
+   - `allowedPaths()` — array of `{realPath, readOnly}` for `FilesystemToolkit` to whitelist symlink-resolved paths
+   - `allowedPathsReadOnly()` — same but forces all mounts to read-only (used for child agents)
+   - `storageMap()` — markdown table injected into the system prompt describing available mounts
+   - `openBasedirPaths()` — real paths for `PhpExecuteTool` open_basedir extension
+4. **`FilesystemToolkit`** accepts an `allowedPaths` parameter. When `resolvePath()` encounters a symlink that resolves outside the workspace root, it checks if the real path falls under an allowed mount. Write tools additionally check `isReadOnlyMountPath()` before mutation operations.
+5. **`BootManager::initializeMounts()`** reads the config, creates `MountDefinition` instances (silently skipping invalid entries), and initializes the `MountManager`. Runs after workspace initialization and before role discovery.
+6. **The storage map** is injected into the workspace prompt via the `{{storage_map}}` placeholder in `prompts/tools/workspace.md`.
+
+### Configuration
+
+Add mounts to `openclaw.json`:
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "mounts": [
+                {
+                    "path": "/home/user/datasets",
+                    "alias": "datasets",
+                    "access": "ro",
+                    "description": "Training datasets (read-only)"
+                },
+                {
+                    "path": "/home/user/projects/my-app",
+                    "alias": "my-app",
+                    "access": "rw",
+                    "description": "External application source code"
+                }
+            ]
+        }
+    }
+}
+```
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `path` | yes | — | Absolute path to the external directory (must exist) |
+| `alias` | yes | — | Short name used as the symlink name under `.workspace/mnt/` |
+| `access` | no | `ro` | `ro` (read-only) or `rw` (read-write) |
+| `description` | no | `''` | Human-readable description shown in the storage map |
+
+### Access Control
+
+- **Default read-only.** Mounts default to `ro` unless explicitly set to `rw`.
+- **Orchestrator** gets the declared access level (`ro` or `rw`) for each mount.
+- **Child agents** (spawned via `spawn_agent`) always get read-only access to mounts, regardless of the mount's declared access level.
+- **PhpExecuteTool** includes mount paths in `open_basedir` so PHP subprocesses can access them.
+- **Write protection** is enforced at the `FilesystemToolkit` level — `write_file`, `create_directory`, and `delete_file` check `isReadOnlyMountPath()` before executing.
+
+### Symlink Management
+
+Symlinks are managed in `.workspace/mnt/`:
+- Created/updated on boot by `MountManager::initialize()`
+- Stale symlinks (pointing to removed mounts) are automatically cleaned up
+- The `mnt/` directory is created on demand
+
+### Key Source Files
+
+| File | Purpose |
+|------|---------|
+| `src/Contract/MountDefinition.php` | Value object: validated mount path, alias, access level, description |
+| `src/Config/MountManager.php` | Symlink lifecycle, allowedPaths generation, storage map rendering, open_basedir paths |
+| `src/Config/BootManager.php` | `initializeMounts()` reads config and initializes MountManager |
+
+
 ## Memory System Architecture
 
 Coqui provides a persistent, cross-session memory system backed by SQLite. The system supports full CRUD operations, hybrid search (FTS5 full-text + optional vector embeddings), area-based organization, and automatic core memory injection into the agent's system prompt.

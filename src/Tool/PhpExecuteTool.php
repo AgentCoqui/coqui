@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 
 /**
@@ -33,6 +34,7 @@ final class PhpExecuteTool implements ToolInterface
         private readonly string $workspacePath,
         private readonly int $defaultTimeout = 30,
         ?ScriptSanitizer $sanitizer = null,
+        private readonly ?MountManager $mountManager = null,
     ) {
         $this->sanitizer = $sanitizer ?? new ScriptSanitizer();
     }
@@ -194,6 +196,11 @@ final class PhpExecuteTool implements ToolInterface
             rtrim($this->projectRoot, '/'),
             sys_get_temp_dir(),
         ];
+
+        // Append mounted directories so PHP subprocesses can read/write them
+        if ($this->mountManager !== null) {
+            array_push($paths, ...$this->mountManager->openBasedirPaths());
+        }
 
         return implode(PATH_SEPARATOR, $paths);
     }

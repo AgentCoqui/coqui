@@ -12,3 +12,5 @@ You cannot modify the project's `composer.json`, write files to the project root
 or execute PHP code that writes outside the workspace. The `composer` tool always
 targets the workspace. The `php_execute` tool runs with `open_basedir` restrictions
 that prevent writes outside the workspace.
+
+{{storage_map}}
