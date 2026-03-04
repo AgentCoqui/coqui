@@ -1,0 +1,32 @@
+# Export-ignore: files excluded from `git archive` and production release builds.
+# These do not appear in ZIP/tar.gz artifacts or GitHub-generated source downloads.
+
+# CI / Dev tooling
+/.github/             export-ignore
+/.dockerignore        export-ignore
+/Dockerfile            export-ignore
+/compose.dev.yaml     export-ignore
+/compose.test.yaml    export-ignore
+/phpstan.neon         export-ignore
+/phpunit.xml          export-ignore
+/AGENTS.md            export-ignore
+/.claude              export-ignore
+
+# Dev / alternate Composer configs
+/composer-dev.json    export-ignore
+/composer-prod.json   export-ignore
+
+# Dev PHP ini overrides
+/conf.d/xdebug.ini   export-ignore
+/conf.d/test.ini      export-ignore
+
+# Tests, examples, build scripts
+/tests/               export-ignore
+/scripts/             export-ignore
+/examples/            export-ignore
+
+# Sample OpenClaw configs (user-specific, gitignored anyway)
+/openclaw-claude.json export-ignore
+/openclaw-ollama.json export-ignore
+/openclaw-openai.json export-ignore
+/openclaw-xai.json    export-ignore
