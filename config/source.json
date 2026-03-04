@@ -157,7 +157,7 @@
             "layer": "config",
             "description": "Loads and provides typed access to config/defaults.json. Centralizes all hardcoded defaults (providers, models, base URLs, roles) into a single editable JSON file shipped with the package.",
             "methods": [
-                "providerNames(): string[] — all provider keys (ollama, openai, anthropic, openrouter)",
+                "providerNames(): string[] — all provider keys (ollama, openai, anthropic, openrouter, xai)",
                 "provider(string $name): array — full provider config block",
                 "providers(): array — all providers and their configurations",
                 "defaultBaseUrl(string $provider): string — default API base URL",
