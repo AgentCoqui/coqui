@@ -10,6 +10,9 @@ The API is built on ReactPHP and runs as a long-lived PHP process. It shares the
 # Default: localhost:3300
 php bin/coqui api
 
+# Listen on all interfaces (accessible from other devices on your network)
+php bin/coqui api --host 0.0.0.0
+
 # Custom host and port
 php bin/coqui api --host 0.0.0.0 --port 3000
 
@@ -19,7 +22,17 @@ php bin/coqui api --config /path/to/openclaw.json
 # With CORS origins restricted
 php bin/coqui api --cors-origin "http://localhost:3000,https://app.example.com"
 
-# Docker
+# Via the launcher
+./bin/coqui-launcher --api-only --host 0.0.0.0
+
+# Via environment variable
+COQUI_API_HOST=0.0.0.0 ./bin/coqui-launcher
+
+# Via Make
+make api HOST=0.0.0.0
+make api HOST=0.0.0.0 PORT=3000
+
+# Docker (already binds to 0.0.0.0 inside the container)
 make docker-api              # port 3300
 make docker-api PORT=3000    # custom port
 ```
@@ -29,7 +42,7 @@ make docker-api PORT=3000    # custom port
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
 | `--port` | | `3300` | Port to listen on |
-| `--host` | | `127.0.0.1` | Host to bind to |
+| `--host` | | `127.0.0.1` | Host to bind to. Use `0.0.0.0` for network access. Also configurable via `COQUI_API_HOST` env var |
 | `--config` | `-c` | `./openclaw.json` | Path to openclaw.json config |
 | `--workdir` | `-w` | Current directory | Working directory (project root) |
 | `--unsafe` | | `false` | Disable script sanitization (dangerous) |
@@ -75,12 +88,66 @@ Unauthenticated requests receive:
 }
 ```
 
+## Network Access
+
+By default, the API server binds to `127.0.0.1` (localhost only). To access the API from other devices on your network — such as a phone, tablet, or another computer — bind to all interfaces:
+
+```bash
+# Any of these methods work:
+php bin/coqui api --host 0.0.0.0
+./bin/coqui-launcher --host 0.0.0.0
+COQUI_API_HOST=0.0.0.0 ./bin/coqui-launcher
+make api HOST=0.0.0.0
+```
+
+Once running, the API is reachable at `http://<your-machine-ip>:3300` from any device on the same network.
+
+### Host Resolution Priority
+
+The bind address is resolved in this order:
+
+1. `--host` CLI flag (highest priority)
+2. `COQUI_API_HOST` environment variable
+3. Default: `127.0.0.1`
+
+The `--no-auth` flag always overrides to `127.0.0.1` regardless of the above.
+
+### Security Considerations
+
+Exposing the API to the network means any device on that network can reach it. Follow these practices:
+
+- **API key is mandatory.** The server refuses to start without one when `--no-auth` is not set. Generate one with `coqui setup` or set `COQUI_API_KEY` in your `.env` file.
+- **Use a strong API key.** Avoid short or easily guessable keys. The setup wizard generates a cryptographically random key.
+- **Restrict CORS origins.** Use `--cors-origin` to limit which domains can make browser-based requests: `--cors-origin "http://192.168.1.100:3380"`
+- **Configure your firewall.** Only expose port 3300 (or your chosen port) to trusted networks. Do not expose it to the public internet without additional protection.
+- **Coqui does not handle TLS/SSL.** All traffic is unencrypted HTTP. For production or internet-facing deployments, place a reverse proxy (nginx, Caddy, Traefik) in front of Coqui to terminate TLS.
+- **Rate limiting is active.** The built-in rate limiter (30 requests/minute per IP by default) helps prevent abuse. Configure it in `openclaw.json` under `api.rateLimit`.
+
+### Example: Reverse Proxy with Caddy
+
+For HTTPS access from outside your local network, use a reverse proxy:
+
+```
+# Caddyfile
+coqui.example.com {
+    reverse_proxy localhost:3300
+}
+```
+
+Caddy automatically provisions TLS certificates via Let's Encrypt.
+
 ## Base URL
 
 All endpoints are prefixed with `/api`. The default base URL is:
 
 ```
 http://127.0.0.1:3300
+```
+
+When bound to `0.0.0.0`, use your machine's IP address from other devices:
+
+```
+http://192.168.1.100:3300
 ```
 
 ## Content Type

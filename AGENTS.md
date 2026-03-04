@@ -780,6 +780,7 @@ Copy `.env.example` to `.env` before running. Key variables:
 | `OPENAI_API_KEY` | — | Passed into the container |
 | `ANTHROPIC_API_KEY` | — | Passed into the container |
 | `OLLAMA_HOST` | `http://host.docker.internal:11434` | Ollama endpoint |
+| `COQUI_API_HOST` | `127.0.0.1` | API bind address (`0.0.0.0` for network access) |
 | `COQUI_API_PORT` | `3300` | API server port |
 | `COQUI_DASHBOARD_PORT` | `3380` | Dashboard port |
 | `COQUI_WEBGRIND_PORT` | `3390` | Webgrind port (dev overlay) |
