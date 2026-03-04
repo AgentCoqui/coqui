@@ -19,7 +19,8 @@
         docker-dashboard docker-dashboard-stop \
         docker-serve docker-all docker-dev docker-shell \
         test test-coverage install clean clean-workspace clean-pids \
-        composer xdebug-clear
+        composer xdebug-clear \
+        build build-clean
 
 # Default target
 help: ## Show this help message
@@ -169,6 +170,17 @@ docker-dev: ## Dev mode: REPL + Xdebug + Webgrind
 
 docker-shell: ## Open a bash shell in the container
 	@docker compose run --rm --entrypoint /bin/bash coqui
+
+# =============================================================================
+# Build & Release
+# =============================================================================
+
+build: ## Build production release (ZIP + tar.gz)
+	@scripts/build.sh $(if $(VERSION),--version $(VERSION))
+
+build-clean: ## Remove build artifacts
+	@rm -rf BUILD/
+	@echo "Build artifacts removed"
 
 # =============================================================================
 # Build & Test
