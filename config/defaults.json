@@ -70,6 +70,22 @@
                 {"id": "google/gemini-2.5-flash", "name": "Gemini 2.5 Flash via OpenRouter"},
                 {"id": "meta-llama/llama-3.3-70b-instruct", "name": "Llama 3.3 70B via OpenRouter"}
             ]
+        },
+        "xai": {
+            "name": "xAI (Grok)",
+            "description": "Grok models via xAI API — requires API key",
+            "baseUrl": "https://api.x.ai/v1",
+            "apiKeyEnvVar": "XAI_API_KEY",
+            "requiresApiKey": true,
+            "api": "openai-completions",
+            "supportsModelDiscovery": true,
+            "curatedModels": [
+                {"id": "grok-4", "name": "Grok 4 (Flagship Reasoning)", "recommended": true},
+                {"id": "grok-4-1-fast-reasoning", "name": "Grok 4.1 Fast (Reasoning)"},
+                {"id": "grok-3", "name": "Grok 3 (Previous Gen)"},
+                {"id": "grok-3-mini", "name": "Grok 3 Mini (Fast)"},
+                {"id": "grok-2-vision-1212", "name": "Grok 2 Vision (Image Understanding)", "vision": true}
+            ]
         }
     },
     "roles": {
