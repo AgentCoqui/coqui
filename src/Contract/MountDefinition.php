@@ -65,8 +65,8 @@ final readonly class MountDefinition
     public static function fromArray(array $config): self
     {
         return new self(
-            path: $config['path'] ?? '',
-            alias: $config['alias'] ?? '',
+            path: $config['path'],
+            alias: $config['alias'],
             access: $config['access'] ?? 'ro',
             description: $config['description'] ?? null,
         );

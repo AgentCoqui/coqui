@@ -29,7 +29,7 @@ final class MountManager
      * @param MountDefinition[] $mounts        Declared mount definitions from config
      */
     public function __construct(
-        private readonly string $workspacePath,
+        string $workspacePath,
         array $mounts = [],
     ) {
         $this->mountDir = rtrim($workspacePath, '/') . '/mnt';

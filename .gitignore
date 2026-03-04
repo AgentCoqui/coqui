@@ -15,3 +15,4 @@ docs/TODO*
 BUILD/
 downloads/
 public/vendor
+.claude
