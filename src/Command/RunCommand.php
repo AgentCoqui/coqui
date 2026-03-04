@@ -131,6 +131,7 @@ final class RunCommand extends Command
             backgroundTasksEnabled: true,
             memoryStore: $this->boot->memoryStore(),
             memorySummarizer: $this->boot->memorySummarizer(),
+            mountManager: $this->boot->mountManager(),
         );
 
         // Handle session
@@ -754,6 +755,7 @@ final class RunCommand extends Command
             unsafeMode: $this->unsafeMode,
             memoryStore: $this->boot->memoryStore(),
             memorySummarizer: $this->boot->memorySummarizer(),
+            mountManager: $this->boot->mountManager(),
         );
 
         // Handle session

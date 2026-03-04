@@ -128,6 +128,30 @@
             ]
         },
         {
+            "path": "src/Config/MountManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\MountManager",
+            "layer": "config",
+            "description": "Manages directory mount symlinks in .workspace/mnt/. Creates/updates/cleans symlinks on boot. Generates allowedPaths arrays for FilesystemToolkit (orchestrator gets declared access, child agents forced read-only), a markdown storage map for prompt injection, and open_basedir path lists for PhpExecuteTool.",
+            "methods": [
+                "initialize(): void — creates mnt/ dir, creates/updates symlinks, cleans stale links",
+                "allowedPaths(): array — returns [{realPath, readOnly}] with declared access levels",
+                "allowedPathsReadOnly(): array — returns [{realPath, readOnly: true}] for child agents",
+                "storageMap(): string — markdown table of mounts for system prompt injection",
+                "openBasedirPaths(): string[] — real paths for PhpExecuteTool open_basedir extension",
+                "hasMounts(): bool — whether any mounts are registered"
+            ]
+        },
+        {
+            "path": "src/Contract/MountDefinition.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\MountDefinition",
+            "layer": "contract",
+            "description": "Validated value object for a directory mount declaration. Enforces: path must exist as a directory, alias must not contain path separators, access must be 'ro' or 'rw'. Factory method fromArray() parses config entries from openclaw.json.",
+            "methods": [
+                "fromArray(array $data): self — factory for config parsing, validates all fields",
+                "isReadOnly(): bool — returns true when access is 'ro'"
+            ]
+        },
+        {
             "path": "src/Config/DefaultsLoader.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\DefaultsLoader",
             "layer": "config",
