@@ -401,11 +401,45 @@ final class SetupWizard
         $this->io->section('Step 5: Workspace');
 
         $default = $this->defaults->defaultWorkspace();
-        $this->io->text('The workspace is a sandboxed directory where Coqui reads and writes files.');
+
+        // Detect an existing local .workspace/ in the current directory
+        $cwd = getcwd();
+        $hasLocalWorkspace = $cwd !== false && is_dir($cwd . '/.workspace');
+
+        if ($hasLocalWorkspace) {
+            $default = '.workspace';
+            $this->io->text([
+                'The workspace is a sandboxed directory where Coqui reads and writes files.',
+                '',
+                sprintf('<fg=cyan>Detected existing workspace at:</> %s/.workspace', $cwd),
+                'Using this local workspace as the default. Change to <fg=cyan>~/.workspace</> for a shared home directory workspace.',
+            ]);
+        } else {
+            $this->io->text([
+                'The workspace is a sandboxed directory where Coqui stores sessions, credentials, and files.',
+                '',
+                sprintf('Default: <fg=cyan>~/.workspace</> (resolves to <fg=gray>%s/.workspace</>)', $this->resolveHome()),
+                'All sessions are stored in this single location regardless of where you run Coqui from.',
+                'Use a relative path like <fg=cyan>.workspace</> to create a project-local workspace instead.',
+            ]);
+        }
 
         $workspace = $this->io->ask('Workspace directory', $default);
 
         return is_string($workspace) ? $workspace : $default;
+    }
+
+    /**
+     * Resolve the user's home directory for display purposes.
+     */
+    private function resolveHome(): string
+    {
+        $home = $_SERVER['HOME'] ?? $_ENV['HOME'] ?? '';
+        if ($home === '' && function_exists('posix_getpwuid') && function_exists('posix_getuid')) {
+            $home = posix_getpwuid(posix_getuid())['dir'] ?? '~';
+        }
+
+        return $home !== '' ? $home : '~';
     }
 
     /**

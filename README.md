@@ -1,6 +1,11 @@
 # Coqui Bot
 
-![Coqui Bot](assets/coqui.webp)
+
+<p align="center">
+    <picture>
+        <img src="https://raw.githubusercontent.com/AgentCoqui/coqui/main/assets/coqui.webp" alt="Coqui" width="420" />
+    </picture>
+</p>
 
 Terminal AI agent with multi-model orchestration, persistent sessions, and runtime extensibility via Composer.
 
@@ -14,7 +19,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 
 - **Multi-model orchestration** — route tasks to the right model: cheap local models for orchestration, powerful cloud models for coding and review
 - **Persistent sessions** — SQLite-backed conversations that survive restarts; resume where you left off
-- **Workspace sandboxing** — all file I/O is sandboxed to a `.workspace` directory with its own Composer project, keeping your project safe
+- **Workspace sandboxing** — all file I/O is sandboxed to the workspace directory (`~/.workspace` by default) with its own Composer project, keeping your project safe
 - **Runtime extensibility** — install Composer packages at runtime and Coqui auto-discovers new toolkits on every boot
 - **Child agent delegation** — spawns specialized agents (coder, reviewer) using role-appropriate models
 - **Interactive approval** — dangerous operations (package installs, shell exec, PHP execution) require your confirmation
@@ -74,7 +79,7 @@ The launcher starts the REPL (foreground) + API server (background on port 3300)
  Session  a3f8b2c1
  Model    ollama/glm-4.7-flash:latest
  Project  /home/you/projects/my-app
- Workspace /home/you/projects/my-app/.workspace
+ Workspace /home/you/.workspace
 
  Type /help for commands, /quit to exit.
 
@@ -249,7 +254,7 @@ Coqui ships with a rich set of tools the agent can use autonomously:
 
 | Toolkit | Description |
 |---------|-------------|
-| `FilesystemToolkit` | Sandboxed read/write to the `.workspace` directory |
+| `FilesystemToolkit` | Sandboxed read/write to the workspace directory (`~/.workspace` by default) |
 | `ShellToolkit` | Run shell commands from project root (`git`, `grep`, `find`, `cat`, `ls`, etc.) |
 | `MemoryToolkit` | Persistent memory via `MEMORY.md` for facts that survive across sessions |
 
