@@ -22,6 +22,7 @@ final readonly class OrchestratorPrompt
         private string $projectRoot,
         private string $availableRoles,
         private string $availableSkills = '',
+        private string $storageMap = '',
         ?string $promptsDir = null,
     ) {
         $this->loader = new PromptLoader(
@@ -31,6 +32,7 @@ final readonly class OrchestratorPrompt
                 'project_root' => $this->projectRoot,
                 'available_roles' => $this->availableRoles,
                 'available_skills' => $this->availableSkills,
+                'storage_map' => $this->storageMap,
             ],
         );
     }

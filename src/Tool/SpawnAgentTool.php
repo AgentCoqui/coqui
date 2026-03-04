@@ -14,6 +14,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
+use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -39,6 +40,7 @@ final class SpawnAgentTool implements ToolInterface
         private readonly ?SessionStorage $storage = null,
         private readonly ?string $sessionId = null,
         private readonly ?SplObserver $observer = null,
+        private readonly ?MountManager $mountManager = null,
     ) {}
 
     public function name(): string
@@ -171,9 +173,12 @@ final class SpawnAgentTool implements ToolInterface
     {
         $accessLevel = $this->resolveAccessLevel($role);
 
+        // Child agents get read-only mount access regardless of role access level
+        $mountPaths = $this->mountManager?->allowedPathsReadOnly() ?? [];
+
         return match ($accessLevel) {
             'full' => [
-                new FilesystemToolkit(rootPath: $this->workspacePath),
+                new FilesystemToolkit(rootPath: $this->workspacePath, allowedPaths: $mountPaths),
                 new ShellToolkit(
                     workDir: $this->projectRoot,
                     allowedCommands: ['php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc'],
@@ -183,7 +188,7 @@ final class SpawnAgentTool implements ToolInterface
             ],
 
             'readonly' => [
-                new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true),
+                new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 

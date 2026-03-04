@@ -17,6 +17,7 @@ use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
@@ -76,6 +77,7 @@ final class OrchestratorAgent extends AbstractAgent
         ?BackgroundTaskToolkit $backgroundTaskToolkit = null,
         private readonly ?MemoryStore $memoryStore = null,
         private readonly ?MemorySummarizer $memorySummarizer = null,
+        private readonly ?MountManager $mountManager = null,
     ) {
         parent::__construct($provider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider);
 
@@ -83,8 +85,11 @@ final class OrchestratorAgent extends AbstractAgent
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);
         $credentialResolver->loadIntoProcessEnv();
 
-        // Filesystem toolkit — sandboxed to workspace (read/write)
-        $this->addToolkit(new FilesystemToolkit(rootPath: $this->workspacePath));
+        // Filesystem toolkit — sandboxed to workspace (read/write) with optional mount allowlist
+        $this->addToolkit(new FilesystemToolkit(
+            rootPath: $this->workspacePath,
+            allowedPaths: $this->mountManager?->allowedPaths() ?? [],
+        ));
 
         // Shell toolkit — runs in project root for read access
         $this->addToolkit(new ShellToolkit(
@@ -126,6 +131,7 @@ final class OrchestratorAgent extends AbstractAgent
             storage: $this->storage,
             sessionId: $this->sessionId,
             observer: $this->observer,
+            mountManager: $this->mountManager,
         );
 
         // Create credential tool for API key management
@@ -143,6 +149,7 @@ final class OrchestratorAgent extends AbstractAgent
             projectRoot: $this->projectRoot,
             workspacePath: $this->workspacePath,
             sanitizer: $this->sanitizer,
+            mountManager: $this->mountManager,
         );
 
         // Create restart tool if callback provided
@@ -160,12 +167,14 @@ final class OrchestratorAgent extends AbstractAgent
     {
         $roles = implode(', ', $this->roleResolver->availableRoles());
         $skillsSummary = $this->skillDiscovery?->buildPromptSummary() ?? 'No skills installed.';
+        $storageMap = $this->mountManager?->storageMap() ?? '';
 
         $prompt = new OrchestratorPrompt(
             workspacePath: $this->workspacePath,
             projectRoot: $this->projectRoot,
             availableRoles: $roles,
             availableSkills: $skillsSummary,
+            storageMap: $storageMap,
         );
 
         $rendered = $prompt->render();

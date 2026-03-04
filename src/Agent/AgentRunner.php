@@ -14,6 +14,7 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
+use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
@@ -52,6 +53,7 @@ final class AgentRunner
         private readonly bool $backgroundTasksEnabled = false,
         private readonly ?MemoryStore $memoryStore = null,
         private readonly ?MemorySummarizer $memorySummarizer = null,
+        private readonly ?MountManager $mountManager = null,
     ) {}
 
     /**
@@ -295,6 +297,7 @@ final class AgentRunner
                 : null,
             memoryStore: $this->memoryStore,
             memorySummarizer: $this->memorySummarizer,
+            mountManager: $this->mountManager,
         );
     }
 

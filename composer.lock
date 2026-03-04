@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "ed69d06e66ed44aa7c09dcb8b9f3a12f",
+    "content-hash": "51f56de7411dccdf85dd77fbdf16623c",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "0.7.0",
+            "version": "0.7.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "3a098562d24391acf0a911ae8a5fa0f68f90ec4d"
+                "reference": "010a2eb57375e32837d846782631e2c130d59cda"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/3a098562d24391acf0a911ae8a5fa0f68f90ec4d",
-                "reference": "3a098562d24391acf0a911ae8a5fa0f68f90ec4d",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/010a2eb57375e32837d846782631e2c130d59cda",
+                "reference": "010a2eb57375e32837d846782631e2c130d59cda",
                 "shasum": ""
             },
             "require": {
@@ -67,9 +67,9 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.7.0"
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.7.1"
             },
-            "time": "2026-03-02T14:58:15+00:00"
+            "time": "2026-03-04T02:23:01+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-composer",
@@ -191,6 +191,96 @@
                 "source": "https://github.com/carmelosantana/coqui-toolkit-packagist/tree/v0.1.2"
             },
             "time": "2026-03-02T17:37:39+00:00"
+        },
+        {
+            "name": "coquibot/coqui-toolkit-space-manager",
+            "version": "v0.1.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/coqui-toolkit-space-manager.git",
+                "reference": "65f2fbe219f171627450cce8959a6e0b996fd6c3"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-space-manager/zipball/65f2fbe219f171627450cce8959a6e0b996fd6c3",
+                "reference": "65f2fbe219f171627450cce8959a6e0b996fd6c3",
+                "shasum": ""
+            },
+            "require": {
+                "ext-json": "*",
+                "ext-zip": "*",
+                "php": "^8.4",
+                "symfony/http-client": "^7.0"
+            },
+            "require-dev": {
+                "carmelosantana/php-agents": "^0.7",
+                "pestphp/pest": "^3.0",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "php-agents": {
+                    "gated": {
+                        "space_enable": [
+                            "*"
+                        ],
+                        "space_remove": [
+                            {
+                                "purge": true
+                            }
+                        ],
+                        "space_update": [
+                            "*"
+                        ],
+                        "space_disable": [
+                            "*"
+                        ],
+                        "space_install": [
+                            "*"
+                        ]
+                    },
+                    "toolkits": [
+                        "CoquiBot\\Toolkits\\SpaceManager\\SpaceManagerToolkit"
+                    ],
+                    "credentials": {
+                        "COQUI_SPACE_URL": {
+                            "optional": true,
+                            "description": "Override Coqui Space API base URL (default: https://coqui.space/wp-json/coqui/v1)"
+                        },
+                        "COQUI_SPACE_USERNAME": "WordPress username on coqui.space — required for starring and authenticated features",
+                        "COQUI_SPACE_APP_PASSWORD": "WordPress Application Password for coqui.space — generate at coqui.space under Users > Profile > Application Passwords"
+                    },
+                    "description": "Coqui Space discovery and lifecycle management — browse, install, update, and manage skills and toolkits from coqui.space"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\SpaceManager\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Carmelo Santana"
+                }
+            ],
+            "description": "Coqui Space toolkit — discover, install, and manage skills and toolkits from coqui.space",
+            "keywords": [
+                "coqui",
+                "coqui-space",
+                "package-manager",
+                "php-agents",
+                "skills",
+                "toolkit"
+            ],
+            "support": {
+                "issues": "https://github.com/carmelosantana/coqui-toolkit-space-manager/issues",
+                "source": "https://github.com/carmelosantana/coqui-toolkit-space-manager/tree/v0.1.0"
+            },
+            "time": "2026-03-04T02:07:51+00:00"
         },
         {
             "name": "evenement/evenement",

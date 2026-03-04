@@ -9,6 +9,7 @@ use CarmeloSantana\PHPAgents\Contract\EmbeddingProviderInterface;
 use CarmeloSantana\PHPAgents\Embedding\OllamaEmbeddingProvider;
 use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
 
+use CoquiBot\Coqui\Contract\MountDefinition;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -31,6 +32,7 @@ final class BootManager
     private RoleResolver $roleResolver;
     private CatastrophicBlacklist $blacklist;
     private DefaultsLoader $defaultsLoader;
+    private MountManager $mountManager;
     private MemoryStore $memoryStore;
     private MemorySummarizer $memorySummarizer;
 
@@ -53,6 +55,7 @@ final class BootManager
         $this->loadConfig($io, $configPath);
         $this->blacklist = CatastrophicBlacklist::fromConfig($this->config);
         $this->initializeWorkspace();
+        $this->initializeMounts();
         $this->discoverRoles();
         $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
         $this->initializeCredentials();
@@ -96,6 +99,11 @@ final class BootManager
     public function defaultsLoader(): DefaultsLoader
     {
         return $this->defaultsLoader;
+    }
+
+    public function mountManager(): MountManager
+    {
+        return $this->mountManager;
     }
 
     public function skillDiscovery(): SkillDiscovery
@@ -179,6 +187,37 @@ final class BootManager
         $workspaceComposer = new WorkspaceComposerManager($this->workspacePath);
         $workspaceComposer->initialize();
         $workspaceComposer->loadAutoloader();
+    }
+
+    /**
+     * Read mount declarations from config and initialize the MountManager.
+     *
+     * Reads `agents.defaults.mounts` from openclaw.json — an array of mount
+     * objects with path, alias, access (ro|rw), and optional description.
+     * Creates symlinks under .workspace/mnt/ for agent discoverability.
+     */
+    private function initializeMounts(): void
+    {
+        $mountsConfig = $this->config->get('agents.defaults.mounts');
+        $mounts = [];
+
+        if (is_array($mountsConfig)) {
+            foreach ($mountsConfig as $entry) {
+                if (!is_array($entry) || !isset($entry['path'], $entry['alias'])) {
+                    continue;
+                }
+
+                try {
+                    $mounts[] = MountDefinition::fromArray($entry);
+                } catch (\InvalidArgumentException) {
+                    // Skip invalid mount definitions silently
+                    continue;
+                }
+            }
+        }
+
+        $this->mountManager = new MountManager($this->workspacePath, $mounts);
+        $this->mountManager->initialize();
     }
 
     private function initializeCredentials(): void
