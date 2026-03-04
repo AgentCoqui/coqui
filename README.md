@@ -27,6 +27,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - **Script sanitization** — static analysis blocks dangerous functions before any generated code runs
 - **Memory persistence** — saves facts to `MEMORY.md` across sessions so Coqui remembers what matters
 - **Background tasks** — run long-running agent work in separate processes while the main conversation continues (API mode)
+- **Network access** — expose the API to your local network with `--host 0.0.0.0` so you can connect from phones, tablets, and other machines
 - **Observer pattern** — real-time terminal rendering of agent lifecycle events with nested child output
 - **OpenClaw config** — natively supports the OpenClaw config format for centralized model routing and workspace settings
 
@@ -424,7 +425,7 @@ make test-shell
 | `make stop` | Stop all native services |
 | `make status` | Show service status |
 | `make repl` | REPL only (native) |
-| `make api` | API only (native) |
+| `make api` | API only (native, `HOST=0.0.0.0` for network access) |
 | `make dashboard` | Dashboard (native) |
 | `make docker-start` | REPL + API (Docker) |
 | `make docker-repl` | REPL only (Docker) |
