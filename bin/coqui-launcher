@@ -14,6 +14,7 @@
 #   status               Show which services are running
 #
 # Flags:
+#   --host HOST          API bind address (default 127.0.0.1, use 0.0.0.0 for network)
 #   --port PORT          API port (default 3300)
 #   --dashboard-port P   Dashboard port (default 3380)
 #   --auto-approve       Forwarded to bin/coqui run
@@ -45,6 +46,7 @@ readonly PID_DIR="${PROJECT_DIR}/.workspace/pids"
 
 mode=""                    # "", "repl-only", "api-only", "dashboard", "with-dashboard"
 subcommand=""              # "stop", "stop-api", "stop-dashboard", "status"
+api_host="${COQUI_API_HOST:-127.0.0.1}"
 api_port="${API_DEFAULT_PORT}"
 dashboard_port="${DASHBOARD_DEFAULT_PORT}"
 background=false
@@ -68,6 +70,8 @@ while [[ $# -gt 0 ]]; do
             mode="dashboard"; shift ;;
         --with-dashboard)
             mode="with-dashboard"; shift ;;
+        --host)
+            api_host="$2"; shift 2 ;;
         --port)
             api_port="$2"; shift 2 ;;
         --dashboard-port)
@@ -334,8 +338,8 @@ start_api_bg() {
         fi
     fi
 
-    log_verbose "Starting API on port ${api_port}..."
-    "${COQUI_BIN}" api --host 127.0.0.1 --port "${api_port}" "${api_args[@]+"${api_args[@]}"}" </dev/null &
+    log_verbose "Starting API on ${api_host}:${api_port}..."
+    "${COQUI_BIN}" api --host "${api_host}" --port "${api_port}" "${api_args[@]+"${api_args[@]}"}" </dev/null &
     local pid=$!
     write_pid "api" "$pid"
     session_services+=("api")
@@ -343,7 +347,7 @@ start_api_bg() {
     # Brief pause to verify it started
     sleep 0.5
     if is_running "$pid"; then
-        log "API: running on http://localhost:${api_port} (PID ${pid})"
+        log "API: running on http://${api_host}:${api_port} (PID ${pid})"
     else
         log "API: failed to start"
         rm -f "${PID_DIR}/api.pid" 2>/dev/null || true
@@ -468,10 +472,10 @@ case "${mode}" in
         else
             echo ""
             echo "  Coqui API Server"
-            echo "  -> http://localhost:${api_port}"
+            echo "  -> http://${api_host}:${api_port}"
             echo "  Press Ctrl+C to stop"
             echo ""
-            exec "${COQUI_BIN}" api --host 127.0.0.1 --port "${api_port}" "${api_args[@]+"${api_args[@]}"}"
+            exec "${COQUI_BIN}" api --host "${api_host}" --port "${api_port}" "${api_args[@]+"${api_args[@]}"}"
         fi
         ;;
     dashboard)
