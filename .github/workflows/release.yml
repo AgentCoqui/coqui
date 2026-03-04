@@ -1,0 +1,231 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Tests (PHP 8.4)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_sqlite, mbstring, curl, xml, zip, pcntl
+          coverage: none
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-composer-8.4-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-composer-8.4-
+
+      - name: Install dependencies
+        run: composer install --prefer-dist --no-progress --no-interaction
+
+      - name: Run tests
+        run: composer test
+
+      - name: Run PHPStan
+        run: composer analyse
+
+  build:
+    name: Build release
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_sqlite, mbstring, curl, xml, zip, pcntl
+          coverage: none
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          VERSION="${TAG#v}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+
+      - name: Get Composer cache directory
+        id: composer-cache
+        run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
+
+      - name: Cache Composer dependencies
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.composer-cache.outputs.dir }}
+          key: ${{ runner.os }}-release-8.4-${{ hashFiles('**/composer.lock') }}
+          restore-keys: ${{ runner.os }}-release-8.4-
+
+      - name: Export clean source
+        run: |
+          mkdir -p BUILD/coqui
+          git archive HEAD | tar -x -C BUILD/coqui
+
+      - name: Set version in composer.json
+        working-directory: BUILD/coqui
+        run: composer config version "${{ steps.version.outputs.version }}" --no-interaction
+
+      - name: Install production dependencies
+        working-directory: BUILD/coqui
+        run: |
+          rm -f composer.lock
+          composer install \
+            --no-dev \
+            --classmap-authoritative \
+            --prefer-dist \
+            --no-interaction \
+            --no-progress \
+            --no-scripts \
+            --optimize-autoloader
+
+      - name: Install dashboard dependencies
+        working-directory: BUILD/coqui/public
+        run: |
+          rm -f composer.lock
+          composer install \
+            --no-dev \
+            --classmap-authoritative \
+            --prefer-dist \
+            --no-interaction \
+            --no-progress \
+            --no-scripts \
+            --optimize-autoloader
+
+      - name: Strip vendor bloat
+        working-directory: BUILD/coqui
+        run: |
+          # Git metadata
+          find vendor/ -type d -name '.git' -exec rm -rf {} + 2>/dev/null || true
+          find vendor/ -type f -name '.gitignore' -delete 2>/dev/null || true
+          find vendor/ -type f -name '.gitattributes' -delete 2>/dev/null || true
+
+          # Test directories
+          find vendor/ -type d -name 'tests' -exec rm -rf {} + 2>/dev/null || true
+          find vendor/ -type d -name 'Tests' -exec rm -rf {} + 2>/dev/null || true
+          find vendor/ -type d -name 'test' -exec rm -rf {} + 2>/dev/null || true
+
+          # CI / dev config
+          find vendor/ -type f \( \
+            -name 'phpunit.xml*' -o \
+            -name 'phpstan.neon*' -o \
+            -name '.php-cs-fixer*' -o \
+            -name '.editorconfig' -o \
+            -name '.travis.yml' -o \
+            -name '.scrutinizer.yml' -o \
+            -name 'Makefile' \
+          \) -delete 2>/dev/null || true
+
+          # Non-essential markdown
+          find vendor/ -type f -name '*.md' \
+            ! -name 'README.md' \
+            ! -name 'LICENSE*' \
+            ! -name 'LICENCE*' \
+            -delete 2>/dev/null || true
+
+          # Doc directories
+          find vendor/ -type d \( -name 'docs' -o -name 'doc' \) -exec rm -rf {} + 2>/dev/null || true
+
+          # Dashboard vendor
+          if [[ -d "public/vendor" ]]; then
+            find public/vendor/ -type d -name '.git' -exec rm -rf {} + 2>/dev/null || true
+            find public/vendor/ -type d \( -name 'tests' -o -name 'Tests' -o -name 'test' \) -exec rm -rf {} + 2>/dev/null || true
+            find public/vendor/ -type f \( -name '.gitignore' -o -name '.gitattributes' -o -name 'phpunit.xml*' -o -name 'phpstan.neon*' \) -delete 2>/dev/null || true
+          fi
+
+          # Empty dirs
+          find vendor/ -type d -empty -delete 2>/dev/null || true
+
+          # Final cleanup
+          rm -f .gitattributes .gitignore
+          rm -rf .github/ .workspace/ 2>/dev/null || true
+
+      - name: Verify build
+        working-directory: BUILD/coqui
+        run: |
+          echo "--- Version check ---"
+          php bin/coqui --version
+          echo ""
+          echo "--- File count ---"
+          find . -type f | wc -l
+          echo ""
+          echo "--- Top-level contents ---"
+          ls -la
+
+      - name: Create archives
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARTIFACT_BASE="coqui-v${VERSION}"
+          mkdir -p BUILD/dist
+
+          # ZIP
+          cd BUILD
+          zip -qr "dist/${ARTIFACT_BASE}.zip" coqui/
+          cd ..
+
+          # tar.gz
+          cd BUILD
+          tar -czf "dist/${ARTIFACT_BASE}.tar.gz" coqui/
+          cd ..
+
+          # SHA-256 checksums
+          cd BUILD/dist
+          sha256sum "${ARTIFACT_BASE}.zip" > "${ARTIFACT_BASE}.zip.sha256"
+          sha256sum "${ARTIFACT_BASE}.tar.gz" > "${ARTIFACT_BASE}.tar.gz.sha256"
+          cd ../..
+
+          echo "--- Artifacts ---"
+          ls -lh BUILD/dist/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: BUILD/dist/
+          retention-days: 5
+
+  release:
+    name: GitHub Release
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

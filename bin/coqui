@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
+use Composer\InstalledVersions;
 use CoquiBot\Coqui\Command\ApiCommand;
 use CoquiBot\Coqui\Command\DoctorCommand;
 use CoquiBot\Coqui\Command\RunCommand;
@@ -12,7 +13,8 @@ use CoquiBot\Coqui\Command\SetupCommand;
 use CoquiBot\Coqui\Command\TaskRunCommand;
 use Symfony\Component\Console\Application;
 
-$app = new Application('coqui', '0.1.0');
+$version = InstalledVersions::getPrettyVersion('coquibot/coqui') ?? 'dev';
+$app = new Application('coqui', $version);
 $app->add(new RunCommand());
 $app->add(new SetupCommand());
 $app->add(new DoctorCommand());
