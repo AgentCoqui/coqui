@@ -64,6 +64,13 @@ final class ApiCommand extends Command
             ? $input->getOption('workdir')
             : (getcwd() ?: '.');
         $host = is_string($input->getOption('host')) ? $input->getOption('host') : '127.0.0.1';
+
+        // Allow COQUI_API_HOST env var to override the default when --host is not explicitly passed
+        $envHost = getenv('COQUI_API_HOST');
+        if ($host === '127.0.0.1' && is_string($envHost) && $envHost !== '') {
+            $host = $envHost;
+        }
+
         $port = is_string($input->getOption('port')) ? $input->getOption('port') : '3300';
         $unsafeMode = (bool) $input->getOption('unsafe')
             || filter_var(getenv('COQUI_UNSAFE'), FILTER_VALIDATE_BOOLEAN);
@@ -115,6 +122,14 @@ final class ApiCommand extends Command
             $host = '127.0.0.1';
             $apiKey = null;
             $output->writeln('<comment>WARNING: Running without authentication. Binding to 127.0.0.1 only.</comment>');
+            $output->writeln('');
+        } elseif ($host !== '127.0.0.1' && $host !== 'localhost') {
+            // Warn when exposing API to the network
+            $output->writeln(sprintf(
+                '<comment>WARNING: API will be accessible on the network (%s:%s). Ensure your API key is strong and consider using a reverse proxy with TLS for production.</comment>',
+                $host,
+                $port,
+            ));
             $output->writeln('');
         }
 

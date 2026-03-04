@@ -52,7 +52,13 @@ repl: ## Start REPL only (no background API)
 	@./bin/coqui-launcher --repl-only $(ARGS)
 
 api: ## Start API only (foreground, port 3300)
+ifdef HOST
 ifdef PORT
+	@./bin/coqui-launcher --api-only --host $(HOST) --port $(PORT) $(ARGS)
+else
+	@./bin/coqui-launcher --api-only --host $(HOST) $(ARGS)
+endif
+else ifdef PORT
 	@./bin/coqui-launcher --api-only --port $(PORT) $(ARGS)
 else
 	@./bin/coqui-launcher --api-only $(ARGS)
