@@ -912,8 +912,18 @@ final class DoctorCommand extends Command
             $resolver = new WorkspaceResolver($config, $workDir);
             return $resolver->resolve();
         } catch (\Throwable) {
-            // Fallback to common default
-            return $workDir . '/.workspace';
+            // Fallback to common default — prefer local .workspace if it exists, else ~/
+            $localWorkspace = $workDir . '/.workspace';
+            if (is_dir($localWorkspace)) {
+                return $localWorkspace;
+            }
+
+            $home = $_SERVER['HOME'] ?? $_ENV['HOME'] ?? '';
+            if ($home !== '') {
+                return $home . '/.workspace';
+            }
+
+            return $localWorkspace;
         }
     }
 
