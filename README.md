@@ -145,7 +145,7 @@ Once inside the Coqui REPL, use slash commands:
 
 ## Providers & OpenClaw Config
 
-Coqui uses an `openclaw.json` config file for centralized model routing. It supports three providers out of the box:
+Coqui uses an `openclaw.json` config file for centralized model routing. It supports these providers out of the box:
 
 ### Provider Setup
 
@@ -170,6 +170,13 @@ Coqui uses an `openclaw.json` config file for centralized model routing. It supp
     "apiKey": "your-anthropic-api-key",
     "api": "anthropic"
 }
+
+// xAI (Grok)
+"xai": {
+    "baseUrl": "https://api.x.ai/v1",
+    "apiKey": "your-xai-api-key",
+    "api": "openai-completions"
+}
 ```
 
 Set your API keys as environment variables or directly in `openclaw.json`:
@@ -177,6 +184,7 @@ Set your API keys as environment variables or directly in `openclaw.json`:
 ```bash
 export OPENAI_API_KEY="sk-..."
 export ANTHROPIC_API_KEY="sk-ant-..."
+export XAI_API_KEY="xai-..."
 ```
 
 ### Role-Based Model Routing
