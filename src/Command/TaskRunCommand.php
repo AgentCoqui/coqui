@@ -130,6 +130,7 @@ final class TaskRunCommand extends Command
             unsafeMode: $unsafeMode,
             memoryStore: $boot->memoryStore(),
             memorySummarizer: $boot->memorySummarizer(),
+            mountManager: $boot->mountManager(),
         );
 
         // Create execution policy (auto-approve — no human in the loop)
