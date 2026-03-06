@@ -1,15 +1,32 @@
 # Coqui Bot
 
-
 <p align="center">
     <picture>
-        <img src="https://raw.githubusercontent.com/AgentCoqui/coqui/main/assets/coqui.webp" alt="Coqui" width="420" />
+        <img src="https://raw.githubusercontent.com/AgentCoqui/coqui/main/assets/coqui.webp" alt="Coqui" width="256" />
     </picture>
 </p>
 
+<p align="center">
+  <a href="https://github.com/AgentCoqui/coqui/actions/workflows/ci.yml?branch=main"><img src="https://img.shields.io/github/actions/workflow/status/AgentCoqui/coqui/ci.yml?branch=main&style=for-the-badge" alt="CI status"></a>
+  <a href="https://github.com/AgentCoqui/coqui/releases"><img src="https://img.shields.io/github/v/release/AgentCoqui/coqui?include_prereleases&style=for-the-badge" alt="GitHub release"></a>
+  <a href="https://www.php.net/"><img src="https://img.shields.io/badge/PHP-8.4%2B-777BB4?style=for-the-badge&logo=php&logoColor=white" alt="PHP 8.4+"></a>
+  <a href="https://discord.gg/TaCpZVqbbT"><img src="https://img.shields.io/discord/1471632654624489668?label=Discord&logo=discord&logoColor=white&color=5865F2&style=for-the-badge" alt="Discord"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue?style=for-the-badge" alt="MIT License"></a>
+  <a href="https://github.com/sponsors/carmelosantana"><img src="https://img.shields.io/github/sponsors/carmelosantana?label=Sponsors&logo=github-sponsors&logoColor=white&color=EA4AAA&style=for-the-badge" alt="GitHub Sponsors"></a>
+</p>
+
+<p align="center">
+  <a href="https://coquibot.ai/">Website</a> ·
+  <a href="https://coquibot.ai/docs">Docs</a> ·
+  <a href="https://coqui.space">Toolkits</a> ·
+  <a href="https://github.com/sponsors/carmelosantana">Sponsor</a>
+</p>
+
+> **Book a 1:1 call** — paid sessions for real-time implementation help, AI agent consulting, or just to support Coqui's active development. [Schedule time →](https://cal.com/carmelosantana/coqui-1:1)
+
 Terminal AI agent with multi-model orchestration, persistent sessions, and runtime extensibility via Composer.
 
-Coqui is a CLI-first AI assistant that lives in your terminal. Ask it questions, delegate coding tasks, manage packages, execute PHP, and extend its abilities on the fly — powered by [php-agents](https://github.com/carmelosantana/php-agents) and any mix of locally hosted or cloud LLMs.
+Coqui is a CLI-first AI assistant that lives in your terminal. Ask it questions, delegate coding tasks, manage packages, execute PHP, and extend its abilities on the fly — powered by [`php-agents`](https://github.com/carmelosantana/php-agents) and any mix of locally hosted or cloud LLMs.
 
 > Coqui is a WIP and under rapid development. Be careful when running this tool. Always test in a safe environment.
 
@@ -40,17 +57,53 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 
 - PHP 8.4 or later
 - Extensions: `curl`, `json`, `mbstring`, `pdo_sqlite`
-- Composer 2.x
 - [Ollama](https://ollama.ai) (recommended for local inference)
 
 Or use **Docker** — no local PHP required. See [Docker](#docker) below.
 
 ## Installation
 
+The installer detects your OS, installs PHP 8.4+ and required extensions if missing, downloads the latest Coqui release, verifies the SHA-256 checksum, and adds `coqui` to your PATH — no Git or Composer required.
+
+### Linux / macOS / WSL2
+
+```bash
+curl -fsSL https://coquibot.ai/install | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1 | iex
+```
+
+### Update
+
+Re-run the same install command. The installer detects an existing installation and updates it automatically.
+
+### Inspect before running
+
+- Linux / macOS: [install.sh](https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.sh)
+- Windows: [install.ps1](https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1)
+
+### Development Install
+
+Clone the repository and install dependencies manually. Requires PHP 8.4+, Composer 2.x, and Git.
+
 ```bash
 git clone https://github.com/AgentCoqui/coqui.git
 cd coqui
 composer install
+```
+
+Alternatively, use the `--dev` flag with the installer to clone and set up in one step:
+
+```bash
+# Linux / macOS
+./install.sh --dev
+
+# Windows
+.\install.ps1 -Dev
 ```
 
 ## Quick Start
