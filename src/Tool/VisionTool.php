@@ -75,12 +75,6 @@ final class VisionTool implements ToolInterface
 
         $result = $this->analyzer->analyze($image, $prompt);
 
-        if ($result === null) {
-            return ToolResult::error(
-                'Vision analysis failed. Ensure the image source is valid and a vision-capable model is configured for the "vision" role.',
-            );
-        }
-
         // VisionAnalyzer returns error strings prefixed with "Error: "
         if (str_starts_with($result, 'Error: ')) {
             return ToolResult::error($result);

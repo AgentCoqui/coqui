@@ -37,6 +37,9 @@ final class SpawnAgentTool implements ToolInterface
     private int $currentIteration = 0;
     private int $childRunCount = 0;
 
+    /**
+     * @param array<string> $shellAllowedCommands
+     */
     public function __construct(
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
