@@ -28,6 +28,12 @@ use SplObserver;
  */
 final class SpawnAgentTool implements ToolInterface
 {
+    /** Default shell commands for child agents (subset of orchestrator's). */
+    private const array DEFAULT_CHILD_SHELL_COMMANDS = [
+        'php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc',
+        'curl', 'wget', 'sort', 'uniq', 'sed', 'awk', 'diff',
+    ];
+
     private int $currentIteration = 0;
     private int $childRunCount = 0;
 
@@ -41,6 +47,7 @@ final class SpawnAgentTool implements ToolInterface
         private readonly ?string $sessionId = null,
         private readonly ?SplObserver $observer = null,
         private readonly ?MountManager $mountManager = null,
+        private readonly array $shellAllowedCommands = self::DEFAULT_CHILD_SHELL_COMMANDS,
     ) {}
 
     public function name(): string
@@ -181,7 +188,7 @@ final class SpawnAgentTool implements ToolInterface
                 new FilesystemToolkit(rootPath: $this->workspacePath, allowedPaths: $mountPaths),
                 new ShellToolkit(
                     workDir: $this->projectRoot,
-                    allowedCommands: ['php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc'],
+                    allowedCommands: $this->shellAllowedCommands,
                     timeout: 60,
                 ),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),

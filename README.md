@@ -41,13 +41,14 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - **Child agent delegation** — spawns specialized agents (coder, reviewer) using role-appropriate models
 - **Interactive approval** — dangerous operations (package installs, shell exec, PHP execution) require your confirmation
 - **Auto-approve mode** — skip interactive prompts with `--auto-approve` for unattended workflows; catastrophic commands are still blocked
-- **Unsafe mode** — lift function restrictions with `--unsafe` for power users; catastrophic commands are still blocked
+- **Unsafe mode** — lift PHP function restrictions with `--unsafe` for power users; only affects `php_execute`, not shell commands; catastrophic commands are still blocked
 - **Catastrophic blacklist** — hardcoded safety net that blocks destructive commands (`rm -rf /`, `shutdown`, fork bombs, etc.) regardless of mode
 - **Audit logging** — every tool execution decision (approved, denied, blocked) is logged to SQLite for traceability
 - **Turn tracking** — each request-response cycle is tracked as a turn with token usage, duration, tools used, and child agent counts for full observability
 - **Credential management** — secure `.env`-based secret storage with automatic credential guards; toolkits declare required credentials in `composer.json` and Coqui intercepts tool calls with actionable instructions when keys are missing
 - **Script sanitization** — static analysis blocks dangerous functions before any generated code runs
 - **Memory persistence** — saves facts to `MEMORY.md` across sessions so Coqui remembers what matters
+- **Vision / image analysis** — analyze images from URLs, file paths, or base64 data URIs using a vision-capable model; images are pre-downloaded and base64-encoded for universal provider compatibility
 - **Background tasks** — run long-running agent work in separate processes while the main conversation continues (API mode)
 - **Network access** — expose the API to your local network with `--host 0.0.0.0` so you can connect from phones, tablets, and other machines
 - **Observer pattern** — real-time terminal rendering of agent lifecycle events with nested child output
@@ -297,6 +298,7 @@ Coqui ships with a rich set of tools the agent can use autonomously:
 | `packagist` | Search Packagist for packages by keyword, popularity, advisories |
 | `package_info` | Introspect installed packages — read READMEs, list classes, inspect method signatures |
 | `php_execute` | Execute generated PHP code in a sandboxed subprocess with script sanitization |
+| `vision_analyze` | Analyze images from URLs, file paths, or base64 data URIs using a vision-capable model |
 | `restart_coqui` | Trigger a graceful restart — re-reads config, re-discovers toolkits, resumes session automatically |
 | `start_background_task` | Start a long-running task in a background process — keeps the main conversation responsive |
 | `task_status` | Check a background task's status and recent output |
@@ -308,7 +310,7 @@ Coqui ships with a rich set of tools the agent can use autonomously:
 | Toolkit | Description |
 |---------|-------------|
 | `FilesystemToolkit` | Sandboxed read/write to the workspace directory (`~/.workspace` by default) |
-| `ShellToolkit` | Run shell commands from project root (`git`, `grep`, `find`, `cat`, `ls`, etc.) |
+| `ShellToolkit` | Run shell commands from project root — configurable allowlist (default includes `git`, `grep`, `find`, `cat`, `ls`, `curl`, `wget`, etc.) |
 | `MemoryToolkit` | Persistent memory via `MEMORY.md` for facts that survive across sessions |
 
 ## Background Tasks
@@ -333,6 +335,54 @@ Each task runs as an isolated PHP process (`task:run`) with its own agent stack,
 The agent can start, monitor, and cancel tasks using four built-in tools (`start_background_task`, `task_status`, `list_tasks`, `cancel_task`). The HTTP API exposes the same capabilities for external clients.
 
 For full API reference, architecture details, and usage examples, see [docs/BACKGROUND-TASKS.md](docs/BACKGROUND-TASKS.md).
+
+## Vision / Image Analysis
+
+Coqui can analyze images using a vision-capable model. The agent uses the `vision_analyze` tool, which accepts:
+
+- **URLs** — `https://example.com/photo.jpg` (auto-downloaded and base64-encoded)
+- **File paths** — absolute or workspace-relative paths to local image files
+- **Base64 data URIs** — `data:image/png;base64,...`
+
+Images are always pre-downloaded and converted to base64 before being sent to the provider, ensuring compatibility with all providers (including Gemini, which doesn't support URL references natively).
+
+### Configuration
+
+Assign a vision-capable model to the `vision` role in `openclaw.json`:
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "roles": {
+                "vision": "openai/gpt-5"
+            }
+        }
+    }
+}
+```
+
+Any vision-capable model works: OpenAI GPT-4o/GPT-5, Anthropic Claude, Google Gemini, xAI Grok, etc.
+
+If no vision role is configured, the primary model is used as a fallback. Ensure the fallback model supports image input.
+
+### Provider Image Support
+
+| Provider | Base64 | URL | Notes |
+|----------|:------:|:---:|-------|
+| OpenAI | ✅ | ✅ | Native support for both formats |
+| OpenAI Responses | ✅ | ✅ | Same as OpenAI |
+| Anthropic | ✅ | ✅ | Auto-converted to Anthropic's `image` source format |
+| Gemini | ✅ | ✅* | URLs auto-downloaded to base64 `inlineData` |
+| Ollama | ✅ | ✅ | Via OpenAI-compatible format |
+| xAI (Grok) | ✅ | ✅ | Content types converted to `input_image` format |
+| Mistral | ✅ | ✅ | Image URLs flattened to Mistral's string format |
+
+\* Gemini doesn't support URL references natively; both `VisionAnalyzer` and `GeminiProvider` download and base64-encode the image automatically.
+
+### Supported Image Formats
+
+JPEG, PNG, GIF, WebP, BMP, TIFF, SVG
 
 ## Extending Coqui
 

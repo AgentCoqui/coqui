@@ -16,3 +16,4 @@ BUILD/
 downloads/
 public/vendor
 .claude
+.DS_Store
