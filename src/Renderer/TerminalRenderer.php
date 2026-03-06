@@ -40,15 +40,15 @@ public function render(AgentTurnResult $result, bool $contentStreamed = false): 
 
     private function renderStatsSummary(AgentTurnResult $result): void
     {
-        $line = "<fg=gray>  | Iteration: </>{$result->iterations}";
+        $line = "<fg=gray>  • Iteration: </>{$result->iterations}";
 
         if ($result->totalTokens > 0) {
-            $line .= '<fg=gray> ▸ Tokens: </>' . number_format($result->totalTokens);
+            $line .= '<fg=gray> • Tokens: </>' . number_format($result->totalTokens);
         }
 
         if ($result->durationMs > 0) {
             $seconds = round($result->durationMs / 1000, 1);
-            $line .= "<fg=gray> | Duration: </>{$seconds}s";
+            $line .= "<fg=gray> • Duration: </>{$seconds}s";
         }
 
         $this->io->writeln($line);
@@ -58,7 +58,7 @@ public function render(AgentTurnResult $result, bool $contentStreamed = false): 
                 fn(string $tool): string => "<fg=yellow>{$tool}</>",
                 $result->toolsUsed,
             );
-            $this->io->writeln('<fg=gray>  ▸ Tools: </>' . implode('<fg=gray>, </>', $yellowTools));
+            $this->io->writeln('<fg=gray>  • Tools: </>' . implode('<fg=gray>, </>', $yellowTools));
         }
     }
 

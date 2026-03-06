@@ -138,6 +138,125 @@ The gating system handles the confirmation UX — your toolkit does not need to 
 
 
 
+## Vision Architecture
+
+Coqui provides image analysis via a dedicated `vision` role. The system uses a single-shot child agent pattern (like `TitleGenerator`) — no persistent state, no tool access, just one LLM call with the image embedded.
+
+### How It Works
+
+1. **Agent calls `vision_analyze`** with an image source (URL, file path, or base64 data URI) and an optional prompt.
+2. **`VisionTool`** validates input and delegates to `VisionAnalyzer`.
+3. **`VisionAnalyzer`** resolves the vision model via `RoleResolver::resolve('vision')` and builds a multimodal message.
+4. **Image normalization** — all images are converted to base64 data URIs before being sent to the provider:
+   - **Data URIs** pass through as-is
+   - **URLs** are downloaded via Symfony HttpClient, MIME type detected from Content-Type header, then base64-encoded
+   - **File paths** are read from disk and base64-encoded with MIME detection via `mime_content_type()`
+5. **Provider sends** the multimodal message to the vision model and returns the analysis.
+6. **Error surfacing** — on failure, `VisionAnalyzer` returns a descriptive error string (prefixed with `Error: `) instead of silently returning null. The agent sees the actual failure reason (e.g., "401 Unauthorized", "file not found") and can inform the user.
+
+### Configuration
+
+The vision role model is configured in `openclaw.json`:
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "roles": {
+                "vision": "openai/gpt-5"
+            }
+        }
+    }
+}
+```
+
+**Resolution priority:** `openclaw.json` roles mapping → primary model fallback. The vision role file (`config/roles/vision.md`) defines instructions and access level but does **not** hardcode a model — this is intentional so `openclaw.json` controls the operational model choice.
+
+### Provider Compatibility
+
+All image sources work with all providers because `VisionAnalyzer` normalizes everything to base64 before the provider sees it. Additionally, `GeminiProvider` has its own URL download fallback for any base64 content that was missed.
+
+| Provider | Base64 | URL (via pre-download) |
+|----------|:------:|:----------------------:|
+| OpenAI Compatible | ✅ | ✅ |
+| OpenAI Responses | ✅ | ✅ |
+| Anthropic | ✅ | ✅ |
+| Gemini | ✅ | ✅ |
+| Ollama | ✅ | ✅ |
+| xAI (Grok) | ✅ | ✅ |
+| Mistral | ✅ | ✅ |
+
+### Key Source Files
+
+| File | Purpose |
+|------|---------|
+| `src/Agent/VisionAnalyzer.php` | Single-shot child agent: resolves provider, downloads/encodes images, sends multimodal chat |
+| `src/Tool/VisionTool.php` | Agent-facing tool: validates input, delegates to VisionAnalyzer, surfaces errors |
+| `config/roles/vision.md` | Role definition: instructions for structured image analysis |
+
+
+
+## Shell Allowlist Architecture
+
+The `ShellToolkit` (from php-agents) restricts which shell commands the agent can execute via a configurable allowlist. This is a separate safety layer from the `CatastrophicBlacklist` and `InteractiveApprovalPolicy`.
+
+### How It Works
+
+1. **`ShellToolkit`** accepts an `allowedCommands` array at construction. If non-empty, only commands whose first word matches the allowlist can execute.
+2. **`OrchestratorAgent`** reads the allowlist from `agents.defaults.shellAllowedCommands` in `openclaw.json`. If not configured, it uses a built-in default.
+3. **`SpawnAgentTool`** passes the same allowlist to child agents (children cannot exceed parent permissions).
+4. **Shell injection detection** — when an allowlist is active, `ShellToolkit` also blocks metacharacters (`;`, `&&`, `|`, `$(...)`, backticks) that could bypass the allowlist.
+5. **Deny patterns** — regardless of the allowlist, built-in regex patterns block `rm -rf`, pipe-to-shell (`curl | bash`), `php -r`, `mkfifo`, and `netcat` variants.
+
+### Configuration
+
+Customize the shell allowlist in `openclaw.json`:
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "shellAllowedCommands": [
+                "php", "git", "grep", "find", "cat", "head", "tail", "wc", "ls",
+                "curl", "wget", "make", "sort", "uniq", "sed", "awk", "diff",
+                "docker", "npm", "node"
+            ]
+        }
+    }
+}
+```
+
+### Default Allowlist
+
+When `agents.defaults.shellAllowedCommands` is not set, the following commands are allowed:
+
+`php`, `git`, `grep`, `find`, `cat`, `head`, `tail`, `wc`, `ls`, `curl`, `wget`, `make`, `sort`, `uniq`, `sed`, `awk`, `diff`
+
+### Safety Layer Interactions
+
+Each CLI flag affects a specific safety layer. They do **not** interact with each other:
+
+| Flag | Affects | What it changes | What it does NOT change |
+|------|---------|----------------|------------------------|
+| `--auto-approve` | `InteractiveApprovalPolicy` | Skips confirmation prompts for gated tools | Shell allowlist, ScriptSanitizer, CatastrophicBlacklist |
+| `--unsafe` | `ScriptSanitizer` | Allows all PHP functions in `php_execute` | Shell allowlist, approval policy, CatastrophicBlacklist |
+| Neither | — | All safety layers active at defaults | — |
+
+The `CatastrophicBlacklist` (hardcoded destructive patterns) **cannot be disabled by any flag**.
+
+The shell allowlist is only configurable via `openclaw.json` — it is not affected by CLI flags. This is by design: the allowlist is a structural configuration choice, not a runtime safety toggle.
+
+### Key Source Files
+
+| File | Purpose |
+|------|---------|
+| `src/Agent/OrchestratorAgent.php` | Reads `shellAllowedCommands` from config, constructs ShellToolkit |
+| `src/Tool/SpawnAgentTool.php` | Passes shell allowlist to child agent ShellToolkit |
+| php-agents `src/Toolkit/ShellToolkit.php` | Enforces allowlist, injection detection, deny patterns |
+| `src/Config/CatastrophicBlacklist.php` | Always-on destructive command blocking |
+
+
+
 ## Mount System Architecture
 
 Coqui supports declarative directory mounts that give agents access to external directories beyond the primary workspace. Mounts are configured in `openclaw.json` and surfaced as symlinks under `.workspace/mnt/` for agent discoverability.

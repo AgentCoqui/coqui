@@ -12,6 +12,7 @@ use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
@@ -35,6 +36,7 @@ use CoquiBot\Coqui\Tool\PackageInfoTool;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
 use CoquiBot\Coqui\Tool\RestartTool;
 use CoquiBot\Coqui\Tool\SpawnAgentTool;
+use CoquiBot\Coqui\Tool\VisionTool;
 
 use SplObserver;
 
@@ -54,6 +56,7 @@ final class OrchestratorAgent extends AbstractAgent
     private PackageInfoTool $packageInfoTool;
     private PhpExecuteTool $phpExecuteTool;
     private ?RestartTool $restartTool = null;
+    private ?VisionTool $visionTool = null;
 
     public function __construct(
         ProviderInterface $provider,
@@ -92,9 +95,10 @@ final class OrchestratorAgent extends AbstractAgent
         ));
 
         // Shell toolkit — runs in project root for read access
+        $shellAllowed = $this->resolveShellAllowedCommands();
         $this->addToolkit(new ShellToolkit(
             workDir: $this->projectRoot,
-            allowedCommands: ['php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls'],
+            allowedCommands: $shellAllowed,
             timeout: 60,
         ));
 
@@ -132,6 +136,7 @@ final class OrchestratorAgent extends AbstractAgent
             sessionId: $this->sessionId,
             observer: $this->observer,
             mountManager: $this->mountManager,
+            shellAllowedCommands: $shellAllowed,
         );
 
         // Create credential tool for API key management
@@ -156,6 +161,16 @@ final class OrchestratorAgent extends AbstractAgent
         if ($onRestart !== null) {
             $this->restartTool = new RestartTool(onRestart: $onRestart);
         }
+
+        // Create vision tool for image analysis
+        $this->visionTool = new VisionTool(
+            analyzer: new VisionAnalyzer(
+                roleResolver: $this->roleResolver,
+                config: $this->config,
+                roleDiscovery: $this->roleDiscovery,
+                providerFactory: new ProviderFactory($this->config),
+            ),
+        );
 
         // Background task toolkit — only in API mode
         if ($backgroundTaskToolkit !== null) {
@@ -200,6 +215,10 @@ final class OrchestratorAgent extends AbstractAgent
             $this->phpExecuteTool,
         ];
 
+        if ($this->visionTool !== null) {
+            $tools[] = $this->visionTool;
+        }
+
         if ($this->restartTool !== null) {
             $tools[] = $this->restartTool;
         }
@@ -218,5 +237,30 @@ final class OrchestratorAgent extends AbstractAgent
     public function getSpawnTool(): SpawnAgentTool
     {
         return $this->spawnTool;
+    }
+
+    /** Default shell commands available to the orchestrator. */
+    private const array DEFAULT_SHELL_COMMANDS = [
+        'php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
+        'curl', 'wget', 'make', 'sort', 'uniq', 'sed', 'awk', 'diff',
+    ];
+
+    /**
+     * Resolve shell allowed commands from config or defaults.
+     *
+     * Reads `agents.defaults.shellAllowedCommands` from openclaw.json.
+     * If not set, uses DEFAULT_SHELL_COMMANDS.
+     *
+     * @return string[]
+     */
+    private function resolveShellAllowedCommands(): array
+    {
+        $configured = $this->config->get('agents.defaults.shellAllowedCommands');
+
+        if (is_array($configured) && !empty($configured)) {
+            return array_values(array_filter($configured, 'is_string'));
+        }
+
+        return self::DEFAULT_SHELL_COMMANDS;
     }
 }
