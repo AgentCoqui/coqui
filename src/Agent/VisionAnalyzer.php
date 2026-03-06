@@ -60,9 +60,9 @@ final class VisionAnalyzer
      *
      * @param string $imageSource File path, URL, or data URI (data:image/...;base64,...)
      * @param string $prompt Optional prompt to guide the analysis
-     * @return string|null Analysis text, error description, or null only for truly unrecoverable failures
+     * @return string Analysis text on success, or an error string prefixed with "Error: " on failure
      */
-    public function analyze(string $imageSource, string $prompt = 'Analyze this image.'): ?string
+    public function analyze(string $imageSource, string $prompt = 'Analyze this image.'): string
     {
         try {
             $instructions = $this->resolveInstructions();
@@ -95,7 +95,7 @@ final class VisionAnalyzer
      * - URLs: downloaded, MIME type detected from Content-Type header, base64-encoded
      * - File paths: read from disk, MIME type detected, base64-encoded
      *
-     * @return array<array<string, mixed>>|null
+     * @return array<array{type: string, text?: string, image_url?: array<string, mixed>}>|null
      */
     private function buildContent(string $imageSource, string $prompt): ?array
     {
