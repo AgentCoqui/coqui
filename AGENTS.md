@@ -484,14 +484,17 @@ The setup wizard (`SetupWizard`) includes a step to configure these preferences,
 
 ### Workspace Composer Isolation
 
-The `.workspace/` directory contains its own `composer.json` managed by the bot. This separates bot-installed dependencies from the host project:
+The workspace directory (default `~/.workspace`) contains its own `composer.json` managed by the bot. This separates bot-installed dependencies from the host project:
 
+- **Default location:** `~/.workspace` in the user's home directory. This prevents session sprawl when running Coqui from different directories.
+- **Dev mode detection:** If a `.workspace/` directory already exists in the current working directory (project root), it is used instead — preserving developer workflows where the workspace lives alongside the project.
+- **Custom paths:** Users can set any path via `agents.defaults.workspace` in `openclaw.json` (supports `~`, relative, and absolute paths).
 - `WorkspaceComposerManager` initializes the workspace Composer project on boot.
 - The Composer toolkit (auto-discovered from `coqui-toolkit-composer`) always targets the workspace. It cannot modify the project's `composer.json`.
 - The workspace autoloader is loaded at boot via `WorkspaceComposerManager::loadAutoloader()`.
 - Toolkit discovery (`ToolkitDiscovery::discoverAll()`) scans both the project and workspace `installed.json` files on every boot.
 
-This means agents can install packages into `.workspace/` without touching the host `composer.json`.
+This means agents can install packages into the workspace without touching the host `composer.json`.
 
 ## Performance
 

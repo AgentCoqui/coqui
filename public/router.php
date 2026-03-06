@@ -35,9 +35,11 @@ use CoquiBot\Dashboard\Controller\FileController;
 use CoquiBot\Dashboard\Controller\WallpaperController;
 use CoquiBot\Dashboard\Service\DashboardQueryService;
 
-// Resolve paths
+// Resolve paths — prefer env var, then local .workspace/, then ~/.workspace
 $projectRoot = dirname(__DIR__);
-$workspacePath = getenv('COQUI_WORKSPACE') ?: $projectRoot . '/.workspace';
+$workspacePath = getenv('COQUI_WORKSPACE') ?: (is_dir($projectRoot . '/.workspace')
+    ? $projectRoot . '/.workspace'
+    : (($_SERVER['HOME'] ?? $_ENV['HOME'] ?? '') . '/.workspace'));
 $configPath = getenv('COQUI_CONFIG') ?: $projectRoot . '/openclaw.json';
 $dbPath = $workspacePath . '/data/coqui.db';
 
