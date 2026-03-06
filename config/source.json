@@ -16,10 +16,10 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, restart_coqui). Memory is now SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit with configurable allowlist, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui). Shell allowlist is resolved from agents.defaults.shellAllowedCommands in openclaw.json or falls back to DEFAULT_SHELL_COMMANDS (includes curl, wget). Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string \u2014 returns the full system prompt with role descriptions, security rules, and operational guidelines",
-                "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, restart_coqui)",
+                "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui)",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
                 "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking"
             ]
@@ -360,13 +360,22 @@
             ]
         },
         {
+            "path": "src/Tool/VisionTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\VisionTool",
+            "layer": "tool",
+            "description": "Agent-facing tool for image analysis. Wraps VisionAnalyzer to expose a vision_analyze tool that accepts an image source (file path, URL, or base64 data URI) and an optional prompt. Delegates model resolution, provider routing, and multimodal message construction to VisionAnalyzer. Detects 'Error: ' prefixed responses from VisionAnalyzer and returns them as ToolResult::error() so the agent sees specific failure reasons.",
+            "methods": [
+                "execute(array $input): ToolResult — validates image parameter, delegates to VisionAnalyzer, returns ToolResult::success() or ToolResult::error() with descriptive message"
+            ]
+        },
+        {
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",
-            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/minimal) to determine toolkit assignment, falling back to hardcoded defaults. Passes RoleDiscovery to ChildAgent for file-based role instructions.",
+            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/minimal) to determine toolkit assignment, falling back to hardcoded defaults. Passes RoleDiscovery to ChildAgent for file-based role instructions. Accepts a configurable shell allowlist from OrchestratorAgent; child agents use DEFAULT_CHILD_SHELL_COMMANDS or the parent-supplied list.",
             "methods": [
                 "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
-                "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level",
+                "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level with configurable shell allowlist",
                 "resolveAccessLevel(string $role): string — looks up access_level from RoleProperties",
                 "setCurrentIteration(int $iteration): void — tracks parent iteration for logging",
                 "getChildRunCount(): int — returns number of child agents spawned during this turn"
@@ -782,6 +791,19 @@
             "description": "Generates a concise session title from the first user prompt using a lightweight model. Single-shot LLM call with title_generator role instructions. Best-effort — returns null on failure, never blocks the main response.",
             "methods": [
                 "generate(string $userPrompt): ?string — generates title or returns null on failure"
+            ]
+        },
+        {
+            "path": "src/Agent/VisionAnalyzer.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\VisionAnalyzer",
+            "layer": "agent",
+            "description": "Analyzes images using a vision-capable model. Mirrors TitleGenerator pattern — single-shot child agent that reads 'vision' role instructions and delegates to a vision model. Accepts file paths, URLs, and base64 data URIs. Pre-downloads URL images to base64 data URIs for universal provider compatibility. Returns descriptive 'Error: ...' strings on failure instead of null, enabling agents to surface real failure reasons (HTTP errors, unsupported formats, missing files).",
+            "methods": [
+                "analyze(string $imageSource, string $prompt = 'Analyze this image.'): ?string — analyzes image and returns description or 'Error: ...' string on failure",
+                "downloadImageToDataUri(string $url): string — downloads URL image via HttpClient and converts to base64 data URI",
+                "isAcceptedImageType(string $mime): bool — checks if MIME type is in ACCEPTED_IMAGE_TYPES",
+                "mimeFromExtension(string $path): string — guesses MIME type from file extension",
+                "buildErrorMessage(string $source, string $reason): string — builds descriptive error for file/URL failures"
             ]
         },
         {
