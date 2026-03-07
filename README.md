@@ -16,8 +16,8 @@
 </p>
 
 <p align="center">
-  <a href="https://coquibot.ai/">Website</a> ·
-  <a href="https://coquibot.ai/docs">Docs</a> ·
+  <a href="https://coquibot.org/">Website</a> ·
+  <a href="https://coquibot.org/docs">Docs</a> ·
   <a href="https://coqui.space">Toolkits</a> ·
   <a href="https://github.com/sponsors/carmelosantana">Sponsor</a>
 </p>
@@ -69,7 +69,7 @@ The installer detects your OS, installs PHP 8.4+ and required extensions if miss
 ### Linux / macOS / WSL2
 
 ```bash
-curl -fsSL https://coquibot.ai/install | bash
+curl -fsSL https://coquibot.org/install | bash
 ```
 
 ### Windows (PowerShell)
