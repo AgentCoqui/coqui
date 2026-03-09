@@ -50,14 +50,25 @@
             ]
         },
         {
+            "path": "src/Agent/OrchestratorPrompt.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorPrompt",
+            "layer": "agent",
+            "description": "System prompt template that composes the orchestrator agent's instructions from modular markdown files in the prompts/ directory. Uses PromptLoader to manage placeholder substitution and assemble the final system prompt dynamically with workspace context, available roles, skills, and storage configuration.",
+            "methods": [
+                "__construct(workspacePath: string, projectRoot: string, availableRoles: string, availableSkills: string, storageMap: string, ?promptsDir: string): void — initializes with context values and a PromptLoader instance",
+                "render(): string — returns the fully composed and substituted orchestrator system prompt"
+            ]
+        },
+        {
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction with mergeGatedTools() combining hardcoded + package-declared gates, restart logic (RESTART_EXIT_CODE = 10, restartRequested flag), startup update checking (COQUI_CHECK_UPDATES, COQUI_AUTO_UPDATE env vars), and background task REPL commands (/tasks, /task, /task-cancel).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction with mergeGatedTools() combining hardcoded + package-declared gates, restart logic (RESTART_EXIT_CODE = 10, restartRequested flag), startup update checking (COQUI_CHECK_UPDATES, COQUI_AUTO_UPDATE env vars), config hot-reload via mtime detection, and background task REPL commands (/tasks, /task, /task-cancel).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system and enters REPL loop",
                 "handleCommand(string, SymfonyStyle): int|true — processes REPL commands (/new, /history, /sessions, /resume, /model, /tasks, /task, /task-cancel, /help, /restart, /quit); returns exit code or true to continue",
-                "runAgent(string, SymfonyStyle): void — creates OrchestratorAgent with restart callback, runs agent turn, checks restartRequested flag",
+                "buildAgentRunner(?SplObserver): AgentRunner — creates a fresh AgentRunner from current BootManager state; called at startup and after config reloads",
+                "reloadConfigIfChanged(SymfonyStyle): void — checks openclaw.json mtime before each turn; auto-reloads config and rebuilds AgentRunner on change",
                 "listTasksCommand(?string $statusFilter, SymfonyStyle $io): void — /tasks command: lists tasks with optional status filter",
                 "taskStatusCommand(string $idPrefix, SymfonyStyle $io): void — /task command: shows detailed task status with events",
                 "taskCancelCommand(string $idPrefix, SymfonyStyle $io): void — /task-cancel command: cancels pending or running tasks",
@@ -139,6 +150,23 @@
                 "storageMap(): string — markdown table of mounts for system prompt injection",
                 "openBasedirPaths(): string[] — real paths for PhpExecuteTool open_basedir extension",
                 "hasMounts(): bool — whether any mounts are registered"
+            ]
+        },
+        {
+            "path": "src/Config/BootManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\BootManager",
+            "layer": "config",
+            "description": "Orchestrates the complete Coqui boot sequence from configuration loading through toolkit discovery. Manages workspace initialization, mount definitions, credential resolution, role discovery, embedding provider resolution, memory store setup, and toolkit/skill auto-discovery. Extracted from RunCommand to enforce single-responsibility and enable reloadable configuration.",
+            "methods": [
+                "boot(?OutputInterface|SymfonyStyle $io, string $configPath): bool — executes the full boot sequence; returns success status",
+                "config(): OpenClawConfig — gets the resolved configuration object",
+                "workspacePath(): string — gets the resolved workspace directory path",
+                "credentialResolver(): CredentialResolver — gets the credential manager with hot-reload support",
+                "discovery(): ToolkitDiscovery — gets the toolkit discovery instance",
+                "roleResolver(): RoleResolver — gets the role resolver for model/instruction lookups",
+                "blacklist(): CatastrophicBlacklist — gets the safety blacklist with hardcoded + configurable patterns",
+                "mountManager(): MountManager — gets the mount manager for symlink lifecycle and allowed paths",
+                "reloadConfig(string $configPath): void — reloads configuration from disk and rebuilds all derived state"
             ]
         },
         {
@@ -983,6 +1011,29 @@
             "methods": [
                 "tools(): ToolInterface[] — returns 4 background task tools",
                 "guidelines(): string — usage guidelines for the LLM"
+            ]
+        },
+        {
+            "path": "src/Prompt/PromptLoader.php",
+            "fqcn": "CoquiBot\\Coqui\\Prompt\\PromptLoader",
+            "layer": "prompt",
+            "description": "Loads and composes system prompt sections from markdown files in the prompts/ directory with support for placeholder substitution ({{key}} → value). Provides methods for loading individual files, discovering entire subdirectories, and assembling the complete orchestrator system prompt in the prescribed order (base → tools → security → done).",
+            "methods": [
+                "__construct(string $promptsDir, array $placeholders): void — initializes with path to prompts directory and placeholder mapping",
+                "load(string $filename): string — loads a single prompt file and applies placeholder substitution; throws PromptNotFoundException",
+                "loadSection(string $section, string $filename): string — loads a file from a subdirectory",
+                "discoverSection(string $section): string[] — auto-discovers and loads all markdown files in a subdirectory",
+                "compose(string[] $filenames): string — loads multiple files and joins with blank lines",
+                "buildSystemPrompt(): string — composes the complete orchestrator prompt in order: base.md → tools/* → security.md → done.md"
+            ]
+        },
+        {
+            "path": "src/Prompt/PromptNotFoundException.php",
+            "fqcn": "CoquiBot\\Coqui\\Prompt\\PromptNotFoundException",
+            "layer": "prompt",
+            "description": "Domain exception thrown when a prompt file or directory cannot be found. Provides a factory method for consistent error messaging when PromptLoader encounters missing prompt files.",
+            "methods": [
+                "forFile(string $filename, string $directory): self — static factory that creates an exception with a formatted error message"
             ]
         }
     ],
