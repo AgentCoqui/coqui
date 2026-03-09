@@ -52,7 +52,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - **Background tasks** — run long-running agent work in separate processes while the main conversation continues (API mode)
 - **Network access** — expose the API to your local network with `--host 0.0.0.0` so you can connect from phones, tablets, and other machines
 - **Observer pattern** — real-time terminal rendering of agent lifecycle events with nested child output
-- **OpenClaw config** — natively supports the OpenClaw config format for centralized model routing and workspace settings
+- **OpenClaw compatible** — drop-in support for the [OpenClaw](https://github.com/openclaw/openclaw) config format; use your existing `openclaw.json` without any changes, or start fresh with the built-in setup wizard
 
 ## Requirements
 
@@ -204,7 +204,26 @@ Once inside the Coqui REPL, use slash commands:
 
 ## Providers & OpenClaw Config
 
-Coqui uses an `openclaw.json` config file for centralized model routing. It supports these providers out of the box:
+Coqui uses an `openclaw.json` config file for centralized model routing. The format is fully compatible with [OpenClaw](https://github.com/openclaw/openclaw) — you can drop in your existing OpenClaw config and it works without any changes. Coqui-specific extensions (workspace, mounts, shell allowlist) live under `agents.defaults` and are safely ignored by other OpenClaw-compatible tools.
+
+Config changes are detected automatically — edit the file and your next message uses the new settings. No restart required.
+
+For the full config reference, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
+### Supported Providers
+
+| Provider | Protocol | API Key Env Var |
+|----------|----------|----------------|
+| Ollama (local) | `openai-completions` | — |
+| OpenAI | `openai-completions` | `OPENAI_API_KEY` |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` |
+| OpenRouter | `openai-completions` | `OPENROUTER_API_KEY` |
+| xAI (Grok) | `openai-completions` | `XAI_API_KEY` |
+| Google Gemini | `gemini` | `GEMINI_API_KEY` |
+| Mistral | `mistral` | `MISTRAL_API_KEY` |
+| MiniMax | `openai-completions` | `MINIMAX_API_KEY` |
+
+Any OpenAI-compatible provider can be added by specifying `openai-completions` as the API protocol.
 
 ### Provider Setup
 
