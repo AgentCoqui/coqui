@@ -369,6 +369,28 @@
             ]
         },
         {
+            "path": "src/Tool/ToolRegistry.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ToolRegistry",
+            "layer": "tool",
+            "description": "In-memory BM25 keyword index for all tools registered by OrchestratorAgent. Stores only lightweight metadata (name + description) — full tool schemas are never held here. Enables the agent to discover relevant tools on-demand without loading every schema into context on every request. BM25 parameters (k1=1.5, b=0.75) match Lucene defaults. Tool names are boosted (×3) so name-matching queries rank higher. Duplicate registrations silently overwrite the prior entry. No external dependencies.",
+            "methods": [
+                "register(ToolInterface $tool): void — index a tool; overwrites prior entry if already registered",
+                "search(string $query, int $topN = 5): array — BM25 search; returns up to topN {name, description} maps",
+                "all(): array — return all registered {name, description} entries",
+                "count(): int — return total number of indexed tools"
+            ]
+        },
+        {
+            "path": "src/Tool/ToolSearchTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ToolSearchTool",
+            "layer": "tool",
+            "description": "Agent-facing tool that exposes ToolRegistry BM25 search as a callable tool named tool_search. Always loaded by OrchestratorAgent regardless of the maxTools cap so the agent can discover the full tool library dynamically. Parameters: query (required string), limit (optional int, default 8, max 20). Returns a formatted markdown list of matching tools with name, description, and count. Exempt from allTools() cap slicing because it is returned first in OrchestratorAgent::tools().",
+            "methods": [
+                "execute(array $input): ToolResult — searches ToolRegistry and returns formatted tool list",
+                "toFunctionSchema(): array — inline JSON schema (does not use Tool base class)"
+            ]
+        },
+        {
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",

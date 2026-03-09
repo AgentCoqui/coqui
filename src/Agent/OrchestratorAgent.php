@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
+use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
@@ -36,6 +37,8 @@ use CoquiBot\Coqui\Tool\PackageInfoTool;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
 use CoquiBot\Coqui\Tool\RestartTool;
 use CoquiBot\Coqui\Tool\SpawnAgentTool;
+use CoquiBot\Coqui\Tool\ToolRegistry;
+use CoquiBot\Coqui\Tool\ToolSearchTool;
 use CoquiBot\Coqui\Tool\VisionTool;
 
 use SplObserver;
@@ -57,6 +60,8 @@ final class OrchestratorAgent extends AbstractAgent
     private PhpExecuteTool $phpExecuteTool;
     private ?RestartTool $restartTool = null;
     private ?VisionTool $visionTool = null;
+    private ToolRegistry $toolRegistry;
+    private ToolSearchTool $toolSearchTool;
 
     public function __construct(
         ProviderInterface $provider,
@@ -82,6 +87,10 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?MemorySummarizer $memorySummarizer = null,
         private readonly ?MountManager $mountManager = null,
     ) {
+        // Initialise the registry before parent::__construct() so that our
+        // addToolkit() override can populate it immediately for every toolkit added.
+        $this->toolRegistry = new ToolRegistry();
+
         parent::__construct($provider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider);
 
         // Use injected resolver or create one (backward compat for standalone use)
@@ -176,6 +185,49 @@ final class OrchestratorAgent extends AbstractAgent
         if ($backgroundTaskToolkit !== null) {
             $this->addToolkit($backgroundTaskToolkit);
         }
+
+        // Register standalone tools in the registry now that they're all created.
+        // Toolkit tools are already registered via addToolkit() override above.
+        foreach ([$this->spawnTool, $this->credentialTool, $this->packageInfoTool, $this->phpExecuteTool] as $tool) {
+            $this->toolRegistry->register($tool);
+        }
+
+        if ($this->visionTool !== null) {
+            $this->toolRegistry->register($this->visionTool);
+        }
+
+        if ($this->restartTool !== null) {
+            $this->toolRegistry->register($this->restartTool);
+        }
+
+        // Create the tool search tool — always-loaded, not subject to maxTools cap.
+        // Gives the agent on-demand access to the full tool library via BM25 search.
+        $this->toolSearchTool = new ToolSearchTool($this->toolRegistry);
+
+        // Apply maxTools cap from config (0 = unlimited).
+        // tool_search is placed first in tools() so it is always within the cap.
+        $maxToolsCfg = $this->config->get('agents.defaults.maxTools');
+        if (is_int($maxToolsCfg) || is_string($maxToolsCfg)) {
+            $cap = (int) $maxToolsCfg;
+            if ($cap > 0) {
+                $this->setMaxTools($cap);
+            }
+        }
+    }
+
+    /**
+     * Override addToolkit() to also register every tool in the BM25 registry.
+     * This keeps the registry in sync with all toolkits regardless of when they
+     * are added (during construction or later for background tasks, etc.).
+     */
+    #[\Override]
+    public function addToolkit(ToolkitInterface $toolkit): static
+    {
+        foreach ($toolkit->tools() as $tool) {
+            $this->toolRegistry->register($tool);
+        }
+
+        return parent::addToolkit($toolkit);
     }
 
     public function instructions(): string
@@ -213,6 +265,9 @@ final class OrchestratorAgent extends AbstractAgent
             $this->credentialTool,
             $this->packageInfoTool,
             $this->phpExecuteTool,
+            // Tool search is always-loaded so the agent can discover the full
+            // tool library regardless of the maxTools cap setting.
+            $this->toolSearchTool,
         ];
 
         if ($this->visionTool !== null) {
