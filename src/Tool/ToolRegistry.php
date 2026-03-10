@@ -172,7 +172,7 @@ final class ToolRegistry
         $tokens = preg_split('/[\s_\-:\.\/\\\\]+/', $lower, -1, PREG_SPLIT_NO_EMPTY);
 
         return array_values(array_filter(
-            $tokens ?? [],
+            $tokens !== false ? $tokens : [],
             fn(string $t): bool => strlen($t) >= 2,
         ));
     }
