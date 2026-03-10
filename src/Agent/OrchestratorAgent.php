@@ -59,7 +59,7 @@ final class OrchestratorAgent extends AbstractAgent
     private PackageInfoTool $packageInfoTool;
     private PhpExecuteTool $phpExecuteTool;
     private ?RestartTool $restartTool = null;
-    private ?VisionTool $visionTool = null;
+    private VisionTool $visionTool;
     private ToolRegistry $toolRegistry;
     private ToolSearchTool $toolSearchTool;
 
@@ -192,9 +192,7 @@ final class OrchestratorAgent extends AbstractAgent
             $this->toolRegistry->register($tool);
         }
 
-        if ($this->visionTool !== null) {
-            $this->toolRegistry->register($this->visionTool);
-        }
+        $this->toolRegistry->register($this->visionTool);
 
         if ($this->restartTool !== null) {
             $this->toolRegistry->register($this->restartTool);
@@ -227,7 +225,9 @@ final class OrchestratorAgent extends AbstractAgent
             $this->toolRegistry->register($tool);
         }
 
-        return parent::addToolkit($toolkit);
+        parent::addToolkit($toolkit);
+
+        return $this;
     }
 
     public function instructions(): string
@@ -270,9 +270,7 @@ final class OrchestratorAgent extends AbstractAgent
             $this->toolSearchTool,
         ];
 
-        if ($this->visionTool !== null) {
-            $tools[] = $this->visionTool;
-        }
+        $tools[] = $this->visionTool;
 
         if ($this->restartTool !== null) {
             $tools[] = $this->restartTool;

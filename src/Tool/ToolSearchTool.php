@@ -61,9 +61,6 @@ final class ToolSearchTool implements ToolInterface
             DESC;
     }
 
-    /**
-     * @return \CarmeloSantana\PHPAgents\Contract\ParameterInterface[]
-     */
     public function parameters(): array
     {
         return [
