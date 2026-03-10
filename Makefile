@@ -7,17 +7,15 @@
 #   bare names   — native (no Docker)
 #   docker-*     — Docker compose operations
 #
-# Port defaults: API=3300, Dashboard=3380, Webgrind=3390
+# Port defaults: API=3300, Webgrind=3390
 ###############################################################################
 
 .PHONY: help \
         start stop status repl api api-stop restart \
-        dashboard dashboard-stop dashboard-install \
-        dev serve \
+        dev \
         docker-build docker-start docker-stop docker-status \
         docker-repl docker-api docker-api-stop docker-api-logs \
-        docker-dashboard docker-dashboard-stop \
-        docker-serve docker-all docker-dev docker-shell \
+        docker-dev docker-shell \
         test test-coverage install clean clean-workspace clean-pids \
         composer xdebug-clear \
         build build-clean
@@ -72,36 +70,16 @@ restart: ## Restart REPL + API (clean stop then start)
 	@./bin/coqui-launcher stop 2>/dev/null || true
 	@./bin/coqui-launcher $(ARGS)
 
-dashboard: ## Start the Dashboard (foreground, port 3380)
-ifdef PORT
-	@./bin/coqui-launcher --dashboard --dashboard-port $(PORT) $(ARGS)
-else
-	@./bin/coqui-launcher --dashboard $(ARGS)
-endif
-
-dashboard-stop: ## Stop the Dashboard
-	@./bin/coqui-launcher stop-dashboard
-
-dashboard-install: ## Install Dashboard Composer dependencies
-	@cd public && composer install --no-dev
-	@echo "Dashboard dependencies installed"
-
 dev: ## Start REPL + API in dev mode (Xdebug)
 	@XDEBUG_MODE=debug XDEBUG_CONFIG="client_host=localhost" ./bin/coqui-launcher $(ARGS)
-
-serve: ## Start API + Dashboard (background)
-	@./bin/coqui-launcher --api-only --background $(ARGS)
-	@./bin/coqui-launcher --dashboard --background $(ARGS)
 
 # =============================================================================
 # Docker
 # =============================================================================
 
 COMPOSE_API := -f compose.yaml -f compose.api.yaml
-COMPOSE_DASH := -f compose.yaml -f compose.dashboard.yaml
 COMPOSE_DEV := -f compose.yaml -f compose.dev.yaml
 COMPOSE_TEST := -f compose.yaml -f compose.test.yaml
-COMPOSE_ALL := -f compose.yaml -f compose.api.yaml -f compose.dashboard.yaml
 
 docker-build: ## Build the Coqui Docker image
 	@docker compose build
@@ -113,12 +91,12 @@ docker-start: ## Start REPL (interactive) + API (background)
 	@docker compose run --rm coqui $(ARGS)
 
 docker-stop: ## Stop all Docker services
-	@docker compose $(COMPOSE_ALL) -f compose.dev.yaml -f compose.test.yaml \
+	@docker compose $(COMPOSE_API) -f compose.dev.yaml -f compose.test.yaml \
 		down --remove-orphans 2>/dev/null || true
 	@echo "All services stopped"
 
 docker-status: ## Show Docker container status
-	@docker compose $(COMPOSE_ALL) ps 2>/dev/null || true
+	@docker compose $(COMPOSE_API) ps 2>/dev/null || true
 
 docker-repl: ## Start REPL only (Docker)
 	@docker compose run --rm coqui $(ARGS)
@@ -138,30 +116,6 @@ docker-api-stop: ## Stop the API container
 
 docker-api-logs: ## Follow API server logs
 	@docker compose $(COMPOSE_API) logs -f coqui-api
-
-docker-dashboard: ## Start Dashboard (daemon, port 3380)
-ifdef PORT
-	@COQUI_DASHBOARD_PORT=$(PORT) docker compose $(COMPOSE_DASH) up -d dashboard
-	@echo "Dashboard running at http://localhost:$(PORT)"
-else
-	@docker compose $(COMPOSE_DASH) up -d dashboard
-	@echo "Dashboard running at http://localhost:$${COQUI_DASHBOARD_PORT:-3380}"
-endif
-
-docker-dashboard-stop: ## Stop the Dashboard container
-	@docker compose $(COMPOSE_DASH) stop dashboard
-	@echo "Dashboard stopped"
-
-docker-serve: ## Start API + Dashboard (daemon)
-	@docker compose $(COMPOSE_ALL) up -d coqui-api dashboard
-	@echo "API: http://localhost:$${COQUI_API_PORT:-3300}"
-	@echo "Dashboard: http://localhost:$${COQUI_DASHBOARD_PORT:-3380}"
-
-docker-all: ## Start REPL + API + Dashboard
-	@docker compose $(COMPOSE_ALL) up -d coqui-api dashboard
-	@echo "API: http://localhost:$${COQUI_API_PORT:-3300}"
-	@echo "Dashboard: http://localhost:$${COQUI_DASHBOARD_PORT:-3380}"
-	@docker compose run --rm coqui $(ARGS)
 
 docker-dev: ## Dev mode: REPL + Xdebug + Webgrind
 	@docker compose $(COMPOSE_DEV) up -d webgrind
@@ -214,7 +168,7 @@ xdebug-clear: ## Clear Xdebug profiler output
 # =============================================================================
 
 clean: ## Remove all Docker containers, images, and volumes
-	@docker compose $(COMPOSE_ALL) -f compose.dev.yaml -f compose.test.yaml \
+	@docker compose $(COMPOSE_API) -f compose.dev.yaml -f compose.test.yaml \
 		down -v --remove-orphans --rmi local 2>/dev/null || true
 	@echo "Cleaned up"
 
@@ -225,7 +179,7 @@ clean-workspace: ## Remove only the workspace volume
 clean-pids: ## Remove PID files and kill orphaned processes on known ports
 	@rm -f .workspace/pids/*.pid 2>/dev/null || true
 	@rm -f /tmp/coqui-pids-$$(id -u)/*.pid 2>/dev/null || true
-	@for port in 3300 3380; do \
+	@for port in 3300; do \
 		pids=$$(lsof -ti tcp:$$port 2>/dev/null || true); \
 		if [ -n "$$pids" ]; then \
 			echo "Killing process(es) on port $$port: $$pids"; \

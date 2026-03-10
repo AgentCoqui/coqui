@@ -13,14 +13,16 @@ use React\Http\Message\Response;
  * Configuration endpoints.
  *
  * GET /api/config          — get full config (sanitized)
+ * PUT /api/config          — write openclaw.json
  * GET /api/config/models   — list available models
  *
  * Role management moved to RoleHandler (/api/config/roles/*).
  */
-final readonly class ConfigHandler
+final class ConfigHandler
 {
     public function __construct(
-        private OpenClawConfig $config,
+        private readonly OpenClawConfig $config,
+        private readonly string $configPath = '',
     ) {}
 
     /**
@@ -36,6 +38,48 @@ final readonly class ConfigHandler
         ];
 
         return Router::jsonResponse($data);
+    }
+
+    /**
+     * PUT /api/config — write openclaw.json.
+     */
+    public function update(ServerRequestInterface $request): Response
+    {
+        if ($this->configPath === '') {
+            return Router::jsonResponse(['error' => 'Config path not available'], 500);
+        }
+
+        $body = (string) $request->getBody();
+
+        if ($body === '') {
+            return Router::jsonResponse(['error' => 'Empty request body'], 400);
+        }
+
+        $decoded = json_decode($body, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return Router::jsonResponse(
+                ['error' => 'Invalid JSON', 'details' => json_last_error_msg()],
+                400,
+            );
+        }
+
+        $formatted = json_encode(
+            $decoded,
+            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
+        );
+
+        if ($formatted === false) {
+            return Router::jsonResponse(['error' => 'Failed to encode JSON'], 500);
+        }
+
+        $result = file_put_contents($this->configPath, $formatted . "\n");
+
+        if ($result === false) {
+            return Router::jsonResponse(['error' => 'Failed to write config file'], 500);
+        }
+
+        return Router::jsonResponse(['success' => true, 'path' => $this->configPath]);
     }
 
     /**

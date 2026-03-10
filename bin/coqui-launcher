@@ -1,22 +1,18 @@
 #!/usr/bin/env bash
 #
-# Coqui Launcher — unified service manager for REPL, API, and Dashboard.
+# Coqui Launcher — unified service manager for REPL and API.
 #
 # Modes:
 #   (no args)            Start REPL (foreground) + API (background)
 #   --repl-only          Start REPL only — no background API
 #   --api-only           Start API only (foreground)
-#   --dashboard          Start Dashboard only (foreground)
-#   --with-dashboard     Start REPL + API + Dashboard
 #   stop                 Stop all background services
 #   stop-api             Stop just the API
-#   stop-dashboard       Stop just the Dashboard
 #   status               Show which services are running
 #
 # Flags:
 #   --host HOST          API bind address (default 127.0.0.1, use 0.0.0.0 for network)
 #   --port PORT          API port (default 3300)
-#   --dashboard-port P   Dashboard port (default 3380)
 #   --auto-approve       Forwarded to bin/coqui run
 #   --unsafe             Forwarded to bin/coqui run and api
 #   --no-auth            Forwarded to bin/coqui api
@@ -39,16 +35,14 @@ COQUI_BIN="${SCRIPT_DIR}/coqui"
 readonly RESTART_EXIT_CODE=10
 readonly MAX_CRASHES=3
 readonly API_DEFAULT_PORT=3300
-readonly DASHBOARD_DEFAULT_PORT=3380
 readonly PID_DIR="${PROJECT_DIR}/.workspace/pids"
 
 # ─── Parse arguments ─────────────────────────────────────────────────────────
 
-mode=""                    # "", "repl-only", "api-only", "dashboard", "with-dashboard"
-subcommand=""              # "stop", "stop-api", "stop-dashboard", "status"
+mode=""                    # "", "repl-only", "api-only"
+subcommand=""              # "stop", "stop-api", "status"
 api_host="${COQUI_API_HOST:-127.0.0.1}"
 api_port="${API_DEFAULT_PORT}"
-dashboard_port="${DASHBOARD_DEFAULT_PORT}"
 background=false
 coqui_args=()              # args forwarded to bin/coqui run
 api_args=()                # args forwarded to bin/coqui api
@@ -56,26 +50,16 @@ verbose=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        stop|stop-api|stop-dashboard|status)
+        stop|stop-api|status)
             subcommand="$1"; shift ;;
         --repl-only)
             mode="repl-only"; shift ;;
         --api-only)
             mode="api-only"; shift ;;
-        --dashboard)
-            mode="dashboard"; shift ;;
-        --gui)
-            # Backward-compat alias — deprecated
-            echo "[deprecated] --gui is deprecated, use --dashboard" >&2
-            mode="dashboard"; shift ;;
-        --with-dashboard)
-            mode="with-dashboard"; shift ;;
         --host)
             api_host="$2"; shift 2 ;;
         --port)
             api_port="$2"; shift 2 ;;
-        --dashboard-port)
-            dashboard_port="$2"; shift 2 ;;
         --background)
             background=true; shift ;;
         --verbose)
@@ -214,7 +198,6 @@ stop_service() {
     # Map service name to port for port-level cleanup
     case "$name" in
         api) port="$api_port" ;;
-        dashboard) port="$dashboard_port" ;;
     esac
 
     local pid
@@ -292,20 +275,15 @@ if [[ -n "$subcommand" ]]; then
         stop)
             log "Stopping all services..."
             stop_service "api"
-            stop_service "dashboard"
             exit 0 ;;
         stop-api)
             stop_service "api"
-            exit 0 ;;
-        stop-dashboard)
-            stop_service "dashboard"
             exit 0 ;;
         status)
             echo ""
             echo "  Coqui Service Status"
             echo ""
             show_status "api"
-            show_status "dashboard"
             echo ""
             exit 0 ;;
     esac
@@ -352,73 +330,6 @@ start_api_bg() {
         log "API: failed to start"
         rm -f "${PID_DIR}/api.pid" 2>/dev/null || true
     fi
-}
-
-# ─── Start Dashboard (background) ────────────────────────────────────────────
-
-start_dashboard_bg() {
-    local existing_pid
-    existing_pid=$(read_pid "dashboard")
-    if [[ -n "$existing_pid" ]] && is_running "$existing_pid"; then
-        log "Dashboard: already running (PID ${existing_pid})"
-        return 0
-    fi
-
-    local public_dir="${PROJECT_DIR}/public"
-    if [[ ! -f "${public_dir}/router.php" ]]; then
-        log "Error: public/router.php not found. Run 'make dashboard-install' first."
-        return 1
-    fi
-
-    # Install composer deps if needed
-    if [[ ! -d "${public_dir}/vendor" ]]; then
-        log "Installing dashboard dependencies..."
-        (cd "${public_dir}" && composer install --no-dev --quiet)
-    fi
-
-    log_verbose "Starting Dashboard on port ${dashboard_port}..."
-    php -S "localhost:${dashboard_port}" -t "${public_dir}" "${public_dir}/router.php" </dev/null &>/dev/null &
-    local pid=$!
-    write_pid "dashboard" "$pid"
-    session_services+=("dashboard")
-
-    sleep 0.3
-    if is_running "$pid"; then
-        log "Dashboard: running on http://localhost:${dashboard_port} (PID ${pid})"
-    else
-        log "Dashboard: failed to start"
-        rm -f "${PID_DIR}/dashboard.pid"
-    fi
-}
-
-# ─── Start Dashboard (foreground) ────────────────────────────────────────────
-
-start_dashboard_fg() {
-    local public_dir="${PROJECT_DIR}/public"
-    if [[ ! -f "${public_dir}/router.php" ]]; then
-        echo "Error: public/router.php not found. Run 'make dashboard-install' first."
-        exit 1
-    fi
-
-    if [[ ! -d "${public_dir}/vendor" ]]; then
-        echo "Installing dashboard dependencies..."
-        (cd "${public_dir}" && composer install --no-dev --quiet)
-    fi
-
-    echo ""
-    echo "  Coqui Dashboard"
-    echo "  -> http://localhost:${dashboard_port}"
-    echo "  Press Ctrl+C to stop"
-    echo ""
-
-    # Try to open browser (best effort)
-    if command -v xdg-open &>/dev/null; then
-        xdg-open "http://localhost:${dashboard_port}" &>/dev/null &
-    elif command -v open &>/dev/null; then
-        open "http://localhost:${dashboard_port}" &>/dev/null &
-    fi
-
-    exec php -S "localhost:${dashboard_port}" -t "${public_dir}" "${public_dir}/router.php"
 }
 
 # ─── REPL loop with crash recovery ───────────────────────────────────────────
@@ -477,23 +388,6 @@ case "${mode}" in
             echo ""
             exec "${COQUI_BIN}" api --host "${api_host}" --port "${api_port}" "${api_args[@]+"${api_args[@]}"}"
         fi
-        ;;
-    dashboard)
-        if [[ "$background" == true ]]; then
-            start_dashboard_bg
-        else
-            start_dashboard_fg
-        fi
-        ;;
-    with-dashboard)
-        echo ""
-        echo "  Coqui — REPL + API + Dashboard"
-        echo ""
-        trap cleanup_session INT TERM EXIT
-        start_api_bg
-        start_dashboard_bg
-        echo ""
-        run_repl
         ;;
     *)
         # Default: REPL + API

@@ -25,7 +25,7 @@ Coqui automatically detects when `openclaw.json` is modified and reloads configu
 
 **Auto-detection** works for all edit sources:
 - Editing the file manually in your editor
-- Saving changes via the Dashboard (`PUT /api/config`)
+- Saving changes via the API (`PUT /api/config`)
 - Running the setup wizard (`/config edit`)
 
 When a change is detected, Coqui displays:
@@ -433,10 +433,6 @@ The wizard guides you through provider selection, API key entry, model discovery
 | `/config show` | Display raw `openclaw.json` content |
 | `/config edit` | Re-run the setup wizard |
 | `/restart` | Full restart (re-reads config, re-discovers toolkits, re-seeds roles) |
-
-### Dashboard
-
-The web dashboard provides a code editor for `openclaw.json` with syntax highlighting and Ctrl/Cmd+S saving. Changes are picked up automatically by the REPL on the next message.
 
 ### Credential Management
 

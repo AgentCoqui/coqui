@@ -14,6 +14,7 @@ use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
+use CoquiBot\Coqui\Api\Handler\ServerHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
@@ -194,15 +195,16 @@ final class ApiCommand extends Command
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
         $messageHandler = new MessageHandler($storage, $executor, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
-        $configHandler = new ConfigHandler($boot->config());
+        $configHandler = new ConfigHandler($boot->config(), $boot->configPath());
         $credentialHandler = new CredentialHandler($boot->credentialResolver());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
+        $serverHandler = new ServerHandler($storage, $startTime, $executor, $taskManager);
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -309,6 +311,7 @@ final class ApiCommand extends Command
         RoleHandler $role,
         TaskHandler $task,
         FileUploadHandler $fileUpload,
+        ServerHandler $server,
     ): void {
         // Health
         $router->get('/api/health', $health);
@@ -323,6 +326,7 @@ final class ApiCommand extends Command
         // Messages
         $router->get('/api/sessions/{id}/messages', [$message, 'list']);
         $router->post('/api/sessions/{id}/messages', [$message, 'send']);
+        $router->delete('/api/sessions/{id}/messages/{messageId}', [$message, 'delete']);
 
         // File uploads
         $router->post('/api/sessions/{id}/files', [$fileUpload, 'upload']);
@@ -336,6 +340,7 @@ final class ApiCommand extends Command
 
         // Config
         $router->get('/api/config', [$config, 'get']);
+        $router->put('/api/config', [$config, 'update']);
         $router->get('/api/config/models', [$config, 'models']);
 
         // Roles
@@ -357,6 +362,13 @@ final class ApiCommand extends Command
         $router->get('/api/tasks/{id}/events', [$task, 'events']);
         $router->post('/api/tasks/{id}/input', [$task, 'addInput']);
         $router->post('/api/tasks/{id}/cancel', [$task, 'cancel']);
+
+        // Child runs
+        $router->get('/api/sessions/{id}/child-runs', [$session, 'childRuns']);
+
+        // Server
+        $router->get('/api/server/info', [$server, 'info']);
+        $router->get('/api/server/stats', [$server, 'stats']);
     }
 
     /**

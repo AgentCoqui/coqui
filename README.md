@@ -561,12 +561,9 @@ make test-shell
 | `make status` | Show service status |
 | `make repl` | REPL only (native) |
 | `make api` | API only (native, `HOST=0.0.0.0` for network access) |
-| `make dashboard` | Dashboard (native) |
 | `make docker-start` | REPL + API (Docker) |
 | `make docker-repl` | REPL only (Docker) |
 | `make docker-api` | API only (Docker) |
-| `make docker-dashboard` | Dashboard (Docker) |
-| `make docker-all` | REPL + API + Dashboard (Docker) |
 | `make docker-dev` | Dev mode with Xdebug + Webgrind |
 | `make docker-shell` | Bash shell in container |
 | `make test` | Run Pest tests |
@@ -594,7 +591,6 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 | `Dockerfile` | PHP 8.4 CLI + extensions + Composer + Xdebug/pcov (disabled by default) |
 | `compose.yaml` | Base service with workspace volume + host Ollama access |
 | `compose.api.yaml` | API server service (port 3300) — runs alongside REPL |
-| `compose.dashboard.yaml` | Dashboard service (port 3380) — read-only workspace access |
 | `compose.dev.yaml` | Xdebug, workspace root mount, Webgrind (port 3390) |
 | `compose.test.yaml` | Non-interactive test runner with pcov |
 | `Makefile` | Self-documenting targets: native (`start`, `api`) and Docker (`docker-*`) |
