@@ -23,7 +23,7 @@ final class RateLimitMiddleware
     private array $buckets = [];
 
     /** Paths exempt from rate limiting */
-    private const array EXEMPT_PATHS = ['/api/health'];
+    private const array EXEMPT_PATHS = ['/api/v1/health'];
 
     /**
      * @param int $maxRequests  Maximum requests per window (bucket capacity).

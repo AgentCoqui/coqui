@@ -16,8 +16,8 @@
 </p>
 
 <p align="center">
-  <a href="https://coquibot.ai/">Website</a> ·
-  <a href="https://coquibot.ai/docs">Docs</a> ·
+  <a href="https://coquibot.org/">Website</a> ·
+  <a href="https://coquibot.org/docs">Docs</a> ·
   <a href="https://coqui.space">Toolkits</a> ·
   <a href="https://github.com/sponsors/carmelosantana">Sponsor</a>
 </p>
@@ -52,7 +52,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - **Background tasks** — run long-running agent work in separate processes while the main conversation continues (API mode)
 - **Network access** — expose the API to your local network with `--host 0.0.0.0` so you can connect from phones, tablets, and other machines
 - **Observer pattern** — real-time terminal rendering of agent lifecycle events with nested child output
-- **OpenClaw config** — natively supports the OpenClaw config format for centralized model routing and workspace settings
+- **OpenClaw compatible** — drop-in support for the [OpenClaw](https://github.com/openclaw/openclaw) config format; use your existing `openclaw.json` without any changes, or start fresh with the built-in setup wizard
 
 ## Requirements
 
@@ -69,7 +69,7 @@ The installer detects your OS, installs PHP 8.4+ and required extensions if miss
 ### Linux / macOS / WSL2
 
 ```bash
-curl -fsSL https://coquibot.ai/install | bash
+curl -fsSL https://coquibot.org/install | bash
 ```
 
 ### Windows (PowerShell)
@@ -204,7 +204,26 @@ Once inside the Coqui REPL, use slash commands:
 
 ## Providers & OpenClaw Config
 
-Coqui uses an `openclaw.json` config file for centralized model routing. It supports these providers out of the box:
+Coqui uses an `openclaw.json` config file for centralized model routing. The format is fully compatible with [OpenClaw](https://github.com/openclaw/openclaw) — you can drop in your existing OpenClaw config and it works without any changes. Coqui-specific extensions (workspace, mounts, shell allowlist) live under `agents.defaults` and are safely ignored by other OpenClaw-compatible tools.
+
+Config changes are detected automatically — edit the file and your next message uses the new settings. No restart required.
+
+For the full config reference, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
+### Supported Providers
+
+| Provider | Protocol | API Key Env Var |
+|----------|----------|----------------|
+| Ollama (local) | `openai-completions` | — |
+| OpenAI | `openai-completions` | `OPENAI_API_KEY` |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` |
+| OpenRouter | `openai-completions` | `OPENROUTER_API_KEY` |
+| xAI (Grok) | `openai-completions` | `XAI_API_KEY` |
+| Google Gemini | `gemini` | `GEMINI_API_KEY` |
+| Mistral | `mistral` | `MISTRAL_API_KEY` |
+| MiniMax | `openai-completions` | `MINIMAX_API_KEY` |
+
+Any OpenAI-compatible provider can be added by specifying `openai-completions` as the API protocol.
 
 ### Provider Setup
 
@@ -542,12 +561,9 @@ make test-shell
 | `make status` | Show service status |
 | `make repl` | REPL only (native) |
 | `make api` | API only (native, `HOST=0.0.0.0` for network access) |
-| `make dashboard` | Dashboard (native) |
 | `make docker-start` | REPL + API (Docker) |
 | `make docker-repl` | REPL only (Docker) |
 | `make docker-api` | API only (Docker) |
-| `make docker-dashboard` | Dashboard (Docker) |
-| `make docker-all` | REPL + API + Dashboard (Docker) |
 | `make docker-dev` | Dev mode with Xdebug + Webgrind |
 | `make docker-shell` | Bash shell in container |
 | `make test` | Run Pest tests |
@@ -575,7 +591,6 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 | `Dockerfile` | PHP 8.4 CLI + extensions + Composer + Xdebug/pcov (disabled by default) |
 | `compose.yaml` | Base service with workspace volume + host Ollama access |
 | `compose.api.yaml` | API server service (port 3300) — runs alongside REPL |
-| `compose.dashboard.yaml` | Dashboard service (port 3380) — read-only workspace access |
 | `compose.dev.yaml` | Xdebug, workspace root mount, Webgrind (port 3390) |
 | `compose.test.yaml` | Non-interactive test runner with pcov |
 | `Makefile` | Self-documenting targets: native (`start`, `api`) and Docker (`docker-*`) |

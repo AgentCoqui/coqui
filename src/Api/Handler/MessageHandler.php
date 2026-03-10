@@ -15,9 +15,10 @@ use React\Http\Message\Response;
 /**
  * Message endpoints — including the core SSE streaming endpoint.
  *
- * GET  /api/sessions/{id}/messages             — list messages
- * POST /api/sessions/{id}/messages             — send prompt (SSE stream)
- * POST /api/sessions/{id}/messages?stream=false — send prompt (JSON response)
+ * GET    /api/sessions/{id}/messages             — list messages
+ * POST   /api/sessions/{id}/messages             — send prompt (SSE stream)
+ * POST   /api/sessions/{id}/messages?stream=false — send prompt (JSON response)
+ * DELETE /api/sessions/{id}/messages/{messageId}  — delete a single message
  */
 final readonly class MessageHandler
 {
@@ -190,5 +191,25 @@ final readonly class MessageHandler
         }
 
         return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Agent run completed without result');
+    }
+
+    /**
+     * DELETE /api/sessions/{id}/messages/{messageId}
+     */
+    public function delete(ServerRequestInterface $request, string $id, string $messageId): Response
+    {
+        $session = $this->storage->getSession($id);
+
+        if ($session === null) {
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        }
+
+        $deleted = $this->storage->deleteMessages([$messageId]);
+
+        if ($deleted === 0) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Message not found');
+        }
+
+        return Router::jsonResponse(['deleted' => true, 'message_id' => $messageId]);
     }
 }
