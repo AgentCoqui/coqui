@@ -335,17 +335,17 @@ Options:
 | `--config` | auto-detect | Path to openclaw.json |
 | `--workdir` | current directory | Working directory for the agent |
 | `--unsafe` | false | Disable script sanitization |
-| `--no-auth` | false | Run without API key authentication (forces 127.0.0.1 binding) |
+| `--no-auth` | false | Deprecated — localhost access is unauthenticated by default |
 | `--cors-origin` | `*` | Allowed CORS origins (comma-separated) |
 
 ### Authentication
 
 The server requires an API key to start. Configure one via `api.key` in `openclaw.json`, the `COQUI_API_KEY` environment variable, or by running `coqui setup`. Without a key, the server refuses to start.
 
-For local development without auth, use `--no-auth` (forces 127.0.0.1 binding):
+For local development, the server allows unauthenticated access when bound to `127.0.0.1` (the default) and no API key is configured:
 
 ```bash
-php bin/coqui api --no-auth
+php bin/coqui api
 ```
 
 All endpoints except `GET /api/v1/health` require a Bearer token:

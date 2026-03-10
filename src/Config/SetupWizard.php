@@ -412,13 +412,13 @@ final class SetupWizard
                 'The workspace is a sandboxed directory where Coqui reads and writes files.',
                 '',
                 sprintf('<fg=cyan>Detected existing workspace at:</> %s/.workspace', $cwd),
-                'Using this local workspace as the default. Change to <fg=cyan>~/.workspace</> for a shared home directory workspace.',
+                'Using this local workspace as the default. Change to <fg=cyan>~/.coqui/workspace</> for a shared home directory workspace.',
             ]);
         } else {
             $this->io->text([
                 'The workspace is a sandboxed directory where Coqui stores sessions, credentials, and files.',
                 '',
-                sprintf('Default: <fg=cyan>~/.workspace</> (resolves to <fg=gray>%s/.workspace</>)', $this->resolveHome()),
+                sprintf('Default: <fg=cyan>~/.coqui/workspace</> (resolves to <fg=gray>%s/.coqui/workspace</>)', $this->resolveHome()),
                 'All sessions are stored in this single location regardless of where you run Coqui from.',
                 'Use a relative path like <fg=cyan>.workspace</> to create a project-local workspace instead.',
             ]);
@@ -473,7 +473,7 @@ final class SetupWizard
      *
      * The key is stored in the workspace .env file via CredentialResolver.
      * Required for running `coqui api` — the server refuses to start
-     * without a key unless --no-auth is explicitly passed.
+     * without a key unless running on localhost.
      */
     private function configureApiKey(): void
     {
@@ -496,7 +496,7 @@ final class SetupWizard
         $generateKey = $this->io->confirm('Generate an API key now?', true);
 
         if (!$generateKey) {
-            $this->io->text('<fg=gray>Skipped. Set COQUI_API_KEY manually or use --no-auth for local-only access.</>');
+            $this->io->text('<fg=gray>Skipped. Set COQUI_API_KEY manually. Localhost access works without a key.</>');
             return;
         }
 

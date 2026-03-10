@@ -15,14 +15,14 @@ use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
  *
  * Default behavior (when no explicit workspace is configured):
  *   1. If a `.workspace/` directory exists in the project root, use it (dev mode).
- *   2. Otherwise, default to `~/.workspace` in the user's home directory.
+ *   2. Otherwise, default to `~/.coqui/workspace` inside the install directory.
  *
- * This prevents session sprawl across the filesystem while preserving the
+ * This keeps all Coqui data under `~/.coqui/` while preserving the
  * developer workflow where `.workspace/` lives alongside the project.
  */
 final readonly class WorkspaceResolver
 {
-    private const DEFAULT_WORKSPACE = '~/.workspace';
+    private const DEFAULT_WORKSPACE = '~/.coqui/workspace';
 
     public function __construct(
         private ConfigInterface $config,
