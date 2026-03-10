@@ -313,62 +313,64 @@ final class ApiCommand extends Command
         FileUploadHandler $fileUpload,
         ServerHandler $server,
     ): void {
+        $v1 = '/api/v1';
+
         // Health
-        $router->get('/api/health', $health);
+        $router->get($v1 . '/health', $health);
 
         // Sessions
-        $router->get('/api/sessions', [$session, 'list']);
-        $router->post('/api/sessions', [$session, 'create']);
-        $router->get('/api/sessions/{id}', [$session, 'get']);
-        $router->patch('/api/sessions/{id}', [$session, 'update']);
-        $router->delete('/api/sessions/{id}', [$session, 'delete']);
+        $router->get($v1 . '/sessions', [$session, 'list']);
+        $router->post($v1 . '/sessions', [$session, 'create']);
+        $router->get($v1 . '/sessions/{id}', [$session, 'get']);
+        $router->patch($v1 . '/sessions/{id}', [$session, 'update']);
+        $router->delete($v1 . '/sessions/{id}', [$session, 'delete']);
 
         // Messages
-        $router->get('/api/sessions/{id}/messages', [$message, 'list']);
-        $router->post('/api/sessions/{id}/messages', [$message, 'send']);
-        $router->delete('/api/sessions/{id}/messages/{messageId}', [$message, 'delete']);
+        $router->get($v1 . '/sessions/{id}/messages', [$message, 'list']);
+        $router->post($v1 . '/sessions/{id}/messages', [$message, 'send']);
+        $router->delete($v1 . '/sessions/{id}/messages/{messageId}', [$message, 'delete']);
 
         // File uploads
-        $router->post('/api/sessions/{id}/files', [$fileUpload, 'upload']);
-        $router->get('/api/sessions/{id}/files', [$fileUpload, 'list']);
-        $router->get('/api/sessions/{id}/files/{fileId}', [$fileUpload, 'get']);
-        $router->delete('/api/sessions/{id}/files/{fileId}', [$fileUpload, 'delete']);
+        $router->post($v1 . '/sessions/{id}/files', [$fileUpload, 'upload']);
+        $router->get($v1 . '/sessions/{id}/files', [$fileUpload, 'list']);
+        $router->get($v1 . '/sessions/{id}/files/{fileId}', [$fileUpload, 'get']);
+        $router->delete($v1 . '/sessions/{id}/files/{fileId}', [$fileUpload, 'delete']);
 
         // Turns
-        $router->get('/api/sessions/{id}/turns', [$turn, 'list']);
-        $router->get('/api/sessions/{id}/turns/{turnId}', [$turn, 'get']);
+        $router->get($v1 . '/sessions/{id}/turns', [$turn, 'list']);
+        $router->get($v1 . '/sessions/{id}/turns/{turnId}', [$turn, 'get']);
 
         // Config
-        $router->get('/api/config', [$config, 'get']);
-        $router->put('/api/config', [$config, 'update']);
-        $router->get('/api/config/models', [$config, 'models']);
+        $router->get($v1 . '/config', [$config, 'get']);
+        $router->put($v1 . '/config', [$config, 'update']);
+        $router->get($v1 . '/config/models', [$config, 'models']);
 
         // Roles
-        $router->get('/api/config/roles', [$role, 'list']);
-        $router->post('/api/config/roles', [$role, 'create']);
-        $router->get('/api/config/roles/{name}', [$role, 'get']);
-        $router->patch('/api/config/roles/{name}', [$role, 'update']);
-        $router->delete('/api/config/roles/{name}', [$role, 'delete']);
+        $router->get($v1 . '/config/roles', [$role, 'list']);
+        $router->post($v1 . '/config/roles', [$role, 'create']);
+        $router->get($v1 . '/config/roles/{name}', [$role, 'get']);
+        $router->patch($v1 . '/config/roles/{name}', [$role, 'update']);
+        $router->delete($v1 . '/config/roles/{name}', [$role, 'delete']);
 
         // Credentials
-        $router->get('/api/credentials', [$credential, 'list']);
-        $router->post('/api/credentials', [$credential, 'set']);
-        $router->delete('/api/credentials/{key}', [$credential, 'delete']);
+        $router->get($v1 . '/credentials', [$credential, 'list']);
+        $router->post($v1 . '/credentials', [$credential, 'set']);
+        $router->delete($v1 . '/credentials/{key}', [$credential, 'delete']);
 
         // Background tasks
-        $router->post('/api/tasks', [$task, 'create']);
-        $router->get('/api/tasks', [$task, 'list']);
-        $router->get('/api/tasks/{id}', [$task, 'get']);
-        $router->get('/api/tasks/{id}/events', [$task, 'events']);
-        $router->post('/api/tasks/{id}/input', [$task, 'addInput']);
-        $router->post('/api/tasks/{id}/cancel', [$task, 'cancel']);
+        $router->post($v1 . '/tasks', [$task, 'create']);
+        $router->get($v1 . '/tasks', [$task, 'list']);
+        $router->get($v1 . '/tasks/{id}', [$task, 'get']);
+        $router->get($v1 . '/tasks/{id}/events', [$task, 'events']);
+        $router->post($v1 . '/tasks/{id}/input', [$task, 'addInput']);
+        $router->post($v1 . '/tasks/{id}/cancel', [$task, 'cancel']);
 
         // Child runs
-        $router->get('/api/sessions/{id}/child-runs', [$session, 'childRuns']);
+        $router->get($v1 . '/sessions/{id}/child-runs', [$session, 'childRuns']);
 
         // Server
-        $router->get('/api/server/info', [$server, 'info']);
-        $router->get('/api/server/stats', [$server, 'stats']);
+        $router->get($v1 . '/server/info', [$server, 'info']);
+        $router->get($v1 . '/server/stats', [$server, 'stats']);
     }
 
     /**

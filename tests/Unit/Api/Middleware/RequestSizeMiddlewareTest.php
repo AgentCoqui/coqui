@@ -8,7 +8,7 @@ use React\Http\Message\ServerRequest;
 
 test('allows GET requests regardless of size', function () {
     $middleware = new RequestSizeMiddleware(maxBytes: 100);
-    $request = new ServerRequest('GET', '/api/sessions');
+    $request = new ServerRequest('GET', '/api/v1/sessions');
 
     $response = $middleware($request, fn() => new Response(200, [], 'ok'));
 
@@ -19,7 +19,7 @@ test('allows POST with body within limit', function () {
     $middleware = new RequestSizeMiddleware(maxBytes: 1000);
     $request = new ServerRequest(
         'POST',
-        '/api/endpoint',
+        '/api/v1/endpoint',
         ['Content-Length' => '10'],
         'small body',
     );
@@ -33,7 +33,7 @@ test('rejects POST with Content-Length exceeding limit', function () {
     $middleware = new RequestSizeMiddleware(maxBytes: 100);
     $request = new ServerRequest(
         'POST',
-        '/api/endpoint',
+        '/api/v1/endpoint',
         ['Content-Length' => '200'],
     );
 
@@ -50,7 +50,7 @@ test('rejects PUT with body size exceeding limit', function () {
 
     $request = new ServerRequest(
         'PUT',
-        '/api/endpoint',
+        '/api/v1/endpoint',
         [],
         $largeContent,
     );
@@ -62,7 +62,7 @@ test('rejects PUT with body size exceeding limit', function () {
 
 test('allows POST with no Content-Length and small body', function () {
     $middleware = new RequestSizeMiddleware(maxBytes: 1000);
-    $request = new ServerRequest('POST', '/api/endpoint');
+    $request = new ServerRequest('POST', '/api/v1/endpoint');
 
     $response = $middleware($request, fn() => new Response(200, [], 'ok'));
 
@@ -83,7 +83,7 @@ test('allows DELETE requests regardless of Content-Length', function () {
     $middleware = new RequestSizeMiddleware(maxBytes: 10);
     $request = new ServerRequest(
         'DELETE',
-        '/api/resource/123',
+        '/api/v1/resource/123',
         ['Content-Length' => '99999'],
     );
 

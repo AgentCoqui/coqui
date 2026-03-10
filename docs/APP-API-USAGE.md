@@ -241,7 +241,7 @@ sequenceDiagram
     participant SseObserver
     participant SQLite as SessionStorage
 
-    Client->>Router: POST /api/sessions/{id}/messages
+    Client->>Router: POST /api/v1/sessions/{id}/messages
     Router->>AuthMiddleware: Verify Bearer token
     AuthMiddleware->>MessageHandler: Request authenticated
 
@@ -348,10 +348,10 @@ For local development without auth, use `--no-auth` (forces 127.0.0.1 binding):
 php bin/coqui api --no-auth
 ```
 
-All endpoints except `GET /api/health` require a Bearer token:
+All endpoints except `GET /api/v1/health` require a Bearer token:
 
 ```bash
-curl -H "Authorization: Bearer YOUR_API_KEY" http://127.0.0.1:3300/api/sessions
+curl -H "Authorization: Bearer YOUR_API_KEY" http://127.0.0.1:3300/api/v1/sessions
 ```
 
 Without authentication:
@@ -373,7 +373,7 @@ This section walks through a full conversation lifecycle with tested examples.
 ### Step 1: Verify the Server
 
 ```bash
-curl http://127.0.0.1:3300/api/health
+curl http://127.0.0.1:3300/api/v1/health
 ```
 
 ```json
@@ -396,7 +396,7 @@ curl -X POST \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"model_role": "orchestrator"}' \
-  http://127.0.0.1:3300/api/sessions
+  http://127.0.0.1:3300/api/v1/sessions
 ```
 
 ```json
@@ -419,7 +419,7 @@ curl -N \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "What files are in the src directory?"}' \
-  http://127.0.0.1:3300/api/sessions/SESSION_ID/messages
+  http://127.0.0.1:3300/api/v1/sessions/SESSION_ID/messages
 ```
 
 The response is a `text/event-stream` with events:
@@ -465,7 +465,7 @@ curl -X POST \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "What is 2 + 2?"}' \
-  "http://127.0.0.1:3300/api/sessions/SESSION_ID/messages?stream=false"
+  "http://127.0.0.1:3300/api/v1/sessions/SESSION_ID/messages?stream=false"
 ```
 
 The request blocks until the agent finishes and returns a single JSON response:
@@ -495,7 +495,7 @@ curl -N \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "Tell me more about the Api directory"}' \
-  http://127.0.0.1:3300/api/sessions/SESSION_ID/messages
+  http://127.0.0.1:3300/api/v1/sessions/SESSION_ID/messages
 ```
 
 The agent has context from previous turns and can reference earlier messages.
@@ -506,7 +506,7 @@ The agent has context from previous turns and can reference earlier messages.
 
 ```bash
 curl -H "Authorization: Bearer YOUR_API_KEY" \
-  http://127.0.0.1:3300/api/sessions/SESSION_ID/messages
+  http://127.0.0.1:3300/api/v1/sessions/SESSION_ID/messages
 ```
 
 ```json
@@ -538,7 +538,7 @@ curl -H "Authorization: Bearer YOUR_API_KEY" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_API_KEY" \
-  "http://127.0.0.1:3300/api/sessions/SESSION_ID/turns?limit=10"
+  "http://127.0.0.1:3300/api/v1/sessions/SESSION_ID/turns?limit=10"
 ```
 
 ```json
@@ -571,7 +571,7 @@ curl -H "Authorization: Bearer YOUR_API_KEY" \
 
 ```bash
 curl -H "Authorization: Bearer YOUR_API_KEY" \
-  http://127.0.0.1:3300/api/sessions/SESSION_ID/turns/TURN_ID
+  http://127.0.0.1:3300/api/v1/sessions/SESSION_ID/turns/TURN_ID
 ```
 
 This returns the turn object with a nested `messages` array containing all messages produced during that turn.
@@ -583,7 +583,7 @@ Delete a session when you're done:
 ```bash
 curl -X DELETE \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  http://127.0.0.1:3300/api/sessions/SESSION_ID
+  http://127.0.0.1:3300/api/v1/sessions/SESSION_ID
 ```
 
 ```json
@@ -621,20 +621,20 @@ class CoquiClient:
         self.headers = {"Authorization": f"Bearer {api_key}"}
 
     def create_session(self):
-        resp = post(f"{self.base_url}/api/sessions",
+        resp = post(f"{self.base_url}/api/v1/sessions",
                      headers=self.headers,
                      json={"model_role": "orchestrator"})
         return resp.json()["id"]
 
     def send_prompt(self, session_id, prompt):
-        resp = post(f"{self.base_url}/api/sessions/{session_id}/messages",
+        resp = post(f"{self.base_url}/api/v1/sessions/{session_id}/messages",
                      headers=self.headers,
                      json={"prompt": prompt},
                      params={"stream": "false"})
         return resp.json()
 
     def list_sessions(self):
-        resp = get(f"{self.base_url}/api/sessions",
+        resp = get(f"{self.base_url}/api/v1/sessions",
                     headers=self.headers)
         return resp.json()["sessions"]
 
@@ -705,7 +705,7 @@ The final event in every stream. Contains the full turn result:
 ### Parsing SSE in JavaScript
 
 ```javascript
-const response = await fetch(`${baseUrl}/api/sessions/${sessionId}/messages`, {
+const response = await fetch(`${baseUrl}/api/v1/sessions/${sessionId}/messages`, {
   method: 'POST',
   headers: {
     'Authorization': `Bearer ${apiKey}`,
@@ -772,7 +772,7 @@ import 'package:http/http.dart' as http;
 Future<void> sendPrompt(String sessionId, String prompt) async {
   final request = http.Request(
     'POST',
-    Uri.parse('$baseUrl/api/sessions/$sessionId/messages'),
+    Uri.parse('$baseUrl/api/v1/sessions/$sessionId/messages'),
   );
   request.headers['Authorization'] = 'Bearer $apiKey';
   request.headers['Content-Type'] = 'application/json';
@@ -831,7 +831,7 @@ void _handleEvent(String type, Map<String, dynamic> data) {
 
 ```bash
 curl -H "Authorization: Bearer YOUR_API_KEY" \
-  http://127.0.0.1:3300/api/config/models
+  http://127.0.0.1:3300/api/v1/config/models
 ```
 
 ```json
@@ -856,7 +856,7 @@ Roles map human-readable names to specific models:
 
 ```bash
 curl -H "Authorization: Bearer YOUR_API_KEY" \
-  http://127.0.0.1:3300/api/config/roles
+  http://127.0.0.1:3300/api/v1/config/roles
 ```
 
 ```json
@@ -880,7 +880,7 @@ Some tools require API keys (e.g., Brave Search). Credentials are stored in the 
 
 ```bash
 curl -H "Authorization: Bearer YOUR_API_KEY" \
-  http://127.0.0.1:3300/api/credentials
+  http://127.0.0.1:3300/api/v1/credentials
 ```
 
 ```json
@@ -900,7 +900,7 @@ curl -X POST \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"key": "MY_SERVICE_KEY", "value": "sk-abc123"}' \
-  http://127.0.0.1:3300/api/credentials
+  http://127.0.0.1:3300/api/v1/credentials
 ```
 
 ```json
@@ -918,7 +918,7 @@ Keys must be `UPPER_SNAKE_CASE`. Invalid formats return:
 ```bash
 curl -X DELETE \
   -H "Authorization: Bearer YOUR_API_KEY" \
-  http://127.0.0.1:3300/api/credentials/MY_SERVICE_KEY
+  http://127.0.0.1:3300/api/v1/credentials/MY_SERVICE_KEY
 ```
 
 ```json
@@ -978,15 +978,15 @@ The API supports uploading files and images to sessions. Uploaded files can be r
 
 ### Upload Flow
 
-1. **Upload files** to a session using `POST /api/sessions/{id}/files` with `multipart/form-data`
-2. **Reference file IDs** in the `files` array when sending a message via `POST /api/sessions/{id}/messages`
+1. **Upload files** to a session using `POST /api/v1/sessions/{id}/files` with `multipart/form-data`
+2. **Reference file IDs** in the `files` array when sending a message via `POST /api/v1/sessions/{id}/messages`
 3. The agent receives images as vision content and text files as inline context
 
 ### Example: Upload and Reference an Image
 
 ```bash
 # Step 1: Upload an image
-curl -X POST http://127.0.0.1:3300/api/sessions/$SESSION_ID/files \
+curl -X POST http://127.0.0.1:3300/api/v1/sessions/$SESSION_ID/files \
   -H "Authorization: Bearer $API_KEY" \
   -F "files[]=@screenshot.png"
 ```
@@ -1010,7 +1010,7 @@ curl -X POST http://127.0.0.1:3300/api/sessions/$SESSION_ID/files \
 
 ```bash
 # Step 2: Send a prompt referencing the uploaded file
-curl -X POST http://127.0.0.1:3300/api/sessions/$SESSION_ID/messages \
+curl -X POST http://127.0.0.1:3300/api/v1/sessions/$SESSION_ID/messages \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1025,12 +1025,12 @@ The agent will analyze the image using the LLM's vision capabilities and respond
 
 ```bash
 # Upload a code file
-curl -X POST http://127.0.0.1:3300/api/sessions/$SESSION_ID/files \
+curl -X POST http://127.0.0.1:3300/api/v1/sessions/$SESSION_ID/files \
   -H "Authorization: Bearer $API_KEY" \
   -F "files[]=@src/handler.php"
 
 # Ask about it
-curl -X POST http://127.0.0.1:3300/api/sessions/$SESSION_ID/messages \
+curl -X POST http://127.0.0.1:3300/api/v1/sessions/$SESSION_ID/messages \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1045,15 +1045,15 @@ Text files are read and injected directly into the prompt as context blocks, so 
 
 ```bash
 # List all files in a session
-curl http://127.0.0.1:3300/api/sessions/$SESSION_ID/files \
+curl http://127.0.0.1:3300/api/v1/sessions/$SESSION_ID/files \
   -H "Authorization: Bearer $API_KEY"
 
 # Download a file
-curl http://127.0.0.1:3300/api/sessions/$SESSION_ID/files/$FILE_ID \
+curl http://127.0.0.1:3300/api/v1/sessions/$SESSION_ID/files/$FILE_ID \
   -H "Authorization: Bearer $API_KEY" -o downloaded_file.png
 
 # Delete a file
-curl -X DELETE http://127.0.0.1:3300/api/sessions/$SESSION_ID/files/$FILE_ID \
+curl -X DELETE http://127.0.0.1:3300/api/v1/sessions/$SESSION_ID/files/$FILE_ID \
   -H "Authorization: Bearer $API_KEY"
 ```
 
@@ -1071,26 +1071,26 @@ curl -X DELETE http://127.0.0.1:3300/api/sessions/$SESSION_ID/files/$FILE_ID \
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| GET | `/api/health` | No | Server liveness check |
-| GET | `/api/sessions` | Yes | List all sessions |
-| POST | `/api/sessions` | Yes | Create a new session |
-| GET | `/api/sessions/{id}` | Yes | Get session details |
-| DELETE | `/api/sessions/{id}` | Yes | Delete a session |
-| GET | `/api/sessions/{id}/messages` | Yes | List messages in session |
-| POST | `/api/sessions/{id}/messages` | Yes | Send prompt (SSE stream) |
-| POST | `/api/sessions/{id}/files` | Yes | Upload files (multipart) |
-| GET | `/api/sessions/{id}/files` | Yes | List uploaded files |
-| GET | `/api/sessions/{id}/files/{fileId}` | Yes | Download a file |
-| DELETE | `/api/sessions/{id}/files/{fileId}` | Yes | Delete a file |
-| GET | `/api/sessions/{id}/turns` | Yes | List turns in session |
-| GET | `/api/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
-| GET | `/api/config` | Yes | Get sanitized configuration |
-| GET | `/api/config/roles` | Yes | List all roles |
-| GET | `/api/config/roles/{name}` | Yes | Get role detail |
-| POST | `/api/config/roles` | Yes | Create custom role |
-| PATCH | `/api/config/roles/{name}` | Yes | Update custom role |
-| DELETE | `/api/config/roles/{name}` | Yes | Delete custom role |
-| GET | `/api/config/models` | Yes | List available models |
-| GET | `/api/credentials` | Yes | List credential keys |
-| POST | `/api/credentials` | Yes | Set a credential |
-| DELETE | `/api/credentials/{key}` | Yes | Delete a credential |
+| GET | `/api/v1/health` | No | Server liveness check |
+| GET | `/api/v1/sessions` | Yes | List all sessions |
+| POST | `/api/v1/sessions` | Yes | Create a new session |
+| GET | `/api/v1/sessions/{id}` | Yes | Get session details |
+| DELETE | `/api/v1/sessions/{id}` | Yes | Delete a session |
+| GET | `/api/v1/sessions/{id}/messages` | Yes | List messages in session |
+| POST | `/api/v1/sessions/{id}/messages` | Yes | Send prompt (SSE stream) |
+| POST | `/api/v1/sessions/{id}/files` | Yes | Upload files (multipart) |
+| GET | `/api/v1/sessions/{id}/files` | Yes | List uploaded files |
+| GET | `/api/v1/sessions/{id}/files/{fileId}` | Yes | Download a file |
+| DELETE | `/api/v1/sessions/{id}/files/{fileId}` | Yes | Delete a file |
+| GET | `/api/v1/sessions/{id}/turns` | Yes | List turns in session |
+| GET | `/api/v1/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
+| GET | `/api/v1/config` | Yes | Get sanitized configuration |
+| GET | `/api/v1/config/roles` | Yes | List all roles |
+| GET | `/api/v1/config/roles/{name}` | Yes | Get role detail |
+| POST | `/api/v1/config/roles` | Yes | Create custom role |
+| PATCH | `/api/v1/config/roles/{name}` | Yes | Update custom role |
+| DELETE | `/api/v1/config/roles/{name}` | Yes | Delete custom role |
+| GET | `/api/v1/config/models` | Yes | List available models |
+| GET | `/api/v1/credentials` | Yes | List credential keys |
+| POST | `/api/v1/credentials` | Yes | Set a credential |
+| DELETE | `/api/v1/credentials/{key}` | Yes | Delete a credential |

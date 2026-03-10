@@ -51,7 +51,7 @@ make docker-api PORT=3000    # custom port
 
 ## Authentication
 
-When an API key is configured, all requests (except `GET /api/health` and `OPTIONS`) must include the key in the `Authorization` header.
+When an API key is configured, all requests (except `GET /api/v1/health` and `OPTIONS`) must include the key in the `Authorization` header.
 
 ```
 Authorization: Bearer <your-api-key>
@@ -198,7 +198,7 @@ HTTP status codes follow standard conventions.
 
 ### Health
 
-#### `GET /api/health`
+#### `GET /api/v1/health`
 
 Liveness check. Does **not** require authentication.
 
@@ -217,7 +217,7 @@ Liveness check. Does **not** require authentication.
 
 A session is a persistent conversation context. Messages and turns are scoped to a session.
 
-#### `GET /api/sessions`
+#### `GET /api/v1/sessions`
 
 List sessions, ordered by most recently updated.
 
@@ -245,7 +245,7 @@ List sessions, ordered by most recently updated.
 }
 ```
 
-#### `POST /api/sessions`
+#### `POST /api/v1/sessions`
 
 Create a new session.
 
@@ -280,7 +280,7 @@ Create a new session.
 }
 ```
 
-#### `GET /api/sessions/{id}`
+#### `GET /api/v1/sessions/{id}`
 
 Get session details.
 
@@ -306,7 +306,7 @@ Get session details.
 }
 ```
 
-#### `PATCH /api/sessions/{id}`
+#### `PATCH /api/v1/sessions/{id}`
 
 Update session metadata. Currently supports renaming the session title.
 
@@ -356,7 +356,7 @@ Returns the updated session object:
 }
 ```
 
-#### `DELETE /api/sessions/{id}`
+#### `DELETE /api/v1/sessions/{id}`
 
 Delete a session and all its associated data.
 
@@ -373,7 +373,7 @@ Delete a session and all its associated data.
 
 Messages are the conversation records within a session. Each message has a role (`user`, `assistant`, or `tool`).
 
-#### `GET /api/sessions/{id}/messages`
+#### `GET /api/v1/sessions/{id}/messages`
 
 List all messages in a session, ordered chronologically.
 
@@ -420,7 +420,7 @@ List all messages in a session, ordered chronologically.
 }
 ```
 
-#### `POST /api/sessions/{id}/messages`
+#### `POST /api/v1/sessions/{id}/messages`
 
 Send a prompt to the agent. This is the **core endpoint** for interacting with Coqui.
 
@@ -565,7 +565,7 @@ The `prompt` field is limited to **100 KB** (102,400 bytes). Prompts exceeding t
 | `404` | `not_found` | Referenced file ID not found in this session |
 | `409` | `agent_busy` | Session already has an active agent run |
 
-#### `DELETE /api/sessions/{id}/messages/{messageId}`
+#### `DELETE /api/v1/sessions/{id}/messages/{messageId}`
 
 Delete a specific message from a session.
 
@@ -602,7 +602,7 @@ Files are session-scoped uploads that can be attached to messages for multimodal
 - Maximum file size: **50 MiB** per file
 - Maximum files per request: **20**
 
-#### `POST /api/sessions/{id}/files`
+#### `POST /api/v1/sessions/{id}/files`
 
 Upload one or more files to a session. Uses `multipart/form-data` encoding.
 
@@ -611,7 +611,7 @@ Upload one or more files to a session. Uses `multipart/form-data` encoding.
 Send files as form fields named `files[]`. Multiple files can be uploaded in a single request.
 
 ```bash
-curl -X POST http://127.0.0.1:3300/api/sessions/{id}/files \
+curl -X POST http://127.0.0.1:3300/api/v1/sessions/{id}/files \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -F "files[]=@screenshot.png" \
   -F "files[]=@notes.txt"
@@ -668,7 +668,7 @@ If some files succeed and others fail, the response includes both:
 | `404` | `session_not_found` | Session does not exist |
 | `413` | `payload_too_large` | More than 20 files in a single request |
 
-#### `GET /api/sessions/{id}/files`
+#### `GET /api/v1/sessions/{id}/files`
 
 List all uploaded files for a session.
 
@@ -691,7 +691,7 @@ List all uploaded files for a session.
 }
 ```
 
-#### `GET /api/sessions/{id}/files/{fileId}`
+#### `GET /api/v1/sessions/{id}/files/{fileId}`
 
 Download a specific file. Returns the raw file content with appropriate headers.
 
@@ -709,7 +709,7 @@ Returns the file binary with:
 | `404` | `session_not_found` | Session does not exist |
 | `404` | `not_found` | File not found |
 
-#### `DELETE /api/sessions/{id}/files/{fileId}`
+#### `DELETE /api/v1/sessions/{id}/files/{fileId}`
 
 Delete a specific uploaded file.
 
@@ -732,7 +732,7 @@ Delete a specific uploaded file.
 
 A turn represents a single request-response cycle within a session. Each turn contains the user prompt, agent response, token usage, timing, and tool usage metadata.
 
-#### `GET /api/sessions/{id}/turns`
+#### `GET /api/v1/sessions/{id}/turns`
 
 List turns for a session, ordered by turn number.
 
@@ -770,7 +770,7 @@ List turns for a session, ordered by turn number.
 }
 ```
 
-#### `GET /api/sessions/{id}/turns/{turnId}`
+#### `GET /api/v1/sessions/{id}/turns/{turnId}`
 
 Get a single turn with its associated messages.
 
@@ -808,7 +808,7 @@ Get a single turn with its associated messages.
 
 ### Configuration
 
-#### `GET /api/config`
+#### `GET /api/v1/config`
 
 Returns the full Coqui configuration. API keys in provider configs are masked as `"***"`.
 
@@ -843,7 +843,7 @@ Returns the full Coqui configuration. API keys in provider configs are masked as
 }
 ```
 
-#### `PUT /api/config`
+#### `PUT /api/v1/config`
 
 Write the full `openclaw.json` configuration. The body must be valid JSON. The file is pretty-printed before writing. Config changes are auto-detected by the REPL — no restart required.
 
@@ -885,7 +885,7 @@ The complete `openclaw.json` content:
 }
 ```
 
-#### `GET /api/config/roles`
+#### `GET /api/v1/config/roles`
 
 Returns all roles with full metadata. The response merges three layers:
 
@@ -923,7 +923,7 @@ Returns all roles with full metadata. The response merges three layers:
 }
 ```
 
-#### `GET /api/config/roles/{name}`
+#### `GET /api/v1/config/roles/{name}`
 
 Get a single role with full details. System roles return metadata without instructions. Custom roles include the full instruction text.
 
@@ -953,7 +953,7 @@ Get a single role with full details. System roles return metadata without instru
 }
 ```
 
-#### `POST /api/config/roles`
+#### `POST /api/v1/config/roles`
 
 Create a new custom role.
 
@@ -1001,7 +1001,7 @@ Returns the created role properties with instructions.
 }
 ```
 
-#### `PATCH /api/config/roles/{name}`
+#### `PATCH /api/v1/config/roles/{name}`
 
 Update an existing custom role. All fields are optional — only provided fields are changed.
 
@@ -1023,7 +1023,7 @@ System roles cannot be modified:
 }
 ```
 
-#### `DELETE /api/config/roles/{name}`
+#### `DELETE /api/v1/config/roles/{name}`
 
 Delete a custom role.
 
@@ -1045,7 +1045,7 @@ System and built-in roles cannot be deleted:
 }
 ```
 
-#### `GET /api/config/models`
+#### `GET /api/v1/config/models`
 
 Lists all available models from all configured providers.
 
@@ -1078,7 +1078,7 @@ Lists all available models from all configured providers.
 
 Credential values are **never** returned by the API. Only key names and existence are exposed.
 
-#### `GET /api/credentials`
+#### `GET /api/v1/credentials`
 
 List all stored credential keys.
 
@@ -1100,7 +1100,7 @@ List all stored credential keys.
 }
 ```
 
-#### `POST /api/credentials`
+#### `POST /api/v1/credentials`
 
 Set or update a credential. The value is stored in the workspace `.env` file and made available immediately via `putenv()`.
 
@@ -1136,7 +1136,7 @@ Set or update a credential. The value is stored in the workspace `.env` file and
 }
 ```
 
-#### `DELETE /api/credentials/{key}`
+#### `DELETE /api/v1/credentials/{key}`
 
 Delete a credential.
 
@@ -1162,7 +1162,7 @@ Delete a credential.
 
 Child runs track sub-agent invocations within a session. When the orchestrator spawns a child agent (e.g., `coder`, `reviewer`), the run is recorded with its role, model, prompt, result, and token usage.
 
-#### `GET /api/sessions/{id}/child-runs`
+#### `GET /api/v1/sessions/{id}/child-runs`
 
 List all child agent runs for a session.
 
@@ -1197,7 +1197,7 @@ List all child agent runs for a session.
 
 Server endpoints provide runtime status and database-level statistics. These are useful for monitoring and debugging the API server.
 
-#### `GET /api/server/info`
+#### `GET /api/v1/server/info`
 
 Runtime information including version, uptime, memory usage, and active workload.
 
@@ -1222,7 +1222,7 @@ Runtime information including version, uptime, memory usage, and active workload
 
 The `tasks` field is only present when the background task manager is enabled.
 
-#### `GET /api/server/stats`
+#### `GET /api/v1/server/stats`
 
 Database-level statistics from SQLite.
 
@@ -1252,7 +1252,7 @@ Background tasks run long-running agent work in separate processes. Each task ge
 
 For architecture details, see [BACKGROUND-TASKS.md](BACKGROUND-TASKS.md).
 
-#### `POST /api/tasks`
+#### `POST /api/v1/tasks`
 
 Create a new background task. The task is started immediately if under the concurrency limit, otherwise queued as pending.
 
@@ -1305,12 +1305,12 @@ The `status` field is `"running"` if the task started immediately, or `"pending"
 
 ```json
 {
-  "error": "Unknown role \"nonexistent\". Use GET /api/config/roles to see available roles.",
+  "error": "Unknown role \"nonexistent\". Use GET /api/v1/config/roles to see available roles.",
   "code": "role_not_found"
 }
 ```
 
-#### `GET /api/tasks`
+#### `GET /api/v1/tasks`
 
 List background tasks, optionally filtered by status.
 
@@ -1347,7 +1347,7 @@ List background tasks, optionally filtered by status.
 }
 ```
 
-#### `GET /api/tasks/{id}`
+#### `GET /api/v1/tasks/{id}`
 
 Get detailed information about a specific task, including live process status.
 
@@ -1378,7 +1378,7 @@ The `process_alive` field indicates whether the task's child process is still ru
 }
 ```
 
-#### `GET /api/tasks/{id}/events`
+#### `GET /api/v1/tasks/{id}/events`
 
 Stream task lifecycle events via Server-Sent Events. The stream uses long-polling (1-second interval) and closes automatically when the task reaches a terminal state (`completed`, `failed`, or `cancelled`).
 
@@ -1421,7 +1421,7 @@ The stream supports resumption — if the client disconnects and reconnects with
 }
 ```
 
-#### `POST /api/tasks/{id}/input`
+#### `POST /api/v1/tasks/{id}/input`
 
 Inject user input into a running task's conversation. The input is queued and consumed by the task process on its next iteration. Only works for tasks with status `running`.
 
@@ -1457,7 +1457,7 @@ Inject user input into a running task's conversation. The input is queued and co
 }
 ```
 
-#### `POST /api/tasks/{id}/cancel`
+#### `POST /api/v1/tasks/{id}/cancel`
 
 Cancel a running or pending task. Running tasks receive `SIGTERM`; pending tasks are cancelled immediately.
 
@@ -1535,7 +1535,7 @@ Configure via `openclaw.json`:
 
 The response includes a `Retry-After` header with the number of seconds to wait.
 
-Exempt endpoints: `GET /api/health`, `OPTIONS` (preflight).
+Exempt endpoints: `GET /api/v1/health`, `OPTIONS` (preflight).
 
 ### Request Size Limit
 
@@ -1589,59 +1589,59 @@ Every REPL slash command has an API equivalent, allowing dashboards and client a
 
 | REPL Command | API Equivalent | Notes |
 |---|---|---|
-| `/new` | `POST /api/sessions` | Creates a new session |
-| `/sessions` | `GET /api/sessions` | Lists all sessions |
-| `/resume <id>` | `POST /api/sessions/{id}/messages` | Send a message to an existing session |
-| `/history` | `GET /api/sessions/{id}/messages` | Lists all messages in a session |
-| `/model` | `GET /api/config/models` | Lists available models and current config |
-| `/config show` | `GET /api/config` | Returns current configuration (sanitized) |
-| `/config edit` | `PUT /api/config` | Writes the full configuration |
-| `/tasks` | `GET /api/tasks` | Lists background tasks |
-| `/task <id>` | `GET /api/tasks/{id}` | Gets task detail |
-| `/task-cancel <id>` | `POST /api/tasks/{id}/cancel` | Cancels a running or pending task |
-| `/restart` | `POST /api/server/restart` | Triggers a graceful server restart |
-| `/update` | `POST /api/server/update` | Checks for and applies dependency updates |
+| `/new` | `POST /api/v1/sessions` | Creates a new session |
+| `/sessions` | `GET /api/v1/sessions` | Lists all sessions |
+| `/resume <id>` | `POST /api/v1/sessions/{id}/messages` | Send a message to an existing session |
+| `/history` | `GET /api/v1/sessions/{id}/messages` | Lists all messages in a session |
+| `/model` | `GET /api/v1/config/models` | Lists available models and current config |
+| `/config show` | `GET /api/v1/config` | Returns current configuration (sanitized) |
+| `/config edit` | `PUT /api/v1/config` | Writes the full configuration |
+| `/tasks` | `GET /api/v1/tasks` | Lists background tasks |
+| `/task <id>` | `GET /api/v1/tasks/{id}` | Gets task detail |
+| `/task-cancel <id>` | `POST /api/v1/tasks/{id}/cancel` | Cancels a running or pending task |
+| `/restart` | `POST /api/v1/server/restart` | Triggers a graceful server restart |
+| `/update` | `POST /api/v1/server/update` | Checks for and applies dependency updates |
 | `/quit` | — | N/A — the API server is managed by the launcher or process manager |
-| `/help` | `GET /api/server/info` | Returns available commands and server capabilities |
+| `/help` | `GET /api/v1/server/info` | Returns available commands and server capabilities |
 
 ## Quick Reference
 
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| `GET` | `/api/health` | No | Server liveness check |
-| `GET` | `/api/sessions` | Yes | List sessions |
-| `POST` | `/api/sessions` | Yes | Create session |
-| `GET` | `/api/sessions/{id}` | Yes | Get session |
-| `PATCH` | `/api/sessions/{id}` | Yes | Update session (title) |
-| `DELETE` | `/api/sessions/{id}` | Yes | Delete session |
-| `GET` | `/api/sessions/{id}/messages` | Yes | List messages |
-| `POST` | `/api/sessions/{id}/messages` | Yes | Send prompt (SSE stream) |
-| `DELETE` | `/api/sessions/{id}/messages/{messageId}` | Yes | Delete a message |
-| `POST` | `/api/sessions/{id}/files` | Yes | Upload files (multipart) |
-| `GET` | `/api/sessions/{id}/files` | Yes | List uploaded files |
-| `GET` | `/api/sessions/{id}/files/{fileId}` | Yes | Download a file |
-| `DELETE` | `/api/sessions/{id}/files/{fileId}` | Yes | Delete a file |
-| `GET` | `/api/sessions/{id}/turns` | Yes | List turns |
-| `GET` | `/api/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
-| `GET` | `/api/sessions/{id}/child-runs` | Yes | List child agent runs |
-| `GET` | `/api/config` | Yes | Get config (sanitized) |
-| `PUT` | `/api/config` | Yes | Update config (full write) |
-| `GET` | `/api/config/roles` | Yes | List all roles |
-| `GET` | `/api/config/roles/{name}` | Yes | Get role detail |
-| `POST` | `/api/config/roles` | Yes | Create custom role |
-| `PATCH` | `/api/config/roles/{name}` | Yes | Update custom role |
-| `DELETE` | `/api/config/roles/{name}` | Yes | Delete custom role |
-| `GET` | `/api/config/models` | Yes | List available models |
-| `GET` | `/api/credentials` | Yes | List credential keys |
-| `POST` | `/api/credentials` | Yes | Set a credential |
-| `DELETE` | `/api/credentials/{key}` | Yes | Delete a credential |
-| `POST` | `/api/tasks` | Yes | Create background task |
-| `GET` | `/api/tasks` | Yes | List tasks |
-| `GET` | `/api/tasks/{id}` | Yes | Get task detail |
-| `GET` | `/api/tasks/{id}/events` | Yes | Stream task events (SSE) |
-| `POST` | `/api/tasks/{id}/input` | Yes | Inject input into running task |
-| `POST` | `/api/tasks/{id}/cancel` | Yes | Cancel a task |
-| `POST` | `/api/server/restart` | Yes | Trigger graceful restart |
-| `POST` | `/api/server/update` | Yes | Check and apply updates |
-| `GET` | `/api/server/stats` | Yes | Database and server statistics |
-| `GET` | `/api/server/info` | Yes | Server capabilities and commands |
+| `GET` | `/api/v1/health` | No | Server liveness check |
+| `GET` | `/api/v1/sessions` | Yes | List sessions |
+| `POST` | `/api/v1/sessions` | Yes | Create session |
+| `GET` | `/api/v1/sessions/{id}` | Yes | Get session |
+| `PATCH` | `/api/v1/sessions/{id}` | Yes | Update session (title) |
+| `DELETE` | `/api/v1/sessions/{id}` | Yes | Delete session |
+| `GET` | `/api/v1/sessions/{id}/messages` | Yes | List messages |
+| `POST` | `/api/v1/sessions/{id}/messages` | Yes | Send prompt (SSE stream) |
+| `DELETE` | `/api/v1/sessions/{id}/messages/{messageId}` | Yes | Delete a message |
+| `POST` | `/api/v1/sessions/{id}/files` | Yes | Upload files (multipart) |
+| `GET` | `/api/v1/sessions/{id}/files` | Yes | List uploaded files |
+| `GET` | `/api/v1/sessions/{id}/files/{fileId}` | Yes | Download a file |
+| `DELETE` | `/api/v1/sessions/{id}/files/{fileId}` | Yes | Delete a file |
+| `GET` | `/api/v1/sessions/{id}/turns` | Yes | List turns |
+| `GET` | `/api/v1/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
+| `GET` | `/api/v1/sessions/{id}/child-runs` | Yes | List child agent runs |
+| `GET` | `/api/v1/config` | Yes | Get config (sanitized) |
+| `PUT` | `/api/v1/config` | Yes | Update config (full write) |
+| `GET` | `/api/v1/config/roles` | Yes | List all roles |
+| `GET` | `/api/v1/config/roles/{name}` | Yes | Get role detail |
+| `POST` | `/api/v1/config/roles` | Yes | Create custom role |
+| `PATCH` | `/api/v1/config/roles/{name}` | Yes | Update custom role |
+| `DELETE` | `/api/v1/config/roles/{name}` | Yes | Delete custom role |
+| `GET` | `/api/v1/config/models` | Yes | List available models |
+| `GET` | `/api/v1/credentials` | Yes | List credential keys |
+| `POST` | `/api/v1/credentials` | Yes | Set a credential |
+| `DELETE` | `/api/v1/credentials/{key}` | Yes | Delete a credential |
+| `POST` | `/api/v1/tasks` | Yes | Create background task |
+| `GET` | `/api/v1/tasks` | Yes | List tasks |
+| `GET` | `/api/v1/tasks/{id}` | Yes | Get task detail |
+| `GET` | `/api/v1/tasks/{id}/events` | Yes | Stream task events (SSE) |
+| `POST` | `/api/v1/tasks/{id}/input` | Yes | Inject input into running task |
+| `POST` | `/api/v1/tasks/{id}/cancel` | Yes | Cancel a task |
+| `POST` | `/api/v1/server/restart` | Yes | Trigger graceful restart |
+| `POST` | `/api/v1/server/update` | Yes | Check and apply updates |
+| `GET` | `/api/v1/server/stats` | Yes | Database and server statistics |
+| `GET` | `/api/v1/server/info` | Yes | Server capabilities and commands |
