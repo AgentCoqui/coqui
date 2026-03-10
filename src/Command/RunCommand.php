@@ -10,7 +10,6 @@ use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
 use CoquiBot\Coqui\Config\SetupWizard;
 use CoquiBot\Coqui\Config\UpdateManager;
-use CoquiBot\Coqui\Contract\OutputRendererInterface;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Renderer\JsonRenderer;
@@ -158,11 +157,12 @@ final class RunCommand extends Command
 
         // Display welcome
         $io->writeln([
-            '', 
-            '<fg=green>▄█████  ▄▄▄   ▄▄▄  ▄▄ ▄▄ ▄▄   █████▄  ▄▄▄ ▄▄▄▄▄▄</>',
-            '<fg=green>██     ██▀██ ██▀██ ██ ██ ██   ██▄▄██ ██▀██  ██  </>',
-            '<fg=green>▀█████ ▀███▀ ▀███▀ ▀███▀ ██   ██▄▄█▀ ▀███▀  ██  </>',
-            '<fg=green>                ▀▀                              </>',
+            '',
+            '<fg=green> ▄▄·       .▄▄▄  ▄• ▄▌▪  ▄▄▄▄·       ▄▄▄▄▄</>',
+            '<fg=green>▐█ ▌▪▪     ▐▀•▀█ █▪██▌██ ▐█ ▀█▪▪     •██  </>',
+            '<fg=green>██ ▄▄ ▄█▀▄ █▌·.█▌█▌▐█▌▐█·▐█▀▀█▄ ▄█▀▄  ▐█.▪</>',
+            '<fg=green>▐███▌▐█▌.▐▌▐█▪▄█·▐█▄█▌▐█▌██▄▪▐█▐█▌.▐▌ ▐█▌·</>',
+            '<fg=green>·▀▀▀  ▀█▄▀▪·▀▀█.  ▀▀▀ ▀▀▀·▀▀▀▀  ▀█▄▀▪ ▀▀▀ </>',
             '',
         ]);
         $io->section('REPL');

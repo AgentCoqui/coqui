@@ -46,7 +46,7 @@ make docker-api PORT=3000    # custom port
 | `--config` | `-c` | `./openclaw.json` | Path to openclaw.json config |
 | `--workdir` | `-w` | Current directory | Working directory (project root) |
 | `--unsafe` | | `false` | Disable script sanitization (dangerous) |
-| `--no-auth` | | `false` | Run without API key authentication (forces 127.0.0.1 binding) |
+| `--no-auth` | | `false` | Deprecated — localhost access is unauthenticated by default |
 | `--cors-origin` | | `*` | Allowed CORS origins (comma-separated) |
 
 ## Authentication
@@ -65,17 +65,9 @@ The server resolves the API key from these sources (first match wins):
 2. `COQUI_API_KEY` environment variable
 3. `COQUI_API_KEY` in the workspace `.env` file
 
-If no key is found, the server **refuses to start**. This is a security-by-default policy.
+If no key is found and the server is bound to a non-localhost address, the server **refuses to start**. When bound to `127.0.0.1` (the default), the server starts without a key and allows unauthenticated access.
 
-To run without authentication during local development, use:
-
-```bash
-php bin/coqui api --no-auth
-```
-
-The `--no-auth` flag forces binding to `127.0.0.1` regardless of the `--host` option.
-
-You can generate an API key automatically by running `coqui setup`.
+To generate an API key, run `coqui setup` or set `COQUI_API_KEY` in your workspace `.env` file.
 
 ### Error Responses
 
@@ -110,13 +102,13 @@ The bind address is resolved in this order:
 2. `COQUI_API_HOST` environment variable
 3. Default: `127.0.0.1`
 
-The `--no-auth` flag always overrides to `127.0.0.1` regardless of the above.
+The `--no-auth` flag is deprecated. Localhost access is unauthenticated by default when no API key is configured.
 
 ### Security Considerations
 
 Exposing the API to the network means any device on that network can reach it. Follow these practices:
 
-- **API key is mandatory.** The server refuses to start without one when `--no-auth` is not set. Generate one with `coqui setup` or set `COQUI_API_KEY` in your `.env` file.
+- **API key is mandatory for network access.** When binding to `0.0.0.0`, the server refuses to start without an API key. Generate one with `coqui setup` or set `COQUI_API_KEY` in your `.env` file.
 - **Use a strong API key.** Avoid short or easily guessable keys. The setup wizard generates a cryptographically random key.
 - **Restrict CORS origins.** Use `--cors-origin` to limit which domains can make browser-based requests: `--cors-origin "http://192.168.1.100:3380"`
 - **Configure your firewall.** Only expose port 3300 (or your chosen port) to trusted networks. Do not expose it to the public internet without additional protection.
@@ -818,7 +810,7 @@ Returns the full Coqui configuration. API keys in provider configs are masked as
 {
   "agents": {
     "defaults": {
-      "workspace": ".workspace",
+      "workspace": "~/.coqui/workspace",
       "model": {
         "primary": "openai/gpt-5"
       },
