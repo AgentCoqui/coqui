@@ -38,7 +38,7 @@ final class AuthMiddleware
         }
 
         // Skip auth for health endpoint
-        if ($request->getUri()->getPath() === '/api/health') {
+        if ($request->getUri()->getPath() === '/api/v1/health') {
             return $next($request);
         }
 

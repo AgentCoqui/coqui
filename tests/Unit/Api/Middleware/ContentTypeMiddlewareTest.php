@@ -9,7 +9,7 @@ use React\Http\Message\ServerRequest;
 
 test('allows GET requests without content type', function () {
     $middleware = new ContentTypeMiddleware();
-    $request = new ServerRequest('GET', '/api/sessions');
+    $request = new ServerRequest('GET', '/api/v1/sessions');
 
     $response = $middleware($request, fn() => new Response(200, [], 'ok'));
 
@@ -18,7 +18,7 @@ test('allows GET requests without content type', function () {
 
 test('allows DELETE requests without content type', function () {
     $middleware = new ContentTypeMiddleware();
-    $request = new ServerRequest('DELETE', '/api/sessions/123');
+    $request = new ServerRequest('DELETE', '/api/v1/sessions/123');
 
     $response = $middleware($request, fn() => new Response(200, [], 'ok'));
 
@@ -29,9 +29,10 @@ test('allows POST with application/json content type', function () {
     $middleware = new ContentTypeMiddleware();
     $request = new ServerRequest(
         'POST',
-        '/api/sessions/123/messages',
+        '/api/v1/sessions/123/messages',
         ['Content-Type' => 'application/json'],
         '{"prompt":"hi"}',
+
     );
 
     $response = $middleware($request, fn() => new Response(200, [], 'ok'));
@@ -43,7 +44,7 @@ test('allows POST with multipart/form-data content type', function () {
     $middleware = new ContentTypeMiddleware();
     $request = new ServerRequest(
         'POST',
-        '/api/sessions/123/files',
+        '/api/v1/sessions/123/files',
         ['Content-Type' => 'multipart/form-data; boundary=----FormBoundary'],
         'some multipart data',
     );
@@ -57,7 +58,7 @@ test('rejects POST with unsupported content type', function () {
     $middleware = new ContentTypeMiddleware();
     $request = new ServerRequest(
         'POST',
-        '/api/sessions/123/messages',
+        '/api/v1/sessions/123/messages',
         ['Content-Type' => 'text/xml'],
         '<xml>data</xml>',
     );
@@ -71,7 +72,7 @@ test('rejects POST with unsupported content type', function () {
 
 test('allows POST with empty body and no content type', function () {
     $middleware = new ContentTypeMiddleware();
-    $request = new ServerRequest('POST', '/api/sessions');
+    $request = new ServerRequest('POST', '/api/v1/sessions');
 
     $response = $middleware($request, fn() => new Response(200, [], 'ok'));
 
@@ -82,7 +83,7 @@ test('allows PUT with application/json', function () {
     $middleware = new ContentTypeMiddleware();
     $request = new ServerRequest(
         'PUT',
-        '/api/resource',
+        '/api/v1/resource',
         ['Content-Type' => 'application/json'],
         '{}',
     );
@@ -96,7 +97,7 @@ test('allows PATCH with application/vnd.api+json', function () {
     $middleware = new ContentTypeMiddleware();
     $request = new ServerRequest(
         'PATCH',
-        '/api/resource',
+        '/api/v1/resource',
         ['Content-Type' => 'application/vnd.api+json'],
         '{}',
     );
