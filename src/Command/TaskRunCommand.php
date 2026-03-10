@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
 use CoquiBot\Coqui\Api\DatabasePendingInputProvider;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
@@ -88,6 +89,13 @@ final class TaskRunCommand extends Command
         if ($task['status'] !== 'pending' && $task['status'] !== 'running') {
             $output->writeln(sprintf('<error>Task %s is in status "%s" — cannot execute</error>', $taskId, $task['status']));
             return Command::FAILURE;
+        }
+
+        // Branch: tool tasks use direct execution, agent tasks use the full agent loop
+        $toolName = $task['tool_name'] ?? null;
+
+        if (is_string($toolName) && $toolName !== '') {
+            return $this->executeToolTask($taskId, $task, $boot, $storage, $workDir, $unsafeMode, $output);
         }
 
         $sessionId = $task['session_id'];
@@ -198,6 +206,129 @@ final class TaskRunCommand extends Command
             ]);
             $storage->appendTaskEvent($taskId, 'failed', [
                 'error' => $e->getMessage(),
+            ]);
+
+            return Command::FAILURE;
+        }
+    }
+
+    /**
+     * Execute a background tool task — direct tool execution, no LLM.
+     *
+     * @param array<string, mixed> $task
+     */
+    private function executeToolTask(
+        string $taskId,
+        array $task,
+        BootManager $boot,
+        SessionStorage $storage,
+        string $workDir,
+        bool $unsafeMode,
+        OutputInterface $output,
+    ): int {
+        $toolName = (string) $task['tool_name'];
+        $argumentsJson = (string) ($task['tool_arguments'] ?? '{}');
+
+        $arguments = json_decode($argumentsJson, true);
+        if (!is_array($arguments)) {
+            $storage->updateTaskStatus($taskId, 'failed', [
+                'error' => 'Invalid tool_arguments JSON in task record',
+            ]);
+            $storage->appendTaskEvent($taskId, 'failed', [
+                'error' => 'Invalid tool_arguments JSON',
+            ]);
+
+            return Command::FAILURE;
+        }
+
+        // Update status to running
+        $storage->updateTaskStatus($taskId, 'running', ['pid' => getmypid()]);
+
+        // Set up cancellation token + SIGTERM handler
+        $cancellationToken = new ProcessCancellationToken();
+
+        if (function_exists('pcntl_signal')) {
+            pcntl_signal(SIGTERM, function () use ($cancellationToken): void {
+                $cancellationToken->cancel();
+            });
+        }
+
+        if (function_exists('pcntl_async_signals')) {
+            pcntl_async_signals(true);
+        }
+
+        $storage->appendTaskEvent($taskId, 'tool_start', [
+            'tool_name' => $toolName,
+            'arguments' => $arguments,
+        ]);
+
+        $startTime = hrtime(true);
+
+        try {
+            // Check cancellation before execution
+            if ($cancellationToken->isCancelled()) {
+                $storage->updateTaskStatus($taskId, 'cancelled');
+                $storage->appendTaskEvent($taskId, 'cancelled', [
+                    'message' => 'Cancelled before tool execution started',
+                ]);
+
+                return 2;
+            }
+
+            $executor = new BackgroundToolExecutor(
+                boot: $boot,
+                projectRoot: $workDir,
+                unsafeMode: $unsafeMode,
+            );
+
+            $toolResult = $executor->execute($toolName, $arguments);
+            $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
+
+            // Check cancellation after execution (token is set by SIGTERM signal handler)
+            if ($cancellationToken->isCancelled()) { // @phpstan-ignore if.alwaysFalse
+                $storage->updateTaskStatus($taskId, 'cancelled', [
+                    'result' => $toolResult->content,
+                ]);
+                $storage->appendTaskEvent($taskId, 'cancelled', [
+                    'message' => 'Cancelled via SIGTERM',
+                    'duration_ms' => $durationMs,
+                ]);
+
+                return 2;
+            }
+
+            if ($toolResult->status === \CarmeloSantana\PHPAgents\Enum\ToolResultStatus::Error) {
+                $storage->updateTaskStatus($taskId, 'failed', [
+                    'error' => $toolResult->content,
+                ]);
+                $storage->appendTaskEvent($taskId, 'tool_error', [
+                    'tool_name' => $toolName,
+                    'error' => mb_substr($toolResult->content, 0, 2000),
+                    'duration_ms' => $durationMs,
+                ]);
+
+                return Command::FAILURE;
+            }
+
+            $storage->updateTaskStatus($taskId, 'completed', [
+                'result' => $toolResult->content,
+            ]);
+            $storage->appendTaskEvent($taskId, 'tool_result', [
+                'tool_name' => $toolName,
+                'duration_ms' => $durationMs,
+                'result_length' => mb_strlen($toolResult->content),
+            ]);
+
+            return Command::SUCCESS;
+        } catch (\Throwable $e) {
+            $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
+            $storage->updateTaskStatus($taskId, 'failed', [
+                'error' => $e->getMessage(),
+            ]);
+            $storage->appendTaskEvent($taskId, 'tool_error', [
+                'tool_name' => $toolName,
+                'error' => $e->getMessage(),
+                'duration_ms' => $durationMs,
             ]);
 
             return Command::FAILURE;

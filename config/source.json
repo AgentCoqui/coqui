@@ -50,6 +50,16 @@
             ]
         },
         {
+            "path": "src/Agent/BackgroundToolExecutor.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\BackgroundToolExecutor",
+            "layer": "agent",
+            "description": "Lightweight tool resolver and executor for background tool tasks. Builds the same toolkits as OrchestratorAgent (filesystem, shell, memory, project source, PHP execute, discovered packages) but without creating an agent or involving an LLM. Finds a tool by name from the collected toolkit tools and calls execute() directly. Used by TaskRunCommand when a task record has tool_name set.",
+            "methods": [
+                "execute(string $toolName, array $arguments): ToolResult — resolve tool and call execute() directly",
+                "hasTool(string $toolName): bool — check if a tool exists in the index"
+            ]
+        },
+        {
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
@@ -951,9 +961,10 @@
             "path": "src/Command/TaskRunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\TaskRunCommand",
             "layer": "command",
-            "description": "Hidden Symfony Console command that executes a single background task in a child process. Boots the full agent stack, reads role and max_iterations from the task record, registers SIGTERM handler, runs the agent with role-resolved model and iteration limit, and updates task status on completion.",
+            "description": "Hidden Symfony Console command that executes a single background task in a child process. Boots the full agent stack, reads role and max_iterations from the task record, registers SIGTERM handler. Branches on tool_name presence: agent tasks use AgentRunner, tool tasks use BackgroundToolExecutor for direct execution without LLM. Updates task status on completion.",
             "methods": [
-                "execute(input, output): int — run task by ID with role/maxIterations from DB, exit 0=completed, 1=failed, 2=cancelled"
+                "execute(input, output): int — run task by ID with role/maxIterations from DB, exit 0=completed, 1=failed, 2=cancelled",
+                "executeToolTask(taskId, task, boot, storage, workDir, unsafeMode, output): int — direct tool execution path for background tool tasks"
             ]
         },
         {
@@ -969,9 +980,9 @@
             "path": "src/Toolkit/BackgroundTaskToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\BackgroundTaskToolkit",
             "layer": "toolkit",
-            "description": "LLM-facing toolkit providing 4 tools for managing background tasks: start_background_task, task_status, list_tasks, cancel_task. Available in both API and REPL modes. In REPL mode tasks are queued in SQLite for the API server to execute. Cancel for running tasks uses transient 'cancelling' status. task_status caps result/error at 2000 chars.",
+            "description": "LLM-facing toolkit providing 5 tools for managing background tasks and tools: start_background_task, start_background_tool, task_status, list_tasks, cancel_task. start_background_tool runs a specific tool directly (no LLM) with provided arguments. Available in both API and REPL modes. In REPL mode tasks are queued in SQLite for the API server to execute. Cancel for running tasks uses transient 'cancelling' status. task_status caps result/error at 2000 chars.",
             "methods": [
-                "tools(): ToolInterface[] — returns 4 background task tools",
+                "tools(): ToolInterface[] — returns 5 background task/tool tools",
                 "guidelines(): string — usage guidelines for the LLM"
             ]
         }
