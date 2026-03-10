@@ -276,7 +276,7 @@
             "path": "src/Config/WorkspaceResolver.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\WorkspaceResolver",
             "layer": "config",
-            "description": "Resolves the workspace directory from openclaw.json config. Supports relative paths (resolved against project root), absolute paths, and ~ expansion. Default: .workspace. Creates directory and .gitkeep if missing.",
+            "description": "Resolves the workspace directory from openclaw.json config. Supports relative paths (resolved against project root), absolute paths, and ~ expansion. Default: ~/.coqui/workspace. Creates directory and .gitkeep if missing.",
             "methods": [
                 "resolve(): string — returns the absolute workspace path"
             ]

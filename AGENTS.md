@@ -636,9 +636,9 @@ The setup wizard (`SetupWizard`) includes a step to configure these preferences,
 
 ### Workspace Composer Isolation
 
-The workspace directory (default `~/.workspace`) contains its own `composer.json` managed by the bot. This separates bot-installed dependencies from the host project:
+The workspace directory (default `~/.coqui/workspace`) contains its own `composer.json` managed by the bot. This separates bot-installed dependencies from the host project:
 
-- **Default location:** `~/.workspace` in the user's home directory. This prevents session sprawl when running Coqui from different directories.
+- **Default location:** `~/.coqui/workspace` in the user's home directory. This prevents session sprawl when running Coqui from different directories.
 - **Dev mode detection:** If a `.workspace/` directory already exists in the current working directory (project root), it is used instead — preserving developer workflows where the workspace lives alongside the project.
 - **Custom paths:** Users can set any path via `agents.defaults.workspace` in `openclaw.json` (supports `~`, relative, and absolute paths).
 - `WorkspaceComposerManager` initializes the workspace Composer project on boot.
@@ -933,7 +933,7 @@ Copy `.env.example` to `.env` before running. Key variables:
 | `COQUI_WEBGRIND_PORT` | `3390` | Webgrind port (dev overlay) |
 | `COQUI_AUTO_APPROVE` | `false` | Env-var equivalent of `--auto-approve` |
 | `COQUI_UNSAFE` | `false` | Env-var equivalent of `--unsafe` |
-| `COQUI_NO_AUTH` | `false` | Env-var equivalent of `--no-auth` |
+| `COQUI_NO_AUTH` | `false` | Deprecated — localhost access is unauthenticated by default |
 
 ### Xdebug Profiling Workflow
 
