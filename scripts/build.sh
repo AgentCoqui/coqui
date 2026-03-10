@@ -179,28 +179,6 @@ step "Installing production dependencies"
     info "Main dependencies installed"
 )
 
-# ─── Dashboard Composer install ───────────────────────────────────────────────
-
-step "Installing dashboard dependencies"
-
-if [[ -f "${STAGE_DIR}/public/composer.json" ]]; then
-    (
-        cd "${STAGE_DIR}/public"
-        rm -f composer.lock
-        composer install \
-            --no-dev \
-            --classmap-authoritative \
-            --prefer-dist \
-            --no-interaction \
-            --no-progress \
-            --no-scripts \
-            --optimize-autoloader
-    )
-    info "Dashboard dependencies installed"
-else
-    warn "No public/composer.json found — skipping"
-fi
-
 # ─── Strip vendor bloat ──────────────────────────────────────────────────────
 
 step "Stripping vendor bloat"
@@ -237,13 +215,6 @@ step "Stripping vendor bloat"
     # Remove doc directories from vendor
     find vendor/ -type d -name 'docs' -exec rm -rf {} + 2>/dev/null || true
     find vendor/ -type d -name 'doc' -exec rm -rf {} + 2>/dev/null || true
-
-    # Strip dashboard vendor too
-    if [[ -d "public/vendor" ]]; then
-        find public/vendor/ -type d -name '.git' -exec rm -rf {} + 2>/dev/null || true
-        find public/vendor/ -type d \( -name 'tests' -o -name 'Tests' -o -name 'test' \) -exec rm -rf {} + 2>/dev/null || true
-        find public/vendor/ -type f \( -name '.gitignore' -o -name '.gitattributes' -o -name 'phpunit.xml*' -o -name 'phpstan.neon*' \) -delete 2>/dev/null || true
-    fi
 
     # Remove leftover empty directories
     find vendor/ -type d -empty -delete 2>/dev/null || true

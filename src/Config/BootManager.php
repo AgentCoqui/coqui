@@ -24,6 +24,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 final class BootManager
 {
     private OpenClawConfig $config;
+    private string $configPath = '';
     private string $workspacePath;
     private CredentialResolver $credentialResolver;
     private ToolkitDiscovery $discovery;
@@ -69,6 +70,14 @@ final class BootManager
     public function config(): OpenClawConfig
     {
         return $this->config;
+    }
+
+    /**
+     * Resolved absolute path to the active openclaw.json (empty if using defaults).
+     */
+    public function configPath(): string
+    {
+        return $this->configPath;
     }
 
     public function workspacePath(): string
@@ -127,16 +136,22 @@ final class BootManager
     }
 
     /**
-     * Reload config after setup wizard — updates resolver and workspace.
+     * Reload config from disk — updates resolver, workspace, blacklist, and mounts.
+     *
+     * Called after the setup wizard and when external config changes are detected.
+     * Rebuilds all config-derived state so the next agent turn uses fresh values.
      */
     public function reloadConfig(string $configPath): void
     {
         $this->config = OpenClawConfig::fromFile($configPath);
+        $this->blacklist = CatastrophicBlacklist::fromConfig($this->config);
         $this->roleDiscovery->invalidateCache();
         $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
 
         $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir);
         $this->workspacePath = $workspaceResolver->resolve();
+
+        $this->initializeMounts();
     }
 
     private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
@@ -148,6 +163,7 @@ final class BootManager
         }
 
         if (file_exists($configPath)) {
+            $this->configPath = realpath($configPath) ?: $configPath;
             $this->config = OpenClawConfig::fromFile($configPath);
             return;
         }
@@ -167,6 +183,7 @@ final class BootManager
                 $saved = $wizard->runAndSave($outputPath);
 
                 if ($saved && file_exists($outputPath)) {
+                    $this->configPath = realpath($outputPath) ?: $outputPath;
                     $this->config = OpenClawConfig::fromFile($outputPath);
                     return;
                 }
