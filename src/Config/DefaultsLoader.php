@@ -175,6 +175,6 @@ final readonly class DefaultsLoader
      */
     public function defaultWorkspace(): string
     {
-        return $this->data['defaults']['workspace'] ?? '~/.workspace';
+        return $this->data['defaults']['workspace'] ?? '~/.coqui/workspace';
     }
 }

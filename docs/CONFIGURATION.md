@@ -78,7 +78,7 @@ The simplest valid config only needs a primary model:
                 "reviewer": "openai/gpt-4.1",
                 "vision": "gemini/gemini-2.5-flash"
             },
-            "workspace": "~/.workspace",
+            "workspace": "~/.coqui/workspace",
             "maxIterations": 25,
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
             "blacklist": ["/pattern-to-block/i"],
@@ -166,13 +166,13 @@ The sandboxed directory where Coqui reads and writes files. Supports `~` (home d
 
 | Value | Behavior |
 |-------|----------|
-| `~/.workspace` | Default — uses a shared workspace in your home directory |
+| `~/.coqui/workspace` | Default — uses a shared workspace in your home directory |
 | `.workspace` | Project-local workspace (dev mode) |
 | `/path/to/workspace` | Absolute path to any directory |
 
 **Default behavior** (when not set):
 1. If `.workspace/` exists in the current directory, use it (dev mode)
-2. Otherwise, use `~/.workspace` in your home directory
+2. Otherwise, use `~/.coqui/workspace` in your home directory
 
 This prevents session sprawl across directories while supporting developer workflows where the workspace lives alongside the project.
 
@@ -344,7 +344,7 @@ Settings for the HTTP API server (`coqui api`).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `api.key` | string | — | API authentication key (required unless `--no-auth`) |
+| `api.key` | string | — | API authentication key (required for network-bound hosts) |
 | `api.tasks.maxConcurrent` | int | `1` | Maximum concurrent background tasks |
 
 ## Environment Variable Overrides

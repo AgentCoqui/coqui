@@ -35,7 +35,7 @@ COQUI_BIN="${SCRIPT_DIR}/coqui"
 readonly RESTART_EXIT_CODE=10
 readonly MAX_CRASHES=3
 readonly API_DEFAULT_PORT=3300
-readonly PID_DIR="${PROJECT_DIR}/.workspace/pids"
+readonly PID_DIR="${PROJECT_DIR}/workspace/pids"
 
 # ─── Parse arguments ─────────────────────────────────────────────────────────
 
@@ -69,6 +69,7 @@ while [[ $# -gt 0 ]]; do
         --unsafe)
             coqui_args+=("--unsafe"); api_args+=("--unsafe"); shift ;;
         --no-auth)
+            log "NOTE: --no-auth is deprecated. Localhost access is unauthenticated by default."
             api_args+=("--no-auth"); shift ;;
         --config|-c)
             coqui_args+=("--config" "$2"); api_args+=("--config" "$2"); shift 2 ;;
