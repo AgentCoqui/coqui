@@ -54,9 +54,6 @@ final class RunCommand extends Command
     private bool $unsafeMode = false;
     private bool $autoApprove = false;
     private bool $restartRequested = false;
-    private ?\SplObserver $observer = null;
-    private string $configPath = '';
-    private int $configMtime = 0;
 
     protected function configure(): void
     {
@@ -91,12 +88,6 @@ final class RunCommand extends Command
         $this->boot = new BootManager($this->workDir);
         $this->boot->boot($noTerminal ? null : $io, $configPath);
 
-        // Track config file path and mtime for hot-reload detection
-        $this->configPath = $this->boot->configPath();
-        $this->configMtime = ($this->configPath !== '' && file_exists($this->configPath))
-            ? (int) filemtime($this->configPath)
-            : 0;
-
         // Handle --update: apply updates and restart
         if ((bool) $input->getOption('update')) {
             $updateResult = $this->runUpdate($io);
@@ -121,10 +112,27 @@ final class RunCommand extends Command
         }
 
         // Choose observer for terminal mode
-        $this->observer = new TerminalObserver($output);
+        $observer = new TerminalObserver($output);
 
         // Initialize agent runner
-        $this->agentRunner = $this->buildAgentRunner();
+        $this->agentRunner = new AgentRunner(
+            roleResolver: $this->boot->roleResolver(),
+            config: $this->boot->config(),
+            projectRoot: $this->workDir,
+            workspacePath: $this->boot->workspacePath(),
+            storage: $this->storage,
+            observer: $observer,
+            discovery: $this->boot->discovery(),
+            blacklist: $this->boot->blacklist(),
+            credentialResolver: $this->boot->credentialResolver(),
+            skillDiscovery: $this->boot->skillDiscovery(),
+            roleDiscovery: $this->boot->roleDiscovery(),
+            unsafeMode: $this->unsafeMode,
+            backgroundTasksEnabled: true,
+            memoryStore: $this->boot->memoryStore(),
+            memorySummarizer: $this->boot->memorySummarizer(),
+            mountManager: $this->boot->mountManager(),
+        );
 
         // Handle session
         if ($input->getOption('new')) {
@@ -199,9 +207,6 @@ final class RunCommand extends Command
                 });
             }
 
-            // Detect external config changes before showing the prompt
-            $this->reloadConfigIfChanged($io);
-
             $io->writeln('');
             $io->writeln(' <fg=cyan>You:</>');
             $line = readline(' > ');
@@ -230,9 +235,6 @@ final class RunCommand extends Command
 
             // Build execution policy for this turn
             $executionPolicy = $this->buildInteractiveExecutionPolicy($this->sessionId, $io);
-
-            // Catch config changes made while the user was typing
-            $this->reloadConfigIfChanged($io);
 
             // During agent execution: restore default SIGINT so Ctrl+C kills
             // the process immediately (exit 130). This is the only way to
@@ -661,9 +663,7 @@ final class RunCommand extends Command
 
         if ($saved && file_exists($outputPath)) {
             $this->boot->reloadConfig($outputPath);
-            $this->agentRunner = $this->buildAgentRunner();
-            $this->configMtime = (int) filemtime($outputPath);
-            $io->success('Configuration reloaded. Changes are active now.');
+            $io->success('Configuration reloaded. Changes take effect on the next agent run.');
         }
     }
 
@@ -837,61 +837,6 @@ final class RunCommand extends Command
             sessionId: $sessionId,
             turnId: $turnId,
         );
-    }
-
-    /**
-     * Build a fresh AgentRunner from the current BootManager state.
-     *
-     * Called at startup and after config reloads to ensure the runner
-     * always uses the latest config, role resolver, and safety settings.
-     */
-    private function buildAgentRunner(?\SplObserver $observerOverride = null): AgentRunner
-    {
-        return new AgentRunner(
-            roleResolver: $this->boot->roleResolver(),
-            config: $this->boot->config(),
-            projectRoot: $this->workDir,
-            workspacePath: $this->boot->workspacePath(),
-            storage: $this->storage,
-            observer: $observerOverride ?? $this->observer,
-            discovery: $this->boot->discovery(),
-            blacklist: $this->boot->blacklist(),
-            credentialResolver: $this->boot->credentialResolver(),
-            skillDiscovery: $this->boot->skillDiscovery(),
-            roleDiscovery: $this->boot->roleDiscovery(),
-            unsafeMode: $this->unsafeMode,
-            backgroundTasksEnabled: true,
-            memoryStore: $this->boot->memoryStore(),
-            memorySummarizer: $this->boot->memorySummarizer(),
-            mountManager: $this->boot->mountManager(),
-        );
-    }
-
-    /**
-     * Detect external config file changes and hot-reload if needed.
-     *
-     * Checks the openclaw.json mtime before each agent turn. If the file
-     * was modified (by the dashboard, manual edit, or another process),
-     * automatically reloads the config and rebuilds the AgentRunner.
-     */
-    private function reloadConfigIfChanged(SymfonyStyle $io): void
-    {
-        if ($this->configPath === '' || !file_exists($this->configPath)) {
-            return;
-        }
-
-        clearstatcache(true, $this->configPath);
-        $currentMtime = (int) filemtime($this->configPath);
-
-        if ($currentMtime === $this->configMtime) {
-            return;
-        }
-
-        $this->boot->reloadConfig($this->configPath);
-        $this->agentRunner = $this->buildAgentRunner();
-        $this->configMtime = $currentMtime;
-
-        $io->text('<fg=yellow>Config changes detected — reloaded automatically.</>');
     }
 
     /**

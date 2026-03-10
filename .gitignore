@@ -1,5 +1,4 @@
 vendor/
-!public/vendor/
 .env
 *.cache
 .phpunit.result.cache
@@ -14,6 +13,5 @@ docs/REFACTOR*
 docs/TODO*
 BUILD/
 downloads/
-public/vendor
 .claude
 .DS_Store

@@ -831,10 +831,9 @@ Coqui ships with Docker support for development, testing, and isolated execution
 | `Dockerfile` | PHP 8.4 CLI + all extensions + Composer. Xdebug and pcov are installed but disabled by default (enabled via compose overlays). |
 | `compose.yaml` | Base service: bind-mounts source, named volume for `.workspace/`, passes API keys from host, connects to host Ollama via `host.docker.internal`. |
 | `compose.api.yaml` | Defines a separate `coqui-api` service for the HTTP API server on port 3300. Runs alongside the REPL without overriding it. |
-| `compose.dashboard.yaml` | Defines a `dashboard` service serving the Dashboard SPA on port 3380. Read-only access to the workspace volume. |
 | `compose.dev.yaml` | Developer overlay: enables Xdebug (debug + profile), mounts workspace parent for Composer path repo resolution, adds Webgrind on port 3390. |
 | `compose.test.yaml` | Test overlay: non-interactive, enables pcov for coverage, disables OPcache. |
-| `Makefile` | Self-documenting targets. Native targets use bare names (`start`, `api`, `dashboard`), Docker targets use `docker-*` prefix. |
+| `Makefile` | Self-documenting targets. Native targets use bare names (`start`, `api`), Docker targets use `docker-*` prefix. |
 | `conf.d/coqui.ini` | CLI-optimized PHP config: 512M memory, OPcache + JIT enabled, errors to stderr. |
 | `conf.d/xdebug.ini` | Xdebug config: trigger-based activation, profiler output to `/tmp/xdebug`, IDE key `COQUI`. |
 | `conf.d/test.ini` | Test config: pcov enabled, OPcache disabled, 1G memory. |
@@ -843,13 +842,13 @@ Coqui ships with Docker support for development, testing, and isolated execution
 ### Key Design Decisions
 
 - **CLI base image**: `php:8.4-cli` keeps the image ~300MB smaller than Apache/FPM variants. Coqui has no HTTP server.
-- **`docker compose run` over `up`**: The REPL requires interactive TTY. Use `run --rm` for sessions. Background services (API, Dashboard, Webgrind) use `up -d` separately.
+- **`docker compose run` over `up`**: The REPL requires interactive TTY. Use `run --rm` for sessions. Background services (API, Webgrind) use `up -d` separately.
 - **Separate `coqui-api` service**: The API runs as its own service in `compose.api.yaml` rather than overriding the REPL's `coqui` service. This allows running REPL (interactive) and API (daemon) simultaneously from the same compose project.
 - **Host Ollama**: Users connect to `host.docker.internal:11434`. Avoids GPU passthrough complexity and duplicate model storage.
 - **Workspace root mount in dev**: `compose.dev.yaml` mounts the entire parent directory (`..`) as `/workspace` so Composer path repositories resolve identically to the host.
 - **Xdebug + pcov installed but disabled**: Both built into the image at build time but only activated via ini file mounts in their respective overlays. Zero runtime overhead in base mode.
 - **Named volume for `.workspace/`**: Session databases, bot-installed packages, and workspace state persist across `docker compose run` invocations. The Dockerfile pre-creates the directory with correct ownership so named volumes inherit the `coqui` user permissions.
-- **Port convention**: API=3300, Dashboard=3380, Webgrind=3390. All in the 33xx range to avoid conflicts with common services on 8080/3000.
+- **Port convention**: API=3300, Webgrind=3390. All in the 33xx range to avoid conflicts with common services on 8080/3000.
 
 ### Running in Docker
 
@@ -865,12 +864,6 @@ make docker-repl
 
 # API only (daemon)
 make docker-api
-
-# Dashboard (daemon)
-make docker-dashboard        # http://localhost:3380
-
-# Everything
-make docker-all              # REPL + API + Dashboard
 
 # Dev mode (Xdebug + Webgrind)
 make docker-dev              # http://localhost:3390 for Webgrind
@@ -904,7 +897,6 @@ Copy `.env.example` to `.env` before running. Key variables:
 | `OLLAMA_HOST` | `http://host.docker.internal:11434` | Ollama endpoint |
 | `COQUI_API_HOST` | `127.0.0.1` | API bind address (`0.0.0.0` for network access) |
 | `COQUI_API_PORT` | `3300` | API server port |
-| `COQUI_DASHBOARD_PORT` | `3380` | Dashboard port |
 | `COQUI_WEBGRIND_PORT` | `3390` | Webgrind port (dev overlay) |
 | `COQUI_AUTO_APPROVE` | `false` | Env-var equivalent of `--auto-approve` |
 | `COQUI_UNSAFE` | `false` | Env-var equivalent of `--unsafe` |
@@ -915,76 +907,6 @@ Copy `.env.example` to `.env` before running. Key variables:
 1. Start Webgrind: `make docker-dev` (starts Webgrind in background)
 2. Open Webgrind at `http://localhost:3390`
 3. After profiling, clear output: `make xdebug-clear`
-
-## Dashboard
-
-The Coqui Dashboard is a standalone SPA in `public/` with its own `composer.json`. It provides a web interface for monitoring sessions, tokens, audit logs, files, documentation, and preferences.
-
-### Technology Constraints
-
-- **No build step.** No Node.js, webpack, Vite, or any JS bundler.
-- **No large JS frameworks.** Alpine.js 3.x is the reactive layer. No React, Vue, Angular.
-- **All assets vendored locally.** Every external library lives in `public/vendor/` and is committed to git. Zero CDN dependencies at runtime.
-- **PHP 8.4 backend.** Uses `bramus/router` for API dispatch. No Symfony/Laravel.
-- **SQLite read-only.** The dashboard reads the Coqui session database but never writes to it. Only workspace files and `.env` are writable.
-
-### Key Architecture Decisions
-
-| Decision | Rationale |
-|----------|-----------|
-| Alpine.js `x-data` stores per view | Keeps state isolated, enables lazy loading |
-| CodeMirror 5 (synchronous) | Lightweight editor, `createCodeMirrorEditor()` returns directly — no async loading |
-| `x-effect` lazy loading | Views only call `load()` when navigated to, reducing initial API calls |
-| `coquiPrefs` localStorage manager | Preferences persist without backend, applied before first paint |
-| Toast notifications via `showToast()` | Non-blocking save feedback, auto-dismiss after 2.5s |
-| CSS custom properties for theming | Dark/light theme via `[data-theme]` selector without reloading |
-
-### Frontend Files
-
-| File | Purpose |
-|------|---------|
-| `public/index.html` | SPA shell — all views, sidebar, status bar |
-| `public/js/app.js` | API client, format helpers, all Alpine `data()` stores |
-| `public/js/charts.js` | Chart.js rendering for token/tool usage |
-| `public/js/editor.js` | CodeMirror editor factory + language mode mapping |
-| `public/js/preferences.js` | `coquiPrefs` — font size, color scheme, wallpaper, stats.js FPS |
-| `public/js/session.js` | Session detail view helpers |
-| `public/css/theme.css` | shadcn-inspired theme with dark + light mode |
-
-### Backend Controllers
-
-| Controller | Routes | Purpose |
-|-----------|--------|---------|
-| `ApiController` | `/api/stats`, `/api/sessions/*`, `/api/audit`, `/api/tokens`, `/api/tools`, `/api/models` | Read-only session/stats queries |
-| `ConfigController` | `/api/config`, `/api/env`, `/api/credentials` | Config and credential management |
-| `FileController` | `/api/files/*` | Workspace file browse/read/write (sandboxed) |
-| `DocsController` | `/api/docs`, `/api/docs/{name}` | Serve markdown docs from `docs/` |
-| `WallpaperController` | `/api/wallpapers` | Wallpaper image upload/serve/delete |
-
-### Adding a New View
-
-1. Create an `Alpine.data('myView', ...)` store in `app.js` with a `_loaded` flag
-2. Add the view HTML in `index.html` with `x-show="currentView === 'myview'"` and `x-effect="if (currentView === 'myview' && !_loaded) load()"`
-3. Add a sidebar nav button in `index.html`
-4. Add `'myview'` to the `viewTitle` map in the `app` store
-5. If the view needs a backend endpoint, create a controller in `public/src/Controller/` and register routes in `router.php`
-
-### Updating Vendored Libraries
-
-```bash
-# Small libraries (direct download)
-curl -sL "https://cdn.jsdelivr.net/npm/PACKAGE@VERSION/dist/FILE" -o public/vendor/DIR/FILE
-
-# CodeMirror 5 (download zip + extract what you need)
-curl -sL "https://codemirror.net/5/codemirror.zip" -o /tmp/codemirror5.zip
-unzip /tmp/codemirror5.zip -d /tmp/codemirror5
-cp -r /tmp/codemirror5/codemirror-VERSION/lib public/vendor/codemirror5/
-cp -r /tmp/codemirror5/codemirror-VERSION/mode public/vendor/codemirror5/
-cp -r /tmp/codemirror5/codemirror-VERSION/theme public/vendor/codemirror5/
-cp -r /tmp/codemirror5/codemirror-VERSION/addon public/vendor/codemirror5/
-```
-
-Detailed API documentation is in `public/DASHBOARD.md`.
 
 ## Documentation Policy
 

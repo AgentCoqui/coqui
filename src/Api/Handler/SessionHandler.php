@@ -14,11 +14,12 @@ use React\Http\Message\Response;
 /**
  * Session CRUD endpoints.
  *
- * GET    /api/sessions          — list sessions
- * POST   /api/sessions          — create session
- * GET    /api/sessions/{id}     — get session detail
- * PATCH  /api/sessions/{id}     — update session (title)
- * DELETE /api/sessions/{id}     — delete session
+ * GET    /api/sessions                    — list sessions
+ * POST   /api/sessions                    — create session
+ * GET    /api/sessions/{id}               — get session detail
+ * PATCH  /api/sessions/{id}               — update session (title)
+ * DELETE /api/sessions/{id}               — delete session
+ * GET    /api/sessions/{id}/child-runs    — list child agent runs
  */
 final readonly class SessionHandler
 {
@@ -129,5 +130,25 @@ final readonly class SessionHandler
         $this->storage->deleteSession($id);
 
         return Router::jsonResponse(['deleted' => true, 'id' => $id]);
+    }
+
+    /**
+     * GET /api/sessions/{id}/child-runs
+     */
+    public function childRuns(ServerRequestInterface $request, string $id): Response
+    {
+        $session = $this->storage->getSession($id);
+
+        if ($session === null) {
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        }
+
+        $runs = $this->storage->getChildRuns($id);
+
+        return Router::jsonResponse([
+            'session_id' => $id,
+            'child_runs' => $runs,
+            'count' => count($runs),
+        ]);
     }
 }

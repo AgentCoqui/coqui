@@ -104,19 +104,6 @@ jobs:
             --no-scripts \
             --optimize-autoloader
 
-      - name: Install dashboard dependencies
-        working-directory: BUILD/coqui/public
-        run: |
-          rm -f composer.lock
-          composer install \
-            --no-dev \
-            --classmap-authoritative \
-            --prefer-dist \
-            --no-interaction \
-            --no-progress \
-            --no-scripts \
-            --optimize-autoloader
-
       - name: Strip vendor bloat
         working-directory: BUILD/coqui
         run: |
@@ -150,13 +137,6 @@ jobs:
 
           # Doc directories
           find vendor/ -type d \( -name 'docs' -o -name 'doc' \) -exec rm -rf {} + 2>/dev/null || true
-
-          # Dashboard vendor
-          if [[ -d "public/vendor" ]]; then
-            find public/vendor/ -type d -name '.git' -exec rm -rf {} + 2>/dev/null || true
-            find public/vendor/ -type d \( -name 'tests' -o -name 'Tests' -o -name 'test' \) -exec rm -rf {} + 2>/dev/null || true
-            find public/vendor/ -type f \( -name '.gitignore' -o -name '.gitattributes' -o -name 'phpunit.xml*' -o -name 'phpstan.neon*' \) -delete 2>/dev/null || true
-          fi
 
           # Empty dirs
           find vendor/ -type d -empty -delete 2>/dev/null || true

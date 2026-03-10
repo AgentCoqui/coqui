@@ -306,6 +306,56 @@ Get session details.
 }
 ```
 
+#### `PATCH /api/sessions/{id}`
+
+Update session metadata. Currently supports renaming the session title.
+
+**Request Body**
+
+```json
+{
+  "title": "My refactoring session"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `title` | string | No | New session title (cannot be empty) |
+
+**Response `200`**
+
+Returns the updated session object:
+
+```json
+{
+  "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "model_role": "orchestrator",
+  "model": "openai/gpt-5",
+  "title": "My refactoring session",
+  "created_at": "2026-02-16T14:30:00+00:00",
+  "updated_at": "2026-02-16T15:45:12+00:00",
+  "token_count": 12450
+}
+```
+
+**Response `400`** — empty title:
+
+```json
+{
+  "error": "Title cannot be empty",
+  "code": "missing_field"
+}
+```
+
+**Response `404`**
+
+```json
+{
+  "error": "Session not found",
+  "code": "session_not_found"
+}
+```
+
 #### `DELETE /api/sessions/{id}`
 
 Delete a session and all its associated data.
@@ -514,6 +564,26 @@ The `prompt` field is limited to **100 KB** (102,400 bytes). Prompts exceeding t
 | `404` | `session_not_found` | Session does not exist |
 | `404` | `not_found` | Referenced file ID not found in this session |
 | `409` | `agent_busy` | Session already has an active agent run |
+
+#### `DELETE /api/sessions/{id}/messages/{messageId}`
+
+Delete a specific message from a session.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "message_id": "m1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6"
+}
+```
+
+**Error Responses**
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| `404` | `session_not_found` | Session does not exist |
+| `404` | `not_found` | Message not found |
 
 ### Files
 
@@ -770,6 +840,48 @@ Returns the full Coqui configuration. API keys in provider configs are masked as
       }
     }
   }
+}
+```
+
+#### `PUT /api/config`
+
+Write the full `openclaw.json` configuration. The body must be valid JSON. The file is pretty-printed before writing. Config changes are auto-detected by the REPL — no restart required.
+
+**Request Body**
+
+The complete `openclaw.json` content:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "openai/gpt-5"
+      },
+      "roles": {
+        "orchestrator": "openai/gpt-5",
+        "coder": "anthropic/claude-sonnet-4-20250514"
+      }
+    }
+  }
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "success": true,
+  "path": "/path/to/openclaw.json"
+}
+```
+
+**Response `400`** — invalid JSON:
+
+```json
+{
+  "error": "Invalid JSON",
+  "details": "Syntax error"
 }
 ```
 
@@ -1046,6 +1158,344 @@ Delete a credential.
 }
 ```
 
+### Child Runs
+
+Child runs track sub-agent invocations within a session. When the orchestrator spawns a child agent (e.g., `coder`, `reviewer`), the run is recorded with its role, model, prompt, result, and token usage.
+
+#### `GET /api/sessions/{id}/child-runs`
+
+List all child agent runs for a session.
+
+**Response `200`**
+
+```json
+{
+  "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "child_runs": [
+    {
+      "id": "cr1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+      "parent_iteration": 3,
+      "agent_role": "coder",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "prompt": "Implement the ServerHandler class...",
+      "result": "I've created the ServerHandler class...",
+      "token_count": 2450,
+      "created_at": "2026-02-16T14:32:15+00:00"
+    }
+  ],
+  "count": 1
+}
+```
+
+**Error Responses**
+
+| Status | Code | Condition |
+|--------|------|-----------|
+| `404` | `session_not_found` | Session does not exist |
+
+### Server
+
+Server endpoints provide runtime status and database-level statistics. These are useful for monitoring and debugging the API server.
+
+#### `GET /api/server/info`
+
+Runtime information including version, uptime, memory usage, and active workload.
+
+**Response `200`**
+
+```json
+{
+  "version": "0.5.0",
+  "php_version": "8.4.2",
+  "uptime_seconds": 3621,
+  "active_sessions": 2,
+  "memory": {
+    "usage_bytes": 52428800,
+    "peak_bytes": 67108864
+  },
+  "tasks": {
+    "active": 1,
+    "pending": 0
+  }
+}
+```
+
+The `tasks` field is only present when the background task manager is enabled.
+
+#### `GET /api/server/stats`
+
+Database-level statistics from SQLite.
+
+**Response `200`**
+
+```json
+{
+  "database": {
+    "sessions": 42,
+    "messages": 1580,
+    "turns": 210,
+    "audit_entries": 890,
+    "db_size_bytes": 2097152
+  },
+  "tables": {
+    "ok": true,
+    "missing": []
+  }
+}
+```
+
+The `tables` field validates that all expected database tables exist. If any are missing, `ok` is `false` and the table names are listed in `missing`.
+
+### Background Tasks
+
+Background tasks run long-running agent work in separate processes. Each task gets its own dedicated session and runs via `bin/coqui task:run`. Tasks are managed by the `BackgroundTaskManager` which handles process lifecycle, concurrency limits, and crash recovery.
+
+For architecture details, see [BACKGROUND-TASKS.md](BACKGROUND-TASKS.md).
+
+#### `POST /api/tasks`
+
+Create a new background task. The task is started immediately if under the concurrency limit, otherwise queued as pending.
+
+**Request Body**
+
+```json
+{
+  "prompt": "Refactor the authentication module",
+  "role": "coder",
+  "title": "Auth refactor",
+  "parent_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "max_iterations": 25
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `prompt` | string | Yes | — | The task prompt (max 100 KB) |
+| `role` | string | No | `"orchestrator"` | Agent role for the task. Must be a known role. |
+| `title` | string | No | `null` | Human-readable title for the task |
+| `parent_session_id` | string | No | `null` | Link the task to a parent session (must exist) |
+| `max_iterations` | int | No | `25` | Maximum agent iterations (1–100) |
+
+**Response `201`**
+
+```json
+{
+  "id": "t1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+  "session_id": "s1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+  "status": "running",
+  "prompt": "Refactor the authentication module",
+  "role": "coder",
+  "title": "Auth refactor",
+  "created_at": "2026-02-16T14:30:00+00:00"
+}
+```
+
+The `status` field is `"running"` if the task started immediately, or `"pending"` if queued due to the concurrency limit.
+
+**Response `400`** — missing prompt:
+
+```json
+{
+  "error": "Missing or empty \"prompt\" field",
+  "code": "missing_field"
+}
+```
+
+**Response `404`** — unknown role:
+
+```json
+{
+  "error": "Unknown role \"nonexistent\". Use GET /api/config/roles to see available roles.",
+  "code": "role_not_found"
+}
+```
+
+#### `GET /api/tasks`
+
+List background tasks, optionally filtered by status.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `status` | string | `null` | Filter by status: `pending`, `running`, `completed`, `failed`, `cancelled` |
+| `limit` | int | `50` | Max tasks to return (capped at 200) |
+
+**Response `200`**
+
+```json
+{
+  "tasks": [
+    {
+      "id": "t1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+      "session_id": "s1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+      "status": "running",
+      "prompt": "Refactor the authentication module",
+      "role": "coder",
+      "title": "Auth refactor",
+      "created_at": "2026-02-16T14:30:00+00:00"
+    }
+  ],
+  "count": 1,
+  "counts": {
+    "pending": 0,
+    "running": 1,
+    "completed": 5,
+    "failed": 0,
+    "cancelled": 1
+  }
+}
+```
+
+#### `GET /api/tasks/{id}`
+
+Get detailed information about a specific task, including live process status.
+
+**Response `200`**
+
+```json
+{
+  "id": "t1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+  "session_id": "s1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+  "status": "running",
+  "prompt": "Refactor the authentication module",
+  "role": "coder",
+  "title": "Auth refactor",
+  "process_alive": true,
+  "created_at": "2026-02-16T14:30:00+00:00",
+  "completed_at": null
+}
+```
+
+The `process_alive` field indicates whether the task's child process is still running.
+
+**Response `404`**
+
+```json
+{
+  "error": "Task not found",
+  "code": "not_found"
+}
+```
+
+#### `GET /api/tasks/{id}/events`
+
+Stream task lifecycle events via Server-Sent Events. The stream uses long-polling (1-second interval) and closes automatically when the task reaches a terminal state (`completed`, `failed`, or `cancelled`).
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `since_id` | int | `null` | Resume from a specific event ID (for fault tolerance) |
+
+**Response `200`** (SSE stream)
+
+```
+event: connected
+data: {"task_id":"t1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6"}
+
+id: 1
+event: iteration
+data: {"number":1}
+
+id: 2
+event: tool_call
+data: {"tool":"read_file","args":{"path":"src/Auth.php"}}
+
+id: 3
+event: tool_result
+data: {"tool":"read_file","success":true}
+
+event: done
+data: {"status":"completed"}
+```
+
+The stream supports resumption — if the client disconnects and reconnects with `?since_id=3`, only events after ID 3 are sent.
+
+**Response `404`**
+
+```json
+{
+  "error": "Task not found",
+  "code": "not_found"
+}
+```
+
+#### `POST /api/tasks/{id}/input`
+
+Inject user input into a running task's conversation. The input is queued and consumed by the task process on its next iteration. Only works for tasks with status `running`.
+
+**Request Body**
+
+```json
+{
+  "content": "Focus on the login handler first"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `content` | string | Yes | The input text to inject (cannot be empty) |
+
+**Response `201`**
+
+```json
+{
+  "id": "i1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+  "task_id": "t1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+  "content": "Focus on the login handler first",
+  "status": "queued"
+}
+```
+
+**Response `409`** — task not running:
+
+```json
+{
+  "error": "Cannot add input to task with status \"completed\" — task must be running",
+  "code": "conflict"
+}
+```
+
+#### `POST /api/tasks/{id}/cancel`
+
+Cancel a running or pending task. Running tasks receive `SIGTERM`; pending tasks are cancelled immediately.
+
+**Response `200`**
+
+```json
+{
+  "id": "t1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+  "status": "cancelling",
+  "message": "Cancellation signal sent"
+}
+```
+
+**Response `409`** — task already in terminal state:
+
+```json
+{
+  "error": "Task already in terminal state \"completed\"",
+  "code": "conflict"
+}
+```
+
+**Concurrency Configuration**
+
+The maximum number of concurrent background tasks is configurable via `openclaw.json`:
+
+```json
+{
+  "api": {
+    "tasks": {
+      "maxConcurrent": 1
+    }
+  }
+}
+```
+
+Tasks exceeding the concurrency limit are queued as `pending` and started automatically when a slot becomes available.
+
 ## Middleware
 
 ### Rate Limiting
@@ -1133,6 +1583,27 @@ The API server enforces the same layered safety model as the terminal REPL:
 
 Each prompt submission runs inside a PHP Fiber. The ReactPHP event loop remains responsive while agent turns execute. Only one agent run per session is allowed at a time — concurrent requests to the same session return `409 Conflict`.
 
+## REPL Command Mapping
+
+Every REPL slash command has an API equivalent, allowing dashboards and client apps to provide the same functionality.
+
+| REPL Command | API Equivalent | Notes |
+|---|---|---|
+| `/new` | `POST /api/sessions` | Creates a new session |
+| `/sessions` | `GET /api/sessions` | Lists all sessions |
+| `/resume <id>` | `POST /api/sessions/{id}/messages` | Send a message to an existing session |
+| `/history` | `GET /api/sessions/{id}/messages` | Lists all messages in a session |
+| `/model` | `GET /api/config/models` | Lists available models and current config |
+| `/config show` | `GET /api/config` | Returns current configuration (sanitized) |
+| `/config edit` | `PUT /api/config` | Writes the full configuration |
+| `/tasks` | `GET /api/tasks` | Lists background tasks |
+| `/task <id>` | `GET /api/tasks/{id}` | Gets task detail |
+| `/task-cancel <id>` | `POST /api/tasks/{id}/cancel` | Cancels a running or pending task |
+| `/restart` | `POST /api/server/restart` | Triggers a graceful server restart |
+| `/update` | `POST /api/server/update` | Checks for and applies dependency updates |
+| `/quit` | — | N/A — the API server is managed by the launcher or process manager |
+| `/help` | `GET /api/server/info` | Returns available commands and server capabilities |
+
 ## Quick Reference
 
 | Method | Endpoint | Auth | Description |
@@ -1141,16 +1612,20 @@ Each prompt submission runs inside a PHP Fiber. The ReactPHP event loop remains 
 | `GET` | `/api/sessions` | Yes | List sessions |
 | `POST` | `/api/sessions` | Yes | Create session |
 | `GET` | `/api/sessions/{id}` | Yes | Get session |
+| `PATCH` | `/api/sessions/{id}` | Yes | Update session (title) |
 | `DELETE` | `/api/sessions/{id}` | Yes | Delete session |
 | `GET` | `/api/sessions/{id}/messages` | Yes | List messages |
 | `POST` | `/api/sessions/{id}/messages` | Yes | Send prompt (SSE stream) |
+| `DELETE` | `/api/sessions/{id}/messages/{messageId}` | Yes | Delete a message |
 | `POST` | `/api/sessions/{id}/files` | Yes | Upload files (multipart) |
 | `GET` | `/api/sessions/{id}/files` | Yes | List uploaded files |
 | `GET` | `/api/sessions/{id}/files/{fileId}` | Yes | Download a file |
 | `DELETE` | `/api/sessions/{id}/files/{fileId}` | Yes | Delete a file |
 | `GET` | `/api/sessions/{id}/turns` | Yes | List turns |
 | `GET` | `/api/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
+| `GET` | `/api/sessions/{id}/child-runs` | Yes | List child agent runs |
 | `GET` | `/api/config` | Yes | Get config (sanitized) |
+| `PUT` | `/api/config` | Yes | Update config (full write) |
 | `GET` | `/api/config/roles` | Yes | List all roles |
 | `GET` | `/api/config/roles/{name}` | Yes | Get role detail |
 | `POST` | `/api/config/roles` | Yes | Create custom role |
@@ -1160,3 +1635,13 @@ Each prompt submission runs inside a PHP Fiber. The ReactPHP event loop remains 
 | `GET` | `/api/credentials` | Yes | List credential keys |
 | `POST` | `/api/credentials` | Yes | Set a credential |
 | `DELETE` | `/api/credentials/{key}` | Yes | Delete a credential |
+| `POST` | `/api/tasks` | Yes | Create background task |
+| `GET` | `/api/tasks` | Yes | List tasks |
+| `GET` | `/api/tasks/{id}` | Yes | Get task detail |
+| `GET` | `/api/tasks/{id}/events` | Yes | Stream task events (SSE) |
+| `POST` | `/api/tasks/{id}/input` | Yes | Inject input into running task |
+| `POST` | `/api/tasks/{id}/cancel` | Yes | Cancel a task |
+| `POST` | `/api/server/restart` | Yes | Trigger graceful restart |
+| `POST` | `/api/server/update` | Yes | Check and apply updates |
+| `GET` | `/api/server/stats` | Yes | Database and server statistics |
+| `GET` | `/api/server/info` | Yes | Server capabilities and commands |
