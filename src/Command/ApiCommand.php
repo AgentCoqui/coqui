@@ -125,7 +125,7 @@ final class ApiCommand extends Command
             return Command::FAILURE;
         }
 
-        if ($apiKey === null && $isLocalhost) {
+        if ($apiKey === null) {
             $output->writeln('<info>No API key configured — running without authentication (localhost only).</info>');
             $output->writeln('');
         } elseif (!$isLocalhost) {
