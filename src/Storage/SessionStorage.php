@@ -174,6 +174,10 @@ final class SessionStorage
             )
         SQL);
 
+        // Migration: add tool columns for background tool execution
+        $this->migrateAddColumn('background_tasks', 'tool_name', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('background_tasks', 'tool_arguments', 'TEXT DEFAULT NULL');
+
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON background_tasks(status)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_session ON background_tasks(session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id)');
@@ -914,13 +918,15 @@ final class SessionStorage
         ?string $parentSessionId = null,
         ?string $title = null,
         int $maxIterations = 25,
+        ?string $toolName = null,
+        ?string $toolArguments = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, max_iterations, created_at)
-            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :max_iterations, :created_at)
+            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, max_iterations, tool_name, tool_arguments, created_at)
+            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :max_iterations, :tool_name, :tool_arguments, :created_at)
         SQL);
 
         $stmt->execute([
@@ -931,6 +937,8 @@ final class SessionStorage
             'prompt' => $prompt,
             'role' => $role,
             'max_iterations' => $maxIterations,
+            'tool_name' => $toolName,
+            'tool_arguments' => $toolArguments,
             'created_at' => $now,
         ]);
 

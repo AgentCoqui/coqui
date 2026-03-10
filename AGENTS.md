@@ -138,6 +138,39 @@ The gating system handles the confirmation UX — your toolkit does not need to 
 
 
 
+## Background Tool Architecture
+
+Coqui supports running individual tools asynchronously in background processes. This builds on the existing background task infrastructure — same database table, same process manager, same monitoring tools — but executes a single tool call directly instead of spawning a full LLM agent.
+
+### How It Works
+
+1. **Agent calls `start_background_tool`** with the tool name, JSON-encoded arguments, and a title.
+2. **`BackgroundTaskToolkit`** validates the parameters, creates a task record in `background_tasks` with `tool_name` and `tool_arguments` columns set, and returns the task ID.
+3. **`BackgroundTaskManager`** picks up the pending task and spawns `bin/coqui task:run <id>` — identical to agent background tasks.
+4. **`TaskRunCommand`** detects that `tool_name` is set in the task record and delegates to **`BackgroundToolExecutor`** instead of `AgentRunner`.
+5. **`BackgroundToolExecutor`** builds the same toolkits as `OrchestratorAgent` (filesystem, shell, discovered packages, etc.), resolves the tool by name, and calls `execute()` directly — no LLM involved.
+6. **The result** (success or error) is persisted to the task record and emitted as task events for SSE streaming.
+7. **The agent monitors** progress using the same `task_status` and `list_tasks` tools used for agent background tasks.
+
+### Key Differences from Background Tasks
+
+| Aspect | `start_background_task` | `start_background_tool` |
+|--------|------------------------|------------------------|
+| Execution | Full LLM agent loop | Direct `tool->execute()` call |
+| LLM tokens | Yes (agent reasons and iterates) | None (zero token cost) |
+| Iterations | Up to 100 (configurable) | Always 1 (single tool call) |
+| Use case | Complex multi-step work | Single long-running tool call |
+
+### Key Source Files
+
+| File | Purpose |
+|------|--------|
+| `src/Agent/BackgroundToolExecutor.php` | Builds toolkits, resolves tool by name, calls `execute()` directly |
+| `src/Toolkit/BackgroundTaskToolkit.php` | Agent-facing tools including `start_background_tool` |
+| `src/Command/TaskRunCommand.php` | Branches on `tool_name` presence: agent path vs direct tool execution |
+
+
+
 ## Vision Architecture
 
 Coqui provides image analysis via a dedicated `vision` role. The system uses a single-shot child agent pattern (like `TitleGenerator`) — no persistent state, no tool access, just one LLM call with the image embedded.

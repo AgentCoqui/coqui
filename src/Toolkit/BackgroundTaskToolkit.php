@@ -37,6 +37,7 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
     {
         return [
             $this->startBackgroundTaskTool(),
+            $this->startBackgroundToolTool(),
             $this->taskStatusTool(),
             $this->listTasksTool(),
             $this->cancelTaskTool(),
@@ -46,7 +47,7 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
     public function guidelines(): string
     {
         return <<<'GUIDELINES'
-        ## Background Tasks
+        ## Background Tasks & Tools
 
         Use background tasks for long-running operations that would block the main conversation:
         - Complex research tasks requiring many tool calls
@@ -55,6 +56,21 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
 
         Background tasks run in a separate process with their own agent instance.
         You can monitor their progress and inject additional input while they run.
+
+        ### Background Tool Execution
+
+        Use `start_background_tool` to run a specific tool asynchronously when you don't need
+        the result immediately. Unlike `start_background_task` (which spawns a full agent),
+        `start_background_tool` executes a single tool call directly — no LLM involved, just
+        the tool's execute() method with the arguments you provide.
+
+        Use `start_background_tool` when:
+        - A tool call may take a long time (e.g. web scraping, large file processing)
+        - You want to continue working while the tool runs
+        - The result is not needed for your immediate next step
+
+        Both task types share the same lifecycle (pending → running → completed/failed) and
+        can be monitored with `task_status`, `list_tasks`, and `cancel_task`.
 
         Tasks are queued in the database and executed by the API server's task manager.
         If the API server is not running, tasks remain in 'pending' status until it starts.
@@ -152,6 +168,32 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         );
     }
 
+    private function startBackgroundToolTool(): Tool
+    {
+        return new Tool(
+            name: 'start_background_tool',
+            description: 'Run a specific tool in the background. The tool executes directly (no LLM agent) with the arguments you provide. Use this when a tool call may take a long time and you want to continue working.',
+            parameters: [
+                new StringParameter(
+                    name: 'tool_name',
+                    description: 'The exact name of the tool to execute (e.g. "web_search", "read_file")',
+                    required: true,
+                ),
+                new StringParameter(
+                    name: 'arguments',
+                    description: 'JSON-encoded arguments to pass to the tool (e.g. {"query": "PHP 8.4 features"})',
+                    required: true,
+                ),
+                new StringParameter(
+                    name: 'title',
+                    description: 'Short human-readable title for the task (for display purposes)',
+                    required: true,
+                ),
+            ],
+            callback: fn(array $args): ToolResult => $this->executeStartBackgroundTool($args),
+        );
+    }
+
     /**
      * @param array<string, mixed> $args
      */
@@ -194,6 +236,61 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             'title' => $title,
             'message' => 'Task created and queued. Use task_status to monitor progress.',
         ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: 'Task created');
+    }
+
+    /**
+     * @param array<string, mixed> $args
+     */
+    private function executeStartBackgroundTool(array $args): ToolResult
+    {
+        $toolName = trim((string) ($args['tool_name'] ?? ''));
+
+        if ($toolName === '') {
+            return ToolResult::error('Missing required "tool_name" parameter');
+        }
+
+        $argumentsJson = trim((string) ($args['arguments'] ?? ''));
+
+        if ($argumentsJson === '') {
+            return ToolResult::error('Missing required "arguments" parameter — provide JSON-encoded arguments');
+        }
+
+        // Validate JSON
+        $decoded = json_decode($argumentsJson, true);
+        if (!is_array($decoded)) {
+            return ToolResult::error('Invalid "arguments" — must be a valid JSON object (e.g. {"key": "value"})');
+        }
+
+        $title = trim((string) ($args['title'] ?? ''));
+
+        if ($title === '') {
+            return ToolResult::error('Missing required "title" parameter');
+        }
+
+        // Create a lightweight session for event tracking
+        $model = 'background-tool';
+        $sessionId = $this->storage->createSession('tool', $model);
+
+        // Create the task record with tool metadata
+        $taskId = $this->storage->createTask(
+            sessionId: $sessionId,
+            prompt: sprintf('Execute tool: %s', $toolName),
+            role: 'tool',
+            parentSessionId: $this->parentSessionId,
+            title: $title,
+            maxIterations: 1,
+            toolName: $toolName,
+            toolArguments: $argumentsJson,
+        );
+
+        return ToolResult::success(json_encode([
+            'task_id' => $taskId,
+            'session_id' => $sessionId,
+            'status' => 'pending',
+            'tool_name' => $toolName,
+            'title' => $title,
+            'message' => 'Background tool execution queued. Use task_status to monitor progress.',
+        ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: 'Tool task created');
     }
 
     private const RESULT_PREVIEW_LENGTH = 2000;
