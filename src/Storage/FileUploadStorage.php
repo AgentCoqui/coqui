@@ -10,7 +10,7 @@ use CoquiBot\Coqui\Contract\FileUploadMetadata;
  * Manages uploaded file storage for API sessions.
  *
  * Files are organized in per-session directories within the workspace:
- *   .workspace/uploads/{session_id}/{uuid}.{ext}
+ *   workspace/uploads/{session_id}/{uuid}.{ext}
  *
  * A manifest.json file in each session directory tracks metadata
  * (original name, MIME type, etc.) for all uploaded files.

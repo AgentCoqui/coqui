@@ -292,13 +292,13 @@ The shell allowlist is only configurable via `openclaw.json` — it is not affec
 
 ## Mount System Architecture
 
-Coqui supports declarative directory mounts that give agents access to external directories beyond the primary workspace. Mounts are configured in `openclaw.json` and surfaced as symlinks under `.workspace/mnt/` for agent discoverability.
+Coqui supports declarative directory mounts that give agents access to external directories beyond the primary workspace. Mounts are configured in `openclaw.json` and surfaced as symlinks under `workspace/mnt/` for agent discoverability.
 
 ### How It Works
 
 1. **Mount declarations** are read from `agents.defaults.mounts` in `openclaw.json` — an array of `{path, alias, access, description}` objects.
 2. **`MountDefinition`** is a validated value object for each mount. It enforces: path must exist as a directory, alias must not contain path separators, access must be `ro` or `rw`.
-3. **`MountManager`** creates/updates symlinks in `.workspace/mnt/{alias}` → real path. It provides:
+3. **`MountManager`** creates/updates symlinks in `workspace/mnt/{alias}` → real path. It provides:
    - `allowedPaths()` — array of `{realPath, readOnly}` for `FilesystemToolkit` to whitelist symlink-resolved paths
    - `allowedPathsReadOnly()` — same but forces all mounts to read-only (used for child agents)
    - `storageMap()` — markdown table injected into the system prompt describing available mounts
@@ -337,7 +337,7 @@ Add mounts to `openclaw.json`:
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
 | `path` | yes | — | Absolute path to the external directory (must exist) |
-| `alias` | yes | — | Short name used as the symlink name under `.workspace/mnt/` |
+| `alias` | yes | — | Short name used as the symlink name under `workspace/mnt/` |
 | `access` | no | `ro` | `ro` (read-only) or `rw` (read-write) |
 | `description` | no | `''` | Human-readable description shown in the storage map |
 
@@ -351,7 +351,7 @@ Add mounts to `openclaw.json`:
 
 ### Symlink Management
 
-Symlinks are managed in `.workspace/mnt/`:
+Symlinks are managed in `workspace/mnt/`:
 - Created/updated on boot by `MountManager::initialize()`
 - Stale symlinks (pointing to removed mounts) are automatically cleaned up
 - The `mnt/` directory is created on demand
@@ -371,7 +371,7 @@ Coqui provides a persistent, cross-session memory system backed by SQLite. The s
 
 ### How It Works
 
-1. **`MemoryStore`** is the core storage engine. It manages a dedicated SQLite database at `.workspace/data/memory.db` with FTS5 virtual tables for keyword search and an optional `memory_embeddings` table for vector similarity search.
+1. **`MemoryStore`** is the core storage engine. It manages a dedicated SQLite database at `workspace/data/memory.db` with FTS5 virtual tables for keyword search and an optional `memory_embeddings` table for vector similarity search.
 2. **`MemorySummarizer`** generates a compressed summary of core memories, cached in a `memory_summary` table. The summary is invalidated when the memory count changes. Optionally uses an LLM provider for compression.
 3. **`MemoryToolkit`** (in Coqui, not php-agents) exposes 6 tools to the agent: `memory_save`, `memory_search`, `memory_update`, `memory_delete`, `memory_forget`, `memory_list`.
 4. **At boot**, `BootManager::initializeMemory()` creates the `MemoryStore`, resolves an optional embedding provider, and creates the `MemorySummarizer`.
@@ -547,7 +547,7 @@ test('config loads from valid JSON', function () {
 
 - One concern per commit.
 - Never commit `vendor/`, `.env`, or IDE config.
-- `.gitignore` must include: `vendor/`, `.env`, `*.cache`, `.phpunit.result.cache`, `.workspace/`.
+- `.gitignore` must include: `vendor/`, `.env`, `*.cache`, `.phpunit.result.cache`, `workspace/`.
 
 ### Key Source Files
 
@@ -557,7 +557,7 @@ test('config loads from valid JSON', function () {
 | `src/Config/ScriptSanitizer.php` | Static analysis of generated PHP (respects `--unsafe`) |
 | `src/Config/AutoApprovalPolicy.php` | Auto-approves tools except catastrophic commands |
 | `src/Config/InteractiveApprovalPolicy.php` | Interactive user confirmation with audit logging |
-| `src/Config/WorkspaceComposerManager.php` | Manages `.workspace/composer.json` lifecycle |
+| `src/Config/WorkspaceComposerManager.php` | Manages `workspace/composer.json` lifecycle |
 | `src/Config/ToolkitDiscovery.php` | Boot-time discovery of toolkit packages; implements `PackageEventListenerInterface`; wraps toolkits with credential guards |
 | `src/Config/CredentialResolver.php` | Workspace `.env` management with hot-reload via `putenv()` |
 | `src/Config/UpdateManager.php` | Dependency update checking and application; controlled by `COQUI_CHECK_UPDATES` / `COQUI_AUTO_UPDATE` env vars |
@@ -630,16 +630,15 @@ Coqui supports dependency update checking and application via `UpdateManager`. T
 **Update scope:**
 
 - Project root: `composer update` updates Coqui itself and all its dependencies.
-- Workspace: `composer update` updates bot-installed packages in `.workspace/`.
+- Workspace: `composer update` updates bot-installed packages in `workspace/`.
 
 The setup wizard (`SetupWizard`) includes a step to configure these preferences, persisting them via `CredentialResolver::set()` to the workspace `.env`.
 
 ### Workspace Composer Isolation
 
-The workspace directory (default `~/.coqui/workspace`) contains its own `composer.json` managed by the bot. This separates bot-installed dependencies from the host project:
+The workspace directory (default `~/.coqui/.workspace`) contains its own `composer.json` managed by the bot. This separates bot-installed dependencies from the host project:
 
-- **Default location:** `~/.coqui/workspace` in the user's home directory. This prevents session sprawl when running Coqui from different directories.
-- **Dev mode detection:** If a `.workspace/` directory already exists in the current working directory (project root), it is used instead — preserving developer workflows where the workspace lives alongside the project.
+- **Default location:** `~/.coqui/.workspace` in the user's home directory. This prevents session sprawl when running Coqui from different directories.
 - **Custom paths:** Users can set any path via `agents.defaults.workspace` in `openclaw.json` (supports `~`, relative, and absolute paths).
 - `WorkspaceComposerManager` initializes the workspace Composer project on boot.
 - The Composer toolkit (auto-discovered from `coqui-toolkit-composer`) always targets the workspace. It cannot modify the project's `composer.json`.
@@ -710,9 +709,9 @@ Follow the patterns in `src/Tool/`. Each tool:
 
 ### Adding a New Child Agent Role
 
-Roles are defined as `.md` files with YAML frontmatter in `.workspace/roles/` (user-created) or `config/roles/` (built-in). On first boot, built-in roles are seeded into the workspace. To add a new role:
+Roles are defined as `.md` files with YAML frontmatter in `workspace/roles/` (user-created) or `config/roles/` (built-in). On first boot, built-in roles are seeded into the workspace. To add a new role:
 
-1. Create a `.md` file in `.workspace/roles/` with the required frontmatter fields
+1. Create a `.md` file in `workspace/roles/` with the required frontmatter fields
 2. Optionally map the role to a model in `openclaw.json` under `agents.defaults.roles`
 3. The role is auto-discovered — no code changes needed
 
@@ -862,7 +861,7 @@ Coqui ships with Docker support for development, testing, and isolated execution
 | File | Purpose |
 |------|---------|
 | `Dockerfile` | PHP 8.4 CLI + all extensions + Composer. Xdebug and pcov are installed but disabled by default (enabled via compose overlays). |
-| `compose.yaml` | Base service: bind-mounts source, named volume for `.workspace/`, passes API keys from host, connects to host Ollama via `host.docker.internal`. |
+| `compose.yaml` | Base service: bind-mounts source, named volume for `workspace/`, passes API keys from host, connects to host Ollama via `host.docker.internal`. |
 | `compose.api.yaml` | Defines a separate `coqui-api` service for the HTTP API server on port 3300. Runs alongside the REPL without overriding it. |
 | `compose.dev.yaml` | Developer overlay: enables Xdebug (debug + profile), mounts workspace parent for Composer path repo resolution, adds Webgrind on port 3390. |
 | `compose.test.yaml` | Test overlay: non-interactive, enables pcov for coverage, disables OPcache. |
@@ -880,7 +879,7 @@ Coqui ships with Docker support for development, testing, and isolated execution
 - **Host Ollama**: Users connect to `host.docker.internal:11434`. Avoids GPU passthrough complexity and duplicate model storage.
 - **Workspace root mount in dev**: `compose.dev.yaml` mounts the entire parent directory (`..`) as `/workspace` so Composer path repositories resolve identically to the host.
 - **Xdebug + pcov installed but disabled**: Both built into the image at build time but only activated via ini file mounts in their respective overlays. Zero runtime overhead in base mode.
-- **Named volume for `.workspace/`**: Session databases, bot-installed packages, and workspace state persist across `docker compose run` invocations. The Dockerfile pre-creates the directory with correct ownership so named volumes inherit the `coqui` user permissions.
+- **Named volume for `workspace/`**: Session databases, bot-installed packages, and workspace state persist across `docker compose run` invocations. The Dockerfile pre-creates the directory with correct ownership so named volumes inherit the `coqui` user permissions.
 - **Port convention**: API=3300, Webgrind=3390. All in the 33xx range to avoid conflicts with common services on 8080/3000.
 
 ### Running in Docker
@@ -933,7 +932,6 @@ Copy `.env.example` to `.env` before running. Key variables:
 | `COQUI_WEBGRIND_PORT` | `3390` | Webgrind port (dev overlay) |
 | `COQUI_AUTO_APPROVE` | `false` | Env-var equivalent of `--auto-approve` |
 | `COQUI_UNSAFE` | `false` | Env-var equivalent of `--unsafe` |
-| `COQUI_NO_AUTH` | `false` | Deprecated — localhost access is unauthenticated by default |
 
 ### Xdebug Profiling Workflow
 

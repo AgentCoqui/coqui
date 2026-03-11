@@ -13,16 +13,12 @@ use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
  * Supports relative paths (resolved against project root), absolute paths,
  * and ~ expansion for home directory paths.
  *
- * Default behavior (when no explicit workspace is configured):
- *   1. If a `.workspace/` directory exists in the project root, use it (dev mode).
- *   2. Otherwise, default to `~/.coqui/workspace` inside the install directory.
- *
- * This keeps all Coqui data under `~/.coqui/` while preserving the
- * developer workflow where `.workspace/` lives alongside the project.
+ * Default: `~/.coqui/.workspace`. Override via `agents.defaults.workspace`
+ * in openclaw.json or the `--workdir` CLI flag.
  */
 final readonly class WorkspaceResolver
 {
-    private const DEFAULT_WORKSPACE = '~/.coqui/workspace';
+    private const DEFAULT_WORKSPACE = '~/.coqui/.workspace';
 
     public function __construct(
         private ConfigInterface $config,
@@ -40,16 +36,6 @@ final readonly class WorkspaceResolver
 
         if (!is_string($configured) || $configured === '') {
             $configured = self::DEFAULT_WORKSPACE;
-        }
-
-        // When using the default, check for an existing local .workspace/ first.
-        // This supports dev environments where the workspace lives alongside the project.
-        if ($configured === self::DEFAULT_WORKSPACE) {
-            $localWorkspace = rtrim($this->projectRoot, '/') . '/.workspace';
-            if (is_dir($localWorkspace)) {
-                $this->ensureDirectory($localWorkspace);
-                return $localWorkspace;
-            }
         }
 
         $path = $this->expandPath($configured);

@@ -21,9 +21,9 @@ phpstan.neon.cache
 # Coqui
 # =============================================================================
 .coqui-session
-workspace/
 .workspace/
 !.workspace/.gitkeep
+*workspace*.zip
 openclaw*.json
 composer-*.json
 

@@ -11,7 +11,7 @@ use CoquiBot\Coqui\Exception\SkillParseException;
 /**
  * Boot-time skill discovery.
  *
- * Scans .workspace/skills/ for directories containing SKILL.md, parses
+ * Scans workspace/skills/ for directories containing SKILL.md, parses
  * metadata only (progressive disclosure). Also scans package-bundled skill
  * directories declared via extra.php-agents.skills in composer.json.
  * Workspace skills override package-bundled skills with the same name.
