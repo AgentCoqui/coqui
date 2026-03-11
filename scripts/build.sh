@@ -125,16 +125,12 @@ step "Removing development files"
     # CI / dev tooling
     rm -rf .github/ 2>/dev/null || true
     rm -f .dockerignore Dockerfile 2>/dev/null || true
-    rm -f compose.dev.yaml compose.test.yaml 2>/dev/null || true
     rm -f phpstan.neon phpunit.xml 2>/dev/null || true
     rm -f AGENTS.md .claude 2>/dev/null || true
     rm -f .editorconfig .php-cs-fixer.php 2>/dev/null || true
 
     # Dev / alternate Composer configs
     rm -f composer-dev.json composer-prod.json 2>/dev/null || true
-
-    # Dev PHP ini overrides
-    rm -f conf.d/xdebug.ini conf.d/test.ini 2>/dev/null || true
 
     # Tests, examples, build scripts
     rm -rf tests/ scripts/ examples/ 2>/dev/null || true
