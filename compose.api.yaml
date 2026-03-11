@@ -25,7 +25,7 @@ services:
     image: coqui:dev
     container_name: coqui-api
     init: true
-    command: ["php", "bin/coqui", "api", "--host", "0.0.0.0", "--port", "3300"]
+    command: ["php", "bin/coqui", "api", "--host", "0.0.0.0", "--port", "3300", "--workspace", "/app/workspace"]
 
     # API mode: not interactive — run as daemon
     stdin_open: false
@@ -33,7 +33,7 @@ services:
 
     volumes:
       - .:/app
-      - coqui_workspace:/app/.workspace
+      - coqui_workspace:/app/workspace
 
     # Expose the API port
     ports:
@@ -49,6 +49,7 @@ services:
       OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
       COMPOSER_ALLOW_SUPERUSER: 0
       COQUI_API_KEY: ${COQUI_API_KEY:-}
+      COQUI_WORKSPACE: ${COQUI_WORKSPACE:-/app/workspace}
       COQUI_AUTO_APPROVE: ${COQUI_AUTO_APPROVE:-false}
       COQUI_UNSAFE: ${COQUI_UNSAFE:-false}
 

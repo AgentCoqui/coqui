@@ -17,6 +17,7 @@
 #   --unsafe             Forwarded to bin/coqui run and api
 #   --config PATH        Forwarded to bin/coqui run and api
 #   --workdir PATH       Forwarded to bin/coqui run and api
+#   --workspace PATH     Workspace directory (forwarded to bin/coqui run and api)
 #   --background         Background all daemon services, return to shell
 #   --verbose            Set COQUI_VERBOSE=1 for detailed logging
 #
@@ -71,6 +72,8 @@ while [[ $# -gt 0 ]]; do
             coqui_args+=("--config" "$2"); api_args+=("--config" "$2"); shift 2 ;;
         --workdir|-w)
             coqui_args+=("--workdir" "$2"); api_args+=("--workdir" "$2"); shift 2 ;;
+        --workspace)
+            coqui_args+=("--workspace" "$2"); api_args+=("--workspace" "$2"); shift 2 ;;
         *)
             coqui_args+=("$1"); shift ;;
     esac

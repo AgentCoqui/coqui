@@ -84,12 +84,11 @@ COPY conf.d/coqui.ini /usr/local/etc/php/conf.d/coqui.ini
 # -----------------------------------------------------------------------------
 WORKDIR /app
 
-# Pre-create workspace so Docker named volumes inherit correct ownership.
+# Pre-create workspace at /app/workspace for Docker named volume mounts.
 # Docker copies image directory ownership into named volumes on first mount.
-# WorkspaceResolver defaults to ~/.coqui/.workspace — for the coqui user that's
-# /home/coqui/.coqui/.workspace. The named volume must mount here.
-RUN mkdir -p /home/coqui/.coqui/.workspace \
-    && chown -R coqui:coqui /home/coqui/.coqui
+# The COQUI_WORKSPACE env var or --workspace CLI flag points here in Docker.
+RUN mkdir -p /app/workspace \
+    && chown -R coqui:coqui /app/workspace
 
 # Run as non-root user
 USER coqui

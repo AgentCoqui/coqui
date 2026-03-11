@@ -153,7 +153,8 @@ The launcher starts the REPL (foreground) + API server (background on port 3300)
 | `--config` | `-c` | Path to `openclaw.json` config file |
 | `--new` | | Start a fresh session |
 | `--session` | `-s` | Resume a specific session by ID |
-| `--workdir` | `-w` | Working directory (default: current directory) |
+| `--workdir` | `-w` | Working directory / project root (default: current directory) |
+| `--workspace` | | Workspace directory override (default: `~/.coqui/.workspace` or config) |
 | `--unsafe` | | Disable denied-function checks in ScriptSanitizer (catastrophic blacklist still active) |
 | `--auto-approve` | | Auto-approve all tool executions without prompting (catastrophic blacklist still active) |
 
@@ -178,7 +179,8 @@ The `doctor` command checks 10 health categories and reports issues:
 | Option | Description |
 |--------|-------------|
 | `--config` | Path to `openclaw.json` config file |
-| `--workdir` | Working directory (default: current directory) |
+| `--workdir` | Working directory / project root (default: current directory) |
+| `--workspace` | Workspace directory override |
 | `--repair` | Attempt to auto-fix detected issues |
 | `--json` | Output results as JSON |
 

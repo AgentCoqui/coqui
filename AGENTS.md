@@ -861,7 +861,7 @@ Coqui ships with Docker support for isolated execution. The image is based on `p
 | File | Purpose |
 |------|---------|
 | `Dockerfile` | PHP 8.4 CLI + all extensions + Composer. |
-| `compose.yaml` | Base service: bind-mounts source, named volume for workspace at `~/.coqui/.workspace`, passes API keys from host, connects to host Ollama via `host.docker.internal`. |
+| `compose.yaml` | Base service: bind-mounts source, named volume for workspace at `/app/workspace`, passes API keys from host, connects to host Ollama via `host.docker.internal`. |
 | `compose.api.yaml` | Defines a separate `coqui-api` service for the HTTP API server on port 3300. Runs alongside the REPL without overriding it. |
 | `Makefile` | Self-documenting targets. Native targets use bare names (`start`, `api`), Docker targets use `docker-*` prefix. |
 | `conf.d/coqui.ini` | CLI-optimized PHP config: 512M memory, OPcache + JIT enabled, errors to stderr. |
@@ -873,7 +873,7 @@ Coqui ships with Docker support for isolated execution. The image is based on `p
 - **`docker compose run` over `up`**: The REPL requires interactive TTY. Use `run --rm` for sessions. The API service uses `up -d` separately.
 - **Separate `coqui-api` service**: The API runs as its own service in `compose.api.yaml` rather than overriding the REPL's `coqui` service. This allows running REPL (interactive) and API (daemon) simultaneously from the same compose project.
 - **Host Ollama**: Users connect to `host.docker.internal:11434`. Avoids GPU passthrough complexity and duplicate model storage.
-- **Named volume for workspace**: Session databases, bot-installed packages, and workspace state persist across `docker compose run` invocations. The volume mounts at `/home/coqui/.coqui/.workspace` to match `WorkspaceResolver::DEFAULT_WORKSPACE` (`~/.coqui/.workspace`). The Dockerfile pre-creates the directory with correct ownership so named volumes inherit the `coqui` user permissions.
+- **Named volume for workspace**: Session databases, bot-installed packages, and workspace state persist across `docker compose run` invocations. The volume mounts at `/app/workspace` and both compose files set `COQUI_WORKSPACE=/app/workspace` so `BootManager` uses this path directly (bypassing `WorkspaceResolver::DEFAULT_WORKSPACE`). The Dockerfile pre-creates `/app/workspace` with correct ownership so named volumes inherit the `coqui` user permissions.
 - **Port convention**: API=3300. Avoids conflicts with common services on 8080/3000.
 
 ### Running in Docker
@@ -911,6 +911,7 @@ Copy `.env.example` to `.env` before running. Key variables:
 | Variable | Default | Purpose |
 |----------|---------|---------|  
 | `COQUI_UID` / `COQUI_GID` | `1000` | Match host user to avoid permission issues |
+| `COQUI_WORKSPACE` | `/app/workspace` | Workspace directory inside the container (must match the named volume mount) |
 | `OPENAI_API_KEY` | — | Passed into the container |
 | `ANTHROPIC_API_KEY` | — | Passed into the container |
 | `OLLAMA_HOST` | `http://host.docker.internal:11434` | Ollama endpoint |

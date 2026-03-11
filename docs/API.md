@@ -45,6 +45,7 @@ make docker-api PORT=3000    # custom port
 | `--host` | | `127.0.0.1` | Host to bind to. Use `0.0.0.0` for network access. Also configurable via `COQUI_API_HOST` env var |
 | `--config` | `-c` | `./openclaw.json` | Path to openclaw.json config |
 | `--workdir` | `-w` | Current directory | Working directory (project root) |
+| `--workspace` | | Config/default | Workspace directory (overrides config resolution). Also configurable via `COQUI_WORKSPACE` env var |
 | `--unsafe` | | `false` | Disable script sanitization (dangerous) |
 | `--cors-origin` | | `*` | Allowed CORS origins (comma-separated) |
 
