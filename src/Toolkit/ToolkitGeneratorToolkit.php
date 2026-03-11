@@ -17,7 +17,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
  * add tools to existing toolkits, and list workspace toolkit packages.
  * All generated packages follow Coqui conventions and are auto-discoverable.
  *
- * Scaffolded packages are created in .workspace/packages/{name}/ and include
+     * Scaffolded packages are created in workspace/packages/{name}/ and include
  * a composer.json with extra.php-agents declarations, a PSR-4 autoloaded
  * toolkit class implementing ToolkitInterface, and a README.md.
  */

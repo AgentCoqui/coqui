@@ -8,7 +8,7 @@ namespace CoquiBot\Coqui\Contract;
  * Declares an external directory mount accessible from the workspace.
  *
  * Mounts extend the agent's file access beyond the primary workspace.
- * Each mount has a unique alias (used as the symlink name under .workspace/mnt/),
+     * Each mount has a unique alias (used as the symlink name under workspace/mnt/),
  * an absolute path to the target directory, an access level (read-only or read-write),
  * and an optional description for the storage map.
  *

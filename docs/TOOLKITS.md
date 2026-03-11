@@ -204,7 +204,7 @@ Coqui uses `toolkit_create` to scaffold the package, then `toolkit_add_tool` to 
 1. Create the package directory:
 
 ```bash
-mkdir -p .workspace/packages/my-toolkit/src
+mkdir -p workspace/packages/my-toolkit/src
 ```
 
 2. Create `composer.json`:
@@ -241,7 +241,7 @@ mkdir -p .workspace/packages/my-toolkit/src
 4. Install and activate:
 
 ```bash
-cd .workspace && composer require coquibot/coqui-toolkit-my-toolkit
+cd workspace && composer require coquibot/coqui-toolkit-my-toolkit
 ```
 
 Then restart Coqui for auto-discovery to pick up the new toolkit.
@@ -568,11 +568,11 @@ final class MyApiToolkit implements ToolkitInterface
 Toolkits are discovered from two locations:
 
 1. **Project vendor:** `vendor/composer/installed.json` — packages installed in the main project
-2. **Workspace vendor:** `.workspace/vendor/composer/installed.json` — packages installed by the bot at runtime
+2. **Workspace vendor:** `workspace/vendor/composer/installed.json` — packages installed by the bot at runtime
 
 ### The Registry
 
-Discovered toolkits are persisted in `.workspace/toolkits.json`:
+Discovered toolkits are persisted in `workspace/toolkits.json`:
 
 ```json
 {
@@ -874,7 +874,7 @@ See the [Brave Search README](https://github.com/coquibot/coqui-toolkit-brave-se
 
 A toolkit with an HTTP dependency but no credentials (uses free APIs).
 
-**Location:** `.workspace/packages/weather-toolkit/`
+**Location:** `workspace/packages/weather-toolkit/`
 
 Key patterns demonstrated:
 - Optional constructor dependency injection (`?Client $http`)

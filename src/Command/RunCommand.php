@@ -60,7 +60,8 @@ final class RunCommand extends Command
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to openclaw.json')
             ->addOption('new', null, InputOption::VALUE_NONE, 'Start a new session')
             ->addOption('session', 's', InputOption::VALUE_REQUIRED, 'Resume a specific session ID')
-            ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory', getcwd() ?: '.')
+            ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory (project root)', getcwd() ?: '.')
+            ->addOption('workspace', null, InputOption::VALUE_REQUIRED, 'Workspace directory (overrides config and default)')
             ->addOption('unsafe', null, InputOption::VALUE_NONE, 'Disable script sanitization for power users (dangerous)')
             ->addOption('auto-approve', null, InputOption::VALUE_NONE, 'Auto-approve all tool executions (dangerous)')
             ->addOption('update', null, InputOption::VALUE_NONE, 'Check for and apply dependency updates, then restart')
@@ -84,7 +85,9 @@ final class RunCommand extends Command
         $configOption = $input->getOption('config');
         $configPath = is_string($configOption) ? $configOption : null;
 
-        $this->boot = new BootManager($this->workDir);
+        $workspaceOverride = $this->resolveWorkspaceOverride($input);
+
+        $this->boot = new BootManager($this->workDir, $workspaceOverride);
         $this->boot->boot($noTerminal ? null : $io, $configPath);
 
         // Handle --update: apply updates and restart
@@ -943,5 +946,22 @@ final class RunCommand extends Command
             // Set restart flag — the REPL loop will pick this up
             $this->restartRequested = true;
         }
+    }
+
+    private function resolveWorkspaceOverride(InputInterface $input): ?string
+    {
+        $option = $input->getOption('workspace');
+
+        if (is_string($option) && $option !== '') {
+            return $option;
+        }
+
+        $env = getenv('COQUI_WORKSPACE');
+
+        if (is_string($env) && $env !== '') {
+            return $env;
+        }
+
+        return null;
     }
 }

@@ -9,7 +9,7 @@ use CoquiBot\Coqui\Contract\MountDefinition;
 /**
  * Manages external directory mounts for the workspace.
  *
- * Creates symlinks under .workspace/mnt/{alias} pointing to each mount's
+ * Creates symlinks under workspace/mnt/{alias} pointing to each mount's
  * real path, maintains the allowedPaths array for FilesystemToolkit, and
  * generates a storage map for system prompt injection.
  *
@@ -39,7 +39,7 @@ final class MountManager
     /**
      * Initialize the mount directory and create/update symlinks.
      *
-     * Creates .workspace/mnt/ if it doesn't exist, creates symlinks for
+     * Creates workspace/mnt/ if it doesn't exist, creates symlinks for
      * each declared mount, and removes stale symlinks for mounts no longer
      * declared in config.
      */

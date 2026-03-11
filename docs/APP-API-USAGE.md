@@ -137,7 +137,7 @@ Session (1)
 
 ## Data Storage
 
-All state is stored in a single SQLite database at `.workspace/data/coqui.db`. The database uses WAL mode for concurrent read performance and enforces foreign keys for referential integrity.
+All state is stored in a single SQLite database at `workspace/data/coqui.db`. The database uses WAL mode for concurrent read performance and enforces foreign keys for referential integrity.
 
 ### Schema
 
@@ -333,9 +333,9 @@ Options:
 | `--port` | `3300` | Port to listen on |
 | `--host` | `127.0.0.1` | Host to bind to |
 | `--config` | auto-detect | Path to openclaw.json |
-| `--workdir` | current directory | Working directory for the agent |
+| `--workdir` | current directory | Working directory (project root) for the agent |
+| `--workspace` | auto-resolved | Workspace directory (overrides config resolution) |
 | `--unsafe` | false | Disable script sanitization |
-| `--no-auth` | false | Deprecated — localhost access is unauthenticated by default |
 | `--cors-origin` | `*` | Allowed CORS origins (comma-separated) |
 
 ### Authentication

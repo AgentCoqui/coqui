@@ -36,7 +36,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 
 - **Multi-model orchestration** — route tasks to the right model: cheap local models for orchestration, powerful cloud models for coding and review
 - **Persistent sessions** — SQLite-backed conversations that survive restarts; resume where you left off
-- **Workspace sandboxing** — all file I/O is sandboxed to the workspace directory (`~/.coqui/workspace` by default) with its own Composer project, keeping your project safe
+- **Workspace sandboxing** — all file I/O is sandboxed to the workspace directory (`~/.coqui/.workspace` by default) with its own Composer project, keeping your project safe
 - **Runtime extensibility** — install Composer packages at runtime and Coqui auto-discovers new toolkits on every boot
 - **Child agent delegation** — spawns specialized agents (coder, reviewer) using role-appropriate models
 - **Interactive approval** — dangerous operations (package installs, shell exec, PHP execution) require your confirmation
@@ -133,7 +133,7 @@ The launcher starts the REPL (foreground) + API server (background on port 3300)
  Session  a3f8b2c1
  Model    ollama/glm-4.7-flash:latest
  Project  /home/you/projects/my-app
- Workspace /home/you/.coqui/workspace
+ Workspace /home/you/.coqui/.workspace
 
  Type /help for commands, /quit to exit.
 
@@ -153,7 +153,8 @@ The launcher starts the REPL (foreground) + API server (background on port 3300)
 | `--config` | `-c` | Path to `openclaw.json` config file |
 | `--new` | | Start a fresh session |
 | `--session` | `-s` | Resume a specific session by ID |
-| `--workdir` | `-w` | Working directory (default: current directory) |
+| `--workdir` | `-w` | Working directory / project root (default: current directory) |
+| `--workspace` | | Workspace directory override (default: `~/.coqui/.workspace` or config) |
 | `--unsafe` | | Disable denied-function checks in ScriptSanitizer (catastrophic blacklist still active) |
 | `--auto-approve` | | Auto-approve all tool executions without prompting (catastrophic blacklist still active) |
 
@@ -178,7 +179,8 @@ The `doctor` command checks 10 health categories and reports issues:
 | Option | Description |
 |--------|-------------|
 | `--config` | Path to `openclaw.json` config file |
-| `--workdir` | Working directory (default: current directory) |
+| `--workdir` | Working directory / project root (default: current directory) |
+| `--workspace` | Workspace directory override |
 | `--repair` | Attempt to auto-fix detected issues |
 | `--json` | Output results as JSON |
 
@@ -328,7 +330,7 @@ Coqui ships with a rich set of tools the agent can use autonomously:
 
 | Toolkit | Description |
 |---------|-------------|
-| `FilesystemToolkit` | Sandboxed read/write to the workspace directory (`~/.coqui/workspace` by default) |
+| `FilesystemToolkit` | Sandboxed read/write to the workspace directory (`~/.coqui/.workspace` by default) |
 | `ShellToolkit` | Run shell commands from project root — configurable allowlist (default includes `git`, `grep`, `find`, `cat`, `ls`, `curl`, `wget`, etc.) |
 | `MemoryToolkit` | Persistent memory via `MEMORY.md` for facts that survive across sessions |
 
@@ -495,7 +497,7 @@ Coqui has multiple layers of protection:
 
 ## Docker
 
-Run Coqui in a container with zero host dependencies. The Docker setup uses `php:8.4-cli` with all required extensions, Composer, and optional Xdebug/pcov for development and testing.
+Run Coqui in a container with zero host dependencies. The Docker setup uses `php:8.4-cli` with all required extensions and Composer.
 
 ### Quick Start (Docker)
 
@@ -527,31 +529,6 @@ Coqui connects to Ollama on your host machine via `host.docker.internal`. Make s
 ollama serve
 ```
 
-### Development Mode
-
-Development mode enables Xdebug (step debugging + profiling) and mounts sibling repositories so Composer path repos resolve inside the container:
-
-```bash
-# Start REPL with Xdebug + path repos
-make docker-dev
-
-# Webgrind profiler viewer runs automatically
-# Open http://localhost:3390
-```
-
-### Running Tests
-
-```bash
-# Run Pest tests
-make test
-
-# Run with code coverage (pcov)
-make test-coverage
-
-# Open a shell in the test container
-make test-shell
-```
-
 ### Useful Commands
 
 | Command | Description |
@@ -564,10 +541,7 @@ make test-shell
 | `make docker-start` | REPL + API (Docker) |
 | `make docker-repl` | REPL only (Docker) |
 | `make docker-api` | API only (Docker) |
-| `make docker-dev` | Dev mode with Xdebug + Webgrind |
 | `make docker-shell` | Bash shell in container |
-| `make test` | Run Pest tests |
-| `make test-coverage` | Tests with coverage report |
 | `make install` | Run `composer install` |
 | `make clean` | Remove containers, images, volumes |
 | `make help` | Show all available targets |
@@ -588,16 +562,12 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 
 | File | Purpose |
 |------|---------|
-| `Dockerfile` | PHP 8.4 CLI + extensions + Composer + Xdebug/pcov (disabled by default) |
+| `Dockerfile` | PHP 8.4 CLI + extensions + Composer |
 | `compose.yaml` | Base service with workspace volume + host Ollama access |
 | `compose.api.yaml` | API server service (port 3300) — runs alongside REPL |
-| `compose.dev.yaml` | Xdebug, workspace root mount, Webgrind (port 3390) |
-| `compose.test.yaml` | Non-interactive test runner with pcov |
 | `Makefile` | Self-documenting targets: native (`start`, `api`) and Docker (`docker-*`) |
 | `.env.example` | Environment variable documentation |
 | `conf.d/coqui.ini` | CLI-optimized PHP config (OPcache + JIT) |
-| `conf.d/xdebug.ini` | Xdebug debug + profile config (dev only) |
-| `conf.d/test.ini` | pcov + no OPcache (test only) |
 
 ## Community
 

@@ -53,7 +53,8 @@ final class DoctorCommand extends Command
     {
         $this
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to openclaw.json')
-            ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory', getcwd() ?: '.')
+            ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory (project root)', getcwd() ?: '.')
+            ->addOption('workspace', null, InputOption::VALUE_REQUIRED, 'Workspace directory (overrides config and default)')
             ->addOption('repair', null, InputOption::VALUE_NONE, 'Automatically fix detected issues')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Output results as JSON');
     }
@@ -86,7 +87,8 @@ final class DoctorCommand extends Command
         $results['config'] = $this->checkConfig($io, $workDir, $configPath, $jsonOutput);
 
         // 3. Workspace
-        $workspacePath = $this->resolveWorkspacePath($workDir, $configPath);
+        $workspaceOverride = $this->resolveWorkspaceOverride($input);
+        $workspacePath = $workspaceOverride ?? $this->resolveWorkspacePath($workDir, $configPath);
         $results['workspace'] = $this->checkWorkspace($io, $workspacePath, $repair, $jsonOutput);
 
         // 4. Database
@@ -912,18 +914,13 @@ final class DoctorCommand extends Command
             $resolver = new WorkspaceResolver($config, $workDir);
             return $resolver->resolve();
         } catch (\Throwable) {
-            // Fallback to common default — prefer local .workspace if it exists, else ~/.coqui/workspace
-            $localWorkspace = $workDir . '/.workspace';
-            if (is_dir($localWorkspace)) {
-                return $localWorkspace;
-            }
-
+            // Fallback to common default
             $home = $_SERVER['HOME'] ?? $_ENV['HOME'] ?? '';
             if ($home !== '') {
-                return $home . '/.coqui/workspace';
+                return $home . '/.coqui/.workspace';
             }
 
-            return $localWorkspace;
+            return $workDir . '/workspace';
         }
     }
 
@@ -966,5 +963,22 @@ final class DoctorCommand extends Command
         if (!$jsonOutput) {
             $io->text("  <fg=red>✗</> {$message}");
         }
+    }
+
+    private function resolveWorkspaceOverride(InputInterface $input): ?string
+    {
+        $option = $input->getOption('workspace');
+
+        if (is_string($option) && $option !== '') {
+            return $option;
+        }
+
+        $env = getenv('COQUI_WORKSPACE');
+
+        if (is_string($env) && $env !== '') {
+            return $env;
+        }
+
+        return null;
     }
 }

@@ -141,7 +141,7 @@
             "path": "src/Config/MountManager.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\MountManager",
             "layer": "config",
-            "description": "Manages directory mount symlinks in .workspace/mnt/. Creates/updates/cleans symlinks on boot. Generates allowedPaths arrays for FilesystemToolkit (orchestrator gets declared access, child agents forced read-only), a markdown storage map for prompt injection, and open_basedir path lists for PhpExecuteTool.",
+            "description": "Manages directory mount symlinks in workspace/mnt/. Creates/updates/cleans symlinks on boot. Generates allowedPaths arrays for FilesystemToolkit (orchestrator gets declared access, child agents forced read-only), a markdown storage map for prompt injection, and open_basedir path lists for PhpExecuteTool.",
             "methods": [
                 "initialize(): void — creates mnt/ dir, creates/updates symlinks, cleans stale links",
                 "allowedPaths(): array — returns [{realPath, readOnly}] with declared access levels",
@@ -263,7 +263,7 @@
             "path": "src/Config/WorkspaceComposerManager.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\WorkspaceComposerManager",
             "layer": "config",
-            "description": "Manages a separate Composer project inside the workspace directory (.workspace/composer.json). The workspace has its own vendor/ so the bot can self-install packages without touching the user's main project.",
+            "description": "Manages a separate Composer project inside the workspace directory (workspace/composer.json). The workspace has its own vendor/ so the bot can self-install packages without touching the user's main project.",
             "methods": [
                 "initialize(): void — creates scaffold composer.json if missing",
                 "loadAutoloader(): bool — loads workspace vendor/autoload.php",
@@ -276,7 +276,7 @@
             "path": "src/Config/WorkspaceResolver.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\WorkspaceResolver",
             "layer": "config",
-            "description": "Resolves the workspace directory from openclaw.json config. Supports relative paths (resolved against project root), absolute paths, and ~ expansion. Default: ~/.coqui/workspace. Creates directory and .gitkeep if missing.",
+            "description": "Resolves the workspace directory from openclaw.json config. Supports relative paths (resolved against project root), absolute paths, and ~ expansion. Default: ~/.coqui/.workspace. Creates directory and .gitkeep if missing.",
             "methods": [
                 "resolve(): string — returns the absolute workspace path"
             ]
@@ -446,7 +446,7 @@
             "path": "src/Config/SkillDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\SkillDiscovery",
             "layer": "config",
-            "description": "Boot-time skill discovery. Scans .workspace/skills/ for directories containing SKILL.md, parses metadata only (progressive disclosure). Provides name resolution, body loading for activation, prompt summary generation, and cache invalidation for newly created skills.",
+            "description": "Boot-time skill discovery. Scans workspace/skills/ for directories containing SKILL.md, parses metadata only (progressive disclosure). Provides name resolution, body loading for activation, prompt summary generation, and cache invalidation for newly created skills.",
             "methods": [
                 "discoverAll(): SkillProperties[] — scans skills directory, returns all valid skills",
                 "getSkill(string $name): SkillProperties — resolves name to properties",
@@ -755,7 +755,7 @@
             "path": "src/Storage/FileUploadStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\FileUploadStorage",
             "layer": "storage",
-            "description": "Manages per-session file uploads in .workspace/uploads/{session_id}/. Stores files with UUID-based names, maintains a manifest.json per session with FileUploadMetadata entries. Supports image detection, MIME type validation, size limits (50 MiB per file, 20 per request), and session cleanup.",
+            "description": "Manages per-session file uploads in workspace/uploads/{session_id}/. Stores files with UUID-based names, maintains a manifest.json per session with FileUploadMetadata entries. Supports image detection, MIME type validation, size limits (50 MiB per file, 20 per request), and session cleanup.",
             "methods": [
                 "store(string $sessionId, UploadedFileInterface $file): FileUploadMetadata — stores file, returns metadata",
                 "list(string $sessionId): array<FileUploadMetadata> — returns all file metadata for a session",
@@ -771,7 +771,7 @@
             "path": "src/Memory/MemoryStore.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\MemoryStore",
             "layer": "storage",
-            "description": "SQLite-backed memory store with FTS5 full-text search and optional vector embeddings. Stores memories in .workspace/data/memory.db with area classification (preferences, facts, solutions, context) and tag-based organization. Hybrid search combines cosine similarity (when embedding provider available) with FTS5 keyword matching and LIKE fallback. Supports full CRUD, bulk import for migration, and core summary generation grouped by area.",
+            "description": "SQLite-backed memory store with FTS5 full-text search and optional vector embeddings. Stores memories in workspace/data/memory.db with area classification (preferences, facts, solutions, context) and tag-based organization. Hybrid search combines cosine similarity (when embedding provider available) with FTS5 keyword matching and LIKE fallback. Supports full CRUD, bulk import for migration, and core summary generation grouped by area.",
             "methods": [
                 "save(string $content, string $area, array $tags): string — saves memory with optional embedding, returns ID",
                 "search(string $query, int $limit): array — hybrid vector+FTS5 search with LIKE fallback",
@@ -844,12 +844,12 @@
             "path": "src/Config/RoleDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleDiscovery",
             "layer": "config",
-            "description": "Boot-time role discovery. Scans .workspace/roles/ for .md files, parses metadata only (progressive disclosure). Seeds built-in roles from config/roles/ on first boot. Provides CRUD operations with backup support for updates.",
+            "description": "Boot-time role discovery. Scans workspace/roles/ for .md files, parses metadata only (progressive disclosure). Seeds built-in roles from config/roles/ on first boot. Provides CRUD operations with backup support for updates.",
             "methods": [
                 "discoverAll(): array<string, RoleProperties> — scan and cache all roles",
                 "getRole(string $name): RoleProperties — get role or throw RoleNotFoundException",
                 "readInstructions(string $name): string — load role body for activation",
-                "seedBuiltinRoles(): void — copy config/roles/ to .workspace/roles/ if not present",
+                "seedBuiltinRoles(): void — copy config/roles/ to workspace/roles/ if not present",
                 "createRole(array, string): RoleProperties — create new role file",
                 "updateRole(string, array, string): RoleProperties — update with backup",
                 "deleteRole(string): void — delete non-builtin role"

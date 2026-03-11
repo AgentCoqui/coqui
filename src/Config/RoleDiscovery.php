@@ -11,7 +11,7 @@ use CoquiBot\Coqui\Exception\RoleParseException;
 /**
  * Boot-time role discovery.
  *
- * Scans .workspace/roles/ for .md files with YAML frontmatter, parses
+ * Scans workspace/roles/ for .md files with YAML frontmatter, parses
  * metadata only (progressive disclosure). Provides name resolution, body
  * loading for activation, and cache invalidation for CRUD operations.
  *
@@ -158,7 +158,7 @@ final class RoleDiscovery
     }
 
     /**
-     * Seed built-in roles from config/roles/ to .workspace/roles/.
+     * Seed built-in roles from config/roles/ to workspace/roles/.
      *
      * Only copies roles that don't already exist in the workspace.
      * Never overwrites user-edited files.
