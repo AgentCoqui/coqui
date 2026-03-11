@@ -35,6 +35,7 @@ final class BackgroundTaskManager
         private readonly string $coquiBinPath,
         private readonly string $configPath,
         private readonly string $workDir,
+        private readonly string $workspacePath = '',
         private readonly int $maxConcurrent = 1,
         private readonly bool $unsafeMode = false,
     ) {}
@@ -222,6 +223,11 @@ final class BackgroundTaskManager
             $taskId,
             '--workdir', $this->workDir,
         ];
+
+        if ($this->workspacePath !== '') {
+            $cmd[] = '--workspace';
+            $cmd[] = $this->workspacePath;
+        }
 
         if ($this->configPath !== '') {
             $cmd[] = '--config';

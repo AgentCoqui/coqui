@@ -462,21 +462,19 @@ final class SetupWizard
      */
     private function configureApiKey(): void
     {
+        // Skip entirely if key already configured
+        $existingKey = $this->credentialResolver?->get('COQUI_API_KEY');
+        if ($existingKey !== null && $existingKey !== '') {
+            $this->io->text('<fg=gray>API key already configured — skipping.</>');
+            return;
+        }
+
         $this->io->section('Step 7: API Server Key');
 
         $this->io->text([
             'The HTTP API server requires an API key for authentication.',
             'This key is used with <fg=cyan>Authorization: Bearer <key></> when calling the API.',
         ]);
-
-        // Check if key already exists
-        $existingKey = $this->credentialResolver?->get('COQUI_API_KEY');
-        if ($existingKey !== null && $existingKey !== '') {
-            $this->io->text('<fg=gray>An API key is already configured.</>');
-            if (!$this->io->confirm('Generate a new API key? (replaces existing)', false)) {
-                return;
-            }
-        }
 
         $generateKey = $this->io->confirm('Generate an API key now?', true);
 

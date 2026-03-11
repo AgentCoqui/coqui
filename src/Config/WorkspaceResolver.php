@@ -14,7 +14,7 @@ use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
  * and ~ expansion for home directory paths.
  *
  * Default: `~/.coqui/.workspace`. Override via `agents.defaults.workspace`
- * in openclaw.json or the `--workdir` CLI flag.
+ * in openclaw.json or the `--workspace` CLI flag.
  */
 final readonly class WorkspaceResolver
 {
