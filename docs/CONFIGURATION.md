@@ -78,7 +78,7 @@ The simplest valid config only needs a primary model:
                 "reviewer": "openai/gpt-4.1",
                 "vision": "gemini/gemini-2.5-flash"
             },
-            "workspace": "~/.coqui/workspace",
+            "workspace": "~/.coqui/.workspace",
             "maxIterations": 25,
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
             "blacklist": ["/pattern-to-block/i"],
@@ -145,7 +145,7 @@ Map agent roles to specific models. This enables cost-efficient orchestration wh
 | `reviewer` | Reviews code for bugs, security, style | Primary model |
 | `vision` | Analyzes images | Primary model |
 
-Custom roles defined in `.workspace/roles/` are also resolved here.
+Custom roles defined in `workspace/roles/` are also resolved here.
 
 ```json
 {
@@ -166,15 +166,10 @@ The sandboxed directory where Coqui reads and writes files. Supports `~` (home d
 
 | Value | Behavior |
 |-------|----------|
-| `~/.coqui/workspace` | Default — uses a shared workspace in your home directory |
-| `.workspace` | Project-local workspace (dev mode) |
+| `~/.coqui/.workspace` | Default — uses a shared workspace in your home directory |
 | `/path/to/workspace` | Absolute path to any directory |
 
-**Default behavior** (when not set):
-1. If `.workspace/` exists in the current directory, use it (dev mode)
-2. Otherwise, use `~/.coqui/workspace` in your home directory
-
-This prevents session sprawl across directories while supporting developer workflows where the workspace lives alongside the project.
+**Default behavior** (when not set): uses `~/.coqui/.workspace` in your home directory. This prevents session sprawl across directories.
 
 ### `maxIterations`
 
@@ -212,7 +207,7 @@ Additional regex patterns to add to the catastrophic blacklist. These patterns b
 
 ### `mounts`
 
-Declare external directory mounts that give agents access to directories outside the workspace. Mounts appear as symlinks under `.workspace/mnt/{alias}`.
+Declare external directory mounts that give agents access to directories outside the workspace. Mounts appear as symlinks under `workspace/mnt/{alias}`.
 
 | Field | Required | Default | Description |
 |-------|----------|---------|-------------|
@@ -442,7 +437,7 @@ API keys should be stored as environment variables or in the workspace `.env` fi
 credentials(action: "set", key: "OPENAI_API_KEY", value: "sk-...")
 ```
 
-Credentials set this way are persisted to `.workspace/.env` and take effect immediately via `putenv()` hot-reload.
+Credentials set this way are persisted to `workspace/.env` and take effect immediately via `putenv()` hot-reload.
 
 ## Architecture Notes
 

@@ -53,9 +53,9 @@ final class ApiCommand extends Command
             ->addOption('port', null, InputOption::VALUE_REQUIRED, 'Port to listen on', '3300')
             ->addOption('host', null, InputOption::VALUE_REQUIRED, 'Host to bind to', '127.0.0.1')
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to openclaw.json')
-            ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory', getcwd() ?: '.')
+            ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory (project root)', getcwd() ?: '.')
+            ->addOption('workspace', null, InputOption::VALUE_REQUIRED, 'Workspace directory (overrides config and default)')
             ->addOption('unsafe', null, InputOption::VALUE_NONE, 'Disable script sanitization (dangerous)')
-            ->addOption('no-auth', null, InputOption::VALUE_NONE, 'Deprecated — localhost access is now unauthenticated by default')
             ->addOption('cors-origin', null, InputOption::VALUE_REQUIRED, 'Allowed CORS origins (comma-separated)', '*');
     }
 
@@ -79,14 +79,6 @@ final class ApiCommand extends Command
             ? $input->getOption('cors-origin')
             : '*';
 
-        // --no-auth is deprecated — localhost is now unauthenticated by default
-        $noAuth = (bool) $input->getOption('no-auth')
-            || filter_var(getenv('COQUI_NO_AUTH'), FILTER_VALIDATE_BOOLEAN);
-        if ($noAuth) {
-            $output->writeln('<comment>NOTE: --no-auth is deprecated. Localhost access is now unauthenticated by default when no API key is configured.</comment>');
-            $output->writeln('');
-        }
-
         $output->writeln('<info>Coqui API Server</info>');
         $output->writeln('');
 
@@ -94,7 +86,9 @@ final class ApiCommand extends Command
         $configOption = $input->getOption('config');
         $configPath = is_string($configOption) ? $configOption : null;
 
-        $boot = new BootManager($workDir);
+        $workspaceOverride = $this->resolveWorkspaceOverride($input);
+
+        $boot = new BootManager($workDir, $workspaceOverride);
         $result = $boot->boot(io: null, configPath: $configPath);
 
         if (!$result) {
@@ -181,6 +175,7 @@ final class ApiCommand extends Command
             coquiBinPath: $coquiBinPath,
             configPath: $configPath ?? '',
             workDir: $workDir,
+            workspacePath: $boot->workspacePath(),
             maxConcurrent: max(1, $maxConcurrentTasks),
             unsafeMode: $unsafeMode,
         );
@@ -400,6 +395,23 @@ final class ApiCommand extends Command
 
         if ($credKey !== null && $credKey !== '') {
             return $credKey;
+        }
+
+        return null;
+    }
+
+    private function resolveWorkspaceOverride(InputInterface $input): ?string
+    {
+        $option = $input->getOption('workspace');
+
+        if (is_string($option) && $option !== '') {
+            return $option;
+        }
+
+        $env = getenv('COQUI_WORKSPACE');
+
+        if (is_string($env) && $env !== '') {
+            return $env;
         }
 
         return null;

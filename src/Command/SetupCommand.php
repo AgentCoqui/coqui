@@ -22,7 +22,7 @@ final class SetupCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory', getcwd() ?: '.')
+            ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory (project root)', getcwd() ?: '.')
             ->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'Output path for openclaw.json');
     }
 

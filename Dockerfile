@@ -1,8 +1,7 @@
 ###############################################################################
-# Coqui — PHP 8.4 CLI Development Image
+# Coqui — PHP 8.4 CLI Image
 #
-# Terminal AI agent — PHP 8.4 CLI + extensions + Composer + Xdebug/pcov
-# (both disabled by default, enabled via compose overlays)
+# Terminal AI agent — PHP 8.4 CLI + extensions + Composer
 #
 # Usage:
 #   docker compose run --rm coqui            # interactive REPL
@@ -12,7 +11,7 @@
 FROM php:8.4-cli
 
 LABEL maintainer="Coqui Bot <hello@coqui.bot>"
-LABEL description="Coqui development image — PHP 8.4 CLI + Composer + Xdebug + pcov"
+LABEL description="Coqui — PHP 8.4 CLI + Composer"
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -54,16 +53,6 @@ RUN docker-php-ext-install \
     zip \
     pcntl
 
-# Xdebug + pcov — installed but NOT enabled by default
-# Xdebug is enabled via compose.dev.yaml (mounting xdebug.ini)
-# pcov is enabled via compose.test.yaml (mounting test.ini)
-RUN pecl install xdebug pcov \
-    && true
-
-# Create xdebug output directory
-RUN mkdir -p /tmp/xdebug \
-    && chmod 1777 /tmp/xdebug
-
 # -----------------------------------------------------------------------------
 # Composer
 # -----------------------------------------------------------------------------
@@ -85,18 +74,6 @@ RUN groupadd -g ${COQUI_GID} coqui 2>/dev/null || true \
 ENV COMPOSER_HOME=/home/coqui/.composer
 RUN mkdir -p /home/coqui/.composer && chown -R coqui:coqui /home/coqui/.composer
 
-# Ensure xdebug output is writable
-RUN chown -R coqui:coqui /tmp/xdebug
-
-# -----------------------------------------------------------------------------
-# Utility scripts
-# -----------------------------------------------------------------------------
-
-# Clear xdebug profiler output
-RUN printf '#!/bin/bash\nrm -f /tmp/xdebug/cachegrind.out.* 2>/dev/null\necho "Xdebug profiler files cleared."\n' \
-    > /usr/local/bin/clear-xdebug \
-    && chmod +x /usr/local/bin/clear-xdebug
-
 # -----------------------------------------------------------------------------
 # PHP configuration
 # -----------------------------------------------------------------------------
@@ -107,9 +84,11 @@ COPY conf.d/coqui.ini /usr/local/etc/php/conf.d/coqui.ini
 # -----------------------------------------------------------------------------
 WORKDIR /app
 
-# Pre-create workspace so Docker named volumes inherit correct ownership.
+# Pre-create workspace at /app/workspace for Docker named volume mounts.
 # Docker copies image directory ownership into named volumes on first mount.
-RUN mkdir -p /app/.workspace && chown coqui:coqui /app/.workspace
+# The COQUI_WORKSPACE env var or --workspace CLI flag points here in Docker.
+RUN mkdir -p /app/workspace \
+    && chown -R coqui:coqui /app/workspace
 
 # Run as non-root user
 USER coqui

@@ -154,6 +154,6 @@
     },
     "defaults": {
         "model": "ollama/qwen3:latest",
-        "workspace": "~/.coqui/workspace"
+        "workspace": "~/.coqui/.workspace"
     }
 }

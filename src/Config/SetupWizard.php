@@ -402,27 +402,12 @@ final class SetupWizard
 
         $default = $this->defaults->defaultWorkspace();
 
-        // Detect an existing local .workspace/ in the current directory
-        $cwd = getcwd();
-        $hasLocalWorkspace = $cwd !== false && is_dir($cwd . '/.workspace');
-
-        if ($hasLocalWorkspace) {
-            $default = '.workspace';
-            $this->io->text([
-                'The workspace is a sandboxed directory where Coqui reads and writes files.',
-                '',
-                sprintf('<fg=cyan>Detected existing workspace at:</> %s/.workspace', $cwd),
-                'Using this local workspace as the default. Change to <fg=cyan>~/.coqui/workspace</> for a shared home directory workspace.',
-            ]);
-        } else {
-            $this->io->text([
-                'The workspace is a sandboxed directory where Coqui stores sessions, credentials, and files.',
-                '',
-                sprintf('Default: <fg=cyan>~/.coqui/workspace</> (resolves to <fg=gray>%s/.coqui/workspace</>)', $this->resolveHome()),
-                'All sessions are stored in this single location regardless of where you run Coqui from.',
-                'Use a relative path like <fg=cyan>.workspace</> to create a project-local workspace instead.',
-            ]);
-        }
+        $this->io->text([
+            'The workspace is a sandboxed directory where Coqui stores sessions, credentials, and files.',
+            '',
+            sprintf('Default: <fg=cyan>~/.coqui/.workspace</> (resolves to <fg=gray>%s/.coqui/.workspace</>)', $this->resolveHome()),
+            'All sessions are stored in this single location regardless of where you run Coqui from.',
+        ]);
 
         $workspace = $this->io->ask('Workspace directory', $default);
 
@@ -477,21 +462,19 @@ final class SetupWizard
      */
     private function configureApiKey(): void
     {
+        // Skip entirely if key already configured
+        $existingKey = $this->credentialResolver?->get('COQUI_API_KEY');
+        if ($existingKey !== null && $existingKey !== '') {
+            $this->io->text('<fg=gray>API key already configured — skipping.</>');
+            return;
+        }
+
         $this->io->section('Step 7: API Server Key');
 
         $this->io->text([
             'The HTTP API server requires an API key for authentication.',
             'This key is used with <fg=cyan>Authorization: Bearer <key></> when calling the API.',
         ]);
-
-        // Check if key already exists
-        $existingKey = $this->credentialResolver?->get('COQUI_API_KEY');
-        if ($existingKey !== null && $existingKey !== '') {
-            $this->io->text('<fg=gray>An API key is already configured.</>');
-            if (!$this->io->confirm('Generate a new API key? (replaces existing)', false)) {
-                return;
-            }
-        }
 
         $generateKey = $this->io->confirm('Generate an API key now?', true);
 

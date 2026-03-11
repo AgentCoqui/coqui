@@ -45,6 +45,7 @@ final class TaskRunCommand extends Command
             ->addArgument('task-id', InputArgument::REQUIRED, 'The background task ID to execute')
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to openclaw.json')
             ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory', getcwd() ?: '.')
+            ->addOption('workspace', null, InputOption::VALUE_REQUIRED, 'Workspace directory (overrides config and default)')
             ->addOption('unsafe', null, InputOption::VALUE_NONE, 'Disable script sanitization');
     }
 
@@ -66,7 +67,9 @@ final class TaskRunCommand extends Command
         $configOption = $input->getOption('config');
         $configPath = is_string($configOption) ? $configOption : null;
 
-        $boot = new BootManager($workDir);
+        $workspaceOverride = $this->resolveWorkspaceOverride($input);
+
+        $boot = new BootManager($workDir, $workspaceOverride);
         $result = $boot->boot(io: null, configPath: $configPath);
 
         if (!$result) {
@@ -333,5 +336,22 @@ final class TaskRunCommand extends Command
 
             return Command::FAILURE;
         }
+    }
+
+    private function resolveWorkspaceOverride(InputInterface $input): ?string
+    {
+        $option = $input->getOption('workspace');
+
+        if (is_string($option) && $option !== '') {
+            return $option;
+        }
+
+        $env = getenv('COQUI_WORKSPACE');
+
+        if (is_string($env) && $env !== '') {
+            return $env;
+        }
+
+        return null;
     }
 }

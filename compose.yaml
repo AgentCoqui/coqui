@@ -33,9 +33,9 @@ services:
       # Source code — bind-mounted for live editing
       - .:/app
 
-      # Workspace — named volume for persistence across runs
-      # Contains: .workspace/data/coqui.db, .workspace/vendor/, bot-managed files
-      - coqui_workspace:/app/.workspace
+      # Workspace — named volume persists session data, bot packages, and workspace state
+      # COQUI_WORKSPACE env var tells BootManager to use this path instead of ~/.coqui/.workspace
+      - coqui_workspace:/app/workspace
 
       # User config — mount if present (create openclaw.json first)
       # Uncomment below or use: docker compose run -v ./openclaw.json:/app/openclaw.json:ro coqui
@@ -53,6 +53,9 @@ services:
 
       # Composer
       COMPOSER_ALLOW_SUPERUSER: 0
+
+      # Workspace — use the named volume mount inside the container
+      COQUI_WORKSPACE: ${COQUI_WORKSPACE:-/app/workspace}
 
     # Resolve host.docker.internal on Linux (automatic on macOS/Windows)
     extra_hosts:

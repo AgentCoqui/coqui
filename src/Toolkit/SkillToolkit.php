@@ -69,7 +69,7 @@ final class SkillToolkit implements ToolkitInterface
             - Write descriptions that clearly state WHAT the skill does and WHEN to use it
 
             ## Skill Structure
-            Each skill is a directory in .workspace/skills/ containing:
+            Each skill is a directory in workspace/skills/ containing:
             - SKILL.md (required) — YAML frontmatter + markdown instructions
             - scripts/ (optional) — executable code
             - references/ (optional) — additional documentation
@@ -144,7 +144,7 @@ final class SkillToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'skill_create',
-            description: 'Create a new skill with a SKILL.md file. Skills are saved to .workspace/skills/.',
+            description: 'Create a new skill with a SKILL.md file. Skills are saved to workspace/skills/.',
             parameters: [
                 new StringParameter('name', 'Kebab-case skill name (e.g. "code-review"). Must match directory name.', required: true),
                 new StringParameter('description', 'What the skill does and when to use it (max 1024 chars).', required: true),

@@ -7,7 +7,7 @@
 #   bare names   — native (no Docker)
 #   docker-*     — Docker compose operations
 #
-# Port defaults: API=3300, Webgrind=3390
+# Port defaults: API=3300
 ###############################################################################
 
 .PHONY: help \
@@ -15,9 +15,9 @@
         dev \
         docker-build docker-start docker-stop docker-status \
         docker-repl docker-api docker-api-stop docker-api-logs \
-        docker-dev docker-shell \
-        test test-coverage install clean clean-workspace clean-pids \
-        composer xdebug-clear \
+        docker-shell \
+        install clean clean-workspace clean-pids \
+        composer \
         build build-clean
 
 # Default target
@@ -70,16 +70,14 @@ restart: ## Restart REPL + API (clean stop then start)
 	@./bin/coqui-launcher stop 2>/dev/null || true
 	@./bin/coqui-launcher $(ARGS)
 
-dev: ## Start REPL + API in dev mode (Xdebug)
-	@XDEBUG_MODE=debug XDEBUG_CONFIG="client_host=localhost" ./bin/coqui-launcher $(ARGS)
+dev: ## Start REPL + API in dev mode
+	@./bin/coqui-launcher $(ARGS)
 
 # =============================================================================
 # Docker
 # =============================================================================
 
 COMPOSE_API := -f compose.yaml -f compose.api.yaml
-COMPOSE_DEV := -f compose.yaml -f compose.dev.yaml
-COMPOSE_TEST := -f compose.yaml -f compose.test.yaml
 
 docker-build: ## Build the Coqui Docker image
 	@docker compose build
@@ -91,7 +89,7 @@ docker-start: ## Start REPL (interactive) + API (background)
 	@docker compose run --rm coqui $(ARGS)
 
 docker-stop: ## Stop all Docker services
-	@docker compose $(COMPOSE_API) -f compose.dev.yaml -f compose.test.yaml \
+	@docker compose $(COMPOSE_API) \
 		down --remove-orphans 2>/dev/null || true
 	@echo "All services stopped"
 
@@ -117,11 +115,6 @@ docker-api-stop: ## Stop the API container
 docker-api-logs: ## Follow API server logs
 	@docker compose $(COMPOSE_API) logs -f coqui-api
 
-docker-dev: ## Dev mode: REPL + Xdebug + Webgrind
-	@docker compose $(COMPOSE_DEV) up -d webgrind
-	@echo "Webgrind: http://localhost:$${COQUI_WEBGRIND_PORT:-3390}"
-	@docker compose $(COMPOSE_DEV) run --rm coqui $(ARGS)
-
 docker-shell: ## Open a bash shell in the container
 	@docker compose run --rm --entrypoint /bin/bash coqui
 
@@ -137,17 +130,8 @@ build-clean: ## Remove build artifacts
 	@echo "Build artifacts removed"
 
 # =============================================================================
-# Build & Test
+# Composer
 # =============================================================================
-
-test: ## Run Pest tests (Docker)
-	@docker compose $(COMPOSE_TEST) run --rm coqui
-	@echo "Tests complete"
-
-test-coverage: ## Run tests with code coverage
-	@docker compose $(COMPOSE_TEST) run --rm coqui \
-		vendor/bin/pest --coverage --min=0
-	@echo "Coverage report complete"
 
 install: ## Run composer install (Docker)
 	@docker compose run --rm --entrypoint composer coqui install
@@ -159,16 +143,12 @@ composer: ## Run composer command (make composer CMD="require foo/bar")
 	fi
 	@docker compose run --rm --entrypoint composer coqui $(CMD)
 
-xdebug-clear: ## Clear Xdebug profiler output
-	@docker compose run --rm --entrypoint clear-xdebug coqui
-	@echo "Xdebug files cleared"
-
 # =============================================================================
 # Cleanup
 # =============================================================================
 
 clean: ## Remove all Docker containers, images, and volumes
-	@docker compose $(COMPOSE_API) -f compose.dev.yaml -f compose.test.yaml \
+	@docker compose $(COMPOSE_API) \
 		down -v --remove-orphans --rmi local 2>/dev/null || true
 	@echo "Cleaned up"
 
