@@ -670,7 +670,7 @@
 									"value": "application/json"
 								}
 							],
-							"body": "{\n  \"agents\": {\n    \"defaults\": {\n      \"workspace\": \".workspace\",\n      \"model\": {\n        \"primary\": \"openai/gpt-5\"\n      },\n      \"roles\": {\n        \"orchestrator\": \"openai/gpt-5\",\n        \"coder\": \"openai/gpt-5\",\n        \"reviewer\": \"openai/gpt-5\"\n      }\n    }\n  },\n  \"models\": {\n    \"mode\": \"merge\",\n    \"providers\": {\n      \"openai\": {\n        \"baseUrl\": \"https://api.openai.com/v1\",\n        \"api\": \"openai-completions\",\n        \"apiKey\": \"***\"\n      }\n    }\n  }\n}"
+							"body": "{\n  \"agents\": {\n    \"defaults\": {\n      \"workspace\": \"~/.coqui/.workspace\",\n      \"model\": {\n        \"primary\": \"openai/gpt-5\"\n      },\n      \"roles\": {\n        \"orchestrator\": \"openai/gpt-5\",\n        \"coder\": \"openai/gpt-5\",\n        \"reviewer\": \"openai/gpt-5\"\n      }\n    }\n  },\n  \"models\": {\n    \"mode\": \"merge\",\n    \"providers\": {\n      \"openai\": {\n        \"baseUrl\": \"https://api.openai.com/v1\",\n        \"api\": \"openai-completions\",\n        \"apiKey\": \"***\"\n      }\n    }\n  }\n}"
 						}
 					]
 				},

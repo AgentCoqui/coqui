@@ -211,7 +211,7 @@ final class BootManager
      *
      * Reads `agents.defaults.mounts` from openclaw.json — an array of mount
      * objects with path, alias, access (ro|rw), and optional description.
-     * Creates symlinks under .workspace/mnt/ for agent discoverability.
+     * Creates symlinks under workspace/mnt/ for agent discoverability.
      */
     private function initializeMounts(): void
     {

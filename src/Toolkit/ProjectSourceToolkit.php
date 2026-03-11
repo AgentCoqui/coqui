@@ -179,8 +179,8 @@ final class ProjectSourceToolkit implements ToolkitInterface
                             continue;
                         }
 
-                        // Skip vendor/ and .workspace/ in recursive listings
-                        if (str_starts_with($relPath, 'vendor/') || str_starts_with($relPath, '.workspace/')) {
+                        // Skip vendor/ and workspace/ in recursive listings
+                        if (str_starts_with($relPath, 'vendor/') || str_starts_with($relPath, 'workspace/')) {
                             continue;
                         }
 

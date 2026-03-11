@@ -46,7 +46,6 @@ make docker-api PORT=3000    # custom port
 | `--config` | `-c` | `./openclaw.json` | Path to openclaw.json config |
 | `--workdir` | `-w` | Current directory | Working directory (project root) |
 | `--unsafe` | | `false` | Disable script sanitization (dangerous) |
-| `--no-auth` | | `false` | Deprecated — localhost access is unauthenticated by default |
 | `--cors-origin` | | `*` | Allowed CORS origins (comma-separated) |
 
 ## Authentication
@@ -101,8 +100,6 @@ The bind address is resolved in this order:
 1. `--host` CLI flag (highest priority)
 2. `COQUI_API_HOST` environment variable
 3. Default: `127.0.0.1`
-
-The `--no-auth` flag is deprecated. Localhost access is unauthenticated by default when no API key is configured.
 
 ### Security Considerations
 
@@ -810,7 +807,7 @@ Returns the full Coqui configuration. API keys in provider configs are masked as
 {
   "agents": {
     "defaults": {
-      "workspace": "~/.coqui/workspace",
+      "workspace": "~/.coqui/.workspace",
       "model": {
         "primary": "openai/gpt-5"
       },

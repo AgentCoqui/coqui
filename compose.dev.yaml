@@ -26,7 +26,7 @@ services:
       - ..:/workspace
 
       # Workspace persistence (same named volume as base)
-      - coqui_workspace:/workspace/coqui/.workspace
+      - coqui_workspace:/workspace/coqui/workspace
 
       # Xdebug config — enables the extension (not loaded in base)
       - ./conf.d/xdebug.ini:/usr/local/etc/php/conf.d/99-xdebug.ini:ro

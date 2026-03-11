@@ -51,7 +51,6 @@ services:
       COQUI_API_KEY: ${COQUI_API_KEY:-}
       COQUI_AUTO_APPROVE: ${COQUI_AUTO_APPROVE:-false}
       COQUI_UNSAFE: ${COQUI_UNSAFE:-false}
-      COQUI_NO_AUTH: ${COQUI_NO_AUTH:-false}  # Deprecated — localhost access is unauthenticated by default
 
     extra_hosts:
       - "host.docker.internal:host-gateway"

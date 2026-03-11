@@ -24,7 +24,7 @@ This guide covers everything you need to create, organize, and use skills effect
 
 ## What Is a Skill?
 
-A skill is a directory inside `.workspace/skills/` containing a `SKILL.md` file. The file has two parts:
+A skill is a directory inside `workspace/skills/` containing a `SKILL.md` file. The file has two parts:
 
 1. **YAML frontmatter** — structured metadata (name, description, license, etc.)
 2. **Markdown body** — detailed instructions the agent follows when the skill is activated
@@ -35,7 +35,7 @@ Skills implement the [AgentSkills specification](https://agentskills.io/specific
 ┌─────────────────────────────────────────────────────┐
 │                   How Skills Work                   │
 │                                                     │
-│  1. Boot: scan .workspace/skills/*/SKILL.md         │
+│  1. Boot: scan workspace/skills/*/SKILL.md          │
 │  2. Load frontmatter only (name + description)      │
 │  3. Inject skill summaries into system prompt       │
 │  4. User asks a question                            │
@@ -53,7 +53,7 @@ Skills implement the [AgentSkills specification](https://agentskills.io/specific
 | Format | Markdown (SKILL.md) | PHP (ToolkitInterface) |
 | Purpose | Behavior and instructions | Executable capabilities |
 | Requires code? | No | Yes |
-| Installed via | Copy to `.workspace/skills/` | `composer require` |
+| Installed via | Copy to `workspace/skills/` | `composer require` |
 | Runs code? | No (prompt-only) | Yes (tool callbacks) |
 
 ## Quick Start
@@ -76,10 +76,10 @@ The skill is immediately available — no restart needed.
 
 ### Manual Creation
 
-1. Create a directory in `.workspace/skills/`:
+1. Create a directory in `workspace/skills/`:
 
 ```bash
-mkdir -p .workspace/skills/code-review
+mkdir -p workspace/skills/code-review
 ```
 
 2. Create `SKILL.md`:
@@ -347,8 +347,8 @@ skill_create(
 Create the directory and file yourself:
 
 ```bash
-mkdir -p .workspace/skills/git-workflow
-cat > .workspace/skills/git-workflow/SKILL.md << 'EOF'
+mkdir -p workspace/skills/git-workflow
+cat > workspace/skills/git-workflow/SKILL.md << 'EOF'
 ---
 name: git-workflow
 description: Manage git branches, commits, and PRs following conventional patterns.
@@ -368,7 +368,7 @@ Restart Coqui to trigger discovery, or use the `skill_list` tool after a restart
 Copy the example skill from the Coqui source:
 
 ```bash
-cp -r examples/say-hello .workspace/skills/say-hello
+cp -r examples/say-hello workspace/skills/say-hello
 ```
 
 Edit the `SKILL.md` to customize it for your use case.
@@ -535,7 +535,7 @@ loadConfig → blacklist → roleResolver → initializeWorkspace
 ```
 
 The `discoverSkills` step:
-1. Creates a `SkillDiscovery` instance pointed at `.workspace/skills/`
+1. Creates a `SkillDiscovery` instance pointed at `workspace/skills/`
 2. Calls `ensureSkillsDir()` to create the directory if it doesn't exist
 3. `SkillDiscovery` is passed to `AgentRunner` → `OrchestratorAgent`
 
@@ -565,7 +565,7 @@ When `OrchestratorAgent` initializes its tools, it registers `SkillToolkit` (pro
 ### File Layout
 
 ```
-.workspace/
+workspace/
 └── skills/
     ├── code-review/
     │   └── SKILL.md
@@ -775,7 +775,7 @@ scripts/validate.sh <data-file> assets/schema.json
 
 ### Skill not appearing in skill_list
 
-- Verify the directory is inside `.workspace/skills/`
+- Verify the directory is inside `workspace/skills/`
 - Check that `SKILL.md` exists (case-sensitive: `SKILL.md` preferred, `skill.md` accepted)
 - Ensure the frontmatter has both `name` and `description` fields
 - Confirm the `name` value matches the directory name exactly

@@ -36,7 +36,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 
 - **Multi-model orchestration** — route tasks to the right model: cheap local models for orchestration, powerful cloud models for coding and review
 - **Persistent sessions** — SQLite-backed conversations that survive restarts; resume where you left off
-- **Workspace sandboxing** — all file I/O is sandboxed to the workspace directory (`~/.coqui/workspace` by default) with its own Composer project, keeping your project safe
+- **Workspace sandboxing** — all file I/O is sandboxed to the workspace directory (`~/.coqui/.workspace` by default) with its own Composer project, keeping your project safe
 - **Runtime extensibility** — install Composer packages at runtime and Coqui auto-discovers new toolkits on every boot
 - **Child agent delegation** — spawns specialized agents (coder, reviewer) using role-appropriate models
 - **Interactive approval** — dangerous operations (package installs, shell exec, PHP execution) require your confirmation
@@ -133,7 +133,7 @@ The launcher starts the REPL (foreground) + API server (background on port 3300)
  Session  a3f8b2c1
  Model    ollama/glm-4.7-flash:latest
  Project  /home/you/projects/my-app
- Workspace /home/you/.coqui/workspace
+ Workspace /home/you/.coqui/.workspace
 
  Type /help for commands, /quit to exit.
 
@@ -328,7 +328,7 @@ Coqui ships with a rich set of tools the agent can use autonomously:
 
 | Toolkit | Description |
 |---------|-------------|
-| `FilesystemToolkit` | Sandboxed read/write to the workspace directory (`~/.coqui/workspace` by default) |
+| `FilesystemToolkit` | Sandboxed read/write to the workspace directory (`~/.coqui/.workspace` by default) |
 | `ShellToolkit` | Run shell commands from project root — configurable allowlist (default includes `git`, `grep`, `find`, `cat`, `ls`, `curl`, `wget`, etc.) |
 | `MemoryToolkit` | Persistent memory via `MEMORY.md` for facts that survive across sessions |
 

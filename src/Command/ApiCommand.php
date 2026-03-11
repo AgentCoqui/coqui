@@ -55,7 +55,6 @@ final class ApiCommand extends Command
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to openclaw.json')
             ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory', getcwd() ?: '.')
             ->addOption('unsafe', null, InputOption::VALUE_NONE, 'Disable script sanitization (dangerous)')
-            ->addOption('no-auth', null, InputOption::VALUE_NONE, 'Deprecated — localhost access is now unauthenticated by default')
             ->addOption('cors-origin', null, InputOption::VALUE_REQUIRED, 'Allowed CORS origins (comma-separated)', '*');
     }
 
@@ -78,14 +77,6 @@ final class ApiCommand extends Command
         $corsOrigin = is_string($input->getOption('cors-origin'))
             ? $input->getOption('cors-origin')
             : '*';
-
-        // --no-auth is deprecated — localhost is now unauthenticated by default
-        $noAuth = (bool) $input->getOption('no-auth')
-            || filter_var(getenv('COQUI_NO_AUTH'), FILTER_VALIDATE_BOOLEAN);
-        if ($noAuth) {
-            $output->writeln('<comment>NOTE: --no-auth is deprecated. Localhost access is now unauthenticated by default when no API key is configured.</comment>');
-            $output->writeln('');
-        }
 
         $output->writeln('<info>Coqui API Server</info>');
         $output->writeln('');

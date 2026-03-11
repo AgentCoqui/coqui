@@ -78,7 +78,7 @@ final class WorkspaceComposerManager
      * The workspace autoloader is registered with prepend=false so it does NOT
      * override classes already provided by the project's autoloader. This
      * prevents stale transitive copies of php-agents (or any shared dependency)
-     * in .workspace/vendor/ from shadowing the project's current version.
+     * in workspace/vendor/ from shadowing the project's current version.
      *
      * Returns true if the autoloader was loaded, false if not available.
      */
