@@ -495,7 +495,7 @@ Coqui has multiple layers of protection:
 
 ## Docker
 
-Run Coqui in a container with zero host dependencies. The Docker setup uses `php:8.4-cli` with all required extensions, Composer, and optional Xdebug/pcov for development and testing.
+Run Coqui in a container with zero host dependencies. The Docker setup uses `php:8.4-cli` with all required extensions and Composer.
 
 ### Quick Start (Docker)
 
@@ -527,31 +527,6 @@ Coqui connects to Ollama on your host machine via `host.docker.internal`. Make s
 ollama serve
 ```
 
-### Development Mode
-
-Development mode enables Xdebug (step debugging + profiling) and mounts sibling repositories so Composer path repos resolve inside the container:
-
-```bash
-# Start REPL with Xdebug + path repos
-make docker-dev
-
-# Webgrind profiler viewer runs automatically
-# Open http://localhost:3390
-```
-
-### Running Tests
-
-```bash
-# Run Pest tests
-make test
-
-# Run with code coverage (pcov)
-make test-coverage
-
-# Open a shell in the test container
-make test-shell
-```
-
 ### Useful Commands
 
 | Command | Description |
@@ -564,10 +539,7 @@ make test-shell
 | `make docker-start` | REPL + API (Docker) |
 | `make docker-repl` | REPL only (Docker) |
 | `make docker-api` | API only (Docker) |
-| `make docker-dev` | Dev mode with Xdebug + Webgrind |
 | `make docker-shell` | Bash shell in container |
-| `make test` | Run Pest tests |
-| `make test-coverage` | Tests with coverage report |
 | `make install` | Run `composer install` |
 | `make clean` | Remove containers, images, volumes |
 | `make help` | Show all available targets |
@@ -588,16 +560,12 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 
 | File | Purpose |
 |------|---------|
-| `Dockerfile` | PHP 8.4 CLI + extensions + Composer + Xdebug/pcov (disabled by default) |
+| `Dockerfile` | PHP 8.4 CLI + extensions + Composer |
 | `compose.yaml` | Base service with workspace volume + host Ollama access |
 | `compose.api.yaml` | API server service (port 3300) — runs alongside REPL |
-| `compose.dev.yaml` | Xdebug, workspace root mount, Webgrind (port 3390) |
-| `compose.test.yaml` | Non-interactive test runner with pcov |
 | `Makefile` | Self-documenting targets: native (`start`, `api`) and Docker (`docker-*`) |
 | `.env.example` | Environment variable documentation |
 | `conf.d/coqui.ini` | CLI-optimized PHP config (OPcache + JIT) |
-| `conf.d/xdebug.ini` | Xdebug debug + profile config (dev only) |
-| `conf.d/test.ini` | pcov + no OPcache (test only) |
 
 ## Community
 

@@ -5,8 +5,6 @@
 /.github/             export-ignore
 /.dockerignore        export-ignore
 /Dockerfile            export-ignore
-/compose.dev.yaml     export-ignore
-/compose.test.yaml    export-ignore
 /phpstan.neon         export-ignore
 /phpunit.xml          export-ignore
 /AGENTS.md            export-ignore
@@ -15,10 +13,6 @@
 # Dev / alternate Composer configs
 /composer-dev.json    export-ignore
 /composer-prod.json   export-ignore
-
-# Dev PHP ini overrides
-/conf.d/xdebug.ini   export-ignore
-/conf.d/test.ini      export-ignore
 
 # Tests, examples, build scripts
 /tests/               export-ignore
