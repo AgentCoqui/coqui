@@ -23,7 +23,6 @@ final class SetupCommand extends Command
     {
         $this
             ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory (project root)', getcwd() ?: '.')
-            ->addOption('workspace', null, InputOption::VALUE_REQUIRED, 'Workspace directory (overrides config and default)')
             ->addOption('output', 'o', InputOption::VALUE_REQUIRED, 'Output path for openclaw.json');
     }
 
@@ -53,22 +52,5 @@ final class SetupCommand extends Command
         $saved = $wizard->runAndSave($outputPath);
 
         return $saved ? Command::SUCCESS : Command::FAILURE;
-    }
-
-    private function resolveWorkspaceOverride(InputInterface $input): ?string
-    {
-        $option = $input->getOption('workspace');
-
-        if (is_string($option) && $option !== '') {
-            return $option;
-        }
-
-        $env = getenv('COQUI_WORKSPACE');
-
-        if (is_string($env) && $env !== '') {
-            return $env;
-        }
-
-        return null;
     }
 }

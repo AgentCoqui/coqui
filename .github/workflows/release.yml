@@ -143,7 +143,7 @@ jobs:
 
           # Final cleanup
           rm -f .gitattributes .gitignore
-          rm -rf .github/ .workspace/ 2>/dev/null || true
+          rm -rf .github/ .workspace/ workspace/ 2>/dev/null || true
 
       - name: Verify build
         working-directory: BUILD/coqui

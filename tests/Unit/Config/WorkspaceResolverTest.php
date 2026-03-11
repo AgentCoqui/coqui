@@ -80,3 +80,47 @@ test('resolves tilde workspace path to home directory', function () {
     @unlink($result . '/.gitkeep');
     @rmdir($result);
 });
+
+test('explicit override takes precedence over config and default', function () {
+    $tmpDir = sys_get_temp_dir() . '/coqui-override-test-' . bin2hex(random_bytes(4));
+
+    // Config points somewhere different
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'workspace' => '/tmp/should-not-be-used',
+            ],
+        ],
+    ]);
+
+    $resolver = new WorkspaceResolver($config, '/tmp/fake-project', $tmpDir);
+    $result = $resolver->resolve();
+
+    expect($result)->toBe($tmpDir);
+    expect(is_dir($tmpDir))->toBeTrue();
+
+    // Cleanup
+    @unlink($result . '/.gitkeep');
+    @rmdir($result);
+});
+
+test('null override falls back to config value', function () {
+    $tmpDir = sys_get_temp_dir() . '/coqui-fallback-test-' . bin2hex(random_bytes(4));
+
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'workspace' => $tmpDir,
+            ],
+        ],
+    ]);
+
+    $resolver = new WorkspaceResolver($config, '/tmp/fake-project', null);
+    $result = $resolver->resolve();
+
+    expect($result)->toBe($tmpDir);
+
+    // Cleanup
+    @unlink($result . '/.gitkeep');
+    @rmdir($result);
+});
