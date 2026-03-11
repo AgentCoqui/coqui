@@ -149,7 +149,7 @@ final class BootManager
         $this->roleDiscovery->invalidateCache();
         $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
 
-        $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir);
+        $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir, $this->workspaceOverride);
         $this->workspacePath = $workspaceResolver->resolve();
 
         $this->initializeMounts();
@@ -199,7 +199,7 @@ final class BootManager
 
     private function initializeWorkspace(): void
     {
-        $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir);
+        $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir, $this->workspaceOverride);
         $this->workspacePath = $workspaceResolver->resolve();
 
         $workspaceComposer = new WorkspaceComposerManager($this->workspacePath);

@@ -23,15 +23,24 @@ final readonly class WorkspaceResolver
     public function __construct(
         private ConfigInterface $config,
         private string $projectRoot,
+        private ?string $override = null,
     ) {}
 
     /**
      * Resolve the workspace path to an absolute directory.
      *
      * Creates the directory (and a .gitkeep) if it doesn't exist.
+     * A non-null $override (e.g. from --workspace CLI flag or COQUI_WORKSPACE env)
+     * takes precedence over both the config file and the default.
      */
     public function resolve(): string
     {
+        if ($this->override !== null && $this->override !== '') {
+            $path = $this->expandPath($this->override);
+            $this->ensureDirectory($path);
+            return $path;
+        }
+
         $configured = $this->config->get('agents.defaults.workspace', self::DEFAULT_WORKSPACE);
 
         if (!is_string($configured) || $configured === '') {
