@@ -708,6 +708,33 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
     }
 
     /**
+     * Collect all credential requirements declared across all registered packages.
+     *
+     * Iterates every registered package and merges their credential requirements
+     * into a single map keyed by credential name. First-seen wins for duplicates.
+     *
+     * @return array<string, CredentialRequirement> Keyed by credential name
+     */
+    public function collectAllCredentialRequirements(): array
+    {
+        $registry = $this->loadRegistry();
+        $merged = [];
+
+        foreach (array_keys($registry) as $packageName) {
+            $requirements = $this->loadCredentialRequirements($packageName);
+
+            foreach ($requirements as $requirement) {
+                // First-seen wins — don't overwrite if already registered
+                if (!isset($merged[$requirement->name])) {
+                    $merged[$requirement->name] = $requirement;
+                }
+            }
+        }
+
+        return $merged;
+    }
+
+    /**
      * Discover all package-bundled skill directories from registered packages.
      *
      * Reads extra.php-agents.skills from each package's composer.json. The value

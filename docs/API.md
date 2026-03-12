@@ -875,6 +875,47 @@ The complete `openclaw.json` content:
 }
 ```
 
+**Response `400`** — validation errors:
+
+```json
+{
+  "error": "Config validation failed",
+  "code": "validation_error",
+  "details": [
+    "agents.defaults.model.primary must be in \"provider/model\" format, got: invalid",
+    "agents.defaults.mounts[0].alias must not contain path separators"
+  ]
+}
+```
+
+#### `POST /api/v1/config/validate`
+
+Dry-run validation of a config object without saving. Use this to validate config changes before committing them.
+
+**Request Body**
+
+The complete `openclaw.json` content (same format as `PUT /api/v1/config`).
+
+**Response `200`** — valid:
+
+```json
+{
+  "valid": true
+}
+```
+
+**Response `200`** — invalid:
+
+```json
+{
+  "valid": false,
+  "errors": [
+    "agents.defaults.model.primary is required and must be a non-empty string",
+    "agents.defaults.mounts[0].access must be \"ro\" or \"rw\""
+  ]
+}
+```
+
 #### `GET /api/v1/config/roles`
 
 Returns all roles with full metadata. The response merges three layers:
@@ -1147,6 +1188,47 @@ Delete a credential.
   "code": "credential_not_found"
 }
 ```
+
+#### `GET /api/v1/credentials/requirements`
+
+List all credential requirements declared by installed toolkit packages. Returns each credential's metadata (name, description, whether it's optional) merged with its current set-status.
+
+This endpoint enables onboarding wizards and management UIs to show users which credentials are needed, where to obtain them, and which ones are already configured.
+
+**Response `200`**
+
+```json
+{
+  "requirements": [
+    {
+      "key": "OPENAI_API_KEY",
+      "description": "OpenAI API key — get one at https://platform.openai.com/api-keys",
+      "optional": false,
+      "is_set": true
+    },
+    {
+      "key": "BRAVE_SEARCH_API_KEY",
+      "description": "Brave Search API key — free at https://brave.com/search/api/",
+      "optional": false,
+      "is_set": false
+    },
+    {
+      "key": "GITHUB_TOKEN",
+      "description": "Optional GitHub personal access token for enhanced rate limits",
+      "optional": true,
+      "is_set": false
+    }
+  ],
+  "count": 3
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `key` | string | Environment variable name (UPPER_SNAKE_CASE) |
+| `description` | string | Human-readable description including where to obtain the credential |
+| `optional` | boolean | When `true`, missing credential does not block tool execution |
+| `is_set` | boolean | Whether the credential is currently configured on the instance |
 
 ### Child Runs
 

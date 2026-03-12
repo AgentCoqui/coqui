@@ -29,6 +29,11 @@ final class ConfigValidator
         $errors = [...$errors, ...$this->validateProviders($data)];
         $errors = [...$errors, ...$this->validateMaxIterations($data)];
         $errors = [...$errors, ...$this->validateBlacklist($data)];
+        $errors = [...$errors, ...$this->validateMounts($data)];
+        $errors = [...$errors, ...$this->validateShellAllowedCommands($data)];
+        $errors = [...$errors, ...$this->validateWorkspace($data)];
+        $errors = [...$errors, ...$this->validateMemory($data)];
+        $errors = [...$errors, ...$this->validateApi($data)];
 
         return $errors;
     }
@@ -221,6 +226,183 @@ final class ConfigValidator
                     $i,
                     $pattern,
                 );
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
+    private function validateMounts(array $data): array
+    {
+        $mounts = $data['agents']['defaults']['mounts'] ?? null;
+        if ($mounts === null) {
+            return [];
+        }
+
+        if (!is_array($mounts)) {
+            return ['agents.defaults.mounts must be an array'];
+        }
+
+        $errors = [];
+        $aliases = [];
+
+        foreach ($mounts as $i => $mount) {
+            $prefix = sprintf('agents.defaults.mounts[%d]', $i);
+
+            if (!is_array($mount)) {
+                $errors[] = "{$prefix} must be an object";
+                continue;
+            }
+
+            // Required: path
+            if (!isset($mount['path']) || !is_string($mount['path']) || $mount['path'] === '') {
+                $errors[] = "{$prefix}.path is required and must be a non-empty string";
+            }
+
+            // Required: alias
+            if (!isset($mount['alias']) || !is_string($mount['alias']) || $mount['alias'] === '') {
+                $errors[] = "{$prefix}.alias is required and must be a non-empty string";
+            } elseif (str_contains($mount['alias'], '/') || str_contains($mount['alias'], '\\')) {
+                $errors[] = "{$prefix}.alias must not contain path separators";
+            } elseif (isset($aliases[$mount['alias']])) {
+                $errors[] = sprintf('%s.alias "%s" is a duplicate of mounts[%d]', $prefix, $mount['alias'], $aliases[$mount['alias']]);
+            } else {
+                $aliases[$mount['alias']] = $i;
+            }
+
+            // Optional: access
+            if (isset($mount['access'])) {
+                if (!is_string($mount['access']) || !in_array($mount['access'], ['ro', 'rw'], true)) {
+                    $errors[] = "{$prefix}.access must be \"ro\" or \"rw\"";
+                }
+            }
+
+            // Optional: description
+            if (isset($mount['description']) && !is_string($mount['description'])) {
+                $errors[] = "{$prefix}.description must be a string";
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
+    private function validateShellAllowedCommands(array $data): array
+    {
+        $commands = $data['agents']['defaults']['shellAllowedCommands'] ?? null;
+        if ($commands === null) {
+            return [];
+        }
+
+        if (!is_array($commands)) {
+            return ['agents.defaults.shellAllowedCommands must be an array of strings'];
+        }
+
+        $errors = [];
+        foreach ($commands as $i => $cmd) {
+            if (!is_string($cmd) || $cmd === '') {
+                $errors[] = sprintf('agents.defaults.shellAllowedCommands[%d] must be a non-empty string', $i);
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
+    private function validateWorkspace(array $data): array
+    {
+        $workspace = $data['agents']['defaults']['workspace'] ?? null;
+        if ($workspace === null) {
+            return [];
+        }
+
+        if (!is_string($workspace) || $workspace === '') {
+            return ['agents.defaults.workspace must be a non-empty string'];
+        }
+
+        return [];
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
+    private function validateMemory(array $data): array
+    {
+        $memory = $data['agents']['defaults']['memory'] ?? null;
+        if ($memory === null) {
+            return [];
+        }
+
+        if (!is_array($memory)) {
+            return ['agents.defaults.memory must be an object'];
+        }
+
+        $errors = [];
+
+        if (isset($memory['embeddingModel'])) {
+            if (!is_string($memory['embeddingModel'])) {
+                $errors[] = 'agents.defaults.memory.embeddingModel must be a string';
+            } elseif (!$this->isValidModelString($memory['embeddingModel'])) {
+                $errors[] = sprintf(
+                    'agents.defaults.memory.embeddingModel: invalid model format "%s" (expected "provider/model")',
+                    $memory['embeddingModel'],
+                );
+            }
+        }
+
+        if (isset($memory['enabled']) && !is_bool($memory['enabled'])) {
+            $errors[] = 'agents.defaults.memory.enabled must be a boolean';
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
+    private function validateApi(array $data): array
+    {
+        $api = $data['api'] ?? null;
+        if ($api === null) {
+            return [];
+        }
+
+        if (!is_array($api)) {
+            return ['api must be an object'];
+        }
+
+        $errors = [];
+
+        if (isset($api['key']) && (!is_string($api['key']) || $api['key'] === '')) {
+            $errors[] = 'api.key must be a non-empty string';
+        }
+
+        if (isset($api['rateLimit'])) {
+            if (!is_array($api['rateLimit'])) {
+                $errors[] = 'api.rateLimit must be an object';
+            } else {
+                if (isset($api['rateLimit']['maxRequests'])) {
+                    if (!is_int($api['rateLimit']['maxRequests']) || $api['rateLimit']['maxRequests'] <= 0) {
+                        $errors[] = 'api.rateLimit.maxRequests must be a positive integer';
+                    }
+                }
+                if (isset($api['rateLimit']['windowSeconds'])) {
+                    if (!is_int($api['rateLimit']['windowSeconds']) || $api['rateLimit']['windowSeconds'] <= 0) {
+                        $errors[] = 'api.rateLimit.windowSeconds must be a positive integer';
+                    }
+                }
             }
         }
 
