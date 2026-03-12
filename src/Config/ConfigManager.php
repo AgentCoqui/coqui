@@ -1,0 +1,304 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CoquiBot\Coqui\Config;
+
+use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
+
+/**
+ * Single source of truth for openclaw.json configuration.
+ *
+ * Manages the config lifecycle: resolve path, load, save, reload, and detect
+ * changes via filemtime. The config lives in the workspace directory, making
+ * it accessible (with guardrails) to the agent for self-configuration.
+ *
+ * On first boot, if no workspace config exists, the manager seeds it from
+ * the project root config or DefaultsLoader defaults.
+ */
+final class ConfigManager
+{
+    private OpenClawConfig $config;
+    private string $configPath;
+    private int $lastModifiedTime = 0;
+
+    public function __construct(
+        private readonly string $workspacePath,
+        private readonly string $projectRoot,
+        private readonly DefaultsLoader $defaultsLoader,
+        private readonly ?ConfigValidator $validator = null,
+    ) {
+        $this->configPath = rtrim($this->workspacePath, '/') . '/openclaw.json';
+    }
+
+    /**
+     * Load the config from the workspace. Seeds from project root or defaults on first boot.
+     *
+     * @param string|null $explicitPath CLI --config override (takes absolute precedence)
+     */
+    public function load(?string $explicitPath = null): OpenClawConfig
+    {
+        // CLI --config flag overrides everything — use that path as-is
+        if ($explicitPath !== null && $explicitPath !== '') {
+            if (!file_exists($explicitPath)) {
+                throw new \RuntimeException(sprintf(
+                    'Config file not found at explicit path: %s',
+                    $explicitPath,
+                ));
+            }
+            $this->configPath = realpath($explicitPath) ?: $explicitPath;
+            $this->config = OpenClawConfig::fromFile($explicitPath);
+            $this->recordModifiedTime();
+            return $this->config;
+        }
+
+        // Primary: workspace config
+        if (file_exists($this->configPath)) {
+            $this->config = OpenClawConfig::fromFile($this->configPath);
+            $this->recordModifiedTime();
+            return $this->config;
+        }
+
+        // Seed from project root config if it exists
+        $this->seedConfig();
+
+        if (file_exists($this->configPath)) {
+            $this->config = OpenClawConfig::fromFile($this->configPath);
+            $this->recordModifiedTime();
+            return $this->config;
+        }
+
+        // Fallback: build minimal config from defaults
+        $this->config = $this->buildDefaultConfig();
+        $this->saveRaw($this->config);
+        $this->recordModifiedTime();
+        return $this->config;
+    }
+
+    /**
+     * Reload config from disk. Returns true if config actually changed.
+     */
+    public function reload(): bool
+    {
+        if (!file_exists($this->configPath)) {
+            return false;
+        }
+
+        $this->config = OpenClawConfig::fromFile($this->configPath);
+        $this->recordModifiedTime();
+        return true;
+    }
+
+    /**
+     * Save config data to workspace, with optional validation.
+     *
+     * @param array<string, mixed> $data Full config array to write
+     * @return string[] Validation errors (empty on success)
+     */
+    public function save(array $data): array
+    {
+        if ($this->validator !== null) {
+            $errors = $this->validator->validate($data);
+            if (!empty($errors)) {
+                return $errors;
+            }
+        }
+
+        $this->ensureDirectory();
+
+        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        file_put_contents($this->configPath, $json . "\n", LOCK_EX);
+
+        $this->config = OpenClawConfig::fromArray($data);
+        $this->recordModifiedTime();
+
+        return [];
+    }
+
+    /**
+     * Update a single dot-notation key in the config.
+     *
+     * @return string[] Validation errors (empty on success)
+     */
+    public function set(string $dotKey, mixed $value): array
+    {
+        $data = $this->toArray();
+        $this->setNestedValue($data, $dotKey, $value);
+        return $this->save($data);
+    }
+
+    /**
+     * Check if the config file has been modified since last load/save.
+     */
+    public function hasChanged(): bool
+    {
+        if (!file_exists($this->configPath)) {
+            return false;
+        }
+
+        clearstatcache(true, $this->configPath);
+        $currentMtime = filemtime($this->configPath);
+
+        return $currentMtime !== false && $currentMtime > $this->lastModifiedTime;
+    }
+
+    public function config(): OpenClawConfig
+    {
+        if (!isset($this->config)) {
+            throw new \RuntimeException('Config not loaded. Call load() first.');
+        }
+        return $this->config;
+    }
+
+    public function path(): string
+    {
+        return $this->configPath;
+    }
+
+    public function workspacePath(): string
+    {
+        return $this->workspacePath;
+    }
+
+    /**
+     * Get the raw config as an array for modification.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(): array
+    {
+        if (!file_exists($this->configPath)) {
+            return [];
+        }
+
+        $json = file_get_contents($this->configPath);
+        if ($json === false) {
+            return [];
+        }
+
+        $data = json_decode($json, true);
+        return is_array($data) ? $data : [];
+    }
+
+    /**
+     * Get a config value by dot-notation key, with API key sanitization.
+     */
+    public function getSanitized(string $dotKey): mixed
+    {
+        $value = $this->config->get($dotKey);
+
+        // Sanitize API key fields
+        if (is_string($value) && $this->isApiKeyField($dotKey)) {
+            return $value !== '' ? '***' : '';
+        }
+
+        return $value;
+    }
+
+    /**
+     * Seed workspace config from project root or defaults.
+     */
+    private function seedConfig(): void
+    {
+        $this->ensureDirectory();
+
+        // Try project root openclaw.json
+        $projectConfig = rtrim($this->projectRoot, '/') . '/openclaw.json';
+        if (file_exists($projectConfig)) {
+            $content = file_get_contents($projectConfig);
+            if ($content !== false) {
+                file_put_contents($this->configPath, $content, LOCK_EX);
+                return;
+            }
+        }
+
+        // Try bundled default (relative to coqui package root)
+        $bundledConfig = dirname(__DIR__, 2) . '/openclaw.json';
+        if (file_exists($bundledConfig) && $bundledConfig !== $projectConfig) {
+            $content = file_get_contents($bundledConfig);
+            if ($content !== false) {
+                file_put_contents($this->configPath, $content, LOCK_EX);
+                return;
+            }
+        }
+    }
+
+    private function buildDefaultConfig(): OpenClawConfig
+    {
+        $defaultModel = $this->defaultsLoader->defaultModel();
+
+        return OpenClawConfig::fromArray([
+            'agents' => [
+                'defaults' => [
+                    'model' => ['primary' => $defaultModel],
+                    'roles' => ['orchestrator' => $defaultModel],
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * Save an OpenClawConfig to disk without validation (internal use).
+     */
+    private function saveRaw(OpenClawConfig $config): void
+    {
+        $this->ensureDirectory();
+
+        // Reconstruct array from the config — use toArray() if available, else re-read
+        $data = [
+            'agents' => $config->get('agents') ?? [],
+            'models' => $config->get('models') ?? [],
+        ];
+
+        // Remove null/empty top-level keys
+        $data = array_filter($data, fn(mixed $v): bool => !empty($v));
+
+        $json = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+        file_put_contents($this->configPath, $json . "\n", LOCK_EX);
+    }
+
+    private function ensureDirectory(): void
+    {
+        $dir = dirname($this->configPath);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+    }
+
+    private function recordModifiedTime(): void
+    {
+        clearstatcache(true, $this->configPath);
+        $mtime = filemtime($this->configPath);
+        $this->lastModifiedTime = $mtime !== false ? $mtime : 0;
+    }
+
+    /**
+     * Set a value in a nested array using dot notation.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function setNestedValue(array &$data, string $dotKey, mixed $value): void
+    {
+        $keys = explode('.', $dotKey);
+        $ref = &$data;
+
+        foreach ($keys as $i => $key) {
+            if ($i === count($keys) - 1) {
+                $ref[$key] = $value;
+                return;
+            }
+            if (!isset($ref[$key]) || !is_array($ref[$key])) {
+                $ref[$key] = [];
+            }
+            $ref = &$ref[$key];
+        }
+    }
+
+    private function isApiKeyField(string $dotKey): bool
+    {
+        $lower = strtolower($dotKey);
+        return str_contains($lower, 'apikey')
+            || str_contains($lower, 'api_key')
+            || str_contains($lower, '.key');
+    }
+}

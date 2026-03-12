@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Command;
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
 use CoquiBot\Coqui\Config\SetupWizard;
 use CoquiBot\Coqui\Config\UpdateManager;
@@ -134,6 +135,8 @@ final class RunCommand extends Command
             memoryStore: $this->boot->memoryStore(),
             memorySummarizer: $this->boot->memorySummarizer(),
             mountManager: $this->boot->mountManager(),
+            configManager: $this->boot->configManager(),
+            configGuard: new ConfigGuard(),
         );
 
         // Handle session
@@ -234,6 +237,12 @@ final class RunCommand extends Command
                     return $result;
                 }
                 continue;
+            }
+
+            // Hot-reload config if the workspace file was modified externally
+            if ($this->boot->hasConfigChanged()) {
+                $this->boot->reloadConfig();
+                $io->text('<fg=gray>Config changes detected — reloaded automatically.</>'); 
             }
 
             // Build execution policy for this turn
@@ -660,19 +669,19 @@ final class RunCommand extends Command
 
     private function runConfigWizard(SymfonyStyle $io): void
     {
-        $outputPath = $this->workDir . '/openclaw.json';
+        $outputPath = $this->boot->configManager()->path();
         $wizard = new SetupWizard($io, $this->boot->defaultsLoader(), $this->boot->credentialResolver());
         $saved = $wizard->runAndSave($outputPath);
 
         if ($saved && file_exists($outputPath)) {
-            $this->boot->reloadConfig($outputPath);
+            $this->boot->reloadConfig();
             $io->success('Configuration reloaded. Changes take effect on the next agent run.');
         }
     }
 
     private function showConfigFile(SymfonyStyle $io): void
     {
-        $configPath = $this->workDir . '/openclaw.json';
+        $configPath = $this->boot->configManager()->path();
 
         if (!file_exists($configPath)) {
             $io->warning('No openclaw.json found. Run /config edit to create one.');
@@ -685,7 +694,7 @@ final class RunCommand extends Command
             return;
         }
 
-        $io->section('openclaw.json');
+        $io->section('openclaw.json (' . $configPath . ')');
         $io->writeln($content);
     }
 
@@ -708,7 +717,8 @@ final class RunCommand extends Command
             $io->table(['Role', 'Model'], $rows);
         }
 
-        // Workspace
+        // Workspace and config location
+        $io->writeln('<fg=gray>Config:</> ' . $this->boot->configManager()->path());
         $io->writeln('<fg=gray>Workspace:</> ' . $this->boot->workspacePath());
         $io->writeln('<fg=gray>Project root:</> ' . $this->workDir);
         $io->newLine();
@@ -759,6 +769,8 @@ final class RunCommand extends Command
             memoryStore: $this->boot->memoryStore(),
             memorySummarizer: $this->boot->memorySummarizer(),
             mountManager: $this->boot->mountManager(),
+            configManager: $this->boot->configManager(),
+            configGuard: new ConfigGuard(),
         );
 
         // Handle session

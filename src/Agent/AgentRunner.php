@@ -14,6 +14,8 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
+use CoquiBot\Coqui\Config\ConfigGuard;
+use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -54,6 +56,8 @@ final class AgentRunner
         private readonly ?MemoryStore $memoryStore = null,
         private readonly ?MemorySummarizer $memorySummarizer = null,
         private readonly ?MountManager $mountManager = null,
+        private readonly ?ConfigManager $configManager = null,
+        private readonly ?ConfigGuard $configGuard = null,
     ) {}
 
     /**
@@ -298,6 +302,8 @@ final class AgentRunner
             memoryStore: $this->memoryStore,
             memorySummarizer: $this->memorySummarizer,
             mountManager: $this->mountManager,
+            configManager: $this->configManager,
+            configGuard: $this->configGuard,
         );
     }
 
