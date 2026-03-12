@@ -25,6 +25,7 @@ use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -149,6 +150,8 @@ final class ApiCommand extends Command
             memoryStore: $boot->memoryStore(),
             memorySummarizer: $boot->memorySummarizer(),
             mountManager: $boot->mountManager(),
+            configManager: $boot->configManager(),
+            configGuard: new ConfigGuard(),
         );
 
         // Create title generator
@@ -193,7 +196,7 @@ final class ApiCommand extends Command
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
         $messageHandler = new MessageHandler($storage, $executor, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
-        $configHandler = new ConfigHandler($boot->config(), $boot->configPath());
+        $configHandler = new ConfigHandler($boot->config(), $boot->configManager(), $boot);
         $credentialHandler = new CredentialHandler($boot->credentialResolver());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());

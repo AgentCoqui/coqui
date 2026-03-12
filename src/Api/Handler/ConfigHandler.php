@@ -6,6 +6,8 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Config\ConfigManager;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -22,7 +24,8 @@ final class ConfigHandler
 {
     public function __construct(
         private readonly OpenClawConfig $config,
-        private readonly string $configPath = '',
+        private readonly ConfigManager $configManager,
+        private readonly ?BootManager $boot = null,
     ) {}
 
     /**
@@ -41,14 +44,10 @@ final class ConfigHandler
     }
 
     /**
-     * PUT /api/config — write openclaw.json.
+     * PUT /api/config — write openclaw.json and reload.
      */
     public function update(ServerRequestInterface $request): Response
     {
-        if ($this->configPath === '') {
-            return Router::jsonResponse(['error' => 'Config path not available'], 500);
-        }
-
         $body = (string) $request->getBody();
 
         if ($body === '') {
@@ -64,22 +63,23 @@ final class ConfigHandler
             );
         }
 
-        $formatted = json_encode(
-            $decoded,
-            JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE,
-        );
-
-        if ($formatted === false) {
-            return Router::jsonResponse(['error' => 'Failed to encode JSON'], 500);
+        if (!is_array($decoded)) {
+            return Router::jsonResponse(['error' => 'Config must be a JSON object'], 400);
         }
 
-        $result = file_put_contents($this->configPath, $formatted . "\n");
-
-        if ($result === false) {
-            return Router::jsonResponse(['error' => 'Failed to write config file'], 500);
+        try {
+            $this->configManager->save($decoded);
+        } catch (\RuntimeException $e) {
+            return Router::jsonResponse(['error' => $e->getMessage()], 400);
         }
 
-        return Router::jsonResponse(['success' => true, 'path' => $this->configPath]);
+        // Auto-reload if BootManager is available
+        $this->boot?->reloadConfig();
+
+        return Router::jsonResponse([
+            'success' => true,
+            'path' => $this->configManager->path(),
+        ]);
     }
 
     /**
