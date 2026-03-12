@@ -5,18 +5,21 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
+use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigManager;
+use CoquiBot\Coqui\Config\ConfigValidator;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
 /**
  * Configuration endpoints.
  *
- * GET /api/config          — get full config (sanitized)
- * PUT /api/config          — write openclaw.json
- * GET /api/config/models   — list available models
+ * GET  /api/config           — get full config (sanitized)
+ * PUT  /api/config           — write openclaw.json
+ * POST /api/config/validate  — dry-run validation
+ * GET  /api/config/models    — list available models
  *
  * Role management moved to RoleHandler (/api/config/roles/*).
  */
@@ -25,6 +28,7 @@ final class ConfigHandler
     public function __construct(
         private readonly OpenClawConfig $config,
         private readonly ConfigManager $configManager,
+        private readonly ConfigValidator $validator,
         private readonly ?BootManager $boot = null,
     ) {}
 
@@ -68,9 +72,17 @@ final class ConfigHandler
         }
 
         try {
-            $this->configManager->save($decoded);
+            $errors = $this->configManager->save($decoded);
         } catch (\RuntimeException $e) {
-            return Router::jsonResponse(['error' => $e->getMessage()], 400);
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, $e->getMessage());
+        }
+
+        if (!empty($errors)) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                'Config validation failed',
+                $errors,
+            );
         }
 
         // Auto-reload if BootManager is available
@@ -80,6 +92,42 @@ final class ConfigHandler
             'success' => true,
             'path' => $this->configManager->path(),
         ]);
+    }
+
+    /**
+     * POST /api/config/validate — dry-run validation without saving.
+     */
+    public function validate(ServerRequestInterface $request): Response
+    {
+        $body = (string) $request->getBody();
+
+        if ($body === '') {
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'Empty request body');
+        }
+
+        $decoded = json_decode($body, true);
+
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return Router::errorResponse(
+                ApiErrorCode::INVALID_FORMAT,
+                'Invalid JSON: ' . json_last_error_msg(),
+            );
+        }
+
+        if (!is_array($decoded)) {
+            return Router::errorResponse(ApiErrorCode::INVALID_FORMAT, 'Config must be a JSON object');
+        }
+
+        $errors = $this->validator->validate($decoded);
+
+        if (!empty($errors)) {
+            return Router::jsonResponse([
+                'valid' => false,
+                'errors' => $errors,
+            ]);
+        }
+
+        return Router::jsonResponse(['valid' => true]);
     }
 
     /**
