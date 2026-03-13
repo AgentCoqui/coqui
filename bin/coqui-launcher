@@ -191,8 +191,14 @@ port_in_use() {
     return 1
 }
 
+# Dim (muted) log helper for service details
+log_dim() {
+    printf '  \e[2m%s\e[0m\n' "$*"
+}
+
 stop_service() {
     local name="$1"
+    local quiet="${2:-false}"
     local port=""
 
     # Map service name to port for port-level cleanup
@@ -205,15 +211,13 @@ stop_service() {
     if [[ -z "$pid" ]]; then
         # No PID file — try port-level cleanup as fallback
         if [[ -n "$port" ]] && port_in_use "$port"; then
-            log "${name}: no PID file, but port ${port} is occupied — cleaning up"
+            log_dim "${name}: cleaning up port ${port}"
             kill_port "$port"
-        else
-            log "${name}: not running"
         fi
         return 0
     fi
     if is_running "$pid"; then
-        log "${name}: stopping (PID ${pid})..."
+        [[ "$quiet" != true ]] && log_dim "Stopping ${name} (PID ${pid})"
         kill "$pid" 2>/dev/null || true
         # Wait up to 5 seconds for graceful shutdown
         local waited=0
@@ -222,12 +226,9 @@ stop_service() {
             waited=$((waited + 1))
         done
         if is_running "$pid"; then
-            log "${name}: force-killing (PID ${pid})"
+            log_dim "${name}: force-killing (PID ${pid})"
             kill -9 "$pid" 2>/dev/null || true
         fi
-        log "${name}: stopped"
-    else
-        log "${name}: already stopped (stale PID ${pid})"
     fi
     rm -f "${PID_DIR}/${name}.pid" 2>/dev/null || true
 
@@ -261,11 +262,9 @@ cleanup_session() {
         return 0
     fi
     cleanup_done=true
-    echo ""
     for svc in "${session_services[@]}"; do
-        stop_service "$svc"
+        stop_service "$svc" true
     done
-    log "Launcher stopped."
 }
 
 # ─── Subcommands ──────────────────────────────────────────────────────────────
@@ -290,7 +289,29 @@ if [[ -n "$subcommand" ]]; then
 fi
 
 # ─── Start API (background) ──────────────────────────────────────────────────
+# API loop with restart support (mirrors run_repl pattern).
+# Exit code 10 = intentional restart (e.g. config changed via API).
+# Exit code 0/130 = clean stop.
+# Any other code = crash — exit immediately (daemon supervisors handle restart).
+run_api_loop() {
+    while true; do
+        set +e
+        "${COQUI_BIN}" api --host "${api_host}" --port "${api_port}" "${api_args[@]+"${api_args[@]}"}" "$@"
+        local exit_code=$?
+        set -e
 
+        case $exit_code in
+            0|130)
+                return 0 ;;
+            $RESTART_EXIT_CODE)
+                log "API: config changed — restarting..."
+                sleep 0.3 ;;
+            *)
+                log "API: exited unexpectedly (exit code: ${exit_code})"
+                return $exit_code ;;
+        esac
+    done
+}
 start_api_bg() {
     local existing_pid
     existing_pid=$(read_pid "api")
@@ -317,7 +338,7 @@ start_api_bg() {
     fi
 
     log_verbose "Starting API on ${api_host}:${api_port}..."
-    "${COQUI_BIN}" api --host "${api_host}" --port "${api_port}" "${api_args[@]+"${api_args[@]}"}" </dev/null &
+    run_api_loop </dev/null &
     local pid=$!
     write_pid "api" "$pid"
     session_services+=("api")
@@ -386,7 +407,7 @@ case "${mode}" in
             echo "  -> http://${api_host}:${api_port}"
             echo "  Press Ctrl+C to stop"
             echo ""
-            exec "${COQUI_BIN}" api --host "${api_host}" --port "${api_port}" "${api_args[@]+"${api_args[@]}"}"
+            run_api_loop
         fi
         ;;
     *)
@@ -394,6 +415,7 @@ case "${mode}" in
         echo ""
         echo "  Coqui — REPL + API"
         echo ""
+        export COQUI_LAUNCHER=1
         trap cleanup_session INT TERM EXIT
         start_api_bg
         echo ""

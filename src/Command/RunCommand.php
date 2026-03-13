@@ -190,15 +190,20 @@ final class RunCommand extends Command
      * Interactive REPL loop — reads user input, dispatches commands and agent turns.
      *
      * Signal handling:
-     *   During readline (idle prompt), a custom SIGINT handler catches Ctrl+C and
-     *   exits cleanly with code 0. During agent execution, SIGINT is restored to
-     *   SIG_DFL so Ctrl+C kills the process immediately — this is the only reliable
-     *   way to interrupt blocking HTTP calls to LLM providers. The launcher treats
-     *   exit code 130 (SIGINT default) as a clean exit and stops background services.
+     *   During the input prompt, readline's callback API is used with stream_select
+     *   so SIGINT is delivered without blocking. The blocking readline() function
+     *   internally catches SIGINT (via the readline/libedit C library) and re-prompts
+     *   without returning, which forces the user to press Enter after Ctrl+C.
+     *   The callback + stream_select approach returns control to PHP between keystrokes,
+     *   allowing immediate signal delivery and clean exit.
+     *
+     *   During agent execution, SIGINT is restored to SIG_DFL so Ctrl+C kills the
+     *   process immediately — this is the only reliable way to interrupt blocking
+     *   HTTP calls to LLM providers. The launcher treats exit code 130 (SIGINT default)
+     *   as a clean exit and stops background services.
      */
     private function runRepl(SymfonyStyle $io): int
     {
-        $shutdown = false;
         $hasSignals = function_exists('pcntl_signal') && function_exists('pcntl_async_signals');
 
         if ($hasSignals) {
@@ -206,24 +211,61 @@ final class RunCommand extends Command
         }
 
         while (true) {
-            // During input: catch SIGINT for a clean exit (code 0)
+            $io->writeln('');
+            $io->writeln(' <fg=cyan>You:</>');
+
+            // Read input using readline's callback API for non-blocking signal handling.
+            // The blocking readline() swallows SIGINT internally (the readline/libedit
+            // library catches the signal and re-prompts without returning). The callback
+            // + stream_select approach returns control to PHP between keystrokes so
+            // SIGINT can be delivered within ~200ms.
+            $line = null;
+            $lineReady = false;
+            $shutdown = false;
+
+            readline_callback_handler_install(' › ', static function (?string $input) use (&$line, &$lineReady): void {
+                $line = $input;
+                $lineReady = true;
+            });
+
+            // Install our SIGINT handler AFTER readline's setup — readline installs
+            // its own handler during callback_handler_install, so ours must come last.
             if ($hasSignals) {
                 pcntl_signal(SIGINT, static function () use (&$shutdown): void {
                     $shutdown = true;
                 });
             }
 
-            $io->writeln('');
-            $io->writeln(' <fg=cyan>You:</>');
-            $line = readline(' > ');
+            while (!$lineReady && !$shutdown) {
+                $read = [STDIN];
+                $write = $except = [];
+                /** @var int|false $ready */
+                $ready = @stream_select($read, $write, $except, 0, 200000); // 200ms
 
-            // Ctrl+C during readline — exit cleanly
+                if ($ready > 0) {
+                    readline_callback_read_char();
+                }
+            }
+
+            readline_callback_handler_remove();
+
+            // Ctrl+C — exit cleanly
             if ($shutdown) {
-                $io->newLine();
+                // When running under the launcher (COQUI_LAUNCHER=1), the launcher
+                // owns the shutdown UX — exit silently to avoid duplicate messages.
+                if (getenv('COQUI_LAUNCHER') !== '1') {
+                    $io->newLine();
+                    $io->info('Shutting down Coqui.');
+                }
                 return 0;
             }
 
-            if ($line === false || trim($line) === '') {
+            // Ctrl+D (EOF) with STDIN closed — exit cleanly
+            if ($line === null && feof(STDIN)) {
+                return 0;
+            }
+
+            if ($line === null || trim($line) === '') {
                 continue;
             }
 
@@ -237,12 +279,6 @@ final class RunCommand extends Command
                     return $result;
                 }
                 continue;
-            }
-
-            // Hot-reload config if the workspace file was modified externally
-            if ($this->boot->hasConfigChanged()) {
-                $this->boot->reloadConfig();
-                $io->text('<fg=gray>Config changes detected — reloaded automatically.</>'); 
             }
 
             // Build execution policy for this turn
@@ -280,8 +316,15 @@ final class RunCommand extends Command
         $cmd = $parts[0];
         $arg = $parts[1] ?? '';
 
-        match ($cmd) {
-            '/quit', '/exit', '/q' => false,
+        $firstResult = match ($cmd) {
+            '/quit', '/exit', '/q' => (function () use ($io) {
+                // When running under the launcher, it owns the shutdown UX
+                if (getenv('COQUI_LAUNCHER') !== '1') {
+                    $io->newLine();
+                    $io->info('Shutting down Coqui.');
+                }
+                return false;
+            })(),
 
             '/restart' => (function () use ($io) {
                 $io->info('Restarting Coqui...');
@@ -326,8 +369,7 @@ final class RunCommand extends Command
             })(),
 
             '/config' => (function () use ($io, $arg) {
-                $this->handleConfigCommand($io, $arg);
-                return true;
+                return $this->handleConfigCommand($io, $arg);
             })(),
 
             '/tasks' => (function () use ($io, $arg) {
@@ -358,7 +400,7 @@ final class RunCommand extends Command
                         ['/sessions', 'List all sessions'],
                         ['/resume <id>', 'Resume a session'],
                         ['/model', 'Show model configuration'],
-                        ['/config', 'Show config (use /config edit to re-run wizard)'],
+                        ['/config', 'Show config (use /config edit to reconfigure + restart)'],
                         ['/tasks [status]', 'List background tasks (optionally filter by status)'],
                         ['/task <id>', 'Show background task status and recent events'],
                         ['/task-cancel <id>', 'Cancel a pending or running background task'],
@@ -375,6 +417,11 @@ final class RunCommand extends Command
                 return true;
             })(),
         };
+
+        // If a command handler returned an exit code (e.g. /config edit → restart), propagate it
+        if (is_int($firstResult)) {
+            return $firstResult;
+        }
 
         return match ($cmd) {
             '/quit', '/exit', '/q' => Command::SUCCESS,
@@ -658,25 +705,41 @@ final class RunCommand extends Command
         $io->table(['Role', 'Model'], $rows);
     }
 
-    private function handleConfigCommand(SymfonyStyle $io, string $subCommand): void
+    /**
+     * Handle /config subcommands.
+     *
+     * @return int|true True to continue the REPL loop, or an exit code to terminate.
+     */
+    private function handleConfigCommand(SymfonyStyle $io, string $subCommand): int|true
     {
-        match (trim($subCommand)) {
+        return match (trim($subCommand)) {
             'edit' => $this->runConfigWizard($io),
-            'show' => $this->showConfigFile($io),
-            default => $this->showConfigSummary($io),
+            'show' => (function () use ($io) {
+                $this->showConfigFile($io);
+                return true;
+            })(),
+            default => (function () use ($io) {
+                $this->showConfigSummary($io);
+                return true;
+            })(),
         };
     }
 
-    private function runConfigWizard(SymfonyStyle $io): void
+    private function runConfigWizard(SymfonyStyle $io): int|true
     {
         $outputPath = $this->boot->configManager()->path();
         $wizard = new SetupWizard($io, $this->boot->defaultsLoader(), $this->boot->credentialResolver());
         $saved = $wizard->runAndSave($outputPath);
 
         if ($saved && file_exists($outputPath)) {
-            $this->boot->reloadConfig();
-            $io->success('Configuration reloaded. Changes take effect on the next agent run.');
+            if ($io->confirm('Restart now to apply the new configuration?', true)) {
+                $io->info('Restarting Coqui...');
+                return self::RESTART_EXIT_CODE;
+            }
+            $io->success('Configuration saved. Use /restart when ready to apply changes.');
         }
+
+        return true;
     }
 
     private function showConfigFile(SymfonyStyle $io): void
