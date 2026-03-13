@@ -6,7 +6,6 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
-use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\OpenClawConfig;
@@ -29,7 +28,7 @@ final class ConfigHandler
         private readonly OpenClawConfig $config,
         private readonly ConfigManager $configManager,
         private readonly ConfigValidator $validator,
-        private readonly ?BootManager $boot = null,
+        private readonly ?\Closure $onRestart = null,
     ) {}
 
     /**
@@ -48,7 +47,7 @@ final class ConfigHandler
     }
 
     /**
-     * PUT /api/config — write openclaw.json and reload.
+     * PUT /api/config — write openclaw.json and schedule restart.
      */
     public function update(ServerRequestInterface $request): Response
     {
@@ -85,12 +84,15 @@ final class ConfigHandler
             );
         }
 
-        // Auto-reload if BootManager is available
-        $this->boot?->reloadConfig();
+        // Schedule restart so new config is loaded on next boot
+        if ($this->onRestart !== null) {
+            ($this->onRestart)();
+        }
 
         return Router::jsonResponse([
             'success' => true,
             'path' => $this->configManager->path(),
+            'restart' => $this->onRestart !== null,
         ]);
     }
 
