@@ -7,8 +7,8 @@ namespace CoquiBot\Coqui\Config;
 /**
  * Single source of truth for openclaw.json configuration.
  *
- * Manages the config lifecycle: resolve path, load, save, reload, and detect
- * changes via filemtime. The config lives in the workspace directory, making
+ * Manages the config lifecycle: resolve path, load, and save.
+ * The config lives in the workspace directory, making
  * it accessible (with guardrails) to the agent for self-configuration.
  *
  * On first boot, if no workspace config exists, the manager seeds it from
@@ -18,7 +18,6 @@ final class ConfigManager
 {
     private OpenClawConfig $config;
     private string $configPath;
-    private int $lastModifiedTime = 0;
 
     public function __construct(
         private readonly string $workspacePath,
@@ -46,14 +45,12 @@ final class ConfigManager
             }
             $this->configPath = realpath($explicitPath) ?: $explicitPath;
             $this->config = OpenClawConfig::fromFile($explicitPath);
-            $this->recordModifiedTime();
             return $this->config;
         }
 
         // Primary: workspace config
         if (file_exists($this->configPath)) {
             $this->config = OpenClawConfig::fromFile($this->configPath);
-            $this->recordModifiedTime();
             return $this->config;
         }
 
@@ -62,29 +59,13 @@ final class ConfigManager
 
         if (file_exists($this->configPath)) {
             $this->config = OpenClawConfig::fromFile($this->configPath);
-            $this->recordModifiedTime();
             return $this->config;
         }
 
         // Fallback: build minimal config from defaults
         $this->config = $this->buildDefaultConfig();
         $this->saveRaw($this->config);
-        $this->recordModifiedTime();
         return $this->config;
-    }
-
-    /**
-     * Reload config from disk. Returns true if config actually changed.
-     */
-    public function reload(): bool
-    {
-        if (!file_exists($this->configPath)) {
-            return false;
-        }
-
-        $this->config = OpenClawConfig::fromFile($this->configPath);
-        $this->recordModifiedTime();
-        return true;
     }
 
     /**
@@ -108,7 +89,6 @@ final class ConfigManager
         file_put_contents($this->configPath, $json . "\n", LOCK_EX);
 
         $this->config = OpenClawConfig::fromArray($data);
-        $this->recordModifiedTime();
 
         return [];
     }
@@ -123,21 +103,6 @@ final class ConfigManager
         $data = $this->toArray();
         $this->setNestedValue($data, $dotKey, $value);
         return $this->save($data);
-    }
-
-    /**
-     * Check if the config file has been modified since last load/save.
-     */
-    public function hasChanged(): bool
-    {
-        if (!file_exists($this->configPath)) {
-            return false;
-        }
-
-        clearstatcache(true, $this->configPath);
-        $currentMtime = filemtime($this->configPath);
-
-        return $currentMtime !== false && $currentMtime > $this->lastModifiedTime;
     }
 
     public function config(): OpenClawConfig
@@ -261,13 +226,6 @@ final class ConfigManager
         if (!is_dir($dir)) {
             mkdir($dir, 0755, true);
         }
-    }
-
-    private function recordModifiedTime(): void
-    {
-        clearstatcache(true, $this->configPath);
-        $mtime = filemtime($this->configPath);
-        $this->lastModifiedTime = $mtime !== false ? $mtime : 0;
     }
 
     /**

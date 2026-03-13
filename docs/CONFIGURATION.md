@@ -21,28 +21,18 @@ coqui
 
 ## How Config Changes Are Applied
 
-Coqui automatically detects when `openclaw.json` is modified and reloads configuration before processing your next message. No restart is required.
+Config changes require a restart to take effect. Coqui loads configuration once at boot and constructs all internal components from it. A restart ensures every component is freshly initialized with the new values.
 
-**Auto-detection** works for all edit sources:
-- Editing the file manually in your editor
-- Saving changes via the API (`PUT /api/config`)
-- Running the setup wizard (`/config edit`)
+**After editing config, restart using one of these methods:**
 
-When a change is detected, Coqui displays:
+| Change Source | How Restart Happens |
+|---------------|-------------------|
+| `/config edit` (setup wizard) | Coqui prompts: "Restart now to apply?" — confirm to restart immediately |
+| API (`PUT /api/config`) | The API server restarts automatically after saving |
+| Manual edit in your editor | Use `/restart` in the REPL, or the `restart_coqui` agent tool |
+| Agent `config` tool (set/switch_model) | Agent can call `restart_coqui`, or you can use `/restart` |
 
-```
-Config changes detected — reloaded automatically.
-```
-
-The following are refreshed on reload:
-- Model routing and role assignments
-- Provider configuration (base URLs, API protocols)
-- Workspace path
-- Mount definitions
-- Catastrophic blacklist patterns
-- Max iteration limits
-
-You can also force a full restart with `/restart`, which additionally re-discovers toolkit packages and re-seeds roles.
+A restart re-reads `openclaw.json`, re-discovers toolkit packages, re-seeds roles, and reconstructs all providers and resolvers from scratch.
 
 ## Config Schema
 

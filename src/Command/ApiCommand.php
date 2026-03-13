@@ -192,12 +192,35 @@ final class ApiCommand extends Command
 
         $startTime = microtime(true);
 
+        // Restart flag — set by ConfigHandler when config is updated via API
+        $restartRequested = false;
+
+        /** @var SocketServer|null $socket Pre-declared for closure capture; assigned after server creation. */
+        $socket = null;
+
         // Create handlers
         $healthHandler = new HealthHandler($startTime, $executor, $taskManager);
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
         $messageHandler = new MessageHandler($storage, $executor, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
-        $configHandler = new ConfigHandler($boot->config(), $boot->configManager(), new ConfigValidator(), $boot);
+        $configHandler = new ConfigHandler(
+            $boot->config(),
+            $boot->configManager(),
+            new ConfigValidator(),
+            onRestart: function () use (&$restartRequested, &$socket, $output, $taskManager): void {
+                $restartRequested = true;
+                $output->writeln('');
+                $output->writeln('<comment>Config updated via API — scheduling restart...</comment>');
+                // Defer shutdown to next tick so the HTTP response is sent first
+                Loop::futureTick(static function () use (&$socket, $taskManager): void {
+                    $taskManager->shutdown();
+                    if ($socket instanceof SocketServer) {
+                        $socket->close();
+                    }
+                    Loop::stop();
+                });
+            },
+        );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());
@@ -296,7 +319,7 @@ final class ApiCommand extends Command
             $taskManager->tick();
         });
 
-        return Command::SUCCESS;
+        return $restartRequested ? RunCommand::RESTART_EXIT_CODE : Command::SUCCESS;
     }
 
     /**

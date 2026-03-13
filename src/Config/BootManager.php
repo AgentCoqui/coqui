@@ -144,44 +144,7 @@ final class BootManager
         return $this->memorySummarizer;
     }
 
-    /**
-     * Reload config from disk — updates resolver, workspace, blacklist, and mounts.
-     *
-     * Called after the setup wizard, ConfigTool writes, and when external config
-     * changes are detected via filemtime. Rebuilds all config-derived state so
-     * the next agent turn uses fresh values.
-     */
-    public function reloadConfig(?string $configPath = null): void
-    {
-        if ($configPath !== null && $configPath !== '') {
-            // Legacy path: explicit config path (e.g. from setup wizard before ConfigManager existed)
-            $this->config = OpenClawConfig::fromFile($configPath);
-            $this->configPath = realpath($configPath) ?: $configPath;
-        } elseif (isset($this->configManager)) {
-            $this->configManager->reload();
-            $this->config = $this->configManager->config();
-            $this->configPath = $this->configManager->path();
-        } else {
-            return;
-        }
 
-        $this->blacklist = CatastrophicBlacklist::fromConfig($this->config);
-        $this->roleDiscovery->invalidateCache();
-        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
-
-        $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir, $this->workspaceOverride);
-        $this->workspacePath = $workspaceResolver->resolve();
-
-        $this->initializeMounts();
-    }
-
-    /**
-     * Check if the config file has been modified since last load.
-     */
-    public function hasConfigChanged(): bool
-    {
-        return isset($this->configManager) && $this->configManager->hasChanged();
-    }
 
     private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
     {
@@ -244,7 +207,7 @@ final class BootManager
                 $saved = $wizard->runAndSave($outputPath);
 
                 if ($saved && file_exists($outputPath)) {
-                    $this->config = $this->configManager->reload() ? $this->configManager->config() : $this->buildDefaultConfig();
+                    $this->config = $this->configManager->load();
                     $this->configPath = $this->configManager->path();
                     return;
                 }

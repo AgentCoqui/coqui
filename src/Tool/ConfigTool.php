@@ -131,7 +131,7 @@ final class ConfigTool implements ToolInterface
 
         $display = is_scalar($value) ? (string) $value : json_encode($value, JSON_UNESCAPED_SLASHES);
 
-        return ToolResult::success("Config updated: {$key} = {$display}\nChanges take effect on the next agent turn.");
+        return ToolResult::success("Config updated: {$key} = {$display}\nA restart is required for changes to take effect. Use the restart_coqui tool or ask the user to /restart.");
     }
 
     private function handleShow(): ToolResult
@@ -214,7 +214,7 @@ final class ConfigTool implements ToolInterface
             $this->configManager->set('agents.defaults.roles.orchestrator', $model);
         }
 
-        return ToolResult::success("Primary model switched to: {$model}\nChanges take effect on the next agent turn.");
+        return ToolResult::success("Primary model switched to: {$model}\nA restart is required for changes to take effect. Use the restart_coqui tool or ask the user to /restart.");
     }
 
     /**

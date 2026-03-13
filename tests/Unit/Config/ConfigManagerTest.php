@@ -150,39 +150,6 @@ test('set updates a single dot-notation key', function () {
     expect($written['agents']['defaults']['model']['primary'])->toBe('anthropic/claude-sonnet-4-20250514');
 });
 
-test('hasChanged detects file modifications', function () {
-    $this->manager->load();
-
-    expect($this->manager->hasChanged())->toBeFalse();
-
-    // Modify the file externally
-    sleep(1); // Ensure different mtime
-    file_put_contents($this->manager->path(), json_encode(['agents' => ['defaults' => ['model' => ['primary' => 'openai/gpt-4o']]]]));
-
-    expect($this->manager->hasChanged())->toBeTrue();
-});
-
-test('reload refreshes config from disk', function () {
-    $data = [
-        'agents' => [
-            'defaults' => [
-                'model' => ['primary' => 'openai/gpt-4o'],
-            ],
-        ],
-    ];
-    $this->manager->load();
-    $this->manager->save($data);
-
-    // Externally change the file
-    $data['agents']['defaults']['model']['primary'] = 'anthropic/claude-sonnet-4-20250514';
-    file_put_contents($this->manager->path(), json_encode($data));
-
-    $result = $this->manager->reload();
-
-    expect($result)->toBeTrue();
-    expect($this->manager->config()->getPrimaryModel())->toBe('anthropic/claude-sonnet-4-20250514');
-});
-
 test('toArray returns raw config data', function () {
     $data = [
         'agents' => [
@@ -217,9 +184,6 @@ test('getSanitized masks API key fields', function () {
     ];
     $this->manager->load();
     $this->manager->save($data);
-
-    // Reload to pick up the saved data
-    $this->manager->reload();
 
     $sanitized = $this->manager->getSanitized('models.providers.openai.apiKey');
 
