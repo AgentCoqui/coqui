@@ -239,12 +239,6 @@ final class RunCommand extends Command
                 continue;
             }
 
-            // Hot-reload config if the workspace file was modified externally
-            if ($this->boot->hasConfigChanged()) {
-                $this->boot->reloadConfig();
-                $io->text('<fg=gray>Config changes detected — reloaded automatically.</>'); 
-            }
-
             // Build execution policy for this turn
             $executionPolicy = $this->buildInteractiveExecutionPolicy($this->sessionId, $io);
 
@@ -280,7 +274,7 @@ final class RunCommand extends Command
         $cmd = $parts[0];
         $arg = $parts[1] ?? '';
 
-        match ($cmd) {
+        $firstResult = match ($cmd) {
             '/quit', '/exit', '/q' => false,
 
             '/restart' => (function () use ($io) {
@@ -326,8 +320,7 @@ final class RunCommand extends Command
             })(),
 
             '/config' => (function () use ($io, $arg) {
-                $this->handleConfigCommand($io, $arg);
-                return true;
+                return $this->handleConfigCommand($io, $arg);
             })(),
 
             '/tasks' => (function () use ($io, $arg) {
@@ -358,7 +351,7 @@ final class RunCommand extends Command
                         ['/sessions', 'List all sessions'],
                         ['/resume <id>', 'Resume a session'],
                         ['/model', 'Show model configuration'],
-                        ['/config', 'Show config (use /config edit to re-run wizard)'],
+                        ['/config', 'Show config (use /config edit to reconfigure + restart)'],
                         ['/tasks [status]', 'List background tasks (optionally filter by status)'],
                         ['/task <id>', 'Show background task status and recent events'],
                         ['/task-cancel <id>', 'Cancel a pending or running background task'],
@@ -375,6 +368,11 @@ final class RunCommand extends Command
                 return true;
             })(),
         };
+
+        // If a command handler returned an exit code (e.g. /config edit → restart), propagate it
+        if (is_int($firstResult)) {
+            return $firstResult;
+        }
 
         return match ($cmd) {
             '/quit', '/exit', '/q' => Command::SUCCESS,
@@ -658,25 +656,41 @@ final class RunCommand extends Command
         $io->table(['Role', 'Model'], $rows);
     }
 
-    private function handleConfigCommand(SymfonyStyle $io, string $subCommand): void
+    /**
+     * Handle /config subcommands.
+     *
+     * @return int|true True to continue the REPL loop, or an exit code to terminate.
+     */
+    private function handleConfigCommand(SymfonyStyle $io, string $subCommand): int|true
     {
-        match (trim($subCommand)) {
+        return match (trim($subCommand)) {
             'edit' => $this->runConfigWizard($io),
-            'show' => $this->showConfigFile($io),
-            default => $this->showConfigSummary($io),
+            'show' => (function () use ($io) {
+                $this->showConfigFile($io);
+                return true;
+            })(),
+            default => (function () use ($io) {
+                $this->showConfigSummary($io);
+                return true;
+            })(),
         };
     }
 
-    private function runConfigWizard(SymfonyStyle $io): void
+    private function runConfigWizard(SymfonyStyle $io): int|true
     {
         $outputPath = $this->boot->configManager()->path();
         $wizard = new SetupWizard($io, $this->boot->defaultsLoader(), $this->boot->credentialResolver());
         $saved = $wizard->runAndSave($outputPath);
 
         if ($saved && file_exists($outputPath)) {
-            $this->boot->reloadConfig();
-            $io->success('Configuration reloaded. Changes take effect on the next agent run.');
+            if ($io->confirm('Restart now to apply the new configuration?', true)) {
+                $io->info('Restarting Coqui...');
+                return self::RESTART_EXIT_CODE;
+            }
+            $io->success('Configuration saved. Use /restart when ready to apply changes.');
         }
+
+        return true;
     }
 
     private function showConfigFile(SymfonyStyle $io): void
