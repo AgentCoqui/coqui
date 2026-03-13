@@ -6,6 +6,7 @@
 #   (no args)            Start REPL (foreground) + API (background)
 #   --repl-only          Start REPL only — no background API
 #   --api-only           Start API only (foreground)
+#   --wizard / -w        Run setup wizard directly (no REPL, no API)
 #   stop                 Stop all background services
 #   stop-api             Stop just the API
 #   status               Show which services are running
@@ -70,7 +71,9 @@ while [[ $# -gt 0 ]]; do
             coqui_args+=("--unsafe"); api_args+=("--unsafe"); shift ;;
         --config|-c)
             coqui_args+=("--config" "$2"); api_args+=("--config" "$2"); shift 2 ;;
-        --workdir|-w)
+        --wizard|-w)
+            mode="wizard"; shift ;;
+        --workdir)
             coqui_args+=("--workdir" "$2"); api_args+=("--workdir" "$2"); shift 2 ;;
         --workspace)
             coqui_args+=("--workspace" "$2"); api_args+=("--workspace" "$2"); shift 2 ;;
@@ -392,6 +395,10 @@ run_repl() {
 # ─── Mode dispatch ────────────────────────────────────────────────────────────
 
 case "${mode}" in
+    wizard)
+        "${COQUI_BIN}" --wizard "${coqui_args[@]+"${coqui_args[@]}"}"
+        exit $?
+        ;;
     repl-only)
         echo ""
         echo "  Coqui — REPL only"

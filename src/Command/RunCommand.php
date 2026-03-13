@@ -61,7 +61,8 @@ final class RunCommand extends Command
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to openclaw.json')
             ->addOption('new', null, InputOption::VALUE_NONE, 'Start a new session')
             ->addOption('session', 's', InputOption::VALUE_REQUIRED, 'Resume a specific session ID')
-            ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory (project root)', getcwd() ?: '.')
+            ->addOption('workdir', null, InputOption::VALUE_REQUIRED, 'Working directory (project root)', getcwd() ?: '.')
+            ->addOption('wizard', 'w', InputOption::VALUE_NONE, 'Run the setup wizard to edit configuration (no REPL, no session)')
             ->addOption('workspace', null, InputOption::VALUE_REQUIRED, 'Workspace directory (overrides config and default)')
             ->addOption('unsafe', null, InputOption::VALUE_NONE, 'Disable script sanitization for power users (dangerous)')
             ->addOption('auto-approve', null, InputOption::VALUE_NONE, 'Auto-approve all tool executions (dangerous)')
@@ -87,6 +88,13 @@ final class RunCommand extends Command
         $configPath = is_string($configOption) ? $configOption : null;
 
         $workspaceOverride = $this->resolveWorkspaceOverride($input);
+
+        // Handle --wizard: lightweight boot + setup wizard, then exit
+        if ((bool) $input->getOption('wizard')) {
+            $this->boot = new BootManager($this->workDir, $workspaceOverride);
+            $this->boot->bootForWizard($io, $configPath);
+            return $this->runWizardAndExit($io);
+        }
 
         $this->boot = new BootManager($this->workDir, $workspaceOverride);
         $this->boot->boot($noTerminal ? null : $io, $configPath);
@@ -740,6 +748,20 @@ final class RunCommand extends Command
         }
 
         return true;
+    }
+
+    /**
+     * Run the setup wizard directly from --wizard flag and exit.
+     *
+     * Uses the lightweight bootForWizard() path — no session, no REPL, no API.
+     */
+    private function runWizardAndExit(SymfonyStyle $io): int
+    {
+        $outputPath = $this->boot->configManager()->path();
+        $wizard = new SetupWizard($io, $this->boot->defaultsLoader(), $this->boot->credentialResolver());
+        $saved = $wizard->runAndSave($outputPath);
+
+        return $saved ? Command::SUCCESS : Command::FAILURE;
     }
 
     private function showConfigFile(SymfonyStyle $io): void
