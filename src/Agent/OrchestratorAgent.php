@@ -16,6 +16,8 @@ use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Config\OpenClawConfig;
+use CoquiBot\Coqui\Provider\FallbackProvider;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -97,7 +99,21 @@ final class OrchestratorAgent extends AbstractAgent
         // addToolkit() override can populate it immediately for every toolkit added.
         $this->toolRegistry = new ToolRegistry();
 
-        parent::__construct($provider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider);
+        // Wrap primary provider with FallbackProvider when fallback models are configured
+        $effectiveProvider = $provider;
+        if ($config instanceof OpenClawConfig) {
+            $fallbacks = $config->getFallbacks();
+            if (!empty($fallbacks)) {
+                $factory = new ProviderFactory($config);
+                $fallbackProviders = array_map(
+                    fn(string $model) => $factory->create($model),
+                    $fallbacks,
+                );
+                $effectiveProvider = new FallbackProvider($provider, $fallbackProviders);
+            }
+        }
+
+        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider);
 
         // Use injected resolver or create one (backward compat for standalone use)
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);
@@ -230,13 +246,9 @@ final class OrchestratorAgent extends AbstractAgent
             }
         }
 
-        // Enable fallback retry when fallback models are configured
-        $fallbacks = $this->config->getFallbacks();
-        if (!empty($fallbacks)) {
-            $this->setFallbackProviders( // @phpstan-ignore method.notFound (method added in php-agents dev, not yet in vendor)
-                new ProviderFactory($this->config),
-                $this->config,
-            );
+        // Set up FallbackProvider notifications via the agent's observer system
+        if ($effectiveProvider instanceof FallbackProvider) {
+            $effectiveProvider->setOnNotify(fn(string $msg) => $this->notify('agent.warning', $msg));
         }
     }
 

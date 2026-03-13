@@ -985,6 +985,57 @@
                 "tools(): ToolInterface[] — returns 5 background task/tool tools",
                 "guidelines(): string — usage guidelines for the LLM"
             ]
+        },
+        {
+            "path": "src/Provider/FallbackProvider.php",
+            "fqcn": "CoquiBot\\Coqui\\Provider\\FallbackProvider",
+            "layer": "agent",
+            "description": "ProviderInterface decorator that transparently retries failed LLM calls on fallback providers. Wraps a primary provider and an ordered list of fallbacks. On retryable errors (429, 5xx, 408, network), tries the next provider. Non-retryable errors (401, 403, 400, 404) throw immediately. Supports an onNotify closure to surface fallback switch events to agent observers.",
+            "methods": [
+                "chat(Conversation, array, array): Output — try primary then fallbacks for chat calls",
+                "stream(Conversation, array, array): Generator — try primary then fallbacks for streaming",
+                "structured(Conversation, array, string, array): Output — try primary then fallbacks for structured output",
+                "setOnNotify(Closure): void — set callback for fallback switch notifications",
+                "withModel(string): static — clone with new model on primary"
+            ]
+        },
+        {
+            "path": "src/Config/OpenClawConfig.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\OpenClawConfig",
+            "layer": "config",
+            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, provider config, and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
+            "methods": [
+                "fromFile(string): self — load and parse openclaw.json file",
+                "fromArray(array): self — create from pre-parsed array",
+                "get(string, mixed): mixed — dot-notation config access",
+                "has(string): bool — check if config key exists",
+                "getPrimaryModel(): string — resolve primary model string",
+                "getFallbacks(): array — return ordered fallback model strings",
+                "getImageModel(): string — resolve image generation model",
+                "resolveModel(string): string — resolve alias to full model string",
+                "getModelDefinition(string): ModelDefinition — build ModelDefinition for a model string"
+            ]
+        },
+        {
+            "path": "src/Exception/ProviderErrorClassifier.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\ProviderErrorClassifier",
+            "layer": "config",
+            "description": "Classifies provider errors as retryable or fatal. Retryable: 429 (rate limit), 5xx (server), 408 (timeout), network/connection errors. Fatal: 401, 403, 400, 404. Used by FallbackProvider to decide whether to try the next provider or throw immediately.",
+            "methods": [
+                "isRetryable(Throwable): bool — check if error warrants fallback retry",
+                "extractStatusCode(Throwable): ?int — extract HTTP status from exception",
+                "classify(Throwable): string — return 'retryable' or 'fatal'"
+            ]
+        },
+        {
+            "path": "src/Exception/ConfigNotFoundException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\ConfigNotFoundException",
+            "layer": "config",
+            "description": "Domain exception thrown when openclaw.json cannot be found or read. Provides factory methods for common failure modes.",
+            "methods": [
+                "forPath(string): self — config file not found at path",
+                "unreadable(string): self — config file exists but cannot be read"
+            ]
         }
     ],
     "externalDependencies": [
