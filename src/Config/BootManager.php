@@ -68,6 +68,21 @@ final class BootManager
         return true;
     }
 
+    /**
+     * Lightweight boot for the setup wizard: config + workspace + credentials only.
+     *
+     * Skips blacklist, mounts, roles, memory, toolkit discovery, and skills
+     * so the wizard can run without heavyweight initialization.
+     */
+    public function bootForWizard(OutputInterface|SymfonyStyle|null $io = null, ?string $configPath = null): bool
+    {
+        $this->loadConfig($io, $configPath);
+        $this->initializeWorkspace();
+        $this->initializeCredentials();
+
+        return true;
+    }
+
     public function config(): OpenClawConfig
     {
         return $this->config;
