@@ -90,8 +90,22 @@ WORKDIR /app
 RUN mkdir -p /app/workspace \
     && chown -R coqui:coqui /app/workspace
 
-# Run as non-root user
+# -----------------------------------------------------------------------------
+# Application source (production builds)
+# For local development, compose.yaml bind-mounts .:/app which overrides this.
+# For GHCR / production images, the source is baked in.
+# -----------------------------------------------------------------------------
+COPY --chown=coqui:coqui . /app
+
 USER coqui
+
+RUN composer install \
+    --no-dev \
+    --classmap-authoritative \
+    --prefer-dist \
+    --no-interaction \
+    --no-progress \
+    --optimize-autoloader
 
 ENTRYPOINT ["php", "bin/coqui"]
 CMD []
