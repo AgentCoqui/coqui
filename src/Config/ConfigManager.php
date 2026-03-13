@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
-use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
-
 /**
  * Single source of truth for openclaw.json configuration.
  *

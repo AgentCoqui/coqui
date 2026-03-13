@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
-use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
+use CoquiBot\Coqui\Config\OpenClawConfig;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
