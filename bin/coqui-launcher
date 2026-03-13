@@ -191,8 +191,14 @@ port_in_use() {
     return 1
 }
 
+# Dim (muted) log helper for service details
+log_dim() {
+    printf '  \e[2m%s\e[0m\n' "$*"
+}
+
 stop_service() {
     local name="$1"
+    local quiet="${2:-false}"
     local port=""
 
     # Map service name to port for port-level cleanup
@@ -205,15 +211,13 @@ stop_service() {
     if [[ -z "$pid" ]]; then
         # No PID file — try port-level cleanup as fallback
         if [[ -n "$port" ]] && port_in_use "$port"; then
-            log "${name}: no PID file, but port ${port} is occupied — cleaning up"
+            log_dim "${name}: cleaning up port ${port}"
             kill_port "$port"
-        else
-            log "${name}: not running"
         fi
         return 0
     fi
     if is_running "$pid"; then
-        log "${name}: stopping (PID ${pid})..."
+        [[ "$quiet" != true ]] && log_dim "Stopping ${name} (PID ${pid})"
         kill "$pid" 2>/dev/null || true
         # Wait up to 5 seconds for graceful shutdown
         local waited=0
@@ -222,12 +226,9 @@ stop_service() {
             waited=$((waited + 1))
         done
         if is_running "$pid"; then
-            log "${name}: force-killing (PID ${pid})"
+            log_dim "${name}: force-killing (PID ${pid})"
             kill -9 "$pid" 2>/dev/null || true
         fi
-        log "${name}: stopped"
-    else
-        log "${name}: already stopped (stale PID ${pid})"
     fi
     rm -f "${PID_DIR}/${name}.pid" 2>/dev/null || true
 
@@ -261,11 +262,9 @@ cleanup_session() {
         return 0
     fi
     cleanup_done=true
-    echo ""
     for svc in "${session_services[@]}"; do
-        stop_service "$svc"
+        stop_service "$svc" true
     done
-    log "Launcher stopped."
 }
 
 # ─── Subcommands ──────────────────────────────────────────────────────────────
@@ -416,6 +415,7 @@ case "${mode}" in
         echo ""
         echo "  Coqui — REPL + API"
         echo ""
+        export COQUI_LAUNCHER=1
         trap cleanup_session INT TERM EXIT
         start_api_bg
         echo ""
