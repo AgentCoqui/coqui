@@ -70,6 +70,9 @@ restart: ## Restart REPL + API (clean stop then start)
 	@./bin/coqui-launcher stop 2>/dev/null || true
 	@./bin/coqui-launcher $(ARGS)
 
+wizard: ## Run the setup wizard (no REPL, no session)
+	@./bin/coqui --wizard $(ARGS)
+
 dev: ## Start REPL + API in dev mode
 	@./bin/coqui-launcher $(ARGS)
 

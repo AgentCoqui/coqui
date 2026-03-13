@@ -151,9 +151,10 @@ The launcher starts the REPL (foreground) + API server (background on port 3300)
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--config` | `-c` | Path to `openclaw.json` config file |
+| `--wizard` | `-w` | Run the setup wizard to edit configuration (no REPL, no session) |
 | `--new` | | Start a fresh session |
 | `--session` | `-s` | Resume a specific session by ID |
-| `--workdir` | `-w` | Working directory / project root (default: current directory) |
+| `--workdir` | | Working directory / project root (default: current directory) |
 | `--workspace` | | Workspace directory override (default: `~/.coqui/.workspace` or config) |
 | `--unsafe` | | Disable denied-function checks in ScriptSanitizer (catastrophic blacklist still active) |
 | `--auto-approve` | | Auto-approve all tool executions without prompting (catastrophic blacklist still active) |
