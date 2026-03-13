@@ -24,6 +24,10 @@ openclaw-*.json
 *.cache
 .phpunit.result.cache
 .phpstan-cache/
+BUILD/
+
+# Tests (not needed in production image)
+tests/
 
 # Docker files (not needed in build context)
 compose*.yaml
