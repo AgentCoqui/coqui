@@ -283,9 +283,16 @@ final class ApiCommand extends Command
         $socket = new SocketServer($listenAddress, $context);
 
         // Graceful shutdown on SIGTERM/SIGINT — close socket + stop event loop
+        // SIGINT (2) = direct Ctrl+C — show shutdown message (standalone mode)
+        // SIGTERM (15) = sent by launcher — stay silent (launcher owns the UX)
         $shutdownHandler = static function (int $signal) use ($socket, $output, $taskManager): void {
             $output->writeln('');
-            $output->writeln(sprintf('<comment>Received signal %d, shutting down...</comment>', $signal));
+            if ($signal === 2) {
+                $output->writeln('');
+                $output->writeln(' <info>[INFO] Shutting down Coqui.</info>');
+                $output->writeln('');
+                $output->writeln('');
+            }
             $taskManager->shutdown();
             $socket->close();
             Loop::stop();
