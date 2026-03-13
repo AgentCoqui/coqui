@@ -906,9 +906,9 @@ final class DoctorCommand extends Command
             }
 
             if (file_exists($configPath)) {
-                $config = \CarmeloSantana\PHPAgents\Config\OpenClawConfig::fromFile($configPath);
+                $config = \CoquiBot\Coqui\Config\OpenClawConfig::fromFile($configPath);
             } else {
-                $config = \CarmeloSantana\PHPAgents\Config\OpenClawConfig::fromArray([]);
+                $config = \CoquiBot\Coqui\Config\OpenClawConfig::fromArray([]);
             }
 
             $resolver = new WorkspaceResolver($config, $workDir);

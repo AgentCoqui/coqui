@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
+use CoquiBot\Coqui\Config\OpenClawConfig;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Provider\Response;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
