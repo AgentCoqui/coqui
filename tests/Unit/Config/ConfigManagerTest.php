@@ -51,7 +51,7 @@ test('workspacePath returns workspace directory', function () {
 test('load creates default config when none exists', function () {
     $config = $this->manager->load();
 
-    expect($config)->toBeInstanceOf(\CarmeloSantana\PHPAgents\Config\OpenClawConfig::class);
+    expect($config)->toBeInstanceOf(\CoquiBot\Coqui\Config\OpenClawConfig::class);
     expect(file_exists($this->manager->path()))->toBeTrue();
 });
 

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
-use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
 use CarmeloSantana\PHPAgents\Contract\EmbeddingProviderInterface;
 use CarmeloSantana\PHPAgents\Embedding\OllamaEmbeddingProvider;
 use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
