@@ -16,9 +16,13 @@ use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Config\OpenClawConfig;
+use CoquiBot\Coqui\Provider\FallbackProvider;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Config\ConfigGuard;
+use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
@@ -32,6 +36,7 @@ use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
+use CoquiBot\Coqui\Tool\ConfigTool;
 use CoquiBot\Coqui\Tool\CredentialTool;
 use CoquiBot\Coqui\Tool\PackageInfoTool;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
@@ -59,6 +64,7 @@ final class OrchestratorAgent extends AbstractAgent
     private PackageInfoTool $packageInfoTool;
     private PhpExecuteTool $phpExecuteTool;
     private ?RestartTool $restartTool = null;
+    private ?ConfigTool $configTool = null;
     private VisionTool $visionTool;
     private ToolRegistry $toolRegistry;
     private ToolSearchTool $toolSearchTool;
@@ -86,12 +92,28 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?MemoryStore $memoryStore = null,
         private readonly ?MemorySummarizer $memorySummarizer = null,
         private readonly ?MountManager $mountManager = null,
+        ?ConfigManager $configManager = null,
+        ?ConfigGuard $configGuard = null,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
         $this->toolRegistry = new ToolRegistry();
 
-        parent::__construct($provider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider);
+        // Wrap primary provider with FallbackProvider when fallback models are configured
+        $effectiveProvider = $provider;
+        if ($config instanceof OpenClawConfig) {
+            $fallbacks = $config->getFallbacks();
+            if (!empty($fallbacks)) {
+                $factory = new ProviderFactory($config);
+                $fallbackProviders = array_map(
+                    fn(string $model) => $factory->create($model),
+                    $fallbacks,
+                );
+                $effectiveProvider = new FallbackProvider($provider, $fallbackProviders);
+            }
+        }
+
+        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider);
 
         // Use injected resolver or create one (backward compat for standalone use)
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);
@@ -181,6 +203,14 @@ final class OrchestratorAgent extends AbstractAgent
             ),
         );
 
+        // Config tool — agent-facing config read/modify
+        if ($configManager !== null) {
+            $this->configTool = new ConfigTool(
+                configManager: $configManager,
+                configGuard: $configGuard ?? new ConfigGuard(),
+            );
+        }
+
         // Background task toolkit — only in API mode
         if ($backgroundTaskToolkit !== null) {
             $this->addToolkit($backgroundTaskToolkit);
@@ -198,6 +228,10 @@ final class OrchestratorAgent extends AbstractAgent
             $this->toolRegistry->register($this->restartTool);
         }
 
+        if ($this->configTool !== null) {
+            $this->toolRegistry->register($this->configTool);
+        }
+
         // Create the tool search tool — always-loaded, not subject to maxTools cap.
         // Gives the agent on-demand access to the full tool library via BM25 search.
         $this->toolSearchTool = new ToolSearchTool($this->toolRegistry);
@@ -210,6 +244,11 @@ final class OrchestratorAgent extends AbstractAgent
             if ($cap > 0) {
                 $this->setMaxTools($cap);
             }
+        }
+
+        // Set up FallbackProvider notifications via the agent's observer system
+        if ($effectiveProvider instanceof FallbackProvider) {
+            $effectiveProvider->setOnNotify(fn(string $msg) => $this->notify('agent.warning', $msg));
         }
     }
 
@@ -274,6 +313,10 @@ final class OrchestratorAgent extends AbstractAgent
 
         if ($this->restartTool !== null) {
             $tools[] = $this->restartTool;
+        }
+
+        if ($this->configTool !== null) {
+            $tools[] = $this->configTool;
         }
 
         return $tools;

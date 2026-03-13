@@ -25,6 +25,8 @@ use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Config\ConfigGuard;
+use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -149,6 +151,8 @@ final class ApiCommand extends Command
             memoryStore: $boot->memoryStore(),
             memorySummarizer: $boot->memorySummarizer(),
             mountManager: $boot->mountManager(),
+            configManager: $boot->configManager(),
+            configGuard: new ConfigGuard(),
         );
 
         // Create title generator
@@ -193,8 +197,8 @@ final class ApiCommand extends Command
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
         $messageHandler = new MessageHandler($storage, $executor, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
-        $configHandler = new ConfigHandler($boot->config(), $boot->configPath());
-        $credentialHandler = new CredentialHandler($boot->credentialResolver());
+        $configHandler = new ConfigHandler($boot->config(), $boot->configManager(), new ConfigValidator(), $boot);
+        $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
@@ -341,6 +345,7 @@ final class ApiCommand extends Command
         // Config
         $router->get($v1 . '/config', [$config, 'get']);
         $router->put($v1 . '/config', [$config, 'update']);
+        $router->post($v1 . '/config/validate', [$config, 'validate']);
         $router->get($v1 . '/config/models', [$config, 'models']);
 
         // Roles
@@ -353,6 +358,7 @@ final class ApiCommand extends Command
         // Credentials
         $router->get($v1 . '/credentials', [$credential, 'list']);
         $router->post($v1 . '/credentials', [$credential, 'set']);
+        $router->get($v1 . '/credentials/requirements', [$credential, 'requirements']);
         $router->delete($v1 . '/credentials/{key}', [$credential, 'delete']);
 
         // Background tasks

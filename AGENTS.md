@@ -290,6 +290,51 @@ The shell allowlist is only configurable via `openclaw.json` — it is not affec
 
 
 
+## Failover Provider Architecture
+
+Coqui provides automatic model failover via the `FallbackProvider` decorator pattern. When the primary LLM provider fails with a retryable error (rate limit, server error, timeout), Coqui transparently retries the request on the next configured fallback provider. This logic lives entirely in Coqui — php-agents has no awareness of fallback models.
+
+### How It Works
+
+1. **`OpenClawConfig::getFallbacks()`** reads `agents.defaults.model.fallbacks` from `openclaw.json` — an ordered array of `"provider/model"` strings.
+2. **`OrchestratorAgent::createAgent()`** checks if fallbacks are configured. If so, it uses `ProviderFactory` to create a provider for each fallback string, wraps the primary provider in a `FallbackProvider` decorator, and wires the `onNotify` callback to the agent's observer system.
+3. **`FallbackProvider`** implements `ProviderInterface` — it is invisible to `AbstractAgent`. On every `chat()`, `stream()`, or `structured()` call, it tries the primary provider first. If a retryable error occurs, it tries fallbacks in order. Non-retryable errors throw immediately.
+4. **`ProviderErrorClassifier`** determines whether an error is retryable (429, 5xx, 408, network/connection) or fatal (401, 403, 400, 404). Fatal errors are never retried.
+5. **Fallback events** are surfaced to the agent's observer system via the `setOnNotify()` closure. The agent emits `agent.warning` events when switching providers, so the user sees which model is being tried.
+
+### Configuration
+
+Add fallback models to `openclaw.json`:
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "model": {
+                "primary": "anthropic/claude-sonnet-4-20250514",
+                "fallbacks": [
+                    "openai/gpt-4o",
+                    "ollama/llama3"
+                ]
+            }
+        }
+    }
+}
+```
+
+Fallbacks are tried in order. If all fallbacks also fail, the last error is propagated to the agent.
+
+### Key Source Files
+
+| File | Purpose |
+|------|---------|
+| `src/Provider/FallbackProvider.php` | `ProviderInterface` decorator — tries primary then fallbacks on retryable errors |
+| `src/Exception/ProviderErrorClassifier.php` | Classifies errors as retryable (429, 5xx, 408, network) or fatal (401, 403, 400, 404) |
+| `src/Config/OpenClawConfig.php` | Application-specific `ConfigInterface` implementation — reads `openclaw.json`, provides `getFallbacks()` |
+| `src/Exception/ConfigNotFoundException.php` | Domain exception for missing/unreadable `openclaw.json` |
+
+
+
 ## Mount System Architecture
 
 Coqui supports declarative directory mounts that give agents access to external directories beyond the primary workspace. Mounts are configured in `openclaw.json` and surfaced as symlinks under `workspace/mnt/` for agent discoverability.
