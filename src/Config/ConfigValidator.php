@@ -220,7 +220,10 @@ final class ConfigValidator
             }
 
             // Verify pattern is valid regex
-            if (@preg_match($pattern, '') === false) {
+            set_error_handler(static fn (): bool => true);
+            $valid = preg_match($pattern, '') !== false;
+            restore_error_handler();
+            if (!$valid) {
                 $errors[] = sprintf(
                     'agents.defaults.blacklist[%d]: invalid regex pattern "%s"',
                     $i,

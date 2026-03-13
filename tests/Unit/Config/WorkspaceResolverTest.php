@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\WorkspaceResolver;
-use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
+use CoquiBot\Coqui\Config\OpenClawConfig;
 
 test('resolves default workspace to home directory', function () {
     $config = OpenClawConfig::fromArray([]);
