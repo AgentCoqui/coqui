@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
@@ -21,6 +22,7 @@ final readonly class CredentialHandler
 {
     public function __construct(
         private CredentialResolverInterface $credentialResolver,
+        private ?ToolkitDiscovery $toolkitDiscovery = null,
     ) {}
 
     /**
@@ -94,6 +96,39 @@ final readonly class CredentialHandler
         return Router::jsonResponse([
             'key' => $key,
             'deleted' => true,
+        ]);
+    }
+
+    /**
+     * GET /api/credentials/requirements — list all credential requirements from installed packages.
+     *
+     * Returns credential metadata (name, description, optional) merged with
+     * current set-status so clients see the full picture in one call.
+     */
+    public function requirements(ServerRequestInterface $request): Response
+    {
+        if ($this->toolkitDiscovery === null) {
+            return Router::jsonResponse([
+                'requirements' => [],
+                'count' => 0,
+            ]);
+        }
+
+        $allRequirements = $this->toolkitDiscovery->collectAllCredentialRequirements();
+
+        $requirements = [];
+        foreach ($allRequirements as $requirement) {
+            $requirements[] = [
+                'key' => $requirement->name,
+                'description' => $requirement->description,
+                'optional' => $requirement->optional,
+                'is_set' => $this->credentialResolver->has($requirement->name),
+            ];
+        }
+
+        return Router::jsonResponse([
+            'requirements' => $requirements,
+            'count' => count($requirements),
         ]);
     }
 }

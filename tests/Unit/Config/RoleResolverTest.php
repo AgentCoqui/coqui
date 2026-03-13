@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
+use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
 
 test('resolves configured role to model', function () {

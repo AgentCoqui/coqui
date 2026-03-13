@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
-use CarmeloSantana\PHPAgents\Config\OpenClawConfig;
 use CarmeloSantana\PHPAgents\Contract\EmbeddingProviderInterface;
 use CarmeloSantana\PHPAgents\Embedding\OllamaEmbeddingProvider;
 use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
@@ -36,6 +35,7 @@ final class BootManager
     private MountManager $mountManager;
     private MemoryStore $memoryStore;
     private MemorySummarizer $memorySummarizer;
+    private ConfigManager $configManager;
 
     public function __construct(
         private readonly string $workDir,
@@ -79,6 +79,14 @@ final class BootManager
     public function configPath(): string
     {
         return $this->configPath;
+    }
+
+    /**
+     * The ConfigManager instance managing the workspace config lifecycle.
+     */
+    public function configManager(): ConfigManager
+    {
+        return $this->configManager;
     }
 
     public function workspacePath(): string
@@ -139,12 +147,24 @@ final class BootManager
     /**
      * Reload config from disk — updates resolver, workspace, blacklist, and mounts.
      *
-     * Called after the setup wizard and when external config changes are detected.
-     * Rebuilds all config-derived state so the next agent turn uses fresh values.
+     * Called after the setup wizard, ConfigTool writes, and when external config
+     * changes are detected via filemtime. Rebuilds all config-derived state so
+     * the next agent turn uses fresh values.
      */
-    public function reloadConfig(string $configPath): void
+    public function reloadConfig(?string $configPath = null): void
     {
-        $this->config = OpenClawConfig::fromFile($configPath);
+        if ($configPath !== null && $configPath !== '') {
+            // Legacy path: explicit config path (e.g. from setup wizard before ConfigManager existed)
+            $this->config = OpenClawConfig::fromFile($configPath);
+            $this->configPath = realpath($configPath) ?: $configPath;
+        } elseif (isset($this->configManager)) {
+            $this->configManager->reload();
+            $this->config = $this->configManager->config();
+            $this->configPath = $this->configManager->path();
+        } else {
+            return;
+        }
+
         $this->blacklist = CatastrophicBlacklist::fromConfig($this->config);
         $this->roleDiscovery->invalidateCache();
         $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
@@ -155,18 +175,58 @@ final class BootManager
         $this->initializeMounts();
     }
 
+    /**
+     * Check if the config file has been modified since last load.
+     */
+    public function hasConfigChanged(): bool
+    {
+        return isset($this->configManager) && $this->configManager->hasChanged();
+    }
+
     private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
     {
-        $configPath ??= $this->workDir . '/openclaw.json';
+        // Two-phase load: we need workspace path first for ConfigManager,
+        // but workspace resolution needs config. Break the cycle by doing
+        // a preliminary workspace resolve, then using ConfigManager.
 
-        if (!file_exists($configPath)) {
-            $configPath = dirname(__DIR__, 2) . '/openclaw.json';
+        // Phase 1: Preliminary workspace resolution.
+        // If an explicit config path is given or one exists in workDir, use it
+        // temporarily to resolve the workspace. Otherwise use defaults.
+        $prelimConfig = $this->loadPreliminaryConfig($configPath);
+        $workspaceResolver = new WorkspaceResolver($prelimConfig, $this->workDir, $this->workspaceOverride);
+        $prelimWorkspace = $workspaceResolver->resolve();
+
+        // Phase 2: Create ConfigManager with resolved workspace path.
+        $validator = new ConfigValidator();
+        $this->configManager = new ConfigManager(
+            workspacePath: $prelimWorkspace,
+            projectRoot: $this->workDir,
+            defaultsLoader: $this->defaultsLoader,
+            validator: $validator,
+        );
+
+        // If explicit CLI --config flag, pass it through
+        $explicitPath = null;
+        if ($configPath !== null && $configPath !== '' && file_exists($configPath)) {
+            $explicitPath = $configPath;
         }
 
-        if (file_exists($configPath)) {
-            $this->configPath = realpath($configPath) ?: $configPath;
-            $this->config = OpenClawConfig::fromFile($configPath);
+        // Try loading from workspace (seeds from project root automatically)
+        try {
+            $this->config = $this->configManager->load($explicitPath);
+            $this->configPath = $this->configManager->path();
+
+            // Show seed notice if config was just created from project root
+            if ($io instanceof SymfonyStyle && $this->wasSeededFromProjectRoot($explicitPath)) {
+                $io->text('<fg=gray>Config seeded from project root to workspace.</>'); 
+            }
+
             return;
+        } catch (\Throwable $e) {
+            // Config load failed — fall through to wizard or defaults
+            if ($io instanceof SymfonyStyle) {
+                $io->warning('Failed to load config: ' . $e->getMessage());
+            }
         }
 
         // Interactive setup wizard — only available with SymfonyStyle
@@ -179,13 +239,13 @@ final class BootManager
             ]);
 
             if ($io->confirm('Would you like to run the setup wizard now?', true)) {
-                $outputPath = $this->workDir . '/openclaw.json';
+                $outputPath = $this->configManager->path();
                 $wizard = new SetupWizard($io, $this->defaultsLoader);
                 $saved = $wizard->runAndSave($outputPath);
 
                 if ($saved && file_exists($outputPath)) {
-                    $this->configPath = realpath($outputPath) ?: $outputPath;
-                    $this->config = OpenClawConfig::fromFile($outputPath);
+                    $this->config = $this->configManager->reload() ? $this->configManager->config() : $this->buildDefaultConfig();
+                    $this->configPath = $this->configManager->path();
                     return;
                 }
             }
@@ -195,6 +255,57 @@ final class BootManager
         }
 
         $this->config = $this->buildDefaultConfig();
+        $this->configManager->save([
+            'agents' => $this->config->get('agents') ?? [],
+        ]);
+        $this->configPath = $this->configManager->path();
+    }
+
+    /**
+     * Load a preliminary config for workspace resolution before ConfigManager exists.
+     */
+    private function loadPreliminaryConfig(?string $configPath): OpenClawConfig
+    {
+        // Explicit path
+        if ($configPath !== null && file_exists($configPath)) {
+            return OpenClawConfig::fromFile($configPath);
+        }
+
+        // Project root
+        $workDirConfig = $this->workDir . '/openclaw.json';
+        if (file_exists($workDirConfig)) {
+            return OpenClawConfig::fromFile($workDirConfig);
+        }
+
+        // Bundled default
+        $bundledConfig = dirname(__DIR__, 2) . '/openclaw.json';
+        if (file_exists($bundledConfig)) {
+            return OpenClawConfig::fromFile($bundledConfig);
+        }
+
+        // Minimal defaults
+        return $this->buildDefaultConfig();
+    }
+
+    /**
+     * Detect whether the current load was a fresh seed from project root.
+     */
+    private function wasSeededFromProjectRoot(?string $explicitPath): bool
+    {
+        if ($explicitPath !== null) {
+            return false;
+        }
+
+        $projectConfig = rtrim($this->workDir, '/') . '/openclaw.json';
+        $workspaceConfig = $this->configManager->path();
+
+        // If both exist and workspace was just created (within last 2 seconds), likely seeded
+        if (file_exists($projectConfig) && file_exists($workspaceConfig)) {
+            $wsMtime = filemtime($workspaceConfig);
+            return $wsMtime !== false && (time() - $wsMtime) < 2;
+        }
+
+        return false;
     }
 
     private function initializeWorkspace(): void
