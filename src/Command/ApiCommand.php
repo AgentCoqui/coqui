@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Command;
 
-use CoquiBot\Coqui\Agent\AgentRunner;
-use CoquiBot\Coqui\Agent\TitleGenerator;
-use CoquiBot\Coqui\Api\AgentFiberExecutor;
+use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
@@ -25,9 +23,7 @@ use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\BootManager;
-use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigValidator;
-use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use React\EventLoop\Loop;
@@ -133,44 +129,7 @@ final class ApiCommand extends Command
             $output->writeln('');
         }
 
-        // Create AgentRunner (headless: NullObserver + no interactive approval)
-        $agentRunner = new AgentRunner(
-            roleResolver: $boot->roleResolver(),
-            config: $boot->config(),
-            projectRoot: $workDir,
-            workspacePath: $boot->workspacePath(),
-            storage: $storage,
-            observer: new NullObserver(),
-            discovery: $boot->discovery(),
-            blacklist: $boot->blacklist(),
-            credentialResolver: $boot->credentialResolver(),
-            skillDiscovery: $boot->skillDiscovery(),
-            roleDiscovery: $boot->roleDiscovery(),
-            unsafeMode: $unsafeMode,
-            backgroundTasksEnabled: true,
-            memoryStore: $boot->memoryStore(),
-            memorySummarizer: $boot->memorySummarizer(),
-            mountManager: $boot->mountManager(),
-            configManager: $boot->configManager(),
-            configGuard: new ConfigGuard(),
-        );
-
-        // Create title generator
-        $titleGenerator = new TitleGenerator(
-            roleResolver: $boot->roleResolver(),
-            config: $boot->config(),
-            roleDiscovery: $boot->roleDiscovery(),
-        );
-
-        // Create Fiber executor
-        $executor = new AgentFiberExecutor(
-            agentRunner: $agentRunner,
-            storage: $storage,
-            blacklist: $boot->blacklist(),
-            titleGenerator: $titleGenerator,
-        );
-
-        // Create background task manager
+        // Create background task manager + agent turn manager
         $coquiBinPath = realpath(dirname(__DIR__, 2) . '/bin/coqui') ?: dirname(__DIR__, 2) . '/bin/coqui';
         $maxConcurrentTasks = (int) ($boot->config()->get('api.tasks.maxConcurrent') ?? 1);
 
@@ -184,10 +143,21 @@ final class ApiCommand extends Command
             unsafeMode: $unsafeMode,
         );
 
+        $turnManager = new AgentTurnManager(
+            storage: $storage,
+            coquiBinPath: $coquiBinPath,
+            configPath: $configPath ?? '',
+            workDir: $workDir,
+            workspacePath: $boot->workspacePath(),
+            unsafeMode: $unsafeMode,
+        );
+
         // Crash recovery: mark orphaned tasks from previous server run as failed
         $orphanCount = $storage->markOrphanedTasksFailed();
-        if ($orphanCount > 0) {
-            $output->writeln(sprintf('<comment>Recovered %d orphaned task(s) from previous run</comment>', $orphanCount));
+        $orphanTurnCount = $storage->markOrphanedTurnProcessesFailed();
+        $totalOrphans = $orphanCount + $orphanTurnCount;
+        if ($totalOrphans > 0) {
+            $output->writeln(sprintf('<comment>Recovered %d orphaned process(es) from previous run</comment>', $totalOrphans));
         }
 
         $startTime = microtime(true);
@@ -199,20 +169,21 @@ final class ApiCommand extends Command
         $socket = null;
 
         // Create handlers
-        $healthHandler = new HealthHandler($startTime, $executor, $taskManager);
+        $healthHandler = new HealthHandler($startTime, $turnManager, $taskManager);
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
-        $messageHandler = new MessageHandler($storage, $executor, $uploadStorage);
+        $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler(
             $boot->config(),
             $boot->configManager(),
             new ConfigValidator(),
-            onRestart: function () use (&$restartRequested, &$socket, $output, $taskManager): void {
+            onRestart: function () use (&$restartRequested, &$socket, $output, $taskManager, $turnManager): void {
                 $restartRequested = true;
                 $output->writeln('');
                 $output->writeln('<comment>Config updated via API — scheduling restart...</comment>');
                 // Defer shutdown to next tick so the HTTP response is sent first
-                Loop::futureTick(static function () use (&$socket, $taskManager): void {
+                Loop::futureTick(static function () use (&$socket, $taskManager, $turnManager): void {
+                    $turnManager->shutdown();
                     $taskManager->shutdown();
                     if ($socket instanceof SocketServer) {
                         $socket->close();
@@ -225,7 +196,7 @@ final class ApiCommand extends Command
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
-        $serverHandler = new ServerHandler($storage, $startTime, $executor, $taskManager);
+        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $taskManager);
 
         // Build router
         $router = new Router();
@@ -285,14 +256,14 @@ final class ApiCommand extends Command
         // Graceful shutdown on SIGTERM/SIGINT — close socket + stop event loop
         // SIGINT (2) = direct Ctrl+C — show shutdown message (standalone mode)
         // SIGTERM (15) = sent by launcher — stay silent (launcher owns the UX)
-        $shutdownHandler = static function (int $signal) use ($socket, $output, $taskManager): void {
+        $shutdownHandler = static function (int $signal) use ($socket, $output, $taskManager, $turnManager): void {
             $output->writeln('');
             if ($signal === 2) {
                 $output->writeln('');
                 $output->writeln(' <info>[INFO] Shutting down Coqui.</info>');
                 $output->writeln('');
-                $output->writeln('');
             }
+            $turnManager->shutdown();
             $taskManager->shutdown();
             $socket->close();
             Loop::stop();
@@ -324,6 +295,11 @@ final class ApiCommand extends Command
         // Periodic timer: tick the background task manager every second
         Loop::addPeriodicTimer(1.0, static function () use ($taskManager): void {
             $taskManager->tick();
+        });
+
+        // Periodic timer: reap finished turn processes
+        Loop::addPeriodicTimer(1.0, static function () use ($turnManager): void {
+            $turnManager->tick();
         });
 
         return $restartRequested ? RunCommand::RESTART_EXIT_CODE : Command::SUCCESS;

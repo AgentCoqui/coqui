@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
-use CoquiBot\Coqui\Api\AgentFiberExecutor;
+use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Psr\Http\Message\ServerRequestInterface;
+use React\EventLoop\Loop;
+use React\EventLoop\TimerInterface;
 use React\Http\Message\Response;
+use React\Stream\ThroughStream;
 
 /**
  * Message endpoints — including the core SSE streaming endpoint.
@@ -19,15 +22,22 @@ use React\Http\Message\Response;
  * POST   /api/sessions/{id}/messages             — send prompt (SSE stream)
  * POST   /api/sessions/{id}/messages?stream=false — send prompt (JSON response)
  * DELETE /api/sessions/{id}/messages/{messageId}  — delete a single message
+ *
+ * Agent turns run in child processes via AgentTurnManager. Events are polled
+ * from SQLite and streamed to the client, keeping the ReactPHP event loop
+ * fully responsive for concurrent requests.
  */
 final readonly class MessageHandler
 {
     /** Maximum prompt length in bytes (100 KB). */
     private const int MAX_PROMPT_BYTES = 102_400;
 
+    /** How often to poll SQLite for new events (seconds). */
+    private const float POLL_INTERVAL = 0.5;
+
     public function __construct(
         private SessionStorage $storage,
-        private AgentFiberExecutor $executor,
+        private AgentTurnManager $turnManager,
         private FileUploadStorage $uploadStorage,
     ) {}
 
@@ -92,7 +102,7 @@ final readonly class MessageHandler
         }
 
         // Check for already-active agent run on this session
-        if ($this->executor->isActive($id)) {
+        if ($this->turnManager->isActive($id)) {
             return Router::errorResponse(ApiErrorCode::AGENT_BUSY, 'Session already has an active agent run');
         }
 
@@ -148,11 +158,83 @@ final readonly class MessageHandler
     /**
      * SSE streaming response — the core endpoint.
      *
+     * Spawns the agent turn in a child process and returns an SSE stream
+     * that polls SQLite for events emitted by the child process.
+     *
      * @param string[] $filePaths
      */
     private function sendStreaming(string $sessionId, string $prompt, array $filePaths = []): Response
     {
-        $stream = $this->executor->execute($sessionId, $prompt, $filePaths !== [] ? $filePaths : null);
+        $turnProcessId = $this->turnManager->start(
+            $sessionId,
+            $prompt,
+            $filePaths !== [] ? $filePaths : null,
+        );
+
+        if ($turnProcessId === null) {
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Failed to start agent turn');
+        }
+
+        $stream = new ThroughStream();
+
+        // Send initial connection event
+        $stream->write("event: connected\ndata: {\"turn_process_id\":\"{$turnProcessId}\"}\n\n");
+
+        $lastEventId = null;
+        /** @var ?TimerInterface $timer */
+        $timer = null;
+
+        // Poll SQLite for new events from the child process
+        $timer = Loop::addPeriodicTimer(self::POLL_INTERVAL, function () use (
+            $stream,
+            $turnProcessId,
+            &$lastEventId,
+            &$timer,
+        ): void {
+            try {
+                $events = $this->storage->getTaskEvents($turnProcessId, $lastEventId);
+
+                foreach ($events as $event) {
+                    $this->writeSseEvent($stream, $event);
+                    $lastEventId = (int) $event['id'];
+                }
+
+                // Check if the turn process has completed
+                $turnProcess = $this->storage->getTurnProcess($turnProcessId);
+
+                if ($turnProcess !== null && in_array($turnProcess['status'], ['completed', 'failed'], true)) {
+                    // Final poll to ensure all events are flushed
+                    $finalEvents = $this->storage->getTaskEvents($turnProcessId, $lastEventId);
+                    foreach ($finalEvents as $event) {
+                        $this->writeSseEvent($stream, $event);
+                    }
+
+                    if ($stream->isWritable()) {
+                        $stream->end();
+                    }
+                    if ($timer !== null) {
+                        Loop::cancelTimer($timer);
+                    }
+                }
+            } catch (\Throwable) {
+                try {
+                    if ($stream->isWritable()) {
+                        $stream->end();
+                    }
+                    if ($timer !== null) {
+                        Loop::cancelTimer($timer);
+                    }
+                } catch (\Throwable) {
+                    // Already closed
+                }
+            }
+        });
+
+        // Clean up on client disconnect — cancel timer and kill child process
+        $stream->on('close', function () use (&$timer, $sessionId): void {
+            Loop::cancelTimer($timer);
+            $this->turnManager->cancel($sessionId);
+        });
 
         return new Response(
             200,
@@ -169,28 +251,148 @@ final readonly class MessageHandler
     /**
      * Blocking JSON response — for clients that don't support SSE.
      *
-     * Uses executeBlocking() which runs the agent in a Fiber and resolves
-     * a Promise with the AgentTurnResult directly — no SSE parsing needed.
+     * Spawns the agent turn in a child process, polls for the "complete"
+     * event, and returns the result as a single JSON response.
+     * The response body streams once the turn finishes (long-poll).
      *
      * @param string[] $filePaths
      */
     private function sendBlocking(string $sessionId, string $prompt, array $filePaths = []): Response
     {
-        $promise = $this->executor->executeBlocking($sessionId, $prompt, $filePaths !== [] ? $filePaths : null);
+        $turnProcessId = $this->turnManager->start(
+            $sessionId,
+            $prompt,
+            $filePaths !== [] ? $filePaths : null,
+        );
 
-        // In v1, the Promise is already resolved synchronously.
-        // Extract the resolved value directly.
-        $result = null;
-        $promise->then(function (array $data) use (&$result): void {
-            $result = $data;
-        });
-
-        if (is_array($result)) {
-            $hasError = isset($result['error']);
-            return Router::jsonResponse($result, $hasError ? 500 : 200);
+        if ($turnProcessId === null) {
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Failed to start agent turn');
         }
 
-        return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Agent run completed without result');
+        $stream = new ThroughStream();
+        $lastEventId = null;
+        /** @var ?TimerInterface $timer */
+        $timer = null;
+
+        // Poll until the turn process completes, then write the JSON result
+        $timer = Loop::addPeriodicTimer(self::POLL_INTERVAL, function () use (
+            $stream,
+            $turnProcessId,
+            &$lastEventId,
+            &$timer,
+        ): void {
+            try {
+                // Advance the event cursor so we can find the complete event
+                $events = $this->storage->getTaskEvents($turnProcessId, $lastEventId);
+                foreach ($events as $event) {
+                    $lastEventId = (int) $event['id'];
+                }
+
+                $turnProcess = $this->storage->getTurnProcess($turnProcessId);
+
+                if ($turnProcess === null || !in_array($turnProcess['status'], ['completed', 'failed'], true)) {
+                    return;
+                }
+
+                // Turn is done — find the "complete" event with the result payload
+                $result = $this->extractCompleteResult($turnProcessId);
+
+                if ($result !== null) {
+                    $json = json_encode($result, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+                    $stream->write($json);
+                } else {
+                    $json = json_encode([
+                        'error' => 'Internal error',
+                        'code' => 'internal_error',
+                    ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+                    $stream->write($json);
+                }
+
+                $stream->end();
+                if ($timer !== null) {
+                    Loop::cancelTimer($timer);
+                }
+            } catch (\Throwable) {
+                try {
+                    $errorJson = json_encode([
+                        'error' => 'Internal error',
+                        'code' => 'internal_error',
+                    ], JSON_UNESCAPED_SLASHES);
+                    $stream->write($errorJson ?: '{"error":"Internal error"}');
+                    $stream->end();
+                    if ($timer !== null) {
+                        Loop::cancelTimer($timer);
+                    }
+                } catch (\Throwable) {
+                    // Already closed
+                }
+            }
+        });
+
+        // Clean up on client disconnect
+        $stream->on('close', function () use (&$timer, $sessionId): void {
+            Loop::cancelTimer($timer);
+            $this->turnManager->cancel($sessionId);
+        });
+
+        return new Response(
+            200,
+            [
+                'Content-Type' => 'application/json',
+                'Cache-Control' => 'no-cache',
+            ],
+            $stream,
+        );
+    }
+
+    /**
+     * Extract the result payload from the "complete" event.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function extractCompleteResult(string $turnProcessId): ?array
+    {
+        // Read all events and find the last "complete" event
+        $events = $this->storage->getTaskEvents($turnProcessId, limit: 500);
+
+        for ($i = count($events) - 1; $i >= 0; $i--) {
+            if (($events[$i]['event_type'] ?? '') === 'complete') {
+                $data = $events[$i]['data'] ?? '{}';
+                $decoded = is_string($data) ? json_decode($data, true) : $data;
+                return is_array($decoded) ? $decoded : null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Write a single SSE event to the stream.
+     *
+     * @param array<string, mixed> $event
+     */
+    private function writeSseEvent(ThroughStream $stream, array $event): void
+    {
+        if (!$stream->isWritable()) {
+            return;
+        }
+
+        $data = $event['data'] ?? '{}';
+        if (!is_string($data)) {
+            $data = json_encode($data, JSON_UNESCAPED_SLASHES) ?: '{}';
+        }
+
+        $eventType = $event['event_type'] ?? 'message';
+        $id = $event['id'] ?? '';
+
+        $sse = '';
+        if ($id !== '') {
+            $sse .= "id: {$id}\n";
+        }
+        $sse .= "event: {$eventType}\n";
+        $sse .= "data: {$data}\n\n";
+
+        $stream->write($sse);
     }
 
     /**

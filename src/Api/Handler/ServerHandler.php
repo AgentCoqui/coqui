@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
-use CoquiBot\Coqui\Api\AgentFiberExecutor;
+use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -22,7 +22,7 @@ final readonly class ServerHandler
     public function __construct(
         private SessionStorage $storage,
         private float $startTime,
-        private AgentFiberExecutor $executor,
+        private AgentTurnManager $turnManager,
         private ?BackgroundTaskManager $taskManager = null,
     ) {}
 
@@ -37,7 +37,7 @@ final readonly class ServerHandler
             'version' => self::version(),
             'php_version' => PHP_VERSION,
             'uptime_seconds' => $uptimeSeconds,
-            'active_sessions' => $this->executor->activeCount(),
+            'active_sessions' => $this->turnManager->activeCount(),
             'memory' => [
                 'usage_bytes' => memory_get_usage(true),
                 'peak_bytes' => memory_get_peak_usage(true),
