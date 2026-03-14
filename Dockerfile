@@ -85,18 +85,21 @@ COPY conf.d/coqui.ini /usr/local/etc/php/conf.d/coqui.ini
 # -----------------------------------------------------------------------------
 WORKDIR /app
 
-# Pre-create workspace at /app/workspace for Docker named volume mounts.
-# Docker copies image directory ownership into named volumes on first mount.
-# The COQUI_WORKSPACE env var or --workspace CLI flag points here in Docker.
+# Pre-create workspace and fix /app ownership as root before switching users.
+# WORKDIR and COPY default to root:root — the coqui user needs write access
+# to create /app/vendor during composer install.
 RUN mkdir -p /app/workspace \
-    && chown -R coqui:coqui /app/workspace
+    && chown -R coqui:coqui /app
 
 # -----------------------------------------------------------------------------
 # Application source (production builds)
 # For local development, compose.yaml bind-mounts .:/app which overrides this.
 # For GHCR / production images, the source is baked in.
+#
+# Layer caching: copy dependency manifests first so Composer only re-runs
+# when dependencies change, not on every source code change.
 # -----------------------------------------------------------------------------
-COPY --chown=coqui:coqui . /app
+COPY --chown=coqui:coqui composer.json composer.lock /app/
 
 USER coqui
 
@@ -107,6 +110,8 @@ RUN composer install \
     --no-interaction \
     --no-progress \
     --optimize-autoloader
+
+COPY --chown=coqui:coqui . /app
 
 ENTRYPOINT ["php", "bin/coqui"]
 CMD []
