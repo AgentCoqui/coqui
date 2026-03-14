@@ -183,6 +183,27 @@ final class SessionStorage
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_task_inputs_task ON task_inputs(task_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_task_inputs_consumed ON task_inputs(consumed)');
+
+        // Interactive turn processes — child processes for API agent turns
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS turn_processes (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                file_paths TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                pid INTEGER,
+                result TEXT,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+        SQL);
+
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turn_processes_session ON turn_processes(session_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turn_processes_status ON turn_processes(status)');
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
@@ -1256,6 +1277,123 @@ final class SessionStorage
         SQL);
 
         $stmt->execute(['cutoff' => $cutoff]);
+
+        return $stmt->rowCount();
+    }
+
+    // ─── Turn Process Methods ────────────────────────────────────────────────
+
+    /**
+     * Create a pending turn process record for an interactive API agent turn.
+     *
+     * @param string[]|null $filePaths
+     */
+    public function createTurnProcess(string $sessionId, string $prompt, ?array $filePaths = null): string
+    {
+        $id = bin2hex(random_bytes(16));
+        $now = date('c');
+
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO turn_processes (id, session_id, prompt, file_paths, status, created_at)
+            VALUES (:id, :session_id, :prompt, :file_paths, 'pending', :created_at)
+        SQL);
+
+        $stmt->execute([
+            'id' => $id,
+            'session_id' => $sessionId,
+            'prompt' => $prompt,
+            'file_paths' => $filePaths !== null ? json_encode($filePaths, JSON_UNESCAPED_SLASHES) : null,
+            'created_at' => $now,
+        ]);
+
+        return $id;
+    }
+
+    /**
+     * Update turn process status and optionally set result/error/PID fields.
+     *
+     * @param array<string, mixed> $extra Additional columns to update (result, error, pid)
+     */
+    public function updateTurnProcessStatus(string $turnProcessId, string $status, array $extra = []): void
+    {
+        $sets = ['status = :status'];
+        $params = ['status' => $status, 'id' => $turnProcessId];
+
+        $now = date('c');
+
+        match ($status) {
+            'running' => $sets[] = 'started_at = :started_at',
+            'completed', 'failed' => $sets[] = 'completed_at = :completed_at',
+            default => null,
+        };
+
+        if ($status === 'running') {
+            $params['started_at'] = $now;
+        } elseif ($status === 'completed' || $status === 'failed') {
+            $params['completed_at'] = $now;
+        }
+
+        foreach ($extra as $col => $val) {
+            if (in_array($col, ['result', 'error', 'pid'], true)) {
+                $sets[] = "{$col} = :{$col}";
+                $params[$col] = $val;
+            }
+        }
+
+        $setClause = implode(', ', $sets);
+
+        $stmt = $this->db->prepare("UPDATE turn_processes SET {$setClause} WHERE id = :id");
+        $stmt->execute($params);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getTurnProcess(string $id): ?array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM turn_processes WHERE id = :id');
+        $stmt->execute(['id' => $id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $row : null;
+    }
+
+    /**
+     * Get the active (pending or running) turn process for a session, if any.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getActiveTurnProcess(string $sessionId): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT * FROM turn_processes
+            WHERE session_id = :session_id AND status IN ('pending', 'running')
+            ORDER BY created_at DESC LIMIT 1
+        SQL);
+
+        $stmt->execute(['session_id' => $sessionId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $row : null;
+    }
+
+    /**
+     * Mark orphaned turn processes (stuck in pending/running) as failed.
+     *
+     * Called on API server startup to clean up from previous crashes.
+     */
+    public function markOrphanedTurnProcessesFailed(string $error = 'Server restarted — turn process was lost'): int
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE turn_processes
+            SET status = 'failed', error = :error, completed_at = :now
+            WHERE status IN ('pending', 'running')
+        SQL);
+
+        $stmt->execute([
+            'error' => $error,
+            'now' => date('c'),
+        ]);
 
         return $stmt->rowCount();
     }
