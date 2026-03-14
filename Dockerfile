@@ -10,8 +10,9 @@
 
 FROM php:8.4-cli
 
-LABEL maintainer="Coqui Bot <hello@coqui.bot>"
+LABEL maintainer="Coqui Bot <carmelo@coquibot.ai>"
 LABEL description="Coqui — PHP 8.4 CLI + Composer"
+LABEL org.opencontainers.image.source="https://github.com/AgentCoqui/coqui"
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
