@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
-use CoquiBot\Coqui\Api\AgentFiberExecutor;
+use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Router;
 use Psr\Http\Message\ServerRequestInterface;
@@ -17,7 +17,7 @@ final readonly class HealthHandler
 {
     public function __construct(
         private float $startTime,
-        private AgentFiberExecutor $executor,
+        private AgentTurnManager $turnManager,
         private ?BackgroundTaskManager $taskManager = null,
     ) {}
 
@@ -29,7 +29,7 @@ final readonly class HealthHandler
             'status' => 'ok',
             'version' => self::version(),
             'uptime_seconds' => $uptimeSeconds,
-            'active_sessions' => $this->executor->activeCount(),
+            'active_sessions' => $this->turnManager->activeCount(),
         ];
 
         if ($this->taskManager !== null) {

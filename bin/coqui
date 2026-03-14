@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Command\DoctorCommand;
 use CoquiBot\Coqui\Command\RunCommand;
 use CoquiBot\Coqui\Command\SetupCommand;
 use CoquiBot\Coqui\Command\TaskRunCommand;
+use CoquiBot\Coqui\Command\TurnRunCommand;
 use Symfony\Component\Console\Application;
 
 $version = InstalledVersions::getPrettyVersion('coquibot/coqui') ?? 'dev';
@@ -20,5 +21,6 @@ $app->add(new SetupCommand());
 $app->add(new DoctorCommand());
 $app->add(new ApiCommand());
 $app->add(new TaskRunCommand());
+$app->add(new TurnRunCommand());
 $app->setDefaultCommand('run');
 $app->run();
