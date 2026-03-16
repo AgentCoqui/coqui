@@ -675,6 +675,7 @@ client.send_prompt(review_session, "Check for SQL injection vulnerabilities")
 | `agent_start` | Agent turn begins | `{}` |
 | `iteration` | Each agent loop cycle | `number` (1-based) |
 | `text_delta` | Streaming text token from LLM | `content` |
+| `reasoning` | Model thinking/reasoning token | `{"content": "token"}` |
 | `tool_call` | Agent invokes a tool | `id`, `tool`, `arguments` |
 | `tool_result` | Tool returns a result | `content`, `success` |
 | `child_start` | Child agent spawned | `role`, `depth` |

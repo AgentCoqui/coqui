@@ -456,6 +456,7 @@ Events are separated by a blank line. The stream ends when the `complete` event 
 |-------|-------------|------------|
 | `agent_start` | Agent turn has begun | `{}` |
 | `iteration` | Agent loop iteration | `{"number": 1}` |
+| `reasoning` | Model thinking/reasoning token | `{"content": "token"}` |
 | `text_delta` | Streaming text token from LLM | `{"content": "token"}` |
 | `tool_call` | Agent is calling a tool | `{"id": "call_abc", "tool": "list_dir", "arguments": {"path": "."}}` |
 | `tool_result` | Tool execution completed | `{"content": "...", "success": true}` |

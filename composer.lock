@@ -4,21 +4,15 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "77d220874d478c5968301c909882d23a",
+    "content-hash": "173127ef72cbb5e04730d4041d42c1b4",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "v0.9.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "65176c531b909cc04943e91e643ae2e0f005871b"
-            },
+            "version": "dev-main",
             "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/65176c531b909cc04943e91e643ae2e0f005871b",
-                "reference": "65176c531b909cc04943e91e643ae2e0f005871b",
-                "shasum": ""
+                "type": "path",
+                "url": "../php-agents",
+                "reference": "65176c531b909cc04943e91e643ae2e0f005871b"
             },
             "require": {
                 "php": "^8.4",
@@ -42,7 +36,19 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "autoload-dev": {
+                "psr-4": {
+                    "Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "pest"
+                ],
+                "analyse": [
+                    "phpstan analyse"
+                ]
+            },
             "license": [
                 "MIT"
             ],
@@ -59,11 +65,10 @@
                 "php-agents",
                 "tools"
             ],
-            "support": {
-                "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.9.0"
-            },
-            "time": "2026-03-13T01:29:03+00:00"
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "coquibot/coqui-space-manager",
@@ -5237,7 +5242,9 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {},
+    "stability-flags": {
+        "carmelosantana/php-agents": 20
+    },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
