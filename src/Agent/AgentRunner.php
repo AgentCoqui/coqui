@@ -22,6 +22,7 @@ use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Memory\MemoryStore;
@@ -58,6 +59,7 @@ final class AgentRunner
         private readonly ?MountManager $mountManager = null,
         private readonly ?ConfigManager $configManager = null,
         private readonly ?ConfigGuard $configGuard = null,
+        private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
     ) {}
 
     /**
@@ -304,7 +306,50 @@ final class AgentRunner
             mountManager: $this->mountManager,
             configManager: $this->configManager,
             configGuard: $this->configGuard,
+            visibilityRegistry: $this->visibilityRegistry,
         );
+    }
+
+    /**
+     * Build a preview agent (no session, no storage side-effects) and return
+     * its system prompt text plus tool/toolkit counts.
+     *
+     * Used by the /prompt REPL command and GET /api/v1/server/prompt endpoint.
+     *
+     * @return array{prompt: string, tool_count: int, toolkit_count: int}
+     */
+    public function buildPromptPreview(): array
+    {
+        $modelString = $this->roleResolver->resolve('orchestrator');
+        $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+        $provider = $factory->create($modelString);
+
+        $sanitizer = new ScriptSanitizer(unsafe: false, blacklist: $this->blacklist);
+
+        $agent = new OrchestratorAgent(
+            provider: $provider,
+            roleResolver: $this->roleResolver,
+            config: $this->config,
+            projectRoot: $this->projectRoot,
+            workspacePath: $this->workspacePath,
+            discovery: $this->discovery,
+            sanitizer: $sanitizer,
+            credentialResolver: $this->credentialResolver,
+            skillDiscovery: $this->skillDiscovery,
+            roleDiscovery: $this->roleDiscovery,
+            memoryStore: $this->memoryStore,
+            memorySummarizer: $this->memorySummarizer,
+            mountManager: $this->mountManager,
+            configManager: $this->configManager,
+            configGuard: $this->configGuard,
+            visibilityRegistry: $this->visibilityRegistry,
+        );
+
+        return [
+            'prompt'        => $agent->getSystemPromptText(),
+            'tool_count'    => $agent->getToolCount(),
+            'toolkit_count' => $agent->getOwnToolkitCount(),
+        ];
     }
 
     /**

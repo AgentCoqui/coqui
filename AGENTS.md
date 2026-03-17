@@ -138,6 +138,115 @@ The gating system handles the confirmation UX — your toolkit does not need to 
 
 
 
+## Toolkit Visibility Architecture
+
+Toolkit visibility controls how much of each tool's schema is exposed to the LLM. This is distinct from _tool gating_ (which confirms destructive operations) — visibility determines whether the LLM sees a tool at all, and at what level of detail.
+
+### Three-Tier Model
+
+| Tier | Value | Behaviour |
+|------|-------|-----------|
+| Enabled | `"enabled"` | Full schema in LLM context (default) |
+| Stub | `"stub"` | Minimal schema; LLM discovers full details via `tool_search` |
+| Disabled | `"disabled"` | Tool not instantiated; invisible to the LLM |
+
+Visibility can be applied at two granularities:
+
+- **Package** — applies to every tool provided by a Composer package
+- **Tool** — overrides an individual tool regardless of its package
+
+### Persistence
+
+State is stored in `workspace/toolkit-visibility.json`:
+
+```json
+{
+  "packages": { "acme/vision-toolkit": "stub" },
+  "tools":    { "spawn_agent": "stub" }
+}
+```
+
+Anything not listed defaults to `enabled`. Setting a value back to `enabled` removes the entry from the file.
+
+### Protected Tool Constants
+
+Defined in `src/Contract/ToolkitVisibility.php`:
+
+| Constant | Tools | Guard |
+|----------|-------|-------|
+| `ALWAYS_ENABLED` | `tool_search`, `credentials` | Can never be stubbed or disabled — bypass all visibility checks |
+| `CANNOT_DISABLE` | `spawn_agent`, `vision_analyze`, `restart_coqui` | Can be stubbed, but disable is blocked with `InvalidArgumentException` |
+
+`ToolkitVisibilityRegistry` enforces these guards on every write, and `getToolVisibility()` always returns `Enabled` for `ALWAYS_ENABLED` tools regardless of what is on disk.
+
+### Stub Schema Pattern
+
+When a tool has `stub` visibility, `StubTool` wraps the real implementation and overrides `toFunctionSchema()`:
+
+```php
+[
+    'type' => 'function',
+    'function' => [
+        'name' => 'spawn_agent',
+        'description' => '[STUB] <first 150 chars of real description>... Use tool_search("spawn_agent") for full parameter details.',
+        'parameters' => [
+            'type' => 'object',
+            'properties' => new \stdClass(),   // empty — no typed params
+            'additionalProperties' => true,    // LLM can still call it
+        ],
+    ],
+]
+```
+
+The LLM sees `[STUB]` tools in context and knows to call `tool_search` before invoking them. The BM25 `ToolRegistry` always indexes the **real** tool (via `StubToolkit::realTools()`), so `tool_search` returns full schemas.
+
+### Implementation Classes
+
+| File | Purpose |
+|------|---------|
+| `src/Contract/ToolkitVisibility.php` | Backed string enum; protection constants; `isAlwaysEnabled()`, `canDisable()`, `canStub()` |
+| `src/Config/ToolkitVisibilityRegistry.php` | Read/write `toolkit-visibility.json`; in-memory cache; guard enforcement |
+| `src/Tool/StubTool.php` | Wraps `ToolInterface`; returns minimal stub schema; forwards `execute()` to real tool |
+| `src/Toolkit/StubToolkit.php` | Wraps `ToolkitInterface`; `tools()` returns `StubTool` wrappers; `realTools()` returns originals for BM25 |
+| `src/Config/ToolkitDiscovery.php` | `instantiateRegisteredGrouped()` — skips Disabled packages, returns `[package, toolkit]` pairs; `allWithVisibility()` for API listing |
+| `src/Agent/OrchestratorAgent.php` | Applies per-package and per-tool visibility in `addToolkit()`; `getSystemPromptText()` for prompt preview |
+| `src/Agent/AgentRunner.php` | `buildPromptPreview()` — creates a temporary agent and returns rendered prompt + counts |
+| `src/Api/Handler/ToolkitHandler.php` | `GET /api/v1/toolkits`, `POST /api/v1/toolkits/visibility` |
+| `src/Api/Handler/PromptHandler.php` | `GET /api/v1/server/prompt` |
+
+### Boot Sequence Integration
+
+```text
+loadConfig
+initializeWorkspace
+  → new ToolkitVisibilityRegistry(workspacePath)     ← creates/loads toolkit-visibility.json
+initializeMounts
+discoverRoles
+initializeCredentials
+initializeMemory
+discoverToolkits(visibilityRegistry)
+  → instantiateRegisteredGrouped() skips Disabled packages
+discoverSkills
+new OrchestratorAgent(visibilityRegistry)
+  → addToolkit() wraps Stub packages in StubToolkit
+  → tools() applies ALWAYS_ENABLED bypass, then per-tool visibility
+```
+
+### REPL Commands
+
+| Command | Description |
+|---------|-------------|
+| `/toolkits` | List all packages and tools with current visibility |
+| `/toolkits enable <pkg>` | Set package to `enabled` |
+| `/toolkits stub <pkg>` | Set package to `stub` |
+| `/toolkits disable <pkg>` | Set package to `disabled` |
+| `/toolkits enable tool:<name>` | Set individual tool to `enabled` |
+| `/toolkits stub tool:<name>` | Set individual tool to `stub` |
+| `/toolkits disable tool:<name>` | Set individual tool to `disabled` |
+| `/prompt` | Print the fully rendered system prompt |
+
+Tab autocomplete is provided for all subcommands, package names, and tool names via `readline_completion_function()`.
+
 ## Background Tool Architecture
 
 Coqui supports running individual tools asynchronously in background processes. This builds on the existing background task infrastructure — same database table, same process manager, same monitoring tools — but executes a single tool call directly instead of spawning a full LLM agent.
