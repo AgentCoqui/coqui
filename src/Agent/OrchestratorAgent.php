@@ -19,6 +19,7 @@ use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Provider\FallbackProvider;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ConfigGuard;
@@ -27,6 +28,7 @@ use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Observer\TerminalObserver;
@@ -35,16 +37,21 @@ use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
+use CoquiBot\Coqui\Toolkit\StubToolkit;
 use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
 use CoquiBot\Coqui\Tool\ConfigTool;
+use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
 use CoquiBot\Coqui\Tool\CredentialTool;
 use CoquiBot\Coqui\Tool\PackageInfoTool;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
 use CoquiBot\Coqui\Tool\RestartTool;
 use CoquiBot\Coqui\Tool\SpawnAgentTool;
+use CoquiBot\Coqui\Tool\StubTool;
 use CoquiBot\Coqui\Tool\ToolRegistry;
 use CoquiBot\Coqui\Tool\ToolSearchTool;
 use CoquiBot\Coqui\Tool\VisionTool;
+use CarmeloSantana\PHPAgents\Contract\TokenCounterInterface;
+use CarmeloSantana\PHPAgents\Prompt\SystemPrompt;
 
 use SplObserver;
 
@@ -68,6 +75,9 @@ final class OrchestratorAgent extends AbstractAgent
     private VisionTool $visionTool;
     private ToolRegistry $toolRegistry;
     private ToolSearchTool $toolSearchTool;
+
+    /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
+    private array $ownToolkits = [];
 
     public function __construct(
         ProviderInterface $provider,
@@ -94,6 +104,7 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?MountManager $mountManager = null,
         ?ConfigManager $configManager = null,
         ?ConfigGuard $configGuard = null,
+        private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
@@ -149,10 +160,19 @@ final class OrchestratorAgent extends AbstractAgent
             $this->addToolkit(new SkillToolkit($this->skillDiscovery));
         }
 
-        // Register any auto-discovered toolkits from installed packages
+        // Register any auto-discovered toolkits from installed packages with visibility applied
         if ($discovery !== null) {
-            foreach ($discovery->instantiateRegistered() as $toolkit) {
-                $this->addToolkit($toolkit);
+            foreach ($discovery->instantiateRegisteredGrouped() as $entry) {
+                $packageName = $entry['package'];
+                $toolkit = $entry['toolkit'];
+                $vis = $this->visibilityRegistry?->getPackageVisibility($packageName)
+                    ?? ToolkitVisibility::Enabled;
+
+                if ($vis === ToolkitVisibility::Stub) {
+                    $this->addToolkit(new StubToolkit($toolkit));
+                } else {
+                    $this->addToolkit($toolkit);
+                }
             }
         }
 
@@ -254,17 +274,27 @@ final class OrchestratorAgent extends AbstractAgent
 
     /**
      * Override addToolkit() to also register every tool in the BM25 registry.
-     * This keeps the registry in sync with all toolkits regardless of when they
-     * are added (during construction or later for background tasks, etc.).
+     *
+     * When the toolkit is a StubToolkit, registers the REAL tool descriptions
+     * (via realTools()) so tool_search returns full details, while the stub
+     * schemas are what actually get sent to the LLM via the parent's tool list.
+     *
+     * Tracks all added toolkits locally for getSystemPromptText() reconstruction.
      */
     #[\Override]
     public function addToolkit(ToolkitInterface $toolkit): static
     {
-        foreach ($toolkit->tools() as $tool) {
+        // Register real tool descriptions in BM25 registry for tool_search
+        $toolsForRegistry = ($toolkit instanceof StubToolkit)
+            ? $toolkit->realTools()
+            : $toolkit->tools();
+
+        foreach ($toolsForRegistry as $tool) {
             $this->toolRegistry->register($tool);
         }
 
         parent::addToolkit($toolkit);
+        $this->ownToolkits[] = $toolkit;
 
         return $this;
     }
@@ -299,24 +329,41 @@ final class OrchestratorAgent extends AbstractAgent
      */
     public function tools(): array
     {
-        $tools = [
-            $this->spawnTool,
-            $this->credentialTool,
-            $this->packageInfoTool,
-            $this->phpExecuteTool,
-            // Tool search is always-loaded so the agent can discover the full
-            // tool library regardless of the maxTools cap setting.
+        // ALWAYS_ENABLED tools come first and are never filtered.
+        // tool_search must be first so it is always within the maxTools cap.
+        $alwaysEnabled = [
             $this->toolSearchTool,
+            $this->credentialTool,
         ];
 
-        $tools[] = $this->visionTool;
+        // Visibility-aware standalone tools (by tool name => instance)
+        /** @var array<string, ToolInterface> */
+        $visibilityManaged = [
+            'spawn_agent'    => $this->spawnTool,
+            'package_info'   => $this->packageInfoTool,
+            'php_execute'    => $this->phpExecuteTool,
+            'vision_analyze' => $this->visionTool,
+        ];
 
         if ($this->restartTool !== null) {
-            $tools[] = $this->restartTool;
+            $visibilityManaged['restart_coqui'] = $this->restartTool;
         }
 
         if ($this->configTool !== null) {
-            $tools[] = $this->configTool;
+            $visibilityManaged['config'] = $this->configTool;
+        }
+
+        $tools = $alwaysEnabled;
+
+        foreach ($visibilityManaged as $name => $tool) {
+            $vis = $this->visibilityRegistry?->getToolVisibility($name)
+                ?? ToolkitVisibility::Enabled;
+
+            if ($vis === ToolkitVisibility::Disabled) {
+                continue;
+            }
+
+            $tools[] = $vis === ToolkitVisibility::Stub ? new StubTool($tool) : $tool;
         }
 
         return $tools;
@@ -333,6 +380,97 @@ final class OrchestratorAgent extends AbstractAgent
     public function getSpawnTool(): SpawnAgentTool
     {
         return $this->spawnTool;
+    }
+
+    /**
+     * Build and return the system prompt text as the LLM would receive it.
+     *
+     * Used by the /prompt REPL command and GET /api/v1/server/prompt endpoint
+     * to inspect what the agent sees at runtime.
+     *
+     * Returns the reconstructed system prompt (identity + iteration budget +
+     * toolkit guidelines). Tool function schemas are separate API parameters
+     * and are not part of the system prompt text.
+     */
+    public function getSystemPromptText(): string
+    {
+        $prompt = SystemPrompt::withIdentity($this->instructions());
+        $prompt = SystemPrompt::withIterationBudget($this->maxIterations(), $prompt);
+
+        if (!empty($this->ownToolkits)) {
+            $prompt = SystemPrompt::withToolkits($this->ownToolkits, $prompt);
+        }
+
+        return SystemPrompt::render($prompt);
+    }
+
+    /**
+     * Count tools that would be sent to the LLM (standalone + toolkit tools).
+     */
+    public function getToolCount(): int
+    {
+        $count = count($this->tools());
+
+        foreach ($this->ownToolkits as $toolkit) {
+            $count += count($toolkit->tools());
+        }
+
+        return $count;
+    }
+
+    /**
+     * Number of toolkits registered with this agent instance.
+     */
+    public function getOwnToolkitCount(): int
+    {
+        return count($this->ownToolkits);
+    }
+
+    /**
+     * Token breakdown per registered toolkit (guidelines + tool schemas).
+     *
+     * @return array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>
+     */
+    public function getToolkitTokenBreakdown(TokenCounterInterface $counter): array
+    {
+        $breakdown = [];
+
+        foreach ($this->ownToolkits as $toolkit) {
+            if ($toolkit instanceof StubToolkit) {
+                $class = $toolkit->innerClass();
+                $parts = explode('\\', $class);
+                $name = end($parts) . ' (stub)';
+            } elseif ($toolkit instanceof CredentialGuardToolkit) {
+                $class = $toolkit->innerClass();
+                $parts = explode('\\', $class);
+                $name = end($parts);
+            } else {
+                $class = $toolkit::class;
+                $parts = explode('\\', $class);
+                $name = end($parts);
+            }
+
+            $guidelinesTokens = $counter->count($toolkit->guidelines());
+            $toolsTokens = $counter->countTools($toolkit->tools());
+
+            $breakdown[] = [
+                'name'              => $name,
+                'class'             => $class,
+                'guidelines_tokens' => $guidelinesTokens,
+                'tools_tokens'      => $toolsTokens,
+                'total_tokens'      => $guidelinesTokens + $toolsTokens,
+            ];
+        }
+
+        return $breakdown;
+    }
+
+    /**
+     * Token count for standalone tools (not part of any toolkit).
+     */
+    public function getStandaloneToolTokens(TokenCounterInterface $counter): int
+    {
+        return $counter->countTools($this->tools());
     }
 
     /** Default shell commands available to the orchestrator. */

@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
+use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Config\SetupWizard;
 use CoquiBot\Coqui\Config\UpdateManager;
 use CoquiBot\Coqui\Observer\NullObserver;
@@ -145,6 +146,7 @@ final class RunCommand extends Command
             mountManager: $this->boot->mountManager(),
             configManager: $this->boot->configManager(),
             configGuard: new ConfigGuard(),
+            visibilityRegistry: $this->boot->visibilityRegistry(),
         );
 
         // Handle session
@@ -216,6 +218,66 @@ final class RunCommand extends Command
 
         if ($hasSignals) {
             pcntl_async_signals(true);
+        }
+
+        // Tab autocomplete for REPL slash commands and toolkit names
+        if (function_exists('readline_completion_function')) {
+            readline_completion_function(function (string $input, int $index): array {
+                $raw  = function_exists('readline_info') ? readline_info('line_buffer') : $input;
+                $line = trim(is_string($raw) ? $raw : $input);
+                $parts = explode(' ', $line);
+                $cmd = $parts[0];
+
+                // Complete toolkit/tool names after /toolkits subcommand
+                if (count($parts) >= 2 && in_array($cmd, ['/toolkits'], strict: true)) {
+                    $sub = $parts[1];
+                    $toolkitSubCommands = ['enable', 'stub', 'disable'];
+
+                    if (count($parts) === 2) {
+                        // Complete the subcommand
+                        return array_filter(
+                            $toolkitSubCommands,
+                            fn(string $s) => str_starts_with($s, $input),
+                        );
+                    }
+
+                    if (count($parts) === 3 && in_array($sub, $toolkitSubCommands, strict: true)) {
+                        // Complete package/tool names
+                        $prefix = $parts[2];
+                        $candidates = [];
+
+                        // Package names
+                        $allPackages = $this->boot->discovery()->allWithVisibility();
+                        foreach ($allPackages as $entry) {
+                            $candidates[] = $entry['package'];
+                        }
+
+                        // Standalone tool names (via tool: prefix)
+                        $state = $this->boot->visibilityRegistry()->all();
+                        foreach (array_keys($state['tools']) as $toolName) {
+                            $candidates[] = 'tool:' . $toolName;
+                        }
+
+                        return array_filter(
+                            $candidates,
+                            fn(string $c) => str_starts_with($c, $prefix),
+                        );
+                    }
+                }
+
+                // Complete top-level slash commands
+                if (str_starts_with($input, '/') || $line === '' || $line === '/') {
+                    $commands = [
+                        '/new', '/history', '/sessions', '/resume', '/model',
+                        '/config', '/tasks', '/task', '/task-cancel', '/toolkits',
+                        '/prompt', '/update', '/restart', '/help', '/quit',
+                    ];
+
+                    return array_filter($commands, fn(string $c) => str_starts_with($c, $input));
+                }
+
+                return [];
+            });
         }
 
         while (true) {
@@ -399,6 +461,25 @@ final class RunCommand extends Command
                 return true;
             })(),
 
+            '/toolkits' => (function () use ($io, $arg) {
+                return $this->handleToolkitsCommand($io, $arg);
+            })(),
+
+            '/prompt' => (function () use ($io) {
+                $preview = $this->agentRunner->buildPromptPreview();
+                $io->section('System Prompt');
+                $io->writeln($preview['prompt']);
+                $io->newLine();
+                $io->text([
+                    '<fg=gray>Tool count:</> ' . $preview['tool_count'],
+                    '<fg=gray>Toolkit count:</> ' . $preview['toolkit_count'],
+                    '<fg=gray>Prompt tokens:</> ' . number_format($preview['prompt_tokens']),
+                    '<fg=gray>Tool schema tokens:</> ' . number_format($preview['tool_tokens']),
+                    '<fg=gray>Estimated total:</> ' . number_format($preview['total_tokens']),
+                ]);
+                return true;
+            })(),
+
             '/help' => (function () use ($io) {
                 $io->table(
                     ['Command', 'Description'],
@@ -412,6 +493,8 @@ final class RunCommand extends Command
                         ['/tasks [status]', 'List background tasks (optionally filter by status)'],
                         ['/task <id>', 'Show background task status and recent events'],
                         ['/task-cancel <id>', 'Cancel a pending or running background task'],
+                        ['/toolkits [enable|stub|disable <pkg|tool:name>]', 'Manage toolkit visibility'],
+                        ['/prompt', 'Show the full system prompt sent to the LLM'],
                         ['/update', 'Check for and apply dependency updates'],
                         ['/restart', 'Restart Coqui (re-reads config, re-discovers toolkits)'],
                         ['/quit', 'Exit Coqui'],
@@ -435,8 +518,96 @@ final class RunCommand extends Command
             '/quit', '/exit', '/q' => Command::SUCCESS,
             '/restart' => self::RESTART_EXIT_CODE,
             '/update' => $this->runUpdate($io),
+            '/toolkits', '/prompt' => true,
             default => true,
         };
+    }
+
+    /**
+     * Handle the /toolkits [enable|stub|disable <pkg|tool:<name>>] command.
+     *
+     * Without arguments: lists all packages with their current visibility.
+     * With action + target: sets the visibility for a package or standalone tool.
+     */
+    private function handleToolkitsCommand(SymfonyStyle $io, string $arg): true
+    {
+        $registry = $this->boot->visibilityRegistry();
+        $discovery = $this->boot->discovery();
+
+        if (trim($arg) === '') {
+            // Build token breakdown index by class FQCN
+            $preview = $this->agentRunner->buildPromptPreview();
+            $tokensByClass = [];
+            foreach ($preview['toolkit_breakdown'] as $entry) {
+                $tokensByClass[$entry['class']] = $entry;
+            }
+
+            // List all packages with visibility and token counts
+            $rows = [];
+            foreach ($discovery->allWithVisibility() as $entry) {
+                $pkgTokens = 0;
+                foreach ($entry['classes'] as $cls) {
+                    if (isset($tokensByClass[$cls])) {
+                        $pkgTokens += $tokensByClass[$cls]['total_tokens'];
+                    }
+                }
+                $rows[] = [$entry['package'], $entry['visibility'], number_format($pkgTokens)];
+            }
+
+            $state = $registry->all();
+            foreach ($state['tools'] as $toolName => $vis) {
+                $rows[] = ['tool:' . $toolName, $vis, '-'];
+            }
+
+            if (empty($rows)) {
+                $io->text('No toolkits registered. Install a toolkit package first.');
+            } else {
+                $io->table(['Package / Tool', 'Visibility', 'Tokens'], $rows);
+                $io->text([
+                    '<fg=gray>Prompt tokens:</> ' . number_format($preview['prompt_tokens'])
+                        . '<fg=gray> • Tool schema tokens:</> ' . number_format($preview['tool_tokens'])
+                        . '<fg=gray> • Total:</> ' . number_format($preview['total_tokens']),
+                    '<fg=gray>Use /toolkits enable|stub|disable <pkg> or tool:<name></>',
+                ]);
+            }
+
+            return true;
+        }
+
+        $parts = explode(' ', trim($arg), 2);
+        $action = strtolower($parts[0]);
+        $target = $parts[1] ?? '';
+
+        if (!in_array($action, ['enable', 'stub', 'disable'], strict: true)) {
+            $io->error("Unknown action: {$action}. Use enable, stub, or disable.");
+            return true;
+        }
+
+        if ($target === '') {
+            $io->error("Usage: /toolkits {$action} <package/name|tool:<name>>");
+            return true;
+        }
+
+        $visibility = match ($action) {
+            'enable'  => ToolkitVisibility::Enabled,
+            'stub'    => ToolkitVisibility::Stub,
+            'disable' => ToolkitVisibility::Disabled,
+        };
+
+        try {
+            if (str_starts_with($target, 'tool:')) {
+                $toolName = substr($target, 5);
+                $registry->setToolVisibility($toolName, $visibility);
+                $io->success("Tool \"{$toolName}\" set to {$visibility->value}. Restart to apply.");
+            } else {
+                $registry->setPackageVisibility($target, $visibility);
+                $io->success("Package \"{$target}\" set to {$visibility->value}. Restart to apply.");
+            }
+        } catch (\InvalidArgumentException $e) {
+            $io->error($e->getMessage());
+        }
+
+        return true;
     }
 
     private function createNewSession(SymfonyStyle $io): string

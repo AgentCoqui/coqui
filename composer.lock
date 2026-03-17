@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "77d220874d478c5968301c909882d23a",
+    "content-hash": "6cef6fc521153fd536ce77c2c201b3a3",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "v0.9.0",
+            "version": "v0.9.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "65176c531b909cc04943e91e643ae2e0f005871b"
+                "reference": "9abb9508fd52658e4e9595b26b9213d5a75445e5"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/65176c531b909cc04943e91e643ae2e0f005871b",
-                "reference": "65176c531b909cc04943e91e643ae2e0f005871b",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/9abb9508fd52658e4e9595b26b9213d5a75445e5",
+                "reference": "9abb9508fd52658e4e9595b26b9213d5a75445e5",
                 "shasum": ""
             },
             "require": {
@@ -61,9 +61,9 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.9.0"
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.9.1"
             },
-            "time": "2026-03-13T01:29:03+00:00"
+            "time": "2026-03-17T12:45:35+00:00"
         },
         {
             "name": "coquibot/coqui-space-manager",
@@ -2030,6 +2030,60 @@
                 }
             ],
             "time": "2026-02-09T10:14:57+00:00"
+        },
+        {
+            "name": "yethee/tiktoken",
+            "version": "1.1.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/yethee/tiktoken-php.git",
+                "reference": "e7ab1881470e4d4f10c27f2d451fb29732e9e3fa"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/yethee/tiktoken-php/zipball/e7ab1881470e4d4f10c27f2d451fb29732e9e3fa",
+                "reference": "e7ab1881470e4d4f10c27f2d451fb29732e9e3fa",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^8.1",
+                "symfony/service-contracts": "^2.5 || ^3.0"
+            },
+            "require-dev": {
+                "doctrine/coding-standard": "^13",
+                "mikey179/vfsstream": "^1.6.11",
+                "phpbench/phpbench": "^1.2",
+                "phpunit/phpunit": "^10.5.45",
+                "psalm/plugin-phpunit": "^0.19.2",
+                "vimeo/psalm": "6.15.1"
+            },
+            "suggest": {
+                "ext-ffi": "To allow use LibEncoder"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Yethee\\Tiktoken\\": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "PHP version of tiktoken",
+            "keywords": [
+                "bpe",
+                "decode",
+                "encode",
+                "openai",
+                "tiktoken",
+                "tokenizer"
+            ],
+            "support": {
+                "issues": "https://github.com/yethee/tiktoken-php/issues",
+                "source": "https://github.com/yethee/tiktoken-php/tree/1.1.1"
+            },
+            "time": "2026-03-10T19:45:30+00:00"
         }
     ],
     "packages-dev": [
@@ -3334,11 +3388,11 @@
         },
         {
             "name": "phpstan/phpstan",
-            "version": "2.1.40",
+            "version": "2.1.41",
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/9b2c7aeb83a75d8680ea5e7c9b7fca88052b766b",
-                "reference": "9b2c7aeb83a75d8680ea5e7c9b7fca88052b766b",
+                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/a2eae8f20856b3afe74bf1f9726ce8c11438e300",
+                "reference": "a2eae8f20856b3afe74bf1f9726ce8c11438e300",
                 "shasum": ""
             },
             "require": {
@@ -3383,7 +3437,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-02-23T15:04:35+00:00"
+            "time": "2026-03-16T18:24:10+00:00"
         },
         {
             "name": "phpunit/php-code-coverage",

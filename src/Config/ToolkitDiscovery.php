@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\PackageEventListenerInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CoquiBot\Coqui\Contract\CredentialRequirement;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
 
 /**
@@ -26,6 +27,7 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
         private readonly string $projectRoot,
         private readonly string $workspacePath,
         private readonly ?CredentialResolverInterface $credentialResolver = null,
+        private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
     ) {
         $this->registryPath = rtrim($this->workspacePath, '/') . '/toolkits.json';
     }
@@ -268,6 +270,7 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
     /**
      * Instantiate all registered toolkits that can be constructed.
      *
+     * Skips disabled packages (when a ToolkitVisibilityRegistry is provided).
      * Attempts no-arg construction first, then tries passing workspacePath.
      * Silently skips classes that cannot be instantiated.
      * Wraps toolkits in CredentialGuardToolkit when credential requirements are declared.
@@ -276,10 +279,31 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
      */
     public function instantiateRegistered(): array
     {
+        return array_column($this->instantiateRegisteredGrouped(), 'toolkit');
+    }
+
+    /**
+     * Instantiate all registered toolkits and return them with their package names.
+     *
+     * Skips packages whose visibility is Disabled.
+     * Returns an array of ['package' => string, 'toolkit' => ToolkitInterface].
+     *
+     * @return array<int, array{package: string, toolkit: ToolkitInterface}>
+     */
+    public function instantiateRegisteredGrouped(): array
+    {
         $registry = $this->loadRegistry();
-        $toolkits = [];
+        $result = [];
 
         foreach ($registry as $packageName => $classes) {
+            // Skip disabled packages entirely
+            if ($this->visibilityRegistry !== null) {
+                $vis = $this->visibilityRegistry->getPackageVisibility($packageName);
+                if ($vis === ToolkitVisibility::Disabled) {
+                    continue;
+                }
+            }
+
             $requirements = $this->loadCredentialRequirements($packageName);
 
             foreach ($classes as $className) {
@@ -297,11 +321,36 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
                     );
                 }
 
-                $toolkits[] = $toolkit;
+                $result[] = ['package' => $packageName, 'toolkit' => $toolkit];
             }
         }
 
-        return $toolkits;
+        return $result;
+    }
+
+    /**
+     * Return all registered packages with their current visibility.
+     *
+     * Used by the toolkit management API endpoint.
+     *
+     * @return array<int, array{package: string, classes: string[], visibility: string}>
+     */
+    public function allWithVisibility(): array
+    {
+        $registry = $this->loadRegistry();
+        $result = [];
+
+        foreach ($registry as $packageName => $classes) {
+            $vis = $this->visibilityRegistry?->getPackageVisibility($packageName)
+                ?? ToolkitVisibility::Enabled;
+            $result[] = [
+                'package'    => $packageName,
+                'classes'    => $classes,
+                'visibility' => $vis->value,
+            ];
+        }
+
+        return $result;
     }
 
     /**

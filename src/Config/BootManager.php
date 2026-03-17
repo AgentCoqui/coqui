@@ -9,6 +9,7 @@ use CarmeloSantana\PHPAgents\Embedding\OllamaEmbeddingProvider;
 use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
 
 use CoquiBot\Coqui\Contract\MountDefinition;
+use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -27,6 +28,7 @@ final class BootManager
     private string $workspacePath;
     private CredentialResolver $credentialResolver;
     private ToolkitDiscovery $discovery;
+    private ToolkitVisibilityRegistry $visibilityRegistry;
     private SkillDiscovery $skillDiscovery;
     private RoleDiscovery $roleDiscovery;
     private RoleResolver $roleResolver;
@@ -117,6 +119,11 @@ final class BootManager
     public function discovery(): ToolkitDiscovery
     {
         return $this->discovery;
+    }
+
+    public function visibilityRegistry(): ToolkitVisibilityRegistry
+    {
+        return $this->visibilityRegistry;
     }
 
     public function roleResolver(): RoleResolver
@@ -294,6 +301,8 @@ final class BootManager
         $workspaceComposer = new WorkspaceComposerManager($this->workspacePath);
         $workspaceComposer->initialize();
         $workspaceComposer->loadAutoloader();
+
+        $this->visibilityRegistry = new ToolkitVisibilityRegistry($this->workspacePath);
     }
 
     /**
@@ -405,7 +414,12 @@ final class BootManager
 
     private function discoverToolkits(OutputInterface|SymfonyStyle|null $io): void
     {
-        $this->discovery = new ToolkitDiscovery($this->workDir, $this->workspacePath, $this->credentialResolver);
+        $this->discovery = new ToolkitDiscovery(
+            $this->workDir,
+            $this->workspacePath,
+            $this->credentialResolver,
+            $this->visibilityRegistry,
+        );
         $newToolkits = $this->discovery->discoverAll();
 
         if (!empty($newToolkits) && $io !== null && $io->isVerbose()) {
