@@ -24,7 +24,7 @@ final readonly class ToolkitHandler
     public function __construct(
         private ToolkitDiscovery $discovery,
         private ToolkitVisibilityRegistry $visibilityRegistry,
-        private AgentRunner $agentRunner,
+        private ?AgentRunner $agentRunner = null,
     ) {}
 
     /**
@@ -38,7 +38,12 @@ final readonly class ToolkitHandler
         $packages = $this->discovery->allWithVisibility();
 
         // Build token breakdown index by class FQCN
-        $preview = $this->agentRunner->buildPromptPreview();
+        $preview = $this->agentRunner?->buildPromptPreview() ?? [
+            'toolkit_breakdown' => [],
+            'prompt_tokens'     => 0,
+            'tool_tokens'       => 0,
+            'total_tokens'      => 0,
+        ];
         $tokensByClass = [];
         foreach ($preview['toolkit_breakdown'] as $entry) {
             $tokensByClass[$entry['class']] = $entry;
