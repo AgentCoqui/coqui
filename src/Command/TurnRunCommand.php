@@ -150,6 +150,7 @@ final class TurnRunCommand extends Command
             mountManager: $boot->mountManager(),
             configManager: $boot->configManager(),
             configGuard: new ConfigGuard(),
+            spaceToolkit: $boot->spaceToolkit(),
         );
 
         // Create execution policy (auto-approve — no human in the loop)
