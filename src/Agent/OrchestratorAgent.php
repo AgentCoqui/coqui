@@ -40,6 +40,7 @@ use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\StubToolkit;
 use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
 use CoquiBot\Coqui\Tool\ConfigTool;
+use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
 use CoquiBot\Coqui\Tool\CredentialTool;
 use CoquiBot\Coqui\Tool\PackageInfoTool;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
@@ -439,6 +440,10 @@ final class OrchestratorAgent extends AbstractAgent
                 $class = $toolkit->innerClass();
                 $parts = explode('\\', $class);
                 $name = end($parts) . ' (stub)';
+            } elseif ($toolkit instanceof CredentialGuardToolkit) {
+                $class = $toolkit->innerClass();
+                $parts = explode('\\', $class);
+                $name = end($parts);
             } else {
                 $class = $toolkit::class;
                 $parts = explode('\\', $class);

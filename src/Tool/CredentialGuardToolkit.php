@@ -50,6 +50,14 @@ final class CredentialGuardToolkit implements ToolkitInterface
         return $innerGuidelines . "\n" . $credentialStatus;
     }
 
+    /**
+     * Returns the FQCN of the wrapped toolkit for token breakdown matching.
+     */
+    public function innerClass(): string
+    {
+        return $this->inner::class;
+    }
+
     private function buildCredentialStatus(): string
     {
         $allConfigured = true;
