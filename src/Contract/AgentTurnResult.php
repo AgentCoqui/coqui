@@ -39,22 +39,25 @@ final readonly class AgentTurnResult
      */
     public function statsSummary(): string
     {
-        $parts = ["Iterations: {$this->iterations}"];
+        $lines = [];
 
-        if ($this->totalTokens > 0) {
-            $parts[] = "Tokens: {$this->totalTokens}";
+        $line1 = "Iterations: {$this->iterations}";
+        if ($this->durationMs > 0) {
+            $seconds = round($this->durationMs / 1000, 1);
+            $line1 .= " | Duration: {$seconds}s";
+        }
+        $lines[] = $line1;
+
+        if ($this->promptTokens > 0 || $this->completionTokens > 0) {
+            $lines[] = "Input Tokens: " . number_format($this->promptTokens)
+                . " | Output Tokens: " . number_format($this->completionTokens);
         }
 
         if (!empty($this->toolsUsed)) {
-            $parts[] = 'Tools: ' . implode(', ', $this->toolsUsed);
+            $lines[] = 'Tools: ' . implode(', ', $this->toolsUsed);
         }
 
-        if ($this->durationMs > 0) {
-            $seconds = round($this->durationMs / 1000, 1);
-            $parts[] = "Duration: {$seconds}s";
-        }
-
-        return implode(' | ', $parts);
+        return implode("\n", $lines);
     }
 
     /**

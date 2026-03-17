@@ -21,6 +21,7 @@ final class TerminalObserver implements SplObserver
 {
     private int $indentLevel = 0;
     private bool $hasStreamedText = false;
+    private bool $hasStreamedReasoning = false;
 
     public function __construct(
         private readonly OutputInterface $output,
@@ -51,10 +52,19 @@ final class TerminalObserver implements SplObserver
         match ($event) {
             'agent.start' => (function () use ($indent): void {
                 $this->hasStreamedText = false;
+                $this->hasStreamedReasoning = false;
                 $this->output->writeln("{$indent}<fg=cyan>▶ Agent started</>");
             })(),
 
-            'agent.iteration' => $this->output->writeln("{$indent}<fg=gray>  ⟳ Iteration {$data}</>"),
+            'agent.iteration' => (function () use ($indent, $data): void {
+                if ($this->hasStreamedReasoning) {
+                    $this->output->writeln('');
+                    $this->hasStreamedReasoning = false;
+                }
+                $this->output->writeln("{$indent}<fg=gray>  ⟳ Iteration {$data}</>");
+            })(),
+
+            'agent.reasoning' => $this->handleReasoningDelta($data),
 
             'agent.text_delta' => $this->handleTextDelta($data),
 
@@ -74,10 +84,30 @@ final class TerminalObserver implements SplObserver
         };
     }
 
+    private function handleReasoningDelta(mixed $data): void
+    {
+        if (!is_string($data) || $data === '') {
+            return;
+        }
+
+        if (!$this->hasStreamedReasoning) {
+            $this->hasStreamedReasoning = true;
+            $this->output->write('<fg=gray>  ⛭ </>');
+        }
+
+        $this->output->write('<fg=gray>' . $data . '</>');
+    }
+
     private function handleToolCall(mixed $data, string $indent): void
     {
         if (!$data instanceof ToolCall) {
             return;
+        }
+
+        // Close any open reasoning or text line before the tool call display.
+        if ($this->hasStreamedReasoning) {
+            $this->output->writeln('');
+            $this->hasStreamedReasoning = false;
         }
 
         // If text was being streamed, add a newline to separate
@@ -117,12 +147,24 @@ final class TerminalObserver implements SplObserver
             return;
         }
 
+        // Close the reasoning line before the first text chunk so the
+        // response starts on a new line, visually separated from the thinking.
+        if ($this->hasStreamedReasoning) {
+            $this->output->writeln('');
+            $this->hasStreamedReasoning = false;
+        }
+
         $this->hasStreamedText = true;
         $this->output->write($data);
     }
 
     private function handleDone(mixed $data, string $indent): void
     {
+        if ($this->hasStreamedReasoning) {
+            $this->output->writeln('');
+            $this->hasStreamedReasoning = false;
+        }
+
         if ($this->hasStreamedText) {
             $this->output->writeln('');
             $this->hasStreamedText = false;

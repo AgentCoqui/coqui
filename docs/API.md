@@ -456,6 +456,7 @@ Events are separated by a blank line. The stream ends when the `complete` event 
 |-------|-------------|------------|
 | `agent_start` | Agent turn has begun | `{}` |
 | `iteration` | Agent loop iteration | `{"number": 1}` |
+| `reasoning` | Model thinking/reasoning token | `{"content": "token"}` |
 | `text_delta` | Streaming text token from LLM | `{"content": "token"}` |
 | `tool_call` | Agent is calling a tool | `{"id": "call_abc", "tool": "list_dir", "arguments": {"path": "."}}` |
 | `tool_result` | Tool execution completed | `{"content": "...", "success": true}` |
@@ -1568,6 +1569,182 @@ The maximum number of concurrent background tasks is configurable via `openclaw.
 
 Tasks exceeding the concurrency limit are queued as `pending` and started automatically when a slot becomes available.
 
+## Toolkit Management
+
+Toolkit visibility controls which tools appear in the agent's context window and how they are represented. Each toolkit (Composer package) and each individual tool can be set to one of three visibility tiers:
+
+| Tier | Description |
+|------|-------------|
+| `enabled` | Full tool schema in the agent's context (default) |
+| `stub` | Minimal schema in context; agent discovers full details via `tool_search` |
+| `disabled` | Tool not instantiated; invisible to the agent |
+
+Visibility state is persisted in `workspace/toolkit-visibility.json`. Packages or tools not listed in that file default to `enabled`.
+
+### Protected Tools
+
+Some tools have fixed visibility floors and cannot be demoted below a certain tier:
+
+| Constant | Tools | Restriction |
+|----------|-------|-------------|
+| `ALWAYS_ENABLED` | `tool_search`, `credentials` | Can never be stubbed or disabled |
+| `CANNOT_DISABLE` | `spawn_agent`, `vision_analyze`, `restart_coqui` | Can be stubbed, but never disabled |
+
+Requests that violate these guards return `403 Forbidden`.
+
+---
+
+#### `GET /api/v1/toolkits`
+
+List all registered toolkit packages and individual tools with their current visibility.
+
+**Response `200`**
+
+```json
+{
+  "toolkits": [
+    {
+      "package": "coquibot/core-toolkit",
+      "classes": ["CoquiBot\\CoreToolkit\\CoreToolkit"],
+      "visibility": "enabled",
+      "tokens": 1250
+    },
+    {
+      "package": "acme/vision-toolkit",
+      "classes": ["Acme\\Vision\\VisionToolkit"],
+      "visibility": "stub",
+      "tokens": 340
+    }
+  ],
+  "tools": [
+    {
+      "name": "spawn_agent",
+      "visibility": "enabled",
+      "protected": "cannot_disable"
+    },
+    {
+      "name": "tool_search",
+      "visibility": "enabled",
+      "protected": "always_enabled"
+    },
+    {
+      "name": "php_execute",
+      "visibility": "enabled",
+      "protected": null
+    }
+  ],
+  "prompt_tokens": 4250,
+  "tool_tokens": 1830,
+  "total_tokens": 6080
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `toolkits[].tokens` | int | Estimated token count for this toolkit's guidelines and tool schemas |
+| `prompt_tokens` | int | Estimated token count for the system prompt text |
+| `tool_tokens` | int | Estimated token count for all tool schemas (standalone + toolkit) |
+| `total_tokens` | int | Sum of `prompt_tokens` and `tool_tokens` |
+
+The `protected` field is `"always_enabled"`, `"cannot_disable"`, or `null`.
+
+---
+
+#### `POST /api/v1/toolkits/visibility`
+
+Set the visibility of a package or an individual tool.
+
+**Request Body**
+
+```json
+{
+  "target": "package",
+  "name": "acme/vision-toolkit",
+  "visibility": "stub"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `target` | string | Yes | `"package"` or `"tool"` |
+| `name` | string | Yes | Package name (e.g. `vendor/pkg`) or tool name (e.g. `spawn_agent`) |
+| `visibility` | string | Yes | `"enabled"`, `"stub"`, or `"disabled"` |
+
+**Response `200`** — success:
+
+```json
+{
+  "target": "package",
+  "name": "acme/vision-toolkit",
+  "visibility": "stub"
+}
+```
+
+**Response `400`** — missing or invalid fields:
+
+```json
+{
+  "error": "Missing required fields: target, name, visibility",
+  "code": "bad_request"
+}
+```
+
+**Response `403`** — guard violation (e.g. attempting to disable `spawn_agent`):
+
+```json
+{
+  "error": "Tool \"spawn_agent\" cannot be disabled",
+  "code": "forbidden"
+}
+```
+
+---
+
+#### `GET /api/v1/server/prompt`
+
+Return the fully constructed system prompt that the agent would receive on its next turn, together with tool and toolkit counts. Useful for debugging context size and inspecting which tools are active.
+
+**Response `200`**
+
+```json
+{
+  "prompt": "You are Coqui, an autonomous AI agent...\n\n## Available Tools\n...",
+  "tool_count": 42,
+  "toolkit_count": 7,
+  "prompt_tokens": 4250,
+  "tool_tokens": 1830,
+  "total_tokens": 6080,
+  "toolkit_breakdown": [
+    {
+      "name": "MemoryToolkit",
+      "class": "CoquiBot\\Coqui\\Toolkit\\MemoryToolkit",
+      "guidelines_tokens": 320,
+      "tools_tokens": 480,
+      "total_tokens": 800
+    }
+  ]
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `prompt` | string | Full rendered system prompt text |
+| `tool_count` | int | Number of tools currently in the agent's context (enabled + stub) |
+| `toolkit_count` | int | Number of toolkit packages contributing tools |
+| `prompt_tokens` | int | Estimated token count for the system prompt text |
+| `tool_tokens` | int | Estimated token count for all tool schemas (standalone + toolkit) |
+| `total_tokens` | int | Sum of `prompt_tokens` and `tool_tokens` |
+| `toolkit_breakdown` | array | Per-toolkit token breakdown with guidelines and tool schema counts |
+
+**Response `500`** — if prompt construction fails:
+
+```json
+{
+  "error": "Failed to build system prompt: <reason>",
+  "code": "internal_error"
+}
+```
+
 ## Middleware
 
 ### Rate Limiting
@@ -1675,6 +1852,11 @@ Every REPL slash command has an API equivalent, allowing dashboards and client a
 | `/update` | `POST /api/v1/server/update` | Checks for and applies dependency updates |
 | `/quit` | — | N/A — the API server is managed by the launcher or process manager |
 | `/help` | `GET /api/v1/server/info` | Returns available commands and server capabilities |
+| `/toolkits` | `GET /api/v1/toolkits` | Lists all toolkit packages and tools with visibility |
+| `/toolkits enable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to enabled |
+| `/toolkits stub <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to stub |
+| `/toolkits disable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to disabled |
+| `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
 
 ## Quick Reference
 
@@ -1717,3 +1899,6 @@ Every REPL slash command has an API equivalent, allowing dashboards and client a
 | `POST` | `/api/v1/server/update` | Yes | Check and apply updates |
 | `GET` | `/api/v1/server/stats` | Yes | Database and server statistics |
 | `GET` | `/api/v1/server/info` | Yes | Server capabilities and commands |
+| `GET` | `/api/v1/toolkits` | Yes | List toolkits and tools with visibility |
+| `POST` | `/api/v1/toolkits/visibility` | Yes | Set package or tool visibility |
+| `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt |
