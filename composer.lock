@@ -4,15 +4,21 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "16e75c1aa6f4961aefcaa6789e68936b",
+    "content-hash": "6cef6fc521153fd536ce77c2c201b3a3",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "dev-feat_adds-reasoning-support",
+            "version": "v0.9.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/php-agents.git",
+                "reference": "9abb9508fd52658e4e9595b26b9213d5a75445e5"
+            },
             "dist": {
-                "type": "path",
-                "url": "../php-agents",
-                "reference": "7f354b4cb6b4148e7b5f132fddbbd5840ccbac52"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/9abb9508fd52658e4e9595b26b9213d5a75445e5",
+                "reference": "9abb9508fd52658e4e9595b26b9213d5a75445e5",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4",
@@ -36,19 +42,7 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -65,10 +59,11 @@
                 "php-agents",
                 "tools"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/php-agents/issues",
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.9.1"
+            },
+            "time": "2026-03-17T12:45:35+00:00"
         },
         {
             "name": "coquibot/coqui-space-manager",
@@ -5296,9 +5291,7 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {
-        "carmelosantana/php-agents": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
