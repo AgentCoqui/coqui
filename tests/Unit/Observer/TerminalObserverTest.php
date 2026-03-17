@@ -18,12 +18,12 @@ function makeTerminalObserver(): array
 
 // --- agent.reasoning ---
 
-test('reasoning delta writes 💭 prefix on first chunk', function () {
+test('reasoning delta writes ⛭ prefix on first chunk', function () {
     [$observer, $output] = makeTerminalObserver();
 
     $observer->handleEvent('agent.reasoning', 'I think...');
 
-    expect($output->fetch())->toContain('💭');
+    expect($output->fetch())->toContain('⛭');
 });
 
 test('reasoning delta writes the reasoning text', function () {
@@ -41,7 +41,7 @@ test('reasoning delta prefix appears only once for multiple chunks', function ()
     $observer->handleEvent('agent.reasoning', 'chunk B');
 
     $text = $output->fetch();
-    expect(substr_count($text, '💭'))->toBe(1);
+    expect(substr_count($text, '⛭'))->toBe(1);
     expect($text)->toContain('chunk A');
     expect($text)->toContain('chunk B');
 });
@@ -64,6 +64,32 @@ test('non-string reasoning data is ignored', function () {
 });
 
 // --- close-line behavior ---
+
+test('first text_delta after reasoning starts on a new line', function () {
+    [$observer, $output] = makeTerminalObserver();
+
+    $observer->handleEvent('agent.reasoning', 'thinking...');
+    $observer->handleEvent('agent.text_delta', 'Hello!');
+
+    $text = $output->fetch();
+    // The newline closing the reasoning line must appear before the response text
+    $reasoningEnd = strpos($text, 'thinking...');
+    $textStart = strpos($text, 'Hello!');
+    expect($textStart)->toBeGreaterThan($reasoningEnd);
+
+    // There must be a newline between reasoning and text
+    $between = substr($text, $reasoningEnd + strlen('thinking...'), $textStart - $reasoningEnd - strlen('thinking...'));
+    expect($between)->toContain("\n");
+});
+
+test('text_delta without preceding reasoning writes inline without extra newline', function () {
+    [$observer, $output] = makeTerminalObserver();
+
+    $observer->handleEvent('agent.text_delta', 'Hello');
+    $observer->handleEvent('agent.text_delta', ' world');
+
+    expect($output->fetch())->toBe('Hello world');
+});
 
 test('agent.iteration closes open reasoning line with newline', function () {
     [$observer, $output] = makeTerminalObserver();
@@ -131,7 +157,7 @@ test('agent.start resets reasoning flag so prefix appears again on next reasonin
     $observer->handleEvent('agent.reasoning', 'second session');
 
     $text = $output->fetch();
-    expect($text)->toContain('💭');
+    expect($text)->toContain('⛭');
     expect($text)->toContain('second session');
 });
 
