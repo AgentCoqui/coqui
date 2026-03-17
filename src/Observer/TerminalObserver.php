@@ -92,7 +92,7 @@ final class TerminalObserver implements SplObserver
 
         if (!$this->hasStreamedReasoning) {
             $this->hasStreamedReasoning = true;
-            $this->output->write('<fg=gray>  💭 </>');
+            $this->output->write('<fg=gray>  ⛭ </>');
         }
 
         $this->output->write('<fg=gray>' . $data . '</>');
@@ -145,6 +145,13 @@ final class TerminalObserver implements SplObserver
     {
         if (!is_string($data) || $data === '') {
             return;
+        }
+
+        // Close the reasoning line before the first text chunk so the
+        // response starts on a new line, visually separated from the thinking.
+        if ($this->hasStreamedReasoning) {
+            $this->output->writeln('');
+            $this->hasStreamedReasoning = false;
         }
 
         $this->hasStreamedText = true;
