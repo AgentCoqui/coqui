@@ -222,14 +222,15 @@ final class RunCommand extends Command
 
         // Tab autocomplete for REPL slash commands and toolkit names
         if (function_exists('readline_completion_function')) {
-            readline_completion_function(function (string $input, int $index) use ($io): array {
-                $line = function_exists('readline_info') ? (readline_info('line_buffer') ?: '') : $input;
-                $parts = explode(' ', trim($line));
-                $cmd = $parts[0] ?? '';
+            readline_completion_function(function (string $input, int $index): array {
+                $raw  = function_exists('readline_info') ? readline_info('line_buffer') : $input;
+                $line = trim(is_string($raw) ? $raw : $input);
+                $parts = explode(' ', $line);
+                $cmd = $parts[0];
 
                 // Complete toolkit/tool names after /toolkits subcommand
                 if (count($parts) >= 2 && in_array($cmd, ['/toolkits'], strict: true)) {
-                    $sub = $parts[1] ?? '';
+                    $sub = $parts[1];
                     $toolkitSubCommands = ['enable', 'stub', 'disable'];
 
                     if (count($parts) === 2) {
@@ -242,7 +243,7 @@ final class RunCommand extends Command
 
                     if (count($parts) === 3 && in_array($sub, $toolkitSubCommands, strict: true)) {
                         // Complete package/tool names
-                        $prefix = $parts[2] ?? '';
+                        $prefix = $parts[2];
                         $candidates = [];
 
                         // Package names
