@@ -10,8 +10,11 @@ use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Enum\Role;
 use CarmeloSantana\PHPAgents\Message\Conversation;
+use CarmeloSantana\PHPAgents\Agent\Output;
+use CarmeloSantana\PHPAgents\Context\TokenCounterFactory;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use CarmeloSantana\PHPAgents\Provider\Usage;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
 use CoquiBot\Coqui\Config\ConfigGuard;
@@ -190,6 +193,11 @@ final class AgentRunner
 
             $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $history);
 
+            // Resolve usage: prefer provider-reported tokens, fall back to local estimation
+            $usage = ($output->usage !== null && $output->usage->totalTokens > 0)
+                ? $output->usage
+                : $this->estimateUsage($output, $modelString);
+
             // Persist intermediate messages from this turn (tool calls + results)
             if ($output->conversation !== null) {
                 $this->persistTurnMessages($output->conversation, $history->count(), $sessionId, $turnId);
@@ -201,9 +209,7 @@ final class AgentRunner
             }
 
             // Update session token count
-            if ($output->usage !== null) {
-                $this->storage->updateTokenCount($sessionId, $output->usage->totalTokens);
-            }
+            $this->storage->updateTokenCount($sessionId, $usage->totalTokens);
 
             // Complete turn with metadata
             $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
@@ -213,9 +219,9 @@ final class AgentRunner
             $this->storage->completeTurn(
                 turnId: $turnId,
                 responseText: $output->content,
-                promptTokens: $output->usage !== null ? $output->usage->promptTokens : 0,
-                completionTokens: $output->usage !== null ? $output->usage->completionTokens : 0,
-                totalTokens: $output->usage !== null ? $output->usage->totalTokens : 0,
+                promptTokens: $usage->promptTokens,
+                completionTokens: $usage->completionTokens,
+                totalTokens: $usage->totalTokens,
                 iterations: $output->iterations,
                 durationMs: $durationMs,
                 toolsUsed: json_encode($toolsUsed, JSON_UNESCAPED_SLASHES) ?: '[]',
@@ -225,9 +231,9 @@ final class AgentRunner
             return new AgentTurnResult(
                 content: $output->content,
                 iterations: $output->iterations,
-                promptTokens: $output->usage !== null ? $output->usage->promptTokens : 0,
-                completionTokens: $output->usage !== null ? $output->usage->completionTokens : 0,
-                totalTokens: $output->usage !== null ? $output->usage->totalTokens : 0,
+                promptTokens: $usage->promptTokens,
+                completionTokens: $usage->completionTokens,
+                totalTokens: $usage->totalTokens,
                 durationMs: $durationMs,
                 toolsUsed: $toolsUsed,
                 childAgentCount: $childAgentCount,
@@ -526,5 +532,40 @@ final class AgentRunner
         }
 
         return array_keys($tools);
+    }
+
+    /**
+     * Estimate token usage from the conversation when the provider returns no usage data.
+     *
+     * Uses TokenCounterFactory to select the appropriate counter for the model
+     * (tiktoken for OpenAI, heuristic for others) and counts tokens by role:
+     * non-assistant messages → prompt tokens, assistant messages → completion tokens.
+     */
+    private function estimateUsage(Output $output, string $modelString): Usage
+    {
+        if ($output->conversation === null) {
+            return new Usage();
+        }
+
+        $counter = TokenCounterFactory::forModel($modelString);
+        $promptTokens = 0;
+        $completionTokens = 0;
+
+        foreach ($output->conversation->messages() as $msg) {
+            $content = $msg->content();
+            $tokens = is_string($content) ? $counter->count($content) : 0;
+
+            if ($msg->role() === Role::Assistant) {
+                $completionTokens += $tokens;
+            } else {
+                $promptTokens += $tokens;
+            }
+        }
+
+        return new Usage(
+            promptTokens: $promptTokens,
+            completionTokens: $completionTokens,
+            totalTokens: $promptTokens + $completionTokens,
+        );
     }
 }

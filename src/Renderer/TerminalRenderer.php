@@ -42,16 +42,18 @@ public function render(AgentTurnResult $result, bool $contentStreamed = false): 
     {
         $line = "<fg=gray>  • Iteration: </>{$result->iterations}";
 
-        if ($result->totalTokens > 0) {
-            $line .= '<fg=gray> • Tokens: </>' . number_format($result->totalTokens);
-        }
-
         if ($result->durationMs > 0) {
             $seconds = round($result->durationMs / 1000, 1);
             $line .= "<fg=gray> • Duration: </>{$seconds}s";
         }
 
         $this->io->writeln($line);
+
+        if ($result->promptTokens > 0 || $result->completionTokens > 0) {
+            $tokenLine = '<fg=gray>  • Input Tokens: </>' . number_format($result->promptTokens)
+                . '<fg=gray> • Output Tokens: </>' . number_format($result->completionTokens);
+            $this->io->writeln($tokenLine);
+        }
 
         if (!empty($result->toolsUsed)) {
             $yellowTools = array_map(

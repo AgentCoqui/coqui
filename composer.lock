@@ -4,15 +4,15 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "173127ef72cbb5e04730d4041d42c1b4",
+    "content-hash": "16e75c1aa6f4961aefcaa6789e68936b",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "dev-main",
+            "version": "dev-feat_adds-reasoning-support",
             "dist": {
                 "type": "path",
                 "url": "../php-agents",
-                "reference": "65176c531b909cc04943e91e643ae2e0f005871b"
+                "reference": "7f354b4cb6b4148e7b5f132fddbbd5840ccbac52"
             },
             "require": {
                 "php": "^8.4",
@@ -2035,6 +2035,60 @@
                 }
             ],
             "time": "2026-02-09T10:14:57+00:00"
+        },
+        {
+            "name": "yethee/tiktoken",
+            "version": "1.1.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/yethee/tiktoken-php.git",
+                "reference": "e7ab1881470e4d4f10c27f2d451fb29732e9e3fa"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/yethee/tiktoken-php/zipball/e7ab1881470e4d4f10c27f2d451fb29732e9e3fa",
+                "reference": "e7ab1881470e4d4f10c27f2d451fb29732e9e3fa",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^8.1",
+                "symfony/service-contracts": "^2.5 || ^3.0"
+            },
+            "require-dev": {
+                "doctrine/coding-standard": "^13",
+                "mikey179/vfsstream": "^1.6.11",
+                "phpbench/phpbench": "^1.2",
+                "phpunit/phpunit": "^10.5.45",
+                "psalm/plugin-phpunit": "^0.19.2",
+                "vimeo/psalm": "6.15.1"
+            },
+            "suggest": {
+                "ext-ffi": "To allow use LibEncoder"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "Yethee\\Tiktoken\\": "src"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "description": "PHP version of tiktoken",
+            "keywords": [
+                "bpe",
+                "decode",
+                "encode",
+                "openai",
+                "tiktoken",
+                "tokenizer"
+            ],
+            "support": {
+                "issues": "https://github.com/yethee/tiktoken-php/issues",
+                "source": "https://github.com/yethee/tiktoken-php/tree/1.1.1"
+            },
+            "time": "2026-03-10T19:45:30+00:00"
         }
     ],
     "packages-dev": [
@@ -3339,11 +3393,11 @@
         },
         {
             "name": "phpstan/phpstan",
-            "version": "2.1.40",
+            "version": "2.1.41",
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/9b2c7aeb83a75d8680ea5e7c9b7fca88052b766b",
-                "reference": "9b2c7aeb83a75d8680ea5e7c9b7fca88052b766b",
+                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/a2eae8f20856b3afe74bf1f9726ce8c11438e300",
+                "reference": "a2eae8f20856b3afe74bf1f9726ce8c11438e300",
                 "shasum": ""
             },
             "require": {
@@ -3388,7 +3442,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-02-23T15:04:35+00:00"
+            "time": "2026-03-16T18:24:10+00:00"
         },
         {
             "name": "phpunit/php-code-coverage",
