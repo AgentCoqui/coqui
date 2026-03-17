@@ -34,9 +34,13 @@ final readonly class PromptHandler
             $preview = $this->agentRunner->buildPromptPreview();
 
             return Router::jsonResponse([
-                'prompt'        => $preview['prompt'],
-                'tool_count'    => $preview['tool_count'],
-                'toolkit_count' => $preview['toolkit_count'],
+                'prompt'            => $preview['prompt'],
+                'tool_count'        => $preview['tool_count'],
+                'toolkit_count'     => $preview['toolkit_count'],
+                'prompt_tokens'     => $preview['prompt_tokens'],
+                'tool_tokens'       => $preview['tool_tokens'],
+                'total_tokens'      => $preview['total_tokens'],
+                'toolkit_breakdown' => $preview['toolkit_breakdown'],
             ]);
         } catch (\Throwable $e) {
             return Router::errorResponse(

@@ -14,14 +14,14 @@ Coqui provides first-class credential management for toolkit packages. The syste
 
 ### Key Source Files
 
-| File | Purpose |
-|------|---------|  
-| `src/Contract/CredentialRequirement.php` | Value object: credential name + description |
-| `src/Contract/CredentialResolverInterface.php` | Interface for get/set/delete/has with hot-reload |
-| `src/Config/CredentialResolver.php` | Implementation: reads workspace `.env` lazily, `set()` calls `putenv()` |
-| `src/Tool/CredentialGuardTool.php` | `ToolInterface` decorator — intercepts execution when credentials missing |
-| `src/Tool/CredentialGuardToolkit.php` | `ToolkitInterface` decorator — wraps all tools + appends credential status to guidelines |
-| `src/Tool/CredentialTool.php` | LLM-facing CRUD tool for credentials (delegates to `CredentialResolver`) |
+| File                                           | Purpose                                                                                  |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| `src/Contract/CredentialRequirement.php`       | Value object: credential name + description                                              |
+| `src/Contract/CredentialResolverInterface.php` | Interface for get/set/delete/has with hot-reload                                         |
+| `src/Config/CredentialResolver.php`            | Implementation: reads workspace `.env` lazily, `set()` calls `putenv()`                  |
+| `src/Tool/CredentialGuardTool.php`             | `ToolInterface` decorator — intercepts execution when credentials missing                |
+| `src/Tool/CredentialGuardToolkit.php`          | `ToolkitInterface` decorator — wraps all tools + appends credential status to guidelines |
+| `src/Tool/CredentialTool.php`                  | LLM-facing CRUD tool for credentials (delegates to `CredentialResolver`)                 |
 
 ### For Toolkit Authors
 
@@ -96,12 +96,12 @@ Coqui provides declarative destructive-command confirmation for toolkit packages
 
 ### Gating Rule Types
 
-| Rule | Format | Example | Behavior |
-|------|--------|---------|----------|
-| Wildcard | `["*"]` | `"git_push": ["*"]` | Gates every invocation of the tool |
-| Action match | `["action_name"]` | `"git_branch": ["delete"]` | Gates when `action`/`command` argument matches |
-| Predicate | `[{"arg": value}]` | `"git_commit": [{"amend": true}]` | Gates when argument equals value |
-| Presence | `[{"arg": "*"}]` | `"git_checkout": [{"files": "*"}]` | Gates when argument is present and truthy |
+| Rule         | Format             | Example                            | Behavior                                       |
+| ------------ | ------------------ | ---------------------------------- | ---------------------------------------------- |
+| Wildcard     | `["*"]`            | `"git_push": ["*"]`                | Gates every invocation of the tool             |
+| Action match | `["action_name"]`  | `"git_branch": ["delete"]`         | Gates when `action`/`command` argument matches |
+| Predicate    | `[{"arg": value}]` | `"git_commit": [{"amend": true}]`  | Gates when argument equals value               |
+| Presence     | `[{"arg": "*"}]`   | `"git_checkout": [{"files": "*"}]` | Gates when argument is present and truthy      |
 
 Rules are evaluated with OR semantics — any matching rule triggers confirmation. Predicate objects use AND semantics internally (all key-value pairs must match).
 
@@ -128,13 +128,13 @@ The gating system handles the confirmation UX — your toolkit does not need to 
 
 ### Key Source Files
 
-| File | Purpose |
-|------|---------|
-| `src/Config/InteractiveApprovalPolicy.php` | Prompt-based gating with predicate rule matching |
-| `src/Config/AutoApprovalPolicy.php` | Auto-approves all tools (blacklist still active) |
-| `src/Config/CatastrophicBlacklist.php` | Hardcoded patterns that always block, regardless of mode |
-| `src/Config/ToolkitDiscovery.php` | Reads `extra.php-agents.gated` from packages; `collectAllGatedTools()` merges all declarations |
-| `src/Command/RunCommand.php` | `mergeGatedTools()` combines hardcoded + discovered gates |
+| File                                       | Purpose                                                                                        |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| `src/Config/InteractiveApprovalPolicy.php` | Prompt-based gating with predicate rule matching                                               |
+| `src/Config/AutoApprovalPolicy.php`        | Auto-approves all tools (blacklist still active)                                               |
+| `src/Config/CatastrophicBlacklist.php`     | Hardcoded patterns that always block, regardless of mode                                       |
+| `src/Config/ToolkitDiscovery.php`          | Reads `extra.php-agents.gated` from packages; `collectAllGatedTools()` merges all declarations |
+| `src/Command/RunCommand.php`               | `mergeGatedTools()` combines hardcoded + discovered gates                                      |
 
 
 
@@ -144,11 +144,11 @@ Toolkit visibility controls how much of each tool's schema is exposed to the LLM
 
 ### Three-Tier Model
 
-| Tier | Value | Behaviour |
-|------|-------|-----------|
-| Enabled | `"enabled"` | Full schema in LLM context (default) |
-| Stub | `"stub"` | Minimal schema; LLM discovers full details via `tool_search` |
-| Disabled | `"disabled"` | Tool not instantiated; invisible to the LLM |
+| Tier     | Value        | Behaviour                                                    |
+| -------- | ------------ | ------------------------------------------------------------ |
+| Enabled  | `"enabled"`  | Full schema in LLM context (default)                         |
+| Stub     | `"stub"`     | Minimal schema; LLM discovers full details via `tool_search` |
+| Disabled | `"disabled"` | Tool not instantiated; invisible to the LLM                  |
 
 Visibility can be applied at two granularities:
 
@@ -172,9 +172,9 @@ Anything not listed defaults to `enabled`. Setting a value back to `enabled` rem
 
 Defined in `src/Contract/ToolkitVisibility.php`:
 
-| Constant | Tools | Guard |
-|----------|-------|-------|
-| `ALWAYS_ENABLED` | `tool_search`, `credentials` | Can never be stubbed or disabled — bypass all visibility checks |
+| Constant         | Tools                                            | Guard                                                                  |
+| ---------------- | ------------------------------------------------ | ---------------------------------------------------------------------- |
+| `ALWAYS_ENABLED` | `tool_search`, `credentials`                     | Can never be stubbed or disabled — bypass all visibility checks        |
 | `CANNOT_DISABLE` | `spawn_agent`, `vision_analyze`, `restart_coqui` | Can be stubbed, but disable is blocked with `InvalidArgumentException` |
 
 `ToolkitVisibilityRegistry` enforces these guards on every write, and `getToolVisibility()` always returns `Enabled` for `ALWAYS_ENABLED` tools regardless of what is on disk.
@@ -202,17 +202,17 @@ The LLM sees `[STUB]` tools in context and knows to call `tool_search` before in
 
 ### Implementation Classes
 
-| File | Purpose |
-|------|---------|
-| `src/Contract/ToolkitVisibility.php` | Backed string enum; protection constants; `isAlwaysEnabled()`, `canDisable()`, `canStub()` |
-| `src/Config/ToolkitVisibilityRegistry.php` | Read/write `toolkit-visibility.json`; in-memory cache; guard enforcement |
-| `src/Tool/StubTool.php` | Wraps `ToolInterface`; returns minimal stub schema; forwards `execute()` to real tool |
-| `src/Toolkit/StubToolkit.php` | Wraps `ToolkitInterface`; `tools()` returns `StubTool` wrappers; `realTools()` returns originals for BM25 |
-| `src/Config/ToolkitDiscovery.php` | `instantiateRegisteredGrouped()` — skips Disabled packages, returns `[package, toolkit]` pairs; `allWithVisibility()` for API listing |
-| `src/Agent/OrchestratorAgent.php` | Applies per-package and per-tool visibility in `addToolkit()`; `getSystemPromptText()` for prompt preview |
-| `src/Agent/AgentRunner.php` | `buildPromptPreview()` — creates a temporary agent and returns rendered prompt + counts |
-| `src/Api/Handler/ToolkitHandler.php` | `GET /api/v1/toolkits`, `POST /api/v1/toolkits/visibility` |
-| `src/Api/Handler/PromptHandler.php` | `GET /api/v1/server/prompt` |
+| File                                       | Purpose                                                                                                                               |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/Contract/ToolkitVisibility.php`       | Backed string enum; protection constants; `isAlwaysEnabled()`, `canDisable()`, `canStub()`                                            |
+| `src/Config/ToolkitVisibilityRegistry.php` | Read/write `toolkit-visibility.json`; in-memory cache; guard enforcement                                                              |
+| `src/Tool/StubTool.php`                    | Wraps `ToolInterface`; returns minimal stub schema; forwards `execute()` to real tool                                                 |
+| `src/Toolkit/StubToolkit.php`              | Wraps `ToolkitInterface`; `tools()` returns `StubTool` wrappers; `realTools()` returns originals for BM25                             |
+| `src/Config/ToolkitDiscovery.php`          | `instantiateRegisteredGrouped()` — skips Disabled packages, returns `[package, toolkit]` pairs; `allWithVisibility()` for API listing |
+| `src/Agent/OrchestratorAgent.php`          | Applies per-package and per-tool visibility in `addToolkit()`; `getSystemPromptText()` for prompt preview                             |
+| `src/Agent/AgentRunner.php`                | `buildPromptPreview()` — creates a temporary agent and returns rendered prompt + counts                                               |
+| `src/Api/Handler/ToolkitHandler.php`       | `GET /api/v1/toolkits`, `POST /api/v1/toolkits/visibility`                                                                            |
+| `src/Api/Handler/PromptHandler.php`        | `GET /api/v1/server/prompt`                                                                                                           |
 
 ### Boot Sequence Integration
 
@@ -234,16 +234,16 @@ new OrchestratorAgent(visibilityRegistry)
 
 ### REPL Commands
 
-| Command | Description |
-|---------|-------------|
-| `/toolkits` | List all packages and tools with current visibility |
-| `/toolkits enable <pkg>` | Set package to `enabled` |
-| `/toolkits stub <pkg>` | Set package to `stub` |
-| `/toolkits disable <pkg>` | Set package to `disabled` |
-| `/toolkits enable tool:<name>` | Set individual tool to `enabled` |
-| `/toolkits stub tool:<name>` | Set individual tool to `stub` |
-| `/toolkits disable tool:<name>` | Set individual tool to `disabled` |
-| `/prompt` | Print the fully rendered system prompt |
+| Command                         | Description                                         |
+| ------------------------------- | --------------------------------------------------- |
+| `/toolkits`                     | List all packages and tools with current visibility |
+| `/toolkits enable <pkg>`        | Set package to `enabled`                            |
+| `/toolkits stub <pkg>`          | Set package to `stub`                               |
+| `/toolkits disable <pkg>`       | Set package to `disabled`                           |
+| `/toolkits enable tool:<name>`  | Set individual tool to `enabled`                    |
+| `/toolkits stub tool:<name>`    | Set individual tool to `stub`                       |
+| `/toolkits disable tool:<name>` | Set individual tool to `disabled`                   |
+| `/prompt`                       | Print the fully rendered system prompt              |
 
 Tab autocomplete is provided for all subcommands, package names, and tool names via `readline_completion_function()`.
 
@@ -263,22 +263,20 @@ Coqui supports running individual tools asynchronously in background processes. 
 
 ### Key Differences from Background Tasks
 
-| Aspect | `start_background_task` | `start_background_tool` |
-|--------|------------------------|------------------------|
-| Execution | Full LLM agent loop | Direct `tool->execute()` call |
-| LLM tokens | Yes (agent reasons and iterates) | None (zero token cost) |
-| Iterations | Up to 100 (configurable) | Always 1 (single tool call) |
-| Use case | Complex multi-step work | Single long-running tool call |
+| Aspect     | `start_background_task`          | `start_background_tool`       |
+| ---------- | -------------------------------- | ----------------------------- |
+| Execution  | Full LLM agent loop              | Direct `tool->execute()` call |
+| LLM tokens | Yes (agent reasons and iterates) | None (zero token cost)        |
+| Iterations | Up to 100 (configurable)         | Always 1 (single tool call)   |
+| Use case   | Complex multi-step work          | Single long-running tool call |
 
 ### Key Source Files
 
-| File | Purpose |
-|------|--------|
-| `src/Agent/BackgroundToolExecutor.php` | Builds toolkits, resolves tool by name, calls `execute()` directly |
-| `src/Toolkit/BackgroundTaskToolkit.php` | Agent-facing tools including `start_background_tool` |
-| `src/Command/TaskRunCommand.php` | Branches on `tool_name` presence: agent path vs direct tool execution |
-
-
+| File                                    | Purpose                                                               |
+| --------------------------------------- | --------------------------------------------------------------------- |
+| `src/Agent/BackgroundToolExecutor.php`  | Builds toolkits, resolves tool by name, calls `execute()` directly    |
+| `src/Toolkit/BackgroundTaskToolkit.php` | Agent-facing tools including `start_background_tool`                  |
+| `src/Command/TaskRunCommand.php`        | Branches on `tool_name` presence: agent path vs direct tool execution |
 
 ## Vision Architecture
 
@@ -318,23 +316,23 @@ The vision role model is configured in `openclaw.json`:
 
 All image sources work with all providers because `VisionAnalyzer` normalizes everything to base64 before the provider sees it. Additionally, `GeminiProvider` has its own URL download fallback for any base64 content that was missed.
 
-| Provider | Base64 | URL (via pre-download) |
-|----------|:------:|:----------------------:|
-| OpenAI Compatible | ✅ | ✅ |
-| OpenAI Responses | ✅ | ✅ |
-| Anthropic | ✅ | ✅ |
-| Gemini | ✅ | ✅ |
-| Ollama | ✅ | ✅ |
-| xAI (Grok) | ✅ | ✅ |
-| Mistral | ✅ | ✅ |
+| Provider          | Base64 | URL (via pre-download) |
+| ----------------- | :----: | :--------------------: |
+| OpenAI Compatible |   ✅    |           ✅            |
+| OpenAI Responses  |   ✅    |           ✅            |
+| Anthropic         |   ✅    |           ✅            |
+| Gemini            |   ✅    |           ✅            |
+| Ollama            |   ✅    |           ✅            |
+| xAI (Grok)        |   ✅    |           ✅            |
+| Mistral           |   ✅    |           ✅            |
 
 ### Key Source Files
 
-| File | Purpose |
-|------|---------|
+| File                           | Purpose                                                                                     |
+| ------------------------------ | ------------------------------------------------------------------------------------------- |
 | `src/Agent/VisionAnalyzer.php` | Single-shot child agent: resolves provider, downloads/encodes images, sends multimodal chat |
-| `src/Tool/VisionTool.php` | Agent-facing tool: validates input, delegates to VisionAnalyzer, surfaces errors |
-| `config/roles/vision.md` | Role definition: instructions for structured image analysis |
+| `src/Tool/VisionTool.php`      | Agent-facing tool: validates input, delegates to VisionAnalyzer, surfaces errors            |
+| `config/roles/vision.md`       | Role definition: instructions for structured image analysis                                 |
 
 
 
@@ -378,11 +376,11 @@ When `agents.defaults.shellAllowedCommands` is not set, the following commands a
 
 Each CLI flag affects a specific safety layer. They do **not** interact with each other:
 
-| Flag | Affects | What it changes | What it does NOT change |
-|------|---------|----------------|------------------------|
+| Flag             | Affects                     | What it changes                            | What it does NOT change                                 |
+| ---------------- | --------------------------- | ------------------------------------------ | ------------------------------------------------------- |
 | `--auto-approve` | `InteractiveApprovalPolicy` | Skips confirmation prompts for gated tools | Shell allowlist, ScriptSanitizer, CatastrophicBlacklist |
-| `--unsafe` | `ScriptSanitizer` | Allows all PHP functions in `php_execute` | Shell allowlist, approval policy, CatastrophicBlacklist |
-| Neither | — | All safety layers active at defaults | — |
+| `--unsafe`       | `ScriptSanitizer`           | Allows all PHP functions in `php_execute`  | Shell allowlist, approval policy, CatastrophicBlacklist |
+| Neither          | —                           | All safety layers active at defaults       | —                                                       |
 
 The `CatastrophicBlacklist` (hardcoded destructive patterns) **cannot be disabled by any flag**.
 
@@ -390,12 +388,12 @@ The shell allowlist is only configurable via `openclaw.json` — it is not affec
 
 ### Key Source Files
 
-| File | Purpose |
-|------|---------|
-| `src/Agent/OrchestratorAgent.php` | Reads `shellAllowedCommands` from config, constructs ShellToolkit |
-| `src/Tool/SpawnAgentTool.php` | Passes shell allowlist to child agent ShellToolkit |
-| php-agents `src/Toolkit/ShellToolkit.php` | Enforces allowlist, injection detection, deny patterns |
-| `src/Config/CatastrophicBlacklist.php` | Always-on destructive command blocking |
+| File                                      | Purpose                                                           |
+| ----------------------------------------- | ----------------------------------------------------------------- |
+| `src/Agent/OrchestratorAgent.php`         | Reads `shellAllowedCommands` from config, constructs ShellToolkit |
+| `src/Tool/SpawnAgentTool.php`             | Passes shell allowlist to child agent ShellToolkit                |
+| php-agents `src/Toolkit/ShellToolkit.php` | Enforces allowlist, injection detection, deny patterns            |
+| `src/Config/CatastrophicBlacklist.php`    | Always-on destructive command blocking                            |
 
 
 
@@ -435,12 +433,12 @@ Fallbacks are tried in order. If all fallbacks also fail, the last error is prop
 
 ### Key Source Files
 
-| File | Purpose |
-|------|---------|
-| `src/Provider/FallbackProvider.php` | `ProviderInterface` decorator — tries primary then fallbacks on retryable errors |
-| `src/Exception/ProviderErrorClassifier.php` | Classifies errors as retryable (429, 5xx, 408, network) or fatal (401, 403, 400, 404) |
-| `src/Config/OpenClawConfig.php` | Application-specific `ConfigInterface` implementation — reads `openclaw.json`, provides `getFallbacks()` |
-| `src/Exception/ConfigNotFoundException.php` | Domain exception for missing/unreadable `openclaw.json` |
+| File                                        | Purpose                                                                                                  |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `src/Provider/FallbackProvider.php`         | `ProviderInterface` decorator — tries primary then fallbacks on retryable errors                         |
+| `src/Exception/ProviderErrorClassifier.php` | Classifies errors as retryable (429, 5xx, 408, network) or fatal (401, 403, 400, 404)                    |
+| `src/Config/OpenClawConfig.php`             | Application-specific `ConfigInterface` implementation — reads `openclaw.json`, provides `getFallbacks()` |
+| `src/Exception/ConfigNotFoundException.php` | Domain exception for missing/unreadable `openclaw.json`                                                  |
 
 
 
@@ -488,12 +486,12 @@ Add mounts to `openclaw.json`:
 }
 ```
 
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `path` | yes | — | Absolute path to the external directory (must exist) |
-| `alias` | yes | — | Short name used as the symlink name under `workspace/mnt/` |
-| `access` | no | `ro` | `ro` (read-only) or `rw` (read-write) |
-| `description` | no | `''` | Human-readable description shown in the storage map |
+| Field         | Required | Default | Description                                                |
+| ------------- | -------- | ------- | ---------------------------------------------------------- |
+| `path`        | yes      | —       | Absolute path to the external directory (must exist)       |
+| `alias`       | yes      | —       | Short name used as the symlink name under `workspace/mnt/` |
+| `access`      | no       | `ro`    | `ro` (read-only) or `rw` (read-write)                      |
+| `description` | no       | `''`    | Human-readable description shown in the storage map        |
 
 ### Access Control
 
@@ -512,11 +510,11 @@ Symlinks are managed in `workspace/mnt/`:
 
 ### Key Source Files
 
-| File | Purpose |
-|------|---------|
-| `src/Contract/MountDefinition.php` | Value object: validated mount path, alias, access level, description |
-| `src/Config/MountManager.php` | Symlink lifecycle, allowedPaths generation, storage map rendering, open_basedir paths |
-| `src/Config/BootManager.php` | `initializeMounts()` reads config and initializes MountManager |
+| File                               | Purpose                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------- |
+| `src/Contract/MountDefinition.php` | Value object: validated mount path, alias, access level, description                  |
+| `src/Config/MountManager.php`      | Symlink lifecycle, allowedPaths generation, storage map rendering, open_basedir paths |
+| `src/Config/BootManager.php`       | `initializeMounts()` reads config and initializes MountManager                        |
 
 
 ## Memory System Architecture
@@ -553,11 +551,11 @@ Memories are classified by **area** (`preferences`, `facts`, `solutions`, `conte
 
 ### Key Source Files
 
-| File | Purpose |
-|------|---------|
-| `src/Memory/MemoryStore.php` | SQLite + FTS5 + optional vector storage — full CRUD |
-| `src/Memory/MemorySummarizer.php` | Cached summary generation for system prompt injection |
-| `src/Toolkit/MemoryToolkit.php` | 6 agent-facing tools (save, search, update, delete, forget, list) |
+| File                              | Purpose                                                           |
+| --------------------------------- | ----------------------------------------------------------------- |
+| `src/Memory/MemoryStore.php`      | SQLite + FTS5 + optional vector storage — full CRUD               |
+| `src/Memory/MemorySummarizer.php` | Cached summary generation for system prompt injection             |
+| `src/Toolkit/MemoryToolkit.php`   | 6 agent-facing tools (save, search, update, delete, forget, list) |
 
 ### Configuration
 
@@ -607,17 +605,17 @@ No explicit configuration is required. The memory system initializes automatical
 
 ### Naming
 
-| Element | Convention | Example |
-|---------|-----------|---------|
-| Classes | PascalCase | `VideoProcessor` |
-| Interfaces | PascalCase + `Interface` suffix | `ProviderInterface` |
-| Enums | PascalCase | `Role`, `FinishReason` |
-| Methods | camelCase | `getConfig()` |
-| Properties | camelCase | `$maxTokens` |
-| Constants | UPPER_SNAKE | `MAX_RETRIES` |
-| Functions | camelCase | `buildPrompt()` |
-| Variables | camelCase | `$outputPath` |
-| Namespaces | PascalCase | `CoquiBot\Coqui` |
+| Element    | Convention                      | Example                |
+| ---------- | ------------------------------- | ---------------------- |
+| Classes    | PascalCase                      | `VideoProcessor`       |
+| Interfaces | PascalCase + `Interface` suffix | `ProviderInterface`    |
+| Enums      | PascalCase                      | `Role`, `FinishReason` |
+| Methods    | camelCase                       | `getConfig()`          |
+| Properties | camelCase                       | `$maxTokens`           |
+| Constants  | UPPER_SNAKE                     | `MAX_RETRIES`          |
+| Functions  | camelCase                       | `buildPrompt()`        |
+| Variables  | camelCase                       | `$outputPath`          |
+| Namespaces | PascalCase                      | `CoquiBot\Coqui`       |
 
 ### Type Declarations
 
@@ -705,25 +703,24 @@ test('config loads from valid JSON', function () {
 
 ### Key Source Files
 
-| File | Purpose |
-|------|---------|
-| `src/Config/CatastrophicBlacklist.php` | Hardcoded + configurable always-on safety patterns |
-| `src/Config/ScriptSanitizer.php` | Static analysis of generated PHP (respects `--unsafe`) |
-| `src/Config/AutoApprovalPolicy.php` | Auto-approves tools except catastrophic commands |
-| `src/Config/InteractiveApprovalPolicy.php` | Interactive user confirmation with audit logging |
-| `src/Config/WorkspaceComposerManager.php` | Manages `workspace/composer.json` lifecycle |
-| `src/Config/ToolkitDiscovery.php` | Boot-time discovery of toolkit packages; implements `PackageEventListenerInterface`; wraps toolkits with credential guards |
-| `src/Config/CredentialResolver.php` | Workspace `.env` management with hot-reload via `putenv()` |
-| `src/Config/UpdateManager.php` | Dependency update checking and application; controlled by `COQUI_CHECK_UPDATES` / `COQUI_AUTO_UPDATE` env vars |
-| `src/Tool/RestartTool.php` | Agent-facing tool to trigger graceful restart; sets flag via closure, gated by execution policy |
-| `src/Storage/SessionStorage.php` | Sessions, messages, and audit log persistence |
+| File                                       | Purpose                                                                                                                    |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `src/Config/CatastrophicBlacklist.php`     | Hardcoded + configurable always-on safety patterns                                                                         |
+| `src/Config/ScriptSanitizer.php`           | Static analysis of generated PHP (respects `--unsafe`)                                                                     |
+| `src/Config/AutoApprovalPolicy.php`        | Auto-approves tools except catastrophic commands                                                                           |
+| `src/Config/InteractiveApprovalPolicy.php` | Interactive user confirmation with audit logging                                                                           |
+| `src/Config/WorkspaceComposerManager.php`  | Manages `workspace/composer.json` lifecycle                                                                                |
+| `src/Config/ToolkitDiscovery.php`          | Boot-time discovery of toolkit packages; implements `PackageEventListenerInterface`; wraps toolkits with credential guards |
+| `src/Config/CredentialResolver.php`        | Workspace `.env` management with hot-reload via `putenv()`                                                                 |
+| `src/Config/UpdateManager.php`             | Dependency update checking and application; controlled by `COQUI_CHECK_UPDATES` / `COQUI_AUTO_UPDATE` env vars             |
+| `src/Tool/RestartTool.php`                 | Agent-facing tool to trigger graceful restart; sets flag via closure, gated by execution policy                            |
+| `src/Storage/SessionStorage.php`           | Sessions, messages, and audit log persistence                                                                              |
 
 ## Documentation
 
 - **README.md** — installation, quick start, usage examples.
 - **PHPDoc** — only for complex logic, generics (`@template`), or where native types are insufficient.
 - Inline comments explain *why*, not *what*.
-- Keep a `CHANGELOG.md` for versioned releases.
 
 ## Security
 
@@ -770,10 +767,10 @@ When adding restart triggers:
 
 Coqui supports dependency update checking and application via `UpdateManager`. The system is controlled entirely through ENV vars stored in the workspace `.env` (not in `openclaw.json`):
 
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `COQUI_CHECK_UPDATES` | `true` | Check for outdated packages on startup |
-| `COQUI_AUTO_UPDATE` | `false` | Automatically apply updates and restart on startup |
+| Variable              | Default | Purpose                                            |
+| --------------------- | ------- | -------------------------------------------------- |
+| `COQUI_CHECK_UPDATES` | `true`  | Check for outdated packages on startup             |
+| `COQUI_AUTO_UPDATE`   | `false` | Automatically apply updates and restart on startup |
 
 **Update triggers:**
 
@@ -926,13 +923,13 @@ Setting `max_iterations: 0` means "run until the task is done" — the agent loo
 
 #### Built-in Role Defaults
 
-| Role | `max_iterations` | Rationale |
-|------|------------------|-----------|
-| orchestrator | global default | Main agent — uses `agents.defaults.maxIterations` |
-| coder | 30 | Complex coding tasks need more iterations |
-| reviewer | 15 | Read-only analysis is usually quick |
-| assistant | global default | General purpose — inherits global |
-| title-generator | 5 | Single-shot title generation |
+| Role            | `max_iterations` | Rationale                                         |
+| --------------- | ---------------- | ------------------------------------------------- |
+| orchestrator    | global default   | Main agent — uses `agents.defaults.maxIterations` |
+| coder           | 30               | Complex coding tasks need more iterations         |
+| reviewer        | 15               | Read-only analysis is usually quick               |
+| assistant       | global default   | General purpose — inherits global                 |
+| title-generator | 5                | Single-shot title generation                      |
 
 #### Iteration Budget Awareness
 
@@ -942,16 +939,16 @@ When `max_iterations` is `0` (unlimited), the budget section is omitted entirely
 
 ## Quick Reference: PHP 8.4 Features to Use
 
-| Feature | Use Case |
-|---------|----------|
-| Property hooks | Computed/validated properties without boilerplate getters |
-| `new` without parentheses | `new Foo` instead of `new Foo()` when no args |
-| Asymmetric visibility | `public private(set)` for read-public, write-private |
-| `#[\Deprecated]` attribute | Mark methods for removal with IDE + tooling support |
-| `array_find()`, `array_any()`, `array_all()` | Cleaner array filtering and checking |
-| `Mb\trim()`, `ltrim()`, `rtrim()` | Multibyte string trimming |
-| Lazy objects | `ReflectionClass::newLazyProxy()` for deferred initialization |
-| `Dom\HTMLDocument` | Spec-compliant HTML5 parsing (replaces DOMDocument hacks) |
+| Feature                                      | Use Case                                                      |
+| -------------------------------------------- | ------------------------------------------------------------- |
+| Property hooks                               | Computed/validated properties without boilerplate getters     |
+| `new` without parentheses                    | `new Foo` instead of `new Foo()` when no args                 |
+| Asymmetric visibility                        | `public private(set)` for read-public, write-private          |
+| `#[\Deprecated]` attribute                   | Mark methods for removal with IDE + tooling support           |
+| `array_find()`, `array_any()`, `array_all()` | Cleaner array filtering and checking                          |
+| `Mb\trim()`, `ltrim()`, `rtrim()`            | Multibyte string trimming                                     |
+| Lazy objects                                 | `ReflectionClass::newLazyProxy()` for deferred initialization |
+| `Dom\HTMLDocument`                           | Spec-compliant HTML5 parsing (replaces DOMDocument hacks)     |
 
 ## Database (SQLite)
 
@@ -1012,14 +1009,14 @@ Coqui ships with Docker support for isolated execution. The image is based on `p
 
 ### Architecture
 
-| File | Purpose |
-|------|---------|
-| `Dockerfile` | PHP 8.4 CLI + all extensions + Composer. |
-| `compose.yaml` | Base service: bind-mounts source, named volume for workspace at `/app/workspace`, passes API keys from host, connects to host Ollama via `host.docker.internal`. |
-| `compose.api.yaml` | Defines a separate `coqui-api` service for the HTTP API server on port 3300. Runs alongside the REPL without overriding it. |
-| `Makefile` | Self-documenting targets. Native targets use bare names (`start`, `api`), Docker targets use `docker-*` prefix. |
-| `conf.d/coqui.ini` | CLI-optimized PHP config: 512M memory, OPcache + JIT enabled, errors to stderr. |
-| `.env.example` | Documents all environment variables (API keys, ports, runtime flags, UID/GID). |
+| File               | Purpose                                                                                                                                                          |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Dockerfile`       | PHP 8.4 CLI + all extensions + Composer.                                                                                                                         |
+| `compose.yaml`     | Base service: bind-mounts source, named volume for workspace at `/app/workspace`, passes API keys from host, connects to host Ollama via `host.docker.internal`. |
+| `compose.api.yaml` | Defines a separate `coqui-api` service for the HTTP API server on port 3300. Runs alongside the REPL without overriding it.                                      |
+| `Makefile`         | Self-documenting targets. Native targets use bare names (`start`, `api`), Docker targets use `docker-*` prefix.                                                  |
+| `conf.d/coqui.ini` | CLI-optimized PHP config: 512M memory, OPcache + JIT enabled, errors to stderr.                                                                                  |
+| `.env.example`     | Documents all environment variables (API keys, ports, runtime flags, UID/GID).                                                                                   |
 
 ### Key Design Decisions
 
@@ -1030,49 +1027,21 @@ Coqui ships with Docker support for isolated execution. The image is based on `p
 - **Named volume for workspace**: Session databases, bot-installed packages, and workspace state persist across `docker compose run` invocations. The volume mounts at `/app/workspace` and both compose files set `COQUI_WORKSPACE=/app/workspace` so `BootManager` uses this path directly (bypassing `WorkspaceResolver::DEFAULT_WORKSPACE`). The Dockerfile pre-creates `/app/workspace` with correct ownership so named volumes inherit the `coqui` user permissions.
 - **Port convention**: API=3300. Avoids conflicts with common services on 8080/3000.
 
-### Running in Docker
-
-```bash
-# Build image
-make docker-build
-
-# Interactive REPL + API
-make docker-start           # REPL interactive, API on port 3300
-
-# REPL only
-make docker-repl
-
-# API only (daemon)
-make docker-api
-
-# Shell access
-make docker-shell
-
-# Composer operations
-make install
-make composer CMD="require foo/bar"
-
-# Stop / cleanup
-make docker-stop             # stop all containers
-make clean                   # remove containers, images, volumes
-make clean-workspace         # workspace volume only
-```
-
 ### Environment Variables
 
 Copy `.env.example` to `.env` before running. Key variables:
 
-| Variable | Default | Purpose |
-|----------|---------|---------|  
-| `COQUI_UID` / `COQUI_GID` | `1000` | Match host user to avoid permission issues |
-| `COQUI_WORKSPACE` | `/app/workspace` | Workspace directory inside the container (must match the named volume mount) |
-| `OPENAI_API_KEY` | — | Passed into the container |
-| `ANTHROPIC_API_KEY` | — | Passed into the container |
-| `OLLAMA_HOST` | `http://host.docker.internal:11434` | Ollama endpoint |
-| `COQUI_API_HOST` | `127.0.0.1` | API bind address (`0.0.0.0` for network access) |
-| `COQUI_API_PORT` | `3300` | API server port |
-| `COQUI_AUTO_APPROVE` | `false` | Env-var equivalent of `--auto-approve` |
-| `COQUI_UNSAFE` | `false` | Env-var equivalent of `--unsafe` |
+| Variable                  | Default                             | Purpose                                                                      |
+| ------------------------- | ----------------------------------- | ---------------------------------------------------------------------------- |
+| `COQUI_UID` / `COQUI_GID` | `1000`                              | Match host user to avoid permission issues                                   |
+| `COQUI_WORKSPACE`         | `/app/workspace`                    | Workspace directory inside the container (must match the named volume mount) |
+| `OPENAI_API_KEY`          | —                                   | Passed into the container                                                    |
+| `ANTHROPIC_API_KEY`       | —                                   | Passed into the container                                                    |
+| `OLLAMA_HOST`             | `http://host.docker.internal:11434` | Ollama endpoint                                                              |
+| `COQUI_API_HOST`          | `127.0.0.1`                         | API bind address (`0.0.0.0` for network access)                              |
+| `COQUI_API_PORT`          | `3300`                              | API server port                                                              |
+| `COQUI_AUTO_APPROVE`      | `false`                             | Env-var equivalent of `--auto-approve`                                       |
+| `COQUI_UNSAFE`            | `false`                             | Env-var equivalent of `--unsafe`                                             |
 
 ## Documentation Policy
 
@@ -1081,4 +1050,3 @@ When making changes to Coqui, keep documentation in sync:
 - **README.md** — update when adding user-facing features (new CLI options, new tools, new capabilities, changed behavior). The README is the first thing users see.
 - **AGENTS.md** — update when adding architectural patterns, new conventions, new contributor workflows, or modifying the safety/security model.
 - **config/source.json** — update when adding, renaming, removing, or significantly modifying source files (see Source Map Maintenance above).
-- **CHANGELOG.md** — update for versioned releases with user-visible changes.

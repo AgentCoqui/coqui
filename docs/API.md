@@ -1606,12 +1606,14 @@ List all registered toolkit packages and individual tools with their current vis
     {
       "package": "coquibot/core-toolkit",
       "classes": ["CoquiBot\\CoreToolkit\\CoreToolkit"],
-      "visibility": "enabled"
+      "visibility": "enabled",
+      "tokens": 1250
     },
     {
       "package": "acme/vision-toolkit",
       "classes": ["Acme\\Vision\\VisionToolkit"],
-      "visibility": "stub"
+      "visibility": "stub",
+      "tokens": 340
     }
   ],
   "tools": [
@@ -1630,9 +1632,19 @@ List all registered toolkit packages and individual tools with their current vis
       "visibility": "enabled",
       "protected": null
     }
-  ]
+  ],
+  "prompt_tokens": 4250,
+  "tool_tokens": 1830,
+  "total_tokens": 6080
 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `toolkits[].tokens` | int | Estimated token count for this toolkit's guidelines and tool schemas |
+| `prompt_tokens` | int | Estimated token count for the system prompt text |
+| `tool_tokens` | int | Estimated token count for all tool schemas (standalone + toolkit) |
+| `total_tokens` | int | Sum of `prompt_tokens` and `tool_tokens` |
 
 The `protected` field is `"always_enabled"`, `"cannot_disable"`, or `null`.
 
@@ -1698,7 +1710,19 @@ Return the fully constructed system prompt that the agent would receive on its n
 {
   "prompt": "You are Coqui, an autonomous AI agent...\n\n## Available Tools\n...",
   "tool_count": 42,
-  "toolkit_count": 7
+  "toolkit_count": 7,
+  "prompt_tokens": 4250,
+  "tool_tokens": 1830,
+  "total_tokens": 6080,
+  "toolkit_breakdown": [
+    {
+      "name": "MemoryToolkit",
+      "class": "CoquiBot\\Coqui\\Toolkit\\MemoryToolkit",
+      "guidelines_tokens": 320,
+      "tools_tokens": 480,
+      "total_tokens": 800
+    }
+  ]
 }
 ```
 
@@ -1707,6 +1731,10 @@ Return the fully constructed system prompt that the agent would receive on its n
 | `prompt` | string | Full rendered system prompt text |
 | `tool_count` | int | Number of tools currently in the agent's context (enabled + stub) |
 | `toolkit_count` | int | Number of toolkit packages contributing tools |
+| `prompt_tokens` | int | Estimated token count for the system prompt text |
+| `tool_tokens` | int | Estimated token count for all tool schemas (standalone + toolkit) |
+| `total_tokens` | int | Sum of `prompt_tokens` and `tool_tokens` |
+| `toolkit_breakdown` | array | Per-toolkit token breakdown with guidelines and tool schema counts |
 
 **Response `500`** — if prompt construction fails:
 

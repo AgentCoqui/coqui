@@ -472,6 +472,9 @@ final class RunCommand extends Command
                 $io->text([
                     '<fg=gray>Tool count:</> ' . $preview['tool_count'],
                     '<fg=gray>Toolkit count:</> ' . $preview['toolkit_count'],
+                    '<fg=gray>Prompt tokens:</> ' . number_format($preview['prompt_tokens']),
+                    '<fg=gray>Tool schema tokens:</> ' . number_format($preview['tool_tokens']),
+                    '<fg=gray>Estimated total:</> ' . number_format($preview['total_tokens']),
                 ]);
                 return true;
             })(),
@@ -531,22 +534,40 @@ final class RunCommand extends Command
         $discovery = $this->boot->discovery();
 
         if (trim($arg) === '') {
-            // List all packages with visibility
+            // Build token breakdown index by class FQCN
+            $preview = $this->agentRunner->buildPromptPreview();
+            $tokensByClass = [];
+            foreach ($preview['toolkit_breakdown'] as $entry) {
+                $tokensByClass[$entry['class']] = $entry;
+            }
+
+            // List all packages with visibility and token counts
             $rows = [];
             foreach ($discovery->allWithVisibility() as $entry) {
-                $rows[] = [$entry['package'], $entry['visibility']];
+                $pkgTokens = 0;
+                foreach ($entry['classes'] as $cls) {
+                    if (isset($tokensByClass[$cls])) {
+                        $pkgTokens += $tokensByClass[$cls]['total_tokens'];
+                    }
+                }
+                $rows[] = [$entry['package'], $entry['visibility'], number_format($pkgTokens)];
             }
 
             $state = $registry->all();
             foreach ($state['tools'] as $toolName => $vis) {
-                $rows[] = ['tool:' . $toolName, $vis];
+                $rows[] = ['tool:' . $toolName, $vis, '-'];
             }
 
             if (empty($rows)) {
                 $io->text('No toolkits registered. Install a toolkit package first.');
             } else {
-                $io->table(['Package / Tool', 'Visibility'], $rows);
-                $io->text('<fg=gray>Use /toolkits enable|stub|disable <pkg> or tool:<name></>');
+                $io->table(['Package / Tool', 'Visibility', 'Tokens'], $rows);
+                $io->text([
+                    '<fg=gray>Prompt tokens:</> ' . number_format($preview['prompt_tokens'])
+                        . '<fg=gray> • Tool schema tokens:</> ' . number_format($preview['tool_tokens'])
+                        . '<fg=gray> • Total:</> ' . number_format($preview['total_tokens']),
+                    '<fg=gray>Use /toolkits enable|stub|disable <pkg> or tool:<name></>',
+                ]);
             }
 
             return true;
