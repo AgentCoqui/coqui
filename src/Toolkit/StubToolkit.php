@@ -52,4 +52,12 @@ final class StubToolkit implements ToolkitInterface
     {
         return $this->inner->tools();
     }
+
+    /**
+     * Returns the FQCN of the wrapped toolkit for token breakdown matching.
+     */
+    public function innerClass(): string
+    {
+        return $this->inner::class;
+    }
 }

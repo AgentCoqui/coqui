@@ -318,11 +318,11 @@ final class AgentRunner
 
     /**
      * Build a preview agent (no session, no storage side-effects) and return
-     * its system prompt text plus tool/toolkit counts.
+     * its system prompt text, tool/toolkit counts, and token estimates.
      *
      * Used by the /prompt REPL command and GET /api/v1/server/prompt endpoint.
      *
-     * @return array{prompt: string, tool_count: int, toolkit_count: int}
+     * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>}
      */
     public function buildPromptPreview(): array
     {
@@ -351,10 +351,23 @@ final class AgentRunner
             visibilityRegistry: $this->visibilityRegistry,
         );
 
+        $counter = TokenCounterFactory::forModel($modelString);
+        $promptText = $agent->getSystemPromptText();
+        $promptTokens = $counter->count($promptText);
+        $toolkitBreakdown = $agent->getToolkitTokenBreakdown($counter);
+        $standaloneToolTokens = $agent->getStandaloneToolTokens($counter);
+
+        $toolkitToolTokens = array_sum(array_column($toolkitBreakdown, 'tools_tokens'));
+        $toolTokens = $standaloneToolTokens + $toolkitToolTokens;
+
         return [
-            'prompt'        => $agent->getSystemPromptText(),
-            'tool_count'    => $agent->getToolCount(),
-            'toolkit_count' => $agent->getOwnToolkitCount(),
+            'prompt'            => $promptText,
+            'tool_count'        => $agent->getToolCount(),
+            'toolkit_count'     => $agent->getOwnToolkitCount(),
+            'prompt_tokens'     => $promptTokens,
+            'tool_tokens'       => $toolTokens,
+            'total_tokens'      => $promptTokens + $toolTokens,
+            'toolkit_breakdown' => $toolkitBreakdown,
         ];
     }
 

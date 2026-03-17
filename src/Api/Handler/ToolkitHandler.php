@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
+use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
@@ -23,6 +24,7 @@ final readonly class ToolkitHandler
     public function __construct(
         private ToolkitDiscovery $discovery,
         private ToolkitVisibilityRegistry $visibilityRegistry,
+        private AgentRunner $agentRunner,
     ) {}
 
     /**
@@ -34,6 +36,25 @@ final readonly class ToolkitHandler
     public function list(ServerRequestInterface $request): Response
     {
         $packages = $this->discovery->allWithVisibility();
+
+        // Build token breakdown index by class FQCN
+        $preview = $this->agentRunner->buildPromptPreview();
+        $tokensByClass = [];
+        foreach ($preview['toolkit_breakdown'] as $entry) {
+            $tokensByClass[$entry['class']] = $entry;
+        }
+
+        // Enrich packages with per-toolkit token counts
+        foreach ($packages as &$pkg) {
+            $pkgTokens = 0;
+            foreach ($pkg['classes'] as $cls) {
+                if (isset($tokensByClass[$cls])) {
+                    $pkgTokens += $tokensByClass[$cls]['total_tokens'];
+                }
+            }
+            $pkg['tokens'] = $pkgTokens;
+        }
+        unset($pkg);
 
         $state = $this->visibilityRegistry->all();
 
@@ -56,8 +77,11 @@ final readonly class ToolkitHandler
         }
 
         return Router::jsonResponse([
-            'toolkits' => $packages,
-            'tools'    => $tools,
+            'toolkits'      => $packages,
+            'tools'         => $tools,
+            'prompt_tokens' => $preview['prompt_tokens'],
+            'tool_tokens'   => $preview['tool_tokens'],
+            'total_tokens'  => $preview['total_tokens'],
         ]);
     }
 

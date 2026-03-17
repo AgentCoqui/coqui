@@ -49,6 +49,7 @@ use CoquiBot\Coqui\Tool\StubTool;
 use CoquiBot\Coqui\Tool\ToolRegistry;
 use CoquiBot\Coqui\Tool\ToolSearchTool;
 use CoquiBot\Coqui\Tool\VisionTool;
+use CarmeloSantana\PHPAgents\Contract\TokenCounterInterface;
 use CarmeloSantana\PHPAgents\Prompt\SystemPrompt;
 
 use SplObserver;
@@ -422,6 +423,49 @@ final class OrchestratorAgent extends AbstractAgent
     public function getOwnToolkitCount(): int
     {
         return count($this->ownToolkits);
+    }
+
+    /**
+     * Token breakdown per registered toolkit (guidelines + tool schemas).
+     *
+     * @return array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>
+     */
+    public function getToolkitTokenBreakdown(TokenCounterInterface $counter): array
+    {
+        $breakdown = [];
+
+        foreach ($this->ownToolkits as $toolkit) {
+            if ($toolkit instanceof StubToolkit) {
+                $class = $toolkit->innerClass();
+                $parts = explode('\\', $class);
+                $name = end($parts) . ' (stub)';
+            } else {
+                $class = $toolkit::class;
+                $parts = explode('\\', $class);
+                $name = end($parts);
+            }
+
+            $guidelinesTokens = $counter->count($toolkit->guidelines());
+            $toolsTokens = $counter->countTools($toolkit->tools());
+
+            $breakdown[] = [
+                'name'              => $name,
+                'class'             => $class,
+                'guidelines_tokens' => $guidelinesTokens,
+                'tools_tokens'      => $toolsTokens,
+                'total_tokens'      => $guidelinesTokens + $toolsTokens,
+            ];
+        }
+
+        return $breakdown;
+    }
+
+    /**
+     * Token count for standalone tools (not part of any toolkit).
+     */
+    public function getStandaloneToolTokens(TokenCounterInterface $counter): int
+    {
+        return $counter->countTools($this->tools());
     }
 
     /** Default shell commands available to the orchestrator. */

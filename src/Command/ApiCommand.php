@@ -201,8 +201,6 @@ final class ApiCommand extends Command
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
         $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $taskManager);
 
-        $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry());
-
         $previewRunner = new AgentRunner(
             roleResolver: $boot->roleResolver(),
             config: $boot->config(),
@@ -221,6 +219,7 @@ final class ApiCommand extends Command
             configManager: $boot->configManager(),
             visibilityRegistry: $boot->visibilityRegistry(),
         );
+        $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($previewRunner);
 
         // Build router
