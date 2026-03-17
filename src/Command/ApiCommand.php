@@ -6,15 +6,18 @@ namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
+use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
+use CoquiBot\Coqui\Api\Handler\PromptHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\ServerHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Handler\TaskHandler;
+use CoquiBot\Coqui\Api\Handler\ToolkitHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
 use CoquiBot\Coqui\Api\Middleware\AuthMiddleware;
 use CoquiBot\Coqui\Api\Middleware\ContentTypeMiddleware;
@@ -198,9 +201,31 @@ final class ApiCommand extends Command
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
         $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $taskManager);
 
+        $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry());
+
+        $previewRunner = new AgentRunner(
+            roleResolver: $boot->roleResolver(),
+            config: $boot->config(),
+            projectRoot: $workDir,
+            workspacePath: $boot->workspacePath(),
+            storage: $storage,
+            observer: null,
+            discovery: $boot->discovery(),
+            blacklist: $boot->blacklist(),
+            credentialResolver: $boot->credentialResolver(),
+            skillDiscovery: $boot->skillDiscovery(),
+            roleDiscovery: $boot->roleDiscovery(),
+            memoryStore: $boot->memoryStore(),
+            memorySummarizer: $boot->memorySummarizer(),
+            mountManager: $boot->mountManager(),
+            configManager: $boot->configManager(),
+            visibilityRegistry: $boot->visibilityRegistry(),
+        );
+        $promptHandler = new PromptHandler($previewRunner);
+
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -320,6 +345,8 @@ final class ApiCommand extends Command
         TaskHandler $task,
         FileUploadHandler $fileUpload,
         ServerHandler $server,
+        ToolkitHandler $toolkit,
+        PromptHandler $prompt,
     ): void {
         $v1 = '/api/v1';
 
@@ -381,6 +408,11 @@ final class ApiCommand extends Command
         // Server
         $router->get($v1 . '/server/info', [$server, 'info']);
         $router->get($v1 . '/server/stats', [$server, 'stats']);
+        $router->get($v1 . '/server/prompt', [$prompt, 'get']);
+
+        // Toolkit visibility management
+        $router->get($v1 . '/toolkits', [$toolkit, 'list']);
+        $router->post($v1 . '/toolkits/visibility', [$toolkit, 'setVisibility']);
     }
 
     /**
