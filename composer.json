@@ -21,12 +21,13 @@
   "require": {
     "php": "^8.4",
     "ext-pdo_sqlite": "*",
-    "carmelosantana/php-agents": "@dev",
+    "carmelosantana/php-agents": "^0.9 < 1.0 || @dev",
     "coquibot/coqui-space-manager": "^0.1",
     "coquibot/coqui-toolkit-composer": "^0.1",
     "coquibot/coqui-toolkit-packagist": "^0.1",
     "react/http": "^1.11",
-    "symfony/console": "^7.0"
+    "symfony/console": "^7.0",
+    "yethee/tiktoken": "^1.0"
   },
   "require-dev": {
     "pestphp/pest": "^3.0",
