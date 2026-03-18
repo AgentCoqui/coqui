@@ -28,6 +28,7 @@ use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -63,6 +64,7 @@ final class AgentRunner
         private readonly ?ConfigManager $configManager = null,
         private readonly ?ConfigGuard $configGuard = null,
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
+        private readonly ?SpaceToolkit $spaceToolkit = null,
     ) {}
 
     /**
@@ -313,6 +315,7 @@ final class AgentRunner
             configManager: $this->configManager,
             configGuard: $this->configGuard,
             visibilityRegistry: $this->visibilityRegistry,
+            spaceToolkit: $this->spaceToolkit,
         );
     }
 
@@ -349,6 +352,7 @@ final class AgentRunner
             configManager: $this->configManager,
             configGuard: $this->configGuard,
             visibilityRegistry: $this->visibilityRegistry,
+            spaceToolkit: $this->spaceToolkit,
         );
 
         $counter = TokenCounterFactory::forModel($modelString);

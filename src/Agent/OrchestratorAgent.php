@@ -29,6 +29,7 @@ use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
+use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Observer\TerminalObserver;
@@ -105,6 +106,7 @@ final class OrchestratorAgent extends AbstractAgent
         ?ConfigManager $configManager = null,
         ?ConfigGuard $configGuard = null,
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
+        private readonly ?SpaceToolkit $spaceToolkit = null,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
@@ -158,6 +160,11 @@ final class OrchestratorAgent extends AbstractAgent
         // Skill toolkit — discover and use Agent Skills
         if ($this->skillDiscovery !== null) {
             $this->addToolkit(new SkillToolkit($this->skillDiscovery));
+        }
+
+        // Coqui Space toolkit — marketplace integration
+        if ($this->spaceToolkit !== null) {
+            $this->addToolkit($this->spaceToolkit);
         }
 
         // Register any auto-discovered toolkits from installed packages with visibility applied

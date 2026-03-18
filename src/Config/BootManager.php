@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
 
 use CoquiBot\Coqui\Contract\MountDefinition;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
+use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -38,6 +39,7 @@ final class BootManager
     private MemoryStore $memoryStore;
     private MemorySummarizer $memorySummarizer;
     private ConfigManager $configManager;
+    private ?SpaceToolkit $spaceToolkit = null;
 
     public function __construct(
         private readonly string $workDir,
@@ -66,6 +68,7 @@ final class BootManager
         $this->initializeMemory();
         $this->discoverToolkits($io);
         $this->discoverSkills();
+        $this->initializeSpace();
 
         return true;
     }
@@ -166,7 +169,10 @@ final class BootManager
         return $this->memorySummarizer;
     }
 
-
+    public function spaceToolkit(): ?SpaceToolkit
+    {
+        return $this->spaceToolkit;
+    }
 
     private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
     {
@@ -425,6 +431,11 @@ final class BootManager
         if (!empty($newToolkits) && $io !== null && $io->isVerbose()) {
             $io->writeln('Discovered new toolkits: ' . implode(', ', $newToolkits));
         }
+    }
+
+    private function initializeSpace(): void
+    {
+        $this->spaceToolkit = SpaceToolkit::create($this);
     }
 
     private function buildDefaultConfig(): OpenClawConfig
