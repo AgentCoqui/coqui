@@ -33,6 +33,7 @@ final readonly class OrchestratorPrompt
                 'available_roles' => $this->availableRoles,
                 'available_skills' => $this->availableSkills,
                 'storage_map' => $this->storageMap,
+                'current_datetime' => date('Y-m-d H:i:s (T)'),
             ],
         );
     }
