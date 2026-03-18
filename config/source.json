@@ -9,7 +9,8 @@
         "tool": "Tools — individual capabilities the agent can invoke during conversation",
         "toolkit": "Toolkits — groups of related tools with shared guidelines",
         "observer": "Observers — real-time event rendering for terminal output",
-        "storage": "Storage — SQLite-backed session and audit persistence"
+        "storage": "Storage — SQLite-backed session and audit persistence",
+        "coqui-space": "Coqui Space — marketplace integration for discovering, installing, and managing skills and toolkits"
     },
     "files": [
         {
@@ -420,6 +421,83 @@
                 "tools(): ToolInterface[] — returns skill_list, skill_read, skill_create tools",
                 "guidelines(): string — XML-wrapped instructions for the skill system"
             ]
+        },
+        {
+            "path": "src/CoquiSpace/SpaceToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\SpaceToolkit",
+            "layer": "toolkit",
+            "description": "ToolkitInterface entry point for Coqui Space marketplace integration. Factory wires everything from BootManager: SpaceClient, SkillInstaller, ToolkitInstaller. Provides 3-4 tools: space_skills, space_toolkits, space (manage), space_account (auth-gated). Guidelines include workflow patterns for discover/install/manage flows.",
+            "methods": [
+                "create(BootManager $boot): self — factory method wiring all dependencies from boot",
+                "tools(): ToolInterface[] — returns space tools (space_account only when authenticated)",
+                "guidelines(): string — LLM context with workflow patterns and tool descriptions",
+                "client(): SpaceClient — exposes client for slash commands",
+                "skillInstaller(): SkillInstaller — exposes installer for slash commands",
+                "toolkitInstaller(): ToolkitInstaller — exposes installer for slash commands"
+            ]
+        },
+        {
+            "path": "src/CoquiSpace/SpaceClient.php",
+            "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\SpaceClient",
+            "layer": "toolkit",
+            "description": "HTTP client for the Coqui Space REST API. Uses symfony/http-client with closure-based URL/token resolution for hot-reload. Provides search, list, details, versions, reviews, download, install-logging, tags, health, stars, collections, submissions, and /me endpoints.",
+            "methods": []
+        },
+        {
+            "path": "src/CoquiSpace/SpaceRegistry.php",
+            "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\SpaceRegistry",
+            "layer": "config",
+            "description": "Constants and helpers for Coqui Space integration. DEFAULT_BASE_URL, ORIGIN_FILE, STATE_FILE. Helpers: isExcluded(), filterExcluded(), extractOwner(). Lists core packages that cannot be managed via the marketplace.",
+            "methods": []
+        },
+        {
+            "path": "src/CoquiSpace/Installer/ComposerRunner.php",
+            "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\Installer\\ComposerRunner",
+            "layer": "config",
+            "description": "Composer binary resolution and execution. Resolves binary from COMPOSER_BIN env, /opt/homebrew/bin/composer (macOS ARM), /usr/local/bin/composer, /usr/bin/composer, or PATH. Uses proc_open() for stdout/stderr capture with proper HOME/PATH/COMPOSER_HOME env propagation.",
+            "methods": []
+        },
+        {
+            "path": "src/CoquiSpace/Installer/ToolkitInstaller.php",
+            "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\Installer\\ToolkitInstaller",
+            "layer": "toolkit",
+            "description": "Manages toolkit lifecycle via Composer: install, update, disable, enable, remove. Integrated with ToolkitDiscovery to update toolkits.json after every Composer operation. Uses ComposerRunner for binary resolution. State management for disabled toolkits via .space-state.json.",
+            "methods": []
+        },
+        {
+            "path": "src/CoquiSpace/Installer/SkillInstaller.php",
+            "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\Installer\\SkillInstaller",
+            "layer": "toolkit",
+            "description": "Manages local skill lifecycle: download ZIP, extract, install, update, disable, enable, remove. Integrated with SkillDiscovery to invalidate cache after every modification. Tracks origin via .space-origin.json for update detection.",
+            "methods": []
+        },
+        {
+            "path": "src/CoquiSpace/Tool/SpaceSkillsTool.php",
+            "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\Tool\\SpaceSkillsTool",
+            "layer": "tool",
+            "description": "Agent tool for browsing, installing, and managing skills from Coqui Space. Actions: search, list, details, versions, reviews, file, install, update.",
+            "methods": []
+        },
+        {
+            "path": "src/CoquiSpace/Tool/SpaceToolkitsTool.php",
+            "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\Tool\\SpaceToolkitsTool",
+            "layer": "tool",
+            "description": "Agent tool for browsing, installing, and managing toolkits from Coqui Space. Actions: search, list, popular, details, reviews, install, update.",
+            "methods": []
+        },
+        {
+            "path": "src/CoquiSpace/Tool/SpaceManageTool.php",
+            "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\Tool\\SpaceManageTool",
+            "layer": "tool",
+            "description": "Agent tool for managing installed content, social actions, collections, reviews, notifications, tags, and unified search. Actions: installed, disable, enable, remove, star, unstar, submit, tags, search_all, collections, review, notifications, health.",
+            "methods": []
+        },
+        {
+            "path": "src/CoquiSpace/Tool/SpaceAccountTool.php",
+            "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\Tool\\SpaceAccountTool",
+            "layer": "tool",
+            "description": "Agent tool for authenticated user dashboard. Only registered when COQUI_SPACE_API_TOKEN is set. Actions: profile, my_skills, my_toolkits, my_collections, my_submissions, my_installs, my_analytics, my_stars.",
+            "methods": []
         },
         {
             "path": "src/Contract/SkillProperties.php",

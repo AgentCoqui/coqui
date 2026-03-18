@@ -147,6 +147,7 @@ final class RunCommand extends Command
             configManager: $this->boot->configManager(),
             configGuard: new ConfigGuard(),
             visibilityRegistry: $this->boot->visibilityRegistry(),
+            spaceToolkit: $this->boot->spaceToolkit(),
         );
 
         // Handle session
@@ -270,7 +271,7 @@ final class RunCommand extends Command
                     $commands = [
                         '/new', '/history', '/sessions', '/resume', '/model',
                         '/config', '/tasks', '/task', '/task-cancel', '/toolkits',
-                        '/prompt', '/update', '/restart', '/help', '/quit',
+                        '/prompt', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/help', '/quit',
                     ];
 
                     return array_filter($commands, fn(string $c) => str_starts_with($c, $input));
@@ -480,6 +481,10 @@ final class RunCommand extends Command
                 return true;
             })(),
 
+            '/space' => (function () use ($io, $arg) {
+                return $this->handleSpaceCommand($io, $arg);
+            })(),
+
             '/help' => (function () use ($io) {
                 $io->table(
                     ['Command', 'Description'],
@@ -495,6 +500,7 @@ final class RunCommand extends Command
                         ['/task-cancel <id>', 'Cancel a pending or running background task'],
                         ['/toolkits [enable|stub|disable <pkg|tool:name>]', 'Manage toolkit visibility'],
                         ['/prompt', 'Show the full system prompt sent to the LLM'],
+                        ['/space [search|install|remove|installed|skills|toolkits|update]', 'Coqui Space marketplace'],
                         ['/update', 'Check for and apply dependency updates'],
                         ['/restart', 'Restart Coqui (re-reads config, re-discovers toolkits)'],
                         ['/quit', 'Exit Coqui'],
@@ -607,6 +613,238 @@ final class RunCommand extends Command
             $io->error($e->getMessage());
         }
 
+        return true;
+    }
+
+    /**
+     * Handle /space slash command for Coqui Space marketplace.
+     *
+     * Subcommands:
+     *   /space               — show status (API health, auth, installed counts)
+     *   /space search <q>    — unified search for skills and toolkits
+     *   /space install <id>  — install a skill (owner/name) or toolkit (vendor/package)
+     *   /space remove <id>   — remove a skill or toolkit
+     *   /space installed     — list all installed skills and toolkits
+     *   /space update <id>   — update a skill or toolkit
+     */
+    private function handleSpaceCommand(SymfonyStyle $io, string $arg): true
+    {
+        $spaceToolkit = $this->boot->spaceToolkit();
+
+        if ($spaceToolkit === null) {
+            $io->error('Coqui Space is not initialized. Check boot configuration.');
+            return true;
+        }
+
+        $client = $spaceToolkit->client();
+        $skillInstaller = $spaceToolkit->skillInstaller();
+        $toolkitInstaller = $spaceToolkit->toolkitInstaller();
+
+        $parts = explode(' ', trim($arg), 2);
+        $action = strtolower($parts[0]);
+        $target = $parts[1] ?? '';
+
+        if ($action === '' || $action === 'status') {
+            // Status overview
+            try {
+                $health = $client->healthCheck();
+                $status = ($health['status'] ?? 'unknown') === 'ok' ? '<fg=green>connected</>' : '<fg=red>unreachable</>';
+            } catch (\Throwable) {
+                $status = '<fg=red>unreachable</>';
+            }
+
+            $authenticated = $client->isAuthenticated() ? '<fg=green>yes</>' : '<fg=yellow>no (set COQUI_SPACE_API_TOKEN)</>';
+
+            $installedSkills = $skillInstaller->list();
+            $installedToolkits = $toolkitInstaller->list();
+
+            $io->text([
+                '<fg=cyan>Coqui Space</>',
+                "  API: {$status}",
+                "  Authenticated: {$authenticated}",
+                '  Installed skills: ' . count($installedSkills),
+                '  Installed toolkits: ' . count($installedToolkits),
+                '',
+                '<fg=gray>Commands: /space search|install|remove|installed|update</>',
+            ]);
+            return true;
+        }
+
+        if ($action === 'search') {
+            if ($target === '') {
+                $io->error('Usage: /space search <query>');
+                return true;
+            }
+
+            try {
+                $results = $client->searchAll($target);
+                $rows = [];
+
+                // Response shape: {skills: {results: [...]}, toolkits: {results: [...], total: '1'}}
+                foreach ((array) ($results['skills']['results'] ?? []) as $skill) {
+                    if (!is_array($skill)) {
+                        continue;
+                    }
+                    $owner = (string) ($skill['owner'] ?? '');
+                    $name = (string) ($skill['urlName'] ?? $skill['name'] ?? '');
+                    $desc = mb_substr((string) ($skill['description'] ?? $skill['shortDescription'] ?? ''), 0, 60);
+                    $rows[] = ['skill', "{$owner}/{$name}", $desc];
+                }
+
+                foreach ((array) ($results['toolkits']['results'] ?? []) as $toolkit) {
+                    if (!is_array($toolkit)) {
+                        continue;
+                    }
+                    $pkg = (string) ($toolkit['name'] ?? '');
+                    $desc = mb_substr((string) ($toolkit['description'] ?? $toolkit['shortDescription'] ?? ''), 0, 60);
+                    $rows[] = ['toolkit', $pkg, $desc];
+                }
+
+                if (empty($rows)) {
+                    $io->text("No results found for \"{$target}\".");
+                } else {
+                    $io->table(['Type', 'Identifier', 'Description'], $rows);
+                }
+            } catch (\Throwable $e) {
+                $io->error('Search failed: ' . $e->getMessage());
+            }
+            return true;
+        }
+
+        if ($action === 'install') {
+            if ($target === '') {
+                $io->error('Usage: /space install <owner/name>');
+                return true;
+            }
+
+            if (!str_contains($target, '/')) {
+                $io->error('Invalid identifier. Use owner/name for skills or vendor/package for toolkits.');
+                return true;
+            }
+
+            try {
+                // Detect skill vs toolkit: toolkit packages start with known prefixes
+                // or can be determined by checking the API
+                $parts = explode('/', $target, 2);
+                $firstPart = $parts[0];
+                $secondPart = $parts[1];
+
+                // Try as toolkit first if it looks like a Composer package
+                if (str_starts_with($firstPart, 'coquibot') || str_contains($secondPart, 'toolkit')) {
+                    $result = $toolkitInstaller->install($target);
+                    $io->success($result['message']);
+                } else {
+                    // Try as skill
+                    $result = $skillInstaller->install($firstPart, $secondPart);
+                    $io->success($result['message']);
+                }
+            } catch (\Throwable $e) {
+                $io->error('Install failed: ' . $e->getMessage());
+            }
+            return true;
+        }
+
+        if ($action === 'remove') {
+            if ($target === '') {
+                $io->error('Usage: /space remove <identifier>');
+                return true;
+            }
+
+            try {
+                if (str_contains($target, '/')) {
+                    // Toolkit (vendor/package)
+                    $msg = $toolkitInstaller->remove($target);
+                    $io->success($msg);
+                } else {
+                    // Skill (name only)
+                    $msg = $skillInstaller->remove($target, purge: true);
+                    $io->success($msg);
+                }
+            } catch (\Throwable $e) {
+                $io->error('Remove failed: ' . $e->getMessage());
+            }
+            return true;
+        }
+
+        if ($action === 'skills') {
+            $skills = $skillInstaller->list();
+            if (empty($skills)) {
+                $io->text('No skills installed from Coqui Space.');
+                return true;
+            }
+            $rows = [];
+            foreach ($skills as $s) {
+                $rows[] = [$s['name'], $s['version'], $s['status'], $s['source']];
+            }
+            $io->table(['Name', 'Version', 'Status', 'Source'], $rows);
+            return true;
+        }
+
+        if ($action === 'toolkits') {
+            $toolkits = $toolkitInstaller->list();
+            if (empty($toolkits)) {
+                $io->text('No toolkits installed from Coqui Space.');
+                return true;
+            }
+            $rows = [];
+            foreach ($toolkits as $t) {
+                $rows[] = [$t['package'], $t['constraint'], $t['status']];
+            }
+            $io->table(['Package', 'Constraint', 'Status'], $rows);
+            return true;
+        }
+
+        if ($action === 'installed') {
+            $skills = $skillInstaller->list();
+            $toolkits = $toolkitInstaller->list();
+
+            if (empty($skills) && empty($toolkits)) {
+                $io->text('No skills or toolkits installed from Coqui Space.');
+                return true;
+            }
+
+            if (!empty($skills)) {
+                $io->section('Skills');
+                $rows = [];
+                foreach ($skills as $s) {
+                    $rows[] = [$s['name'], $s['version'], $s['status'], $s['source']];
+                }
+                $io->table(['Name', 'Version', 'Status', 'Source'], $rows);
+            }
+
+            if (!empty($toolkits)) {
+                $io->section('Toolkits');
+                $rows = [];
+                foreach ($toolkits as $t) {
+                    $rows[] = [$t['package'], $t['constraint'], $t['status']];
+                }
+                $io->table(['Package', 'Constraint', 'Status'], $rows);
+            }
+
+            return true;
+        }
+
+        if ($action === 'update') {
+            if ($target === '') {
+                $io->error('Usage: /space update <identifier>');
+                return true;
+            }
+
+            try {
+                if (str_contains($target, '/')) {
+                    $result = $toolkitInstaller->update($target);
+                    $io->success($result['message']);
+                } else {
+                    $result = $skillInstaller->update($target);
+                    $io->success($result['message']);
+                }
+            } catch (\Throwable $e) {
+                $io->error('Update failed: ' . $e->getMessage());
+            }
+            return true;
+        }
+
+        $io->error("Unknown /space subcommand: {$action}. Use: search, install, remove, installed, skills, toolkits, update");
         return true;
     }
 
@@ -1027,6 +1265,7 @@ final class RunCommand extends Command
             mountManager: $this->boot->mountManager(),
             configManager: $this->boot->configManager(),
             configGuard: new ConfigGuard(),
+            spaceToolkit: $this->boot->spaceToolkit(),
         );
 
         // Handle session
