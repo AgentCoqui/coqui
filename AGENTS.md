@@ -1,5 +1,72 @@
 # Agents.md — Coqui Project Guidelines
 
+## php-agents Foundation
+
+Coqui is built on [`carmelosantana/php-agents`](https://github.com/carmelosantana/php-agents). `OrchestratorAgent` and `ChildAgent` both extend `AbstractAgent`. Understanding these primitives is required before working on any agent-layer code.
+
+### AbstractAgent Constructor Parameters
+
+| Parameter | Type | Default | Purpose |
+| ------------------- | --------------------------------- | ------- | ----------------------------------------------- |
+| `provider` | `ProviderInterface` | — | LLM for reasoning (required) |
+| `maxIterations` | `int` | `50` | Safety cap on tool-use loops |
+| `executionPolicy` | `?ToolExecutionPolicyInterface` | `null` | Pre-execution gating (approval/auto-approve) |
+| `cancellationToken` | `?CancellationTokenInterface` | `null` | Cooperative cancellation (SIGINT, ESC) |
+| `pendingInputProvider` | `?PendingInputProviderInterface` | `null` | Inject messages mid-loop (API mode) |
+| `contextWindow` | `?ContextWindowInterface` | `null` | Token budget tracking + auto-pruning |
+
+### Run Loop Output
+
+`AbstractAgent::run()` returns an `Output` value object:
+
+| Field | Type | Description |
+| -------------- | --------------- | ------------------------------------------------ |
+| `content` | `string` | Final text response |
+| `usage` | `Usage` | Cumulative token usage across all iterations |
+| `finishReason` | `FinishReason` | Why the loop stopped |
+| `toolCalls` | `ToolCall[]` | Tool calls in the final response (usually empty) |
+| `history` | `MessageInterface[]` | Full conversation |
+
+`FinishReason` values: `Stop` (natural / DoneTool), `ToolCalls` (internal), `MaxTokens`, `Error`, `Cancelled`.
+
+**DoneTool** — auto-registered by `AbstractAgent`. The LLM calls `done(response: "...")` to exit the loop. Never register it manually.
+
+### Observer Events
+
+Agents implement `SplSubject`. Coqui attaches `TerminalObserver` (REPL) and `SseObserver` (API) to render live output. Events emitted:
+
+| Event | Data | When |
+| -------------------- | -------------- | ------------------------------- |
+| `agent.start` | `MessageInterface` | Before first iteration |
+| `agent.iteration` | `int` | Top of each loop |
+| `agent.tool_call` | `ToolCall` | Before executing a tool |
+| `agent.tool_result` | `ToolResult` | After successful tool execution |
+| `agent.tool_error` | `string` | When a tool throws |
+| `agent.warning` | `string` | Non-fatal warnings (e.g. provider fallback) |
+| `agent.done` | `array` | Agent finished |
+| `agent.error` | `string` | Unrecoverable error |
+
+### Key Interfaces (Coqui-relevant)
+
+| Interface | Coqui Implementation |
+| --------------------------------- | ------------------------------------------------------------------ |
+| `ProviderInterface` | Resolved by `ProviderFactory` from `openclaw.json` |
+| `ToolInterface` | All tools in `src/Tool/`; standalone tools in `OrchestratorAgent` |
+| `ToolkitInterface` | `src/Toolkit/`, plus auto-discovered workspace packages |
+| `ToolExecutionPolicyInterface` | `InteractiveApprovalPolicy`, `AutoApprovalPolicy` |
+| `CancellationTokenInterface` | `CancellationToken` — driven by SIGINT handler and `EscCancellationObserver` |
+| `ContextWindowInterface` | `ContextWindow` — optionally enabled; prunes conversation on token pressure |
+
+### Deprecated in php-agents — Do Not Use in Coqui
+
+| Item | Replacement |
+| ----------------------------------- | ------------------------------------- |
+| `FileMemory` | `src/Memory/MemoryStore.php` (SQLite + FTS5) |
+| `MemoryToolkit` (php-agents) | `src/Toolkit/MemoryToolkit.php` (Coqui's own) |
+| `FileAgent`, `WebAgent`, `CodeAgent` | `AbstractAgent` + explicit toolkits |
+
+
+
 ## Credential System Architecture
 
 Coqui provides first-class credential management for toolkit packages. The system ensures the LLM never wastes tokens figuring out credential names or storage — everything is declarative and enforced automatically.
