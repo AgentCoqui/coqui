@@ -13,6 +13,7 @@
 .PHONY: help \
         start stop status repl api api-stop restart \
         dev \
+        test-launcher \
         docker-build docker-start docker-stop docker-status \
         docker-repl docker-api docker-api-stop docker-api-logs \
         docker-shell \
@@ -75,6 +76,9 @@ wizard: ## Run the setup wizard (no REPL, no session)
 
 dev: ## Start REPL + API in dev mode
 	@./bin/coqui-launcher $(ARGS)
+
+test-launcher: ## Run bash unit tests for the launcher script
+	@bash tests/bash/launcher-sigint-test.sh
 
 # =============================================================================
 # Docker
