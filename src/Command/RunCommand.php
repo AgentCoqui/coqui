@@ -294,6 +294,9 @@ final class RunCommand extends Command
         // Captured by the shutdown function to restore the terminal if the process crashes.
         $shutdownStty = null;
         register_shutdown_function(static function () use (&$shutdownStty): void {
+            // PHPStan cannot model that $shutdownStty (captured by reference) is
+            // mutated later; it treats it as always-null inside the closure.
+            // @phpstan-ignore booleanAnd.alwaysFalse, notIdentical.alwaysFalse, notIdentical.alwaysTrue
             if ($shutdownStty !== null && $shutdownStty !== '') {
                 shell_exec('stty ' . escapeshellarg($shutdownStty) . ' 2>/dev/null');
             }

@@ -70,6 +70,10 @@ final class EscCancellationObserver implements SplObserver
             //
             // Memory streams (php://memory, used in tests) are seekable and cannot be
             // passed to stream_select() — skip the select and fread directly instead.
+            // stream_get_meta_data() returns false on error (suppressed by @),
+            // but PHPStan's stub types it as always-array — the @var annotation
+            // restores the false branch so the is_array() guard below is meaningful.
+            /** @var false|array<string, mixed> $meta */
             $meta = @stream_get_meta_data($this->stdin);
             $isSelectable = is_array($meta) && empty($meta['seekable']);
 
