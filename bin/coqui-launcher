@@ -265,7 +265,7 @@ cleanup_session() {
         return 0
     fi
     cleanup_done=true
-    for svc in "${session_services[@]}"; do
+    for svc in "${session_services[@]+"${session_services[@]}"}"; do
         stop_service "$svc" true
     done
 }
@@ -306,7 +306,7 @@ run_api_loop() {
         case $exit_code in
             0|130)
                 return 0 ;;
-            $RESTART_EXIT_CODE)
+            "$RESTART_EXIT_CODE")
                 log "API: config changed — restarting..."
                 sleep 0.3 ;;
             *)
@@ -371,7 +371,7 @@ run_repl() {
             0|130)
                 # 0 = clean /quit, 130 = Ctrl+C (SIGINT)
                 exit 0 ;;
-            $RESTART_EXIT_CODE)
+            "$RESTART_EXIT_CODE")
                 crash_count=0
                 echo ""
                 echo "Restarting Coqui..."
