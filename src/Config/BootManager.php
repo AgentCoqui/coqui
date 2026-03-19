@@ -304,6 +304,9 @@ final class BootManager
         $workspaceResolver = new WorkspaceResolver($this->config, $this->workDir, $this->workspaceOverride);
         $this->workspacePath = $workspaceResolver->resolve();
 
+        // Publish workspace path so toolkit fromEnv() factories resolve correctly
+        putenv("COQUI_WORKSPACE_PATH={$this->workspacePath}");
+
         $workspaceComposer = new WorkspaceComposerManager($this->workspacePath);
         $workspaceComposer->initialize();
         $workspaceComposer->loadAutoloader();
