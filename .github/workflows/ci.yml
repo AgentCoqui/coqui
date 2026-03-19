@@ -78,3 +78,23 @@ jobs:
 
       - name: Run PHPStan
         run: composer analyse
+
+  bash-lint:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        run: shellcheck bin/coqui-launcher tests/bash/launcher-sigint-test.sh scripts/build.sh scripts/ci-test.sh scripts/sync-workspace-toolkits.sh
+
+  bash-tests:
+    name: Bash Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run bash signal handling tests
+        run: bash tests/bash/launcher-sigint-test.sh

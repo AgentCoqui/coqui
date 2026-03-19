@@ -95,7 +95,6 @@ fi
 # ---------------------------------------------------------------------------
 # Test 2: cleanup_session with populated session_services iterates correctly
 # ---------------------------------------------------------------------------
-CALLED_SERVICES=""
 if bash -euo pipefail -c '
     cleanup_done=false
     session_services=("api" "worker")
