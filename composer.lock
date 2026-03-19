@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "ceb5fa16f69d6507120c3177087bebb9",
+    "content-hash": "483505ed32f0dd43b7d41aa965d170c2",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "v0.9.1",
+            "version": "v0.9.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "9abb9508fd52658e4e9595b26b9213d5a75445e5"
+                "reference": "eccd947ea207b203927e5c3090c3865acfb59f27"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/9abb9508fd52658e4e9595b26b9213d5a75445e5",
-                "reference": "9abb9508fd52658e4e9595b26b9213d5a75445e5",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/eccd947ea207b203927e5c3090c3865acfb59f27",
+                "reference": "eccd947ea207b203927e5c3090c3865acfb59f27",
                 "shasum": ""
             },
             "require": {
@@ -61,9 +61,9 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.9.1"
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.9.2"
             },
-            "time": "2026-03-17T12:45:35+00:00"
+            "time": "2026-03-19T01:20:48+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-composer",
@@ -3110,16 +3110,16 @@
         },
         {
             "name": "phpdocumentor/reflection-docblock",
-            "version": "6.0.2",
+            "version": "6.0.3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/phpDocumentor/ReflectionDocBlock.git",
-                "reference": "897b5986ece6b4f9d8413fea345c7d49c757d6bf"
+                "reference": "7bae67520aa9f5ecc506d646810bd40d9da54582"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpDocumentor/ReflectionDocBlock/zipball/897b5986ece6b4f9d8413fea345c7d49c757d6bf",
-                "reference": "897b5986ece6b4f9d8413fea345c7d49c757d6bf",
+                "url": "https://api.github.com/repos/phpDocumentor/ReflectionDocBlock/zipball/7bae67520aa9f5ecc506d646810bd40d9da54582",
+                "reference": "7bae67520aa9f5ecc506d646810bd40d9da54582",
                 "shasum": ""
             },
             "require": {
@@ -3169,9 +3169,9 @@
             "description": "With this component, a library can provide support for annotations via DocBlocks or otherwise retrieve information that is embedded in a DocBlock.",
             "support": {
                 "issues": "https://github.com/phpDocumentor/ReflectionDocBlock/issues",
-                "source": "https://github.com/phpDocumentor/ReflectionDocBlock/tree/6.0.2"
+                "source": "https://github.com/phpDocumentor/ReflectionDocBlock/tree/6.0.3"
             },
-            "time": "2026-03-01T18:43:49+00:00"
+            "time": "2026-03-18T20:49:53+00:00"
         },
         {
             "name": "phpdocumentor/type-resolver",
