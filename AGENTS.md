@@ -25,20 +25,7 @@ Coqui provides first-class credential management for toolkit packages. The syste
 
 ### For Toolkit Authors
 
-Add credential declarations to your `composer.json`:
-
-```json
-{
-    "extra": {
-        "php-agents": {
-            "toolkits": ["Acme\\MyToolkit\\MyToolkit"],
-            "credentials": {
-                "MY_API_KEY": "API key for MyService — get one at https://myservice.com/keys"
-            }
-        }
-    }
-}
-```
+See README for the basic `composer.json` credentials declaration. Below covers the optional credentials extension.
 
 #### Optional Credentials
 
@@ -294,37 +281,7 @@ Coqui provides image analysis via a dedicated `vision` role. The system uses a s
 5. **Provider sends** the multimodal message to the vision model and returns the analysis.
 6. **Error surfacing** — on failure, `VisionAnalyzer` returns a descriptive error string (prefixed with `Error: `) instead of silently returning null. The agent sees the actual failure reason (e.g., "401 Unauthorized", "file not found") and can inform the user.
 
-### Configuration
-
-The vision role model is configured in `openclaw.json`:
-
-```json
-{
-    "agents": {
-        "defaults": {
-            "roles": {
-                "vision": "openai/gpt-5"
-            }
-        }
-    }
-}
-```
-
-**Resolution priority:** `openclaw.json` roles mapping → primary model fallback. The vision role file (`config/roles/vision.md`) defines instructions and access level but does **not** hardcode a model — this is intentional so `openclaw.json` controls the operational model choice.
-
-### Provider Compatibility
-
-All image sources work with all providers because `VisionAnalyzer` normalizes everything to base64 before the provider sees it. Additionally, `GeminiProvider` has its own URL download fallback for any base64 content that was missed.
-
-| Provider          | Base64 | URL (via pre-download) |
-| ----------------- | :----: | :--------------------: |
-| OpenAI Compatible |   ✅    |           ✅            |
-| OpenAI Responses  |   ✅    |           ✅            |
-| Anthropic         |   ✅    |           ✅            |
-| Gemini            |   ✅    |           ✅            |
-| Ollama            |   ✅    |           ✅            |
-| xAI (Grok)        |   ✅    |           ✅            |
-| Mistral           |   ✅    |           ✅            |
+> Configure via `roles.vision` in `openclaw.json`. The vision role file (`config/roles/vision.md`) defines instructions and access level but does **not** hardcode a model. Resolution priority: roles mapping → primary model fallback. See README Vision section for provider compatibility and configuration examples.
 
 ### Key Source Files
 
@@ -409,27 +366,7 @@ Coqui provides automatic model failover via the `FallbackProvider` decorator pat
 4. **`ProviderErrorClassifier`** determines whether an error is retryable (429, 5xx, 408, network/connection) or fatal (401, 403, 400, 404). Fatal errors are never retried.
 5. **Fallback events** are surfaced to the agent's observer system via the `setOnNotify()` closure. The agent emits `agent.warning` events when switching providers, so the user sees which model is being tried.
 
-### Configuration
-
-Add fallback models to `openclaw.json`:
-
-```json
-{
-    "agents": {
-        "defaults": {
-            "model": {
-                "primary": "anthropic/claude-sonnet-4-20250514",
-                "fallbacks": [
-                    "openai/gpt-4o",
-                    "ollama/llama3"
-                ]
-            }
-        }
-    }
-}
-```
-
-Fallbacks are tried in order. If all fallbacks also fail, the last error is propagated to the agent.
+> Configure via `agents.defaults.model.fallbacks` in `openclaw.json` — see README for the config format. Fallbacks are tried in order; if all fail, the last error propagates to the agent.
 
 ### Key Source Files
 
@@ -732,13 +669,7 @@ test('config loads from valid JSON', function () {
 
 ### Safety Architecture
 
-Coqui enforces a layered safety model. All layers are always active unless explicitly relaxed by the user via CLI flags — and even then, the catastrophic blacklist cannot be bypassed.
-
-1. **Workspace sandboxing** — file writes via `FilesystemToolkit` are sandboxed to the workspace directory. The Composer toolkit (extracted to `coqui-toolkit-composer`) targets the workspace only — it cannot modify the project's `composer.json`. `PhpExecuteTool` runs with `cwd` set to the workspace and `open_basedir` restrictions that prevent writes outside workspace boundaries. The project root is read-only, accessible through `ProjectSourceToolkit` and shell commands.
-2. **ScriptSanitizer** — static analysis of generated PHP code. Blocks `eval`, `exec`, `system`, `passthru`, and other dangerous functions. Skipped in `--unsafe` mode.
-3. **CatastrophicBlacklist** — hardcoded regex patterns that **always** block destructive commands (e.g. `rm -rf /`, `shutdown`, `mkfs`, fork bombs, credential exfiltration). Cannot be disabled. Additional patterns can be loaded from `agents.defaults.blacklist` in `openclaw.json`.
-4. **InteractiveApprovalPolicy** — gated tools require user confirmation. Replaced by `AutoApprovalPolicy` when `--auto-approve` is passed.
-5. **Audit logging** — every tool execution decision (`approved`, `denied`, `blocked`) is logged to the `audit_log` table in the session database with tool name, arguments, action, and reason.
+> See README Safety section for the layered model overview. The 5 layers are: workspace sandboxing, ScriptSanitizer, CatastrophicBlacklist, InteractiveApprovalPolicy, and audit logging.
 
 When adding new tools or modifying safety checks:
 
@@ -749,13 +680,7 @@ When adding new tools or modifying safety checks:
 
 ### Restart Architecture
 
-Coqui supports graceful restarts and automatic crash recovery via a three-layer system:
-
-1. **`bin/coqui-launcher`** — Bash wrapper script that runs `bin/coqui` in a loop. On exit code `0` (clean quit), the launcher stops. On exit code `10` (restart requested), it immediately relaunches. On any other exit code (crash), it relaunches up to 3 consecutive times before giving up.
-
-2. **`/restart` REPL command** — User types `/restart` in the REPL, which causes `RunCommand` to return `RESTART_EXIT_CODE` (10). The launcher detects this and relaunches the process.
-
-3. **`restart_coqui` tool** — The LLM agent can trigger a restart via a tool call. The tool sets a `restartRequested` flag on `RunCommand` via a closure callback. After the current agent turn completes, the REPL loop checks the flag and exits with code 10. This tool is gated — it requires user confirmation unless `--auto-approve` is enabled.
+> See README for the launcher exit code behavior (codes 0, 10, crash recovery). Implementation: `/restart` causes `RunCommand` to return `RESTART_EXIT_CODE` (10). The `restart_coqui` tool sets a `restartRequested` flag via a closure callback; the REPL loop checks it after `runAgent()` completes.
 
 When adding restart triggers:
 
@@ -765,58 +690,53 @@ When adding restart triggers:
 
 ### Signal Handling
 
-Coqui implements a layered SIGINT (Ctrl+C) strategy that differs between two contexts: **at the readline prompt** (waiting for user input) and **during agent execution** (streaming an LLM response or running tools).
+**Ctrl+C sends SIGINT to the entire foreground process group** — both the bash launcher and the PHP REPL receive it simultaneously.
 
 #### At the readline prompt
 
-The REPL uses readline's callback API (`readline_callback_handler_install` + `stream_select`) so PHP retains control between keystrokes. A custom SIGINT handler is installed *after* readline's own handler so Coqui's takes precedence.
+PHP uses readline's callback API + `stream_select` (not blocking `readline()`) so signals are delivered within ~200ms without requiring Enter.
 
 | Press | Behavior |
 | ----- | -------- |
-| Ctrl+C (1st) | Sets `$ctrlCPressed = true`, breaks the inner `stream_select` loop, shows `(Press Ctrl+C again to quit.)`, and continues the REPL loop. |
-| Ctrl+C (2nd, consecutive) | `$quitAttempts` reaches 2, REPL returns exit code `0`. |
-
-The `$quitAttempts` counter resets to `0` on every successful line of input, so pressing Ctrl+C once and then typing a prompt restores the single-press hint behavior.
+| 1st Ctrl+C | Sets `$ctrlCPressed`, breaks `stream_select` loop, prints `(Press Ctrl+C again to quit.)` |
+| 2nd Ctrl+C | Returns exit code `0`. Counter resets on any successful input. |
 
 #### During agent execution
 
-A two-stage approach is used to balance responsiveness with reliability:
+A two-stage SIGINT handler replaces the idle handler for each agent turn:
 
 | Press | Behavior |
 | ----- | -------- |
-| Ctrl+C (1st) | Calls `$cancellationToken->cancel()`. The agent finishes its current LLM response chunk, then checks the token between iterations and stops cooperatively. Shows a yellow banner. |
-| Ctrl+C (2nd) | Restores the default SIGINT disposition (`SIG_DFL`) and raises SIGINT on the current process via `posix_kill(posix_getpid(), SIGINT)`. This kills the process immediately — the only reliable way to interrupt a blocking `curl_exec()`. The launcher treats exit code `130` (128 + SIGINT) as a clean stop. |
+| 1st Ctrl+C | `$cancellationToken->cancel()` + yellow banner. Agent finishes current iteration then stops cooperatively. Blocking `curl_exec()` is **not** interrupted. |
+| 2nd Ctrl+C | `pcntl_signal(SIGINT, SIG_DFL)` + `posix_kill(posix_getpid(), SIGINT)` — kills immediately, exit code `130`. |
 
-The ESC key additionally triggers cooperative cancellation via `EscCancellationObserver`, which polls STDIN in raw mode for a `\x1b` byte during streaming.
+ESC triggers cooperative cancellation via `EscCancellationObserver` (polls STDIN for `\x1b` during streaming).
 
-#### Signal flow through the launcher
+#### Exit codes & launcher behavior
 
-When the PHP process exits, the `trap cleanup_session INT TERM EXIT` in `bin/coqui-launcher` fires. `cleanup_session` iterates over background services (e.g. the API) and stops them gracefully.
+The launcher registers `trap cleanup_session INT TERM EXIT` to stop background services on exit.
 
-**Exit code mapping in `run_repl`:**
+| Exit code | Source | Launcher action |
+| --------- | ------ | --------------- |
+| `0` | `/quit` or 2× Ctrl+C at prompt | Stop — `cleanup_session` shuts down background services |
+| `130` | 2× Ctrl+C during agent | Same as `0` |
+| `10` | `/restart` or config change | Restart, reset crash counter |
+| other | Crash | Restart, increment counter (max `MAX_CRASHES`=3) |
 
-| Exit code | Meaning | Launcher action |
-|-----------|---------|-----------------|
-| `0` | Clean `/quit` or double Ctrl+C at prompt | Stop launcher |
-| `10` | Restart requested | Relaunch immediately, reset crash counter |
-| `130` | SIGINT killed process (Ctrl+C during agent) | Stop launcher (treated as clean) |
-| other | Crash | Relaunch, increment crash counter (max 3) |
+`run_api_loop()` follows the same logic for the background API process.
 
-#### Bash 3.2 safe array expansion
+#### Bash 3.2 / `set -u` compatibility
 
-`bin/coqui-launcher` runs with `set -euo pipefail`. On macOS, the system default shell is **bash 3.2**, which throws `unbound variable` when expanding an empty array with `"${array[@]}"` under `set -u`. All array expansions in the launcher **must** use the conditional form:
+The launcher runs under `set -euo pipefail`. macOS ships bash 3.2, which throws `unbound variable` on empty array expansion under `set -u`. Use the conditional idiom for every array that may be empty:
 
 ```bash
 # WRONG — crashes on bash 3.2 when array is empty
 for svc in "${session_services[@]}"; do
-
-# CORRECT — safe on all bash versions (including 3.2)
+# CORRECT — safe on all bash versions
 for svc in "${session_services[@]+"${session_services[@]}"}"; do
 ```
 
-The `${array[@]+"${array[@]}"}` idiom means: "if `array[@]` is set (even empty), expand it; otherwise produce nothing." This pattern is used for every array expansion in the launcher (`coqui_args`, `api_args`, `session_services`).
-
-A regression test suite lives at `tests/bash/launcher-sigint-test.sh` and can be run with `make test-launcher`.
+Regression tests: `tests/bash/launcher-sigint-test.sh` / `make test-launcher`.
 
 ### Update Management
 
@@ -866,44 +786,7 @@ We encourage contributions of new agents, tools, and toolkits. Coqui's power gro
 
 ### Creating a Toolkit Package
 
-1. Create a Composer package that implements `ToolkitInterface` from `carmelosantana/php-agents`.
-2. Add `extra.php-agents.toolkits` to your `composer.json` for auto-discovery.
-3. Users install your package with `composer require` and Coqui picks it up automatically.
-
-```php
-<?php
-
-declare(strict_types=1);
-
-namespace Acme\MyToolkit;
-
-use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
-use CarmeloSantana\PHPAgents\Tool\Tool;
-use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
-
-final class MyToolkit implements ToolkitInterface
-{
-    public function tools(): array
-    {
-        return [
-            new Tool(
-                name: 'my_tool',
-                description: 'Does something useful',
-                parameters: [
-                    new StringParameter('input', 'The input to process', required: true),
-                ],
-                callback: fn(array $args): ToolResult => ToolResult::success('Result: ' . $args['input']),
-            ),
-        ];
-    }
-
-    public function guidelines(): string
-    {
-        return 'Use my_tool when the user asks to process input.';
-    }
-}
-```
+See README "Extending Coqui" for a full walkthrough with `ToolkitInterface`, `composer.json` registration, and credential declarations. Key contracts: `ToolkitInterface::tools()` returns `Tool[]`, `guidelines()` returns a prompt string. Use `StringParameter`, `NumberParameter`, `BooleanParameter`, `EnumParameter` from php-agents for typed parameters.
 
 ### Adding a New Tool to Coqui
 
@@ -1097,90 +980,6 @@ Copy `.env.example` to `.env` before running. Key variables:
 | `COQUI_API_PORT`          | `3300`                              | API server port                                                              |
 | `COQUI_AUTO_APPROVE`      | `false`                             | Env-var equivalent of `--auto-approve`                                       |
 | `COQUI_UNSAFE`            | `false`                             | Env-var equivalent of `--unsafe`                                             |
-
-## Signal Handling & Launcher Restart Architecture
-
-This section describes how SIGINT (Ctrl+C) flows through the system and how the launcher interprets PHP exit codes to decide whether to stop, restart, or crash.
-
-### Signal Flow Overview
-
-When the user presses **Ctrl+C** at the terminal, the OS sends SIGINT to the **entire foreground process group** — both the bash launcher and the PHP REPL process receive the signal simultaneously. The behaviour differs depending on what the REPL is doing at that moment.
-
-### At the readline prompt (idle REPL)
-
-PHP uses readline's callback API + `stream_select` (not the blocking `readline()`) so that signals are delivered within ~200ms without requiring the user to press Enter.
-
-After `readline_callback_handler_install`, PHP installs its own SIGINT handler that sets a boolean flag (`$ctrlCPressed = true`) and breaks the inner `stream_select` loop. The **two-press-to-quit** pattern is then implemented in user space:
-
-| Press | `$quitAttempts` | Behavior                                                         |
-| ----- | --------------- | ----------------------------------------------------------------- |
-| 1st   | 1               | Prints `(Press Ctrl+C again to quit.)`, continues the REPL loop   |
-| 2nd   | ≥ 2             | Returns exit code **0** — clean exit                              |
-
-The `$quitAttempts` counter resets to 0 on any successful non-empty input, so the two presses must be consecutive.
-
-### During agent execution (LLM call in progress)
-
-PHP replaces the idle SIGINT handler with a two-stage handler for the duration of each agent turn:
-
-| Press | `$sigintCount` | Behavior                              |
-| ----- | -------------- | -------------------------------------- |
-| 1st   | 1              | Cooperative cancel via token           |
-| 2nd   | 2              | `SIG_DFL` + self-kill -> exit code 130 |
-
-- **1st press**: sets `ProcessCancellationToken` and prints a yellow warning. The agent checks the token between iterations and tool calls. Blocking `curl_exec()` calls are **not** interrupted.
-- **2nd press**: calls `pcntl_signal(SIGINT, SIG_DFL)` then `posix_kill(posix_getpid(), SIGINT)` — kills the process immediately with exit code 130.
-
-After each agent turn completes (or is cancelled), the REPL restores its idle readline SIGINT handler.
-
-### Exit codes and launcher behavior
-
-`run_repl()` in `bin/coqui-launcher` is the REPL loop supervisor. It treats PHP's exit code as follows:
-
-| Exit code | Source | Launcher action |
-|-----------|--------|-----------------|
-| `0`       | `/quit` command or 2× Ctrl+C at prompt | `exit 0` — clean stop, background services are shut down via `cleanup_session` |
-| `130`     | 2× Ctrl+C during agent execution (SIGINT default) | Same as 0 — clean stop |
-| `10` (`RESTART_EXIT_CODE`) | `/restart` command or config change | Restart the REPL loop, reset crash counter |
-| any other | Unexpected crash | Increment crash counter; restart after 2 s. After `MAX_CRASHES` consecutive crashes, exit with that code. |
-
-`run_api_loop()` follows the same 0/130/10/crash logic for the background API process.
-
-### Launcher cleanup on exit (`cleanup_session`)
-
-In the default mode (REPL + API), the launcher registers:
-
-```bash
-trap cleanup_session INT TERM EXIT
-```
-
-`cleanup_session` iterates over `session_services` — an array that tracks background services started in the current session (typically just `"api"`) — and calls `stop_service` on each.
-
-#### bash 3.2 / `set -u` compatibility
-
-The launcher runs under `set -euo pipefail`. On macOS (bash 3.2, the system default), expanding an empty array with `"${arr[@]}"` when `set -u` is active raises `unbound variable`. All arrays that may be empty when expanded must use the **conditional expansion idiom**:
-
-```bash
-# WRONG — fails on bash 3.2 with set -u when array is empty
-for svc in "${session_services[@]}"; do ...
-
-# CORRECT — the +word form only expands when the variable is set and non-empty
-for svc in "${session_services[@]+"${session_services[@]}"}"; do ...
-```
-
-This pattern is required everywhere in the launcher where an array might be empty at expansion time. The existing expansions of `coqui_args` and `api_args` already use this idiom; `session_services` was the missing case (fixed in the `cleanup_session` function).
-
-### Bash test coverage
-
-`tests/bash/launcher-sigint-test.sh` exercises the `cleanup_session` array expansion logic in isolation. Run it with:
-
-```bash
-bash tests/bash/launcher-sigint-test.sh
-# or
-make test-launcher
-```
-
----
 
 ## Documentation Policy
 
