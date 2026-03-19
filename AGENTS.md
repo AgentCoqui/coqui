@@ -1,5 +1,72 @@
 # Agents.md — Coqui Project Guidelines
 
+## php-agents Foundation
+
+Coqui is built on [`carmelosantana/php-agents`](https://github.com/carmelosantana/php-agents). `OrchestratorAgent` and `ChildAgent` both extend `AbstractAgent`. Understanding these primitives is required before working on any agent-layer code.
+
+### AbstractAgent Constructor Parameters
+
+| Parameter | Type | Default | Purpose |
+| ------------------- | --------------------------------- | ------- | ----------------------------------------------- |
+| `provider` | `ProviderInterface` | — | LLM for reasoning (required) |
+| `maxIterations` | `int` | `50` | Safety cap on tool-use loops |
+| `executionPolicy` | `?ToolExecutionPolicyInterface` | `null` | Pre-execution gating (approval/auto-approve) |
+| `cancellationToken` | `?CancellationTokenInterface` | `null` | Cooperative cancellation (SIGINT, ESC) |
+| `pendingInputProvider` | `?PendingInputProviderInterface` | `null` | Inject messages mid-loop (API mode) |
+| `contextWindow` | `?ContextWindowInterface` | `null` | Token budget tracking + auto-pruning |
+
+### Run Loop Output
+
+`AbstractAgent::run()` returns an `Output` value object:
+
+| Field | Type | Description |
+| -------------- | --------------- | ------------------------------------------------ |
+| `content` | `string` | Final text response |
+| `usage` | `Usage` | Cumulative token usage across all iterations |
+| `finishReason` | `FinishReason` | Why the loop stopped |
+| `toolCalls` | `ToolCall[]` | Tool calls in the final response (usually empty) |
+| `history` | `MessageInterface[]` | Full conversation |
+
+`FinishReason` values: `Stop` (natural / DoneTool), `ToolCalls` (internal), `MaxTokens`, `Error`, `Cancelled`.
+
+**DoneTool** — auto-registered by `AbstractAgent`. The LLM calls `done(response: "...")` to exit the loop. Never register it manually.
+
+### Observer Events
+
+Agents implement `SplSubject`. Coqui attaches `TerminalObserver` (REPL) and `SseObserver` (API) to render live output. Events emitted:
+
+| Event | Data | When |
+| -------------------- | -------------- | ------------------------------- |
+| `agent.start` | `MessageInterface` | Before first iteration |
+| `agent.iteration` | `int` | Top of each loop |
+| `agent.tool_call` | `ToolCall` | Before executing a tool |
+| `agent.tool_result` | `ToolResult` | After successful tool execution |
+| `agent.tool_error` | `string` | When a tool throws |
+| `agent.warning` | `string` | Non-fatal warnings (e.g. provider fallback) |
+| `agent.done` | `array` | Agent finished |
+| `agent.error` | `string` | Unrecoverable error |
+
+### Key Interfaces (Coqui-relevant)
+
+| Interface | Coqui Implementation |
+| --------------------------------- | ------------------------------------------------------------------ |
+| `ProviderInterface` | Resolved by `ProviderFactory` from `openclaw.json` |
+| `ToolInterface` | All tools in `src/Tool/`; standalone tools in `OrchestratorAgent` |
+| `ToolkitInterface` | `src/Toolkit/`, plus auto-discovered workspace packages |
+| `ToolExecutionPolicyInterface` | `InteractiveApprovalPolicy`, `AutoApprovalPolicy` |
+| `CancellationTokenInterface` | `CancellationToken` — driven by SIGINT handler and `EscCancellationObserver` |
+| `ContextWindowInterface` | `ContextWindow` — optionally enabled; prunes conversation on token pressure |
+
+### Deprecated in php-agents — Do Not Use in Coqui
+
+| Item | Replacement |
+| ----------------------------------- | ------------------------------------- |
+| `FileMemory` | `src/Memory/MemoryStore.php` (SQLite + FTS5) |
+| `MemoryToolkit` (php-agents) | `src/Toolkit/MemoryToolkit.php` (Coqui's own) |
+| `FileAgent`, `WebAgent`, `CodeAgent` | `AbstractAgent` + explicit toolkits |
+
+
+
 ## Credential System Architecture
 
 Coqui provides first-class credential management for toolkit packages. The system ensures the LLM never wastes tokens figuring out credential names or storage — everything is declarative and enforced automatically.
@@ -25,20 +92,7 @@ Coqui provides first-class credential management for toolkit packages. The syste
 
 ### For Toolkit Authors
 
-Add credential declarations to your `composer.json`:
-
-```json
-{
-    "extra": {
-        "php-agents": {
-            "toolkits": ["Acme\\MyToolkit\\MyToolkit"],
-            "credentials": {
-                "MY_API_KEY": "API key for MyService — get one at https://myservice.com/keys"
-            }
-        }
-    }
-}
-```
+See README for the basic `composer.json` credentials declaration. Below covers the optional credentials extension.
 
 #### Optional Credentials
 
@@ -144,7 +198,7 @@ Toolkit visibility controls how much of each tool's schema is exposed to the LLM
 
 ### Three-Tier Model
 
-| Tier     | Value        | Behaviour                                                    |
+| Tier     | Value        | Behavior                                                    |
 | -------- | ------------ | ------------------------------------------------------------ |
 | Enabled  | `"enabled"`  | Full schema in LLM context (default)                         |
 | Stub     | `"stub"`     | Minimal schema; LLM discovers full details via `tool_search` |
@@ -294,37 +348,7 @@ Coqui provides image analysis via a dedicated `vision` role. The system uses a s
 5. **Provider sends** the multimodal message to the vision model and returns the analysis.
 6. **Error surfacing** — on failure, `VisionAnalyzer` returns a descriptive error string (prefixed with `Error: `) instead of silently returning null. The agent sees the actual failure reason (e.g., "401 Unauthorized", "file not found") and can inform the user.
 
-### Configuration
-
-The vision role model is configured in `openclaw.json`:
-
-```json
-{
-    "agents": {
-        "defaults": {
-            "roles": {
-                "vision": "openai/gpt-5"
-            }
-        }
-    }
-}
-```
-
-**Resolution priority:** `openclaw.json` roles mapping → primary model fallback. The vision role file (`config/roles/vision.md`) defines instructions and access level but does **not** hardcode a model — this is intentional so `openclaw.json` controls the operational model choice.
-
-### Provider Compatibility
-
-All image sources work with all providers because `VisionAnalyzer` normalizes everything to base64 before the provider sees it. Additionally, `GeminiProvider` has its own URL download fallback for any base64 content that was missed.
-
-| Provider          | Base64 | URL (via pre-download) |
-| ----------------- | :----: | :--------------------: |
-| OpenAI Compatible |   ✅    |           ✅            |
-| OpenAI Responses  |   ✅    |           ✅            |
-| Anthropic         |   ✅    |           ✅            |
-| Gemini            |   ✅    |           ✅            |
-| Ollama            |   ✅    |           ✅            |
-| xAI (Grok)        |   ✅    |           ✅            |
-| Mistral           |   ✅    |           ✅            |
+> Configure via `roles.vision` in `openclaw.json`. The vision role file (`config/roles/vision.md`) defines instructions and access level but does **not** hardcode a model. Resolution priority: roles mapping → primary model fallback. See README Vision section for provider compatibility and configuration examples.
 
 ### Key Source Files
 
@@ -409,27 +433,7 @@ Coqui provides automatic model failover via the `FallbackProvider` decorator pat
 4. **`ProviderErrorClassifier`** determines whether an error is retryable (429, 5xx, 408, network/connection) or fatal (401, 403, 400, 404). Fatal errors are never retried.
 5. **Fallback events** are surfaced to the agent's observer system via the `setOnNotify()` closure. The agent emits `agent.warning` events when switching providers, so the user sees which model is being tried.
 
-### Configuration
-
-Add fallback models to `openclaw.json`:
-
-```json
-{
-    "agents": {
-        "defaults": {
-            "model": {
-                "primary": "anthropic/claude-sonnet-4-20250514",
-                "fallbacks": [
-                    "openai/gpt-4o",
-                    "ollama/llama3"
-                ]
-            }
-        }
-    }
-}
-```
-
-Fallbacks are tried in order. If all fallbacks also fail, the last error is propagated to the agent.
+> Configure via `agents.defaults.model.fallbacks` in `openclaw.json` — see README for the config format. Fallbacks are tried in order; if all fail, the last error propagates to the agent.
 
 ### Key Source Files
 
@@ -732,13 +736,7 @@ test('config loads from valid JSON', function () {
 
 ### Safety Architecture
 
-Coqui enforces a layered safety model. All layers are always active unless explicitly relaxed by the user via CLI flags — and even then, the catastrophic blacklist cannot be bypassed.
-
-1. **Workspace sandboxing** — file writes via `FilesystemToolkit` are sandboxed to the workspace directory. The Composer toolkit (extracted to `coqui-toolkit-composer`) targets the workspace only — it cannot modify the project's `composer.json`. `PhpExecuteTool` runs with `cwd` set to the workspace and `open_basedir` restrictions that prevent writes outside workspace boundaries. The project root is read-only, accessible through `ProjectSourceToolkit` and shell commands.
-2. **ScriptSanitizer** — static analysis of generated PHP code. Blocks `eval`, `exec`, `system`, `passthru`, and other dangerous functions. Skipped in `--unsafe` mode.
-3. **CatastrophicBlacklist** — hardcoded regex patterns that **always** block destructive commands (e.g. `rm -rf /`, `shutdown`, `mkfs`, fork bombs, credential exfiltration). Cannot be disabled. Additional patterns can be loaded from `agents.defaults.blacklist` in `openclaw.json`.
-4. **InteractiveApprovalPolicy** — gated tools require user confirmation. Replaced by `AutoApprovalPolicy` when `--auto-approve` is passed.
-5. **Audit logging** — every tool execution decision (`approved`, `denied`, `blocked`) is logged to the `audit_log` table in the session database with tool name, arguments, action, and reason.
+> See README Safety section for the layered model overview. The 5 layers are: workspace sandboxing, ScriptSanitizer, CatastrophicBlacklist, InteractiveApprovalPolicy, and audit logging.
 
 When adding new tools or modifying safety checks:
 
@@ -749,19 +747,63 @@ When adding new tools or modifying safety checks:
 
 ### Restart Architecture
 
-Coqui supports graceful restarts and automatic crash recovery via a three-layer system:
-
-1. **`bin/coqui-launcher`** — Bash wrapper script that runs `bin/coqui` in a loop. On exit code `0` (clean quit), the launcher stops. On exit code `10` (restart requested), it immediately relaunches. On any other exit code (crash), it relaunches up to 3 consecutive times before giving up.
-
-2. **`/restart` REPL command** — User types `/restart` in the REPL, which causes `RunCommand` to return `RESTART_EXIT_CODE` (10). The launcher detects this and relaunches the process.
-
-3. **`restart_coqui` tool** — The LLM agent can trigger a restart via a tool call. The tool sets a `restartRequested` flag on `RunCommand` via a closure callback. After the current agent turn completes, the REPL loop checks the flag and exits with code 10. This tool is gated — it requires user confirmation unless `--auto-approve` is enabled.
+> See README for the launcher exit code behavior (codes 0, 10, crash recovery). Implementation: `/restart` causes `RunCommand` to return `RESTART_EXIT_CODE` (10). The `restart_coqui` tool sets a `restartRequested` flag via a closure callback; the REPL loop checks it after `runAgent()` completes.
 
 When adding restart triggers:
 
 - Always use exit code `10` (`RunCommand::RESTART_EXIT_CODE`) for intentional restarts.
 - The `restartRequested` flag is checked *after* `runAgent()` completes — the agent finishes its current turn gracefully.
 - The launcher's crash counter resets on intentional restarts (code 10); only consecutive unintentional crashes count toward the 3-attempt limit.
+
+### Signal Handling
+
+**Ctrl+C sends SIGINT to the entire foreground process group** — both the bash launcher and the PHP REPL receive it simultaneously.
+
+#### At the readline prompt
+
+PHP uses readline's callback API + `stream_select` (not blocking `readline()`) so signals are delivered within ~200ms without requiring Enter.
+
+| Press | Behavior |
+| ----- | -------- |
+| 1st Ctrl+C | Sets `$ctrlCPressed`, breaks `stream_select` loop, prints `(Press Ctrl+C again to quit.)` |
+| 2nd Ctrl+C | Returns exit code `0`. Counter resets on any successful input. |
+
+#### During agent execution
+
+A two-stage SIGINT handler replaces the idle handler for each agent turn:
+
+| Press | Behavior |
+| ----- | -------- |
+| 1st Ctrl+C | `$cancellationToken->cancel()` + yellow banner. Agent finishes current iteration then stops cooperatively. Blocking `curl_exec()` is **not** interrupted. |
+| 2nd Ctrl+C | `pcntl_signal(SIGINT, SIG_DFL)` + `posix_kill(posix_getpid(), SIGINT)` — kills immediately, exit code `130`. |
+
+ESC triggers cooperative cancellation via `EscCancellationObserver` (polls STDIN for `\x1b` during streaming).
+
+#### Exit codes & launcher behavior
+
+The launcher registers `trap cleanup_session INT TERM EXIT` to stop background services on exit.
+
+| Exit code | Source | Launcher action |
+| --------- | ------ | --------------- |
+| `0` | `/quit` or 2× Ctrl+C at prompt | Stop — `cleanup_session` shuts down background services |
+| `130` | 2× Ctrl+C during agent | Same as `0` |
+| `10` | `/restart` or config change | Restart, reset crash counter |
+| other | Crash | Restart, increment counter (max `MAX_CRASHES`=3) |
+
+`run_api_loop()` follows the same logic for the background API process.
+
+#### Bash 3.2 / `set -u` compatibility
+
+The launcher runs under `set -euo pipefail`. macOS ships bash 3.2, which throws `unbound variable` on empty array expansion under `set -u`. Use the conditional idiom for every array that may be empty:
+
+```bash
+# WRONG — crashes on bash 3.2 when array is empty
+for svc in "${session_services[@]}"; do
+# CORRECT — safe on all bash versions
+for svc in "${session_services[@]+"${session_services[@]}"}"; do
+```
+
+Regression tests: `tests/bash/launcher-sigint-test.sh` / `make test-launcher`.
 
 ### Update Management
 
@@ -811,44 +853,7 @@ We encourage contributions of new agents, tools, and toolkits. Coqui's power gro
 
 ### Creating a Toolkit Package
 
-1. Create a Composer package that implements `ToolkitInterface` from `carmelosantana/php-agents`.
-2. Add `extra.php-agents.toolkits` to your `composer.json` for auto-discovery.
-3. Users install your package with `composer require` and Coqui picks it up automatically.
-
-```php
-<?php
-
-declare(strict_types=1);
-
-namespace Acme\MyToolkit;
-
-use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
-use CarmeloSantana\PHPAgents\Tool\Tool;
-use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
-
-final class MyToolkit implements ToolkitInterface
-{
-    public function tools(): array
-    {
-        return [
-            new Tool(
-                name: 'my_tool',
-                description: 'Does something useful',
-                parameters: [
-                    new StringParameter('input', 'The input to process', required: true),
-                ],
-                callback: fn(array $args): ToolResult => ToolResult::success('Result: ' . $args['input']),
-            ),
-        ];
-    }
-
-    public function guidelines(): string
-    {
-        return 'Use my_tool when the user asks to process input.';
-    }
-}
-```
+See README "Extending Coqui" for a full walkthrough with `ToolkitInterface`, `composer.json` registration, and credential declarations. Key contracts: `ToolkitInterface::tools()` returns `Tool[]`, `guidelines()` returns a prompt string. Use `StringParameter`, `NumberParameter`, `BooleanParameter`, `EnumParameter` from php-agents for typed parameters.
 
 ### Adding a New Tool to Coqui
 
