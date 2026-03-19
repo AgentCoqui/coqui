@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigGuard;
@@ -12,6 +13,7 @@ use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Config\SetupWizard;
 use CoquiBot\Coqui\Config\UpdateManager;
+use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Renderer\JsonRenderer;
@@ -49,6 +51,7 @@ final class RunCommand extends Command
 
     private BootManager $boot;
     private AgentRunner $agentRunner;
+    private EscCancellationObserver $escObserver;
     private SessionStorage $storage;
     private string $sessionId;
     private string $workDir;
@@ -124,7 +127,12 @@ final class RunCommand extends Command
         }
 
         // Choose observer for terminal mode
-        $observer = new TerminalObserver($output);
+        $terminalObserver = new TerminalObserver($output);
+        $this->escObserver = new EscCancellationObserver(
+            $terminalObserver,
+            new ProcessCancellationToken(),
+            $output,
+        );
 
         // Initialize agent runner
         $this->agentRunner = new AgentRunner(
@@ -133,7 +141,7 @@ final class RunCommand extends Command
             projectRoot: $this->workDir,
             workspacePath: $this->boot->workspacePath(),
             storage: $this->storage,
-            observer: $observer,
+            observer: $this->escObserver,
             discovery: $this->boot->discovery(),
             blacklist: $this->boot->blacklist(),
             credentialResolver: $this->boot->credentialResolver(),
@@ -190,6 +198,7 @@ final class RunCommand extends Command
             '<fg=gray>Workspace:</> ' . $this->boot->workspacePath(),
             '',
             '<fg=gray>Commands: /new, /history, /sessions, /tasks, /config, /update, /restart, /quit</>',
+            '<fg=gray>Press ESC or Ctrl+C to cancel agent</>',
         ]);
         $io->newLine();
 
@@ -281,6 +290,22 @@ final class RunCommand extends Command
             });
         }
 
+        // Stty state for ESC detection — updated before each agent turn, cleared after.
+        // Captured by the shutdown function to restore the terminal if the process crashes.
+        $shutdownStty = null;
+        register_shutdown_function(static function () use (&$shutdownStty): void {
+            // PHPStan cannot model that $shutdownStty (captured by reference) is
+            // mutated later; it treats it as always-null inside the closure.
+            // @phpstan-ignore booleanAnd.alwaysFalse, notIdentical.alwaysFalse, notIdentical.alwaysTrue
+            if ($shutdownStty !== null && $shutdownStty !== '') {
+                shell_exec('stty ' . escapeshellarg($shutdownStty) . ' 2>/dev/null');
+            }
+        });
+
+        // Track consecutive Ctrl+C presses at the readline prompt.
+        // Persists across iterations; reset on successful input.
+        $quitAttempts = 0;
+
         while (true) {
             $io->writeln('');
             $io->writeln(' <fg=cyan>You:</>');
@@ -292,7 +317,11 @@ final class RunCommand extends Command
             // SIGINT can be delivered within ~200ms.
             $line = null;
             $lineReady = false;
-            $shutdown = false;
+            // Per-iteration flag: did a SIGINT arrive during this readline cycle?
+            // Using a boolean flag (not counting in the handler) prevents two rapid
+            // Ctrl+C presses from both being counted before the inner loop exits,
+            // which was causing $quitAttempts to reach 2 on what felt like one press.
+            $ctrlCPressed = false;
 
             readline_callback_handler_install(' › ', static function (?string $input) use (&$line, &$lineReady): void {
                 $line = $input;
@@ -302,12 +331,13 @@ final class RunCommand extends Command
             // Install our SIGINT handler AFTER readline's setup — readline installs
             // its own handler during callback_handler_install, so ours must come last.
             if ($hasSignals) {
-                pcntl_signal(SIGINT, static function () use (&$shutdown): void {
-                    $shutdown = true;
+                pcntl_signal(SIGINT, static function () use (&$ctrlCPressed, &$lineReady): void {
+                    $ctrlCPressed = true;
+                    $lineReady = true; // break the inner wait loop
                 });
             }
 
-            while (!$lineReady && !$shutdown) {
+            while (!$lineReady) {
                 $read = [STDIN];
                 $write = $except = [];
                 /** @var int|false $ready */
@@ -320,15 +350,22 @@ final class RunCommand extends Command
 
             readline_callback_handler_remove();
 
-            // Ctrl+C — exit cleanly
-            if ($shutdown) {
-                // When running under the launcher (COQUI_LAUNCHER=1), the launcher
-                // owns the shutdown UX — exit silently to avoid duplicate messages.
-                if (getenv('COQUI_LAUNCHER') !== '1') {
-                    $io->newLine();
-                    $io->info('Shutting down Coqui.');
+            // Ctrl+C — count attempts; exit only on the second consecutive press.
+            // A single Ctrl+C at the prompt shows a hint without quitting, matching
+            // the behaviour during agent execution where first Ctrl+C = cancel, not exit.
+            if ($ctrlCPressed) {
+                $quitAttempts++;
+                if ($quitAttempts >= 2) {
+                    // When running under the launcher (COQUI_LAUNCHER=1), the launcher
+                    // owns the shutdown UX — exit silently to avoid duplicate messages.
+                    if (getenv('COQUI_LAUNCHER') !== '1') {
+                        $io->newLine();
+                        $io->info('Shutting down Coqui.');
+                    }
+                    return 0;
                 }
-                return 0;
+                $io->writeln('<fg=yellow>(Press Ctrl+C again to quit.)</>');
+                continue;
             }
 
             // Ctrl+D (EOF) with STDIN closed — exit cleanly
@@ -342,6 +379,7 @@ final class RunCommand extends Command
 
             $prompt = trim($line);
             readline_add_history($prompt);
+            $quitAttempts = 0; // reset on successful input
 
             // Handle commands
             if (str_starts_with($prompt, '/')) {
@@ -352,23 +390,63 @@ final class RunCommand extends Command
                 continue;
             }
 
-            // Build execution policy for this turn
+            // Build execution policy and a fresh cancellation token for this turn
             $executionPolicy = $this->buildInteractiveExecutionPolicy($this->sessionId, $io);
+            $cancellationToken = new ProcessCancellationToken();
+            $this->escObserver->setToken($cancellationToken);
+            $sigintCount = 0;
 
-            // During agent execution: restore default SIGINT so Ctrl+C kills
-            // the process immediately (exit 130). This is the only way to
-            // interrupt blocking HTTP calls to LLM providers — cooperative
-            // cancellation tokens can't fire while PHP is inside curl_exec().
+            // Two-stage Ctrl+C:
+            //   First  → cooperative cancel (sets token; agent stops after current response)
+            //   Second → restore SIG_DFL and re-raise to kill immediately (exit 130)
+            //
+            // Note: cooperative cancellation cannot interrupt blocking curl_exec() calls.
+            // The token is checked between iterations and between tool calls. The second
+            // Ctrl+C provides an immediate-kill escape hatch for truly stuck states.
             if ($hasSignals) {
-                pcntl_signal(SIGINT, SIG_DFL);
+                pcntl_signal(SIGINT, static function () use ($cancellationToken, &$sigintCount, $io): void {
+                    $sigintCount++;
+                    if ($sigintCount === 1) {
+                        $cancellationToken->cancel();
+                        $io->writeln(
+                            "\n<fg=yellow>⚑ Stopping — completing current LLM response, then returning to prompt. Press Ctrl+C again to force quit.</>",
+                        );
+                    } else {
+                        pcntl_signal(SIGINT, SIG_DFL);
+                        posix_kill(posix_getpid(), SIGINT);
+                    }
+                });
             }
 
-            // Run agent
-            $result = $this->agentRunner->run($prompt, $this->sessionId, $executionPolicy);
+            // Enter raw stty mode so ESC is delivered byte-by-byte (no Enter required).
+            // -echo suppresses echoing of keystrokes (ESC, Ctrl+C) so they don't
+            // appear as ^[ or ^C in the middle of streamed agent output.
+            // Save state first so we can restore it after the turn completes.
+            $savedStty = $this->saveSttyState();
+            $shutdownStty = $savedStty;
+            $this->enterRawSttyMode();
+            $this->escObserver->active = true;
+
+            // Run agent — try/finally guarantees cleanup even if an exception escapes
+            // (e.g. an uncaught error thrown from inside the signal handler).
+            try {
+                $result = $this->agentRunner->run($prompt, $this->sessionId, $executionPolicy, $cancellationToken);
+            } finally {
+                $this->escObserver->active = false;
+                // Drain leftover ESC bytes BEFORE restoring the terminal.
+                // In raw mode (set by enterRawSttyMode) bytes are available to
+                // stream_select immediately. Once restoreSttyState switches back to
+                // canonical mode the kernel buffers keystrokes until Enter, so
+                // stream_select with timeout 0 would see nothing and the ESC bytes
+                // would leak into the next readline cycle.
+                $this->drainStdin();
+                $this->restoreSttyState($savedStty);
+                $shutdownStty = null;
+            }
 
             // Render output
             $renderer = new TerminalRenderer($io);
-        $renderer->render($result, contentStreamed: true);
+            $renderer->render($result, contentStreamed: true);
             if ($result->restartRequested) {
                 $io->info('Restart requested by agent. Restarting...');
                 return self::RESTART_EXIT_CODE;
@@ -1470,5 +1548,95 @@ final class RunCommand extends Command
         }
 
         return null;
+    }
+
+    // --- Terminal / stty helpers for ESC detection ---
+
+    /**
+     * Returns true when STDIN is an interactive TTY.
+     *
+     * Used to gate all stty operations — piped input, Docker without PTY, and CI
+     * environments will return false, causing ESC detection to degrade gracefully.
+     */
+    private function isInteractiveTty(): bool
+    {
+        // stream_isatty() is more reliable than posix_isatty() for PHP stream resources.
+        // posix_isatty() can return false on macOS for php://stdin even in a real TTY.
+        return stream_isatty(STDIN);
+    }
+
+    /**
+     * Save the current terminal state via `stty -g` so it can be restored later.
+     *
+     * Returns null when not a TTY or when stty is unavailable.
+     */
+    private function saveSttyState(): ?string
+    {
+        if (!$this->isInteractiveTty()) {
+            return null;
+        }
+
+        $state = shell_exec('stty -g 2>/dev/null');
+
+        return is_string($state) ? trim($state) : null;
+    }
+
+    /**
+     * Switch the terminal to raw, non-blocking mode so ESC is delivered
+     * byte-by-byte without waiting for Enter.
+     *
+     * `min 0 time 0` causes `fread()` to return immediately even when no bytes
+     * are available, which is required for the non-blocking STDIN check in
+     * EscCancellationObserver::update().
+     */
+    private function enterRawSttyMode(): void
+    {
+        if (!$this->isInteractiveTty()) {
+            return;
+        }
+
+        shell_exec('stty -icanon -echo min 0 time 0 2>/dev/null');
+        // Also set PHP's stream layer to non-blocking so fread() returns immediately
+        // when no bytes are available, regardless of the OS-level stty settings.
+        stream_set_blocking(STDIN, false);
+    }
+
+    /**
+     * Restore the terminal to a previously saved state.
+     *
+     * Called after each agent turn and from the shutdown function if the process
+     * crashes while in raw mode.
+     */
+    private function restoreSttyState(?string $state): void
+    {
+        if ($state === null || $state === '' || !$this->isInteractiveTty()) {
+            return;
+        }
+
+        shell_exec('stty ' . escapeshellarg($state) . ' 2>/dev/null');
+        // Restore PHP stream to blocking so readline's stream_select loop works correctly.
+        stream_set_blocking(STDIN, true);
+    }
+
+    /**
+     * Drain any pending bytes from STDIN without blocking.
+     *
+     * Called after each agent turn to discard leftover ESC keypresses or other
+     * stray bytes that accumulated during execution. Prevents them from being
+     * misread as cancellation signals at the start of the next turn.
+     */
+    private function drainStdin(): void
+    {
+        if (!$this->isInteractiveTty()) {
+            return;
+        }
+
+        $read = [STDIN];
+        $write = $except = [];
+        while (@stream_select($read, $write, $except, 0, 0) > 0) {
+            @fread(STDIN, 128);
+            $read = [STDIN];
+            $write = $except = [];
+        }
     }
 }
