@@ -144,7 +144,7 @@ Toolkit visibility controls how much of each tool's schema is exposed to the LLM
 
 ### Three-Tier Model
 
-| Tier     | Value        | Behaviour                                                    |
+| Tier     | Value        | Behavior                                                    |
 | -------- | ------------ | ------------------------------------------------------------ |
 | Enabled  | `"enabled"`  | Full schema in LLM context (default)                         |
 | Stub     | `"stub"`     | Minimal schema; LLM discovers full details via `tool_search` |
@@ -763,6 +763,61 @@ When adding restart triggers:
 - The `restartRequested` flag is checked *after* `runAgent()` completes — the agent finishes its current turn gracefully.
 - The launcher's crash counter resets on intentional restarts (code 10); only consecutive unintentional crashes count toward the 3-attempt limit.
 
+### Signal Handling
+
+Coqui implements a layered SIGINT (Ctrl+C) strategy that differs between two contexts: **at the readline prompt** (waiting for user input) and **during agent execution** (streaming an LLM response or running tools).
+
+#### At the readline prompt
+
+The REPL uses readline's callback API (`readline_callback_handler_install` + `stream_select`) so PHP retains control between keystrokes. A custom SIGINT handler is installed *after* readline's own handler so Coqui's takes precedence.
+
+| Press | Behavior |
+| ----- | -------- |
+| Ctrl+C (1st) | Sets `$ctrlCPressed = true`, breaks the inner `stream_select` loop, shows `(Press Ctrl+C again to quit.)`, and continues the REPL loop. |
+| Ctrl+C (2nd, consecutive) | `$quitAttempts` reaches 2, REPL returns exit code `0`. |
+
+The `$quitAttempts` counter resets to `0` on every successful line of input, so pressing Ctrl+C once and then typing a prompt restores the single-press hint behavior.
+
+#### During agent execution
+
+A two-stage approach is used to balance responsiveness with reliability:
+
+| Press | Behavior |
+| ----- | -------- |
+| Ctrl+C (1st) | Calls `$cancellationToken->cancel()`. The agent finishes its current LLM response chunk, then checks the token between iterations and stops cooperatively. Shows a yellow banner. |
+| Ctrl+C (2nd) | Restores the default SIGINT disposition (`SIG_DFL`) and raises SIGINT on the current process via `posix_kill(posix_getpid(), SIGINT)`. This kills the process immediately — the only reliable way to interrupt a blocking `curl_exec()`. The launcher treats exit code `130` (128 + SIGINT) as a clean stop. |
+
+The ESC key additionally triggers cooperative cancellation via `EscCancellationObserver`, which polls STDIN in raw mode for a `\x1b` byte during streaming.
+
+#### Signal flow through the launcher
+
+When the PHP process exits, the `trap cleanup_session INT TERM EXIT` in `bin/coqui-launcher` fires. `cleanup_session` iterates over background services (e.g. the API) and stops them gracefully.
+
+**Exit code mapping in `run_repl`:**
+
+| Exit code | Meaning | Launcher action |
+|-----------|---------|-----------------|
+| `0` | Clean `/quit` or double Ctrl+C at prompt | Stop launcher |
+| `10` | Restart requested | Relaunch immediately, reset crash counter |
+| `130` | SIGINT killed process (Ctrl+C during agent) | Stop launcher (treated as clean) |
+| other | Crash | Relaunch, increment crash counter (max 3) |
+
+#### Bash 3.2 safe array expansion
+
+`bin/coqui-launcher` runs with `set -euo pipefail`. On macOS, the system default shell is **bash 3.2**, which throws `unbound variable` when expanding an empty array with `"${array[@]}"` under `set -u`. All array expansions in the launcher **must** use the conditional form:
+
+```bash
+# WRONG — crashes on bash 3.2 when array is empty
+for svc in "${session_services[@]}"; do
+
+# CORRECT — safe on all bash versions (including 3.2)
+for svc in "${session_services[@]+"${session_services[@]}"}"; do
+```
+
+The `${array[@]+"${array[@]}"}` idiom means: "if `array[@]` is set (even empty), expand it; otherwise produce nothing." This pattern is used for every array expansion in the launcher (`coqui_args`, `api_args`, `session_services`).
+
+A regression test suite lives at `tests/bash/launcher-sigint-test.sh` and can be run with `make test-launcher`.
+
 ### Update Management
 
 Coqui supports dependency update checking and application via `UpdateManager`. The system is controlled entirely through ENV vars stored in the workspace `.env` (not in `openclaw.json`):
@@ -1042,6 +1097,90 @@ Copy `.env.example` to `.env` before running. Key variables:
 | `COQUI_API_PORT`          | `3300`                              | API server port                                                              |
 | `COQUI_AUTO_APPROVE`      | `false`                             | Env-var equivalent of `--auto-approve`                                       |
 | `COQUI_UNSAFE`            | `false`                             | Env-var equivalent of `--unsafe`                                             |
+
+## Signal Handling & Launcher Restart Architecture
+
+This section describes how SIGINT (Ctrl+C) flows through the system and how the launcher interprets PHP exit codes to decide whether to stop, restart, or crash.
+
+### Signal Flow Overview
+
+When the user presses **Ctrl+C** at the terminal, the OS sends SIGINT to the **entire foreground process group** — both the bash launcher and the PHP REPL process receive the signal simultaneously. The behaviour differs depending on what the REPL is doing at that moment.
+
+### At the readline prompt (idle REPL)
+
+PHP uses readline's callback API + `stream_select` (not the blocking `readline()`) so that signals are delivered within ~200ms without requiring the user to press Enter.
+
+After `readline_callback_handler_install`, PHP installs its own SIGINT handler that sets a boolean flag (`$ctrlCPressed = true`) and breaks the inner `stream_select` loop. The **two-press-to-quit** pattern is then implemented in user space:
+
+| Press | `$quitAttempts` | Behavior                                                         |
+| ----- | --------------- | ----------------------------------------------------------------- |
+| 1st   | 1               | Prints `(Press Ctrl+C again to quit.)`, continues the REPL loop   |
+| 2nd   | ≥ 2             | Returns exit code **0** — clean exit                              |
+
+The `$quitAttempts` counter resets to 0 on any successful non-empty input, so the two presses must be consecutive.
+
+### During agent execution (LLM call in progress)
+
+PHP replaces the idle SIGINT handler with a two-stage handler for the duration of each agent turn:
+
+| Press | `$sigintCount` | Behavior                              |
+| ----- | -------------- | -------------------------------------- |
+| 1st   | 1              | Cooperative cancel via token           |
+| 2nd   | 2              | `SIG_DFL` + self-kill -> exit code 130 |
+
+- **1st press**: sets `ProcessCancellationToken` and prints a yellow warning. The agent checks the token between iterations and tool calls. Blocking `curl_exec()` calls are **not** interrupted.
+- **2nd press**: calls `pcntl_signal(SIGINT, SIG_DFL)` then `posix_kill(posix_getpid(), SIGINT)` — kills the process immediately with exit code 130.
+
+After each agent turn completes (or is cancelled), the REPL restores its idle readline SIGINT handler.
+
+### Exit codes and launcher behavior
+
+`run_repl()` in `bin/coqui-launcher` is the REPL loop supervisor. It treats PHP's exit code as follows:
+
+| Exit code | Source | Launcher action |
+|-----------|--------|-----------------|
+| `0`       | `/quit` command or 2× Ctrl+C at prompt | `exit 0` — clean stop, background services are shut down via `cleanup_session` |
+| `130`     | 2× Ctrl+C during agent execution (SIGINT default) | Same as 0 — clean stop |
+| `10` (`RESTART_EXIT_CODE`) | `/restart` command or config change | Restart the REPL loop, reset crash counter |
+| any other | Unexpected crash | Increment crash counter; restart after 2 s. After `MAX_CRASHES` consecutive crashes, exit with that code. |
+
+`run_api_loop()` follows the same 0/130/10/crash logic for the background API process.
+
+### Launcher cleanup on exit (`cleanup_session`)
+
+In the default mode (REPL + API), the launcher registers:
+
+```bash
+trap cleanup_session INT TERM EXIT
+```
+
+`cleanup_session` iterates over `session_services` — an array that tracks background services started in the current session (typically just `"api"`) — and calls `stop_service` on each.
+
+#### bash 3.2 / `set -u` compatibility
+
+The launcher runs under `set -euo pipefail`. On macOS (bash 3.2, the system default), expanding an empty array with `"${arr[@]}"` when `set -u` is active raises `unbound variable`. All arrays that may be empty when expanded must use the **conditional expansion idiom**:
+
+```bash
+# WRONG — fails on bash 3.2 with set -u when array is empty
+for svc in "${session_services[@]}"; do ...
+
+# CORRECT — the +word form only expands when the variable is set and non-empty
+for svc in "${session_services[@]+"${session_services[@]}"}"; do ...
+```
+
+This pattern is required everywhere in the launcher where an array might be empty at expansion time. The existing expansions of `coqui_args` and `api_args` already use this idiom; `session_services` was the missing case (fixed in the `cleanup_session` function).
+
+### Bash test coverage
+
+`tests/bash/launcher-sigint-test.sh` exercises the `cleanup_session` array expansion logic in isolation. Run it with:
+
+```bash
+bash tests/bash/launcher-sigint-test.sh
+# or
+make test-launcher
+```
+
+---
 
 ## Documentation Policy
 

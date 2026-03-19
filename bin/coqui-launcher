@@ -265,7 +265,7 @@ cleanup_session() {
         return 0
     fi
     cleanup_done=true
-    for svc in "${session_services[@]}"; do
+    for svc in "${session_services[@]+"${session_services[@]}"}"; do
         stop_service "$svc" true
     done
 }
