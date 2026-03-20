@@ -113,5 +113,13 @@ RUN composer install \
 
 COPY --chown=coqui:coqui . /app
 
+# Regenerate the classmap now that source files are present.
+# The composer install above runs before COPY to cache the vendor layer, but the
+# --classmap-authoritative classmap must be rebuilt against the actual src/ tree.
+RUN composer dump-autoload \
+    --classmap-authoritative \
+    --optimize \
+    --no-interaction
+
 ENTRYPOINT ["php", "bin/coqui"]
 CMD []
