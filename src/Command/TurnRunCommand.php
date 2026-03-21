@@ -248,13 +248,32 @@ final class TurnRunCommand extends Command
 
             $title = $titleGenerator->generate($prompt);
             if ($title === null) {
+                $storage->appendTaskEvent($turnProcessId, 'warning', [
+                    'message' => 'Title generation returned no result',
+                ]);
+
                 return;
             }
 
             $storage->updateSessionTitle($sessionId, $title);
             $storage->appendTaskEvent($turnProcessId, 'title', ['title' => $title]);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
             // Best-effort — do not let title generation failures affect the turn
+            error_log(sprintf(
+                '[Coqui] maybeGenerateTitle failed for session %s: %s in %s:%d',
+                $sessionId,
+                $e->getMessage(),
+                $e->getFile(),
+                $e->getLine(),
+            ));
+
+            try {
+                $storage->appendTaskEvent($turnProcessId, 'warning', [
+                    'message' => 'Title generation failed: ' . $e->getMessage(),
+                ]);
+            } catch (\Throwable) {
+                // Ignore secondary failure
+            }
         }
     }
 

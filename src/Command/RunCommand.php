@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
@@ -447,6 +448,10 @@ final class RunCommand extends Command
             // Render output
             $renderer = new TerminalRenderer($io);
             $renderer->render($result, contentStreamed: true);
+
+            // Generate session title on first turn (best-effort, stored for API clients)
+            $this->maybeGenerateTitle($prompt);
+
             if ($result->restartRequested) {
                 $io->info('Restart requested by agent. Restarting...');
                 return self::RESTART_EXIT_CODE;
@@ -1637,6 +1642,37 @@ final class RunCommand extends Command
             @fread(STDIN, 128);
             $read = [STDIN];
             $write = $except = [];
+        }
+    }
+
+    /**
+     * Generate and store a session title if one doesn't exist yet.
+     *
+     * Best-effort — failures are logged but never surface to the user.
+     * Only runs on the first turn of a session (skipped when title already set).
+     */
+    private function maybeGenerateTitle(string $prompt): void
+    {
+        try {
+            $session = $this->storage->getSession($this->sessionId);
+            if ($session === null || ($session['title'] ?? null) !== null) {
+                return;
+            }
+
+            $titleGenerator = new TitleGenerator(
+                roleResolver: $this->boot->roleResolver(),
+                config: $this->boot->config(),
+                roleDiscovery: $this->boot->roleDiscovery(),
+            );
+
+            $title = $titleGenerator->generate($prompt);
+            if ($title === null) {
+                return;
+            }
+
+            $this->storage->updateSessionTitle($this->sessionId, $title);
+        } catch (\Throwable $e) {
+            error_log(sprintf('[Coqui] REPL title generation failed: %s', $e->getMessage()));
         }
     }
 }
