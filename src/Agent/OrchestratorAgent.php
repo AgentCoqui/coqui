@@ -27,6 +27,7 @@ use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
+use CoquiBot\Coqui\Config\SummarizePruningStrategy;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
@@ -136,7 +137,32 @@ final class OrchestratorAgent extends AbstractAgent
         $contextWindow = $this->resolveContextWindow($config, $this->roleResolver);
         $this->contextWindowInstance = $contextWindow;
 
-        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow);
+        // Resolve a summarize-then-drop pruning strategy for context window overflow.
+        // This is a safety net — autoSummarizeIfNeeded() runs pre-turn as the primary mechanism.
+        $pruningStrategy = null;
+        if ($this->storage !== null) {
+            try {
+                $utilityFactory = new ProviderFactory($config);
+                $utilityModel = $this->roleResolver->resolveUtility();
+                if ($utilityModel !== '') {
+                    $utilityProvider = $utilityFactory->create($utilityModel);
+
+                    $keepRecentCfg = $config->get('agents.defaults.context.keepRecentTurns');
+                    $keepRecent = is_numeric($keepRecentCfg) ? max(1, min(20, (int) $keepRecentCfg)) : 3;
+
+                    $pruningStrategy = new SummarizePruningStrategy(
+                        provider: $utilityProvider,
+                        storage: $this->storage,
+                        memoryStore: $this->memoryStore,
+                        keepRecentTurns: $keepRecent,
+                    );
+                }
+            } catch (\Throwable) {
+                // Fall through — use default pruning strategy
+            }
+        }
+
+        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow, $pruningStrategy);
 
         // Use injected resolver or create one (backward compat for standalone use)
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);
@@ -352,9 +378,12 @@ final class OrchestratorAgent extends AbstractAgent
         $rendered = $prompt->render();
 
         // Inject core memory summary if available
-        $memorySummary = $this->memorySummarizer?->getSummary();
-        if ($memorySummary !== null && $memorySummary !== '') {
-            $rendered .= "\n\n# CORE MEMORIES\n\n" . $memorySummary;
+        if ($this->memorySummarizer !== null) {
+            $utilityProvider = $this->resolveUtilityProvider();
+            $memorySummary = $this->memorySummarizer->getSummary($utilityProvider);
+            if ($memorySummary !== '') {
+                $rendered .= "\n\n# CORE MEMORIES\n\n" . $memorySummary;
+            }
         }
 
         return $rendered;
@@ -571,5 +600,28 @@ final class OrchestratorAgent extends AbstractAgent
     public function getContextWindow(): ?ContextWindowInterface
     {
         return $this->contextWindowInstance;
+    }
+
+    /**
+     * Resolve a utility provider for cheap single-shot tasks
+     * (memory compression, titles, summarization).
+     *
+     * Returns null if no provider can be resolved — callers should
+     * degrade gracefully (e.g. skip LLM compression).
+     */
+    private function resolveUtilityProvider(): ?\CarmeloSantana\PHPAgents\Contract\ProviderInterface
+    {
+        try {
+            $factory = new ProviderFactory($this->config);
+            $utilityModel = $this->roleResolver->resolveUtility();
+
+            if ($utilityModel !== '') {
+                return $factory->create($utilityModel);
+            }
+        } catch (\Throwable) {
+            // Fall through — utility provider is best-effort
+        }
+
+        return null;
     }
 }

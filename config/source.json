@@ -197,9 +197,10 @@
             "path": "src/Config/RoleResolver.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleResolver",
             "layer": "config",
-            "description": "Maps role names to provider/model strings and resolves per-role iteration limits. Model priority: role file model field → openclaw.json → primary model. Iteration priority: role file max_iterations → agents.defaults.maxIterations → DEFAULT_MAX_ITERATIONS (25). toArray() returns enriched metadata with display_name, description, access_level, max_iterations.",
+            "description": "Maps role names to provider/model strings and resolves per-role iteration limits. Model priority: role file model field → openclaw.json → primary model. Iteration priority: role file max_iterations → agents.defaults.maxIterations → DEFAULT_MAX_ITERATIONS (25). resolveUtility() provides a unified utility model chain: agents.defaults.model.utility → COQUI_UTILITY_MODEL env → title-generator role → primary model. toArray() returns enriched metadata with display_name, description, access_level, max_iterations.",
             "methods": [
                 "resolve(string $role): string — returns provider/model string (file model → config → primary)",
+                "resolveUtility(): string — returns utility model string (config utility → env → title-generator → primary)",
                 "resolveMaxIterations(string $role): int — returns iteration limit (role file → openclaw.json → 25). 0 = unlimited",
                 "availableRoles(): string[] — union of config and discovered role names",
                 "toArray(): array — enriched role-to-model mapping with metadata and max_iterations"
@@ -213,6 +214,15 @@
             "methods": [
                 "validate(string $code): string[] — returns array of issue descriptions (empty means safe)",
                 "isUnsafe(): bool — whether running in unsafe mode"
+            ]
+        },
+        {
+            "path": "src/Config/SummarizePruningStrategy.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\SummarizePruningStrategy",
+            "layer": "config",
+            "description": "BudgetPruningStrategyInterface implementation that summarizes older conversation turns via ConversationSummarizer before dropping them. Falls back to DefaultBudgetPruningStrategy on failure or when no provider is available. If summarization alone doesn't reduce tokens enough, applies default pruning on top.",
+            "methods": [
+                "prune(Conversation $conversation, int $budgetTokens): Conversation — attempts LLM summarization then default pruning as fallback"
             ]
         },
         {
@@ -386,7 +396,7 @@
             "path": "src/Tool/SummarizeConversationTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SummarizeConversationTool",
             "layer": "tool",
-            "description": "Agent-facing tool for on-demand conversation summarization. Exposes a summarize_conversation tool with scope (all/recent), keep_recent (1-20), and focus parameters. Resolves a cheap provider via title-generator role with orchestrator fallback. Delegates to ConversationSummarizer for the actual compression.",
+            "description": "Agent-facing tool for on-demand conversation summarization. Exposes a summarize_conversation tool with scope (all/recent), keep_recent (1-20), and focus parameters. Resolves a cheap provider via utility model resolution (agents.defaults.model.utility → title-generator role → orchestrator fallback). Reads keepRecentTurns from agents.defaults.context.keepRecentTurns config. Delegates to ConversationSummarizer for the actual compression.",
             "methods": [
                 "execute(array $input): ToolResult — validates parameters, resolves provider, delegates to ConversationSummarizer, returns summary metrics"
             ]
@@ -1122,7 +1132,7 @@
             "path": "src/Config/OpenClawConfig.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\OpenClawConfig",
             "layer": "config",
-            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, provider config, and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
+            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, utility model, provider config, and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
             "methods": [
                 "fromFile(string): self — load and parse openclaw.json file",
                 "fromArray(array): self — create from pre-parsed array",
@@ -1131,6 +1141,7 @@
                 "getPrimaryModel(): string — resolve primary model string",
                 "getFallbacks(): array — return ordered fallback model strings",
                 "getImageModel(): string — resolve image generation model",
+                "getUtilityModel(): string — resolve utility model from config or COQUI_UTILITY_MODEL env",
                 "resolveModel(string): string — resolve alias to full model string",
                 "getModelDefinition(string): ModelDefinition — build ModelDefinition for a model string"
             ]

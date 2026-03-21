@@ -150,6 +150,10 @@
         "vision": {
             "description": "Analyzes images — use a vision-capable model (e.g. gemini/gemini-2.5-flash)",
             "required": false
+        },
+        "title-generator": {
+            "description": "Generates session titles — use a fast, cheap model. Also used for summarization and memory compression unless agents.defaults.model.utility is set",
+            "required": false
         }
     },
     "defaults": {

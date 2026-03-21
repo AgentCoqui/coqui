@@ -59,6 +59,27 @@ final class RoleResolver
     }
 
     /**
+     * Resolve the utility model for cheap single-shot tasks
+     * (titles, summarization, memory compression).
+     *
+     * Resolution chain:
+     * 1. agents.defaults.model.utility (openclaw.json) / COQUI_UTILITY_MODEL env
+     * 2. title-generator role (preserves role file model override)
+     * 3. Primary model fallback
+     */
+    public function resolveUtility(): string
+    {
+        if ($this->config instanceof OpenClawConfig) {
+            $utilityModel = $this->config->getUtilityModel();
+            if ($utilityModel !== '') {
+                return $this->config->resolveModel($utilityModel);
+            }
+        }
+
+        return $this->resolve('title-generator');
+    }
+
+    /**
      * Check if a role is explicitly configured (in config or discovered).
      */
     public function hasRole(string $role): bool
