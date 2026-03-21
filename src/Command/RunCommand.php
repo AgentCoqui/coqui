@@ -716,11 +716,6 @@ final class RunCommand extends Command
      */
     private function handleSummarizeCommand(SymfonyStyle $io, string $arg): true
     {
-        if ($this->sessionId === null) {
-            $io->error('No active session to summarize.');
-            return true;
-        }
-
         // Read configurable keepRecentTurns from config
         $config = $this->boot->config();
         $configKeepRecent = $config->get('agents.defaults.context.keepRecentTurns');

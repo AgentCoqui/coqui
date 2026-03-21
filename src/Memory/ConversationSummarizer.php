@@ -170,7 +170,7 @@ final class ConversationSummarizer
         }
 
         if (count($userIndices) <= $keepRecentTurns) {
-            return [[], $messages];
+            return [[], array_values($messages)];
         }
 
         // Cut point: keep from the Nth-from-last user message onward

@@ -43,7 +43,6 @@ beforeEach(function () {
 
     $this->tool = new SummarizeConversationTool(
         summarizer: $this->summarizer,
-        storage: $this->storage,
         roleResolver: $this->roleResolver,
         config: $this->config,
         sessionId: $this->sessionId,

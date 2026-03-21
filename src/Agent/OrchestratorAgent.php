@@ -283,7 +283,6 @@ final class OrchestratorAgent extends AbstractAgent
             );
             $this->summarizeTool = new SummarizeConversationTool(
                 summarizer: $conversationSummarizer,
-                storage: $this->storage,
                 roleResolver: $this->roleResolver,
                 config: $this->config,
                 sessionId: $this->sessionId,

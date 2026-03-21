@@ -14,7 +14,6 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
-use CoquiBot\Coqui\Storage\SessionStorage;
 
 /**
  * Agent-facing tool that summarizes conversation history to reduce token usage.
@@ -27,7 +26,6 @@ final class SummarizeConversationTool implements ToolInterface
 {
     public function __construct(
         private readonly ConversationSummarizer $summarizer,
-        private readonly SessionStorage $storage,
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
         private readonly string $sessionId,
