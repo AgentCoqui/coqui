@@ -42,15 +42,14 @@
             "path": "src/Agent/AgentRunner.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunner",
             "layer": "agent",
-            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Supports per-turn observer injection via runWithObserver() for API mode where each request gets its own SseObserver. Background tasks use runForTask() which threads role and maxIterations through to the agent. Includes autoSummarizeIfNeeded() which checks token usage against the context window budget before each turn and triggers automatic conversation summarization when usage exceeds a configurable threshold (agents.defaults.context.autoSummarizeThreshold, default 75%).",
+            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Includes autoSummarizeIfNeeded() for pre-turn budget checks, and autoExtractMemories() which runs LLM-based memory extraction after each successful turn (configurable via agents.defaults.memory.autoExtract).",
             "methods": [
                 "run(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy): AgentTurnResult — runs a single agent turn using the default observer",
                 "runWithObserver(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy, SplObserver $observer): AgentTurnResult — runs a turn with a per-turn observer override",
                 "runForTask(..., ?string $role, ?int $maxIterations): AgentTurnResult — runs a background task with specified role and iteration limit",
                 "createAgent(..., ?SplObserver $observer, string $role, ?int $maxIterations): OrchestratorAgent — builds the orchestrator agent with role-resolved model and iteration limit",
-                "persistTurnMessages(Conversation, int, string, ?string $turnId): void — persists new messages from a turn with turn linkage",
-                "extractToolsUsed(?Conversation): string[] — extracts unique tool names from conversation tool calls",
-                "autoSummarizeIfNeeded(OrchestratorAgent, Conversation, string $sessionId, ?SplObserver): Conversation — checks token budget and auto-summarizes if threshold exceeded"
+                "autoSummarizeIfNeeded(OrchestratorAgent, Conversation, string $sessionId, ?SplObserver): Conversation — checks token budget and auto-summarizes if threshold exceeded",
+                "autoExtractMemories(Conversation, string $sessionId): void — runs LLM-based memory extraction from completed turn"
             ]
         },
         {
@@ -880,18 +879,19 @@
             "path": "src/Memory/MemoryStore.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\MemoryStore",
             "layer": "storage",
-            "description": "SQLite-backed memory store with FTS5 full-text search and optional vector embeddings. Stores memories in workspace/data/memory.db with area classification (preferences, facts, solutions, context) and tag-based organization. Hybrid search combines cosine similarity (when embedding provider available) with FTS5 keyword matching and LIKE fallback. Supports full CRUD, bulk import for migration, and core summary generation grouped by area.",
+            "description": "SQLite-backed memory store with FTS5 full-text search, optional vector embeddings, importance scoring, composite relevance ranking, and automatic decay/archival. Stores memories in workspace/data/memory.db with area classification, tag-based organization, and per-entry importance scores. Hybrid search merges vector+FTS candidates, deduplicates by ID, and applies composite scoring (0.4*similarity + 0.2*recency + 0.25*importance + 0.15*access). Memories decay over time — inactive low-importance entries are archived (soft-deleted). Pinned memories (importance >= 0.9) never decay.",
             "methods": [
-                "save(string $content, string $area, array $tags): string — saves memory with optional embedding, returns ID",
-                "search(string $query, int $limit): array — hybrid vector+FTS5 search with LIKE fallback",
-                "update(string $id, ?string $content, ?string $area, ?array $tags): bool — updates memory fields, rebuilds FTS index and re-embeds",
+                "save(MemoryEntry $entry): string — saves memory with importance scoring and optional embedding, returns ID",
+                "search(string $query, int $limit, float $threshold): array — composite-scored hybrid search (vector + FTS5 + LIKE fallback)",
+                "update(string $id, ?string $content, ?string $area, ?array $tags, ?float $importance): bool — updates memory fields including importance",
                 "delete(string $id): bool — deletes memory, embedding, and FTS entry",
                 "getById(string $id): ?MemoryEntry — retrieves single memory by ID",
-                "listAll(int $limit, int $offset, ?string $area, ?array $tags): array — filtered listing with pagination",
-                "listByTags(array $tags, int $limit): array — finds memories containing ALL specified tags",
-                "count(): int — total memory count",
-                "getCoreSummary(): string — formatted summary grouped by area for system prompt injection",
-                "importLegacyEntries(array $entries): int — bulk import from migration",
+                "listAll(int $limit, int $offset, ?string $area, ?array $tags): array — filtered listing with pagination (excludes archived)",
+                "count(): int — total active memory count",
+                "getCoreSummary(): string — importance-sorted summary grouped by area for system prompt injection",
+                "decayAndArchive(): int — scans memories, computes effective score, archives those below threshold",
+                "restoreMemory(string $id): bool — un-archives a memory",
+                "getTopImportantMemories(int $limit): array — returns top N by importance+access+recency for recapitulation",
                 "hasVectorSearch(): bool — whether embedding provider is available"
             ]
         },
@@ -899,20 +899,29 @@
             "path": "src/Memory/MemorySummarizer.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\MemorySummarizer",
             "layer": "storage",
-            "description": "Generates compressed memory summaries for system prompt injection. Caches summaries in a memory_summary SQLite table, invalidating when memory count changes. Optionally compresses via LLM provider for concise summaries within ~500 token budget. Falls back to raw MemoryStore::getCoreSummary() when no provider is available.",
+            "description": "Generates compressed memory summaries for system prompt injection. Caches summaries in a memory_summary SQLite table, invalidating when memory count changes. LLM compression prompt prioritizes high-importance items first. Falls back to raw MemoryStore::getCoreSummary() when no provider is available.",
             "methods": [
                 "getSummary(): ?string — returns cached or freshly generated summary, null if no memories exist",
                 "invalidate(): void — forces summary regeneration on next call"
             ]
         },
         {
+            "path": "src/Memory/MemoryExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Memory\\MemoryExtractor",
+            "layer": "storage",
+            "description": "Automatic memory extraction from conversations via LLM. Analyzes recent conversation turns and extracts noteworthy facts, preferences, solutions, and context into structured memory entries. Deduplicates against existing memories (similarity > 0.85 = skip). Respects 5-minute cooldown between extractions. Triggered post-turn in AgentRunner and pre-summarization in ConversationSummarizer.",
+            "methods": [
+                "extractFromConversation(Conversation, ProviderInterface, int recentTurns): int — extracts and saves new memories, returns count saved"
+            ]
+        },
+        {
             "path": "src/Memory/ConversationSummarizer.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\ConversationSummarizer",
             "layer": "storage",
-            "description": "Summarizes conversation history to reduce token usage while preserving context. Splits conversations into a segment to summarize and recent turns to keep, compresses the older segment via a cheap LLM provider, and rebuilds the conversation with a summary SystemMessage replacing the compressed messages. Optionally persists summaries as session-scoped MemoryEntry records in MemoryStore.",
+            "description": "Summarizes conversation history to reduce token usage while preserving context. Runs automatic memory extraction before summarization to preserve facts before they are compressed. Splits conversations into a segment to summarize and recent turns to keep, compresses the older segment via a cheap LLM provider, and rebuilds the conversation with a summary SystemMessage.",
             "methods": [
                 "summarize(Conversation, ProviderInterface, keepRecentTurns, ?focus): ConversationSummaryResult — compresses older messages into a structured summary",
-                "summarizeAndPersist(sessionId, provider, keepRecentTurns, ?focus): ConversationSummaryResult — summarizes, stores in MemoryStore, and persists summary SystemMessage to session"
+                "summarizeAndPersist(sessionId, provider, keepRecentTurns, ?focus): ConversationSummaryResult — extracts memories, summarizes, stores in MemoryStore, and persists summary SystemMessage to session"
             ]
         },
         {
@@ -929,10 +938,10 @@
             "path": "src/Toolkit/MemoryToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\MemoryToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing memory toolkit providing 6 tools: memory_save (with area enum and tags), memory_search (hybrid vector+FTS5), memory_update (by ID), memory_delete (by ID), memory_forget (bulk by query), memory_list (filtered by area/tags). Replaces php-agents' simpler 3-tool MemoryToolkit. Guidelines include dynamic memory count and vector search status.",
+            "description": "Agent-facing memory toolkit providing 7 tools: memory_save (with area, tags, importance), memory_search (composite-scored hybrid), memory_update (by ID, including importance), memory_delete (by ID), memory_forget (bulk by query), memory_list (filtered, with include_archived), memory_restore (un-archive by ID). Guidelines describe importance scoring, area defaults, pinning, decay lifecycle.",
             "methods": [
-                "tools(): array — returns 6 Tool instances for full CRUD memory operations",
-                "guidelines(): string — dynamic guidelines with memory count and vector search availability"
+                "tools(): array — returns 7 Tool instances for full CRUD memory operations including restore",
+                "guidelines(): string — dynamic guidelines with importance scoring, decay info, memory count, and vector search availability"
             ]
         },
         {

@@ -34,6 +34,7 @@ use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
+use CarmeloSantana\PHPAgents\Memory\MemoryEntry;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
@@ -377,12 +378,27 @@ final class OrchestratorAgent extends AbstractAgent
 
         $rendered = $prompt->render();
 
-        // Inject core memory summary if available
+        // Lost-in-middle mitigation: inject memories at START (high attention)
+        // and recapitulation at END (recency attention) of the instructions block.
         if ($this->memorySummarizer !== null) {
             $utilityProvider = $this->resolveUtilityProvider();
             $memorySummary = $this->memorySummarizer->getSummary($utilityProvider);
+
             if ($memorySummary !== '') {
-                $rendered .= "\n\n# CORE MEMORIES\n\n" . $memorySummary;
+                // Prepend core memories before the main instructions
+                $rendered = "# CORE MEMORIES\n\n" . $memorySummary . "\n\n" . $rendered;
+
+                // Append key context recapitulation at the end
+                if ($this->memoryStore !== null) {
+                    $topMemories = $this->memoryStore->getTopImportantMemories(5);
+                    if ($topMemories !== []) {
+                        $bullets = array_map(
+                            static fn(MemoryEntry $e) => '- ' . $e->content,
+                            $topMemories,
+                        );
+                        $rendered .= "\n\n# KEY CONTEXT REMINDER\n\nCritical user context (refer to CORE MEMORIES for full details):\n" . implode("\n", $bullets);
+                    }
+                }
             }
         }
 

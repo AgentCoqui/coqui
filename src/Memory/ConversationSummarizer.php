@@ -106,6 +106,17 @@ final class ConversationSummarizer
         ?string $focus = null,
     ): ConversationSummaryResult {
         $conversation = $this->storage->loadConversation($sessionId);
+
+        // Extract memories before summarization discards older messages
+        if ($this->memoryStore !== null) {
+            try {
+                $extractor = new MemoryExtractor($this->memoryStore);
+                $extractor->extractFromConversation($conversation, $provider);
+            } catch (\Throwable) {
+                // Extraction failure should never block summarization
+            }
+        }
+
         $result = $this->summarize($conversation, $provider, $keepRecentTurns, $focus);
 
         if ($result->messagesSummarized === 0) {

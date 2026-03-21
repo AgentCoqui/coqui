@@ -364,6 +364,9 @@ final class BootManager
 
         $this->memoryStore = new MemoryStore($dbPath, $embeddingProvider);
         $this->memorySummarizer = new MemorySummarizer($this->memoryStore);
+
+        // Run boot-time decay sweep — archives stale, low-value memories
+        $this->memoryStore->decayAndArchive();
     }
 
     /**

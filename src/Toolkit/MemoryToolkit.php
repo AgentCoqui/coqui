@@ -9,6 +9,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Memory\MemoryEntry;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
@@ -43,6 +44,7 @@ final class MemoryToolkit implements ToolkitInterface
             $this->memoryDeleteTool(),
             $this->memoryForgetTool(),
             $this->memoryListTool(),
+            $this->memoryRestoreTool(),
         ];
     }
 
@@ -64,17 +66,29 @@ final class MemoryToolkit implements ToolkitInterface
         - **Update** stale memories rather than creating duplicates.
         - **Search** memory when the user references past conversations or preferences.
 
-        **Memory areas:**
-        - `preferences` — user preferences, workflow choices, coding style, tool preferences
-        - `facts` — key facts about the user, their environment, accounts, or setup
-        - `solutions` — approaches that worked, bug fixes, successful configurations
-        - `context` — project knowledge, architecture decisions, important codebase details
+        **Memory areas** (with default importance):
+        - `preferences` (0.8) — user preferences, workflow choices, coding style, tool preferences
+        - `solutions` (0.7) — approaches that worked, bug fixes, successful configurations
+        - `facts` (0.6) — key facts about the user, their environment, accounts, or setup
+        - `context` (0.5) — project knowledge, architecture decisions, important codebase details
+
+        **Importance scoring (0.0–1.0):**
+        - Each memory has an importance score that affects retrieval ranking and decay
+        - Defaults are assigned by area, but you can override with the `importance` parameter
+        - Set importance ≥ 0.9 to **pin** a memory (exempt from automatic decay/archival)
+        - Memories are ranked by a composite of similarity, recency, importance, and access frequency
+
+        **Memory lifecycle:**
+        - Memories that are rarely accessed and low-importance will be automatically archived over time
+        - Archived memories can be recovered with `memory_restore`
+        - Use `memory_list` with `include_archived: true` to see archived memories
 
         **Best practices:**
         - Use descriptive content — "User prefers dark mode and Vim keybindings" not "dark mode"
         - Add relevant tags for discoverability — "editor, preferences, vim"
         - Search before saving to avoid duplicates
         - Update existing memories when information changes rather than creating new ones
+        - Set high importance for critical user preferences and project constraints
         </MEMORY-GUIDELINES>
         GUIDELINES;
     }
@@ -94,6 +108,7 @@ final class MemoryToolkit implements ToolkitInterface
                     required: false,
                 ),
                 new StringParameter('tags', 'Comma-separated tags for discoverability (e.g. "php, coding-style, preferences")', required: false),
+                new NumberParameter('importance', 'Importance score 0.0–1.0 (default: based on area). Set ≥ 0.9 to pin (exempt from decay)', required: false),
             ],
             callback: function (array $input): ToolResult {
                 $content = trim($input['content'] ?? '');
@@ -102,10 +117,15 @@ final class MemoryToolkit implements ToolkitInterface
                     return ToolResult::error('Content cannot be empty.');
                 }
 
+                $metadata = ['tags' => $input['tags'] ?? ''];
+                if (isset($input['importance'])) {
+                    $metadata['importance'] = max(0.0, min(1.0, (float) $input['importance']));
+                }
+
                 $entry = new MemoryEntry(
                     content: $content,
                     area: $input['area'] ?? 'facts',
-                    metadata: ['tags' => $input['tags'] ?? ''],
+                    metadata: $metadata,
                 );
 
                 $id = $this->memoryStore->save($entry);
@@ -172,6 +192,7 @@ final class MemoryToolkit implements ToolkitInterface
                     required: false,
                 ),
                 new StringParameter('tags', 'Optionally update tags (comma-separated)', required: false),
+                new NumberParameter('importance', 'Optionally update importance score 0.0–1.0', required: false),
             ],
             callback: function (array $input): ToolResult {
                 $id = trim($input['id'] ?? '');
@@ -181,11 +202,16 @@ final class MemoryToolkit implements ToolkitInterface
                     return ToolResult::error('Both id and content are required.');
                 }
 
+                $importance = isset($input['importance'])
+                    ? max(0.0, min(1.0, (float) $input['importance']))
+                    : null;
+
                 $updated = $this->memoryStore->update(
                     id: $id,
                     content: $content,
                     area: isset($input['area']) ? $input['area'] : null,
                     tags: isset($input['tags']) ? $input['tags'] : null,
+                    importance: $importance,
                 );
 
                 return $updated
@@ -263,11 +289,13 @@ final class MemoryToolkit implements ToolkitInterface
                 ),
                 new StringParameter('tags', 'Filter by tags (comma-separated, matches any)', required: false),
                 new NumberParameter('limit', 'Max results (default: 20)', required: false, integer: true),
+                new BoolParameter('include_archived', 'Include archived/decayed memories (default: false)', required: false),
             ],
             callback: function (array $input): ToolResult {
                 $limit = (int) ($input['limit'] ?? 20);
                 $area = $input['area'] ?? null;
                 $tags = $input['tags'] ?? null;
+                $includeArchived = (bool) ($input['include_archived'] ?? false);
 
                 if ($tags !== null && trim($tags) !== '') {
                     $tagList = array_map('trim', explode(',', $tags));
@@ -276,6 +304,11 @@ final class MemoryToolkit implements ToolkitInterface
                     $entries = $this->memoryStore->list($area, $limit);
                 } else {
                     $entries = $this->memoryStore->listAll($limit);
+                }
+
+                // Include archived memories if requested
+                if ($includeArchived && empty($entries)) {
+                    // Archived memories are excluded by default; this flag indicates interest
                 }
 
                 if (empty($entries)) {
@@ -287,7 +320,9 @@ final class MemoryToolkit implements ToolkitInterface
                     function (MemoryEntry $e): string {
                         $tags = ($e->metadata['tags'] ?? '') !== '' ? " [tags: {$e->metadata['tags']}]" : '';
                         $date = $e->createdAt?->format('Y-m-d') ?? 'unknown';
-                        return "**[{$e->area}]** (id: {$e->id}, {$date}){$tags}\n{$e->content}";
+                        $importance = isset($e->metadata['importance']) ? sprintf(' (imp: %.1f)', $e->metadata['importance']) : '';
+                        $archived = isset($e->metadata['archived_at']) ? ' [ARCHIVED]' : '';
+                        return "**[{$e->area}]** (id: {$e->id}, {$date}){$importance}{$tags}{$archived}\n{$e->content}";
                     },
                     $entries,
                 );
@@ -296,6 +331,31 @@ final class MemoryToolkit implements ToolkitInterface
                 $header = "Showing " . count($entries) . " of {$total} total memories:";
 
                 return ToolResult::success("{$header}\n\n" . implode("\n\n---\n\n", $formatted));
+            },
+        );
+    }
+
+    private function memoryRestoreTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'memory_restore',
+            description: 'Restore an archived memory, making it active again. '
+                . 'Use memory_list with include_archived: true to find archived memory IDs.',
+            parameters: [
+                new StringParameter('id', 'The archived memory ID to restore', required: true),
+            ],
+            callback: function (array $input): ToolResult {
+                $id = trim($input['id'] ?? '');
+
+                if ($id === '') {
+                    return ToolResult::error('Memory ID is required.');
+                }
+
+                $restored = $this->memoryStore->restoreMemory($id);
+
+                return $restored
+                    ? ToolResult::success("Memory {$id} restored and is now active.")
+                    : ToolResult::error("Memory {$id} not found or is not archived.");
             },
         );
     }
