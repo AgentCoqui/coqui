@@ -76,6 +76,10 @@ final class TerminalObserver implements SplObserver
 
             'agent.error' => $this->output->writeln("{$indent}<fg=red>✗ Error: {$data}</>"),
 
+            'agent.warning' => $this->output->writeln("{$indent}<fg=yellow>⚠ {$data}</>"),
+
+            'agent.summary' => $this->handleSummary($data, $indent),
+
             'child.start' => $this->handleChildStart($data, $indent),
 
             'child.end' => $this->handleChildEnd($indent),
@@ -194,6 +198,21 @@ final class TerminalObserver implements SplObserver
         $this->indentLevel = max(0, $this->indentLevel - 1);
         $newIndent = str_repeat('  ', $this->indentLevel);
         $this->output->writeln("{$newIndent}<fg=blue>└─</> <fg=gray>Child agent completed</>");
+    }
+
+    private function handleSummary(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $saved = number_format($data['tokens_saved'] ?? 0);
+        $count = $data['messages_summarized'] ?? 0;
+        $auto = ($data['auto'] ?? false) ? ' (auto)' : '';
+
+        $this->output->writeln(
+            "{$indent}<fg=yellow>📋 Conversation summarized{$auto}: {$count} messages compressed, {$saved} tokens saved</>",
+        );
     }
 
     /**

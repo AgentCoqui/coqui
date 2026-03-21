@@ -578,6 +578,70 @@ No explicit configuration is required. The memory system initializes automatical
 ```
 
 
+## Context Window & Conversation Summarization
+
+Coqui provides automatic context window management and conversation summarization to prevent token limit overflows. The system uses php-agents' `ContextWindow` for per-iteration pruning and adds LLM-powered summarization for intelligent conversation compression.
+
+### Context Window Integration
+
+1. **`OrchestratorAgent::resolveContextWindow()`** reads the `ModelDefinition` from config and creates a `ContextWindow` via `ContextWindow::fromModel()`. Falls back to 128K max / 4K reserved if no model definition is available.
+2. **The `ContextWindow`** is passed to `AbstractAgent` at construction. On every iteration, `AbstractAgent::run()` calls `Conversation::fitWithinBudget()` to prune oldest messages when the conversation exceeds the token budget.
+3. **Warning/critical thresholds** (80%/95% of max tokens) are set automatically by `ContextWindow::fromModel()`.
+
+### Automatic Summarization
+
+Before each agent turn, `AgentRunner::autoSummarizeIfNeeded()` checks the conversation's estimated token usage against the context window budget. If usage exceeds a configurable threshold, the conversation is automatically summarized:
+
+1. **Threshold check** — `agents.defaults.context.autoSummarizeThreshold` in `openclaw.json` (default: `0.75` = 75% of available budget).
+2. **Provider resolution** — uses the title-generator role's model (cheap/fast) with orchestrator model fallback.
+3. **Summarization** — `ConversationSummarizer` splits the conversation, compresses older messages via LLM, rebuilds with a summary `SystemMessage`.
+4. **Observer notification** — emits `agent.summary` event so terminal/SSE observers can alert the user.
+
+### On-Demand Summarization
+
+Users and agents can trigger summarization manually:
+
+| Interface | Trigger | Description |
+| --- | --- | --- |
+| REPL | `/summarize [recent N] [focus "topic"]` | Summarizes the current session |
+| Agent tool | `summarize_conversation(scope, keep_recent, focus)` | Agent-invoked summarization |
+| API | `POST /api/v1/sessions/{id}/summarize` | Body: `{keep_recent, focus}` |
+
+### Summarization Process
+
+`ConversationSummarizer` performs the following steps:
+
+1. **Split** — finds user turn boundaries, keeps the N most recent turns (default 3), marks older messages for compression. System messages are always preserved.
+2. **Compress** — sends the older messages to a cheap LLM with a structured prompt requesting a <500 word summary covering key decisions, technical details, code references, and unresolved items.
+3. **Rebuild** — constructs a new `Conversation` with: original system messages + summary `SystemMessage` (marked with `[CONVERSATION SUMMARY]`) + preserved recent messages.
+4. **Persist** (optional) — stores the summary as a `session_summary` area `MemoryEntry` in `MemoryStore` for cross-session awareness.
+
+### Configuration
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "context": {
+                "autoSummarizeThreshold": 0.75
+            }
+        }
+    }
+}
+```
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Memory/ConversationSummarizer.php` | Core summarization logic: split, compress via LLM, rebuild conversation |
+| `src/Memory/ConversationSummaryResult.php` | Value object: summary text, message count, token metrics (before/after) |
+| `src/Tool/SummarizeConversationTool.php` | Agent-facing tool with scope/keep_recent/focus parameters |
+| `src/Api/Handler/SummarizeHandler.php` | POST API endpoint for session summarization |
+| `src/Agent/AgentRunner.php` | `autoSummarizeIfNeeded()` — pre-turn budget check and auto-summarize |
+| `src/Agent/OrchestratorAgent.php` | `resolveContextWindow()` — ContextWindow from ModelDefinition |
+
+
 ## Language & Runtime
 
 - **PHP 8.4** — use all modern features including readonly properties, enums, fibers, typed class constants, intersection types, `#[\Override]`, DNF types, property hooks, asymmetric visibility.

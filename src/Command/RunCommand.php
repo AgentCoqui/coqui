@@ -14,12 +14,14 @@ use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Config\SetupWizard;
 use CoquiBot\Coqui\Config\UpdateManager;
+use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Renderer\JsonRenderer;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -564,6 +566,10 @@ final class RunCommand extends Command
                 return true;
             })(),
 
+            '/summarize' => (function () use ($io, $arg) {
+                return $this->handleSummarizeCommand($io, $arg);
+            })(),
+
             '/space' => (function () use ($io, $arg) {
                 return $this->handleSpaceCommand($io, $arg);
             })(),
@@ -584,6 +590,7 @@ final class RunCommand extends Command
                         ['/toolkits [enable|stub|disable <pkg|tool:name>]', 'Manage toolkit visibility'],
                         ['/prompt', 'Show the full system prompt sent to the LLM'],
                         ['/space [search|install|remove|installed|skills|toolkits|update]', 'Coqui Space marketplace'],
+                        ['/summarize [recent N] [focus "topic"]', 'Summarize conversation history to save tokens'],
                         ['/update', 'Check for and apply dependency updates'],
                         ['/restart', 'Restart Coqui (re-reads config, re-discovers toolkits)'],
                         ['/quit', 'Exit Coqui'],
@@ -607,7 +614,7 @@ final class RunCommand extends Command
             '/quit', '/exit', '/q' => Command::SUCCESS,
             '/restart' => self::RESTART_EXIT_CODE,
             '/update' => $this->runUpdate($io),
-            '/toolkits', '/prompt' => true,
+            '/toolkits', '/prompt', '/summarize' => true,
             default => true,
         };
     }
@@ -695,6 +702,97 @@ final class RunCommand extends Command
         } catch (\InvalidArgumentException $e) {
             $io->error($e->getMessage());
         }
+
+        return true;
+    }
+
+    /**
+     * Handle /summarize command to compress conversation history.
+     *
+     * Usage:
+     *   /summarize              — summarize all but the 3 most recent turns
+     *   /summarize recent N     — keep N most recent turns
+     *   /summarize focus "topic" — emphasize a specific topic in the summary
+     */
+    private function handleSummarizeCommand(SymfonyStyle $io, string $arg): true
+    {
+        if ($this->sessionId === null) {
+            $io->error('No active session to summarize.');
+            return true;
+        }
+
+        $keepRecent = 3;
+        $focus = null;
+
+        // Parse arguments
+        $arg = trim($arg);
+        if ($arg !== '') {
+            if (preg_match('/^recent\s+(\d+)/i', $arg, $matches)) {
+                $keepRecent = max(1, min(20, (int) $matches[1]));
+                $arg = trim(substr($arg, strlen($matches[0])));
+            }
+            if (preg_match('/focus\s+"([^"]+)"/i', $arg, $matches)) {
+                $focus = $matches[1];
+            } elseif (preg_match('/focus\s+(\S+)/i', $arg, $matches)) {
+                $focus = $matches[1];
+            }
+        }
+
+        $summarizer = new ConversationSummarizer(
+            storage: $this->storage,
+            memoryStore: $this->boot->memoryStore(),
+        );
+
+        // Resolve a cheap provider for summarization
+        $config = $this->boot->config();
+        $factory = new ProviderFactory($config);
+        $provider = null;
+
+        try {
+            $titleModel = $this->boot->roleResolver()->resolve('title-generator');
+            if ($titleModel !== '') {
+                $provider = $factory->create($titleModel);
+            }
+        } catch (\Throwable) {
+            // Fall through
+        }
+
+        if ($provider === null) {
+            try {
+                $orchestratorModel = $this->boot->roleResolver()->resolve('orchestrator');
+                $provider = $factory->create($orchestratorModel);
+            } catch (\Throwable) {
+                $io->error('Could not resolve a provider for summarization.');
+                return true;
+            }
+        }
+
+        $io->text('<fg=gray>Summarizing conversation...</>');
+
+        try {
+            $result = $summarizer->summarizeAndPersist(
+                sessionId: $this->sessionId,
+                provider: $provider,
+                keepRecentTurns: $keepRecent,
+                focus: $focus,
+            );
+        } catch (\Throwable $e) {
+            $io->error('Summarization failed: ' . $e->getMessage());
+            return true;
+        }
+
+        if (!$result->wasSummarized()) {
+            $io->info('Conversation is too short to summarize.');
+            return true;
+        }
+
+        $io->success(sprintf(
+            'Summarized %d messages — %s → %s tokens (saved %s)',
+            $result->messagesSummarized,
+            number_format($result->tokensBefore),
+            number_format($result->tokensAfter),
+            number_format($result->tokensSaved()),
+        ));
 
         return true;
     }
