@@ -17,12 +17,14 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit with configurable allowlist, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui). Shell allowlist is resolved from agents.defaults.shellAllowedCommands in openclaw.json or falls back to DEFAULT_SHELL_COMMANDS (includes curl, wget). Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit with configurable allowlist, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation). Shell allowlist is resolved from agents.defaults.shellAllowedCommands in openclaw.json or falls back to DEFAULT_SHELL_COMMANDS (includes curl, wget). Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string \u2014 returns the full system prompt with role descriptions, security rules, and operational guidelines",
-                "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui)",
+                "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation)",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
-                "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking"
+                "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking",
+                "resolveContextWindow(): ?ContextWindowInterface — resolves ContextWindow from ModelDefinition with 128K/4K fallback",
+                "getContextWindow(): ?ContextWindowInterface — accessor for the resolved context window"
             ]
         },
         {
@@ -40,14 +42,15 @@
             "path": "src/Agent/AgentRunner.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunner",
             "layer": "agent",
-            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Supports per-turn observer injection via runWithObserver() for API mode where each request gets its own SseObserver. Background tasks use runForTask() which threads role and maxIterations through to the agent.",
+            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Supports per-turn observer injection via runWithObserver() for API mode where each request gets its own SseObserver. Background tasks use runForTask() which threads role and maxIterations through to the agent. Includes autoSummarizeIfNeeded() which checks token usage against the context window budget before each turn and triggers automatic conversation summarization when usage exceeds a configurable threshold (agents.defaults.context.autoSummarizeThreshold, default 75%).",
             "methods": [
                 "run(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy): AgentTurnResult — runs a single agent turn using the default observer",
                 "runWithObserver(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy, SplObserver $observer): AgentTurnResult — runs a turn with a per-turn observer override",
                 "runForTask(..., ?string $role, ?int $maxIterations): AgentTurnResult — runs a background task with specified role and iteration limit",
                 "createAgent(..., ?SplObserver $observer, string $role, ?int $maxIterations): OrchestratorAgent — builds the orchestrator agent with role-resolved model and iteration limit",
                 "persistTurnMessages(Conversation, int, string, ?string $turnId): void — persists new messages from a turn with turn linkage",
-                "extractToolsUsed(?Conversation): string[] — extracts unique tool names from conversation tool calls"
+                "extractToolsUsed(?Conversation): string[] — extracts unique tool names from conversation tool calls",
+                "autoSummarizeIfNeeded(OrchestratorAgent, Conversation, string $sessionId, ?SplObserver): Conversation — checks token budget and auto-summarizes if threshold exceeded"
             ]
         },
         {
@@ -377,6 +380,15 @@
             "description": "Agent-facing tool for image analysis. Wraps VisionAnalyzer to expose a vision_analyze tool that accepts an image source (file path, URL, or base64 data URI) and an optional prompt. Delegates model resolution, provider routing, and multimodal message construction to VisionAnalyzer. Detects 'Error: ' prefixed responses from VisionAnalyzer and returns them as ToolResult::error() so the agent sees specific failure reasons.",
             "methods": [
                 "execute(array $input): ToolResult — validates image parameter, delegates to VisionAnalyzer, returns ToolResult::success() or ToolResult::error() with descriptive message"
+            ]
+        },
+        {
+            "path": "src/Tool/SummarizeConversationTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\SummarizeConversationTool",
+            "layer": "tool",
+            "description": "Agent-facing tool for on-demand conversation summarization. Exposes a summarize_conversation tool with scope (all/recent), keep_recent (1-20), and focus parameters. Resolves a cheap provider via title-generator role with orchestrator fallback. Delegates to ConversationSummarizer for the actual compression.",
+            "methods": [
+                "execute(array $input): ToolResult — validates parameters, resolves provider, delegates to ConversationSummarizer, returns summary metrics"
             ]
         },
         {
@@ -753,6 +765,15 @@
             ]
         },
         {
+            "path": "src/Api/Handler/SummarizeHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SummarizeHandler",
+            "layer": "command",
+            "description": "POST /api/v1/sessions/{id}/summarize — triggers conversation summarization for a session. Accepts optional keep_recent (1-20) and focus parameters. Resolves a cheap provider via title-generator role with orchestrator fallback. Returns summary text, message count, and token metrics.",
+            "methods": [
+                "summarize(request, id): Response — validates session, summarizes conversation, returns JSON metrics"
+            ]
+        },
+        {
             "path": "src/Api/Handler/ServerHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ServerHandler",
             "layer": "command",
@@ -799,10 +820,10 @@
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including RoleHandler and TitleGenerator, configures CORS (with PATCH support) and optional API key auth, and enters the ReactPHP event loop.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including RoleHandler, TitleGenerator, and SummarizeHandler, configures CORS (with PATCH support) and optional API key auth, and enters the ReactPHP event loop.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
-                "registerRoutes(Router, ...handlers): void — registers all API routes",
+                "registerRoutes(Router, ...handlers): void — registers all API routes including summarize endpoint",
                 "resolveApiKey(BootManager): ?string — resolves API key from config/env/workspace"
             ]
         },
@@ -872,6 +893,26 @@
             "methods": [
                 "getSummary(): ?string — returns cached or freshly generated summary, null if no memories exist",
                 "invalidate(): void — forces summary regeneration on next call"
+            ]
+        },
+        {
+            "path": "src/Memory/ConversationSummarizer.php",
+            "fqcn": "CoquiBot\\Coqui\\Memory\\ConversationSummarizer",
+            "layer": "storage",
+            "description": "Summarizes conversation history to reduce token usage while preserving context. Splits conversations into a segment to summarize and recent turns to keep, compresses the older segment via a cheap LLM provider, and rebuilds the conversation with a summary SystemMessage replacing the compressed messages. Optionally persists summaries as session-scoped MemoryEntry records in MemoryStore.",
+            "methods": [
+                "summarize(Conversation, ProviderInterface, keepRecentTurns, ?focus): ConversationSummaryResult — compresses older messages into a structured summary",
+                "summarizeAndPersist(sessionId, provider, keepRecentTurns, ?focus): ConversationSummaryResult — summarizes, stores in MemoryStore, and persists summary SystemMessage to session"
+            ]
+        },
+        {
+            "path": "src/Memory/ConversationSummaryResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Memory\\ConversationSummaryResult",
+            "layer": "storage",
+            "description": "Immutable value object holding the result of a conversation summarization: summary text, message count, token metrics (before/after), and the rebuilt Conversation. Provides tokensSaved() and wasSummarized() convenience methods.",
+            "methods": [
+                "tokensSaved(): int — returns tokensBefore - tokensAfter",
+                "wasSummarized(): bool — returns true if messagesSummarized > 0"
             ]
         },
         {

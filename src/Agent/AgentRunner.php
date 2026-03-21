@@ -29,6 +29,7 @@ use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
+use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -188,10 +189,13 @@ final class AgentRunner
         }
 
         try {
-            // Apply context window pruning — conservative 100K token budget (80% of 128K)
-            if ($history->count() > 0) {
-                $history = $history->fitWithinBudget(100000);
-            }
+            // Auto-summarize when conversation history is nearing the context limit.
+            // This preserves important context via LLM summarization instead of
+            // silently dropping oldest turns via fitWithinBudget().
+            $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $observer);
+
+            // Per-iteration pruning is handled by AbstractAgent using the
+            // model-aware ContextWindow passed to OrchestratorAgent.
 
             $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $history);
 
@@ -584,5 +588,103 @@ final class AgentRunner
             completionTokens: $completionTokens,
             totalTokens: $promptTokens + $completionTokens,
         );
+    }
+
+    /**
+     * Auto-summarize conversation history when it approaches the context window limit.
+     *
+     * Checks the estimated token usage against the model's context window.
+     * At 75% usage, triggers automatic summarization to preserve context
+     * via LLM compression instead of losing information through hard pruning.
+     *
+     * Thresholds are configurable via openclaw.json:
+     *   agents.defaults.context.autoSummarizeThreshold (default: 75)
+     */
+    private function autoSummarizeIfNeeded(
+        OrchestratorAgent $agent,
+        Conversation $history,
+        string $sessionId,
+        ?SplObserver $observer = null,
+    ): Conversation {
+        if ($history->count() === 0) {
+            return $history;
+        }
+
+        $contextWindow = $agent->getContextWindow();
+        if ($contextWindow === null) {
+            return $history;
+        }
+
+        // Estimate current conversation token usage
+        $estimatedTokens = $history->estimateTokens();
+        $maxTokens = $contextWindow->maxTokens();
+        $reserved = $contextWindow->reservedTokens();
+        $effectiveMax = $maxTokens - $reserved;
+
+        if ($effectiveMax <= 0) {
+            return $history;
+        }
+
+        $usagePercent = ($estimatedTokens / $effectiveMax) * 100;
+
+        // Read threshold from config (default: 75%)
+        $threshold = $this->config->get('agents.defaults.context.autoSummarizeThreshold');
+        $threshold = is_numeric($threshold) ? (float) $threshold : 75.0;
+
+        if ($usagePercent < $threshold) {
+            return $history;
+        }
+
+        // Trigger auto-summarization
+        $summarizer = new ConversationSummarizer(
+            storage: $this->storage,
+            memoryStore: $this->memoryStore,
+        );
+
+        // Resolve a cheap provider for summarization
+        $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+        $provider = null;
+
+        try {
+            $titleModel = $this->roleResolver->resolve('title-generator');
+            if ($titleModel !== '') {
+                $provider = $factory->create($titleModel);
+            }
+        } catch (\Throwable) {
+            // Fall through
+        }
+
+        if ($provider === null) {
+            try {
+                $orchestratorModel = $this->roleResolver->resolve('orchestrator');
+                $provider = $factory->create($orchestratorModel);
+            } catch (\Throwable) {
+                return $history;
+            }
+        }
+
+        $result = $summarizer->summarizeAndPersist(
+            sessionId: $sessionId,
+            provider: $provider,
+            keepRecentTurns: 5,
+        );
+
+        if (!$result->wasSummarized()) {
+            return $history;
+        }
+
+        // Notify observer about auto-summarization
+        $agent->notify(
+            'agent.summary',
+            [
+                'messages_summarized' => $result->messagesSummarized,
+                'tokens_before' => $result->tokensBefore,
+                'tokens_after' => $result->tokensAfter,
+                'tokens_saved' => $result->tokensSaved(),
+                'auto' => true,
+            ],
+        );
+
+        return $result->conversation;
     }
 }

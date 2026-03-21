@@ -30,6 +30,7 @@ use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
+use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Observer\TerminalObserver;
@@ -48,9 +49,12 @@ use CoquiBot\Coqui\Tool\PhpExecuteTool;
 use CoquiBot\Coqui\Tool\RestartTool;
 use CoquiBot\Coqui\Tool\SpawnAgentTool;
 use CoquiBot\Coqui\Tool\StubTool;
+use CoquiBot\Coqui\Tool\SummarizeConversationTool;
 use CoquiBot\Coqui\Tool\ToolRegistry;
 use CoquiBot\Coqui\Tool\ToolSearchTool;
 use CoquiBot\Coqui\Tool\VisionTool;
+use CarmeloSantana\PHPAgents\Context\ContextWindow;
+use CarmeloSantana\PHPAgents\Contract\ContextWindowInterface;
 use CarmeloSantana\PHPAgents\Contract\TokenCounterInterface;
 use CarmeloSantana\PHPAgents\Prompt\SystemPrompt;
 
@@ -74,8 +78,10 @@ final class OrchestratorAgent extends AbstractAgent
     private ?RestartTool $restartTool = null;
     private ?ConfigTool $configTool = null;
     private VisionTool $visionTool;
+    private ?SummarizeConversationTool $summarizeTool = null;
     private ToolRegistry $toolRegistry;
     private ToolSearchTool $toolSearchTool;
+    private ?ContextWindowInterface $contextWindowInstance = null;
 
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
@@ -126,7 +132,11 @@ final class OrchestratorAgent extends AbstractAgent
             }
         }
 
-        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider);
+        // Resolve context window from model definition when available
+        $contextWindow = $this->resolveContextWindow($config, $this->roleResolver);
+        $this->contextWindowInstance = $contextWindow;
+
+        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow);
 
         // Use injected resolver or create one (backward compat for standalone use)
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);
@@ -238,6 +248,21 @@ final class OrchestratorAgent extends AbstractAgent
             );
         }
 
+        // Summarize conversation tool — agent can compress history to save context space
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $conversationSummarizer = new ConversationSummarizer(
+                storage: $this->storage,
+                memoryStore: $this->memoryStore,
+            );
+            $this->summarizeTool = new SummarizeConversationTool(
+                summarizer: $conversationSummarizer,
+                storage: $this->storage,
+                roleResolver: $this->roleResolver,
+                config: $this->config,
+                sessionId: $this->sessionId,
+            );
+        }
+
         // Background task toolkit — only in API mode
         if ($backgroundTaskToolkit !== null) {
             $this->addToolkit($backgroundTaskToolkit);
@@ -257,6 +282,10 @@ final class OrchestratorAgent extends AbstractAgent
 
         if ($this->configTool !== null) {
             $this->toolRegistry->register($this->configTool);
+        }
+
+        if ($this->summarizeTool !== null) {
+            $this->toolRegistry->register($this->summarizeTool);
         }
 
         // Create the tool search tool — always-loaded, not subject to maxTools cap.
@@ -342,6 +371,11 @@ final class OrchestratorAgent extends AbstractAgent
             $this->toolSearchTool,
             $this->credentialTool,
         ];
+
+        // Summarize tool is always available when a session exists
+        if ($this->summarizeTool !== null) {
+            $alwaysEnabled[] = $this->summarizeTool;
+        }
 
         // Visibility-aware standalone tools (by tool name => instance)
         /** @var array<string, ToolInterface> */
@@ -503,5 +537,39 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         return self::DEFAULT_SHELL_COMMANDS;
+    }
+
+    /**
+     * Resolve a ContextWindow from the model definition in config.
+     *
+     * Uses the orchestrator model's declared contextWindow and maxTokens
+     * to create an accurate token budget. Falls back to a conservative
+     * 128K window when no model definition is available.
+     */
+    private function resolveContextWindow(ConfigInterface $config, RoleResolver $roleResolver): ContextWindowInterface
+    {
+        if ($config instanceof OpenClawConfig) {
+            $modelString = $roleResolver->resolve('orchestrator');
+            $parts = explode('/', $modelString, 2);
+            $modelId = $parts[1] ?? $modelString;
+
+            $modelDef = $config->getModelDefinition($modelId)
+                ?? $config->getModelDefinition($modelString);
+
+            if ($modelDef !== null) {
+                return ContextWindow::fromModel($modelDef);
+            }
+        }
+
+        // Conservative fallback: 128K context window, 4K reserved for completion
+        return new ContextWindow(maxTok: 128000, reservedTok: 4096);
+    }
+
+    /**
+     * Get the context window tracker for this agent.
+     */
+    public function getContextWindow(): ?ContextWindowInterface
+    {
+        return $this->contextWindowInstance;
     }
 }
