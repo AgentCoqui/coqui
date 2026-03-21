@@ -641,14 +641,14 @@ final class AgentRunner
             memoryStore: $this->memoryStore,
         );
 
-        // Resolve a cheap provider for summarization
+        // Resolve a cheap provider for summarization via utility model chain
         $factory = $this->providerFactory ?? new ProviderFactory($this->config);
         $provider = null;
 
         try {
-            $titleModel = $this->roleResolver->resolve('title-generator');
-            if ($titleModel !== '') {
-                $provider = $factory->create($titleModel);
+            $utilityModel = $this->roleResolver->resolveUtility();
+            if ($utilityModel !== '') {
+                $provider = $factory->create($utilityModel);
             }
         } catch (\Throwable) {
             // Fall through
@@ -663,10 +663,15 @@ final class AgentRunner
             }
         }
 
+        // Read configurable keepRecentTurns for auto-summarization
+        $keepRecentCfg = $this->config->get('agents.defaults.context.autoSummarizeKeepRecent');
+        $keepRecent = is_numeric($keepRecentCfg) ? (int) $keepRecentCfg : 5;
+        $keepRecent = max(1, min(20, $keepRecent));
+
         $result = $summarizer->summarizeAndPersist(
             sessionId: $sessionId,
             provider: $provider,
-            keepRecentTurns: 5,
+            keepRecentTurns: $keepRecent,
         );
 
         if (!$result->wasSummarized()) {

@@ -721,7 +721,10 @@ final class RunCommand extends Command
             return true;
         }
 
-        $keepRecent = 3;
+        // Read configurable keepRecentTurns from config
+        $config = $this->boot->config();
+        $configKeepRecent = $config->get('agents.defaults.context.keepRecentTurns');
+        $keepRecent = is_numeric($configKeepRecent) ? (int) $configKeepRecent : 3;
         $focus = null;
 
         // Parse arguments
@@ -743,15 +746,14 @@ final class RunCommand extends Command
             memoryStore: $this->boot->memoryStore(),
         );
 
-        // Resolve a cheap provider for summarization
-        $config = $this->boot->config();
+        // Resolve a cheap provider for summarization via utility model chain
         $factory = new ProviderFactory($config);
         $provider = null;
 
         try {
-            $titleModel = $this->boot->roleResolver()->resolve('title-generator');
-            if ($titleModel !== '') {
-                $provider = $factory->create($titleModel);
+            $utilityModel = $this->boot->roleResolver()->resolveUtility();
+            if ($utilityModel !== '') {
+                $provider = $factory->create($utilityModel);
             }
         } catch (\Throwable) {
             // Fall through

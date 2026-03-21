@@ -82,7 +82,11 @@ final class SummarizeConversationTool implements ToolInterface
     public function execute(array $arguments): ToolResult
     {
         $scope = (string) ($arguments['scope'] ?? 'recent');
-        $keepRecent = (int) ($arguments['keep_recent'] ?? ($scope === 'all' ? 2 : 3));
+
+        // Read configurable keepRecentTurns from config
+        $configKeepRecent = $this->config->get('agents.defaults.context.keepRecentTurns');
+        $defaultKeepRecent = is_numeric($configKeepRecent) ? (int) $configKeepRecent : 3;
+        $keepRecent = (int) ($arguments['keep_recent'] ?? ($scope === 'all' ? max(2, $defaultKeepRecent - 1) : $defaultKeepRecent));
         $focus = isset($arguments['focus']) ? (string) $arguments['focus'] : null;
 
         // Clamp keep_recent to reasonable bounds
@@ -153,18 +157,18 @@ final class SummarizeConversationTool implements ToolInterface
     /**
      * Resolve a cheap LLM provider for summarization.
      *
-     * Prefers the title-generator model (designed for cheap single-shot tasks).
-     * Falls back to the orchestrator model.
+     * Uses the utility model resolution chain:
+     * agents.defaults.model.utility → title-generator role → primary model.
+     * Falls back to the orchestrator model on error.
      */
     private function resolveSummarizationProvider(): ?ProviderInterface
     {
         try {
             $factory = new ProviderFactory($this->config);
 
-            // Try title-generator model first (cheapest)
-            $titleModel = $this->roleResolver->resolve('title-generator');
-            if ($titleModel !== '') {
-                return $factory->create($titleModel);
+            $utilityModel = $this->roleResolver->resolveUtility();
+            if ($utilityModel !== '') {
+                return $factory->create($utilityModel);
             }
 
             // Fall back to orchestrator model

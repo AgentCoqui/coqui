@@ -14,6 +14,7 @@ Coqui is built on [`carmelosantana/php-agents`](https://github.com/carmelosantan
 | `cancellationToken` | `?CancellationTokenInterface` | `null` | Cooperative cancellation (SIGINT, ESC) |
 | `pendingInputProvider` | `?PendingInputProviderInterface` | `null` | Inject messages mid-loop (API mode) |
 | `contextWindow` | `?ContextWindowInterface` | `null` | Token budget tracking + auto-pruning |
+| `pruningStrategy` | `?BudgetPruningStrategyInterface` | `null` | Custom budget pruning (default: trim + drop) |
 
 ### Run Loop Output
 
@@ -56,6 +57,7 @@ Agents implement `SplSubject`. Coqui attaches `TerminalObserver` (REPL) and `Sse
 | `ToolExecutionPolicyInterface` | `InteractiveApprovalPolicy`, `AutoApprovalPolicy` |
 | `CancellationTokenInterface` | `CancellationToken` — driven by SIGINT handler and `EscCancellationObserver` |
 | `ContextWindowInterface` | `ContextWindow` — optionally enabled; prunes conversation on token pressure |
+| `BudgetPruningStrategyInterface` | `SummarizePruningStrategy` — summarize-then-drop; falls back to `DefaultBudgetPruningStrategy` |
 
 ### Deprecated in php-agents — Do Not Use in Coqui
 
@@ -446,6 +448,54 @@ Coqui provides automatic model failover via the `FallbackProvider` decorator pat
 
 
 
+## Utility Model Architecture
+
+Many Coqui subsystems need a "cheap/fast" LLM for internal tasks (title generation, conversation summarization, memory compression). Rather than each subsystem independently resolving a model, Coqui provides a unified utility model resolution chain via `RoleResolver::resolveUtility()`.
+
+### Resolution Chain
+
+`resolveUtility()` checks the following sources in order, returning the first non-empty value:
+
+1. **`agents.defaults.model.utility`** in `openclaw.json` — explicit utility model config
+2. **`COQUI_UTILITY_MODEL`** environment variable — override without editing config
+3. **`resolve('title-generator')`** — falls through the standard 3-tier role resolution (role file → openclaw.json roles → primary model)
+
+### Subsystems Using Utility Model
+
+| Subsystem | Callsite | Purpose |
+| --- | --- | --- |
+| Title generation | `TitleGenerator::resolveProvider()` | Session title generation |
+| Auto-summarization | `AgentRunner::autoSummarizeIfNeeded()` | Pre-turn budget-triggered summarization |
+| On-demand summarization | `SummarizeConversationTool::execute()` | Agent-invoked conversation compression |
+| API summarization | `SummarizeHandler::handle()` | HTTP API summarization endpoint |
+| REPL summarization | `RunCommand::handleSummarizeCommand()` | `/summarize` command |
+| Memory compression | `OrchestratorAgent::instructions()` | MemorySummarizer core memory summary |
+| Budget pruning | `OrchestratorAgent::__construct()` | SummarizePruningStrategy for in-loop pruning |
+
+### Configuration
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "model": {
+                "utility": "ollama/gemma3:4b"
+            }
+        }
+    }
+}
+```
+
+If not configured, the title-generator role's model is used. If that's also not configured, the primary model is used.
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Config/RoleResolver.php` | `resolveUtility()` — unified resolution chain |
+| `src/Config/OpenClawConfig.php` | `getUtilityModel()` — reads config key and env var |
+
+
 ## Mount System Architecture
 
 Coqui supports declarative directory mounts that give agents access to external directories beyond the primary workspace. Mounts are configured in `openclaw.json` and surfaced as symlinks under `workspace/mnt/` for agent discoverability.
@@ -580,7 +630,7 @@ No explicit configuration is required. The memory system initializes automatical
 
 ## Context Window & Conversation Summarization
 
-Coqui provides automatic context window management and conversation summarization to prevent token limit overflows. The system uses php-agents' `ContextWindow` for per-iteration pruning and adds LLM-powered summarization for intelligent conversation compression.
+Coqui provides automatic context window management and conversation summarization to prevent token limit overflows. The system uses php-agents' `ContextWindow` for per-iteration pruning, a pluggable `BudgetPruningStrategyInterface` for custom pruning logic, and LLM-powered summarization for intelligent conversation compression.
 
 ### Context Window Integration
 
@@ -588,14 +638,24 @@ Coqui provides automatic context window management and conversation summarizatio
 2. **The `ContextWindow`** is passed to `AbstractAgent` at construction. On every iteration, `AbstractAgent::run()` calls `Conversation::fitWithinBudget()` to prune oldest messages when the conversation exceeds the token budget.
 3. **Warning/critical thresholds** (80%/95% of max tokens) are set automatically by `ContextWindow::fromModel()`.
 
+### Budget Pruning Strategy
+
+`AbstractAgent` accepts an optional `BudgetPruningStrategyInterface` at construction. This strategy is passed to `Conversation::fitWithinBudget()` on every iteration:
+
+- **`DefaultBudgetPruningStrategy`** (php-agents) — the extracted built-in logic: trim tool results → drop oldest turns → aggressive trim → repair → merge. Used when no custom strategy is provided.
+- **`SummarizePruningStrategy`** (Coqui) — attempts LLM summarization via `ConversationSummarizer` before falling back to default pruning. If summarization doesn't reduce tokens enough, applies `DefaultBudgetPruningStrategy` on top. On any failure, falls back entirely to default pruning.
+
+`OrchestratorAgent` creates a `SummarizePruningStrategy` at construction using the utility provider, session storage, memory store, and configurable `keepRecentTurns`.
+
 ### Automatic Summarization
 
 Before each agent turn, `AgentRunner::autoSummarizeIfNeeded()` checks the conversation's estimated token usage against the context window budget. If usage exceeds a configurable threshold, the conversation is automatically summarized:
 
 1. **Threshold check** — `agents.defaults.context.autoSummarizeThreshold` in `openclaw.json` (default: `0.75` = 75% of available budget).
-2. **Provider resolution** — uses the title-generator role's model (cheap/fast) with orchestrator model fallback.
-3. **Summarization** — `ConversationSummarizer` splits the conversation, compresses older messages via LLM, rebuilds with a summary `SystemMessage`.
-4. **Observer notification** — emits `agent.summary` event so terminal/SSE observers can alert the user.
+2. **Provider resolution** — uses the utility model resolution chain (see Utility Model section below).
+3. **Keep recent** — `agents.defaults.context.autoSummarizeKeepRecent` controls how many recent turns are preserved during auto-summarization (default: `5`, clamped 1–20).
+4. **Summarization** — `ConversationSummarizer` splits the conversation, compresses older messages via LLM, rebuilds with a summary `SystemMessage`.
+5. **Observer notification** — emits `agent.summary` event so terminal/SSE observers can alert the user.
 
 ### On-Demand Summarization
 
@@ -611,7 +671,7 @@ Users and agents can trigger summarization manually:
 
 `ConversationSummarizer` performs the following steps:
 
-1. **Split** — finds user turn boundaries, keeps the N most recent turns (default 3), marks older messages for compression. System messages are always preserved.
+1. **Split** — finds user turn boundaries, keeps the N most recent turns (configurable via `agents.defaults.context.keepRecentTurns`, default 3), marks older messages for compression. System messages are always preserved.
 2. **Compress** — sends the older messages to a cheap LLM with a structured prompt requesting a <500 word summary covering key decisions, technical details, code references, and unresolved items.
 3. **Rebuild** — constructs a new `Conversation` with: original system messages + summary `SystemMessage` (marked with `[CONVERSATION SUMMARY]`) + preserved recent messages.
 4. **Persist** (optional) — stores the summary as a `session_summary` area `MemoryEntry` in `MemoryStore` for cross-session awareness.
@@ -623,12 +683,20 @@ Users and agents can trigger summarization manually:
     "agents": {
         "defaults": {
             "context": {
-                "autoSummarizeThreshold": 0.75
+                "autoSummarizeThreshold": 0.75,
+                "autoSummarizeKeepRecent": 5,
+                "keepRecentTurns": 3
             }
         }
     }
 }
 ```
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `autoSummarizeThreshold` | `0.75` | Token usage ratio that triggers auto-summarization (0.0–1.0) |
+| `autoSummarizeKeepRecent` | `5` | Turns preserved during auto-summarization (1–20) |
+| `keepRecentTurns` | `3` | Default turns preserved during on-demand summarization |
 
 ### Key Source Files
 
@@ -636,10 +704,11 @@ Users and agents can trigger summarization manually:
 | --- | --- |
 | `src/Memory/ConversationSummarizer.php` | Core summarization logic: split, compress via LLM, rebuild conversation |
 | `src/Memory/ConversationSummaryResult.php` | Value object: summary text, message count, token metrics (before/after) |
+| `src/Config/SummarizePruningStrategy.php` | BudgetPruningStrategyInterface — summarize-then-drop with default fallback |
 | `src/Tool/SummarizeConversationTool.php` | Agent-facing tool with scope/keep_recent/focus parameters |
 | `src/Api/Handler/SummarizeHandler.php` | POST API endpoint for session summarization |
 | `src/Agent/AgentRunner.php` | `autoSummarizeIfNeeded()` — pre-turn budget check and auto-summarize |
-| `src/Agent/OrchestratorAgent.php` | `resolveContextWindow()` — ContextWindow from ModelDefinition |
+| `src/Agent/OrchestratorAgent.php` | `resolveContextWindow()` — ContextWindow from ModelDefinition; creates SummarizePruningStrategy |
 
 
 ## Language & Runtime
