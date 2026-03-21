@@ -8,16 +8,16 @@
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "v0.9.2",
+            "version": "v0.9.3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "eccd947ea207b203927e5c3090c3865acfb59f27"
+                "reference": "4233bb9f61cc7846be7b2a71d132590559029328"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/eccd947ea207b203927e5c3090c3865acfb59f27",
-                "reference": "eccd947ea207b203927e5c3090c3865acfb59f27",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/4233bb9f61cc7846be7b2a71d132590559029328",
+                "reference": "4233bb9f61cc7846be7b2a71d132590559029328",
                 "shasum": ""
             },
             "require": {
@@ -61,9 +61,9 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.9.2"
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.9.3"
             },
-            "time": "2026-03-19T01:20:48+00:00"
+            "time": "2026-03-19T22:03:41+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-composer",
