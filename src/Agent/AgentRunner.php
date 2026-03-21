@@ -30,6 +30,7 @@ use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
+use CoquiBot\Coqui\Memory\MemoryExtractor;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -233,6 +234,9 @@ final class AgentRunner
                 toolsUsed: json_encode($toolsUsed, JSON_UNESCAPED_SLASHES) ?: '[]',
                 childAgentCount: $childAgentCount,
             );
+
+            // Automatic memory extraction from completed turn
+            $this->autoExtractMemories($output->conversation ?? $history, $sessionId);
 
             return new AgentTurnResult(
                 content: $output->content,
@@ -691,5 +695,45 @@ final class AgentRunner
         );
 
         return $result->conversation;
+    }
+
+    /**
+     * Run automatic memory extraction from a completed conversation turn.
+     *
+     * Uses a cheap LLM call to identify noteworthy facts in recent turns
+     * and saves them as memories. Respects cooldown and config toggle.
+     */
+    private function autoExtractMemories(Conversation $conversation, string $sessionId): void
+    {
+        if ($this->memoryStore === null) {
+            return;
+        }
+
+        // Check config toggle (default: true)
+        $autoExtract = $this->config->get('agents.defaults.memory.autoExtract');
+        if ($autoExtract === false || $autoExtract === 'false') {
+            return;
+        }
+
+        try {
+            $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+            $provider = null;
+
+            // Resolve a cheap utility provider
+            $utilityModel = $this->roleResolver->resolveUtility();
+            if ($utilityModel !== '') {
+                $provider = $factory->create($utilityModel);
+            }
+
+            if ($provider === null) {
+                $orchestratorModel = $this->roleResolver->resolve('orchestrator');
+                $provider = $factory->create($orchestratorModel);
+            }
+
+            $extractor = new MemoryExtractor($this->memoryStore);
+            $extractor->extractFromConversation($conversation, $provider);
+        } catch (\Throwable) {
+            // Extraction failure is non-fatal — never interrupt the user flow
+        }
     }
 }
