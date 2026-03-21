@@ -61,8 +61,15 @@ final class TitleGenerator
             }
 
             return $title;
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
             // Title generation is best-effort — never propagate errors
+            error_log(sprintf(
+                '[Coqui] Title generation failed: %s in %s:%d',
+                $e->getMessage(),
+                $e->getFile(),
+                $e->getLine(),
+            ));
+
             return null;
         }
     }
