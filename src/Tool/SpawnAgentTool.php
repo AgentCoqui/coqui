@@ -16,6 +16,8 @@ use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
+use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -186,7 +188,7 @@ final class SpawnAgentTool implements ToolInterface
         // Child agents get read-only mount access regardless of role access level
         $mountPaths = $this->mountManager?->allowedPathsReadOnly() ?? [];
 
-        return match ($accessLevel) {
+        $toolkits = match ($accessLevel) {
             'full' => [
                 new FilesystemToolkit(rootPath: $this->workspacePath, allowedPaths: $mountPaths),
                 new ShellToolkit(
@@ -205,6 +207,15 @@ final class SpawnAgentTool implements ToolInterface
             // 'minimal' — no toolkits
             default => [],
         };
+
+        // Artifact toolkit — share parent session's artifacts with child agents.
+        // All access levels get artifact tools (data management, not filesystem mutation).
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $artifactStore = new ArtifactStore($this->storage->getPdo());
+            $toolkits[] = new ArtifactToolkit($artifactStore, $this->sessionId);
+        }
+
+        return $toolkits;
     }
 
     /**
