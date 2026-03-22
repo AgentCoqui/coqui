@@ -303,6 +303,31 @@ final class SessionStorage
         ]);
     }
 
+    /**
+     * Update a session's active role and resolved model.
+     */
+    public function updateSessionRole(string $sessionId, string $modelRole, string $model): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions SET model_role = :model_role, model = :model, updated_at = :updated_at WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'model_role' => $modelRole,
+            'model' => $model,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * Expose the PDO connection for shared-database consumers (e.g. ArtifactStore).
+     */
+    public function getPdo(): PDO
+    {
+        return $this->db;
+    }
+
     public function addMessage(
         string $sessionId,
         string $role,

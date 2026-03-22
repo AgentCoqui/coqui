@@ -9,10 +9,19 @@
       "name": "Carmelo Santana"
     }
   ],
+  "repositories": {
+    "php-agents": {
+      "type": "path",
+      "url": "../php-agents",
+      "options": {
+        "symlink": true
+      }
+    }
+  },  
   "require": {
     "php": "^8.4",
     "ext-pdo_sqlite": "*",
-    "carmelosantana/php-agents": "^0.9",
+    "carmelosantana/php-agents": "@dev",
     "coquibot/coqui-toolkit-composer": "^0.1",
     "coquibot/coqui-toolkit-packagist": "^0.1",
     "react/http": "^1.11",

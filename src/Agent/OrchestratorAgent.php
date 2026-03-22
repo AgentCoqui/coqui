@@ -38,6 +38,7 @@ use CarmeloSantana\PHPAgents\Memory\MemoryEntry;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
+use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
@@ -115,6 +116,7 @@ final class OrchestratorAgent extends AbstractAgent
         ?ConfigGuard $configGuard = null,
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
         private readonly ?SpaceToolkit $spaceToolkit = null,
+        private readonly ?string $activeRole = null,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
@@ -169,23 +171,46 @@ final class OrchestratorAgent extends AbstractAgent
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);
         $credentialResolver->loadIntoProcessEnv();
 
-        // Filesystem toolkit — sandboxed to workspace (read/write) with optional mount allowlist
-        $this->addToolkit(new FilesystemToolkit(
-            rootPath: $this->workspacePath,
-            allowedPaths: $this->mountManager?->allowedPaths() ?? [],
-        ));
+        // Resolve the effective access level for toolkit filtering.
+        // When activeRole is set (via /role command), use the role's declared access_level.
+        $effectiveAccessLevel = 'full';
+        if ($this->activeRole !== null && $this->activeRole !== 'orchestrator' && $this->roleDiscovery !== null) {
+            try {
+                $roleProps = $this->roleDiscovery->getRole($this->activeRole);
+                $effectiveAccessLevel = $roleProps->accessLevel;
+            } catch (\Throwable) {
+                // Role not found — fall through with 'full' access
+            }
+        }
 
-        // Shell toolkit — runs in project root for read access
+        // Filesystem toolkit — access level determines read/write vs read-only
+        if ($effectiveAccessLevel !== 'minimal') {
+            $this->addToolkit(new FilesystemToolkit(
+                rootPath: $this->workspacePath,
+                allowedPaths: $this->mountManager?->allowedPaths() ?? [],
+                readOnly: $effectiveAccessLevel === 'readonly',
+            ));
+        }
+
+        // Shell toolkit — only available for 'full' access roles
         $shellAllowed = $this->resolveShellAllowedCommands();
-        $this->addToolkit(new ShellToolkit(
-            workDir: $this->projectRoot,
-            allowedCommands: $shellAllowed,
-            timeout: 60,
-        ));
+        if ($effectiveAccessLevel === 'full') {
+            $this->addToolkit(new ShellToolkit(
+                workDir: $this->projectRoot,
+                allowedCommands: $shellAllowed,
+                timeout: 60,
+            ));
+        }
 
         // Memory toolkit — SQLite-backed with optional vector search
         if ($this->memoryStore !== null) {
             $this->addToolkit(new MemoryToolkit($this->memoryStore));
+        }
+
+        // Artifact toolkit — versioned output tracking (shares database with session storage)
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($this->storage->getPdo());
+            $this->addToolkit(new ArtifactToolkit($artifactStore, $this->sessionId));
         }
 
         // Project source toolkit — read-only access to the Coqui project codebase
@@ -363,6 +388,30 @@ final class OrchestratorAgent extends AbstractAgent
 
     public function instructions(): string
     {
+        // When a non-orchestrator role is active, use the role's instructions
+        // instead of the full orchestrator prompt. This enables /role switching
+        // while preserving memory injection and context awareness.
+        if ($this->activeRole !== null && $this->activeRole !== 'orchestrator' && $this->roleDiscovery !== null) {
+            try {
+                $roleInstructions = $this->roleDiscovery->readInstructions($this->activeRole);
+                $rendered = $roleInstructions;
+            } catch (\Throwable) {
+                // Role instructions not found — fall through to orchestrator prompt
+                $rendered = $this->renderOrchestratorPrompt();
+            }
+        } else {
+            $rendered = $this->renderOrchestratorPrompt();
+        }
+
+        // Lost-in-middle mitigation: inject memories at START (high attention)
+        // and recapitulation at END (recency attention) of the instructions block.
+        $rendered = $this->injectMemoryContext($rendered);
+
+        return $rendered;
+    }
+
+    private function renderOrchestratorPrompt(): string
+    {
         $roles = implode(', ', $this->roleResolver->availableRoles());
         $skillsSummary = $this->skillDiscovery?->buildPromptSummary() ?? 'No skills installed.';
         $storageMap = $this->mountManager?->storageMap() ?? '';
@@ -375,19 +424,18 @@ final class OrchestratorAgent extends AbstractAgent
             storageMap: $storageMap,
         );
 
-        $rendered = $prompt->render();
+        return $prompt->render();
+    }
 
-        // Lost-in-middle mitigation: inject memories at START (high attention)
-        // and recapitulation at END (recency attention) of the instructions block.
+    private function injectMemoryContext(string $rendered): string
+    {
         if ($this->memorySummarizer !== null) {
             $utilityProvider = $this->resolveUtilityProvider();
             $memorySummary = $this->memorySummarizer->getSummary($utilityProvider);
 
             if ($memorySummary !== '') {
-                // Prepend core memories before the main instructions
                 $rendered = "# CORE MEMORIES\n\n" . $memorySummary . "\n\n" . $rendered;
 
-                // Append key context recapitulation at the end
                 if ($this->memoryStore !== null) {
                     $topMemories = $this->memoryStore->getTopImportantMemories(5);
                     if ($topMemories !== []) {
@@ -402,6 +450,14 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         return $rendered;
+    }
+
+    /**
+     * Return the active role name (null means orchestrator default).
+     */
+    public function getActiveRole(): ?string
+    {
+        return $this->activeRole;
     }
 
     /**
