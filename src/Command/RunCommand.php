@@ -1730,6 +1730,21 @@ final class RunCommand extends Command
                 return;
             }
 
+            // Verify the update actually reduced the outdated package count.
+            // Without this check, packages that cannot be resolved (e.g. path-repo
+            // symlinks, constraint conflicts) would cause an infinite restart loop.
+            $postCheck = $updateManager->checkForUpdates();
+            $preCount = count($check->packages);
+            $postCount = count($postCheck->packages);
+
+            if ($postCount >= $preCount) {
+                $io->warning(
+                    "{$postCount} package(s) still outdated after update — "
+                    . 'manual intervention may be required. Run /update for details.',
+                );
+                return;
+            }
+
             $io->success('Updates applied. Restarting...');
             // Set restart flag — the REPL loop will pick this up
             $this->restartRequested = true;

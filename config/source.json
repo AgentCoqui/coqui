@@ -253,12 +253,12 @@
             "path": "src/Config/UpdateManager.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\UpdateManager",
             "layer": "config",
-            "description": "Manages Coqui self-updates and workspace dependency updates. Checks for outdated packages via `composer outdated --format=json` and applies updates via `composer update`. Controlled by COQUI_CHECK_UPDATES and COQUI_AUTO_UPDATE env vars stored in the workspace .env.",
+            "description": "Manages Coqui self-updates and workspace dependency updates. Checks for outdated packages via `composer outdated --format=json --direct` and applies updates via `composer update`. Path-repository packages (source.type=path / symlinks) are excluded from the outdated count since composer update cannot resolve them and they would otherwise cause an infinite auto-update restart loop. After applyUpdates(), RunCommand re-checks the count and only triggers a restart if the outdated count actually decreased. Controlled by COQUI_CHECK_UPDATES and COQUI_AUTO_UPDATE env vars stored in the workspace .env.",
             "methods": [
                 "isCheckEnabled(): bool — whether startup update checking is enabled (default: true)",
                 "isAutoUpdateEnabled(): bool — whether auto-update is enabled (default: false)",
-                "checkForUpdates(): UpdateCheckResult — checks project + workspace for outdated packages",
-                "applyUpdates(): UpdateCheckResult — runs composer update in project + workspace"
+                "checkForUpdates(): UpdateCheckResult — checks project + workspace for outdated packages; excludes path-repo packages",
+                "applyUpdates(): UpdateCheckResult — runs composer update in project + workspace; captures both stdout and stderr for error reporting"
             ]
         },
         {
