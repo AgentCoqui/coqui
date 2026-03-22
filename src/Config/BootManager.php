@@ -13,6 +13,9 @@ use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
+use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\TodoStore;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -39,6 +42,8 @@ final class BootManager
     private MemoryStore $memoryStore;
     private MemorySummarizer $memorySummarizer;
     private ConfigManager $configManager;
+    private ?ArtifactStore $artifactStore = null;
+    private ?TodoStore $todoStore = null;
     private ?SpaceToolkit $spaceToolkit = null;
 
     public function __construct(
@@ -66,6 +71,7 @@ final class BootManager
         $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
         $this->initializeCredentials();
         $this->initializeMemory();
+        $this->initializeArtifacts();
         $this->discoverToolkits($io);
         $this->discoverSkills();
         $this->initializeSpace();
@@ -172,6 +178,16 @@ final class BootManager
     public function spaceToolkit(): ?SpaceToolkit
     {
         return $this->spaceToolkit;
+    }
+
+    public function artifactStore(): ?ArtifactStore
+    {
+        return $this->artifactStore;
+    }
+
+    public function todoStore(): ?TodoStore
+    {
+        return $this->todoStore;
     }
 
     private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
@@ -364,6 +380,30 @@ final class BootManager
 
         $this->memoryStore = new MemoryStore($dbPath, $embeddingProvider);
         $this->memorySummarizer = new MemorySummarizer($this->memoryStore);
+
+        // Run boot-time decay sweep — archives stale, low-value memories
+        $this->memoryStore->decayAndArchive();
+    }
+
+    /**
+     * Initialize artifact store and clean up finalized artifacts from previous sessions.
+     *
+     * Draft and review artifacts are preserved across sessions. Final-stage artifacts
+     * are deleted because they have already been consumed by coder agents.
+     */
+    private function initializeArtifacts(): void
+    {
+        $dbPath = $this->workspacePath . '/data/sessions.db';
+
+        // SessionStorage is needed to get the PDO for ArtifactStore
+        if (!file_exists($dbPath)) {
+            return;
+        }
+
+        $storage = new SessionStorage($dbPath);
+        $this->artifactStore = new ArtifactStore($storage->getPdo());
+        $this->artifactStore->cleanupFinalized();
+        $this->todoStore = new TodoStore($storage->getPdo());
     }
 
     /**

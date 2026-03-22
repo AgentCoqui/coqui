@@ -17,12 +17,14 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit with configurable allowlist, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui). Shell allowlist is resolved from agents.defaults.shellAllowedCommands in openclaw.json or falls back to DEFAULT_SHELL_COMMANDS (includes curl, wget). Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit with configurable allowlist, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation). Shell allowlist is resolved from agents.defaults.shellAllowedCommands in openclaw.json or falls back to DEFAULT_SHELL_COMMANDS (includes curl, wget). Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string \u2014 returns the full system prompt with role descriptions, security rules, and operational guidelines",
-                "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui)",
+                "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation)",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
-                "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking"
+                "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking",
+                "resolveContextWindow(): ?ContextWindowInterface — resolves ContextWindow from ModelDefinition with 128K/4K fallback",
+                "getContextWindow(): ?ContextWindowInterface — accessor for the resolved context window"
             ]
         },
         {
@@ -40,14 +42,14 @@
             "path": "src/Agent/AgentRunner.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunner",
             "layer": "agent",
-            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Supports per-turn observer injection via runWithObserver() for API mode where each request gets its own SseObserver. Background tasks use runForTask() which threads role and maxIterations through to the agent.",
+            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Includes autoSummarizeIfNeeded() for pre-turn budget checks, and autoExtractMemories() which runs LLM-based memory extraction after each successful turn (configurable via agents.defaults.memory.autoExtract).",
             "methods": [
                 "run(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy): AgentTurnResult — runs a single agent turn using the default observer",
                 "runWithObserver(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy, SplObserver $observer): AgentTurnResult — runs a turn with a per-turn observer override",
                 "runForTask(..., ?string $role, ?int $maxIterations): AgentTurnResult — runs a background task with specified role and iteration limit",
                 "createAgent(..., ?SplObserver $observer, string $role, ?int $maxIterations): OrchestratorAgent — builds the orchestrator agent with role-resolved model and iteration limit",
-                "persistTurnMessages(Conversation, int, string, ?string $turnId): void — persists new messages from a turn with turn linkage",
-                "extractToolsUsed(?Conversation): string[] — extracts unique tool names from conversation tool calls"
+                "autoSummarizeIfNeeded(OrchestratorAgent, Conversation, string $sessionId, ?SplObserver): Conversation — checks token budget and auto-summarizes if threshold exceeded",
+                "autoExtractMemories(Conversation, string $sessionId): void — runs LLM-based memory extraction from completed turn"
             ]
         },
         {
@@ -194,9 +196,10 @@
             "path": "src/Config/RoleResolver.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleResolver",
             "layer": "config",
-            "description": "Maps role names to provider/model strings and resolves per-role iteration limits. Model priority: role file model field → openclaw.json → primary model. Iteration priority: role file max_iterations → agents.defaults.maxIterations → DEFAULT_MAX_ITERATIONS (25). toArray() returns enriched metadata with display_name, description, access_level, max_iterations.",
+            "description": "Maps role names to provider/model strings and resolves per-role iteration limits. Model priority: role file model field → openclaw.json → primary model. Iteration priority: role file max_iterations → agents.defaults.maxIterations → DEFAULT_MAX_ITERATIONS (25). resolveUtility() provides a unified utility model chain: agents.defaults.model.utility → COQUI_UTILITY_MODEL env → title-generator role → primary model. toArray() returns enriched metadata with display_name, description, access_level, max_iterations.",
             "methods": [
                 "resolve(string $role): string — returns provider/model string (file model → config → primary)",
+                "resolveUtility(): string — returns utility model string (config utility → env → title-generator → primary)",
                 "resolveMaxIterations(string $role): int — returns iteration limit (role file → openclaw.json → 25). 0 = unlimited",
                 "availableRoles(): string[] — union of config and discovered role names",
                 "toArray(): array — enriched role-to-model mapping with metadata and max_iterations"
@@ -210,6 +213,15 @@
             "methods": [
                 "validate(string $code): string[] — returns array of issue descriptions (empty means safe)",
                 "isUnsafe(): bool — whether running in unsafe mode"
+            ]
+        },
+        {
+            "path": "src/Config/SummarizePruningStrategy.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\SummarizePruningStrategy",
+            "layer": "config",
+            "description": "BudgetPruningStrategyInterface implementation that summarizes older conversation turns via ConversationSummarizer before dropping them. Falls back to DefaultBudgetPruningStrategy on failure or when no provider is available. If summarization alone doesn't reduce tokens enough, applies default pruning on top.",
+            "methods": [
+                "prune(Conversation $conversation, int $budgetTokens): Conversation — attempts LLM summarization then default pruning as fallback"
             ]
         },
         {
@@ -241,12 +253,12 @@
             "path": "src/Config/UpdateManager.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\UpdateManager",
             "layer": "config",
-            "description": "Manages Coqui self-updates and workspace dependency updates. Checks for outdated packages via `composer outdated --format=json` and applies updates via `composer update`. Controlled by COQUI_CHECK_UPDATES and COQUI_AUTO_UPDATE env vars stored in the workspace .env.",
+            "description": "Manages Coqui self-updates and workspace dependency updates. Checks for outdated packages via `composer outdated --format=json --direct` and applies updates via `composer update`. Path-repository packages (source.type=path / symlinks) are excluded from the outdated count since composer update cannot resolve them and they would otherwise cause an infinite auto-update restart loop. After applyUpdates(), RunCommand re-checks the count and only triggers a restart if the outdated count actually decreased. Controlled by COQUI_CHECK_UPDATES and COQUI_AUTO_UPDATE env vars stored in the workspace .env.",
             "methods": [
                 "isCheckEnabled(): bool — whether startup update checking is enabled (default: true)",
                 "isAutoUpdateEnabled(): bool — whether auto-update is enabled (default: false)",
-                "checkForUpdates(): UpdateCheckResult — checks project + workspace for outdated packages",
-                "applyUpdates(): UpdateCheckResult — runs composer update in project + workspace"
+                "checkForUpdates(): UpdateCheckResult — checks project + workspace for outdated packages; excludes path-repo packages",
+                "applyUpdates(): UpdateCheckResult — runs composer update in project + workspace; captures both stdout and stderr for error reporting"
             ]
         },
         {
@@ -281,6 +293,13 @@
             "methods": [
                 "resolve(): string — returns the absolute workspace path"
             ]
+        },
+        {
+            "path": "src/Contract/CoquiDefaults.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\CoquiDefaults",
+            "layer": "contract",
+            "description": "Centralized default values for Coqui configuration. Single source of truth for all default limits and thresholds (maxIterations, maxConcurrent, keepRecentTurns, autoSummarizeKeepRecent, autoSummarizeThreshold, context window fallbacks). All config fallbacks reference these constants instead of hardcoding values.",
+            "methods": []
         },
         {
             "path": "src/Contract/CredentialRequirement.php",
@@ -377,6 +396,15 @@
             "description": "Agent-facing tool for image analysis. Wraps VisionAnalyzer to expose a vision_analyze tool that accepts an image source (file path, URL, or base64 data URI) and an optional prompt. Delegates model resolution, provider routing, and multimodal message construction to VisionAnalyzer. Detects 'Error: ' prefixed responses from VisionAnalyzer and returns them as ToolResult::error() so the agent sees specific failure reasons.",
             "methods": [
                 "execute(array $input): ToolResult — validates image parameter, delegates to VisionAnalyzer, returns ToolResult::success() or ToolResult::error() with descriptive message"
+            ]
+        },
+        {
+            "path": "src/Tool/SummarizeConversationTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\SummarizeConversationTool",
+            "layer": "tool",
+            "description": "Agent-facing tool for on-demand conversation summarization. Exposes a summarize_conversation tool with scope (all/recent), keep_recent (1-20), and focus parameters. Resolves a cheap provider via utility model resolution (agents.defaults.model.utility → title-generator role → orchestrator fallback). Reads keepRecentTurns from agents.defaults.context.keepRecentTurns config. Delegates to ConversationSummarizer for the actual compression.",
+            "methods": [
+                "execute(array $input): ToolResult — validates parameters, resolves provider, delegates to ConversationSummarizer, returns summary metrics"
             ]
         },
         {
@@ -743,6 +771,35 @@
             ]
         },
         {
+            "path": "src/Api/Handler/ArtifactHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ArtifactHandler",
+            "layer": "command",
+            "description": "Artifact CRUD API endpoints. GET /api/v1/sessions/{id}/artifacts (list with type/stage filters), POST /api/v1/sessions/{id}/artifacts (create), GET /api/v1/sessions/{id}/artifacts/{artifactId} (detail), PATCH /api/v1/sessions/{id}/artifacts/{artifactId} (update content or stage), DELETE /api/v1/sessions/{id}/artifacts/{artifactId} (delete), GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions (version history).",
+            "methods": [
+                "list(request, id): Response — list session artifacts",
+                "create(request, id): Response — create artifact",
+                "get(request, id, artifactId): Response — get artifact by ID",
+                "update(request, id, artifactId): Response — update content or stage",
+                "delete(request, id, artifactId): Response — delete artifact",
+                "versions(request, id, artifactId): Response — version history"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/TodoHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\TodoHandler",
+            "layer": "command",
+            "description": "Todo CRUD API endpoints. GET /api/v1/sessions/{id}/todos (list with status/priority/artifact_id filters), POST /api/v1/sessions/{id}/todos (create), GET /api/v1/sessions/{id}/todos/stats (session stats), GET /api/v1/sessions/{id}/todos/{todoId} (detail with subtasks), PATCH /api/v1/sessions/{id}/todos/{todoId} (update), POST /api/v1/sessions/{id}/todos/{todoId}/complete (mark complete), DELETE /api/v1/sessions/{id}/todos/{todoId} (delete).",
+            "methods": [
+                "list(request, id): Response — list session todos with filters",
+                "create(request, id): Response — create todo",
+                "stats(request, id): Response — session todo statistics",
+                "get(request, id, todoId): Response — get todo with subtasks",
+                "update(request, id, todoId): Response — update todo fields",
+                "complete(request, id, todoId): Response — mark todo complete",
+                "delete(request, id, todoId): Response — delete todo"
+            ]
+        },
+        {
             "path": "src/Api/Handler/TurnHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\TurnHandler",
             "layer": "command",
@@ -750,6 +807,15 @@
             "methods": [
                 "list(request, id): Response",
                 "get(request, id, turnId): Response"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/SummarizeHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SummarizeHandler",
+            "layer": "command",
+            "description": "POST /api/v1/sessions/{id}/summarize — triggers conversation summarization for a session. Accepts optional keep_recent (1-20) and focus parameters. Resolves a cheap provider via title-generator role with orchestrator fallback. Returns summary text, message count, and token metrics.",
+            "methods": [
+                "summarize(request, id): Response — validates session, summarizes conversation, returns JSON metrics"
             ]
         },
         {
@@ -799,10 +865,10 @@
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including RoleHandler and TitleGenerator, configures CORS (with PATCH support) and optional API key auth, and enters the ReactPHP event loop.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including RoleHandler, TitleGenerator, and SummarizeHandler, configures CORS (with PATCH support) and optional API key auth, and enters the ReactPHP event loop.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
-                "registerRoutes(Router, ...handlers): void — registers all API routes",
+                "registerRoutes(Router, ...handlers): void — registers all API routes including summarize endpoint",
                 "resolveApiKey(BootManager): ?string — resolves API key from config/env/workspace"
             ]
         },
@@ -830,6 +896,40 @@
             ]
         },
         {
+            "path": "src/Storage/ArtifactStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\ArtifactStore",
+            "layer": "storage",
+            "description": "SQLite-backed artifact persistence. Tables: artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, timestamps), artifact_versions (id, artifact_id, version, content, change_summary, created_at). Shares PDO connection from SessionStorage. Supports CRUD, automatic versioning on update, stage transitions (draft/review/final), and per-session listing with type/stage filters.",
+            "methods": [
+                "create(sessionId, title, content, type, language, filepath, stage, turnId, metadata): string — creates artifact + initial version, returns ID",
+                "update(id, content, changeSummary, title, stage): bool — updates content, bumps version, saves snapshot",
+                "get(id): ?array — retrieves artifact by ID",
+                "list(sessionId, type, stage, limit): array — lists artifacts with optional filters",
+                "delete(id): bool — deletes artifact and cascaded versions",
+                "getVersions(artifactId): array — returns version history ordered desc",
+                "getVersion(artifactId, version): ?array — retrieves specific version",
+                "updateStage(id, stage): bool — updates stage only"
+            ]
+        },
+        {
+            "path": "src/Storage/TodoStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\TodoStore",
+            "layer": "storage",
+            "description": "SQLite-backed session-scoped todo persistence. Table: todos (id, session_id, artifact_id, parent_id, title, status, priority, created_by, completed_by, notes, sort_order, timestamps). Shares PDO connection from SessionStorage. Supports CRUD, subtask hierarchy, artifact linking, status transitions (pending/in_progress/completed/cancelled), priority levels, and session-scoped statistics.",
+            "methods": [
+                "create(sessionId, title, priority, artifactId, parentId, createdBy, notes): string — creates todo, returns ID",
+                "get(id): ?array — retrieves todo by ID",
+                "update(id, title, status, priority, notes, artifactId): bool — updates todo fields",
+                "complete(id, completedBy, notes): bool — marks todo completed with timestamp",
+                "delete(id): bool — deletes todo (cascades subtasks)",
+                "list(filters, includeCompleted, limit): array — lists todos with session/status/priority/artifact filters",
+                "listByArtifact(artifactId, includeSubtasks): array — lists todos linked to an artifact",
+                "getSubtasks(parentId): array — returns child todos",
+                "getStats(sessionId, artifactId): array — returns total/pending/in_progress/completed/cancelled counts",
+                "reorder(ordering): void — bulk-updates sort_order"
+            ]
+        },
+        {
             "path": "src/Storage/FileUploadStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\FileUploadStorage",
             "layer": "storage",
@@ -849,18 +949,19 @@
             "path": "src/Memory/MemoryStore.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\MemoryStore",
             "layer": "storage",
-            "description": "SQLite-backed memory store with FTS5 full-text search and optional vector embeddings. Stores memories in workspace/data/memory.db with area classification (preferences, facts, solutions, context) and tag-based organization. Hybrid search combines cosine similarity (when embedding provider available) with FTS5 keyword matching and LIKE fallback. Supports full CRUD, bulk import for migration, and core summary generation grouped by area.",
+            "description": "SQLite-backed memory store with FTS5 full-text search, optional vector embeddings, importance scoring, composite relevance ranking, and automatic decay/archival. Stores memories in workspace/data/memory.db with area classification, tag-based organization, and per-entry importance scores. Hybrid search merges vector+FTS candidates, deduplicates by ID, and applies composite scoring (0.4*similarity + 0.2*recency + 0.25*importance + 0.15*access). Memories decay over time — inactive low-importance entries are archived (soft-deleted). Pinned memories (importance >= 0.9) never decay.",
             "methods": [
-                "save(string $content, string $area, array $tags): string — saves memory with optional embedding, returns ID",
-                "search(string $query, int $limit): array — hybrid vector+FTS5 search with LIKE fallback",
-                "update(string $id, ?string $content, ?string $area, ?array $tags): bool — updates memory fields, rebuilds FTS index and re-embeds",
+                "save(MemoryEntry $entry): string — saves memory with importance scoring and optional embedding, returns ID",
+                "search(string $query, int $limit, float $threshold): array — composite-scored hybrid search (vector + FTS5 + LIKE fallback)",
+                "update(string $id, ?string $content, ?string $area, ?array $tags, ?float $importance): bool — updates memory fields including importance",
                 "delete(string $id): bool — deletes memory, embedding, and FTS entry",
                 "getById(string $id): ?MemoryEntry — retrieves single memory by ID",
-                "listAll(int $limit, int $offset, ?string $area, ?array $tags): array — filtered listing with pagination",
-                "listByTags(array $tags, int $limit): array — finds memories containing ALL specified tags",
-                "count(): int — total memory count",
-                "getCoreSummary(): string — formatted summary grouped by area for system prompt injection",
-                "importLegacyEntries(array $entries): int — bulk import from migration",
+                "listAll(int $limit, int $offset, ?string $area, ?array $tags): array — filtered listing with pagination (excludes archived)",
+                "count(): int — total active memory count",
+                "getCoreSummary(): string — importance-sorted summary grouped by area for system prompt injection",
+                "decayAndArchive(): int — scans memories, computes effective score, archives those below threshold",
+                "restoreMemory(string $id): bool — un-archives a memory",
+                "getTopImportantMemories(int $limit): array — returns top N by importance+access+recency for recapitulation",
                 "hasVectorSearch(): bool — whether embedding provider is available"
             ]
         },
@@ -868,20 +969,69 @@
             "path": "src/Memory/MemorySummarizer.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\MemorySummarizer",
             "layer": "storage",
-            "description": "Generates compressed memory summaries for system prompt injection. Caches summaries in a memory_summary SQLite table, invalidating when memory count changes. Optionally compresses via LLM provider for concise summaries within ~500 token budget. Falls back to raw MemoryStore::getCoreSummary() when no provider is available.",
+            "description": "Generates compressed memory summaries for system prompt injection. Caches summaries in a memory_summary SQLite table, invalidating when memory count changes. LLM compression prompt prioritizes high-importance items first. Falls back to raw MemoryStore::getCoreSummary() when no provider is available.",
             "methods": [
                 "getSummary(): ?string — returns cached or freshly generated summary, null if no memories exist",
                 "invalidate(): void — forces summary regeneration on next call"
             ]
         },
         {
+            "path": "src/Memory/MemoryExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Memory\\MemoryExtractor",
+            "layer": "storage",
+            "description": "Automatic memory extraction from conversations via LLM. Analyzes recent conversation turns and extracts noteworthy facts, preferences, solutions, and context into structured memory entries. Deduplicates against existing memories (similarity > 0.85 = skip). Respects 5-minute cooldown between extractions. Triggered post-turn in AgentRunner and pre-summarization in ConversationSummarizer.",
+            "methods": [
+                "extractFromConversation(Conversation, ProviderInterface, int recentTurns): int — extracts and saves new memories, returns count saved"
+            ]
+        },
+        {
+            "path": "src/Memory/ConversationSummarizer.php",
+            "fqcn": "CoquiBot\\Coqui\\Memory\\ConversationSummarizer",
+            "layer": "storage",
+            "description": "Summarizes conversation history to reduce token usage while preserving context. Runs automatic memory extraction before summarization to preserve facts before they are compressed. Splits conversations into a segment to summarize and recent turns to keep, compresses the older segment via a cheap LLM provider, and rebuilds the conversation with a summary SystemMessage.",
+            "methods": [
+                "summarize(Conversation, ProviderInterface, keepRecentTurns, ?focus): ConversationSummaryResult — compresses older messages into a structured summary",
+                "summarizeAndPersist(sessionId, provider, keepRecentTurns, ?focus): ConversationSummaryResult — extracts memories, summarizes, stores in MemoryStore, and persists summary SystemMessage to session"
+            ]
+        },
+        {
+            "path": "src/Memory/ConversationSummaryResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Memory\\ConversationSummaryResult",
+            "layer": "storage",
+            "description": "Immutable value object holding the result of a conversation summarization: summary text, message count, token metrics (before/after), and the rebuilt Conversation. Provides tokensSaved() and wasSummarized() convenience methods.",
+            "methods": [
+                "tokensSaved(): int — returns tokensBefore - tokensAfter",
+                "wasSummarized(): bool — returns true if messagesSummarized > 0"
+            ]
+        },
+        {
             "path": "src/Toolkit/MemoryToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\MemoryToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing memory toolkit providing 6 tools: memory_save (with area enum and tags), memory_search (hybrid vector+FTS5), memory_update (by ID), memory_delete (by ID), memory_forget (bulk by query), memory_list (filtered by area/tags). Replaces php-agents' simpler 3-tool MemoryToolkit. Guidelines include dynamic memory count and vector search status.",
+            "description": "Agent-facing memory toolkit providing 7 tools: memory_save (with area, tags, importance), memory_search (composite-scored hybrid), memory_update (by ID, including importance), memory_delete (by ID), memory_forget (bulk by query), memory_list (filtered, with include_archived), memory_restore (un-archive by ID). Guidelines describe importance scoring, area defaults, pinning, decay lifecycle.",
             "methods": [
-                "tools(): array — returns 6 Tool instances for full CRUD memory operations",
-                "guidelines(): string — dynamic guidelines with memory count and vector search availability"
+                "tools(): array — returns 7 Tool instances for full CRUD memory operations including restore",
+                "guidelines(): string — dynamic guidelines with importance scoring, decay info, memory count, and vector search availability"
+            ]
+        },
+        {
+            "path": "src/Toolkit/ArtifactToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ArtifactToolkit",
+            "layer": "toolkit",
+            "description": "Agent-facing artifact management toolkit providing 5 tools: artifact_create (new versioned artifact), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage filter), artifact_stage (draft→review→final transition). Guidelines dynamically list existing artifacts.",
+            "methods": [
+                "tools(): array — returns 5 Tool instances for artifact CRUD + staging",
+                "guidelines(): string — dynamic guidelines showing existing artifact listing or empty state prompt"
+            ]
+        },
+        {
+            "path": "src/Toolkit/TodoToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\TodoToolkit",
+            "layer": "toolkit",
+            "description": "Agent-facing session-scoped todo management toolkit providing 6 tools: todo_add (create with priority/artifact link/subtask support), todo_update (modify fields), todo_complete (mark done with role attribution), todo_list (filtered checklist with progress icons), todo_get (detail with subtasks), todo_delete (remove). Role-aware permissions: readonly gets list+get only, full gets all tools. Guidelines dynamically show progress bar and active/pending listing.",
+            "methods": [
+                "tools(): array — returns filtered Tool instances based on access level",
+                "guidelines(): string — dynamic progress summary with bar visualization and active todo listing"
             ]
         },
         {
@@ -1081,7 +1231,7 @@
             "path": "src/Config/OpenClawConfig.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\OpenClawConfig",
             "layer": "config",
-            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, provider config, and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
+            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, utility model, provider config, and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
             "methods": [
                 "fromFile(string): self — load and parse openclaw.json file",
                 "fromArray(array): self — create from pre-parsed array",
@@ -1090,6 +1240,7 @@
                 "getPrimaryModel(): string — resolve primary model string",
                 "getFallbacks(): array — return ordered fallback model strings",
                 "getImageModel(): string — resolve image generation model",
+                "getUtilityModel(): string — resolve utility model from config or COQUI_UTILITY_MODEL env",
                 "resolveModel(string): string — resolve alias to full model string",
                 "getModelDefinition(string): ModelDefinition — build ModelDefinition for a model string"
             ]

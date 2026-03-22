@@ -191,3 +191,40 @@ test('loadConversation preserves non-JSON user content', function () {
     expect($messages)->toHaveCount(1);
     expect($messages[0]->content())->toBe('[this is just a regular message]');
 });
+
+test('updateSessionRole updates model_role and model', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'openai/gpt-4');
+
+    $this->storage->updateSessionRole($sessionId, 'coder', 'anthropic/claude-3-5-sonnet');
+
+    $session = $this->storage->getSession($sessionId);
+
+    expect($session['model_role'])->toBe('coder');
+    expect($session['model'])->toBe('anthropic/claude-3-5-sonnet');
+});
+
+test('updateSessionRole updates timestamp', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+    $before = $this->storage->getSession($sessionId)['updated_at'];
+
+    // Ensure at least 1 second gap for timestamp difference
+    sleep(1);
+    $this->storage->updateSessionRole($sessionId, 'reviewer', 'model2');
+
+    $after = $this->storage->getSession($sessionId)['updated_at'];
+    expect($after)->not->toBe($before);
+});
+
+test('getPdo returns working connection', function () {
+    $pdo = $this->storage->getPdo();
+
+    expect($pdo)->toBeInstanceOf(PDO::class);
+
+    // Verify it's a live connection to the same database
+    $sessionId = $this->storage->createSession('test', 'model');
+    $stmt = $pdo->prepare('SELECT id FROM sessions WHERE id = ?');
+    $stmt->execute([$sessionId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    expect($row['id'])->toBe($sessionId);
+});

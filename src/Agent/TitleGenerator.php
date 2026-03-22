@@ -89,8 +89,7 @@ final class TitleGenerator
 
     private function resolveProvider(): \CarmeloSantana\PHPAgents\Contract\ProviderInterface
     {
-        // Try to resolve a model specific to the title_generator role
-        $modelString = $this->roleResolver->resolve(self::ROLE);
+        $modelString = $this->roleResolver->resolveUtility();
 
         $factory = $this->providerFactory ?? new ProviderFactory($this->config);
 

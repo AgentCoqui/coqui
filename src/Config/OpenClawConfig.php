@@ -107,6 +107,26 @@ final class OpenClawConfig implements ConfigInterface
         return is_array($fallbacks) ? $fallbacks : [];
     }
 
+    /**
+     * Get the utility model string for cheap single-shot tasks
+     * (titles, summarization, memory compression).
+     *
+     * Resolution: openclaw.json → COQUI_UTILITY_MODEL env → empty string.
+     * Empty string signals the caller to fall through to role-based resolution.
+     */
+    public function getUtilityModel(): string
+    {
+        $model = $this->get('agents.defaults.model.utility', '');
+
+        if (is_string($model) && $model !== '') {
+            return $model;
+        }
+
+        $env = getenv('COQUI_UTILITY_MODEL');
+
+        return is_string($env) && $env !== '' ? $env : '';
+    }
+
     public function getImageModel(): ?string
     {
         $model = $this->get('agents.defaults.imageModel.primary');

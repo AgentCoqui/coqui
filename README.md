@@ -198,6 +198,7 @@ Once inside the Coqui REPL, use slash commands:
 | `/sessions` | List all saved sessions |
 | `/resume <id>` | Resume a session by ID |
 | `/model [role]` | Show model configuration |
+| `/role [name]` | Show/switch active role (`/role coder`, `/role reset`) |
 | `/tasks [status]` | List background tasks (optional status filter) |
 | `/task <id>` | Show background task details |
 | `/task-cancel <id>` | Cancel a background task |
@@ -326,6 +327,11 @@ Coqui ships with a rich set of tools the agent can use autonomously:
 | `task_status` | Check a background task's status and recent output |
 | `list_tasks` | List all background tasks in the current session |
 | `cancel_task` | Cancel a running background task |
+| `artifact_create` | Create a versioned artifact (code, document, config) tracked across turns |
+| `artifact_update` | Update artifact content with automatic version snapshots |
+| `artifact_get` | Retrieve an artifact by ID, optionally at a specific version |
+| `artifact_list` | List session artifacts with type/stage filters |
+| `artifact_stage` | Transition artifact stage: draft → review → final |
 
 ### Inherited Toolkits (from php-agents)
 
@@ -352,7 +358,7 @@ Each task runs as an isolated PHP process (`task:run`) with its own agent stack,
 - **User input** — send follow-up messages to running tasks
 - **Cancellation** — cooperative cancellation via `SIGTERM`
 - **Crash recovery** — orphaned tasks are automatically marked as failed on server restart
-- **Concurrency control** — configurable via `api.tasks.maxConcurrent` in `openclaw.json` (default: 1)
+- **Concurrency control** — configurable via `api.tasks.maxConcurrent` in `openclaw.json` (default: 6)
 
 The agent can start, monitor, and cancel tasks using four built-in tools (`start_background_task`, `task_status`, `list_tasks`, `cancel_task`). The HTTP API exposes the same capabilities for external clients.
 

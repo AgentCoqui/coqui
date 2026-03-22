@@ -20,6 +20,7 @@ use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Provider\FallbackProvider;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ConfigGuard;
@@ -27,18 +28,23 @@ use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
+use CoquiBot\Coqui\Config\SummarizePruningStrategy;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
+use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
+use CarmeloSantana\PHPAgents\Memory\MemoryEntry;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
+use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\StubToolkit;
+use CoquiBot\Coqui\Toolkit\TodoToolkit;
 use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
 use CoquiBot\Coqui\Tool\ConfigTool;
 use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
@@ -48,9 +54,12 @@ use CoquiBot\Coqui\Tool\PhpExecuteTool;
 use CoquiBot\Coqui\Tool\RestartTool;
 use CoquiBot\Coqui\Tool\SpawnAgentTool;
 use CoquiBot\Coqui\Tool\StubTool;
+use CoquiBot\Coqui\Tool\SummarizeConversationTool;
 use CoquiBot\Coqui\Tool\ToolRegistry;
 use CoquiBot\Coqui\Tool\ToolSearchTool;
 use CoquiBot\Coqui\Tool\VisionTool;
+use CarmeloSantana\PHPAgents\Context\ContextWindow;
+use CarmeloSantana\PHPAgents\Contract\ContextWindowInterface;
 use CarmeloSantana\PHPAgents\Contract\TokenCounterInterface;
 use CarmeloSantana\PHPAgents\Prompt\SystemPrompt;
 
@@ -74,8 +83,10 @@ final class OrchestratorAgent extends AbstractAgent
     private ?RestartTool $restartTool = null;
     private ?ConfigTool $configTool = null;
     private VisionTool $visionTool;
+    private ?SummarizeConversationTool $summarizeTool = null;
     private ToolRegistry $toolRegistry;
     private ToolSearchTool $toolSearchTool;
+    private ?ContextWindowInterface $contextWindowInstance = null;
 
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
@@ -107,6 +118,7 @@ final class OrchestratorAgent extends AbstractAgent
         ?ConfigGuard $configGuard = null,
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
         private readonly ?SpaceToolkit $spaceToolkit = null,
+        private readonly ?string $activeRole = null,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
@@ -126,29 +138,99 @@ final class OrchestratorAgent extends AbstractAgent
             }
         }
 
-        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider);
+        // Resolve context window from model definition when available
+        $contextWindow = $this->resolveContextWindow($config, $this->roleResolver);
+        $this->contextWindowInstance = $contextWindow;
+
+        // Resolve a summarize-then-drop pruning strategy for context window overflow.
+        // This is a safety net — autoSummarizeIfNeeded() runs pre-turn as the primary mechanism.
+        $pruningStrategy = null;
+        if ($this->storage !== null) {
+            try {
+                $utilityFactory = new ProviderFactory($config);
+                $utilityModel = $this->roleResolver->resolveUtility();
+                if ($utilityModel !== '') {
+                    $utilityProvider = $utilityFactory->create($utilityModel);
+
+                    $keepRecentCfg = $config->get('agents.defaults.context.keepRecentTurns');
+                    $keepRecent = is_numeric($keepRecentCfg) ? max(1, min(20, (int) $keepRecentCfg)) : CoquiDefaults::KEEP_RECENT_TURNS;
+
+                    $pruningStrategy = new SummarizePruningStrategy(
+                        provider: $utilityProvider,
+                        storage: $this->storage,
+                        memoryStore: $this->memoryStore,
+                        keepRecentTurns: $keepRecent,
+                    );
+                }
+            } catch (\Throwable) {
+                // Fall through — use default pruning strategy
+            }
+        }
+
+        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow, $pruningStrategy);
 
         // Use injected resolver or create one (backward compat for standalone use)
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);
         $credentialResolver->loadIntoProcessEnv();
 
-        // Filesystem toolkit — sandboxed to workspace (read/write) with optional mount allowlist
-        $this->addToolkit(new FilesystemToolkit(
-            rootPath: $this->workspacePath,
-            allowedPaths: $this->mountManager?->allowedPaths() ?? [],
-        ));
+        // Resolve the effective access level for toolkit filtering.
+        // When activeRole is set (via /role command), use the role's declared access_level.
+        $effectiveAccessLevel = 'full';
+        if ($this->activeRole !== null && $this->activeRole !== 'orchestrator' && $this->roleDiscovery !== null) {
+            try {
+                $roleProps = $this->roleDiscovery->getRole($this->activeRole);
+                $effectiveAccessLevel = $roleProps->accessLevel;
+            } catch (\Throwable) {
+                // Role not found — fall through with 'full' access
+            }
+        }
 
-        // Shell toolkit — runs in project root for read access
+        // Filesystem toolkit — access level determines read/write vs read-only
+        if ($effectiveAccessLevel !== 'minimal') {
+            $this->addToolkit(new FilesystemToolkit(
+                rootPath: $this->workspacePath,
+                allowedPaths: $this->mountManager?->allowedPaths() ?? [],
+                readOnly: in_array($effectiveAccessLevel, ['readonly', 'readonly-shell'], true),
+            ));
+        }
+
+        // Shell toolkit — available for 'full' and 'readonly-shell' access roles
         $shellAllowed = $this->resolveShellAllowedCommands();
-        $this->addToolkit(new ShellToolkit(
-            workDir: $this->projectRoot,
-            allowedCommands: $shellAllowed,
-            timeout: 60,
-        ));
+        if ($effectiveAccessLevel === 'full') {
+            $this->addToolkit(new ShellToolkit(
+                workDir: $this->projectRoot,
+                allowedCommands: $shellAllowed,
+                timeout: 60,
+            ));
+        } elseif ($effectiveAccessLevel === 'readonly-shell') {
+            $this->addToolkit(new ShellToolkit(
+                workDir: $this->projectRoot,
+                allowedCommands: ['grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls', 'sort', 'uniq', 'sed', 'awk', 'diff'],
+                timeout: 60,
+            ));
+        }
 
         // Memory toolkit — SQLite-backed with optional vector search
         if ($this->memoryStore !== null) {
             $this->addToolkit(new MemoryToolkit($this->memoryStore));
+        }
+
+        // Artifact toolkit — versioned output tracking (shares database with session storage)
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($this->storage->getPdo());
+            $this->addToolkit(new ArtifactToolkit($artifactStore, $this->sessionId));
+        }
+
+        // Todo toolkit — session-scoped task tracking for planning and implementation
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
+            $activeRoleName = $this->activeRole ?? 'orchestrator';
+            $this->addToolkit(new TodoToolkit(
+                $todoStore,
+                $this->sessionId,
+                $activeRoleName,
+                $effectiveAccessLevel,
+            ));
         }
 
         // Project source toolkit — read-only access to the Coqui project codebase
@@ -238,6 +320,20 @@ final class OrchestratorAgent extends AbstractAgent
             );
         }
 
+        // Summarize conversation tool — agent can compress history to save context space
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $conversationSummarizer = new ConversationSummarizer(
+                storage: $this->storage,
+                memoryStore: $this->memoryStore,
+            );
+            $this->summarizeTool = new SummarizeConversationTool(
+                summarizer: $conversationSummarizer,
+                roleResolver: $this->roleResolver,
+                config: $this->config,
+                sessionId: $this->sessionId,
+            );
+        }
+
         // Background task toolkit — only in API mode
         if ($backgroundTaskToolkit !== null) {
             $this->addToolkit($backgroundTaskToolkit);
@@ -257,6 +353,10 @@ final class OrchestratorAgent extends AbstractAgent
 
         if ($this->configTool !== null) {
             $this->toolRegistry->register($this->configTool);
+        }
+
+        if ($this->summarizeTool !== null) {
+            $this->toolRegistry->register($this->summarizeTool);
         }
 
         // Create the tool search tool — always-loaded, not subject to maxTools cap.
@@ -308,6 +408,30 @@ final class OrchestratorAgent extends AbstractAgent
 
     public function instructions(): string
     {
+        // When a non-orchestrator role is active, use the role's instructions
+        // instead of the full orchestrator prompt. This enables /role switching
+        // while preserving memory injection and context awareness.
+        if ($this->activeRole !== null && $this->activeRole !== 'orchestrator' && $this->roleDiscovery !== null) {
+            try {
+                $roleInstructions = $this->roleDiscovery->readInstructions($this->activeRole);
+                $rendered = $roleInstructions;
+            } catch (\Throwable) {
+                // Role instructions not found — fall through to orchestrator prompt
+                $rendered = $this->renderOrchestratorPrompt();
+            }
+        } else {
+            $rendered = $this->renderOrchestratorPrompt();
+        }
+
+        // Lost-in-middle mitigation: inject memories at START (high attention)
+        // and recapitulation at END (recency attention) of the instructions block.
+        $rendered = $this->injectMemoryContext($rendered);
+
+        return $rendered;
+    }
+
+    private function renderOrchestratorPrompt(): string
+    {
         $roles = implode(', ', $this->roleResolver->availableRoles());
         $skillsSummary = $this->skillDiscovery?->buildPromptSummary() ?? 'No skills installed.';
         $storageMap = $this->mountManager?->storageMap() ?? '';
@@ -320,15 +444,40 @@ final class OrchestratorAgent extends AbstractAgent
             storageMap: $storageMap,
         );
 
-        $rendered = $prompt->render();
+        return $prompt->render();
+    }
 
-        // Inject core memory summary if available
-        $memorySummary = $this->memorySummarizer?->getSummary();
-        if ($memorySummary !== null && $memorySummary !== '') {
-            $rendered .= "\n\n# CORE MEMORIES\n\n" . $memorySummary;
+    private function injectMemoryContext(string $rendered): string
+    {
+        if ($this->memorySummarizer !== null) {
+            $utilityProvider = $this->resolveUtilityProvider();
+            $memorySummary = $this->memorySummarizer->getSummary($utilityProvider);
+
+            if ($memorySummary !== '') {
+                $rendered = "# CORE MEMORIES\n\n" . $memorySummary . "\n\n" . $rendered;
+
+                if ($this->memoryStore !== null) {
+                    $topMemories = $this->memoryStore->getTopImportantMemories(5);
+                    if ($topMemories !== []) {
+                        $bullets = array_map(
+                            static fn(MemoryEntry $e) => '- ' . $e->content,
+                            $topMemories,
+                        );
+                        $rendered .= "\n\n# KEY CONTEXT REMINDER\n\nCritical user context (refer to CORE MEMORIES for full details):\n" . implode("\n", $bullets);
+                    }
+                }
+            }
         }
 
         return $rendered;
+    }
+
+    /**
+     * Return the active role name (null means orchestrator default).
+     */
+    public function getActiveRole(): ?string
+    {
+        return $this->activeRole;
     }
 
     /**
@@ -342,6 +491,11 @@ final class OrchestratorAgent extends AbstractAgent
             $this->toolSearchTool,
             $this->credentialTool,
         ];
+
+        // Summarize tool is always available when a session exists
+        if ($this->summarizeTool !== null) {
+            $alwaysEnabled[] = $this->summarizeTool;
+        }
 
         // Visibility-aware standalone tools (by tool name => instance)
         /** @var array<string, ToolInterface> */
@@ -503,5 +657,62 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         return self::DEFAULT_SHELL_COMMANDS;
+    }
+
+    /**
+     * Resolve a ContextWindow from the model definition in config.
+     *
+     * Uses the orchestrator model's declared contextWindow and maxTokens
+     * to create an accurate token budget. Falls back to a conservative
+     * 128K window when no model definition is available.
+     */
+    private function resolveContextWindow(ConfigInterface $config, RoleResolver $roleResolver): ContextWindowInterface
+    {
+        if ($config instanceof OpenClawConfig) {
+            $modelString = $roleResolver->resolve('orchestrator');
+            $parts = explode('/', $modelString, 2);
+            $modelId = $parts[1] ?? $modelString;
+
+            $modelDef = $config->getModelDefinition($modelId)
+                ?? $config->getModelDefinition($modelString);
+
+            if ($modelDef !== null) {
+                return ContextWindow::fromModel($modelDef);
+            }
+        }
+
+        // Conservative fallback: 128K context window, 4K reserved for completion
+        return new ContextWindow(maxTok: CoquiDefaults::CONTEXT_WINDOW_FALLBACK, reservedTok: CoquiDefaults::CONTEXT_WINDOW_RESERVED);
+    }
+
+    /**
+     * Get the context window tracker for this agent.
+     */
+    public function getContextWindow(): ?ContextWindowInterface
+    {
+        return $this->contextWindowInstance;
+    }
+
+    /**
+     * Resolve a utility provider for cheap single-shot tasks
+     * (memory compression, titles, summarization).
+     *
+     * Returns null if no provider can be resolved — callers should
+     * degrade gracefully (e.g. skip LLM compression).
+     */
+    private function resolveUtilityProvider(): ?\CarmeloSantana\PHPAgents\Contract\ProviderInterface
+    {
+        try {
+            $factory = new ProviderFactory($this->config);
+            $utilityModel = $this->roleResolver->resolveUtility();
+
+            if ($utilityModel !== '') {
+                return $factory->create($utilityModel);
+            }
+        } catch (\Throwable) {
+            // Fall through — utility provider is best-effort
+        }
+
+        return null;
     }
 }

@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Command;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
@@ -16,6 +17,7 @@ use CoquiBot\Coqui\Api\Handler\PromptHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\ServerHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
+use CoquiBot\Coqui\Api\Handler\SummarizeHandler;
 use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Api\Handler\ToolkitHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
@@ -27,6 +29,7 @@ use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
+use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use React\EventLoop\Loop;
@@ -41,6 +44,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 #[AsCommand(
     name: 'api',
@@ -134,7 +138,7 @@ final class ApiCommand extends Command
 
         // Create background task manager + agent turn manager
         $coquiBinPath = realpath(dirname(__DIR__, 2) . '/bin/coqui') ?: dirname(__DIR__, 2) . '/bin/coqui';
-        $maxConcurrentTasks = (int) ($boot->config()->get('api.tasks.maxConcurrent') ?? 1);
+        $maxConcurrentTasks = (int) ($boot->config()->get('api.tasks.maxConcurrent') ?? CoquiDefaults::MAX_CONCURRENT_TASKS);
 
         $taskManager = new BackgroundTaskManager(
             storage: $storage,
@@ -222,10 +226,15 @@ final class ApiCommand extends Command
         );
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($previewRunner);
+        $summarizeHandler = new SummarizeHandler($storage, $boot->config(), $boot->roleResolver(), $boot->memoryStore());
+        $artifactStore = new ArtifactStore($storage->getPdo());
+        $artifactHandler = new ArtifactHandler($artifactStore);
+        $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($storage->getPdo());
+        $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $summarizeHandler, $artifactHandler, $todoHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -347,6 +356,9 @@ final class ApiCommand extends Command
         ServerHandler $server,
         ToolkitHandler $toolkit,
         PromptHandler $prompt,
+        SummarizeHandler $summarize,
+        ArtifactHandler $artifact,
+        \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
     ): void {
         $v1 = '/api/v1';
 
@@ -405,10 +417,30 @@ final class ApiCommand extends Command
         // Child runs
         $router->get($v1 . '/sessions/{id}/child-runs', [$session, 'childRuns']);
 
+        // Summarization
+        $router->post($v1 . '/sessions/{id}/summarize', [$summarize, 'summarize']);
+
         // Server
         $router->get($v1 . '/server/info', [$server, 'info']);
         $router->get($v1 . '/server/stats', [$server, 'stats']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
+
+        // Artifacts
+        $router->get($v1 . '/sessions/{id}/artifacts', [$artifact, 'list']);
+        $router->post($v1 . '/sessions/{id}/artifacts', [$artifact, 'create']);
+        $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'get']);
+        $router->patch($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'update']);
+        $router->delete($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'delete']);
+        $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}/versions', [$artifact, 'versions']);
+
+        // Todos
+        $router->get($v1 . '/sessions/{id}/todos', [$todo, 'list']);
+        $router->post($v1 . '/sessions/{id}/todos', [$todo, 'create']);
+        $router->get($v1 . '/sessions/{id}/todos/stats', [$todo, 'stats']);
+        $router->get($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'get']);
+        $router->patch($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'update']);
+        $router->post($v1 . '/sessions/{id}/todos/{todoId}/complete', [$todo, 'complete']);
+        $router->delete($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'delete']);
 
         // Toolkit visibility management
         $router->get($v1 . '/toolkits', [$toolkit, 'list']);

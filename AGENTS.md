@@ -14,6 +14,7 @@ Coqui is built on [`carmelosantana/php-agents`](https://github.com/carmelosantan
 | `cancellationToken` | `?CancellationTokenInterface` | `null` | Cooperative cancellation (SIGINT, ESC) |
 | `pendingInputProvider` | `?PendingInputProviderInterface` | `null` | Inject messages mid-loop (API mode) |
 | `contextWindow` | `?ContextWindowInterface` | `null` | Token budget tracking + auto-pruning |
+| `pruningStrategy` | `?BudgetPruningStrategyInterface` | `null` | Custom budget pruning (default: trim + drop) |
 
 ### Run Loop Output
 
@@ -56,6 +57,7 @@ Agents implement `SplSubject`. Coqui attaches `TerminalObserver` (REPL) and `Sse
 | `ToolExecutionPolicyInterface` | `InteractiveApprovalPolicy`, `AutoApprovalPolicy` |
 | `CancellationTokenInterface` | `CancellationToken` — driven by SIGINT handler and `EscCancellationObserver` |
 | `ContextWindowInterface` | `ContextWindow` — optionally enabled; prunes conversation on token pressure |
+| `BudgetPruningStrategyInterface` | `SummarizePruningStrategy` — summarize-then-drop; falls back to `DefaultBudgetPruningStrategy` |
 
 ### Deprecated in php-agents — Do Not Use in Coqui
 
@@ -332,6 +334,105 @@ Coqui supports running individual tools asynchronously in background processes. 
 | `src/Toolkit/BackgroundTaskToolkit.php` | Agent-facing tools including `start_background_tool`                  |
 | `src/Command/TaskRunCommand.php`        | Branches on `tool_name` presence: agent path vs direct tool execution |
 
+## Artifact-Driven Planning & Role Handoff
+
+Coqui supports structured planning and implementation handoffs via the artifact management system. The `plan` role creates versioned plan artifacts that flow through a lifecycle (`draft` → `review` → `final`), then hand off to the `coder` role for execution.
+
+### Workflow
+
+1. **User activates the plan role** via `/role plan` or the orchestrator delegates via `spawn_agent(role: "plan", ...)`.
+2. **Plan agent creates a plan artifact** using `artifact_create(type: "plan", ...)`. The plan evolves through discovery and design phases, updated via `artifact_update`.
+3. **Parallel exploration** — the plan agent can spawn background tasks with `start_background_task(role: "explorer", ...)` to investigate multiple subsystems concurrently. Results are gathered via `task_status` and consolidated into the plan artifact.
+4. **User review** — the plan artifact moves to `review` stage via `artifact_stage`. The user provides feedback, and the plan agent iterates.
+5. **Handoff** — once approved, the artifact moves to `final` stage. The user or plan agent triggers implementation via `spawn_agent(role: "coder", task: "Execute the approved plan in artifact [ID]")`.
+6. **Coder reads the plan** — child agents receive `ArtifactToolkit` with the parent's session ID, so the coder can read the plan artifact via `artifact_get` and follow its steps.
+
+### Artifact Sharing Between Parent and Child Agents
+
+`SpawnAgentTool::buildToolkits()` injects `ArtifactToolkit` into every child agent (regardless of access level). The toolkit uses the parent's `sessionId`, so all artifacts created by the orchestrator, plan agent, or coder are visible to each other within the same session.
+
+### Built-in Roles for Planning
+
+| Role       | Access Level     | Purpose                                              |
+| ---------- | ---------------- | ---------------------------------------------------- |
+| `plan`     | `readonly`       | Creates and manages plan artifacts; never implements  |
+| `explorer` | `readonly-shell` | Gathers codebase context using filesystem + shell search commands |
+| `coder`    | `full`           | Reads plan artifacts and implements the plan          |
+| `reviewer` | `readonly`       | Reads artifacts for code review and analysis          |
+
+### Key Source Files
+
+| File                            | Purpose                                                            |
+| ------------------------------- | ------------------------------------------------------------------ |
+| `config/roles/plan.md`         | Plan role definition with artifact workflow and plan style guide    |
+| `config/roles/explorer.md`     | Explorer role for focused read-only codebase investigation         |
+| `src/Toolkit/ArtifactToolkit.php` | Agent-facing CRUD tools for versioned artifacts                 |
+| `src/Storage/ArtifactStore.php`   | SQLite-backed artifact persistence with version history          |
+| `src/Tool/SpawnAgentTool.php`     | Injects ArtifactToolkit into child agents for session-shared access |
+
+## Todo System Architecture
+
+Coqui provides session-scoped task tracking via the todo system. Agents use todos to plan work, track progress, and hand off structured task lists between roles. The system integrates with artifacts for plan→execution traceability.
+
+### How It Works
+
+1. **`TodoStore`** manages a `todos` table in the shared SQLite database (same PDO as SessionStorage). Each todo is scoped to a session and optionally linked to an artifact and/or parent todo.
+2. **`TodoToolkit`** exposes 6 agent-facing tools: `todo_add`, `todo_update`, `todo_complete`, `todo_list`, `todo_get`, `todo_delete`. Tool availability is role-aware — readonly roles only get `todo_list` and `todo_get`.
+3. **Guidelines injection** — `TodoToolkit::guidelines()` dynamically generates a progress summary (progress bar, active/pending listing) that is included in the system prompt on every iteration.
+4. **Child agent sharing** — `SpawnAgentTool::buildToolkits()` injects `TodoToolkit` into every child agent with the parent's session ID, so todos are visible across all agents in a session.
+
+### Todo Schema
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | TEXT PK | Random hex ID |
+| `session_id` | TEXT FK | Scoped to session (CASCADE delete) |
+| `artifact_id` | TEXT FK | Optional link to artifact (SET NULL on delete) |
+| `parent_id` | TEXT FK | Optional subtask hierarchy (CASCADE delete) |
+| `title` | TEXT | Task description |
+| `status` | TEXT | `pending` / `in_progress` / `completed` / `cancelled` |
+| `priority` | TEXT | `high` / `medium` / `low` |
+| `created_by` | TEXT | Role that created the todo |
+| `completed_by` | TEXT | Role that completed it |
+| `notes` | TEXT | Additional context |
+| `sort_order` | INTEGER | Display ordering |
+
+### Role-Based Permissions
+
+| Access Level | Available Tools |
+| --- | --- |
+| `full` | All 6 tools |
+| `readonly`, `readonly-shell` | `todo_list`, `todo_get`, `todo_add`, `todo_update` |
+| `minimal` | `todo_list`, `todo_get` |
+
+### Planning Workflow Integration
+
+1. **Plan agent** creates todos for each implementation step via `todo_add`, linking them to the plan artifact.
+2. **Coder agent** reads the todo list via `todo_list(artifact_id: "...")`, implements each step, and marks todos complete via `todo_complete`.
+3. **Reviewer agent** checks completed todos against actual implementation using `todo_list`.
+
+### REPL & API
+
+| Interface | Command/Endpoint | Description |
+| --- | --- | --- |
+| REPL | `/todos [status]` | Show session todos with progress stats |
+| API | `GET /api/v1/sessions/{id}/todos` | List todos with filters |
+| API | `POST /api/v1/sessions/{id}/todos` | Create todo |
+| API | `GET /api/v1/sessions/{id}/todos/stats` | Session stats |
+| API | `GET /api/v1/sessions/{id}/todos/{todoId}` | Get todo with subtasks |
+| API | `PATCH /api/v1/sessions/{id}/todos/{todoId}` | Update todo |
+| API | `POST /api/v1/sessions/{id}/todos/{todoId}/complete` | Mark complete |
+| API | `DELETE /api/v1/sessions/{id}/todos/{todoId}` | Delete todo |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Storage/TodoStore.php` | SQLite CRUD with session scoping, subtask hierarchy, stats |
+| `src/Toolkit/TodoToolkit.php` | 6 agent-facing tools with role-aware permissions and dynamic guidelines |
+| `src/Api/Handler/TodoHandler.php` | REST API endpoints for todo CRUD |
+| `prompts/tools/todos.md` | Agent usage guidelines for todo workflow |
+
 ## Vision Architecture
 
 Coqui provides image analysis via a dedicated `vision` role. The system uses a single-shot child agent pattern (like `TitleGenerator`) — no persistent state, no tool access, just one LLM call with the image embedded.
@@ -396,6 +497,16 @@ When `agents.defaults.shellAllowedCommands` is not set, the following commands a
 
 `php`, `git`, `grep`, `find`, `cat`, `head`, `tail`, `wc`, `ls`, `curl`, `wget`, `make`, `sort`, `uniq`, `sed`, `awk`, `diff`
 
+### Read-Only Shell Access (`readonly-shell`)
+
+The `readonly-shell` access level gives child agents read-only filesystem access **plus** a restricted subset of shell commands for codebase exploration. This sits between `readonly` (no shell at all) and `full` (full shell).
+
+The restricted command list is defined in `SpawnAgentTool::READ_ONLY_SHELL_COMMANDS`:
+
+`grep`, `find`, `cat`, `head`, `tail`, `wc`, `ls`, `sort`, `uniq`, `sed`, `awk`, `diff`
+
+These are all read-only search and inspection commands — no `git`, `php`, `curl`, `wget`, `make`, or any command that can modify state. The `OrchestratorAgent` uses the same restricted list when the active role's access level is `readonly-shell`.
+
 ### Safety Layer Interactions
 
 Each CLI flag affects a specific safety layer. They do **not** interact with each other:
@@ -444,6 +555,54 @@ Coqui provides automatic model failover via the `FallbackProvider` decorator pat
 | `src/Config/OpenClawConfig.php`             | Application-specific `ConfigInterface` implementation — reads `openclaw.json`, provides `getFallbacks()` |
 | `src/Exception/ConfigNotFoundException.php` | Domain exception for missing/unreadable `openclaw.json`                                                  |
 
+
+
+## Utility Model Architecture
+
+Many Coqui subsystems need a "cheap/fast" LLM for internal tasks (title generation, conversation summarization, memory compression). Rather than each subsystem independently resolving a model, Coqui provides a unified utility model resolution chain via `RoleResolver::resolveUtility()`.
+
+### Resolution Chain
+
+`resolveUtility()` checks the following sources in order, returning the first non-empty value:
+
+1. **`agents.defaults.model.utility`** in `openclaw.json` — explicit utility model config
+2. **`COQUI_UTILITY_MODEL`** environment variable — override without editing config
+3. **`resolve('title-generator')`** — falls through the standard 3-tier role resolution (role file → openclaw.json roles → primary model)
+
+### Subsystems Using Utility Model
+
+| Subsystem | Callsite | Purpose |
+| --- | --- | --- |
+| Title generation | `TitleGenerator::resolveProvider()` | Session title generation |
+| Auto-summarization | `AgentRunner::autoSummarizeIfNeeded()` | Pre-turn budget-triggered summarization |
+| On-demand summarization | `SummarizeConversationTool::execute()` | Agent-invoked conversation compression |
+| API summarization | `SummarizeHandler::handle()` | HTTP API summarization endpoint |
+| REPL summarization | `RunCommand::handleSummarizeCommand()` | `/summarize` command |
+| Memory compression | `OrchestratorAgent::instructions()` | MemorySummarizer core memory summary |
+| Budget pruning | `OrchestratorAgent::__construct()` | SummarizePruningStrategy for in-loop pruning |
+
+### Configuration
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "model": {
+                "utility": "ollama/gemma3:4b"
+            }
+        }
+    }
+}
+```
+
+If not configured, the title-generator role's model is used. If that's also not configured, the primary model is used.
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Config/RoleResolver.php` | `resolveUtility()` — unified resolution chain |
+| `src/Config/OpenClawConfig.php` | `getUtilityModel()` — reads config key and env var |
 
 
 ## Mount System Architecture
@@ -576,6 +735,89 @@ No explicit configuration is required. The memory system initializes automatical
     }
 }
 ```
+
+
+## Context Window & Conversation Summarization
+
+Coqui provides automatic context window management and conversation summarization to prevent token limit overflows. The system uses php-agents' `ContextWindow` for per-iteration pruning, a pluggable `BudgetPruningStrategyInterface` for custom pruning logic, and LLM-powered summarization for intelligent conversation compression.
+
+### Context Window Integration
+
+1. **`OrchestratorAgent::resolveContextWindow()`** reads the `ModelDefinition` from config and creates a `ContextWindow` via `ContextWindow::fromModel()`. Falls back to 128K max / 4K reserved if no model definition is available.
+2. **The `ContextWindow`** is passed to `AbstractAgent` at construction. On every iteration, `AbstractAgent::run()` calls `Conversation::fitWithinBudget()` to prune oldest messages when the conversation exceeds the token budget.
+3. **Warning/critical thresholds** (80%/95% of max tokens) are set automatically by `ContextWindow::fromModel()`.
+
+### Budget Pruning Strategy
+
+`AbstractAgent` accepts an optional `BudgetPruningStrategyInterface` at construction. This strategy is passed to `Conversation::fitWithinBudget()` on every iteration:
+
+- **`DefaultBudgetPruningStrategy`** (php-agents) — the extracted built-in logic: trim tool results → drop oldest turns → aggressive trim → repair → merge. Used when no custom strategy is provided.
+- **`SummarizePruningStrategy`** (Coqui) — attempts LLM summarization via `ConversationSummarizer` before falling back to default pruning. If summarization doesn't reduce tokens enough, applies `DefaultBudgetPruningStrategy` on top. On any failure, falls back entirely to default pruning.
+
+`OrchestratorAgent` creates a `SummarizePruningStrategy` at construction using the utility provider, session storage, memory store, and configurable `keepRecentTurns`.
+
+### Automatic Summarization
+
+Before each agent turn, `AgentRunner::autoSummarizeIfNeeded()` checks the conversation's estimated token usage against the context window budget. If usage exceeds a configurable threshold, the conversation is automatically summarized:
+
+1. **Threshold check** — `agents.defaults.context.autoSummarizeThreshold` in `openclaw.json` (default: `75` = 75% of available budget). Accepts both percentage (1–100) and ratio (0.0–1.0) — ratios are automatically converted to percentages.
+2. **Provider resolution** — uses the utility model resolution chain (see Utility Model section below).
+3. **Keep recent** — `agents.defaults.context.autoSummarizeKeepRecent` controls how many recent turns are preserved during auto-summarization (default: `10`, clamped 1–20).
+4. **Summarization** — `ConversationSummarizer` splits the conversation, compresses older messages via LLM, rebuilds with a summary `SystemMessage`.
+5. **Observer notification** — emits `agent.summary` event so terminal/SSE observers can alert the user.
+
+### On-Demand Summarization
+
+Users and agents can trigger summarization manually:
+
+| Interface | Trigger | Description |
+| --- | --- | --- |
+| REPL | `/summarize [recent N] [focus "topic"]` | Summarizes the current session |
+| Agent tool | `summarize_conversation(scope, keep_recent, focus)` | Agent-invoked summarization |
+| API | `POST /api/v1/sessions/{id}/summarize` | Body: `{keep_recent, focus}` |
+
+### Summarization Process
+
+`ConversationSummarizer` performs the following steps:
+
+1. **Split** — finds user turn boundaries, keeps the N most recent turns (configurable via `agents.defaults.context.keepRecentTurns`, default 6), marks older messages for compression. System messages are always preserved.
+2. **Compress** — sends the older messages to a cheap LLM with a structured prompt requesting a <500 word summary covering key decisions, technical details, code references, and unresolved items.
+3. **Rebuild** — constructs a new `Conversation` with: original system messages + summary `SystemMessage` (marked with `[CONVERSATION SUMMARY]`) + preserved recent messages.
+4. **Persist** (optional) — stores the summary as a `session_summary` area `MemoryEntry` in `MemoryStore` for cross-session awareness.
+
+### Configuration
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "context": {
+                "autoSummarizeThreshold": 75,
+                "autoSummarizeKeepRecent": 10,
+                "keepRecentTurns": 6
+            }
+        }
+    }
+}
+```
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `autoSummarizeThreshold` | `75` | Token usage percentage that triggers auto-summarization. Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeKeepRecent` | `10` | Turns preserved during auto-summarization (1–20) |
+| `keepRecentTurns` | `6` | Default turns preserved during on-demand summarization |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Memory/ConversationSummarizer.php` | Core summarization logic: split, compress via LLM, rebuild conversation |
+| `src/Memory/ConversationSummaryResult.php` | Value object: summary text, message count, token metrics (before/after) |
+| `src/Config/SummarizePruningStrategy.php` | BudgetPruningStrategyInterface — summarize-then-drop with default fallback |
+| `src/Tool/SummarizeConversationTool.php` | Agent-facing tool with scope/keep_recent/focus parameters |
+| `src/Api/Handler/SummarizeHandler.php` | POST API endpoint for session summarization |
+| `src/Agent/AgentRunner.php` | `autoSummarizeIfNeeded()` — pre-turn budget check and auto-summarize |
+| `src/Agent/OrchestratorAgent.php` | `resolveContextWindow()` — ContextWindow from ModelDefinition; creates SummarizePruningStrategy |
 
 
 ## Language & Runtime
@@ -893,7 +1135,7 @@ max_iterations: 30             # optional — per-role iteration limit (0 = unli
 
 Controls how many agent loop iterations a role can perform before stopping.
 
-**Resolution priority:** role file `max_iterations` → `agents.defaults.maxIterations` in `openclaw.json` → hardcoded fallback (25).
+**Resolution priority:** role file `max_iterations` → `agents.defaults.maxIterations` in `openclaw.json` → hardcoded fallback (48).
 
 #### Global Default
 
@@ -903,7 +1145,7 @@ Set in `openclaw.json`:
 {
     "agents": {
         "defaults": {
-            "maxIterations": 25
+            "maxIterations": 48
         }
     }
 }
@@ -931,7 +1173,7 @@ Setting `max_iterations: 0` means "run until the task is done" — the agent loo
 | Role            | `max_iterations` | Rationale                                         |
 | --------------- | ---------------- | ------------------------------------------------- |
 | orchestrator    | global default   | Main agent — uses `agents.defaults.maxIterations` |
-| coder           | 30               | Complex coding tasks need more iterations         |
+| coder           | 48               | Complex coding tasks need more iterations         |
 | reviewer        | 15               | Read-only analysis is usually quick               |
 | assistant       | global default   | General purpose — inherits global                 |
 | title-generator | 5                | Single-shot title generation                      |

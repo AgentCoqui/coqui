@@ -162,6 +162,14 @@ final class UpdateManager
                 continue;
             }
 
+            // Skip path-repository packages — they are local symlinks that cannot
+            // be updated via Packagist. Running composer update on them is a no-op,
+            // which would otherwise trigger an infinite auto-update restart loop.
+            $sourceType = $pkg['source']['type'] ?? $pkg['dist']['type'] ?? '';
+            if ($sourceType === 'path') {
+                continue;
+            }
+
             $packages[] = [
                 'name' => $pkg['name'] ?? '',
                 'current' => $pkg['version'] ?? '',
@@ -201,13 +209,21 @@ final class UpdateManager
         }
 
         fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
         fclose($pipes[1]);
         $stderr = stream_get_contents($pipes[2]);
         fclose($pipes[2]);
         $exitCode = proc_close($process);
 
         if ($exitCode !== 0) {
-            $error = is_string($stderr) ? trim($stderr) : 'Unknown error';
+            $parts = [];
+            if (is_string($stderr) && $stderr !== '') {
+                $parts[] = trim($stderr);
+            }
+            if (is_string($stdout) && $stdout !== '') {
+                $parts[] = trim($stdout);
+            }
+            $error = $parts !== [] ? implode('\n', $parts) : 'Unknown error';
             return "Exit code {$exitCode}: {$error}";
         }
 
