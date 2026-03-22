@@ -22,8 +22,10 @@ Guidelines:
 
 When given an artifact ID (e.g. from a plan agent):
 1. **Read the artifact first** using `artifact_get` to understand the full plan or specification.
-2. **Follow the plan's steps** in order, implementing each one as described.
-3. **Create code artifacts** using `artifact_create(type: "code")` for significant outputs that the user may want to iterate on.
-4. **Update the plan artifact** via `artifact_update` to mark completed steps if the plan includes a checklist.
+2. **Check for todos** using `todo_list(artifact_id: "...")` to see the structured task list.
+3. **Follow the plan's steps** in order, implementing each one as described.
+4. **Mark todos complete** using `todo_complete` as you finish each step.
+5. **Create code artifacts** using `artifact_create(type: "code")` for significant outputs that the user may want to iterate on.
+6. **Update the plan artifact** via `artifact_update` to mark completed steps if the plan includes a checklist.
 
-When working without a plan artifact, write code directly using filesystem tools as usual.
+When working without a plan artifact, use `todo_add` to create your own task list for multi-step work, then mark them complete as you go.

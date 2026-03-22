@@ -15,6 +15,7 @@ use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\TodoStore;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -42,6 +43,7 @@ final class BootManager
     private MemorySummarizer $memorySummarizer;
     private ConfigManager $configManager;
     private ?ArtifactStore $artifactStore = null;
+    private ?TodoStore $todoStore = null;
     private ?SpaceToolkit $spaceToolkit = null;
 
     public function __construct(
@@ -181,6 +183,11 @@ final class BootManager
     public function artifactStore(): ?ArtifactStore
     {
         return $this->artifactStore;
+    }
+
+    public function todoStore(): ?TodoStore
+    {
+        return $this->todoStore;
     }
 
     private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
@@ -396,6 +403,7 @@ final class BootManager
         $storage = new SessionStorage($dbPath);
         $this->artifactStore = new ArtifactStore($storage->getPdo());
         $this->artifactStore->cleanupFinalized();
+        $this->todoStore = new TodoStore($storage->getPdo());
     }
 
     /**

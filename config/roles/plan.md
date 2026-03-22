@@ -58,7 +58,8 @@ Move the artifact to `review` stage and present the plan to the user.
 
 Once approved:
 1. Move the artifact to `final` stage using `artifact_stage`.
-2. Instruct the user to execute the plan:
+2. **Create todos** for each implementation step using `todo_add`, linking them to the plan artifact via `artifact_id`. This gives the coder a structured checklist to execute.
+3. Instruct the user to execute the plan:
    - Direct role switch: `/role coder` then reference the plan artifact ID
    - Or spawn a coder: `spawn_agent(role: "coder", task: "Execute the approved plan in artifact [ID]. Read the artifact first with artifact_get, then implement each step.")`
 

@@ -370,6 +370,69 @@ Coqui supports structured planning and implementation handoffs via the artifact 
 | `src/Storage/ArtifactStore.php`   | SQLite-backed artifact persistence with version history          |
 | `src/Tool/SpawnAgentTool.php`     | Injects ArtifactToolkit into child agents for session-shared access |
 
+## Todo System Architecture
+
+Coqui provides session-scoped task tracking via the todo system. Agents use todos to plan work, track progress, and hand off structured task lists between roles. The system integrates with artifacts for plan→execution traceability.
+
+### How It Works
+
+1. **`TodoStore`** manages a `todos` table in the shared SQLite database (same PDO as SessionStorage). Each todo is scoped to a session and optionally linked to an artifact and/or parent todo.
+2. **`TodoToolkit`** exposes 6 agent-facing tools: `todo_add`, `todo_update`, `todo_complete`, `todo_list`, `todo_get`, `todo_delete`. Tool availability is role-aware — readonly roles only get `todo_list` and `todo_get`.
+3. **Guidelines injection** — `TodoToolkit::guidelines()` dynamically generates a progress summary (progress bar, active/pending listing) that is included in the system prompt on every iteration.
+4. **Child agent sharing** — `SpawnAgentTool::buildToolkits()` injects `TodoToolkit` into every child agent with the parent's session ID, so todos are visible across all agents in a session.
+
+### Todo Schema
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | TEXT PK | Random hex ID |
+| `session_id` | TEXT FK | Scoped to session (CASCADE delete) |
+| `artifact_id` | TEXT FK | Optional link to artifact (SET NULL on delete) |
+| `parent_id` | TEXT FK | Optional subtask hierarchy (CASCADE delete) |
+| `title` | TEXT | Task description |
+| `status` | TEXT | `pending` / `in_progress` / `completed` / `cancelled` |
+| `priority` | TEXT | `high` / `medium` / `low` |
+| `created_by` | TEXT | Role that created the todo |
+| `completed_by` | TEXT | Role that completed it |
+| `notes` | TEXT | Additional context |
+| `sort_order` | INTEGER | Display ordering |
+
+### Role-Based Permissions
+
+| Access Level | Available Tools |
+| --- | --- |
+| `full` | All 6 tools |
+| `readonly`, `readonly-shell` | `todo_list`, `todo_get`, `todo_add`, `todo_update` |
+| `minimal` | `todo_list`, `todo_get` |
+
+### Planning Workflow Integration
+
+1. **Plan agent** creates todos for each implementation step via `todo_add`, linking them to the plan artifact.
+2. **Coder agent** reads the todo list via `todo_list(artifact_id: "...")`, implements each step, and marks todos complete via `todo_complete`.
+3. **Reviewer agent** checks completed todos against actual implementation using `todo_list`.
+
+### REPL & API
+
+| Interface | Command/Endpoint | Description |
+| --- | --- | --- |
+| REPL | `/todos [status]` | Show session todos with progress stats |
+| API | `GET /api/v1/sessions/{id}/todos` | List todos with filters |
+| API | `POST /api/v1/sessions/{id}/todos` | Create todo |
+| API | `GET /api/v1/sessions/{id}/todos/stats` | Session stats |
+| API | `GET /api/v1/sessions/{id}/todos/{todoId}` | Get todo with subtasks |
+| API | `PATCH /api/v1/sessions/{id}/todos/{todoId}` | Update todo |
+| API | `POST /api/v1/sessions/{id}/todos/{todoId}/complete` | Mark complete |
+| API | `DELETE /api/v1/sessions/{id}/todos/{todoId}` | Delete todo |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Storage/TodoStore.php` | SQLite CRUD with session scoping, subtask hierarchy, stats |
+| `src/Toolkit/TodoToolkit.php` | 6 agent-facing tools with role-aware permissions and dynamic guidelines |
+| `src/Api/Handler/TodoHandler.php` | REST API endpoints for todo CRUD |
+| `prompts/tools/todos.md` | Agent usage guidelines for todo workflow |
+
 ## Vision Architecture
 
 Coqui provides image analysis via a dedicated `vision` role. The system uses a single-shot child agent pattern (like `TitleGenerator`) — no persistent state, no tool access, just one LLM call with the image embedded.

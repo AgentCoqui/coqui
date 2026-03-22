@@ -229,10 +229,12 @@ final class ApiCommand extends Command
         $summarizeHandler = new SummarizeHandler($storage, $boot->config(), $boot->roleResolver(), $boot->memoryStore());
         $artifactStore = new ArtifactStore($storage->getPdo());
         $artifactHandler = new ArtifactHandler($artifactStore);
+        $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($storage->getPdo());
+        $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $summarizeHandler, $artifactHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $summarizeHandler, $artifactHandler, $todoHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -356,6 +358,7 @@ final class ApiCommand extends Command
         PromptHandler $prompt,
         SummarizeHandler $summarize,
         ArtifactHandler $artifact,
+        \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
     ): void {
         $v1 = '/api/v1';
 
@@ -429,6 +432,15 @@ final class ApiCommand extends Command
         $router->patch($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'update']);
         $router->delete($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'delete']);
         $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}/versions', [$artifact, 'versions']);
+
+        // Todos
+        $router->get($v1 . '/sessions/{id}/todos', [$todo, 'list']);
+        $router->post($v1 . '/sessions/{id}/todos', [$todo, 'create']);
+        $router->get($v1 . '/sessions/{id}/todos/stats', [$todo, 'stats']);
+        $router->get($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'get']);
+        $router->patch($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'update']);
+        $router->post($v1 . '/sessions/{id}/todos/{todoId}/complete', [$todo, 'complete']);
+        $router->delete($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'delete']);
 
         // Toolkit visibility management
         $router->get($v1 . '/toolkits', [$toolkit, 'list']);

@@ -785,6 +785,21 @@
             ]
         },
         {
+            "path": "src/Api/Handler/TodoHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\TodoHandler",
+            "layer": "command",
+            "description": "Todo CRUD API endpoints. GET /api/v1/sessions/{id}/todos (list with status/priority/artifact_id filters), POST /api/v1/sessions/{id}/todos (create), GET /api/v1/sessions/{id}/todos/stats (session stats), GET /api/v1/sessions/{id}/todos/{todoId} (detail with subtasks), PATCH /api/v1/sessions/{id}/todos/{todoId} (update), POST /api/v1/sessions/{id}/todos/{todoId}/complete (mark complete), DELETE /api/v1/sessions/{id}/todos/{todoId} (delete).",
+            "methods": [
+                "list(request, id): Response — list session todos with filters",
+                "create(request, id): Response — create todo",
+                "stats(request, id): Response — session todo statistics",
+                "get(request, id, todoId): Response — get todo with subtasks",
+                "update(request, id, todoId): Response — update todo fields",
+                "complete(request, id, todoId): Response — mark todo complete",
+                "delete(request, id, todoId): Response — delete todo"
+            ]
+        },
+        {
             "path": "src/Api/Handler/TurnHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\TurnHandler",
             "layer": "command",
@@ -897,6 +912,24 @@
             ]
         },
         {
+            "path": "src/Storage/TodoStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\TodoStore",
+            "layer": "storage",
+            "description": "SQLite-backed session-scoped todo persistence. Table: todos (id, session_id, artifact_id, parent_id, title, status, priority, created_by, completed_by, notes, sort_order, timestamps). Shares PDO connection from SessionStorage. Supports CRUD, subtask hierarchy, artifact linking, status transitions (pending/in_progress/completed/cancelled), priority levels, and session-scoped statistics.",
+            "methods": [
+                "create(sessionId, title, priority, artifactId, parentId, createdBy, notes): string — creates todo, returns ID",
+                "get(id): ?array — retrieves todo by ID",
+                "update(id, title, status, priority, notes, artifactId): bool — updates todo fields",
+                "complete(id, completedBy, notes): bool — marks todo completed with timestamp",
+                "delete(id): bool — deletes todo (cascades subtasks)",
+                "list(filters, includeCompleted, limit): array — lists todos with session/status/priority/artifact filters",
+                "listByArtifact(artifactId, includeSubtasks): array — lists todos linked to an artifact",
+                "getSubtasks(parentId): array — returns child todos",
+                "getStats(sessionId, artifactId): array — returns total/pending/in_progress/completed/cancelled counts",
+                "reorder(ordering): void — bulk-updates sort_order"
+            ]
+        },
+        {
             "path": "src/Storage/FileUploadStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\FileUploadStorage",
             "layer": "storage",
@@ -989,6 +1022,16 @@
             "methods": [
                 "tools(): array — returns 5 Tool instances for artifact CRUD + staging",
                 "guidelines(): string — dynamic guidelines showing existing artifact listing or empty state prompt"
+            ]
+        },
+        {
+            "path": "src/Toolkit/TodoToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\TodoToolkit",
+            "layer": "toolkit",
+            "description": "Agent-facing session-scoped todo management toolkit providing 6 tools: todo_add (create with priority/artifact link/subtask support), todo_update (modify fields), todo_complete (mark done with role attribution), todo_list (filtered checklist with progress icons), todo_get (detail with subtasks), todo_delete (remove). Role-aware permissions: readonly gets list+get only, full gets all tools. Guidelines dynamically show progress bar and active/pending listing.",
+            "methods": [
+                "tools(): array — returns filtered Tool instances based on access level",
+                "guidelines(): string — dynamic progress summary with bar visualization and active todo listing"
             ]
         },
         {
