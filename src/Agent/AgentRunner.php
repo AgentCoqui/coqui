@@ -339,9 +339,10 @@ final class AgentRunner
      *
      * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>}
      */
-    public function buildPromptPreview(): array
+    public function buildPromptPreview(?string $role = null): array
     {
-        $modelString = $this->roleResolver->resolve('orchestrator');
+        $effectiveRole = $role ?? 'orchestrator';
+        $modelString = $this->roleResolver->resolve($effectiveRole);
         $factory = $this->providerFactory ?? new ProviderFactory($this->config);
         $provider = $factory->create($modelString);
 
@@ -365,6 +366,7 @@ final class AgentRunner
             configGuard: $this->configGuard,
             visibilityRegistry: $this->visibilityRegistry,
             spaceToolkit: $this->spaceToolkit,
+            activeRole: $effectiveRole !== 'orchestrator' ? $effectiveRole : null,
         );
 
         $counter = TokenCounterFactory::forModel($modelString);
