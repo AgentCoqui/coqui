@@ -176,9 +176,11 @@ final class RunCommand extends Command
                 $io->error("Session not found: {$this->sessionId}");
                 return Command::FAILURE;
             }
+            $this->restoreActiveRoleFromSession();
             $io->info("Resumed session: {$this->sessionId}");
         } else {
             $this->sessionId = $this->loadOrCreateSession($io);
+            $this->restoreActiveRoleFromSession();
         }
 
         // Display safety mode warnings
@@ -377,7 +379,11 @@ final class RunCommand extends Command
 
         while (true) {
             $io->writeln('');
-            $io->writeln(' <fg=cyan>You:</>');
+            if ($this->activeRole !== 'orchestrator') {
+                $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>:', $this->activeRole));
+            } else {
+                $io->writeln(' <fg=cyan>You:</>');
+            }
 
             // Read input using readline's callback API for non-blocking signal handling.
             // The blocking readline() swallows SIGINT internally (the readline/libedit
@@ -630,7 +636,8 @@ final class RunCommand extends Command
             })(),
 
             '/prompt' => (function () use ($io) {
-                $preview = $this->agentRunner->buildPromptPreview();
+                $role = $this->activeRole !== 'orchestrator' ? $this->activeRole : null;
+                $preview = $this->agentRunner->buildPromptPreview($role);
                 $io->section('System Prompt');
                 $io->writeln($preview['prompt']);
                 $io->newLine();
@@ -1508,6 +1515,22 @@ final class RunCommand extends Command
         $sessionId = $sessionId ?? $this->sessionId;
         $sessionFile = $this->boot->workspacePath() . '/' . self::SESSION_FILE;
         file_put_contents($sessionFile, $sessionId);
+    }
+
+    /**
+     * Restore the active role from the current session's stored model_role.
+     */
+    private function restoreActiveRoleFromSession(): void
+    {
+        $session = $this->storage->getSession($this->sessionId);
+        if ($session === null) {
+            return;
+        }
+
+        $storedRole = (string) ($session['model_role'] ?? 'orchestrator');
+        if ($storedRole !== '' && $storedRole !== 'orchestrator') {
+            $this->activeRole = $storedRole;
+        }
     }
 
     private function showHistory(SymfonyStyle $io): void
