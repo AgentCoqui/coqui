@@ -162,8 +162,10 @@ final class RoleDiscovery
      *
      * Only copies roles that don't already exist in the workspace.
      * Never overwrites user-edited files.
+     *
+     * @param RoleUpdateTracker|null $tracker Optional tracker to record hashes for seeded roles.
      */
-    public function seedBuiltinRoles(): void
+    public function seedBuiltinRoles(?RoleUpdateTracker $tracker = null): void
     {
         $this->ensureRolesDir();
 
@@ -191,6 +193,13 @@ final class RoleDiscovery
             // Only copy if target doesn't exist — never overwrite user edits
             if (!file_exists($target)) {
                 copy($source, $target);
+
+                // Record hash for newly seeded role
+                if ($tracker !== null) {
+                    $roleName = basename($entry, '.md');
+                    $hash = $tracker->hashFile($source);
+                    $tracker->recordHash($roleName, $hash, $hash);
+                }
             }
         }
 
@@ -340,6 +349,8 @@ final class RoleDiscovery
             version: isset($data['version']) ? (int) $data['version'] : 1,
             accessLevel: (string) ($data['access_level'] ?? 'readonly'),
             isBuiltin: (bool) ($data['is_builtin'] ?? false),
+            isTemplate: (bool) ($data['is_template'] ?? false),
+            ignoreUpdates: (bool) ($data['ignore_updates'] ?? false),
             model: isset($data['model']) && is_string($data['model']) && $data['model'] !== '' ? $data['model'] : null,
             titleModel: isset($data['title_model']) && is_string($data['title_model']) && $data['title_model'] !== '' ? $data['title_model'] : null,
             maxIterations: isset($data['max_iterations']) && is_numeric($data['max_iterations']) ? (int) $data['max_iterations'] : null,

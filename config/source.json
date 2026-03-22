@@ -196,12 +196,13 @@
             "path": "src/Config/RoleResolver.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleResolver",
             "layer": "config",
-            "description": "Maps role names to provider/model strings and resolves per-role iteration limits. Model priority: role file model field → openclaw.json → primary model. Iteration priority: role file max_iterations → agents.defaults.maxIterations → DEFAULT_MAX_ITERATIONS (25). resolveUtility() provides a unified utility model chain: agents.defaults.model.utility → COQUI_UTILITY_MODEL env → title-generator role → primary model. toArray() returns enriched metadata with display_name, description, access_level, max_iterations.",
+            "description": "Maps role names to provider/model strings and resolves per-role iteration limits. Model priority: role file model field → openclaw.json → primary model. Iteration priority: role file max_iterations → agents.defaults.maxIterations → DEFAULT_MAX_ITERATIONS (25). resolveUtility() provides a unified utility model chain: agents.defaults.model.utility → COQUI_UTILITY_MODEL env → title-generator role → primary model. selectableRoles() filters out template roles. toArray() returns enriched metadata with display_name, description, access_level, is_template, ignore_updates, max_iterations.",
             "methods": [
                 "resolve(string $role): string — returns provider/model string (file model → config → primary)",
                 "resolveUtility(): string — returns utility model string (config utility → env → title-generator → primary)",
                 "resolveMaxIterations(string $role): int — returns iteration limit (role file → openclaw.json → 25). 0 = unlimited",
                 "availableRoles(): string[] — union of config and discovered role names",
+                "selectableRoles(): string[] — available roles excluding templates (for user-facing selection)",
                 "toArray(): array — enriched role-to-model mapping with metadata and max_iterations"
             ]
         },
@@ -1047,7 +1048,7 @@
             "path": "src/Agent/PlanTodoGenerator.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\PlanTodoGenerator",
             "layer": "agent",
-            "description": "Automatically generates todos from finalized plan artifacts. Follows the TitleGenerator pattern: single-shot LLM call via utility model, best-effort, never propagates errors. Extracts actionable implementation steps as structured JSON and creates linked todos via TodoStore::bulkCreate(). Invoked automatically by ArtifactToolkit when a plan artifact reaches 'final' stage.",
+            "description": "Automatically generates todos from finalized plan artifacts. Follows the TitleGenerator pattern: single-shot LLM call via utility model, best-effort, never propagates errors. Loads instructions from the plan-todo-generator role file via RoleDiscovery (falling back to FALLBACK_INSTRUCTIONS). Extracts actionable implementation steps as structured JSON and creates linked todos via TodoStore::bulkCreate(). Invoked automatically by ArtifactToolkit when a plan artifact reaches 'final' stage.",
             "methods": [
                 "generate(string $artifactId, string $sessionId, string $planContent): array — extracts steps from plan and creates todos, returns created IDs (empty on failure)"
             ]
@@ -1081,22 +1082,42 @@
             "path": "src/Config/RoleDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleDiscovery",
             "layer": "config",
-            "description": "Boot-time role discovery. Scans workspace/roles/ for .md files, parses metadata only (progressive disclosure). Seeds built-in roles from config/roles/ on first boot. Provides CRUD operations with backup support for updates.",
+            "description": "Boot-time role discovery. Scans workspace/roles/ for .md files, parses metadata only (progressive disclosure). Seeds built-in roles from config/roles/ on first boot with optional RoleUpdateTracker for hash recording. Provides CRUD operations with backup support for updates.",
             "methods": [
                 "discoverAll(): array<string, RoleProperties> — scan and cache all roles",
                 "getRole(string $name): RoleProperties — get role or throw RoleNotFoundException",
                 "readInstructions(string $name): string — load role body for activation",
-                "seedBuiltinRoles(): void — copy config/roles/ to workspace/roles/ if not present",
+                "seedBuiltinRoles(?RoleUpdateTracker): void — copy config/roles/ to workspace/roles/, optionally recording hashes",
                 "createRole(array, string): RoleProperties — create new role file",
-                "updateRole(string, array, string): RoleProperties — update with backup",
+                "updateRole(string, array|RoleProperties, string): RoleProperties — update with backup",
                 "deleteRole(string): void — delete non-builtin role"
             ]
+        },
+        {
+            "path": "src/Config/RoleUpdateTracker.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\RoleUpdateTracker",
+            "layer": "config",
+            "description": "Tracks content hashes of built-in role files to detect updates. Manages workspace/data/role-hashes.json recording SHA-256 hashes of both built-in source and workspace copy. Enables auto-update of unmodified roles and notification for user-modified ones.",
+            "methods": [
+                "recordHash(string $roleName, string $builtinHash, string $seededHash): void — persist hash pair",
+                "checkForUpdates(RoleDiscovery): list<RoleUpdateInfo> — compare all built-in role hashes",
+                "applyUpdate(string $roleName, RoleDiscovery): bool — backup workspace copy and overwrite with built-in",
+                "autoUpdateAndNotify(RoleDiscovery): list<RoleUpdateInfo> — auto-update unmodified, return modified for notification",
+                "hashFile(string $path): string — SHA-256 hash of file contents"
+            ]
+        },
+        {
+            "path": "src/Config/RoleUpdateInfo.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\RoleUpdateInfo",
+            "layer": "config",
+            "description": "Readonly value object describing a pending role update. Contains the role name, whether a built-in update exists, whether the user has modified their workspace copy, and whether the role has ignore_updates set.",
+            "methods": []
         },
         {
             "path": "src/Contract/RoleProperties.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\RoleProperties",
             "layer": "contract",
-            "description": "Readonly value object for parsed role file frontmatter. Holds name, displayName, description, path, version, accessLevel (full/readonly/minimal), isBuiltin flag, optional model overrides, and optional maxIterations (0 = unlimited, null = inherit global default).",
+            "description": "Readonly value object for parsed role file frontmatter. Holds name, displayName, description, path, version, accessLevel (full/readonly/minimal), isBuiltin flag, isTemplate flag (hides from selectableRoles), ignoreUpdates flag (skips update notifications), optional model overrides, and optional maxIterations (0 = unlimited, null = inherit global default).",
             "methods": [
                 "toArray(): array — serializes to API-friendly associative array"
             ]

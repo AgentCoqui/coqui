@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Message\SystemMessage;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\TodoStore;
 
@@ -21,6 +22,8 @@ use CoquiBot\Coqui\Storage\TodoStore;
  */
 final class PlanTodoGenerator
 {
+    private const string ROLE = 'plan-todo-generator';
+
     private const string FALLBACK_INSTRUCTIONS = <<<'PROMPT'
         You are a plan-to-task extraction assistant. Given a plan document, extract the concrete
         implementation steps as a JSON array. Each step becomes a todo item.
@@ -42,6 +45,7 @@ final class PlanTodoGenerator
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
         private readonly TodoStore $todoStore,
+        private readonly ?RoleDiscovery $roleDiscovery = null,
         private readonly ?ProviderFactory $providerFactory = null,
     ) {}
 
@@ -59,7 +63,7 @@ final class PlanTodoGenerator
             $provider = $this->resolveProvider();
 
             $response = $provider->chat([
-                new SystemMessage(self::FALLBACK_INSTRUCTIONS),
+                new SystemMessage($this->resolveInstructions()),
                 new UserMessage($planContent),
             ]);
 
@@ -141,5 +145,18 @@ final class PlanTodoGenerator
         $factory = $this->providerFactory ?? new ProviderFactory($this->config);
 
         return $factory->create($modelString);
+    }
+
+    private function resolveInstructions(): string
+    {
+        if ($this->roleDiscovery !== null) {
+            try {
+                return $this->roleDiscovery->readInstructions(self::ROLE);
+            } catch (\Throwable) {
+                // Fall through to hardcoded fallback
+            }
+        }
+
+        return self::FALLBACK_INSTRUCTIONS;
     }
 }
