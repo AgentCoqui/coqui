@@ -92,7 +92,7 @@ final class ArtifactToolkit implements ToolkitInterface
             parameters: [
                 new StringParameter('title', 'Short descriptive title for the artifact', required: true),
                 new StringParameter('content', 'The full content of the artifact', required: true),
-                new EnumParameter('type', 'Artifact type', ['code', 'document', 'config', 'data', 'other'], required: false),
+                new EnumParameter('type', 'Artifact type', ['code', 'document', 'config', 'plan', 'data', 'other'], required: false),
                 new StringParameter('language', 'Programming language (for code artifacts, e.g. php, python, javascript)', required: false),
                 new StringParameter('filepath', 'Intended file path relative to workspace (e.g. src/MyClass.php)', required: false),
             ],
@@ -221,7 +221,7 @@ final class ArtifactToolkit implements ToolkitInterface
             name: 'artifact_list',
             description: 'List artifacts in the current session, optionally filtered by type or stage.',
             parameters: [
-                new EnumParameter('type', 'Filter by artifact type', ['code', 'document', 'config', 'data', 'other'], required: false),
+                new EnumParameter('type', 'Filter by artifact type', ['code', 'document', 'config', 'plan', 'data', 'other'], required: false),
                 new EnumParameter('stage', 'Filter by stage', ['draft', 'review', 'final'], required: false),
             ],
             callback: function (array $args): ToolResult {

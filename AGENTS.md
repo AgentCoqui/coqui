@@ -334,6 +334,42 @@ Coqui supports running individual tools asynchronously in background processes. 
 | `src/Toolkit/BackgroundTaskToolkit.php` | Agent-facing tools including `start_background_tool`                  |
 | `src/Command/TaskRunCommand.php`        | Branches on `tool_name` presence: agent path vs direct tool execution |
 
+## Artifact-Driven Planning & Role Handoff
+
+Coqui supports structured planning and implementation handoffs via the artifact management system. The `plan` role creates versioned plan artifacts that flow through a lifecycle (`draft` → `review` → `final`), then hand off to the `coder` role for execution.
+
+### Workflow
+
+1. **User activates the plan role** via `/role plan` or the orchestrator delegates via `spawn_agent(role: "plan", ...)`.
+2. **Plan agent creates a plan artifact** using `artifact_create(type: "plan", ...)`. The plan evolves through discovery and design phases, updated via `artifact_update`.
+3. **Parallel exploration** — the plan agent can spawn background tasks with `start_background_task(role: "explorer", ...)` to investigate multiple subsystems concurrently. Results are gathered via `task_status` and consolidated into the plan artifact.
+4. **User review** — the plan artifact moves to `review` stage via `artifact_stage`. The user provides feedback, and the plan agent iterates.
+5. **Handoff** — once approved, the artifact moves to `final` stage. The user or plan agent triggers implementation via `spawn_agent(role: "coder", task: "Execute the approved plan in artifact [ID]")`.
+6. **Coder reads the plan** — child agents receive `ArtifactToolkit` with the parent's session ID, so the coder can read the plan artifact via `artifact_get` and follow its steps.
+
+### Artifact Sharing Between Parent and Child Agents
+
+`SpawnAgentTool::buildToolkits()` injects `ArtifactToolkit` into every child agent (regardless of access level). The toolkit uses the parent's `sessionId`, so all artifacts created by the orchestrator, plan agent, or coder are visible to each other within the same session.
+
+### Built-in Roles for Planning
+
+| Role       | Access Level | Purpose                                              |
+| ---------- | ------------ | ---------------------------------------------------- |
+| `plan`     | `readonly`   | Creates and manages plan artifacts; never implements  |
+| `explorer` | `readonly`   | Gathers codebase context for a specific investigation |
+| `coder`    | `full`       | Reads plan artifacts and implements the plan          |
+| `reviewer` | `readonly`   | Reads artifacts for code review and analysis          |
+
+### Key Source Files
+
+| File                            | Purpose                                                            |
+| ------------------------------- | ------------------------------------------------------------------ |
+| `config/roles/plan.md`         | Plan role definition with artifact workflow and plan style guide    |
+| `config/roles/explorer.md`     | Explorer role for focused read-only codebase investigation         |
+| `src/Toolkit/ArtifactToolkit.php` | Agent-facing CRUD tools for versioned artifacts                 |
+| `src/Storage/ArtifactStore.php`   | SQLite-backed artifact persistence with version history          |
+| `src/Tool/SpawnAgentTool.php`     | Injects ArtifactToolkit into child agents for session-shared access |
+
 ## Vision Architecture
 
 Coqui provides image analysis via a dedicated `vision` role. The system uses a single-shot child agent pattern (like `TitleGenerator`) — no persistent state, no tool access, just one LLM call with the image embedded.
