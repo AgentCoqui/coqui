@@ -1569,6 +1569,261 @@ The maximum number of concurrent background tasks is configurable via `openclaw.
 
 Tasks exceeding the concurrency limit are queued as `pending` and started automatically when a slot becomes available.
 
+### Todos
+
+Session-scoped task tracking. Todos are linked to a session and optionally to an artifact and/or parent todo for subtask hierarchies.
+
+#### `GET /api/v1/sessions/{id}/todos`
+
+List todos for a session with optional filters.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `status` | string | `null` | Filter: `pending`, `in_progress`, `completed`, `cancelled` |
+| `artifact_id` | string | `null` | Filter by linked artifact |
+| `parent_id` | string | `null` | Filter by parent todo (for subtasks) |
+
+**Response `200`**
+
+```json
+{
+  "todos": [
+    {
+      "id": "a1b2c3d4",
+      "session_id": "s1a2b3c4",
+      "title": "Implement authentication module",
+      "status": "pending",
+      "priority": "high",
+      "artifact_id": null,
+      "parent_id": null,
+      "created_by": "plan",
+      "completed_by": null,
+      "notes": "See auth spec in artifact abc123",
+      "sort_order": 1,
+      "created_at": "2026-02-16T14:30:00+00:00",
+      "updated_at": "2026-02-16T14:30:00+00:00",
+      "completed_at": null
+    }
+  ],
+  "count": 1
+}
+```
+
+#### `POST /api/v1/sessions/{id}/todos`
+
+Create a single todo.
+
+**Request Body**
+
+```json
+{
+  "title": "Implement authentication module",
+  "priority": "high",
+  "artifact_id": "abc123",
+  "parent_id": null,
+  "notes": "See auth spec"
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `title` | string | Yes | — | Task description (max 200 chars) |
+| `priority` | string | No | `"medium"` | `high`, `medium`, or `low` |
+| `artifact_id` | string | No | `null` | Link to an artifact |
+| `parent_id` | string | No | `null` | Parent todo ID (for subtasks) |
+| `notes` | string | No | `null` | Additional context |
+
+**Response `201`**
+
+```json
+{
+  "id": "a1b2c3d4",
+  "title": "Implement authentication module"
+}
+```
+
+**Response `400`** — validation error:
+
+```json
+{
+  "error": "Title is required",
+  "code": "validation_error"
+}
+```
+
+#### `POST /api/v1/sessions/{id}/todos/bulk`
+
+Create multiple todos in a single request. Max 25 items per call.
+
+**Request Body**
+
+```json
+{
+  "items": [
+    {"title": "Step 1: Design schema", "priority": "high", "notes": "See RFC"},
+    {"title": "Step 2: Implement store", "priority": "medium"},
+    {"title": "Step 3: Add API endpoints", "priority": "medium"}
+  ],
+  "artifact_id": "plan-abc123"
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `items` | array | Yes | — | Array of todo objects (max 25) |
+| `items[].title` | string | Yes | — | Task description (max 200 chars) |
+| `items[].priority` | string | No | `"medium"` | `high`, `medium`, or `low` |
+| `items[].notes` | string | No | `null` | Additional context |
+| `artifact_id` | string | No | `null` | Link all created todos to this artifact |
+
+**Response `201`**
+
+```json
+{
+  "ids": ["a1b2c3d4", "e5f6g7h8", "i9j0k1l2"],
+  "count": 3
+}
+```
+
+**Response `400`** — too many items:
+
+```json
+{
+  "error": "Maximum 25 items per bulk create",
+  "code": "validation_error"
+}
+```
+
+#### `GET /api/v1/sessions/{id}/todos/stats`
+
+Get aggregate statistics for session todos.
+
+**Response `200`**
+
+```json
+{
+  "total": 10,
+  "pending": 3,
+  "in_progress": 2,
+  "completed": 4,
+  "cancelled": 1
+}
+```
+
+#### `GET /api/v1/sessions/{id}/todos/{todoId}`
+
+Get a specific todo with its subtasks.
+
+**Response `200`**
+
+```json
+{
+  "todo": {
+    "id": "a1b2c3d4",
+    "title": "Implement authentication module",
+    "status": "in_progress",
+    "priority": "high",
+    "subtasks": []
+  }
+}
+```
+
+**Response `404`**
+
+```json
+{
+  "error": "Todo not found",
+  "code": "not_found"
+}
+```
+
+#### `PATCH /api/v1/sessions/{id}/todos/{todoId}`
+
+Update a todo's fields.
+
+**Request Body**
+
+```json
+{
+  "status": "in_progress",
+  "priority": "high",
+  "notes": "Started working on this"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `title` | string | No | New title (max 200 chars) |
+| `status` | string | No | `pending`, `in_progress`, `completed`, `cancelled` |
+| `priority` | string | No | `high`, `medium`, `low` |
+| `notes` | string | No | Updated notes |
+
+**Response `200`**
+
+```json
+{
+  "updated": true
+}
+```
+
+#### `PATCH /api/v1/sessions/{id}/todos/bulk`
+
+Update multiple todos in a single request. Max 25 items per call.
+
+**Request Body**
+
+```json
+{
+  "updates": [
+    {"id": "a1b2c3d4", "status": "completed"},
+    {"id": "e5f6g7h8", "status": "in_progress", "priority": "high"}
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `updates` | array | Yes | Array of update objects (max 25) |
+| `updates[].id` | string | Yes | Todo ID to update |
+| `updates[].status` | string | No | New status |
+| `updates[].priority` | string | No | New priority |
+| `updates[].title` | string | No | New title (max 200 chars) |
+| `updates[].notes` | string | No | Updated notes |
+
+**Response `200`**
+
+```json
+{
+  "updated_count": 2
+}
+```
+
+#### `POST /api/v1/sessions/{id}/todos/{todoId}/complete`
+
+Mark a todo as completed.
+
+**Response `200`**
+
+```json
+{
+  "completed": true
+}
+```
+
+#### `DELETE /api/v1/sessions/{id}/todos/{todoId}`
+
+Delete a todo and all its subtasks.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true
+}
+```
+
 ## Toolkit Management
 
 Toolkit visibility controls which tools appear in the agent's context window and how they are represented. Each toolkit (Composer package) and each individual tool can be set to one of three visibility tiers:

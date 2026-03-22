@@ -372,14 +372,15 @@ Coqui supports structured planning and implementation handoffs via the artifact 
 
 ## Todo System Architecture
 
-Coqui provides session-scoped task tracking via the todo system. Agents use todos to plan work, track progress, and hand off structured task lists between roles. The system integrates with artifacts for plan→execution traceability.
+Coqui provides session-scoped task tracking via the todo system. Agents use todos to plan work, track progress, and hand off structured task lists between roles. The system integrates with artifacts for plan→execution traceability and supports automatic todo generation from finalized plan artifacts.
 
 ### How It Works
 
-1. **`TodoStore`** manages a `todos` table in the shared SQLite database (same PDO as SessionStorage). Each todo is scoped to a session and optionally linked to an artifact and/or parent todo.
-2. **`TodoToolkit`** exposes 6 agent-facing tools: `todo_add`, `todo_update`, `todo_complete`, `todo_list`, `todo_get`, `todo_delete`. Tool availability is role-aware — readonly roles only get `todo_list` and `todo_get`.
+1. **`TodoStore`** manages a `todos` table in the shared SQLite database (same PDO as SessionStorage). Each todo is scoped to a session and optionally linked to an artifact and/or parent todo. Supports `bulkCreate()` and `bulkUpdate()` for efficient batch operations.
+2. **`TodoToolkit`** exposes 8 agent-facing tools: `todo_add`, `todo_update`, `todo_complete`, `todo_list`, `todo_get`, `todo_delete`, `todo_bulk_add`, `todo_bulk_update`. Tool availability is role-aware — readonly roles only get list, get, add, and update tools.
 3. **Guidelines injection** — `TodoToolkit::guidelines()` dynamically generates a progress summary (progress bar, active/pending listing) that is included in the system prompt on every iteration.
 4. **Child agent sharing** — `SpawnAgentTool::buildToolkits()` injects `TodoToolkit` into every child agent with the parent's session ID, so todos are visible across all agents in a session.
+5. **Auto-generation** — `PlanTodoGenerator` automatically creates todos when a plan artifact reaches `final` stage via `artifact_stage`. Uses the utility model to extract implementation steps from the plan content.
 
 ### Todo Schema
 
@@ -401,15 +402,31 @@ Coqui provides session-scoped task tracking via the todo system. Agents use todo
 
 | Access Level | Available Tools |
 | --- | --- |
-| `full` | All 6 tools |
-| `readonly`, `readonly-shell` | `todo_list`, `todo_get`, `todo_add`, `todo_update` |
+| `full` | All 8 tools |
+| `readonly`, `readonly-shell` | `todo_list`, `todo_get`, `todo_add`, `todo_update`, `todo_bulk_add`, `todo_bulk_update` |
 | `minimal` | `todo_list`, `todo_get` |
 
 ### Planning Workflow Integration
 
-1. **Plan agent** creates todos for each implementation step via `todo_add`, linking them to the plan artifact.
+1. **Plan agent** creates a plan artifact and stages it to `final` via `artifact_stage`. **`PlanTodoGenerator` automatically creates linked todos** from the plan content using the utility model.
 2. **Coder agent** reads the todo list via `todo_list(artifact_id: "...")`, implements each step, and marks todos complete via `todo_complete`.
 3. **Reviewer agent** checks completed todos against actual implementation using `todo_list`.
+4. **Manual fallback** — if auto-generation fails or produces no todos (visible in the `artifact_stage` response), the plan agent can create them manually via `todo_bulk_add`.
+
+### Bulk Operations
+
+`todo_bulk_add` and `todo_bulk_update` accept up to 25 items per call. Both are transaction-wrapped for atomicity. Use bulk operations when creating or updating 5+ todos at once to reduce tool call overhead.
+
+### Auto-Generation from Plan Artifacts
+
+When `artifact_stage(stage: "final")` is called on a `type: "plan"` artifact, `PlanTodoGenerator` is invoked automatically:
+
+1. Sends the plan content to the utility model (same model used for titles and summarization).
+2. Extracts actionable implementation steps as structured JSON.
+3. Creates todos via `TodoStore::bulkCreate()`, linked to the plan artifact.
+4. Returns the count of generated todos in the `artifact_stage` response.
+
+This is best-effort — the stage transition always succeeds even if todo generation fails. The `PlanTodoGenerator` follows the `TitleGenerator` pattern: single-shot LLM call, catches all errors, never blocks.
 
 ### REPL & API
 
@@ -418,9 +435,11 @@ Coqui provides session-scoped task tracking via the todo system. Agents use todo
 | REPL | `/todos [status]` | Show session todos with progress stats |
 | API | `GET /api/v1/sessions/{id}/todos` | List todos with filters |
 | API | `POST /api/v1/sessions/{id}/todos` | Create todo |
+| API | `POST /api/v1/sessions/{id}/todos/bulk` | Bulk create (max 25) |
 | API | `GET /api/v1/sessions/{id}/todos/stats` | Session stats |
 | API | `GET /api/v1/sessions/{id}/todos/{todoId}` | Get todo with subtasks |
 | API | `PATCH /api/v1/sessions/{id}/todos/{todoId}` | Update todo |
+| API | `PATCH /api/v1/sessions/{id}/todos/bulk` | Bulk update (max 25) |
 | API | `POST /api/v1/sessions/{id}/todos/{todoId}/complete` | Mark complete |
 | API | `DELETE /api/v1/sessions/{id}/todos/{todoId}` | Delete todo |
 
@@ -428,9 +447,10 @@ Coqui provides session-scoped task tracking via the todo system. Agents use todo
 
 | File | Purpose |
 | --- | --- |
-| `src/Storage/TodoStore.php` | SQLite CRUD with session scoping, subtask hierarchy, stats |
-| `src/Toolkit/TodoToolkit.php` | 6 agent-facing tools with role-aware permissions and dynamic guidelines |
-| `src/Api/Handler/TodoHandler.php` | REST API endpoints for todo CRUD |
+| `src/Storage/TodoStore.php` | SQLite CRUD with session scoping, subtask hierarchy, bulk ops, stats |
+| `src/Toolkit/TodoToolkit.php` | 8 agent-facing tools with role-aware permissions and dynamic guidelines |
+| `src/Api/Handler/TodoHandler.php` | REST API endpoints for todo CRUD and bulk operations |
+| `src/Agent/PlanTodoGenerator.php` | Auto-generates todos from finalized plan artifacts via utility model |
 | `prompts/tools/todos.md` | Agent usage guidelines for todo workflow |
 
 ## Vision Architecture
