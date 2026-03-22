@@ -4,15 +4,21 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "73689ac0398a8a76dad739f740780e0a",
+    "content-hash": "483505ed32f0dd43b7d41aa965d170c2",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "dev-main",
-            "dist": {
-                "type": "path",
-                "url": "../php-agents",
+            "version": "v0.9.4",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/php-agents.git",
                 "reference": "184f63c3ce2734e3354d900d31e6a825ae15d45a"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/184f63c3ce2734e3354d900d31e6a825ae15d45a",
+                "reference": "184f63c3ce2734e3354d900d31e6a825ae15d45a",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4",
@@ -36,19 +42,7 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=512M"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -65,10 +59,11 @@
                 "php-agents",
                 "tools"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/php-agents/issues",
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.9.4"
+            },
+            "time": "2026-03-21T22:23:18+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-composer",
@@ -5188,9 +5183,7 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {
-        "carmelosantana/php-agents": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
