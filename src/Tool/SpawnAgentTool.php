@@ -71,7 +71,7 @@ final class SpawnAgentTool implements ToolInterface
 
     public function description(): string
     {
-        $roles = implode(', ', $this->roleResolver->availableRoles());
+        $roles = implode(', ', $this->roleResolver->selectableRoles());
 
         return <<<DESC
             Spawn a specialized child agent to handle a specific task.
@@ -87,7 +87,7 @@ final class SpawnAgentTool implements ToolInterface
 
     public function parameters(): array
     {
-        $roles = $this->roleResolver->availableRoles();
+        $roles = $this->roleResolver->selectableRoles();
 
         return [
             new EnumParameter(
@@ -237,6 +237,7 @@ final class SpawnAgentTool implements ToolInterface
                 roleResolver: $this->roleResolver,
                 config: $this->config,
                 todoStore: $todoStore,
+                roleDiscovery: $this->roleDiscovery,
             );
 
             $toolkits[] = new ArtifactToolkit(

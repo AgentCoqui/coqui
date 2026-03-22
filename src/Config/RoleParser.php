@@ -75,6 +75,18 @@ final class RoleParser
             $isBuiltin = $meta['is_builtin'] === 'true' || $meta['is_builtin'] === true;
         }
 
+        // Parse is_template
+        $isTemplate = false;
+        if (isset($meta['is_template'])) {
+            $isTemplate = $meta['is_template'] === 'true' || $meta['is_template'] === true;
+        }
+
+        // Parse ignore_updates
+        $ignoreUpdates = false;
+        if (isset($meta['ignore_updates'])) {
+            $ignoreUpdates = $meta['ignore_updates'] === 'true' || $meta['ignore_updates'] === true;
+        }
+
         return new RoleProperties(
             name: $meta['name'],
             displayName: $meta['display_name'],
@@ -83,6 +95,8 @@ final class RoleParser
             version: $version,
             accessLevel: $accessLevel,
             isBuiltin: $isBuiltin,
+            isTemplate: $isTemplate,
+            ignoreUpdates: $ignoreUpdates,
             model: isset($meta['model']) && is_string($meta['model']) && $meta['model'] !== '' ? $meta['model'] : null,
             titleModel: isset($meta['title_model']) && is_string($meta['title_model']) && $meta['title_model'] !== '' ? $meta['title_model'] : null,
             allowedTools: isset($meta['allowed-tools']) && is_string($meta['allowed-tools']) ? $meta['allowed-tools'] : null,
@@ -168,6 +182,14 @@ final class RoleParser
 
         if ($properties->isBuiltin) {
             $lines[] = 'is_builtin: true';
+        }
+
+        if ($properties->isTemplate) {
+            $lines[] = 'is_template: true';
+        }
+
+        if ($properties->ignoreUpdates) {
+            $lines[] = 'ignore_updates: true';
         }
 
         if ($properties->model !== null) {

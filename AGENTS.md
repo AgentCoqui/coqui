@@ -1143,6 +1143,8 @@ description: Expert PHP dev... # required
 version: 1                     # optional (default: 1)
 access_level: full             # full | readonly | minimal
 is_builtin: true               # optional
+is_template: true              # optional — hides from selectable roles (e.g. title-generator)
+ignore_updates: true           # optional — skip built-in update notifications
 model: anthropic/claude-...    # optional — overrides openclaw.json
 title_model: ollama/...        # optional
 allowed-tools: ...             # optional
@@ -1150,6 +1152,42 @@ max_iterations: 30             # optional — per-role iteration limit (0 = unli
 ---
 <markdown instructions body>
 ```
+
+### Template Roles
+
+Roles with `is_template: true` are internal utility roles that should not be used directly by users. They are excluded from `selectableRoles()` (used by `SpawnAgentTool` and `/role` switching) but remain available in `availableRoles()` for programmatic access.
+
+Built-in template roles: `title-generator`, `plan-todo-generator`.
+
+Template roles can still be edited via `/role edit <name>` to customize their behavior.
+
+### Role Update Tracking
+
+Built-in roles are seeded from `config/roles/` to `workspace/roles/` on first boot. The `RoleUpdateTracker` monitors content hashes to detect when built-in roles are updated:
+
+1. **On seed**, SHA-256 hashes of both the built-in source and the workspace copy are recorded in `workspace/data/role-hashes.json`.
+2. **On boot**, `autoUpdateAndNotify()` compares current hashes:
+   - **Unmodified roles** (workspace hash matches seeded hash) are auto-updated silently.
+   - **Modified roles** (user has customized the workspace copy) generate a notification shown after the welcome banner.
+3. **`ignore_updates`** — roles with this flag set in their frontmatter are skipped entirely.
+4. **Backups** — before any update, the workspace copy is backed up to `workspace/backups/roles/`.
+
+#### REPL Commands
+
+| Command | Description |
+| --- | --- |
+| `/roles` | List all roles with template, update, and ignore status |
+| `/roles update [name]` | Apply pending built-in updates (prompts for modified roles) |
+| `/roles ignore <name>` | Set `ignore_updates` on a role |
+| `/roles unignore <name>` | Clear `ignore_updates` on a role |
+| `/role edit <name>` | Open a role file in `$EDITOR` |
+
+#### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Config/RoleUpdateTracker.php` | Hash tracking, update detection, auto-update with backup |
+| `src/Config/RoleUpdateInfo.php` | Value object for pending update metadata |
 
 ### Max Iterations Configuration
 

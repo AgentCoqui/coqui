@@ -224,6 +224,7 @@ final class OrchestratorAgent extends AbstractAgent
                 roleResolver: $this->roleResolver,
                 config: $this->config,
                 todoStore: $todoStore,
+                roleDiscovery: $this->roleDiscovery,
             );
 
             $this->addToolkit(new ArtifactToolkit(
