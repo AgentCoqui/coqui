@@ -14,6 +14,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
+use CoquiBot\Coqui\Agent\PlanTodoGenerator;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Storage\ArtifactStore;
@@ -70,7 +71,7 @@ final class SpawnAgentTool implements ToolInterface
 
     public function description(): string
     {
-        $roles = implode(', ', $this->roleResolver->availableRoles());
+        $roles = implode(', ', $this->roleResolver->selectableRoles());
 
         return <<<DESC
             Spawn a specialized child agent to handle a specific task.
@@ -86,7 +87,7 @@ final class SpawnAgentTool implements ToolInterface
 
     public function parameters(): array
     {
-        $roles = $this->roleResolver->availableRoles();
+        $roles = $this->roleResolver->selectableRoles();
 
         return [
             new EnumParameter(
@@ -230,16 +231,26 @@ final class SpawnAgentTool implements ToolInterface
         // Non-full access levels get read-only artifact access (no delete).
         if ($this->storage !== null && $this->sessionId !== null) {
             $artifactStore = new ArtifactStore($this->storage->getPdo());
+            $todoStore = new TodoStore($this->storage->getPdo());
+
+            $planTodoGenerator = new PlanTodoGenerator(
+                roleResolver: $this->roleResolver,
+                config: $this->config,
+                todoStore: $todoStore,
+                roleDiscovery: $this->roleDiscovery,
+            );
+
             $toolkits[] = new ArtifactToolkit(
                 $artifactStore,
                 $this->sessionId,
                 readOnly: $accessLevel !== 'full',
+                planTodoGenerator: $planTodoGenerator,
             );
         }
 
         // Todo toolkit — session-scoped task tracking shared with child agents.
         if ($this->storage !== null && $this->sessionId !== null) {
-            $todoStore = new TodoStore($this->storage->getPdo());
+            $todoStore ??= new TodoStore($this->storage->getPdo());
             $toolkits[] = new TodoToolkit(
                 $todoStore,
                 $this->sessionId,

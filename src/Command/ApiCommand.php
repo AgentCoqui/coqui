@@ -436,6 +436,8 @@ final class ApiCommand extends Command
         // Todos
         $router->get($v1 . '/sessions/{id}/todos', [$todo, 'list']);
         $router->post($v1 . '/sessions/{id}/todos', [$todo, 'create']);
+        $router->post($v1 . '/sessions/{id}/todos/bulk', [$todo, 'bulkCreate']);
+        $router->patch($v1 . '/sessions/{id}/todos/bulk', [$todo, 'bulkUpdate']);
         $router->get($v1 . '/sessions/{id}/todos/stats', [$todo, 'stats']);
         $router->get($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'get']);
         $router->patch($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'update']);

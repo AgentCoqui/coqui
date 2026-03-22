@@ -165,6 +165,10 @@ final class TodoStore
             if ($status === 'completed' && $todo['status'] !== 'completed') {
                 $sets[] = 'completed_at = ?';
                 $params[] = $now;
+            } elseif ($status !== 'completed' && $todo['status'] === 'completed') {
+                // Reverting from completed — clear completion metadata
+                $sets[] = 'completed_at = NULL';
+                $sets[] = 'completed_by = NULL';
             }
         }
 
@@ -362,6 +366,99 @@ final class TodoStore
         foreach ($ordering as $id => $order) {
             $stmt->execute([$order, $now, $id]);
         }
+    }
+
+    /**
+     * Bulk-create multiple todos in a single transaction.
+     *
+     * @param list<array{title: string, priority?: string, notes?: string}> $items
+     * @return list<string> Created todo IDs
+     */
+    public function bulkCreate(
+        string $sessionId,
+        array $items,
+        ?string $createdBy = null,
+        ?string $artifactId = null,
+    ): array {
+        $ids = [];
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $baseSortOrder = $this->nextSortOrder($sessionId, $artifactId);
+
+        $this->db->beginTransaction();
+
+        try {
+            $stmt = $this->db->prepare(<<<'SQL'
+                INSERT INTO todos (id, session_id, artifact_id, parent_id, title, status, priority, created_by, notes, sort_order, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
+            SQL);
+
+            foreach ($items as $i => $item) {
+                $id = bin2hex(random_bytes(16));
+                $stmt->execute([
+                    $id,
+                    $sessionId,
+                    $artifactId,
+                    null,
+                    $item['title'],
+                    $item['priority'] ?? 'medium',
+                    $createdBy,
+                    $item['notes'] ?? null,
+                    $baseSortOrder + $i,
+                    $now,
+                    $now,
+                ]);
+                $ids[] = $id;
+            }
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+
+            throw $e;
+        }
+
+        return $ids;
+    }
+
+    /**
+     * Bulk-update multiple todos in a single transaction.
+     *
+     * @param list<array{id: string, title?: string, status?: string, priority?: string, notes?: string}> $updates
+     * @return int Number of successfully updated todos
+     */
+    public function bulkUpdate(array $updates): int
+    {
+        $count = 0;
+        $this->db->beginTransaction();
+
+        try {
+            foreach ($updates as $update) {
+                $id = $update['id'];
+                if ($id === '') {
+                    continue;
+                }
+
+                $updated = $this->update(
+                    id: $id,
+                    title: $update['title'] ?? null,
+                    priority: $update['priority'] ?? null,
+                    notes: $update['notes'] ?? null,
+                    status: $update['status'] ?? null,
+                );
+
+                if ($updated) {
+                    $count++;
+                }
+            }
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+
+            throw $e;
+        }
+
+        return $count;
     }
 
     /**

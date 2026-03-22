@@ -145,6 +145,33 @@ final class RoleResolver
     }
 
     /**
+     * Get roles that users can switch to or spawn as child agents.
+     *
+     * Excludes template roles (is_template=true) which are only used
+     * by internal utility classes (e.g. TitleGenerator, PlanTodoGenerator).
+     *
+     * @return string[]
+     */
+    public function selectableRoles(): array
+    {
+        $roles = $this->availableRoles();
+
+        if ($this->roleDiscovery === null) {
+            return $roles;
+        }
+
+        return array_values(array_filter($roles, function (string $role): bool {
+            try {
+                $properties = $this->roleDiscovery->getRole($role);
+                return !$properties->isTemplate;
+            } catch (\Throwable) {
+                // Config-only roles (no file) are always selectable
+                return true;
+            }
+        }));
+    }
+
+    /**
      * System roles that are always present and never editable.
      *
      * These roles are synthesized by the resolver — they have no role file
@@ -182,6 +209,8 @@ final class RoleResolver
                 'access_level' => $meta['access_level'],
                 'is_builtin' => true,
                 'is_system' => true,
+                'is_template' => false,
+                'ignore_updates' => false,
                 'editable' => false,
                 'max_iterations' => $this->resolveMaxIterations($name),
             ];
@@ -221,6 +250,8 @@ final class RoleResolver
                     'access_level' => $properties->accessLevel,
                     'is_builtin' => $properties->isBuiltin,
                     'is_system' => false,
+                    'is_template' => $properties->isTemplate,
+                    'ignore_updates' => $properties->ignoreUpdates,
                     'editable' => true,
                     'max_iterations' => $this->resolveMaxIterations($name),
                 ];

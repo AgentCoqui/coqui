@@ -11,6 +11,10 @@ use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
+use CoquiBot\Coqui\Config\RoleDiscovery;
+use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Config\RoleUpdateInfo;
+use CoquiBot\Coqui\Config\RoleUpdateTracker;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Config\SetupWizard;
 use CoquiBot\Coqui\Config\UpdateManager;
@@ -202,10 +206,21 @@ final class RunCommand extends Command
             '<fg=gray>Project root:</> ' . $this->workDir,
             '<fg=gray>Workspace:</> ' . $this->boot->workspacePath(),
             '',
-            '<fg=gray>Commands: /new, /history, /sessions, /tasks, /todos, /config, /update, /restart, /quit</>',
+            '<fg=gray>Commands: /new, /history, /sessions, /tasks, /todos, /roles, /config, /update, /restart, /quit</>',
             '<fg=gray>Press ESC or Ctrl+C to cancel agent</>',
         ]);
         $io->newLine();
+
+        // Notify about pending role updates from boot
+        $pendingUpdates = $this->boot->pendingRoleUpdates();
+        if ($pendingUpdates !== []) {
+            $names = array_map(fn(RoleUpdateInfo $u) => $u->roleName, $pendingUpdates);
+            $io->note(sprintf(
+                'Built-in updates available for %d role(s): %s. Use /roles update to review.',
+                count($names),
+                implode(', ', $names),
+            ));
+        }
 
         // REPL loop
         return $this->runRepl($io);
@@ -280,15 +295,52 @@ final class RunCommand extends Command
                     }
                 }
 
-                // Complete role names after /role
+                // Complete role names after /role (use selectableRoles for switching, all for edit)
                 if (count($parts) >= 2 && $cmd === '/role') {
+                    $sub = $parts[1];
+
+                    // /role edit <name> — complete all role names (including templates)
+                    if ($sub === 'edit' && count($parts) >= 3) {
+                        $prefix = $parts[2];
+                        $roles = $this->boot->roleDiscovery()->availableRoles();
+                        return array_values(array_filter(
+                            $roles,
+                            fn(string $r) => str_starts_with($r, $prefix),
+                        ));
+                    }
+
+                    // /role <name> — only selectable roles + edit subcommand
                     $prefix = $parts[1];
-                    $roles = $this->boot->roleDiscovery()->availableRoles();
+                    $roles = $this->boot->roleResolver()->selectableRoles();
                     $roles[] = 'orchestrator';
+                    $roles[] = 'edit';
                     $roles = array_unique($roles);
                     return array_values(array_filter(
                         $roles,
                         fn(string $r) => str_starts_with($r, $prefix),
+                    ));
+                }
+
+                // Complete /roles subcommands and role names for /roles ignore|unignore|update
+                if (count($parts) >= 2 && $cmd === '/roles') {
+                    $sub = $parts[1];
+
+                    // /roles ignore|unignore|update <name> — complete role names
+                    if (in_array($sub, ['ignore', 'unignore', 'update'], true) && count($parts) >= 3) {
+                        $prefix = $parts[2];
+                        $roles = $this->boot->roleDiscovery()->availableRoles();
+                        return array_values(array_filter(
+                            $roles,
+                            fn(string $r) => str_starts_with($r, $prefix),
+                        ));
+                    }
+
+                    // /roles <subcommand>
+                    $prefix = $parts[1];
+                    $subcommands = ['update', 'ignore', 'unignore'];
+                    return array_values(array_filter(
+                        $subcommands,
+                        fn(string $s) => str_starts_with($s, $prefix),
                     ));
                 }
 
@@ -297,7 +349,7 @@ final class RunCommand extends Command
                     $commands = [
                         '/new', '/history', '/sessions', '/resume', '/model',
                         '/config', '/tasks', '/task', '/task-cancel', '/todos', '/toolkits',
-                        '/prompt', '/role', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/help', '/quit',
+                        '/prompt', '/role', '/roles', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/help', '/quit',
                     ];
 
                     return array_filter($commands, fn(string $c) => str_starts_with($c, $input));
@@ -600,6 +652,10 @@ final class RunCommand extends Command
                 return $this->handleRoleCommand($io, $arg);
             })(),
 
+            '/roles' => (function () use ($io, $arg) {
+                return $this->handleRolesCommand($io, $arg);
+            })(),
+
             '/space' => (function () use ($io, $arg) {
                 return $this->handleSpaceCommand($io, $arg);
             })(),
@@ -621,6 +677,11 @@ final class RunCommand extends Command
                         ['/toolkits [enable|stub|disable <pkg|tool:name>]', 'Manage toolkit visibility'],
                         ['/prompt', 'Show the full system prompt sent to the LLM'],
                         ['/role [name]', 'Switch active role (e.g. /role coder). No argument shows current role'],
+                        ['/role edit <name>', 'Open a role file in your editor'],
+                        ['/roles', 'List all roles with visibility and update status'],
+                        ['/roles update [name]', 'Apply pending built-in role updates'],
+                        ['/roles ignore <name>', 'Ignore future updates for a role'],
+                        ['/roles unignore <name>', 'Resume receiving updates for a role'],
                         ['/space [search|install|remove|installed|skills|toolkits|update]', 'Coqui Space marketplace'],
                         ['/summarize [recent N] [focus "topic"]', 'Summarize conversation history to save tokens'],
                         ['/update', 'Check for and apply dependency updates'],
@@ -839,11 +900,16 @@ final class RunCommand extends Command
 
         if ($arg === '') {
             $io->writeln(sprintf('<info>Active role:</info> %s', $this->activeRole));
-            $available = $roleDiscovery->availableRoles();
+            $available = $this->boot->roleResolver()->selectableRoles();
             if ($available !== []) {
                 $io->writeln('<fg=gray>Available roles:</> ' . implode(', ', $available));
             }
             return true;
+        }
+
+        // Sub-command: /role edit <name>
+        if (str_starts_with($arg, 'edit')) {
+            return $this->handleRoleEditCommand($io, trim(substr($arg, 4)));
         }
 
         $roleName = strtolower(trim($arg));
@@ -859,7 +925,14 @@ final class RunCommand extends Command
 
         // Validate role exists
         if (!$roleDiscovery->roleExists($roleName)) {
-            $io->error(sprintf('Role "%s" not found. Available: %s', $roleName, implode(', ', $roleDiscovery->availableRoles())));
+            $io->error(sprintf('Role "%s" not found. Available: %s', $roleName, implode(', ', $this->boot->roleResolver()->selectableRoles())));
+            return true;
+        }
+
+        // Reject template roles
+        $role = $roleDiscovery->getRole($roleName);
+        if ($role->isTemplate) {
+            $io->error(sprintf('Role "%s" is a template role and cannot be used directly. Use /role edit %s to customize it.', $roleName, $roleName));
             return true;
         }
 
@@ -868,13 +941,292 @@ final class RunCommand extends Command
         $modelString = $this->boot->roleResolver()->resolve($roleName);
         $this->storage->updateSessionRole($this->sessionId, $roleName, $modelString);
 
-        $role = $roleDiscovery->getRole($roleName);
         $io->success(sprintf(
             'Switched to %s (%s access, model: %s)',
             $role->displayName,
             $role->accessLevel,
             $modelString,
         ));
+
+        return true;
+    }
+
+    /**
+     * Handle /roles command — list roles, apply updates, manage ignore flags.
+     *
+     * Subcommands:
+     *   /roles                 — table of all roles with status
+     *   /roles update [name]   — apply pending built-in updates
+     *   /roles ignore <name>   — set ignore_updates on a role
+     *   /roles unignore <name> — clear ignore_updates on a role
+     */
+    private function handleRolesCommand(SymfonyStyle $io, string $arg): true
+    {
+        $roleDiscovery = $this->boot->roleDiscovery();
+        $roleResolver = $this->boot->roleResolver();
+        $tracker = $this->boot->roleUpdateTracker();
+
+        $parts = explode(' ', trim($arg), 2);
+        $action = strtolower($parts[0]);
+        $target = $parts[1] ?? '';
+
+        if ($action === '' || $action === 'list') {
+            return $this->showRolesTable($io, $roleDiscovery, $roleResolver, $tracker);
+        }
+
+        if ($action === 'update') {
+            return $this->handleRolesUpdateCommand($io, $roleDiscovery, $tracker, $target);
+        }
+
+        if ($action === 'ignore' || $action === 'unignore') {
+            return $this->handleRolesIgnoreCommand($io, $roleDiscovery, $action === 'ignore', trim($target));
+        }
+
+        $io->error("Unknown subcommand: {$action}. Use /roles, /roles update, /roles ignore, or /roles unignore.");
+        return true;
+    }
+
+    /**
+     * Display a table of all roles with template, update, and ignore status.
+     */
+    private function showRolesTable(
+        SymfonyStyle $io,
+        RoleDiscovery $roleDiscovery,
+        RoleResolver $roleResolver,
+        RoleUpdateTracker $tracker,
+    ): true {
+        $allRoles = $roleDiscovery->availableRoles();
+        $pendingUpdates = $tracker->checkForUpdates($roleDiscovery);
+        $pendingMap = [];
+        foreach ($pendingUpdates as $update) {
+            $pendingMap[$update->roleName] = $update;
+        }
+
+        $rows = [];
+        foreach ($allRoles as $roleName) {
+            try {
+                $props = $roleDiscovery->getRole($roleName);
+            } catch (\Throwable) {
+                continue;
+            }
+
+            $model = $roleResolver->resolve($roleName);
+            $flags = [];
+
+            if ($props->isTemplate) {
+                $flags[] = 'template';
+            }
+            if ($props->isBuiltin) {
+                $flags[] = 'builtin';
+            }
+
+            $updateStatus = '-';
+            if (isset($pendingMap[$roleName])) {
+                $update = $pendingMap[$roleName];
+                if ($update->ignoreUpdates) {
+                    $updateStatus = '<fg=gray>ignored</>';
+                } elseif ($update->isUserModified) {
+                    $updateStatus = '<fg=yellow>update available (modified)</>';
+                } else {
+                    $updateStatus = '<fg=cyan>update available</>';
+                }
+            } elseif ($props->ignoreUpdates) {
+                $updateStatus = '<fg=gray>ignored</>';
+            }
+
+            $rows[] = [
+                $roleName === $this->activeRole ? "<fg=green>{$roleName}</>" : $roleName,
+                $props->accessLevel,
+                implode(', ', $flags) ?: '-',
+                $updateStatus,
+                $model !== '' ? $model : '<fg=gray>default</>',
+            ];
+        }
+
+        if ($rows === []) {
+            $io->text('No roles discovered.');
+        } else {
+            $io->table(['Name', 'Access', 'Flags', 'Updates', 'Model'], $rows);
+            $io->text('<fg=gray>Use /role <name> to switch, /role edit <name> to edit, /roles update to apply updates.</>');
+        }
+
+        return true;
+    }
+
+    /**
+     * Apply pending built-in role updates.
+     */
+    private function handleRolesUpdateCommand(
+        SymfonyStyle $io,
+        RoleDiscovery $roleDiscovery,
+        RoleUpdateTracker $tracker,
+        string $target,
+    ): true {
+        $target = trim($target);
+
+        if ($target !== '') {
+            // Update a specific role
+            if (!$roleDiscovery->roleExists($target)) {
+                $io->error(sprintf('Role "%s" not found.', $target));
+                return true;
+            }
+
+            $updates = $tracker->checkForUpdates($roleDiscovery);
+            $found = null;
+            foreach ($updates as $update) {
+                if ($update->roleName === $target) {
+                    $found = $update;
+                    break;
+                }
+            }
+
+            if ($found === null) {
+                $io->info(sprintf('No pending update for role "%s".', $target));
+                return true;
+            }
+
+            if ($found->isUserModified) {
+                $io->warning(sprintf(
+                    'Role "%s" has local modifications. Updating will overwrite your changes (a backup will be created).',
+                    $target,
+                ));
+                if (!$io->confirm('Continue?', false)) {
+                    $io->text('Update cancelled.');
+                    return true;
+                }
+            }
+
+            if ($tracker->applyUpdate($target, $roleDiscovery)) {
+                $io->success(sprintf('Role "%s" updated to latest built-in version.', $target));
+            } else {
+                $io->error(sprintf('Failed to update role "%s".', $target));
+            }
+            return true;
+        }
+
+        // Update all pending
+        $updates = $tracker->checkForUpdates($roleDiscovery);
+        if ($updates === []) {
+            $io->info('All roles are up to date.');
+            return true;
+        }
+
+        $applied = 0;
+        $skipped = 0;
+        foreach ($updates as $update) {
+            if ($update->ignoreUpdates) {
+                continue;
+            }
+
+            if ($update->isUserModified) {
+                $io->text(sprintf(
+                    '  <fg=yellow>⚠</> <fg=white>%s</> — has local modifications, use <fg=cyan>/roles update %s</> to update individually',
+                    $update->roleName,
+                    $update->roleName,
+                ));
+                $skipped++;
+                continue;
+            }
+
+            if ($tracker->applyUpdate($update->roleName, $roleDiscovery)) {
+                $io->text(sprintf('  <fg=green>✓</> <fg=white>%s</> updated', $update->roleName));
+                $applied++;
+            }
+        }
+
+        if ($applied > 0 || $skipped > 0) {
+            $io->newLine();
+            $parts = [];
+            if ($applied > 0) {
+                $parts[] = "{$applied} updated";
+            }
+            if ($skipped > 0) {
+                $parts[] = "{$skipped} skipped (locally modified)";
+            }
+            $io->text('<fg=gray>' . implode(', ', $parts) . '</>');
+        }
+
+        return true;
+    }
+
+    /**
+     * Toggle ignore_updates flag on a role.
+     */
+    private function handleRolesIgnoreCommand(SymfonyStyle $io, RoleDiscovery $roleDiscovery, bool $ignore, string $roleName): true
+    {
+        if ($roleName === '') {
+            $io->error(sprintf('Usage: /roles %s <role-name>', $ignore ? 'ignore' : 'unignore'));
+            return true;
+        }
+
+        if (!$roleDiscovery->roleExists($roleName)) {
+            $io->error(sprintf('Role "%s" not found.', $roleName));
+            return true;
+        }
+
+        $props = $roleDiscovery->getRole($roleName);
+        if ($props->ignoreUpdates === $ignore) {
+            $io->info(sprintf('Role "%s" is already %s.', $roleName, $ignore ? 'ignored' : 'not ignored'));
+            return true;
+        }
+
+        // Read the current file, update the flag, and write it back
+        $instructions = $roleDiscovery->readInstructions($roleName);
+        $newProps = new \CoquiBot\Coqui\Contract\RoleProperties(
+            name: $props->name,
+            displayName: $props->displayName,
+            description: $props->description,
+            version: $props->version,
+            accessLevel: $props->accessLevel,
+            isBuiltin: $props->isBuiltin,
+            editable: $props->editable,
+            isTemplate: $props->isTemplate,
+            ignoreUpdates: $ignore,
+            model: $props->model,
+            titleModel: $props->titleModel,
+            allowedTools: $props->allowedTools,
+            maxIterations: $props->maxIterations,
+            path: $props->path,
+        );
+
+        $roleDiscovery->updateRole($roleName, $newProps, $instructions);
+        $io->success(sprintf('Role "%s" will %s future built-in updates.', $roleName, $ignore ? 'ignore' : 'receive'));
+        return true;
+    }
+
+    /**
+     * Open a role file in the user's editor.
+     */
+    private function handleRoleEditCommand(SymfonyStyle $io, string $name): true
+    {
+        $name = strtolower(trim($name));
+        $roleDiscovery = $this->boot->roleDiscovery();
+
+        if ($name === '') {
+            $io->error('Usage: /role edit <role-name>');
+            return true;
+        }
+
+        if (!$roleDiscovery->roleExists($name)) {
+            $io->error(sprintf('Role "%s" not found. Available: %s', $name, implode(', ', $roleDiscovery->availableRoles())));
+            return true;
+        }
+
+        $props = $roleDiscovery->getRole($name);
+        $editor = getenv('EDITOR') ?: getenv('VISUAL') ?: 'vi';
+        $path = $props->path;
+
+        $io->text(sprintf('Opening <fg=cyan>%s</> in %s...', $name, basename($editor)));
+
+        $exitCode = 0;
+        passthru(sprintf('%s %s', $editor, escapeshellarg($path)), $exitCode);
+
+        if ($exitCode === 0) {
+            $roleDiscovery->invalidateCache();
+            $io->success(sprintf('Role "%s" reloaded.', $name));
+        } else {
+            $io->warning('Editor exited with non-zero status.');
+        }
 
         return true;
     }

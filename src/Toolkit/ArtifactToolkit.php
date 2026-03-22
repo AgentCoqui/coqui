@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
+use CoquiBot\Coqui\Agent\PlanTodoGenerator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 
 /**
@@ -33,6 +34,7 @@ final class ArtifactToolkit implements ToolkitInterface
         private readonly ArtifactStore $store,
         private readonly string $sessionId,
         private readonly bool $readOnly = false,
+        private readonly ?PlanTodoGenerator $planTodoGenerator = null,
     ) {}
 
     public function tools(): array
@@ -291,12 +293,27 @@ final class ArtifactToolkit implements ToolkitInterface
                     return ToolResult::error("Failed to update stage for artifact {$id}");
                 }
 
-                return ToolResult::success(json_encode([
+                $response = [
                     'id' => $id,
                     'title' => $artifact['title'],
                     'previous_stage' => $artifact['stage'],
                     'new_stage' => $stage,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ];
+
+                // Auto-generate todos from finalized plan artifacts
+                if ($stage === 'final' && $artifact['type'] === 'plan' && $this->planTodoGenerator !== null) {
+                    $todoIds = $this->planTodoGenerator->generate(
+                        artifactId: $id,
+                        sessionId: $this->sessionId,
+                        planContent: $artifact['content'] ?? '',
+                    );
+                    $response['todos_generated'] = count($todoIds);
+                    if ($todoIds === []) {
+                        $response['todos_note'] = 'Auto-generation failed or extracted no steps. Use todo_add or todo_bulk_add to create todos manually.';
+                    }
+                }
+
+                return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
             },
         );
     }
