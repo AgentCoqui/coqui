@@ -61,6 +61,7 @@ final class RunCommand extends Command
     private bool $unsafeMode = false;
     private bool $autoApprove = false;
     private bool $restartRequested = false;
+    private string $activeRole = 'orchestrator';
 
     protected function configure(): void
     {
@@ -278,12 +279,24 @@ final class RunCommand extends Command
                     }
                 }
 
+                // Complete role names after /role
+                if (count($parts) >= 2 && $cmd === '/role') {
+                    $prefix = $parts[1];
+                    $roles = $this->boot->roleDiscovery()->availableRoles();
+                    $roles[] = 'orchestrator';
+                    $roles = array_unique($roles);
+                    return array_values(array_filter(
+                        $roles,
+                        fn(string $r) => str_starts_with($r, $prefix),
+                    ));
+                }
+
                 // Complete top-level slash commands
                 if (str_starts_with($input, '/') || $line === '' || $line === '/') {
                     $commands = [
                         '/new', '/history', '/sessions', '/resume', '/model',
                         '/config', '/tasks', '/task', '/task-cancel', '/toolkits',
-                        '/prompt', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/help', '/quit',
+                        '/prompt', '/role', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/help', '/quit',
                     ];
 
                     return array_filter($commands, fn(string $c) => str_starts_with($c, $input));
@@ -433,7 +446,13 @@ final class RunCommand extends Command
             // Run agent — try/finally guarantees cleanup even if an exception escapes
             // (e.g. an uncaught error thrown from inside the signal handler).
             try {
-                $result = $this->agentRunner->run($prompt, $this->sessionId, $executionPolicy, $cancellationToken);
+                $result = $this->agentRunner->run(
+                    $prompt,
+                    $this->sessionId,
+                    $executionPolicy,
+                    $cancellationToken,
+                    role: $this->activeRole !== 'orchestrator' ? $this->activeRole : null,
+                );
             } finally {
                 $this->escObserver->active = false;
                 // Drain leftover ESC bytes BEFORE restoring the terminal.
@@ -570,6 +589,10 @@ final class RunCommand extends Command
                 return $this->handleSummarizeCommand($io, $arg);
             })(),
 
+            '/role' => (function () use ($io, $arg) {
+                return $this->handleRoleCommand($io, $arg);
+            })(),
+
             '/space' => (function () use ($io, $arg) {
                 return $this->handleSpaceCommand($io, $arg);
             })(),
@@ -589,6 +612,7 @@ final class RunCommand extends Command
                         ['/task-cancel <id>', 'Cancel a pending or running background task'],
                         ['/toolkits [enable|stub|disable <pkg|tool:name>]', 'Manage toolkit visibility'],
                         ['/prompt', 'Show the full system prompt sent to the LLM'],
+                        ['/role [name]', 'Switch active role (e.g. /role coder). No argument shows current role'],
                         ['/space [search|install|remove|installed|skills|toolkits|update]', 'Coqui Space marketplace'],
                         ['/summarize [recent N] [focus "topic"]', 'Summarize conversation history to save tokens'],
                         ['/update', 'Check for and apply dependency updates'],
@@ -789,6 +813,59 @@ final class RunCommand extends Command
             number_format($result->tokensBefore),
             number_format($result->tokensAfter),
             number_format($result->tokensSaved()),
+        ));
+
+        return true;
+    }
+
+    /**
+     * Handle /role command: switch the active persona or show current role.
+     *
+     *   /role           — show current active role
+     *   /role <name>    — switch to the named role
+     *   /role reset     — switch back to orchestrator
+     */
+    private function handleRoleCommand(SymfonyStyle $io, string $arg): true
+    {
+        $roleDiscovery = $this->boot->roleDiscovery();
+
+        if ($arg === '') {
+            $io->writeln(sprintf('<info>Active role:</info> %s', $this->activeRole));
+            $available = $roleDiscovery->availableRoles();
+            if ($available !== []) {
+                $io->writeln('<fg=gray>Available roles:</> ' . implode(', ', $available));
+            }
+            return true;
+        }
+
+        $roleName = strtolower(trim($arg));
+
+        // Reset to orchestrator
+        if ($roleName === 'reset' || $roleName === 'orchestrator') {
+            $this->activeRole = 'orchestrator';
+            $modelString = $this->boot->roleResolver()->resolve('orchestrator');
+            $this->storage->updateSessionRole($this->sessionId, 'orchestrator', $modelString);
+            $io->success('Switched back to orchestrator.');
+            return true;
+        }
+
+        // Validate role exists
+        if (!$roleDiscovery->roleExists($roleName)) {
+            $io->error(sprintf('Role "%s" not found. Available: %s', $roleName, implode(', ', $roleDiscovery->availableRoles())));
+            return true;
+        }
+
+        // Switch role
+        $this->activeRole = $roleName;
+        $modelString = $this->boot->roleResolver()->resolve($roleName);
+        $this->storage->updateSessionRole($this->sessionId, $roleName, $modelString);
+
+        $role = $roleDiscovery->getRole($roleName);
+        $io->success(sprintf(
+            'Switched to %s (%s access, model: %s)',
+            $role->displayName,
+            $role->accessLevel,
+            $modelString,
         ));
 
         return true;

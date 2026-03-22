@@ -764,6 +764,20 @@
             ]
         },
         {
+            "path": "src/Api/Handler/ArtifactHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ArtifactHandler",
+            "layer": "command",
+            "description": "Artifact CRUD API endpoints. GET /api/v1/sessions/{id}/artifacts (list with type/stage filters), POST /api/v1/sessions/{id}/artifacts (create), GET /api/v1/sessions/{id}/artifacts/{artifactId} (detail), PATCH /api/v1/sessions/{id}/artifacts/{artifactId} (update content or stage), DELETE /api/v1/sessions/{id}/artifacts/{artifactId} (delete), GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions (version history).",
+            "methods": [
+                "list(request, id): Response — list session artifacts",
+                "create(request, id): Response — create artifact",
+                "get(request, id, artifactId): Response — get artifact by ID",
+                "update(request, id, artifactId): Response — update content or stage",
+                "delete(request, id, artifactId): Response — delete artifact",
+                "versions(request, id, artifactId): Response — version history"
+            ]
+        },
+        {
             "path": "src/Api/Handler/TurnHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\TurnHandler",
             "layer": "command",
@@ -860,6 +874,22 @@
             ]
         },
         {
+            "path": "src/Storage/ArtifactStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\ArtifactStore",
+            "layer": "storage",
+            "description": "SQLite-backed artifact persistence. Tables: artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, timestamps), artifact_versions (id, artifact_id, version, content, change_summary, created_at). Shares PDO connection from SessionStorage. Supports CRUD, automatic versioning on update, stage transitions (draft/review/final), and per-session listing with type/stage filters.",
+            "methods": [
+                "create(sessionId, title, content, type, language, filepath, stage, turnId, metadata): string — creates artifact + initial version, returns ID",
+                "update(id, content, changeSummary, title, stage): bool — updates content, bumps version, saves snapshot",
+                "get(id): ?array — retrieves artifact by ID",
+                "list(sessionId, type, stage, limit): array — lists artifacts with optional filters",
+                "delete(id): bool — deletes artifact and cascaded versions",
+                "getVersions(artifactId): array — returns version history ordered desc",
+                "getVersion(artifactId, version): ?array — retrieves specific version",
+                "updateStage(id, stage): bool — updates stage only"
+            ]
+        },
+        {
             "path": "src/Storage/FileUploadStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\FileUploadStorage",
             "layer": "storage",
@@ -942,6 +972,16 @@
             "methods": [
                 "tools(): array — returns 7 Tool instances for full CRUD memory operations including restore",
                 "guidelines(): string — dynamic guidelines with importance scoring, decay info, memory count, and vector search availability"
+            ]
+        },
+        {
+            "path": "src/Toolkit/ArtifactToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ArtifactToolkit",
+            "layer": "toolkit",
+            "description": "Agent-facing artifact management toolkit providing 5 tools: artifact_create (new versioned artifact), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage filter), artifact_stage (draft→review→final transition). Guidelines dynamically list existing artifacts.",
+            "methods": [
+                "tools(): array — returns 5 Tool instances for artifact CRUD + staging",
+                "guidelines(): string — dynamic guidelines showing existing artifact listing or empty state prompt"
             ]
         },
         {

@@ -161,12 +161,20 @@ final class TurnRunCommand extends Command
         );
 
         try {
+            // Resolve the active role from the session record
+            $session = $storage->getSession($sessionId);
+            $sessionRole = ($session !== null && isset($session['model_role']))
+                ? (string) $session['model_role']
+                : 'orchestrator';
+            $role = ($sessionRole !== '' && $sessionRole !== 'orchestrator') ? $sessionRole : null;
+
             $turnResult = $agentRunner->runWithObserver(
                 $prompt,
                 $sessionId,
                 $executionPolicy,
                 $turnObserver,
                 $filePaths,
+                $role,
             );
 
             if ($cancellationToken->isCancelled()) {

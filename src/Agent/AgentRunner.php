@@ -83,8 +83,9 @@ final class AgentRunner
         ToolExecutionPolicyInterface $executionPolicy,
         SplObserver $observer,
         ?array $filePaths = null,
+        ?string $role = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths, role: $role);
     }
 
     /**
@@ -126,8 +127,9 @@ final class AgentRunner
         string $sessionId,
         ToolExecutionPolicyInterface $executionPolicy,
         ?CancellationTokenInterface $cancellationToken = null,
+        ?string $role = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer, $cancellationToken);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer, $cancellationToken, role: $role);
     }
 
     /**
@@ -324,6 +326,7 @@ final class AgentRunner
             configGuard: $this->configGuard,
             visibilityRegistry: $this->visibilityRegistry,
             spaceToolkit: $this->spaceToolkit,
+            activeRole: $role !== 'orchestrator' ? $role : null,
         );
     }
 
