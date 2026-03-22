@@ -358,7 +358,7 @@ Each task runs as an isolated PHP process (`task:run`) with its own agent stack,
 - **User input** — send follow-up messages to running tasks
 - **Cancellation** — cooperative cancellation via `SIGTERM`
 - **Crash recovery** — orphaned tasks are automatically marked as failed on server restart
-- **Concurrency control** — configurable via `api.tasks.maxConcurrent` in `openclaw.json` (default: 1)
+- **Concurrency control** — configurable via `api.tasks.maxConcurrent` in `openclaw.json` (default: 6)
 
 The agent can start, monitor, and cancel tasks using four built-in tools (`start_background_task`, `task_status`, `list_tasks`, `cancel_task`). The HTTP API exposes the same capabilities for external clients.
 

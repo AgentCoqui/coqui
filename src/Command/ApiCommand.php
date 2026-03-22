@@ -44,6 +44,7 @@ use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 #[AsCommand(
     name: 'api',
@@ -137,7 +138,7 @@ final class ApiCommand extends Command
 
         // Create background task manager + agent turn manager
         $coquiBinPath = realpath(dirname(__DIR__, 2) . '/bin/coqui') ?: dirname(__DIR__, 2) . '/bin/coqui';
-        $maxConcurrentTasks = (int) ($boot->config()->get('api.tasks.maxConcurrent') ?? 1);
+        $maxConcurrentTasks = (int) ($boot->config()->get('api.tasks.maxConcurrent') ?? CoquiDefaults::MAX_CONCURRENT_TASKS);
 
         $taskManager = new BackgroundTaskManager(
             storage: $storage,

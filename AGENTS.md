@@ -651,9 +651,9 @@ Coqui provides automatic context window management and conversation summarizatio
 
 Before each agent turn, `AgentRunner::autoSummarizeIfNeeded()` checks the conversation's estimated token usage against the context window budget. If usage exceeds a configurable threshold, the conversation is automatically summarized:
 
-1. **Threshold check** — `agents.defaults.context.autoSummarizeThreshold` in `openclaw.json` (default: `0.75` = 75% of available budget).
+1. **Threshold check** — `agents.defaults.context.autoSummarizeThreshold` in `openclaw.json` (default: `75` = 75% of available budget). Accepts both percentage (1–100) and ratio (0.0–1.0) — ratios are automatically converted to percentages.
 2. **Provider resolution** — uses the utility model resolution chain (see Utility Model section below).
-3. **Keep recent** — `agents.defaults.context.autoSummarizeKeepRecent` controls how many recent turns are preserved during auto-summarization (default: `5`, clamped 1–20).
+3. **Keep recent** — `agents.defaults.context.autoSummarizeKeepRecent` controls how many recent turns are preserved during auto-summarization (default: `10`, clamped 1–20).
 4. **Summarization** — `ConversationSummarizer` splits the conversation, compresses older messages via LLM, rebuilds with a summary `SystemMessage`.
 5. **Observer notification** — emits `agent.summary` event so terminal/SSE observers can alert the user.
 
@@ -671,7 +671,7 @@ Users and agents can trigger summarization manually:
 
 `ConversationSummarizer` performs the following steps:
 
-1. **Split** — finds user turn boundaries, keeps the N most recent turns (configurable via `agents.defaults.context.keepRecentTurns`, default 3), marks older messages for compression. System messages are always preserved.
+1. **Split** — finds user turn boundaries, keeps the N most recent turns (configurable via `agents.defaults.context.keepRecentTurns`, default 6), marks older messages for compression. System messages are always preserved.
 2. **Compress** — sends the older messages to a cheap LLM with a structured prompt requesting a <500 word summary covering key decisions, technical details, code references, and unresolved items.
 3. **Rebuild** — constructs a new `Conversation` with: original system messages + summary `SystemMessage` (marked with `[CONVERSATION SUMMARY]`) + preserved recent messages.
 4. **Persist** (optional) — stores the summary as a `session_summary` area `MemoryEntry` in `MemoryStore` for cross-session awareness.
@@ -683,9 +683,9 @@ Users and agents can trigger summarization manually:
     "agents": {
         "defaults": {
             "context": {
-                "autoSummarizeThreshold": 0.75,
-                "autoSummarizeKeepRecent": 5,
-                "keepRecentTurns": 3
+                "autoSummarizeThreshold": 75,
+                "autoSummarizeKeepRecent": 10,
+                "keepRecentTurns": 6
             }
         }
     }
@@ -694,9 +694,9 @@ Users and agents can trigger summarization manually:
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `autoSummarizeThreshold` | `0.75` | Token usage ratio that triggers auto-summarization (0.0–1.0) |
-| `autoSummarizeKeepRecent` | `5` | Turns preserved during auto-summarization (1–20) |
-| `keepRecentTurns` | `3` | Default turns preserved during on-demand summarization |
+| `autoSummarizeThreshold` | `75` | Token usage percentage that triggers auto-summarization. Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeKeepRecent` | `10` | Turns preserved during auto-summarization (1–20) |
+| `keepRecentTurns` | `6` | Default turns preserved during on-demand summarization |
 
 ### Key Source Files
 
@@ -1026,7 +1026,7 @@ max_iterations: 30             # optional — per-role iteration limit (0 = unli
 
 Controls how many agent loop iterations a role can perform before stopping.
 
-**Resolution priority:** role file `max_iterations` → `agents.defaults.maxIterations` in `openclaw.json` → hardcoded fallback (25).
+**Resolution priority:** role file `max_iterations` → `agents.defaults.maxIterations` in `openclaw.json` → hardcoded fallback (48).
 
 #### Global Default
 
@@ -1036,7 +1036,7 @@ Set in `openclaw.json`:
 {
     "agents": {
         "defaults": {
-            "maxIterations": 25
+            "maxIterations": 48
         }
     }
 }
@@ -1064,7 +1064,7 @@ Setting `max_iterations: 0` means "run until the task is done" — the agent loo
 | Role            | `max_iterations` | Rationale                                         |
 | --------------- | ---------------- | ------------------------------------------------- |
 | orchestrator    | global default   | Main agent — uses `agents.defaults.maxIterations` |
-| coder           | 30               | Complex coding tasks need more iterations         |
+| coder           | 48               | Complex coding tasks need more iterations         |
 | reviewer        | 15               | Read-only analysis is usually quick               |
 | assistant       | global default   | General purpose — inherits global                 |
 | title-generator | 5                | Single-shot title generation                      |

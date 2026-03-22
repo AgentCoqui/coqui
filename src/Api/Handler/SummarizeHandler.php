@@ -14,6 +14,7 @@ use CoquiBot\Coqui\Storage\SessionStorage;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Conversation summarization endpoint.
@@ -46,7 +47,7 @@ final readonly class SummarizeHandler
 
         // Read configurable keepRecentTurns from config
         $configKeepRecent = $this->config->get('agents.defaults.context.keepRecentTurns');
-        $defaultKeepRecent = is_numeric($configKeepRecent) ? (int) $configKeepRecent : 3;
+        $defaultKeepRecent = is_numeric($configKeepRecent) ? (int) $configKeepRecent : CoquiDefaults::KEEP_RECENT_TURNS;
         $keepRecent = max(1, min(20, (int) ($body['keep_recent'] ?? $defaultKeepRecent)));
         $focus = isset($body['focus']) && is_string($body['focus']) ? $body['focus'] : null;
 

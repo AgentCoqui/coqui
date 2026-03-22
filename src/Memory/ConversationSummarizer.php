@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Message\SystemMessage;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Summarizes conversation history to reduce token usage while preserving context.
@@ -38,7 +39,7 @@ final class ConversationSummarizer
     public function summarize(
         Conversation $conversation,
         ProviderInterface $provider,
-        int $keepRecentTurns = 3,
+        int $keepRecentTurns = CoquiDefaults::KEEP_RECENT_TURNS,
         ?string $focus = null,
     ): ConversationSummaryResult {
         $messages = $conversation->messages();
@@ -102,7 +103,7 @@ final class ConversationSummarizer
     public function summarizeAndPersist(
         string $sessionId,
         ProviderInterface $provider,
-        int $keepRecentTurns = 3,
+        int $keepRecentTurns = CoquiDefaults::KEEP_RECENT_TURNS,
         ?string $focus = null,
     ): ConversationSummaryResult {
         $conversation = $this->storage->loadConversation($sessionId);

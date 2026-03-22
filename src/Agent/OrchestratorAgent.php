@@ -20,6 +20,7 @@ use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Provider\FallbackProvider;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ConfigGuard;
@@ -151,7 +152,7 @@ final class OrchestratorAgent extends AbstractAgent
                     $utilityProvider = $utilityFactory->create($utilityModel);
 
                     $keepRecentCfg = $config->get('agents.defaults.context.keepRecentTurns');
-                    $keepRecent = is_numeric($keepRecentCfg) ? max(1, min(20, (int) $keepRecentCfg)) : 3;
+                    $keepRecent = is_numeric($keepRecentCfg) ? max(1, min(20, (int) $keepRecentCfg)) : CoquiDefaults::KEEP_RECENT_TURNS;
 
                     $pruningStrategy = new SummarizePruningStrategy(
                         provider: $utilityProvider,
@@ -662,7 +663,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         // Conservative fallback: 128K context window, 4K reserved for completion
-        return new ContextWindow(maxTok: 128000, reservedTok: 4096);
+        return new ContextWindow(maxTok: CoquiDefaults::CONTEXT_WINDOW_FALLBACK, reservedTok: CoquiDefaults::CONTEXT_WINDOW_RESERVED);
     }
 
     /**

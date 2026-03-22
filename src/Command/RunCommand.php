@@ -28,6 +28,7 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 #[AsCommand(
     name: 'run',
@@ -743,7 +744,7 @@ final class RunCommand extends Command
         // Read configurable keepRecentTurns from config
         $config = $this->boot->config();
         $configKeepRecent = $config->get('agents.defaults.context.keepRecentTurns');
-        $keepRecent = is_numeric($configKeepRecent) ? (int) $configKeepRecent : 3;
+        $keepRecent = is_numeric($configKeepRecent) ? (int) $configKeepRecent : CoquiDefaults::KEEP_RECENT_TURNS;
         $focus = null;
 
         // Parse arguments

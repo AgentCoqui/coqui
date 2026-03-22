@@ -295,6 +295,13 @@
             ]
         },
         {
+            "path": "src/Contract/CoquiDefaults.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\CoquiDefaults",
+            "layer": "contract",
+            "description": "Centralized default values for Coqui configuration. Single source of truth for all default limits and thresholds (maxIterations, maxConcurrent, keepRecentTurns, autoSummarizeKeepRecent, autoSummarizeThreshold, context window fallbacks). All config fallbacks reference these constants instead of hardcoding values.",
+            "methods": []
+        },
+        {
             "path": "src/Contract/CredentialRequirement.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\CredentialRequirement",
             "layer": "contract",

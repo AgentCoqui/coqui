@@ -14,6 +14,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Agent-facing tool that summarizes conversation history to reduce token usage.
@@ -83,7 +84,7 @@ final class SummarizeConversationTool implements ToolInterface
 
         // Read configurable keepRecentTurns from config
         $configKeepRecent = $this->config->get('agents.defaults.context.keepRecentTurns');
-        $defaultKeepRecent = is_numeric($configKeepRecent) ? (int) $configKeepRecent : 3;
+        $defaultKeepRecent = is_numeric($configKeepRecent) ? (int) $configKeepRecent : CoquiDefaults::KEEP_RECENT_TURNS;
         $keepRecent = (int) ($arguments['keep_recent'] ?? ($scope === 'all' ? max(2, $defaultKeepRecent - 1) : $defaultKeepRecent));
         $focus = isset($arguments['focus']) ? (string) $arguments['focus'] : null;
 

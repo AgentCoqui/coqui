@@ -119,7 +119,7 @@ curl -X POST http://localhost:3300/api/tasks \
     "prompt": "Analyze the project structure and create a summary document",
     "title": "Project Analysis",
     "role": "orchestrator",
-    "max_iterations": 25
+    "max_iterations": 48
   }'
 ```
 
