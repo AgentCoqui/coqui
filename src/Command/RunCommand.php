@@ -508,8 +508,9 @@ final class RunCommand extends Command
             })(),
 
             '/new' => (function () use ($io) {
+                $this->activeRole = 'orchestrator';
                 $this->sessionId = $this->createNewSession($io);
-                $io->success('New session started: ' . substr($this->sessionId, 0, 8) . '...');
+                $io->success('New session started: ' . $this->sessionId);
                 return true;
             })(),
 
@@ -535,7 +536,7 @@ final class RunCommand extends Command
                 }
                 $this->sessionId = $arg;
                 $this->saveSessionFile();
-                $io->success('Resumed session: ' . substr($arg, 0, 8) . '...');
+                $io->success('Resumed session: ' . $arg);
                 return true;
             })(),
 
@@ -1193,15 +1194,39 @@ final class RunCommand extends Command
         $rows = [];
         foreach ($sessions as $session) {
             $isCurrent = $session['id'] === $this->sessionId ? ' (current)' : '';
+            $title = isset($session['title']) && $session['title'] !== ''
+                ? ' — ' . $session['title']
+                : '';
             $rows[] = [
-                substr($session['id'], 0, 8) . '...' . $isCurrent,
+                $session['id'] . $isCurrent . $title,
                 $session['model_role'],
                 $session['token_count'],
-                $session['updated_at'],
+                $this->timeSince($session['updated_at']),
             ];
         }
 
         $io->table(['ID', 'Role', 'Tokens', 'Updated'], $rows);
+    }
+
+    private function timeSince(string $datetime): string
+    {
+        try {
+            $then = new \DateTimeImmutable($datetime);
+        } catch (\Throwable) {
+            return $datetime;
+        }
+
+        $seconds = max(0, (new \DateTimeImmutable('now'))->getTimestamp() - $then->getTimestamp());
+
+        return match (true) {
+            $seconds < 60      => 'just now',
+            $seconds < 3600    => ($n = intdiv($seconds, 60)) === 1    ? '1 minute ago'  : "{$n} minutes ago",
+            $seconds < 86400   => ($n = intdiv($seconds, 3600)) === 1  ? '1 hour ago'    : "{$n} hours ago",
+            $seconds < 604800  => ($n = intdiv($seconds, 86400)) === 1 ? '1 day ago'     : "{$n} days ago",
+            $seconds < 2592000 => ($n = intdiv($seconds, 604800)) === 1  ? '1 week ago'  : "{$n} weeks ago",
+            $seconds < 31536000 => ($n = intdiv($seconds, 2592000)) === 1 ? '1 month ago' : "{$n} months ago",
+            default             => ($n = intdiv($seconds, 31536000)) === 1 ? '1 year ago'  : "{$n} years ago",
+        };
     }
 
     private function listTasksCommand(SymfonyStyle $io, string $statusFilter = ''): void

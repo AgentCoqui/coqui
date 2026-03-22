@@ -212,3 +212,50 @@ test('updateStage changes stage', function () {
 test('updateStage returns false for nonexistent', function () {
     expect($this->store->updateStage('nonexistent', 'final'))->toBeFalse();
 });
+
+// --- Cleanup ---
+
+test('cleanupFinalized deletes final-stage artifacts', function () {
+    $id1 = $this->store->create($this->sessionId, 'Final One', 'content', stage: 'draft');
+    $this->store->updateStage($id1, 'final');
+
+    $id2 = $this->store->create($this->sessionId, 'Final Two', 'content', stage: 'draft');
+    $this->store->updateStage($id2, 'final');
+
+    $count = $this->store->cleanupFinalized();
+
+    expect($count)->toBe(2);
+    expect($this->store->get($id1))->toBeNull();
+    expect($this->store->get($id2))->toBeNull();
+});
+
+test('cleanupFinalized preserves draft and review artifacts', function () {
+    $draft = $this->store->create($this->sessionId, 'Draft Plan', 'content');
+    $review = $this->store->create($this->sessionId, 'Review Plan', 'content');
+    $this->store->updateStage($review, 'review');
+    $final = $this->store->create($this->sessionId, 'Final Plan', 'content');
+    $this->store->updateStage($final, 'final');
+
+    $count = $this->store->cleanupFinalized();
+
+    expect($count)->toBe(1);
+    expect($this->store->get($draft))->not->toBeNull();
+    expect($this->store->get($review))->not->toBeNull();
+    expect($this->store->get($final))->toBeNull();
+});
+
+test('cleanupFinalized returns zero when no final artifacts exist', function () {
+    $this->store->create($this->sessionId, 'Draft', 'content');
+
+    expect($this->store->cleanupFinalized())->toBe(0);
+});
+
+test('cleanupFinalized cascade-deletes version history', function () {
+    $id = $this->store->create($this->sessionId, 'Versioned', 'v1');
+    $this->store->update($id, 'v2', 'Second');
+    $this->store->updateStage($id, 'final');
+
+    $this->store->cleanupFinalized();
+
+    expect($this->store->getVersions($id))->toHaveCount(0);
+});

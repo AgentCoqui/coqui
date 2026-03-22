@@ -32,17 +32,24 @@ final class ArtifactToolkit implements ToolkitInterface
     public function __construct(
         private readonly ArtifactStore $store,
         private readonly string $sessionId,
+        private readonly bool $readOnly = false,
     ) {}
 
     public function tools(): array
     {
-        return [
+        $tools = [
             $this->createTool(),
             $this->updateTool(),
             $this->getTool(),
             $this->listTool(),
             $this->stageTool(),
         ];
+
+        if (!$this->readOnly) {
+            $tools[] = $this->deleteTool();
+        }
+
+        return $tools;
     }
 
     public function guidelines(): string
@@ -289,6 +296,40 @@ final class ArtifactToolkit implements ToolkitInterface
                     'title' => $artifact['title'],
                     'previous_stage' => $artifact['stage'],
                     'new_stage' => $stage,
+                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+            },
+        );
+    }
+
+    private function deleteTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'artifact_delete',
+            description: 'Delete an artifact and all its version history. This action is irreversible.',
+            parameters: [
+                new StringParameter('id', 'Artifact ID to delete', required: true),
+            ],
+            callback: function (array $args): ToolResult {
+                $id = trim($args['id'] ?? '');
+
+                if ($id === '') {
+                    return ToolResult::error('Artifact ID is required.');
+                }
+
+                $artifact = $this->store->get($id);
+                if ($artifact === null) {
+                    return ToolResult::error("Artifact not found: {$id}");
+                }
+
+                $deleted = $this->store->delete($id);
+                if (!$deleted) {
+                    return ToolResult::error("Failed to delete artifact {$id}");
+                }
+
+                return ToolResult::success(json_encode([
+                    'id' => $id,
+                    'title' => $artifact['title'],
+                    'deleted' => true,
                 ], JSON_UNESCAPED_SLASHES) ?: '{}');
             },
         );

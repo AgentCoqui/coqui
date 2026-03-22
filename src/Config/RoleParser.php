@@ -20,7 +20,7 @@ final class RoleParser
     private const int MAX_NAME_LENGTH = 64;
 
     /** @var list<string> */
-    private const array VALID_ACCESS_LEVELS = ['full', 'readonly', 'minimal'];
+    private const array VALID_ACCESS_LEVELS = ['full', 'readonly', 'readonly-shell', 'minimal'];
 
     /**
      * Parse a role markdown file into a RoleProperties value object.

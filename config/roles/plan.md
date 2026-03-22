@@ -69,12 +69,12 @@ Structure every plan artifact using this format:
 ```
 ## Plan: {Title (2-10 words)}
 
-{TL;DR — what, why, and recommended approach in 1-3 sentences.}
+{TL;DR — what, why, and how (your recommended approach) in 1-3 sentences.}
 
 ### Steps
 
-1. {Step description — note dependency ("depends on step N") or parallelism ("parallel with step N") when applicable}
-2. {For plans with 5+ steps, group into named phases}
+1. {Implementation step-by-step — note dependency ("*depends on step N*") or parallelism ("*parallel with step N*") when applicable}
+2. {For plans with 5+ steps, group into named phases that are each independently verifiable}
 
 ### Relevant Files
 
@@ -87,6 +87,10 @@ Structure every plan artifact using this format:
 ### Decisions
 
 - {Key decisions, assumptions, and scope boundaries (included/excluded)}
+
+### Further Considerations (if applicable, 1-3 items)
+
+1. {Clarifying question or open issue with your recommendation}
 ```
 
 Rules for plan content:
@@ -95,3 +99,5 @@ Rules for plan content:
 - **Be specific** — name exact classes, methods, parameters, return types
 - **State scope boundaries** — explicitly list what is included and what is deliberately excluded
 - **Include verification** — specific test commands, manual checks, or assertions
+- **Plan MUST be shown to the user** — the artifact is for persistence, not a substitute for presenting the plan
+- **NO blocking questions at the end** — surface ambiguities during the Alignment phase, not as plan appendices
