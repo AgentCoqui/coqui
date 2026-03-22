@@ -74,7 +74,7 @@ The simplest valid config only needs a primary model:
                 "vision": "gemini/gemini-2.5-flash"
             },
             "workspace": "~/.coqui/.workspace",
-            "maxIterations": 25,
+            "maxIterations": 48,
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
             "blacklist": ["/pattern-to-block/i"],
             "mounts": [
@@ -103,7 +103,7 @@ The simplest valid config only needs a primary model:
     "api": {
         "key": "your-api-key",
         "tasks": {
-            "maxConcurrent": 1
+            "maxConcurrent": 6
         }
     }
 }
@@ -335,7 +335,7 @@ Settings for the HTTP API server (`coqui api`).
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `api.key` | string | — | API authentication key (required for network-bound hosts) |
-| `api.tasks.maxConcurrent` | int | `1` | Maximum concurrent background tasks |
+| `api.tasks.maxConcurrent` | int | `6` | Maximum concurrent background tasks |
 
 ## Environment Variable Overrides
 

@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Message\DefaultBudgetPruningStrategy;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Summarize-then-drop pruning strategy.
@@ -29,7 +30,7 @@ final class SummarizePruningStrategy implements BudgetPruningStrategyInterface
         private readonly ProviderInterface $provider,
         private readonly SessionStorage $storage,
         private readonly ?MemoryStore $memoryStore = null,
-        private readonly int $keepRecentTurns = 3,
+        private readonly int $keepRecentTurns = CoquiDefaults::KEEP_RECENT_TURNS,
     ) {
         $this->fallback = new DefaultBudgetPruningStrategy();
     }

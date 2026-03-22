@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api;
 
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Manages background task child processes.
@@ -36,7 +37,7 @@ final class BackgroundTaskManager
         private readonly string $configPath,
         private readonly string $workDir,
         private readonly string $workspacePath = '',
-        private readonly int $maxConcurrent = 1,
+        private readonly int $maxConcurrent = CoquiDefaults::MAX_CONCURRENT_TASKS,
         private readonly bool $unsafeMode = false,
     ) {}
 

@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PHPAgents\Agent\AbstractAgent;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Resolves role-based model assignments.
@@ -95,7 +96,7 @@ final class RoleResolver
      * Resolve the max iterations for a given role.
      *
      * Priority: role file max_iterations field → agents.defaults.maxIterations
-     * from openclaw.json → AbstractAgent::DEFAULT_MAX_ITERATIONS (25).
+     * from openclaw.json → CoquiDefaults::MAX_ITERATIONS (48).
      *
      * A return value of 0 means unlimited (sentinel handled by AbstractAgent).
      */
@@ -121,7 +122,7 @@ final class RoleResolver
         }
 
         // 3. Hardcoded fallback
-        return AbstractAgent::DEFAULT_MAX_ITERATIONS;
+        return CoquiDefaults::MAX_ITERATIONS;
     }
 
     /**

@@ -36,6 +36,7 @@ use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Handles agent creation, execution, and turn message persistence.
@@ -636,7 +637,12 @@ final class AgentRunner
 
         // Read threshold from config (default: 75%)
         $threshold = $this->config->get('agents.defaults.context.autoSummarizeThreshold');
-        $threshold = is_numeric($threshold) ? (float) $threshold : 75.0;
+        $threshold = is_numeric($threshold) ? (float) $threshold : CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD;
+
+        // Normalize: accept both ratio (0.0–1.0) and percentage (1–100)
+        if ($threshold > 0.0 && $threshold <= 1.0) {
+            $threshold *= 100;
+        }
 
         if ($usagePercent < $threshold) {
             return $history;
@@ -672,7 +678,7 @@ final class AgentRunner
 
         // Read configurable keepRecentTurns for auto-summarization
         $keepRecentCfg = $this->config->get('agents.defaults.context.autoSummarizeKeepRecent');
-        $keepRecent = is_numeric($keepRecentCfg) ? (int) $keepRecentCfg : 5;
+        $keepRecent = is_numeric($keepRecentCfg) ? (int) $keepRecentCfg : CoquiDefaults::AUTO_SUMMARIZE_KEEP_RECENT;
         $keepRecent = max(1, min(20, $keepRecent));
 
         $result = $summarizer->summarizeAndPersist(
