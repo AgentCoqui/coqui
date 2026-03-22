@@ -44,6 +44,7 @@ use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\StubToolkit;
+use CoquiBot\Coqui\Toolkit\TodoToolkit;
 use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
 use CoquiBot\Coqui\Tool\ConfigTool;
 use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
@@ -218,6 +219,18 @@ final class OrchestratorAgent extends AbstractAgent
         if ($this->storage !== null && $this->sessionId !== null) {
             $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($this->storage->getPdo());
             $this->addToolkit(new ArtifactToolkit($artifactStore, $this->sessionId));
+        }
+
+        // Todo toolkit — session-scoped task tracking for planning and implementation
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
+            $activeRoleName = $this->activeRole ?? 'orchestrator';
+            $this->addToolkit(new TodoToolkit(
+                $todoStore,
+                $this->sessionId,
+                $activeRoleName,
+                $effectiveAccessLevel,
+            ));
         }
 
         // Project source toolkit — read-only access to the Coqui project codebase

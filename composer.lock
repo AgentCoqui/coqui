@@ -8,11 +8,11 @@
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "dev-chore_extract-prune-logic",
+            "version": "dev-main",
             "dist": {
                 "type": "path",
                 "url": "../php-agents",
-                "reference": "71f0b2930be249335bf6ef4fa7659187bd3c806e"
+                "reference": "184f63c3ce2734e3354d900d31e6a825ae15d45a"
             },
             "require": {
                 "php": "^8.4",

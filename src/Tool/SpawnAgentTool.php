@@ -19,6 +19,8 @@ use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
+use CoquiBot\Coqui\Toolkit\TodoToolkit;
+use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use SplObserver;
@@ -232,6 +234,17 @@ final class SpawnAgentTool implements ToolInterface
                 $artifactStore,
                 $this->sessionId,
                 readOnly: $accessLevel !== 'full',
+            );
+        }
+
+        // Todo toolkit — session-scoped task tracking shared with child agents.
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $todoStore = new TodoStore($this->storage->getPdo());
+            $toolkits[] = new TodoToolkit(
+                $todoStore,
+                $this->sessionId,
+                $role,
+                $accessLevel,
             );
         }
 

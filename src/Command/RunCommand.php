@@ -202,7 +202,7 @@ final class RunCommand extends Command
             '<fg=gray>Project root:</> ' . $this->workDir,
             '<fg=gray>Workspace:</> ' . $this->boot->workspacePath(),
             '',
-            '<fg=gray>Commands: /new, /history, /sessions, /tasks, /config, /update, /restart, /quit</>',
+            '<fg=gray>Commands: /new, /history, /sessions, /tasks, /todos, /config, /update, /restart, /quit</>',
             '<fg=gray>Press ESC or Ctrl+C to cancel agent</>',
         ]);
         $io->newLine();
@@ -296,7 +296,7 @@ final class RunCommand extends Command
                 if (str_starts_with($input, '/') || $line === '' || $line === '/') {
                     $commands = [
                         '/new', '/history', '/sessions', '/resume', '/model',
-                        '/config', '/tasks', '/task', '/task-cancel', '/toolkits',
+                        '/config', '/tasks', '/task', '/task-cancel', '/todos', '/toolkits',
                         '/prompt', '/role', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/help', '/quit',
                     ];
 
@@ -554,6 +554,11 @@ final class RunCommand extends Command
                 return true;
             })(),
 
+            '/todos' => (function () use ($io, $arg) {
+                $this->handleTodosCommand($io, $arg);
+                return true;
+            })(),
+
             '/task' => (function () use ($io, $arg) {
                 $this->taskStatusCommand($io, $arg);
                 return true;
@@ -612,6 +617,7 @@ final class RunCommand extends Command
                         ['/tasks [status]', 'List background tasks (optionally filter by status)'],
                         ['/task <id>', 'Show background task status and recent events'],
                         ['/task-cancel <id>', 'Cancel a pending or running background task'],
+                        ['/todos [status]', 'Show session todos (optionally filter by pending/in_progress/completed/cancelled)'],
                         ['/toolkits [enable|stub|disable <pkg|tool:name>]', 'Manage toolkit visibility'],
                         ['/prompt', 'Show the full system prompt sent to the LLM'],
                         ['/role [name]', 'Switch active role (e.g. /role coder). No argument shows current role'],
@@ -1256,6 +1262,67 @@ final class RunCommand extends Command
         $parts = [];
         foreach ($counts as $s => $c) {
             $parts[] = "{$s}: {$c}";
+        }
+        if (!empty($parts)) {
+            $io->text('<fg=gray>' . implode(' | ', $parts) . '</>');
+        }
+    }
+
+    private function handleTodosCommand(SymfonyStyle $io, string $statusFilter = ''): void
+    {
+        $todoStore = $this->boot->todoStore();
+        if ($todoStore === null) {
+            $io->error('Todo system not initialized.');
+            return;
+        }
+
+        $status = trim($statusFilter) !== '' ? trim($statusFilter) : null;
+
+        $todos = $todoStore->list(
+            sessionId: $this->sessionId,
+            status: $status,
+        );
+        if (empty($todos)) {
+            $io->info($status !== null ? "No todos with status '{$status}'." : 'No todos in this session.');
+            return;
+        }
+
+        $stats = $todoStore->getStats($this->sessionId);
+        $total = $stats['total'];
+        $completed = $stats['completed'];
+        $pct = $total > 0 ? (int) round(($completed / $total) * 100) : 0;
+
+        $io->section("Todos ({$completed}/{$total} — {$pct}%)");
+
+        $rows = [];
+        foreach ($todos as $todo) {
+            $icon = match ($todo['status']) {
+                'completed' => '<fg=green>✅</>',
+                'in_progress' => '<fg=yellow>🔲</>',
+                'cancelled' => '<fg=red>❌</>',
+                default => '☐',
+            };
+            $priority = match ($todo['priority']) {
+                'high' => '<fg=red>high</>',
+                'low' => '<fg=gray>low</>',
+                default => 'med',
+            };
+            $rows[] = [
+                $icon,
+                substr($todo['id'], 0, 8) . '...',
+                $todo['title'],
+                $priority,
+                $todo['created_by'] ?? '',
+            ];
+        }
+
+        $io->table(['', 'ID', 'Title', 'Priority', 'Created By'], $rows);
+
+        $parts = [];
+        foreach (['pending', 'in_progress', 'completed', 'cancelled'] as $s) {
+            if ($stats[$s] > 0) {
+                $parts[] = "{$s}: {$stats[$s]}";
+            }
         }
         if (!empty($parts)) {
             $io->text('<fg=gray>' . implode(' | ', $parts) . '</>');
