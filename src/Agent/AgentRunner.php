@@ -29,11 +29,14 @@ use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
+use CoquiBot\Coqui\Memory\ConversationSummarizer;
+use CoquiBot\Coqui\Memory\MemoryExtractor;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Handles agent creation, execution, and turn message persistence.
@@ -81,8 +84,9 @@ final class AgentRunner
         ToolExecutionPolicyInterface $executionPolicy,
         SplObserver $observer,
         ?array $filePaths = null,
+        ?string $role = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths, role: $role);
     }
 
     /**
@@ -124,8 +128,9 @@ final class AgentRunner
         string $sessionId,
         ToolExecutionPolicyInterface $executionPolicy,
         ?CancellationTokenInterface $cancellationToken = null,
+        ?string $role = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer, $cancellationToken);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer, $cancellationToken, role: $role);
     }
 
     /**
@@ -188,10 +193,13 @@ final class AgentRunner
         }
 
         try {
-            // Apply context window pruning — conservative 100K token budget (80% of 128K)
-            if ($history->count() > 0) {
-                $history = $history->fitWithinBudget(100000);
-            }
+            // Auto-summarize when conversation history is nearing the context limit.
+            // This preserves important context via LLM summarization instead of
+            // silently dropping oldest turns via fitWithinBudget().
+            $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $observer);
+
+            // Per-iteration pruning is handled by AbstractAgent using the
+            // model-aware ContextWindow passed to OrchestratorAgent.
 
             $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $history);
 
@@ -229,6 +237,9 @@ final class AgentRunner
                 toolsUsed: json_encode($toolsUsed, JSON_UNESCAPED_SLASHES) ?: '[]',
                 childAgentCount: $childAgentCount,
             );
+
+            // Automatic memory extraction from completed turn
+            $this->autoExtractMemories($output->conversation ?? $history, $sessionId);
 
             return new AgentTurnResult(
                 content: $output->content,
@@ -316,6 +327,7 @@ final class AgentRunner
             configGuard: $this->configGuard,
             visibilityRegistry: $this->visibilityRegistry,
             spaceToolkit: $this->spaceToolkit,
+            activeRole: $role !== 'orchestrator' ? $role : null,
         );
     }
 
@@ -584,5 +596,153 @@ final class AgentRunner
             completionTokens: $completionTokens,
             totalTokens: $promptTokens + $completionTokens,
         );
+    }
+
+    /**
+     * Auto-summarize conversation history when it approaches the context window limit.
+     *
+     * Checks the estimated token usage against the model's context window.
+     * At 75% usage, triggers automatic summarization to preserve context
+     * via LLM compression instead of losing information through hard pruning.
+     *
+     * Thresholds are configurable via openclaw.json:
+     *   agents.defaults.context.autoSummarizeThreshold (default: 75)
+     */
+    private function autoSummarizeIfNeeded(
+        OrchestratorAgent $agent,
+        Conversation $history,
+        string $sessionId,
+        ?SplObserver $observer = null,
+    ): Conversation {
+        if ($history->count() === 0) {
+            return $history;
+        }
+
+        $contextWindow = $agent->getContextWindow();
+        if ($contextWindow === null) {
+            return $history;
+        }
+
+        // Estimate current conversation token usage
+        $estimatedTokens = $history->estimateTokens();
+        $maxTokens = $contextWindow->maxTokens();
+        $reserved = $contextWindow->reservedTokens();
+        $effectiveMax = $maxTokens - $reserved;
+
+        if ($effectiveMax <= 0) {
+            return $history;
+        }
+
+        $usagePercent = ($estimatedTokens / $effectiveMax) * 100;
+
+        // Read threshold from config (default: 75%)
+        $threshold = $this->config->get('agents.defaults.context.autoSummarizeThreshold');
+        $threshold = is_numeric($threshold) ? (float) $threshold : CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD;
+
+        // Normalize: accept both ratio (0.0–1.0) and percentage (1–100)
+        if ($threshold > 0.0 && $threshold <= 1.0) {
+            $threshold *= 100;
+        }
+
+        if ($usagePercent < $threshold) {
+            return $history;
+        }
+
+        // Trigger auto-summarization
+        $summarizer = new ConversationSummarizer(
+            storage: $this->storage,
+            memoryStore: $this->memoryStore,
+        );
+
+        // Resolve a cheap provider for summarization via utility model chain
+        $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+        $provider = null;
+
+        try {
+            $utilityModel = $this->roleResolver->resolveUtility();
+            if ($utilityModel !== '') {
+                $provider = $factory->create($utilityModel);
+            }
+        } catch (\Throwable) {
+            // Fall through
+        }
+
+        if ($provider === null) {
+            try {
+                $orchestratorModel = $this->roleResolver->resolve('orchestrator');
+                $provider = $factory->create($orchestratorModel);
+            } catch (\Throwable) {
+                return $history;
+            }
+        }
+
+        // Read configurable keepRecentTurns for auto-summarization
+        $keepRecentCfg = $this->config->get('agents.defaults.context.autoSummarizeKeepRecent');
+        $keepRecent = is_numeric($keepRecentCfg) ? (int) $keepRecentCfg : CoquiDefaults::AUTO_SUMMARIZE_KEEP_RECENT;
+        $keepRecent = max(1, min(20, $keepRecent));
+
+        $result = $summarizer->summarizeAndPersist(
+            sessionId: $sessionId,
+            provider: $provider,
+            keepRecentTurns: $keepRecent,
+        );
+
+        if (!$result->wasSummarized()) {
+            return $history;
+        }
+
+        // Notify observer about auto-summarization
+        $agent->notify(
+            'agent.summary',
+            [
+                'messages_summarized' => $result->messagesSummarized,
+                'tokens_before' => $result->tokensBefore,
+                'tokens_after' => $result->tokensAfter,
+                'tokens_saved' => $result->tokensSaved(),
+                'auto' => true,
+            ],
+        );
+
+        return $result->conversation;
+    }
+
+    /**
+     * Run automatic memory extraction from a completed conversation turn.
+     *
+     * Uses a cheap LLM call to identify noteworthy facts in recent turns
+     * and saves them as memories. Respects cooldown and config toggle.
+     */
+    private function autoExtractMemories(Conversation $conversation, string $sessionId): void
+    {
+        if ($this->memoryStore === null) {
+            return;
+        }
+
+        // Check config toggle (default: true)
+        $autoExtract = $this->config->get('agents.defaults.memory.autoExtract');
+        if ($autoExtract === false || $autoExtract === 'false') {
+            return;
+        }
+
+        try {
+            $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+            $provider = null;
+
+            // Resolve a cheap utility provider
+            $utilityModel = $this->roleResolver->resolveUtility();
+            if ($utilityModel !== '') {
+                $provider = $factory->create($utilityModel);
+            }
+
+            if ($provider === null) {
+                $orchestratorModel = $this->roleResolver->resolve('orchestrator');
+                $provider = $factory->create($orchestratorModel);
+            }
+
+            $extractor = new MemoryExtractor($this->memoryStore);
+            $extractor->extractFromConversation($conversation, $provider);
+        } catch (\Throwable) {
+            // Extraction failure is non-fatal — never interrupt the user flow
+        }
     }
 }

@@ -16,7 +16,11 @@ use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
+use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
+use CoquiBot\Coqui\Toolkit\TodoToolkit;
+use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use SplObserver;
@@ -32,6 +36,12 @@ final class SpawnAgentTool implements ToolInterface
     private const array DEFAULT_CHILD_SHELL_COMMANDS = [
         'php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc',
         'curl', 'wget', 'sort', 'uniq', 'sed', 'awk', 'diff',
+    ];
+
+    /** Read-only shell commands for readonly-shell access level. */
+    private const array READ_ONLY_SHELL_COMMANDS = [
+        'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
+        'sort', 'uniq', 'sed', 'awk', 'diff',
     ];
 
     private int $currentIteration = 0;
@@ -186,12 +196,22 @@ final class SpawnAgentTool implements ToolInterface
         // Child agents get read-only mount access regardless of role access level
         $mountPaths = $this->mountManager?->allowedPathsReadOnly() ?? [];
 
-        return match ($accessLevel) {
+        $toolkits = match ($accessLevel) {
             'full' => [
                 new FilesystemToolkit(rootPath: $this->workspacePath, allowedPaths: $mountPaths),
                 new ShellToolkit(
                     workDir: $this->projectRoot,
                     allowedCommands: $this->shellAllowedCommands,
+                    timeout: 60,
+                ),
+                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
+            ],
+
+            'readonly-shell' => [
+                new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
+                new ShellToolkit(
+                    workDir: $this->projectRoot,
+                    allowedCommands: self::READ_ONLY_SHELL_COMMANDS,
                     timeout: 60,
                 ),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
@@ -205,6 +225,30 @@ final class SpawnAgentTool implements ToolInterface
             // 'minimal' — no toolkits
             default => [],
         };
+
+        // Artifact toolkit — share parent session's artifacts with child agents.
+        // Non-full access levels get read-only artifact access (no delete).
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $artifactStore = new ArtifactStore($this->storage->getPdo());
+            $toolkits[] = new ArtifactToolkit(
+                $artifactStore,
+                $this->sessionId,
+                readOnly: $accessLevel !== 'full',
+            );
+        }
+
+        // Todo toolkit — session-scoped task tracking shared with child agents.
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $todoStore = new TodoStore($this->storage->getPdo());
+            $toolkits[] = new TodoToolkit(
+                $todoStore,
+                $this->sessionId,
+                $role,
+                $accessLevel,
+            );
+        }
+
+        return $toolkits;
     }
 
     /**

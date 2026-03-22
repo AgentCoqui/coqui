@@ -247,3 +247,129 @@ test('getSpawnTool returns SpawnAgentTool', function () {
 
     expect($agent->getSpawnTool()->name())->toBe('spawn_agent');
 });
+
+test('getActiveRole returns null by default', function () {
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+    );
+
+    expect($agent->getActiveRole())->toBeNull();
+});
+
+test('getActiveRole returns the configured role', function () {
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        activeRole: 'coder',
+    );
+
+    expect($agent->getActiveRole())->toBe('coder');
+});
+
+test('activeRole with readonly access has fewer tools than full access', function () {
+    // Create a role discovery with a readonly role
+    $rolesDir = $this->workspace . '/roles';
+    mkdir($rolesDir, 0755, true);
+    file_put_contents($rolesDir . '/reviewer.md', "---\nname: reviewer\ndisplay_name: Reviewer\ndescription: Code reviewer\naccess_level: readonly\n---\nYou review code.");
+
+    $roleDiscovery = new CoquiBot\Coqui\Config\RoleDiscovery(
+        workspacePath: $this->workspace,
+    );
+
+    $fullAgent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        roleDiscovery: $roleDiscovery,
+    );
+
+    $readonlyAgent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        roleDiscovery: $roleDiscovery,
+        activeRole: 'reviewer',
+    );
+
+    // Readonly should have fewer tools (no ShellToolkit = no exec)
+    expect($readonlyAgent->getToolCount())->toBeLessThan($fullAgent->getToolCount());
+
+    unlink($rolesDir . '/reviewer.md');
+    rmdir($rolesDir);
+});
+
+test('activeRole with minimal access has fewest tools', function () {
+    $rolesDir = $this->workspace . '/roles';
+    mkdir($rolesDir, 0755, true);
+    file_put_contents($rolesDir . '/minimal-bot.md', "---\nname: minimal-bot\ndisplay_name: Minimal Bot\ndescription: Minimal access\naccess_level: minimal\n---\nYou are minimal.");
+    file_put_contents($rolesDir . '/reviewer.md', "---\nname: reviewer\ndisplay_name: Reviewer\ndescription: Code reviewer\naccess_level: readonly\n---\nYou review code.");
+
+    $roleDiscovery = new CoquiBot\Coqui\Config\RoleDiscovery(
+        workspacePath: $this->workspace,
+    );
+
+    $readonlyAgent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        roleDiscovery: $roleDiscovery,
+        activeRole: 'reviewer',
+    );
+
+    $minimalAgent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        roleDiscovery: $roleDiscovery,
+        activeRole: 'minimal-bot',
+    );
+
+    // Minimal should have fewer tools than readonly (no filesystem either)
+    expect($minimalAgent->getToolCount())->toBeLessThan($readonlyAgent->getToolCount());
+
+    unlink($rolesDir . '/minimal-bot.md');
+    unlink($rolesDir . '/reviewer.md');
+    rmdir($rolesDir);
+});
+
+test('activeRole instructions uses role markdown when role exists', function () {
+    $rolesDir = $this->workspace . '/roles';
+    mkdir($rolesDir, 0755, true);
+    file_put_contents($rolesDir . '/test-role.md', "---\nname: test-role\ndisplay_name: Test Role\ndescription: A test role\naccess_level: full\n---\nYou are a specialized test assistant.");
+
+    $roleDiscovery = new CoquiBot\Coqui\Config\RoleDiscovery(
+        workspacePath: $this->workspace,
+    );
+
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        roleDiscovery: $roleDiscovery,
+        activeRole: 'test-role',
+    );
+
+    $instructions = $agent->instructions();
+
+    expect($instructions)->toContain('You are a specialized test assistant.');
+
+    unlink($rolesDir . '/test-role.md');
+    rmdir($rolesDir);
+});

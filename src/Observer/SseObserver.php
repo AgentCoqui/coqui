@@ -71,6 +71,12 @@ final class SseObserver implements SplObserver
                 'message' => (string) $data,
             ]),
 
+            'agent.warning' => $this->writeEvent('warning', [
+                'message' => is_string($data) ? $data : '',
+            ]),
+
+            'agent.summary' => $this->writeEvent('summary', is_array($data) ? $data : []),
+
             'child.start' => $this->handleChildStart($data),
 
             'child.end' => $this->handleChildEnd(),

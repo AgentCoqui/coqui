@@ -59,6 +59,13 @@ final class AgentFiberExecutor
             );
 
             try {
+                // Resolve the active role from the session record
+                $session = $this->storage->getSession($sessionId);
+                $sessionRole = ($session !== null && isset($session['model_role']))
+                    ? (string) $session['model_role']
+                    : 'orchestrator';
+                $role = ($sessionRole !== '' && $sessionRole !== 'orchestrator') ? $sessionRole : null;
+
                 // Create a new AgentRunner with the SSE observer for this turn
                 $result = $this->agentRunner->runWithObserver(
                     $prompt,
@@ -66,6 +73,7 @@ final class AgentFiberExecutor
                     $executionPolicy,
                     $sseObserver,
                     $filePaths,
+                    $role,
                 );
 
                 // Write the final complete event

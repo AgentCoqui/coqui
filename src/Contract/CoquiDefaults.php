@@ -1,0 +1,40 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CoquiBot\Coqui\Contract;
+
+/**
+ * Centralized default values for Coqui configuration.
+ *
+ * This is the single source of truth for all default limits and thresholds.
+ * Every fallback in the codebase should reference these constants instead of
+ * hardcoding values. Users can still override any value via openclaw.json —
+ * these constants only govern the defaults when no config is provided.
+ */
+final class CoquiDefaults
+{
+    /** Default maximum agent loop iterations (config: agents.defaults.maxIterations). */
+    public const int MAX_ITERATIONS = 48;
+
+    /** Maximum iterations for background tasks (unattended, capped for safety). */
+    public const int BACKGROUND_TASK_MAX_ITERATIONS = 100;
+
+    /** Default concurrent background tasks (config: api.tasks.maxConcurrent). */
+    public const int MAX_CONCURRENT_TASKS = 6;
+
+    /** Default recent turns preserved during on-demand summarization (config: agents.defaults.context.keepRecentTurns). */
+    public const int KEEP_RECENT_TURNS = 6;
+
+    /** Default recent turns preserved during auto-summarization (config: agents.defaults.context.autoSummarizeKeepRecent). */
+    public const int AUTO_SUMMARIZE_KEEP_RECENT = 10;
+
+    /** Token usage percentage threshold that triggers auto-summarization (config: agents.defaults.context.autoSummarizeThreshold). */
+    public const float AUTO_SUMMARIZE_THRESHOLD = 75.0;
+
+    /** Fallback context window size in tokens when no model definition is available. */
+    public const int CONTEXT_WINDOW_FALLBACK = 128_000;
+
+    /** Fallback reserved tokens for completion when no model definition is available. */
+    public const int CONTEXT_WINDOW_RESERVED = 4_096;
+}

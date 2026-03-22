@@ -14,18 +14,21 @@ use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Config\SetupWizard;
 use CoquiBot\Coqui\Config\UpdateManager;
+use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Renderer\JsonRenderer;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 #[AsCommand(
     name: 'run',
@@ -59,6 +62,7 @@ final class RunCommand extends Command
     private bool $unsafeMode = false;
     private bool $autoApprove = false;
     private bool $restartRequested = false;
+    private string $activeRole = 'orchestrator';
 
     protected function configure(): void
     {
@@ -198,7 +202,7 @@ final class RunCommand extends Command
             '<fg=gray>Project root:</> ' . $this->workDir,
             '<fg=gray>Workspace:</> ' . $this->boot->workspacePath(),
             '',
-            '<fg=gray>Commands: /new, /history, /sessions, /tasks, /config, /update, /restart, /quit</>',
+            '<fg=gray>Commands: /new, /history, /sessions, /tasks, /todos, /config, /update, /restart, /quit</>',
             '<fg=gray>Press ESC or Ctrl+C to cancel agent</>',
         ]);
         $io->newLine();
@@ -276,12 +280,24 @@ final class RunCommand extends Command
                     }
                 }
 
+                // Complete role names after /role
+                if (count($parts) >= 2 && $cmd === '/role') {
+                    $prefix = $parts[1];
+                    $roles = $this->boot->roleDiscovery()->availableRoles();
+                    $roles[] = 'orchestrator';
+                    $roles = array_unique($roles);
+                    return array_values(array_filter(
+                        $roles,
+                        fn(string $r) => str_starts_with($r, $prefix),
+                    ));
+                }
+
                 // Complete top-level slash commands
                 if (str_starts_with($input, '/') || $line === '' || $line === '/') {
                     $commands = [
                         '/new', '/history', '/sessions', '/resume', '/model',
-                        '/config', '/tasks', '/task', '/task-cancel', '/toolkits',
-                        '/prompt', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/help', '/quit',
+                        '/config', '/tasks', '/task', '/task-cancel', '/todos', '/toolkits',
+                        '/prompt', '/role', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/help', '/quit',
                     ];
 
                     return array_filter($commands, fn(string $c) => str_starts_with($c, $input));
@@ -431,7 +447,13 @@ final class RunCommand extends Command
             // Run agent — try/finally guarantees cleanup even if an exception escapes
             // (e.g. an uncaught error thrown from inside the signal handler).
             try {
-                $result = $this->agentRunner->run($prompt, $this->sessionId, $executionPolicy, $cancellationToken);
+                $result = $this->agentRunner->run(
+                    $prompt,
+                    $this->sessionId,
+                    $executionPolicy,
+                    $cancellationToken,
+                    role: $this->activeRole !== 'orchestrator' ? $this->activeRole : null,
+                );
             } finally {
                 $this->escObserver->active = false;
                 // Drain leftover ESC bytes BEFORE restoring the terminal.
@@ -486,8 +508,9 @@ final class RunCommand extends Command
             })(),
 
             '/new' => (function () use ($io) {
+                $this->activeRole = 'orchestrator';
                 $this->sessionId = $this->createNewSession($io);
-                $io->success('New session started: ' . substr($this->sessionId, 0, 8) . '...');
+                $io->success('New session started: ' . $this->sessionId);
                 return true;
             })(),
 
@@ -513,7 +536,7 @@ final class RunCommand extends Command
                 }
                 $this->sessionId = $arg;
                 $this->saveSessionFile();
-                $io->success('Resumed session: ' . substr($arg, 0, 8) . '...');
+                $io->success('Resumed session: ' . $arg);
                 return true;
             })(),
 
@@ -528,6 +551,11 @@ final class RunCommand extends Command
 
             '/tasks' => (function () use ($io, $arg) {
                 $this->listTasksCommand($io, $arg);
+                return true;
+            })(),
+
+            '/todos' => (function () use ($io, $arg) {
+                $this->handleTodosCommand($io, $arg);
                 return true;
             })(),
 
@@ -564,6 +592,14 @@ final class RunCommand extends Command
                 return true;
             })(),
 
+            '/summarize' => (function () use ($io, $arg) {
+                return $this->handleSummarizeCommand($io, $arg);
+            })(),
+
+            '/role' => (function () use ($io, $arg) {
+                return $this->handleRoleCommand($io, $arg);
+            })(),
+
             '/space' => (function () use ($io, $arg) {
                 return $this->handleSpaceCommand($io, $arg);
             })(),
@@ -581,9 +617,12 @@ final class RunCommand extends Command
                         ['/tasks [status]', 'List background tasks (optionally filter by status)'],
                         ['/task <id>', 'Show background task status and recent events'],
                         ['/task-cancel <id>', 'Cancel a pending or running background task'],
+                        ['/todos [status]', 'Show session todos (optionally filter by pending/in_progress/completed/cancelled)'],
                         ['/toolkits [enable|stub|disable <pkg|tool:name>]', 'Manage toolkit visibility'],
                         ['/prompt', 'Show the full system prompt sent to the LLM'],
+                        ['/role [name]', 'Switch active role (e.g. /role coder). No argument shows current role'],
                         ['/space [search|install|remove|installed|skills|toolkits|update]', 'Coqui Space marketplace'],
+                        ['/summarize [recent N] [focus "topic"]', 'Summarize conversation history to save tokens'],
                         ['/update', 'Check for and apply dependency updates'],
                         ['/restart', 'Restart Coqui (re-reads config, re-discovers toolkits)'],
                         ['/quit', 'Exit Coqui'],
@@ -607,7 +646,7 @@ final class RunCommand extends Command
             '/quit', '/exit', '/q' => Command::SUCCESS,
             '/restart' => self::RESTART_EXIT_CODE,
             '/update' => $this->runUpdate($io),
-            '/toolkits', '/prompt' => true,
+            '/toolkits', '/prompt', '/summarize' => true,
             default => true,
         };
     }
@@ -695,6 +734,147 @@ final class RunCommand extends Command
         } catch (\InvalidArgumentException $e) {
             $io->error($e->getMessage());
         }
+
+        return true;
+    }
+
+    /**
+     * Handle /summarize command to compress conversation history.
+     *
+     * Usage:
+     *   /summarize              — summarize all but the 3 most recent turns
+     *   /summarize recent N     — keep N most recent turns
+     *   /summarize focus "topic" — emphasize a specific topic in the summary
+     */
+    private function handleSummarizeCommand(SymfonyStyle $io, string $arg): true
+    {
+        // Read configurable keepRecentTurns from config
+        $config = $this->boot->config();
+        $configKeepRecent = $config->get('agents.defaults.context.keepRecentTurns');
+        $keepRecent = is_numeric($configKeepRecent) ? (int) $configKeepRecent : CoquiDefaults::KEEP_RECENT_TURNS;
+        $focus = null;
+
+        // Parse arguments
+        $arg = trim($arg);
+        if ($arg !== '') {
+            if (preg_match('/^recent\s+(\d+)/i', $arg, $matches)) {
+                $keepRecent = max(1, min(20, (int) $matches[1]));
+                $arg = trim(substr($arg, strlen($matches[0])));
+            }
+            if (preg_match('/focus\s+"([^"]+)"/i', $arg, $matches)) {
+                $focus = $matches[1];
+            } elseif (preg_match('/focus\s+(\S+)/i', $arg, $matches)) {
+                $focus = $matches[1];
+            }
+        }
+
+        $summarizer = new ConversationSummarizer(
+            storage: $this->storage,
+            memoryStore: $this->boot->memoryStore(),
+        );
+
+        // Resolve a cheap provider for summarization via utility model chain
+        $factory = new ProviderFactory($config);
+        $provider = null;
+
+        try {
+            $utilityModel = $this->boot->roleResolver()->resolveUtility();
+            if ($utilityModel !== '') {
+                $provider = $factory->create($utilityModel);
+            }
+        } catch (\Throwable) {
+            // Fall through
+        }
+
+        if ($provider === null) {
+            try {
+                $orchestratorModel = $this->boot->roleResolver()->resolve('orchestrator');
+                $provider = $factory->create($orchestratorModel);
+            } catch (\Throwable) {
+                $io->error('Could not resolve a provider for summarization.');
+                return true;
+            }
+        }
+
+        $io->text('<fg=gray>Summarizing conversation...</>');
+
+        try {
+            $result = $summarizer->summarizeAndPersist(
+                sessionId: $this->sessionId,
+                provider: $provider,
+                keepRecentTurns: $keepRecent,
+                focus: $focus,
+            );
+        } catch (\Throwable $e) {
+            $io->error('Summarization failed: ' . $e->getMessage());
+            return true;
+        }
+
+        if (!$result->wasSummarized()) {
+            $io->info('Conversation is too short to summarize.');
+            return true;
+        }
+
+        $io->success(sprintf(
+            'Summarized %d messages — %s → %s tokens (saved %s)',
+            $result->messagesSummarized,
+            number_format($result->tokensBefore),
+            number_format($result->tokensAfter),
+            number_format($result->tokensSaved()),
+        ));
+
+        return true;
+    }
+
+    /**
+     * Handle /role command: switch the active persona or show current role.
+     *
+     *   /role           — show current active role
+     *   /role <name>    — switch to the named role
+     *   /role reset     — switch back to orchestrator
+     */
+    private function handleRoleCommand(SymfonyStyle $io, string $arg): true
+    {
+        $roleDiscovery = $this->boot->roleDiscovery();
+
+        if ($arg === '') {
+            $io->writeln(sprintf('<info>Active role:</info> %s', $this->activeRole));
+            $available = $roleDiscovery->availableRoles();
+            if ($available !== []) {
+                $io->writeln('<fg=gray>Available roles:</> ' . implode(', ', $available));
+            }
+            return true;
+        }
+
+        $roleName = strtolower(trim($arg));
+
+        // Reset to orchestrator
+        if ($roleName === 'reset' || $roleName === 'orchestrator') {
+            $this->activeRole = 'orchestrator';
+            $modelString = $this->boot->roleResolver()->resolve('orchestrator');
+            $this->storage->updateSessionRole($this->sessionId, 'orchestrator', $modelString);
+            $io->success('Switched back to orchestrator.');
+            return true;
+        }
+
+        // Validate role exists
+        if (!$roleDiscovery->roleExists($roleName)) {
+            $io->error(sprintf('Role "%s" not found. Available: %s', $roleName, implode(', ', $roleDiscovery->availableRoles())));
+            return true;
+        }
+
+        // Switch role
+        $this->activeRole = $roleName;
+        $modelString = $this->boot->roleResolver()->resolve($roleName);
+        $this->storage->updateSessionRole($this->sessionId, $roleName, $modelString);
+
+        $role = $roleDiscovery->getRole($roleName);
+        $io->success(sprintf(
+            'Switched to %s (%s access, model: %s)',
+            $role->displayName,
+            $role->accessLevel,
+            $modelString,
+        ));
 
         return true;
     }
@@ -1020,15 +1200,39 @@ final class RunCommand extends Command
         $rows = [];
         foreach ($sessions as $session) {
             $isCurrent = $session['id'] === $this->sessionId ? ' (current)' : '';
+            $title = isset($session['title']) && $session['title'] !== ''
+                ? ' — ' . $session['title']
+                : '';
             $rows[] = [
-                substr($session['id'], 0, 8) . '...' . $isCurrent,
+                $session['id'] . $isCurrent . $title,
                 $session['model_role'],
                 $session['token_count'],
-                $session['updated_at'],
+                $this->timeSince($session['updated_at']),
             ];
         }
 
         $io->table(['ID', 'Role', 'Tokens', 'Updated'], $rows);
+    }
+
+    private function timeSince(string $datetime): string
+    {
+        try {
+            $then = new \DateTimeImmutable($datetime);
+        } catch (\Throwable) {
+            return $datetime;
+        }
+
+        $seconds = max(0, (new \DateTimeImmutable('now'))->getTimestamp() - $then->getTimestamp());
+
+        return match (true) {
+            $seconds < 60      => 'just now',
+            $seconds < 3600    => ($n = intdiv($seconds, 60)) === 1    ? '1 minute ago'  : "{$n} minutes ago",
+            $seconds < 86400   => ($n = intdiv($seconds, 3600)) === 1  ? '1 hour ago'    : "{$n} hours ago",
+            $seconds < 604800  => ($n = intdiv($seconds, 86400)) === 1 ? '1 day ago'     : "{$n} days ago",
+            $seconds < 2592000 => ($n = intdiv($seconds, 604800)) === 1  ? '1 week ago'  : "{$n} weeks ago",
+            $seconds < 31536000 => ($n = intdiv($seconds, 2592000)) === 1 ? '1 month ago' : "{$n} months ago",
+            default             => ($n = intdiv($seconds, 31536000)) === 1 ? '1 year ago'  : "{$n} years ago",
+        };
     }
 
     private function listTasksCommand(SymfonyStyle $io, string $statusFilter = ''): void
@@ -1058,6 +1262,67 @@ final class RunCommand extends Command
         $parts = [];
         foreach ($counts as $s => $c) {
             $parts[] = "{$s}: {$c}";
+        }
+        if (!empty($parts)) {
+            $io->text('<fg=gray>' . implode(' | ', $parts) . '</>');
+        }
+    }
+
+    private function handleTodosCommand(SymfonyStyle $io, string $statusFilter = ''): void
+    {
+        $todoStore = $this->boot->todoStore();
+        if ($todoStore === null) {
+            $io->error('Todo system not initialized.');
+            return;
+        }
+
+        $status = trim($statusFilter) !== '' ? trim($statusFilter) : null;
+
+        $todos = $todoStore->list(
+            sessionId: $this->sessionId,
+            status: $status,
+        );
+        if (empty($todos)) {
+            $io->info($status !== null ? "No todos with status '{$status}'." : 'No todos in this session.');
+            return;
+        }
+
+        $stats = $todoStore->getStats($this->sessionId);
+        $total = $stats['total'];
+        $completed = $stats['completed'];
+        $pct = $total > 0 ? (int) round(($completed / $total) * 100) : 0;
+
+        $io->section("Todos ({$completed}/{$total} — {$pct}%)");
+
+        $rows = [];
+        foreach ($todos as $todo) {
+            $icon = match ($todo['status']) {
+                'completed' => '<fg=green>✅</>',
+                'in_progress' => '<fg=yellow>🔲</>',
+                'cancelled' => '<fg=red>❌</>',
+                default => '☐',
+            };
+            $priority = match ($todo['priority']) {
+                'high' => '<fg=red>high</>',
+                'low' => '<fg=gray>low</>',
+                default => 'med',
+            };
+            $rows[] = [
+                $icon,
+                substr($todo['id'], 0, 8) . '...',
+                $todo['title'],
+                $priority,
+                $todo['created_by'] ?? '',
+            ];
+        }
+
+        $io->table(['', 'ID', 'Title', 'Priority', 'Created By'], $rows);
+
+        $parts = [];
+        foreach (['pending', 'in_progress', 'completed', 'cancelled'] as $s) {
+            if ($stats[$s] > 0) {
+                $parts[] = "{$s}: {$stats[$s]}";
+            }
         }
         if (!empty($parts)) {
             $io->text('<fg=gray>' . implode(' | ', $parts) . '</>');
@@ -1529,6 +1794,21 @@ final class RunCommand extends Command
 
             if ($result->error !== '') {
                 $io->warning("Auto-update failed: {$result->error}");
+                return;
+            }
+
+            // Verify the update actually reduced the outdated package count.
+            // Without this check, packages that cannot be resolved (e.g. path-repo
+            // symlinks, constraint conflicts) would cause an infinite restart loop.
+            $postCheck = $updateManager->checkForUpdates();
+            $preCount = count($check->packages);
+            $postCount = count($postCheck->packages);
+
+            if ($postCount >= $preCount) {
+                $io->warning(
+                    "{$postCount} package(s) still outdated after update — "
+                    . 'manual intervention may be required. Run /update for details.',
+                );
                 return;
             }
 

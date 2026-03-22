@@ -21,6 +21,15 @@ use PDO;
  */
 final class MemoryStore implements MemoryInterface
 {
+    private const AREA_DEFAULT_IMPORTANCE = [
+        'preferences' => 0.8,
+        'solutions' => 0.7,
+        'facts' => 0.6,
+        'context' => 0.5,
+        'main' => 0.5,
+        'session_summary' => 0.3,
+    ];
+
     private PDO $db;
     private bool $tablesCreated = false;
 
@@ -44,11 +53,12 @@ final class MemoryStore implements MemoryInterface
         $id = bin2hex(random_bytes(16));
         $now = (new DateTimeImmutable())->format('Y-m-d\TH:i:s');
         $tags = $entry->metadata['tags'] ?? '';
+        $importance = (float) ($entry->metadata['importance'] ?? self::AREA_DEFAULT_IMPORTANCE[$entry->area] ?? 0.5);
         $metadata = json_encode($entry->metadata, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO memories (id, content, area, tags, metadata, created_at, updated_at)
-            VALUES (:id, :content, :area, :tags, :metadata, :created_at, :updated_at)
+            INSERT INTO memories (id, content, area, tags, metadata, importance, created_at, updated_at)
+            VALUES (:id, :content, :area, :tags, :metadata, :importance, :created_at, :updated_at)
         SQL);
 
         $stmt->execute([
@@ -57,6 +67,7 @@ final class MemoryStore implements MemoryInterface
             ':area' => $entry->area,
             ':tags' => $tags,
             ':metadata' => $metadata,
+            ':importance' => $importance,
             ':created_at' => $now,
             ':updated_at' => $now,
         ]);
@@ -87,16 +98,57 @@ final class MemoryStore implements MemoryInterface
             return [];
         }
 
-        // Try vector search first if embeddings are available
+        $candidates = [];
+
+        // Collect vector candidates (if embedding provider available)
         if ($this->embeddingProvider !== null) {
-            $vectorResults = $this->vectorSearch($query, $limit, $threshold);
-            if (!empty($vectorResults)) {
-                return $vectorResults;
+            $candidates = $this->vectorSearchCandidates($query, $limit * 2, $threshold);
+        }
+
+        // Merge FTS candidates (deduplicates by ID, vector results take priority)
+        foreach ($this->ftsSearchCandidates($query, $limit * 2) as $id => $candidate) {
+            if (!isset($candidates[$id])) {
+                $candidates[$id] = $candidate;
             }
         }
 
-        // Fall back to FTS5 keyword search
-        return $this->ftsSearch($query, $limit);
+        // LIKE fallback if nothing found from vector + FTS
+        if (empty($candidates)) {
+            $candidates = $this->likeSearchCandidates($query, $limit * 2);
+        }
+
+        if (empty($candidates)) {
+            return [];
+        }
+
+        // Apply multi-dimensional composite scoring
+        foreach ($candidates as &$c) {
+            $c['composite'] = $this->computeCompositeScore(
+                similarity: $c['similarity'] ?? null,
+                importance: (float) ($c['importance'] ?? 0.5),
+                lastAccessedAt: $c['last_accessed_at'] ?? null,
+                accessCount: (int) ($c['access_count'] ?? 0),
+                updatedAt: $c['updated_at'],
+            );
+        }
+        unset($c);
+
+        // Sort by composite score descending
+        uasort($candidates, fn(array $a, array $b) => $b['composite'] <=> $a['composite']);
+
+        // Take top N and convert to MemoryEntry
+        $results = [];
+        foreach (array_slice($candidates, 0, $limit, true) as $c) {
+            $results[] = $this->candidateToEntry($c);
+        }
+
+        // Reinforce access counts for returned results
+        $ids = array_filter(array_map(fn(MemoryEntry $e) => $e->id, $results));
+        if (!empty($ids)) {
+            $this->reinforceAccess($ids);
+        }
+
+        return $results;
     }
 
     /**
@@ -144,10 +196,11 @@ final class MemoryStore implements MemoryInterface
         $this->ensureTables();
 
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, content, area, tags, metadata, created_at, updated_at
+            SELECT id, content, area, tags, metadata, created_at, updated_at,
+                   importance, access_count, last_accessed_at
             FROM memories
-            WHERE area = :area
-            ORDER BY updated_at DESC
+            WHERE area = :area AND archived_at IS NULL
+            ORDER BY importance DESC, updated_at DESC
             LIMIT :limit
         SQL);
 
@@ -163,7 +216,7 @@ final class MemoryStore implements MemoryInterface
      *
      * Regenerates FTS index and vector embedding.
      */
-    public function update(string $id, string $content, ?string $area = null, ?string $tags = null): bool
+    public function update(string $id, string $content, ?string $area = null, ?string $tags = null, ?float $importance = null): bool
     {
         $this->ensureTables();
 
@@ -175,6 +228,7 @@ final class MemoryStore implements MemoryInterface
 
         $area ??= $existing->area;
         $tags ??= $existing->metadata['tags'] ?? '';
+        $importance ??= (float) ($existing->metadata['importance'] ?? self::AREA_DEFAULT_IMPORTANCE[$existing->area] ?? 0.5);
         $now = (new DateTimeImmutable())->format('Y-m-d\TH:i:s');
 
         // Delete FTS index BEFORE updating the memories table — FTS5 delete
@@ -183,7 +237,7 @@ final class MemoryStore implements MemoryInterface
 
         $stmt = $this->db->prepare(<<<SQL
             UPDATE memories
-            SET content = :content, area = :area, tags = :tags, updated_at = :updated_at
+            SET content = :content, area = :area, tags = :tags, importance = :importance, updated_at = :updated_at
             WHERE id = :id
         SQL);
 
@@ -192,6 +246,7 @@ final class MemoryStore implements MemoryInterface
             ':content' => $content,
             ':area' => $area,
             ':tags' => $tags,
+            ':importance' => $importance,
             ':updated_at' => $now,
         ]);
 
@@ -213,7 +268,8 @@ final class MemoryStore implements MemoryInterface
         $this->ensureTables();
 
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, content, area, tags, metadata, created_at, updated_at
+            SELECT id, content, area, tags, metadata, created_at, updated_at,
+                   importance, access_count, last_accessed_at, archived_at
             FROM memories
             WHERE id = :id
         SQL);
@@ -255,10 +311,11 @@ final class MemoryStore implements MemoryInterface
 
         $where = implode(' OR ', $conditions);
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, content, area, tags, metadata, created_at, updated_at
+            SELECT id, content, area, tags, metadata, created_at, updated_at,
+                   importance, access_count, last_accessed_at
             FROM memories
-            WHERE ({$where})
-            ORDER BY updated_at DESC
+            WHERE ({$where}) AND archived_at IS NULL
+            ORDER BY importance DESC, updated_at DESC
             LIMIT :limit
         SQL);
 
@@ -281,9 +338,11 @@ final class MemoryStore implements MemoryInterface
         $this->ensureTables();
 
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, content, area, tags, metadata, created_at, updated_at
+            SELECT id, content, area, tags, metadata, created_at, updated_at,
+                   importance, access_count, last_accessed_at
             FROM memories
-            ORDER BY updated_at DESC
+            WHERE archived_at IS NULL
+            ORDER BY importance DESC, updated_at DESC
             LIMIT :limit
         SQL);
 
@@ -301,7 +360,7 @@ final class MemoryStore implements MemoryInterface
         $this->ensureTables();
 
         if ($area !== null) {
-            $stmt = $this->db->prepare('SELECT COUNT(*) FROM memories WHERE area = :area');
+            $stmt = $this->db->prepare('SELECT COUNT(*) FROM memories WHERE area = :area AND archived_at IS NULL');
             if ($stmt === false) {
                 return 0;
             }
@@ -310,7 +369,7 @@ final class MemoryStore implements MemoryInterface
             return (int) $stmt->fetchColumn();
         }
 
-        $stmt = $this->db->query('SELECT COUNT(*) FROM memories');
+        $stmt = $this->db->query('SELECT COUNT(*) FROM memories WHERE archived_at IS NULL');
         if ($stmt === false) {
             return 0;
         }
@@ -326,7 +385,22 @@ final class MemoryStore implements MemoryInterface
      */
     public function getCoreSummary(int $limit = 30): string
     {
-        $entries = $this->listAll(limit: $limit);
+        $this->ensureTables();
+
+        // Fetch active memories ordered by importance for priority-sorted summaries
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, content, area, tags, metadata, created_at, updated_at,
+                   importance, access_count, last_accessed_at
+            FROM memories
+            WHERE archived_at IS NULL
+            ORDER BY importance DESC, access_count DESC, updated_at DESC
+            LIMIT :limit
+        SQL);
+
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        $entries = $this->rowsToEntries($stmt->fetchAll(PDO::FETCH_ASSOC));
 
         if (empty($entries)) {
             return '';
@@ -348,6 +422,99 @@ final class MemoryStore implements MemoryInterface
         }
 
         return implode("\n\n", $sections);
+    }
+
+    /**
+     * Run decay analysis and archive stale, low-value memories.
+     *
+     * Memories with importance >= 0.9 are pinned and exempt from decay.
+     * Archived memories are soft-deleted (excluded from search/summaries but recoverable).
+     *
+     * @return int Number of memories archived
+     */
+    public function decayAndArchive(float $archiveThreshold = 0.1, int $halfLifeDays = 60): int
+    {
+        $this->ensureTables();
+
+        $now = time();
+
+        $stmt = $this->db->query(<<<SQL
+            SELECT id, importance, access_count, last_accessed_at, updated_at
+            FROM memories
+            WHERE archived_at IS NULL AND importance < 0.9
+        SQL);
+
+        if ($stmt === false) {
+            return 0;
+        }
+
+        $toArchive = [];
+
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $importance = (float) ($row['importance'] ?? 0.5);
+            $accessCount = (int) ($row['access_count'] ?? 0);
+            $lastAccessed = $row['last_accessed_at'] ?? $row['updated_at'];
+
+            $daysSince = max(0, ($now - strtotime($lastAccessed)) / 86400);
+            $recencyFactor = exp(-0.693 * $daysSince / $halfLifeDays);
+
+            // Floor of 0.3 so new memories aren't immediately archived
+            $accessFactor = min(1.0, 0.3 + ($accessCount / 30) * 0.7);
+
+            $effectiveScore = $importance * $recencyFactor * $accessFactor;
+
+            if ($effectiveScore < $archiveThreshold) {
+                $toArchive[] = $row['id'];
+            }
+        }
+
+        if (empty($toArchive)) {
+            return 0;
+        }
+
+        $nowStr = (new DateTimeImmutable())->format('Y-m-d\TH:i:s');
+        $placeholders = implode(',', array_fill(0, count($toArchive), '?'));
+        $this->db->prepare("UPDATE memories SET archived_at = ? WHERE id IN ({$placeholders})")
+            ->execute([$nowStr, ...$toArchive]);
+
+        return count($toArchive);
+    }
+
+    /**
+     * Restore an archived memory, making it active again.
+     */
+    public function restoreMemory(string $id): bool
+    {
+        $this->ensureTables();
+
+        $stmt = $this->db->prepare('UPDATE memories SET archived_at = NULL WHERE id = :id AND archived_at IS NOT NULL');
+        $stmt->execute([':id' => $id]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Get the top N most important active memories for prompt recapitulation.
+     *
+     * @return MemoryEntry[]
+     */
+    public function getTopImportantMemories(int $limit = 5): array
+    {
+        $this->ensureTables();
+
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, content, area, tags, metadata, created_at, updated_at,
+                   importance, access_count, last_accessed_at
+            FROM memories
+            WHERE archived_at IS NULL
+            ORDER BY importance DESC, access_count DESC, updated_at DESC
+            LIMIT :limit
+        SQL);
+
+        $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $this->rowsToEntries($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -460,6 +627,33 @@ final class MemoryStore implements MemoryInterface
             )
         SQL);
 
+        // Migrate: add columns for importance scoring and decay
+        $migrations = [
+            'ALTER TABLE memories ADD COLUMN importance REAL NOT NULL DEFAULT 0.5',
+            'ALTER TABLE memories ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0',
+            'ALTER TABLE memories ADD COLUMN last_accessed_at TEXT',
+            'ALTER TABLE memories ADD COLUMN archived_at TEXT',
+        ];
+
+        foreach ($migrations as $sql) {
+            try {
+                $this->db->exec($sql);
+            } catch (\PDOException) {
+                // Column already exists — skip
+            }
+        }
+
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_archived ON memories(archived_at)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed_at)');
+
+        // Migrate summary table for extraction tracking
+        try {
+            $this->db->exec('ALTER TABLE memory_summary ADD COLUMN last_extraction_at TEXT');
+        } catch (\PDOException) {
+            // Column already exists
+        }
+
         $this->tablesCreated = true;
     }
 
@@ -521,9 +715,9 @@ final class MemoryStore implements MemoryInterface
     }
 
     /**
-     * @return MemoryEntry[]
+     * @return array<string, array<string, mixed>> Candidates keyed by memory ID
      */
-    private function vectorSearch(string $query, int $limit, float $threshold): array
+    private function vectorSearchCandidates(string $query, int $limit, float $threshold): array
     {
         try {
             $queryEmbedding = $this->embeddingProvider?->embedText($query);
@@ -535,72 +729,66 @@ final class MemoryStore implements MemoryInterface
             return [];
         }
 
-        // Load all embeddings and compute cosine similarity in PHP
+        // Load all embeddings for active memories and compute cosine similarity in PHP
         $stmt = $this->db->query(<<<SQL
             SELECT e.memory_id, e.embedding, e.dimensions,
-                   m.content, m.area, m.tags, m.metadata, m.created_at, m.updated_at
+                   m.content, m.area, m.tags, m.metadata, m.created_at, m.updated_at,
+                   m.importance, m.access_count, m.last_accessed_at
             FROM memory_embeddings e
             JOIN memories m ON m.id = e.memory_id
+            WHERE m.archived_at IS NULL
         SQL);
 
         if ($stmt === false) {
             return [];
         }
 
-        $scored = [];
+        $candidates = [];
 
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $storedEmbedding = array_values(unpack('f*', $row['embedding']) ?: []);
             $similarity = $this->cosineSimilarity($queryEmbedding, $storedEmbedding);
 
             if ($similarity >= $threshold) {
-                $scored[] = [
-                    'row' => $row,
-                    'score' => $similarity,
+                $id = $row['memory_id'];
+                $candidates[$id] = [
+                    'id' => $id,
+                    'content' => $row['content'],
+                    'area' => $row['area'],
+                    'tags' => $row['tags'],
+                    'metadata' => $row['metadata'],
+                    'created_at' => $row['created_at'],
+                    'updated_at' => $row['updated_at'],
+                    'importance' => (float) ($row['importance'] ?? 0.5),
+                    'access_count' => (int) ($row['access_count'] ?? 0),
+                    'last_accessed_at' => $row['last_accessed_at'] ?? null,
+                    'similarity' => $similarity,
                 ];
             }
         }
 
-        // Sort by similarity descending
-        usort($scored, fn(array $a, array $b) => $b['score'] <=> $a['score']);
-
-        $results = [];
-        foreach (array_slice($scored, 0, $limit) as $item) {
-            $entry = $this->rowToEntry($item['row']);
-            $results[] = new MemoryEntry(
-                content: $entry->content,
-                area: $entry->area,
-                metadata: $entry->metadata,
-                id: $entry->id,
-                score: $item['score'],
-                createdAt: $entry->createdAt,
-            );
-        }
-
-        return $results;
+        return $candidates;
     }
 
     /**
-     * @return MemoryEntry[]
+     * @return array<string, array<string, mixed>> Candidates keyed by memory ID
      */
-    private function ftsSearch(string $query, int $limit): array
+    private function ftsSearchCandidates(string $query, int $limit): array
     {
-        // Sanitize query for FTS5 — escape special characters and wrap in quotes
         $sanitized = $this->sanitizeFtsQuery($query);
 
         if ($sanitized === '') {
-            // Fall back to LIKE search if FTS sanitization removes everything
-            return $this->likeSearch($query, $limit);
+            return $this->likeSearchCandidates($query, $limit);
         }
 
         try {
             $stmt = $this->db->prepare(<<<SQL
                 SELECT l.memory_id, m.content, m.area, m.tags, m.metadata, m.created_at, m.updated_at,
-                       rank
+                       m.importance, m.access_count, m.last_accessed_at
                 FROM memories_fts f
                 JOIN memories_fts_lookup l ON l.rowid = f.rowid
                 JOIN memories m ON m.id = l.memory_id
-                WHERE memories_fts MATCH :query
+                WHERE memories_fts MATCH :query AND m.archived_at IS NULL
                 ORDER BY rank
                 LIMIT :limit
             SQL);
@@ -609,29 +797,46 @@ final class MemoryStore implements MemoryInterface
             $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
             $stmt->execute();
 
-            $results = $this->rowsToEntries($stmt->fetchAll(PDO::FETCH_ASSOC));
+            $candidates = [];
+            foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $id = $row['memory_id'];
+                $candidates[$id] = [
+                    'id' => $id,
+                    'content' => $row['content'],
+                    'area' => $row['area'],
+                    'tags' => $row['tags'],
+                    'metadata' => $row['metadata'],
+                    'created_at' => $row['created_at'],
+                    'updated_at' => $row['updated_at'],
+                    'importance' => (float) ($row['importance'] ?? 0.5),
+                    'access_count' => (int) ($row['access_count'] ?? 0),
+                    'last_accessed_at' => $row['last_accessed_at'] ?? null,
+                    'similarity' => null,
+                ];
+            }
 
-            if (!empty($results)) {
-                return $results;
+            if (!empty($candidates)) {
+                return $candidates;
             }
         } catch (\Throwable) {
             // FTS query syntax error — fall back to LIKE
         }
 
-        return $this->likeSearch($query, $limit);
+        return $this->likeSearchCandidates($query, $limit);
     }
 
     /**
      * Simple LIKE-based fallback search when FTS5 fails or returns nothing.
      *
-     * @return MemoryEntry[]
+     * @return array<string, array<string, mixed>> Candidates keyed by memory ID
      */
-    private function likeSearch(string $query, int $limit): array
+    private function likeSearchCandidates(string $query, int $limit): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, content, area, tags, metadata, created_at, updated_at
+            SELECT id, content, area, tags, metadata, created_at, updated_at,
+                   importance, access_count, last_accessed_at
             FROM memories
-            WHERE content LIKE :query OR tags LIKE :query
+            WHERE (content LIKE :query OR tags LIKE :query) AND archived_at IS NULL
             ORDER BY updated_at DESC
             LIMIT :limit
         SQL);
@@ -640,7 +845,109 @@ final class MemoryStore implements MemoryInterface
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
 
-        return $this->rowsToEntries($stmt->fetchAll(PDO::FETCH_ASSOC));
+        $candidates = [];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $id = $row['id'];
+            $candidates[$id] = [
+                'id' => $id,
+                'content' => $row['content'],
+                'area' => $row['area'],
+                'tags' => $row['tags'],
+                'metadata' => $row['metadata'],
+                'created_at' => $row['created_at'],
+                'updated_at' => $row['updated_at'],
+                'importance' => (float) ($row['importance'] ?? 0.5),
+                'access_count' => (int) ($row['access_count'] ?? 0),
+                'last_accessed_at' => $row['last_accessed_at'] ?? null,
+                'similarity' => null,
+            ];
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * Compute multi-dimensional composite score for memory ranking.
+     *
+     * Blends similarity, recency, importance, and access frequency.
+     */
+    private function computeCompositeScore(
+        ?float $similarity,
+        float $importance,
+        ?string $lastAccessedAt,
+        int $accessCount,
+        string $updatedAt,
+    ): float {
+        $wSim = 0.40;
+        $wRec = 0.20;
+        $wImp = 0.25;
+        $wAcc = 0.15;
+
+        // Similarity component (FTS/LIKE results get a neutral 0.5)
+        $simScore = $similarity ?? 0.5;
+
+        // Recency component (exponential decay, half-life 30 days)
+        $referenceTime = $lastAccessedAt ?? $updatedAt;
+        $daysSinceAccess = max(0, (time() - strtotime($referenceTime)) / 86400);
+        $recencyScore = exp(-0.693 * $daysSinceAccess / 30);
+
+        // Access frequency component (capped at 1.0)
+        $accScore = min(1.0, $accessCount / 20);
+
+        return ($wSim * $simScore) + ($wRec * $recencyScore) + ($wImp * $importance) + ($wAcc * $accScore);
+    }
+
+    /**
+     * Convert a raw candidate array to a MemoryEntry with composite score.
+     *
+     * @param array<string, mixed> $candidate
+     */
+    private function candidateToEntry(array $candidate): MemoryEntry
+    {
+        $metadata = json_decode($candidate['metadata'] ?? '{}', true);
+        if (!is_array($metadata)) {
+            $metadata = [];
+        }
+
+        if (isset($candidate['tags']) && $candidate['tags'] !== '') {
+            $metadata['tags'] = $candidate['tags'];
+        }
+        $metadata['importance'] = $candidate['importance'] ?? 0.5;
+        $metadata['access_count'] = $candidate['access_count'] ?? 0;
+        if (isset($candidate['last_accessed_at'])) {
+            $metadata['last_accessed_at'] = $candidate['last_accessed_at'];
+        }
+
+        return new MemoryEntry(
+            content: $candidate['content'] ?? '',
+            area: $candidate['area'] ?? 'main',
+            metadata: $metadata,
+            id: $candidate['id'] ?? null,
+            score: $candidate['composite'] ?? $candidate['similarity'] ?? null,
+            createdAt: isset($candidate['created_at']) ? new DateTimeImmutable($candidate['created_at']) : null,
+        );
+    }
+
+    /**
+     * Batch-update access counters for memories returned by search.
+     *
+     * @param string[] $ids
+     */
+    private function reinforceAccess(array $ids): void
+    {
+        if (empty($ids)) {
+            return;
+        }
+
+        $now = (new DateTimeImmutable())->format('Y-m-d\TH:i:s');
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+
+        $this->db->prepare(<<<SQL
+            UPDATE memories
+            SET access_count = access_count + 1,
+                last_accessed_at = ?
+            WHERE id IN ({$placeholders})
+        SQL)->execute([$now, ...$ids]);
     }
 
     /**
@@ -706,6 +1013,20 @@ final class MemoryStore implements MemoryInterface
         // Preserve tags in metadata for consistency
         if (isset($row['tags']) && $row['tags'] !== '') {
             $metadata['tags'] = $row['tags'];
+        }
+
+        // Include scoring metadata when available
+        if (isset($row['importance'])) {
+            $metadata['importance'] = (float) $row['importance'];
+        }
+        if (isset($row['access_count'])) {
+            $metadata['access_count'] = (int) $row['access_count'];
+        }
+        if (isset($row['last_accessed_at'])) {
+            $metadata['last_accessed_at'] = $row['last_accessed_at'];
+        }
+        if (isset($row['archived_at'])) {
+            $metadata['archived_at'] = $row['archived_at'];
         }
 
         return new MemoryEntry(

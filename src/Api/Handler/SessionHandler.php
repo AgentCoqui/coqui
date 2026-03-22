@@ -110,6 +110,15 @@ final readonly class SessionHandler
             $this->storage->updateSessionTitle($id, $title);
         }
 
+        if (isset($body['model_role'])) {
+            $role = trim((string) $body['model_role']);
+            if ($role === '') {
+                return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'model_role cannot be empty');
+            }
+            $modelString = $this->roleResolver->resolve($role);
+            $this->storage->updateSessionRole($id, $role, $modelString);
+        }
+
         // Return the updated session
         $updated = $this->storage->getSession($id);
 

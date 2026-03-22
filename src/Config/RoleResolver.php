@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PHPAgents\Agent\AbstractAgent;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Resolves role-based model assignments.
@@ -59,6 +60,27 @@ final class RoleResolver
     }
 
     /**
+     * Resolve the utility model for cheap single-shot tasks
+     * (titles, summarization, memory compression).
+     *
+     * Resolution chain:
+     * 1. agents.defaults.model.utility (openclaw.json) / COQUI_UTILITY_MODEL env
+     * 2. title-generator role (preserves role file model override)
+     * 3. Primary model fallback
+     */
+    public function resolveUtility(): string
+    {
+        if ($this->config instanceof OpenClawConfig) {
+            $utilityModel = $this->config->getUtilityModel();
+            if ($utilityModel !== '') {
+                return $this->config->resolveModel($utilityModel);
+            }
+        }
+
+        return $this->resolve('title-generator');
+    }
+
+    /**
      * Check if a role is explicitly configured (in config or discovered).
      */
     public function hasRole(string $role): bool
@@ -74,7 +96,7 @@ final class RoleResolver
      * Resolve the max iterations for a given role.
      *
      * Priority: role file max_iterations field → agents.defaults.maxIterations
-     * from openclaw.json → AbstractAgent::DEFAULT_MAX_ITERATIONS (25).
+     * from openclaw.json → CoquiDefaults::MAX_ITERATIONS (48).
      *
      * A return value of 0 means unlimited (sentinel handled by AbstractAgent).
      */
@@ -100,7 +122,7 @@ final class RoleResolver
         }
 
         // 3. Hardcoded fallback
-        return AbstractAgent::DEFAULT_MAX_ITERATIONS;
+        return CoquiDefaults::MAX_ITERATIONS;
     }
 
     /**
