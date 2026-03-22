@@ -36,6 +36,9 @@ final class BootManager
     private SkillDiscovery $skillDiscovery;
     private RoleDiscovery $roleDiscovery;
     private RoleResolver $roleResolver;
+    private RoleUpdateTracker $roleUpdateTracker;
+    /** @var list<RoleUpdateInfo> */
+    private array $pendingRoleUpdates = [];
     private CatastrophicBlacklist $blacklist;
     private DefaultsLoader $defaultsLoader;
     private MountManager $mountManager;
@@ -163,6 +166,21 @@ final class BootManager
     public function roleDiscovery(): RoleDiscovery
     {
         return $this->roleDiscovery;
+    }
+
+    public function roleUpdateTracker(): RoleUpdateTracker
+    {
+        return $this->roleUpdateTracker;
+    }
+
+    /**
+     * Get roles with pending updates that need user review.
+     *
+     * @return list<RoleUpdateInfo>
+     */
+    public function pendingRoleUpdates(): array
+    {
+        return $this->pendingRoleUpdates;
     }
 
     public function memoryStore(): MemoryStore
@@ -369,8 +387,16 @@ final class BootManager
 
     private function discoverRoles(): void
     {
+        $builtinDir = ($this->workDir !== '' ? rtrim($this->workDir, '/') : dirname(__DIR__, 2)) . '/config/roles';
+
         $this->roleDiscovery = new RoleDiscovery($this->workspacePath, $this->workDir);
-        $this->roleDiscovery->seedBuiltinRoles();
+        $this->roleUpdateTracker = new RoleUpdateTracker($this->workspacePath, $builtinDir);
+
+        // Seed built-in roles, recording hashes for newly seeded files
+        $this->roleDiscovery->seedBuiltinRoles($this->roleUpdateTracker);
+
+        // Auto-update unmodified roles and collect notifications for modified ones
+        $this->pendingRoleUpdates = $this->roleUpdateTracker->autoUpdateAndNotify($this->roleDiscovery);
     }
 
     private function initializeMemory(): void

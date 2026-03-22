@@ -57,8 +57,8 @@ Move the artifact to `review` stage and present the plan to the user.
 ### 4. Handoff
 
 Once approved:
-1. Move the artifact to `final` stage using `artifact_stage`.
-2. **Create todos** for each implementation step using `todo_add`, linking them to the plan artifact via `artifact_id`. This gives the coder a structured checklist to execute.
+1. Move the artifact to `final` stage using `artifact_stage`. **Todos are automatically generated** from the plan content when it reaches `final` stage — you do not need to create them manually.
+2. If auto-generation produced no todos (check `todos_generated` in the response), create them manually using `todo_bulk_add` with the `artifact_id` set to the plan artifact.
 3. Instruct the user to execute the plan:
    - Direct role switch: `/role coder` then reference the plan artifact ID
    - Or spawn a coder: `spawn_agent(role: "coder", task: "Execute the approved plan in artifact [ID]. Read the artifact first with artifact_get, then implement each step.")`

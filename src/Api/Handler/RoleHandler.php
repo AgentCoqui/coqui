@@ -161,6 +161,8 @@ final readonly class RoleHandler
             'description' => trim((string) ($body['description'] ?? $existing->description)),
             'access_level' => trim((string) ($body['access_level'] ?? $existing->accessLevel)),
             'is_builtin' => $existing->isBuiltin,
+            'is_template' => $existing->isTemplate,
+            'ignore_updates' => (bool) ($body['ignore_updates'] ?? $existing->ignoreUpdates),
             'version' => $existing->version,
         ];
 
