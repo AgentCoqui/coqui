@@ -189,16 +189,22 @@ final class OrchestratorAgent extends AbstractAgent
             $this->addToolkit(new FilesystemToolkit(
                 rootPath: $this->workspacePath,
                 allowedPaths: $this->mountManager?->allowedPaths() ?? [],
-                readOnly: $effectiveAccessLevel === 'readonly',
+                readOnly: in_array($effectiveAccessLevel, ['readonly', 'readonly-shell'], true),
             ));
         }
 
-        // Shell toolkit — only available for 'full' access roles
+        // Shell toolkit — available for 'full' and 'readonly-shell' access roles
         $shellAllowed = $this->resolveShellAllowedCommands();
         if ($effectiveAccessLevel === 'full') {
             $this->addToolkit(new ShellToolkit(
                 workDir: $this->projectRoot,
                 allowedCommands: $shellAllowed,
+                timeout: 60,
+            ));
+        } elseif ($effectiveAccessLevel === 'readonly-shell') {
+            $this->addToolkit(new ShellToolkit(
+                workDir: $this->projectRoot,
+                allowedCommands: ['grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls', 'sort', 'uniq', 'sed', 'awk', 'diff'],
                 timeout: 60,
             ));
         }

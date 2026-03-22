@@ -353,12 +353,12 @@ Coqui supports structured planning and implementation handoffs via the artifact 
 
 ### Built-in Roles for Planning
 
-| Role       | Access Level | Purpose                                              |
-| ---------- | ------------ | ---------------------------------------------------- |
-| `plan`     | `readonly`   | Creates and manages plan artifacts; never implements  |
-| `explorer` | `readonly`   | Gathers codebase context for a specific investigation |
-| `coder`    | `full`       | Reads plan artifacts and implements the plan          |
-| `reviewer` | `readonly`   | Reads artifacts for code review and analysis          |
+| Role       | Access Level     | Purpose                                              |
+| ---------- | ---------------- | ---------------------------------------------------- |
+| `plan`     | `readonly`       | Creates and manages plan artifacts; never implements  |
+| `explorer` | `readonly-shell` | Gathers codebase context using filesystem + shell search commands |
+| `coder`    | `full`           | Reads plan artifacts and implements the plan          |
+| `reviewer` | `readonly`       | Reads artifacts for code review and analysis          |
 
 ### Key Source Files
 
@@ -433,6 +433,16 @@ Customize the shell allowlist in `openclaw.json`:
 When `agents.defaults.shellAllowedCommands` is not set, the following commands are allowed:
 
 `php`, `git`, `grep`, `find`, `cat`, `head`, `tail`, `wc`, `ls`, `curl`, `wget`, `make`, `sort`, `uniq`, `sed`, `awk`, `diff`
+
+### Read-Only Shell Access (`readonly-shell`)
+
+The `readonly-shell` access level gives child agents read-only filesystem access **plus** a restricted subset of shell commands for codebase exploration. This sits between `readonly` (no shell at all) and `full` (full shell).
+
+The restricted command list is defined in `SpawnAgentTool::READ_ONLY_SHELL_COMMANDS`:
+
+`grep`, `find`, `cat`, `head`, `tail`, `wc`, `ls`, `sort`, `uniq`, `sed`, `awk`, `diff`
+
+These are all read-only search and inspection commands — no `git`, `php`, `curl`, `wget`, `make`, or any command that can modify state. The `OrchestratorAgent` uses the same restricted list when the active role's access level is `readonly-shell`.
 
 ### Safety Layer Interactions
 

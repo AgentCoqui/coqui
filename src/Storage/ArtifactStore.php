@@ -260,6 +260,22 @@ final class ArtifactStore
         return $stmt->rowCount() > 0;
     }
 
+    /**
+     * Delete artifacts in 'final' stage (they have been consumed by coders).
+     *
+     * Draft and review artifacts are preserved across sessions so in-progress
+     * planning work survives restarts. Version history is cascade-deleted by FK.
+     *
+     * @return int Number of artifacts deleted.
+     */
+    public function cleanupFinalized(): int
+    {
+        $stmt = $this->db->prepare("DELETE FROM artifacts WHERE stage = 'final'");
+        $stmt->execute();
+
+        return $stmt->rowCount();
+    }
+
     private function saveVersion(
         string $artifactId,
         int $version,

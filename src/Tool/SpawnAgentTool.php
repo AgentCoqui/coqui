@@ -36,6 +36,12 @@ final class SpawnAgentTool implements ToolInterface
         'curl', 'wget', 'sort', 'uniq', 'sed', 'awk', 'diff',
     ];
 
+    /** Read-only shell commands for readonly-shell access level. */
+    private const array READ_ONLY_SHELL_COMMANDS = [
+        'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
+        'sort', 'uniq', 'sed', 'awk', 'diff',
+    ];
+
     private int $currentIteration = 0;
     private int $childRunCount = 0;
 
@@ -199,6 +205,16 @@ final class SpawnAgentTool implements ToolInterface
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
+            'readonly-shell' => [
+                new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
+                new ShellToolkit(
+                    workDir: $this->projectRoot,
+                    allowedCommands: self::READ_ONLY_SHELL_COMMANDS,
+                    timeout: 60,
+                ),
+                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
+            ],
+
             'readonly' => [
                 new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
@@ -209,10 +225,14 @@ final class SpawnAgentTool implements ToolInterface
         };
 
         // Artifact toolkit — share parent session's artifacts with child agents.
-        // All access levels get artifact tools (data management, not filesystem mutation).
+        // Non-full access levels get read-only artifact access (no delete).
         if ($this->storage !== null && $this->sessionId !== null) {
             $artifactStore = new ArtifactStore($this->storage->getPdo());
-            $toolkits[] = new ArtifactToolkit($artifactStore, $this->sessionId);
+            $toolkits[] = new ArtifactToolkit(
+                $artifactStore,
+                $this->sessionId,
+                readOnly: $accessLevel !== 'full',
+            );
         }
 
         return $toolkits;

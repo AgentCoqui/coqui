@@ -21,8 +21,8 @@ afterEach(function () {
     }
 });
 
-test('provides exactly 5 tools', function () {
-    expect($this->toolkit->tools())->toHaveCount(5);
+test('provides exactly 6 tools', function () {
+    expect($this->toolkit->tools())->toHaveCount(6);
 });
 
 test('tool names are correct', function () {
@@ -37,6 +37,7 @@ test('tool names are correct', function () {
         'artifact_get',
         'artifact_list',
         'artifact_stage',
+        'artifact_delete',
     ]);
 });
 
@@ -175,6 +176,72 @@ test('artifact_stage tool errors on missing artifact', function () {
     $tool = $this->toolkit->tools()[4];
 
     $result = $tool->execute(['id' => 'nonexistent', 'stage' => 'final']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+});
+
+// --- ReadOnly Mode ---
+
+test('default toolkit provides 6 tools including delete', function () {
+    $toolkit = new ArtifactToolkit($this->store, $this->sessionId);
+
+    $names = array_map(
+        fn($t) => $t->toFunctionSchema()['function']['name'],
+        $toolkit->tools(),
+    );
+
+    expect($names)->toContain('artifact_delete');
+    expect($names)->toHaveCount(6);
+});
+
+test('readonly toolkit provides 5 tools without delete', function () {
+    $toolkit = new ArtifactToolkit($this->store, $this->sessionId, readOnly: true);
+
+    $names = array_map(
+        fn($t) => $t->toFunctionSchema()['function']['name'],
+        $toolkit->tools(),
+    );
+
+    expect($names)->not->toContain('artifact_delete');
+    expect($names)->toHaveCount(5);
+});
+
+test('readonly toolkit still allows create, update, get, list, stage', function () {
+    $toolkit = new ArtifactToolkit($this->store, $this->sessionId, readOnly: true);
+
+    $names = array_map(
+        fn($t) => $t->toFunctionSchema()['function']['name'],
+        $toolkit->tools(),
+    );
+
+    expect($names)->toBe([
+        'artifact_create',
+        'artifact_update',
+        'artifact_get',
+        'artifact_list',
+        'artifact_stage',
+    ]);
+});
+
+test('artifact_delete tool deletes artifact', function () {
+    $id = $this->store->create($this->sessionId, 'Deletable', 'content');
+
+    $toolkit = new ArtifactToolkit($this->store, $this->sessionId);
+    $deleteTool = $toolkit->tools()[5]; // artifact_delete
+
+    $result = $deleteTool->execute(['id' => $id]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $data = json_decode($result->content, true);
+    expect($data['deleted'])->toBeTrue();
+    expect($this->store->get($id))->toBeNull();
+});
+
+test('artifact_delete tool errors on missing artifact', function () {
+    $toolkit = new ArtifactToolkit($this->store, $this->sessionId);
+    $deleteTool = $toolkit->tools()[5];
+
+    $result = $deleteTool->execute(['id' => 'nonexistent']);
 
     expect($result->status)->toBe(ToolResultStatus::Error);
 });
