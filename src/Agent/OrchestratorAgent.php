@@ -218,12 +218,24 @@ final class OrchestratorAgent extends AbstractAgent
         // Artifact toolkit — versioned output tracking (shares database with session storage)
         if ($this->storage !== null && $this->sessionId !== null) {
             $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($this->storage->getPdo());
-            $this->addToolkit(new ArtifactToolkit($artifactStore, $this->sessionId));
+            $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
+
+            $planTodoGenerator = new PlanTodoGenerator(
+                roleResolver: $this->roleResolver,
+                config: $this->config,
+                todoStore: $todoStore,
+            );
+
+            $this->addToolkit(new ArtifactToolkit(
+                $artifactStore,
+                $this->sessionId,
+                planTodoGenerator: $planTodoGenerator,
+            ));
         }
 
         // Todo toolkit — session-scoped task tracking for planning and implementation
         if ($this->storage !== null && $this->sessionId !== null) {
-            $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
+            $todoStore ??= new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
             $activeRoleName = $this->activeRole ?? 'orchestrator';
             $this->addToolkit(new TodoToolkit(
                 $todoStore,

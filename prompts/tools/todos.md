@@ -10,10 +10,12 @@ Todos are session-scoped task items for tracking progress through multi-step wor
 - `todo_list` — list todos with filters (artifact, status, priority). Returns formatted checklist
 - `todo_get` — get full details of a specific todo including subtasks
 - `todo_delete` — remove a todo and its subtasks
+- `todo_bulk_add` — create multiple todos in one call (max 25). Takes a JSON array of items. Use when creating 5+ todos at once (e.g. from a plan)
+- `todo_bulk_update` — update multiple todos in one call (max 25). Takes a JSON array of updates. Use when batch-updating status or priority
 
 ### When to Create Todos
 
-1. **Planning phase.** When creating a plan artifact, create a linked todo for each implementation step. This creates a traceable checklist the coder agent follows.
+1. **Planning phase.** When creating a plan artifact, create a linked todo for each implementation step. This creates a traceable checklist the coder agent follows. **Note:** When a plan artifact is staged to `final`, todos are auto-generated from its content — you usually don't need to create them manually.
 2. **Discovered work.** When working on a task and discovering additional steps, add new todos to track them rather than losing context.
 3. **Multi-step tasks.** Any task requiring 3+ distinct steps should use todos for tracking. Mark each in_progress before starting, then complete when done.
 4. **Review feedback.** When the reviewer identifies issues, create todos for each corrective action.
@@ -42,3 +44,4 @@ Use `parent_id` to create subtasks when a top-level todo needs to be broken down
 3. **Complete todos individually.** Mark each todo complete as you finish it — don't batch completions. This gives real-time progress visibility.
 4. **Add notes on completion.** When completing a todo, include brief notes about what was done or any follow-ups needed.
 5. **Don't over-create.** Only create todos for actionable work items. Don't create a todo for reading a file or thinking about a problem.
+6. **Use bulk operations for efficiency.** When creating 5+ todos at once (e.g. from a plan checklist), use `todo_bulk_add` instead of multiple `todo_add` calls. Similarly, use `todo_bulk_update` to batch status changes.

@@ -1044,6 +1044,15 @@
             ]
         },
         {
+            "path": "src/Agent/PlanTodoGenerator.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\PlanTodoGenerator",
+            "layer": "agent",
+            "description": "Automatically generates todos from finalized plan artifacts. Follows the TitleGenerator pattern: single-shot LLM call via utility model, best-effort, never propagates errors. Extracts actionable implementation steps as structured JSON and creates linked todos via TodoStore::bulkCreate(). Invoked automatically by ArtifactToolkit when a plan artifact reaches 'final' stage.",
+            "methods": [
+                "generate(string $artifactId, string $sessionId, string $planContent): array — extracts steps from plan and creates todos, returns created IDs (empty on failure)"
+            ]
+        },
+        {
             "path": "src/Agent/VisionAnalyzer.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\VisionAnalyzer",
             "layer": "agent",

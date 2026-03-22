@@ -53,7 +53,9 @@ final class TodoToolkit implements ToolkitInterface
         // Write tools — available to full + readonly (plan agent needs to create todos)
         if (in_array($this->accessLevel, ['full', 'readonly', 'readonly-shell'], true)) {
             $tools[] = $this->addTool();
+            $tools[] = $this->bulkAddTool();
             $tools[] = $this->updateTool();
+            $tools[] = $this->bulkUpdateTool();
         }
 
         // Complete tool — only full access (coder implements and completes)
@@ -163,6 +165,69 @@ final class TodoToolkit implements ToolkitInterface
         );
     }
 
+    private function bulkAddTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'todo_bulk_add',
+            description: 'Create multiple todos in one call. More efficient than repeated todo_add calls — use when creating 3+ todos (e.g. from a plan). Max 25 items per call.',
+            parameters: [
+                new StringParameter('items', 'JSON array of items: [{"title": "...", "priority"?: "high|medium|low", "notes"?: "..."}]. Max 25 items.', required: true),
+                new StringParameter('artifact_id', 'Link all todos to this artifact ID (e.g. a plan artifact)', required: false),
+            ],
+            callback: function (array $args): ToolResult {
+                $itemsRaw = $args['items'] ?? '';
+                $items = json_decode($itemsRaw, true);
+                if (!is_array($items) || $items === []) {
+                    return ToolResult::error('items must be a non-empty JSON array of [{"title": "...", ...}].');
+                }
+                if (count($items) > 25) {
+                    return ToolResult::error('Maximum 25 items per bulk add call.');
+                }
+
+                $validPriorities = ['high', 'medium', 'low'];
+                foreach ($items as $i => $item) {
+                    if (!is_array($item) || !isset($item['title']) || trim((string) $item['title']) === '') {
+                        return ToolResult::error(sprintf('Item %d: title is required.', $i + 1));
+                    }
+                    if (mb_strlen(trim((string) $item['title'])) > 200) {
+                        return ToolResult::error(sprintf('Item %d: title must be 200 characters or less.', $i + 1));
+                    }
+                    if (isset($item['priority']) && !in_array($item['priority'], $validPriorities, true)) {
+                        return ToolResult::error(sprintf('Item %d: invalid priority "%s".', $i + 1, $item['priority']));
+                    }
+                }
+
+                $artifactId = isset($args['artifact_id']) && trim($args['artifact_id']) !== '' ? trim($args['artifact_id']) : null;
+
+                // Normalize items
+                $normalized = array_values(array_map(function (array $item): array {
+                    $result = [
+                        'title' => trim((string) $item['title']),
+                        'priority' => $item['priority'] ?? 'medium',
+                    ];
+                    if (isset($item['notes']) && trim((string) $item['notes']) !== '') {
+                        $result['notes'] = trim((string) $item['notes']);
+                    }
+
+                    return $result;
+                }, $items));
+
+                $ids = $this->store->bulkCreate(
+                    sessionId: $this->sessionId,
+                    items: $normalized,
+                    createdBy: $this->currentRole,
+                    artifactId: $artifactId,
+                );
+
+                return ToolResult::success(json_encode([
+                    'created' => count($ids),
+                    'ids' => $ids,
+                    'artifact_id' => $artifactId,
+                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+            },
+        );
+    }
+
     private function updateTool(): ToolInterface
     {
         return new Tool(
@@ -210,6 +275,70 @@ final class TodoToolkit implements ToolkitInterface
                     'status' => $todo['status'] ?? '',
                     'priority' => $todo['priority'] ?? '',
                     'updated' => true,
+                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+            },
+        );
+    }
+
+    private function bulkUpdateTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'todo_bulk_update',
+            description: 'Update multiple todos in one call. More efficient than repeated todo_update calls. Max 25 items per call.',
+            parameters: [
+                new StringParameter('updates', 'JSON array of updates: [{"id": "...", "status"?: "pending|in_progress|completed|cancelled", "priority"?: "high|medium|low", "title"?: "...", "notes"?: "..."}]. Max 25.', required: true),
+            ],
+            callback: function (array $args): ToolResult {
+                $updatesRaw = $args['updates'] ?? '';
+                $updates = json_decode($updatesRaw, true);
+                if (!is_array($updates) || $updates === []) {
+                    return ToolResult::error('updates must be a non-empty JSON array of [{"id": "...", ...}].');
+                }
+                if (count($updates) > 25) {
+                    return ToolResult::error('Maximum 25 items per bulk update call.');
+                }
+
+                $validStatuses = ['pending', 'in_progress', 'completed', 'cancelled'];
+                $validPriorities = ['high', 'medium', 'low'];
+                /** @var list<array{id: string, title?: string, status?: string, priority?: string, notes?: string}> $typedUpdates */
+                $typedUpdates = [];
+                foreach ($updates as $i => $update) {
+                    if (!is_array($update) || !isset($update['id']) || trim((string) $update['id']) === '') {
+                        return ToolResult::error(sprintf('Item %d: id is required.', $i + 1));
+                    }
+                    if (isset($update['status']) && !in_array($update['status'], $validStatuses, true)) {
+                        return ToolResult::error(sprintf('Item %d: invalid status "%s".', $i + 1, $update['status']));
+                    }
+                    if (isset($update['priority']) && !in_array($update['priority'], $validPriorities, true)) {
+                        return ToolResult::error(sprintf('Item %d: invalid priority "%s".', $i + 1, $update['priority']));
+                    }
+                    if (isset($update['title']) && mb_strlen(trim((string) $update['title'])) > 200) {
+                        return ToolResult::error(sprintf('Item %d: title must be 200 characters or less.', $i + 1));
+                    }
+
+                    $typed = ['id' => (string) $update['id']];
+                    if (isset($update['title'])) {
+                        $typed['title'] = (string) $update['title'];
+                    }
+                    if (isset($update['status'])) {
+                        $typed['status'] = (string) $update['status'];
+                    }
+                    if (isset($update['priority'])) {
+                        $typed['priority'] = (string) $update['priority'];
+                    }
+                    if (isset($update['notes'])) {
+                        $typed['notes'] = (string) $update['notes'];
+                    }
+                    $typedUpdates[] = $typed;
+                }
+
+                $count = $this->store->bulkUpdate($typedUpdates);
+                $stats = $this->store->getStats($this->sessionId);
+
+                return ToolResult::success(json_encode([
+                    'updated' => $count,
+                    'total_requested' => count($updates),
+                    'progress' => "{$stats['completed']}/{$stats['total']} completed",
                 ], JSON_UNESCAPED_SLASHES) ?: '{}');
             },
         );
