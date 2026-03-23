@@ -28,3 +28,10 @@ Use descriptive types that match the content: `code`, `document`, `config`, `pla
 4. **Set language for code.** When creating code artifacts, set the `language` parameter (e.g., `php`, `python`, `sql`) for proper syntax context.
 5. **Set filepath when applicable.** If the artifact corresponds to a file, set `filepath` so the user knows where it belongs.
 6. **Advance stages deliberately.** Move to `review` when the artifact is ready for the user to evaluate. Only move to `final` when the user has approved it.
+
+### Integration with Todos
+
+Plan artifacts and todos work together for structured implementation:
+- When a plan artifact is staged to `final`, todos are auto-generated from its content
+- Use `todo_list(artifact_id: "<id>")` to see todos linked to a specific plan
+- Artifact guidelines show linked todo progress for plan artifacts (e.g. "todos: 3/5")

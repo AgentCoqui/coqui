@@ -31,7 +31,11 @@ final readonly class PromptHandler
     public function get(ServerRequestInterface $request): Response
     {
         try {
-            $preview = $this->agentRunner->buildPromptPreview();
+            $params = $request->getQueryParams();
+            $role = isset($params['role']) && is_string($params['role']) && $params['role'] !== ''
+                ? $params['role']
+                : null;
+            $preview = $this->agentRunner->buildPromptPreview($role);
 
             return Router::jsonResponse([
                 'prompt'            => $preview['prompt'],

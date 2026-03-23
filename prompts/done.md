@@ -6,4 +6,5 @@
 - Use package_info before writing SDK code
 - Save important discoveries to memory
 - Files you create go in the workspace directory
+- Mark todos as completed when you finish each task
 - Call `done` with your final response when finished

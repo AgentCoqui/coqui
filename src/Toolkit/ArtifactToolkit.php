@@ -13,6 +13,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CoquiBot\Coqui\Agent\PlanTodoGenerator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\TodoStore;
 
 /**
  * Agent-facing toolkit for managing structured artifacts.
@@ -35,6 +36,7 @@ final class ArtifactToolkit implements ToolkitInterface
         private readonly string $sessionId,
         private readonly bool $readOnly = false,
         private readonly ?PlanTodoGenerator $planTodoGenerator = null,
+        private readonly ?TodoStore $todoStore = null,
     ) {}
 
     public function tools(): array
@@ -71,13 +73,15 @@ final class ArtifactToolkit implements ToolkitInterface
 
         $lines = [];
         foreach ($artifacts as $a) {
+            $todoRef = $this->resolveTodoCount($a['id'], $a['type'] ?? '');
             $lines[] = sprintf(
-                '- **%s** (id: %s) [%s, %s] v%d',
+                '- **%s** (id: %s) [%s, %s] v%d%s',
                 $a['title'],
                 substr($a['id'], 0, 8) . '...',
                 $a['type'],
                 $a['stage'],
                 $a['version'],
+                $todoRef,
             );
         }
         $listing = implode("\n", $lines);
@@ -350,5 +354,28 @@ final class ArtifactToolkit implements ToolkitInterface
                 ], JSON_UNESCAPED_SLASHES) ?: '{}');
             },
         );
+    }
+
+    /**
+     * Resolve linked todo count for plan artifacts in guidelines.
+     */
+    private function resolveTodoCount(string $artifactId, string $type): string
+    {
+        if ($type !== 'plan' || $this->todoStore === null) {
+            return '';
+        }
+
+        try {
+            $stats = $this->todoStore->getStats($this->sessionId, $artifactId);
+            $total = $stats['total'];
+            if ($total > 0) {
+                $completed = $stats['completed'];
+                return " — todos: {$completed}/{$total}";
+            }
+        } catch (\Throwable) {
+            // Non-critical
+        }
+
+        return '';
     }
 }

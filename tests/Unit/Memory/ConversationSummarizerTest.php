@@ -227,3 +227,80 @@ test('summarizeAndPersist returns unchanged result for short conversations', fun
 
     expect($result->wasSummarized())->toBeFalse();
 });
+
+// --- workflowContext ---
+
+function createCapturingProvider(string $response): object
+{
+    return new class($response) implements ProviderInterface {
+        /** @var list<array{role: string, content: string}> */
+        public array $capturedMessages = [];
+
+        public function __construct(private readonly string $response) {}
+
+        public function chat(array $messages, array $tools = [], array $options = []): Response
+        {
+            $this->capturedMessages = array_map(
+                fn($m) => ['role' => $m->role()->value, 'content' => $m->content()],
+                $messages,
+            );
+
+            return new Response(
+                content: $this->response,
+                finishReason: FinishReason::Stop,
+            );
+        }
+
+        public function stream(array $messages, array $tools = [], array $options = []): iterable
+        {
+            yield new Response(content: $this->response, finishReason: FinishReason::Stop);
+        }
+
+        public function structured(array $messages, string $schema, array $options = []): mixed
+        {
+            return new Response(content: $this->response, finishReason: FinishReason::Stop);
+        }
+
+        public function models(): array { return []; }
+        public function isAvailable(): bool { return true; }
+        public function getModel(): string { return 'test/model'; }
+        public function withModel(string $model): static { return $this; }
+    };
+}
+
+test('summarize includes workflow context in LLM prompt when provided', function () {
+    $conv = buildConversation(10);
+    $provider = createCapturingProvider('Summary with workflow context.');
+
+    $result = $this->summarizer->summarize(
+        $conv,
+        $provider,
+        keepRecentTurns: 3,
+        workflowContext: "Active todos: 3 pending, 1 in-progress\nArtifacts: plan-v2 (final)",
+    );
+
+    expect($result->wasSummarized())->toBeTrue();
+
+    // The system message sent to the LLM should contain the workflow context
+    $systemContent = $provider->capturedMessages[0]['content'] ?? '';
+    expect($systemContent)->toContain('Current workflow state');
+    expect($systemContent)->toContain('Active todos: 3 pending');
+    expect($systemContent)->toContain('plan-v2 (final)');
+});
+
+test('summarize omits workflow section when context is null', function () {
+    $conv = buildConversation(10);
+    $provider = createCapturingProvider('Summary without workflow.');
+
+    $result = $this->summarizer->summarize(
+        $conv,
+        $provider,
+        keepRecentTurns: 3,
+        workflowContext: null,
+    );
+
+    expect($result->wasSummarized())->toBeTrue();
+
+    $systemContent = $provider->capturedMessages[0]['content'] ?? '';
+    expect($systemContent)->not->toContain('Current workflow state');
+});

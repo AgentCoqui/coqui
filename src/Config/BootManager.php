@@ -419,17 +419,14 @@ final class BootManager
      */
     private function initializeArtifacts(): void
     {
-        $dbPath = $this->workspacePath . '/data/sessions.db';
-
-        // SessionStorage is needed to get the PDO for ArtifactStore
-        if (!file_exists($dbPath)) {
-            return;
-        }
+        $dbPath = $this->workspacePath . '/data/coqui.db';
 
         $storage = new SessionStorage($dbPath);
         $this->artifactStore = new ArtifactStore($storage->getPdo());
         $this->artifactStore->cleanupFinalized();
         $this->todoStore = new TodoStore($storage->getPdo());
+        $this->todoStore->cleanupOrphaned();
+        $this->todoStore->cleanupStale();
     }
 
     /**

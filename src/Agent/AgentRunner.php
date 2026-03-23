@@ -33,7 +33,9 @@ use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryExtractor;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
+use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
@@ -68,6 +70,8 @@ final class AgentRunner
         private readonly ?ConfigGuard $configGuard = null,
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
         private readonly ?SpaceToolkit $spaceToolkit = null,
+        private readonly ?TodoStore $todoStore = null,
+        private readonly ?ArtifactStore $artifactStore = null,
     ) {}
 
     /**
@@ -339,9 +343,10 @@ final class AgentRunner
      *
      * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>}
      */
-    public function buildPromptPreview(): array
+    public function buildPromptPreview(?string $role = null): array
     {
-        $modelString = $this->roleResolver->resolve('orchestrator');
+        $effectiveRole = $role ?? 'orchestrator';
+        $modelString = $this->roleResolver->resolve($effectiveRole);
         $factory = $this->providerFactory ?? new ProviderFactory($this->config);
         $provider = $factory->create($modelString);
 
@@ -365,6 +370,7 @@ final class AgentRunner
             configGuard: $this->configGuard,
             visibilityRegistry: $this->visibilityRegistry,
             spaceToolkit: $this->spaceToolkit,
+            activeRole: $effectiveRole !== 'orchestrator' ? $effectiveRole : null,
         );
 
         $counter = TokenCounterFactory::forModel($modelString);
@@ -685,6 +691,7 @@ final class AgentRunner
             sessionId: $sessionId,
             provider: $provider,
             keepRecentTurns: $keepRecent,
+            workflowContext: $this->buildWorkflowContext($sessionId),
         );
 
         if (!$result->wasSummarized()) {
@@ -704,6 +711,68 @@ final class AgentRunner
         );
 
         return $result->conversation;
+    }
+
+    /**
+     * Build a workflow context string summarizing active todos and artifacts.
+     *
+     * Injected into the summarization prompt so the LLM preserves
+     * structured workflow state when compressing conversation history.
+     */
+    private function buildWorkflowContext(string $sessionId): ?string
+    {
+        $sections = [];
+
+        if ($this->todoStore !== null) {
+            try {
+                $stats = $this->todoStore->getStats($sessionId);
+                $total = $stats['total'];
+
+                if ($total > 0) {
+                    $lines = ["Todos: {$stats['completed']}/{$total} completed"];
+
+                    $activeTodos = $this->todoStore->list($sessionId, 'in_progress');
+                    foreach ($activeTodos as $todo) {
+                        $lines[] = "  - [in_progress] {$todo['title']}";
+                    }
+
+                    $pendingTodos = $this->todoStore->list($sessionId, 'pending');
+                    foreach (array_slice($pendingTodos, 0, 5) as $todo) {
+                        $lines[] = "  - [pending] {$todo['title']}";
+                    }
+                    if (count($pendingTodos) > 5) {
+                        $lines[] = '  - ... and ' . (count($pendingTodos) - 5) . ' more pending';
+                    }
+
+                    $sections[] = implode("\n", $lines);
+                }
+            } catch (\Throwable) {
+                // Non-critical — skip if store errors
+            }
+        }
+
+        if ($this->artifactStore !== null) {
+            try {
+                $artifacts = $this->artifactStore->list($sessionId);
+                if ($artifacts !== []) {
+                    $lines = ['Artifacts:'];
+                    foreach (array_slice($artifacts, 0, 5) as $artifact) {
+                        $type = $artifact['type'] ?? 'unknown';
+                        $stage = $artifact['stage'] ?? 'draft';
+                        $title = $artifact['title'] ?? 'Untitled';
+                        $lines[] = "  - [{$type}/{$stage}] {$title}";
+                    }
+                    if (count($artifacts) > 5) {
+                        $lines[] = '  - ... and ' . (count($artifacts) - 5) . ' more';
+                    }
+                    $sections[] = implode("\n", $lines);
+                }
+            } catch (\Throwable) {
+                // Non-critical
+            }
+        }
+
+        return $sections !== [] ? implode("\n", $sections) : null;
     }
 
     /**

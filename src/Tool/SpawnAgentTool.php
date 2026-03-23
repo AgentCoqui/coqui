@@ -245,6 +245,7 @@ final class SpawnAgentTool implements ToolInterface
                 $this->sessionId,
                 readOnly: $accessLevel !== 'full',
                 planTodoGenerator: $planTodoGenerator,
+                todoStore: $todoStore,
             );
         }
 
@@ -256,6 +257,7 @@ final class SpawnAgentTool implements ToolInterface
                 $this->sessionId,
                 $role,
                 $accessLevel,
+                $artifactStore ?? null,
             );
         }
 

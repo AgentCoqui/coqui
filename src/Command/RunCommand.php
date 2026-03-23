@@ -165,6 +165,8 @@ final class RunCommand extends Command
             configGuard: new ConfigGuard(),
             visibilityRegistry: $this->boot->visibilityRegistry(),
             spaceToolkit: $this->boot->spaceToolkit(),
+            todoStore: $this->boot->todoStore(),
+            artifactStore: $this->boot->artifactStore(),
         );
 
         // Handle session
@@ -176,9 +178,11 @@ final class RunCommand extends Command
                 $io->error("Session not found: {$this->sessionId}");
                 return Command::FAILURE;
             }
+            $this->restoreActiveRoleFromSession();
             $io->info("Resumed session: {$this->sessionId}");
         } else {
             $this->sessionId = $this->loadOrCreateSession($io);
+            $this->restoreActiveRoleFromSession();
         }
 
         // Display safety mode warnings
@@ -377,7 +381,11 @@ final class RunCommand extends Command
 
         while (true) {
             $io->writeln('');
-            $io->writeln(' <fg=cyan>You:</>');
+            if ($this->activeRole !== 'orchestrator') {
+                $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>:', $this->activeRole));
+            } else {
+                $io->writeln(' <fg=cyan>You:</>');
+            }
 
             // Read input using readline's callback API for non-blocking signal handling.
             // The blocking readline() swallows SIGINT internally (the readline/libedit
@@ -630,7 +638,8 @@ final class RunCommand extends Command
             })(),
 
             '/prompt' => (function () use ($io) {
-                $preview = $this->agentRunner->buildPromptPreview();
+                $role = $this->activeRole !== 'orchestrator' ? $this->activeRole : null;
+                $preview = $this->agentRunner->buildPromptPreview($role);
                 $io->section('System Prompt');
                 $io->writeln($preview['prompt']);
                 $io->newLine();
@@ -860,11 +869,13 @@ final class RunCommand extends Command
         $io->text('<fg=gray>Summarizing conversation...</>');
 
         try {
+            $workflowContext = $this->buildSummarizeWorkflowContext();
             $result = $summarizer->summarizeAndPersist(
                 sessionId: $this->sessionId,
                 provider: $provider,
                 keepRecentTurns: $keepRecent,
                 focus: $focus,
+                workflowContext: $workflowContext,
             );
         } catch (\Throwable $e) {
             $io->error('Summarization failed: ' . $e->getMessage());
@@ -885,6 +896,66 @@ final class RunCommand extends Command
         ));
 
         return true;
+    }
+
+    /**
+     * Build workflow context for summarization from session todos and artifacts.
+     */
+    private function buildSummarizeWorkflowContext(): ?string
+    {
+        $sections = [];
+
+        try {
+            $todoStore = $this->boot->todoStore();
+            if ($todoStore !== null) {
+                $stats = $todoStore->getStats($this->sessionId);
+                $total = $stats['total'];
+
+                if ($total > 0) {
+                    $lines = ["Todos: {$stats['completed']}/{$total} completed"];
+
+                    foreach ($todoStore->list($this->sessionId, 'in_progress') as $todo) {
+                        $lines[] = "  - [in_progress] {$todo['title']}";
+                    }
+
+                    $pending = $todoStore->list($this->sessionId, 'pending');
+                    foreach (array_slice($pending, 0, 5) as $todo) {
+                        $lines[] = "  - [pending] {$todo['title']}";
+                    }
+                    if (count($pending) > 5) {
+                        $lines[] = '  - ... and ' . (count($pending) - 5) . ' more pending';
+                    }
+
+                    $sections[] = implode("\n", $lines);
+                }
+            }
+        } catch (\Throwable) {
+            // Non-critical
+        }
+
+        try {
+            $artifactStore = $this->boot->artifactStore();
+            if ($artifactStore !== null) {
+                $artifacts = $artifactStore->list($this->sessionId);
+                if ($artifacts !== []) {
+                    $lines = ['Artifacts:'];
+                    foreach (array_slice($artifacts, 0, 5) as $artifact) {
+                        $type = $artifact['type'] ?? 'unknown';
+                        $stage = $artifact['stage'] ?? 'draft';
+                        $title = $artifact['title'] ?? 'Untitled';
+                        $lines[] = "  - [{$type}/{$stage}] {$title}";
+                    }
+                    if (count($artifacts) > 5) {
+                        $lines[] = '  - ... and ' . (count($artifacts) - 5) . ' more';
+                    }
+                    $sections[] = implode("\n", $lines);
+                }
+            }
+        } catch (\Throwable) {
+            // Non-critical
+        }
+
+        return $sections !== [] ? implode("\n", $sections) : null;
     }
 
     /**
@@ -1510,6 +1581,22 @@ final class RunCommand extends Command
         file_put_contents($sessionFile, $sessionId);
     }
 
+    /**
+     * Restore the active role from the current session's stored model_role.
+     */
+    private function restoreActiveRoleFromSession(): void
+    {
+        $session = $this->storage->getSession($this->sessionId);
+        if ($session === null) {
+            return;
+        }
+
+        $storedRole = (string) ($session['model_role'] ?? 'orchestrator');
+        if ($storedRole !== '' && $storedRole !== 'orchestrator') {
+            $this->activeRole = $storedRole;
+        }
+    }
+
     private function showHistory(SymfonyStyle $io): void
     {
         $messages = $this->storage->getMessages($this->sessionId);
@@ -1966,6 +2053,8 @@ final class RunCommand extends Command
             configManager: $this->boot->configManager(),
             configGuard: new ConfigGuard(),
             spaceToolkit: $this->boot->spaceToolkit(),
+            todoStore: $this->boot->todoStore(),
+            artifactStore: $this->boot->artifactStore(),
         );
 
         // Handle session
