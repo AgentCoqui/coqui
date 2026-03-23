@@ -7,6 +7,8 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Storage\ScheduleStore;
+use CoquiBot\Coqui\Storage\WebhookStore;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -19,6 +21,8 @@ final readonly class HealthHandler
         private float $startTime,
         private AgentTurnManager $turnManager,
         private ?BackgroundTaskManager $taskManager = null,
+        private ?ScheduleStore $scheduleStore = null,
+        private ?WebhookStore $webhookStore = null,
     ) {}
 
     public function __invoke(ServerRequestInterface $request): Response
@@ -35,6 +39,17 @@ final readonly class HealthHandler
         if ($this->taskManager !== null) {
             $data['active_tasks'] = $this->taskManager->activeCount();
             $data['pending_tasks'] = $this->taskManager->pendingCount();
+        }
+
+        if ($this->scheduleStore !== null) {
+            $stats = $this->scheduleStore->getStats();
+            $upcoming = $this->scheduleStore->getUpcoming(1);
+            $stats['next_run_at'] = $upcoming !== [] ? ($upcoming[0]['next_run_at'] ?? null) : null;
+            $data['schedules'] = $stats;
+        }
+
+        if ($this->webhookStore !== null) {
+            $data['webhooks'] = $this->webhookStore->getStats();
         }
 
         return Router::jsonResponse($data);

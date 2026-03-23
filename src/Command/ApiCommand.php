@@ -15,23 +15,30 @@ use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
 use CoquiBot\Coqui\Api\Handler\PromptHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
+use CoquiBot\Coqui\Api\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Api\Handler\ServerHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
 use CoquiBot\Coqui\Api\Handler\SummarizeHandler;
 use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Api\Handler\ToolkitHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
+use CoquiBot\Coqui\Api\Handler\WebhookHandler;
+use CoquiBot\Coqui\Api\Handler\WebhookManagementHandler;
 use CoquiBot\Coqui\Api\Middleware\AuthMiddleware;
 use CoquiBot\Coqui\Api\Middleware\ContentTypeMiddleware;
 use CoquiBot\Coqui\Api\Middleware\CorsMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Api\ScheduleManager;
+use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
+use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\WebhookStore;
 use React\EventLoop\Loop;
 use React\Http\HttpServer;
 use React\Http\Middleware\LimitConcurrentRequestsMiddleware;
@@ -175,8 +182,12 @@ final class ApiCommand extends Command
         /** @var SocketServer|null $socket Pre-declared for closure capture; assigned after server creation. */
         $socket = null;
 
+        // Schedule & webhook stores (created early for health endpoint)
+        $scheduleStore = new ScheduleStore($storage->getPdo());
+        $webhookStore = new WebhookStore($storage->getPdo());
+
         // Create handlers
-        $healthHandler = new HealthHandler($startTime, $turnManager, $taskManager);
+        $healthHandler = new HealthHandler($startTime, $turnManager, $taskManager, $scheduleStore, $webhookStore);
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
         $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
@@ -232,9 +243,24 @@ final class ApiCommand extends Command
         $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
         $summarizeHandler = new SummarizeHandler($storage, $boot->config(), $boot->roleResolver(), $boot->memoryStore(), $todoStore, $artifactStore);
 
+        // Schedule & webhook infrastructure
+        $scheduleManager = new ScheduleManager($scheduleStore, $storage);
+        $scheduleManager->setOnNotify(static function (string $event, array $data) use ($output): void {
+            $output->writeln(sprintf(
+                '<fg=gray>[%s]</> <info>%s</info>: %s',
+                date('H:i:s'),
+                $event,
+                json_encode($data, JSON_UNESCAPED_SLASHES) ?: '{}',
+            ), OutputInterface::VERBOSITY_VERBOSE);
+        });
+        $verifierRegistry = new WebhookVerifierRegistry();
+        $scheduleHandler = new ScheduleHandler($scheduleStore, $scheduleManager);
+        $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
+        $webhookMgmtHandler = new WebhookManagementHandler($webhookStore);
+
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $summarizeHandler, $artifactHandler, $todoHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $summarizeHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -336,6 +362,16 @@ final class ApiCommand extends Command
             $turnManager->tick();
         });
 
+        // Periodic timer: evaluate scheduled tasks every 60 seconds
+        Loop::addPeriodicTimer(60.0, static function () use ($scheduleManager): void {
+            $scheduleManager->tick();
+        });
+
+        // Periodic timer: purge old webhook delivery logs daily (3600s check)
+        Loop::addPeriodicTimer(3600.0, static function () use ($webhookStore): void {
+            $webhookStore->purgeOldDeliveries();
+        });
+
         return $restartRequested ? RunCommand::RESTART_EXIT_CODE : Command::SUCCESS;
     }
 
@@ -359,6 +395,9 @@ final class ApiCommand extends Command
         SummarizeHandler $summarize,
         ArtifactHandler $artifact,
         \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
+        ScheduleHandler $schedule,
+        WebhookHandler $webhook,
+        WebhookManagementHandler $webhookMgmt,
     ): void {
         $v1 = '/api/v1';
 
@@ -447,6 +486,20 @@ final class ApiCommand extends Command
         // Toolkit visibility management
         $router->get($v1 . '/toolkits', [$toolkit, 'list']);
         $router->post($v1 . '/toolkits/visibility', [$toolkit, 'setVisibility']);
+
+        // Schedules
+        $router->get($v1 . '/schedules', [$schedule, 'list']);
+        $router->post($v1 . '/schedules', [$schedule, 'create']);
+        $router->get($v1 . '/schedules/{id}', [$schedule, 'get']);
+        $router->patch($v1 . '/schedules/{id}', [$schedule, 'update']);
+        $router->delete($v1 . '/schedules/{id}', [$schedule, 'delete']);
+        $router->post($v1 . '/schedules/{id}/trigger', [$schedule, 'trigger']);
+        $router->post($v1 . '/schedules/{id}/enable', [$schedule, 'enable']);
+        $router->post($v1 . '/schedules/{id}/disable', [$schedule, 'disable']);
+
+        // Webhooks (incoming receiver + management CRUD)
+        $webhook->register($router);
+        $webhookMgmt->register($router);
     }
 
     /**

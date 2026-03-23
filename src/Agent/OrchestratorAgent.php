@@ -356,6 +356,15 @@ final class OrchestratorAgent extends AbstractAgent
             $this->addToolkit($backgroundTaskToolkit);
         }
 
+        // Schedule and webhook toolkits — self-scheduling and webhook management
+        if ($this->storage !== null && $effectiveAccessLevel === 'full') {
+            $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
+            $this->addToolkit(new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore));
+
+            $webhookStore = new \CoquiBot\Coqui\Storage\WebhookStore($this->storage->getPdo());
+            $this->addToolkit(new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore));
+        }
+
         // Register standalone tools in the registry now that they're all created.
         // Toolkit tools are already registered via addToolkit() override above.
         foreach ([$this->spawnTool, $this->credentialTool, $this->packageInfoTool, $this->phpExecuteTool] as $tool) {

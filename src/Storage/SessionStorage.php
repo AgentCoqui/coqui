@@ -178,8 +178,12 @@ final class SessionStorage
         $this->migrateAddColumn('background_tasks', 'tool_name', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('background_tasks', 'tool_arguments', 'TEXT DEFAULT NULL');
 
+        // Migration: add schedule_id for scheduled task tracking
+        $this->migrateAddColumn('background_tasks', 'schedule_id', 'TEXT DEFAULT NULL');
+
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON background_tasks(status)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_session ON background_tasks(session_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_schedule ON background_tasks(schedule_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_task_events_task ON task_events(task_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_task_inputs_task ON task_inputs(task_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_task_inputs_consumed ON task_inputs(consumed)');
@@ -966,13 +970,14 @@ final class SessionStorage
         int $maxIterations = 25,
         ?string $toolName = null,
         ?string $toolArguments = null,
+        ?string $scheduleId = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, max_iterations, tool_name, tool_arguments, created_at)
-            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :max_iterations, :tool_name, :tool_arguments, :created_at)
+            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, max_iterations, tool_name, tool_arguments, schedule_id, created_at)
+            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :max_iterations, :tool_name, :tool_arguments, :schedule_id, :created_at)
         SQL);
 
         $stmt->execute([
@@ -985,6 +990,7 @@ final class SessionStorage
             'max_iterations' => $maxIterations,
             'tool_name' => $toolName,
             'tool_arguments' => $toolArguments,
+            'schedule_id' => $scheduleId,
             'created_at' => $now,
         ]);
 
@@ -1042,6 +1048,23 @@ final class SessionStorage
         SQL);
 
         $stmt->execute(['id' => $id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    /**
+     * Find the most recent task for a given schedule.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getTaskByScheduleId(string $scheduleId): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT * FROM background_tasks WHERE schedule_id = :schedule_id ORDER BY created_at DESC LIMIT 1
+        SQL);
+
+        $stmt->execute(['schedule_id' => $scheduleId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $row === false ? null : $row;
