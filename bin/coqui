@@ -16,11 +16,11 @@ use Symfony\Component\Console\Application;
 
 $version = InstalledVersions::getPrettyVersion('coquibot/coqui') ?? 'dev';
 $app = new Application('coqui', $version);
-$app->add(new RunCommand());
-$app->add(new SetupCommand());
-$app->add(new DoctorCommand());
-$app->add(new ApiCommand());
-$app->add(new TaskRunCommand());
-$app->add(new TurnRunCommand());
+$app->addCommand(new RunCommand());
+$app->addCommand(new SetupCommand());
+$app->addCommand(new DoctorCommand());
+$app->addCommand(new ApiCommand());
+$app->addCommand(new TaskRunCommand());
+$app->addCommand(new TurnRunCommand());
 $app->setDefaultCommand('run');
 $app->run();

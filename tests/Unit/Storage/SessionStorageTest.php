@@ -228,3 +228,44 @@ test('getPdo returns working connection', function () {
 
     expect($row['id'])->toBe($sessionId);
 });
+
+test('loadConversation preserves ToolCall metadata through storage roundtrip', function () {
+    $sessionId = $this->storage->createSession('test', 'model');
+
+    $metadata = ['thoughtSignature' => 'gs:test_signature_abc123'];
+    $toolCalls = json_encode([
+        [
+            'id' => 'g00000000',
+            'name' => 'read_file',
+            'arguments' => ['path' => '/tmp/test.txt'],
+            'metadata' => $metadata,
+        ],
+    ]);
+
+    $this->storage->addMessage($sessionId, 'assistant', '', $toolCalls);
+
+    $conversation = $this->storage->loadConversation($sessionId);
+    $messages = $conversation->messages();
+
+    expect($messages)->toHaveCount(1);
+    $tc = $messages[0]->toolCalls()[0];
+    expect($tc->id)->toBe('g00000000');
+    expect($tc->name)->toBe('read_file');
+    expect($tc->metadata)->toBe($metadata);
+});
+
+test('loadConversation handles ToolCall without metadata field', function () {
+    $sessionId = $this->storage->createSession('test', 'model');
+
+    // Simulate old-format tool calls (before metadata was added)
+    $toolCalls = json_encode([
+        ['id' => 'g00000000', 'name' => 'read_file', 'arguments' => ['path' => '/tmp/test.txt']],
+    ]);
+
+    $this->storage->addMessage($sessionId, 'assistant', '', $toolCalls);
+
+    $conversation = $this->storage->loadConversation($sessionId);
+    $tc = $conversation->messages()[0]->toolCalls()[0];
+
+    expect($tc->metadata)->toBe([]);
+});
