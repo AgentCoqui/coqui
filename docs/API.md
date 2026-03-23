@@ -1824,6 +1824,337 @@ Delete a todo and all its subtasks.
 }
 ```
 
+### Schedules
+
+Schedules enable autonomous, timer-driven execution via cron-style expressions. The API server evaluates due schedules every 60 seconds and creates background tasks automatically. A circuit breaker auto-disables schedules after consecutive failures.
+
+#### `GET /api/v1/schedules`
+
+List all schedules with optional filters.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `enabled` | `0` or `1` | Filter by enabled/disabled status |
+| `created_by` | string | Filter by creator (e.g. `"agent"`, `"api"`) |
+
+**Response `200`**
+
+```json
+{
+  "schedules": [
+    {
+      "id": "a1b2c3d4",
+      "name": "daily-review",
+      "schedule_expression": "0 9 * * 1-5",
+      "prompt": "Review recent changes...",
+      "role": "orchestrator",
+      "max_iterations": 48,
+      "enabled": 1,
+      "timezone": "UTC",
+      "next_run_at": "2026-02-17T09:00:00Z",
+      "last_run_at": "2026-02-16T09:00:00Z",
+      "last_task_id": "t1a2b3c4",
+      "last_status": "completed",
+      "run_count": 5,
+      "failure_count": 0,
+      "max_failures": 3,
+      "created_at": "2026-02-10T12:00:00Z",
+      "updated_at": "2026-02-16T09:01:00Z"
+    }
+  ],
+  "stats": {
+    "total": 3,
+    "enabled": 2,
+    "disabled": 1,
+    "total_runs": 42
+  }
+}
+```
+
+#### `POST /api/v1/schedules`
+
+Create a new schedule.
+
+**Request Body**
+
+```json
+{
+  "name": "daily-review",
+  "schedule_expression": "0 9 * * 1-5",
+  "prompt": "Review recent changes in the codebase",
+  "role": "coder",
+  "max_iterations": 30,
+  "timezone": "America/New_York",
+  "description": "Weekday code review",
+  "max_failures": 5
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `name` | string | Yes | — | Unique name (lowercase, hyphens, underscores, max 100 chars) |
+| `schedule_expression` | string | Yes | — | 5-field cron expression or `@once` |
+| `prompt` | string | Yes | — | Task prompt (max 50,000 chars) |
+| `role` | string | No | `"orchestrator"` | Agent role for the task |
+| `max_iterations` | int | No | `48` | Max iterations per run (1–100) |
+| `timezone` | string | No | `"UTC"` | IANA timezone for cron evaluation |
+| `description` | string | No | `null` | Human-readable description |
+| `max_failures` | int | No | `3` | Circuit breaker threshold (1–100) |
+
+**Response `201`** — schedule created with computed `next_run_at`.
+
+**Response `400`** — validation error (invalid cron, duplicate name, invalid timezone).
+
+#### `GET /api/v1/schedules/{id}`
+
+Get a schedule by ID.
+
+**Response `200`** — full schedule object.
+
+**Response `404`** — schedule not found.
+
+#### `PATCH /api/v1/schedules/{id}`
+
+Update a schedule. Only provided fields are changed.
+
+**Request Body** — any subset of: `schedule_expression`, `prompt`, `role`, `max_iterations`, `enabled`, `timezone`, `description`, `max_failures`.
+
+**Response `200`** — updated schedule object.
+
+**Response `400`** — validation error.
+
+**Response `404`** — schedule not found.
+
+#### `DELETE /api/v1/schedules/{id}`
+
+Delete a schedule permanently.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true
+}
+```
+
+**Response `404`** — schedule not found.
+
+#### `POST /api/v1/schedules/{id}/trigger`
+
+Immediately execute a schedule, creating a background task without waiting for the next cron tick.
+
+**Response `200`**
+
+```json
+{
+  "triggered": true,
+  "task_id": "t1a2b3c4d5e6f7g8"
+}
+```
+
+**Response `404`** — schedule not found.
+
+#### `POST /api/v1/schedules/{id}/enable`
+
+Enable a disabled schedule and reset its failure counter.
+
+**Response `200`**
+
+```json
+{
+  "enabled": true
+}
+```
+
+#### `POST /api/v1/schedules/{id}/disable`
+
+Disable a schedule. The schedule is preserved and can be re-enabled later.
+
+**Response `200`**
+
+```json
+{
+  "disabled": true
+}
+```
+
+### Webhooks
+
+Webhooks receive signed HTTP POST requests from external services and automatically spawn background tasks. Signature verification supports GitHub, Slack, and generic HMAC schemes.
+
+#### `POST /api/v1/webhooks/incoming/{name}`
+
+Receive an incoming webhook delivery. This is the endpoint external services send payloads to.
+
+**Headers** — signature header depends on the webhook's source type:
+- GitHub: `X-Hub-Signature-256`
+- Slack: `X-Slack-Signature` + `X-Slack-Request-Timestamp`
+- Generic: `X-Webhook-Signature`, `X-Signature`, or `Authorization: Bearer <secret>`
+
+**Request Body** — raw payload (JSON or other). Maximum 1 MB.
+
+**Response `200`**
+
+```json
+{
+  "accepted": true,
+  "task_id": "t1a2b3c4d5e6f7g8"
+}
+```
+
+**Response `400`** — disabled webhook, empty body, payload too large.
+
+**Response `401`** — invalid signature.
+
+**Response `404`** — unknown webhook name.
+
+#### `GET /api/v1/webhooks`
+
+List all webhook subscriptions. Secrets are masked in responses.
+
+**Response `200`**
+
+```json
+{
+  "webhooks": [
+    {
+      "id": "w1a2b3c4",
+      "name": "github-push",
+      "description": "Handles GitHub push events",
+      "source": "github",
+      "secret": "abc1****5678",
+      "prompt_template": "A push was made: {{payload}}",
+      "role": "orchestrator",
+      "max_iterations": 48,
+      "enabled": 1,
+      "event_filter": "push,pull_request",
+      "trigger_count": 12,
+      "created_at": "2026-02-10T12:00:00Z"
+    }
+  ],
+  "stats": {
+    "total": 2,
+    "enabled": 1,
+    "disabled": 1,
+    "total_triggers": 15
+  }
+}
+```
+
+#### `POST /api/v1/webhooks`
+
+Create a webhook subscription. Returns the signing secret (shown only once in full).
+
+**Request Body**
+
+```json
+{
+  "name": "github-push",
+  "prompt_template": "Review this push: {{payload}}",
+  "source": "github",
+  "role": "coder",
+  "event_filter": "push,pull_request",
+  "description": "GitHub push handler",
+  "max_iterations": 30
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `name` | string | Yes | — | Unique name (alphanumeric, hyphens, underscores) |
+| `prompt_template` | string | Yes | — | Template with `{{payload}}`, `{{event_type}}`, `{{summary}}` placeholders |
+| `source` | string | No | `"generic"` | Verification scheme: `generic`, `github`, or `slack` |
+| `role` | string | No | `"orchestrator"` | Agent role for triggered tasks |
+| `event_filter` | string | No | `null` | Comma-separated event types to accept |
+| `description` | string | No | `null` | Human-readable description |
+| `max_iterations` | int | No | `48` | Max iterations per triggered task (1–100) |
+
+**Response `201`** — webhook object with full secret.
+
+**Response `400`** — validation error (duplicate name, invalid source).
+
+#### `GET /api/v1/webhooks/{id}`
+
+Get a webhook subscription. Secret is masked.
+
+**Response `200`** — webhook object.
+
+**Response `404`** — webhook not found.
+
+#### `PUT /api/v1/webhooks/{id}`
+
+Update a webhook subscription.
+
+**Request Body** — any subset of: `name`, `description`, `source`, `prompt_template`, `role`, `max_iterations`, `enabled`, `event_filter`.
+
+**Response `200`** — updated webhook object (secret masked).
+
+**Response `400`** — validation error.
+
+**Response `404`** — webhook not found.
+
+#### `DELETE /api/v1/webhooks/{id}`
+
+Delete a webhook subscription and all its delivery logs.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true
+}
+```
+
+**Response `404`** — webhook not found.
+
+#### `POST /api/v1/webhooks/{id}/rotate`
+
+Rotate the signing secret. Returns the new secret in full. Update the external service configuration immediately.
+
+**Response `200`**
+
+```json
+{
+  "rotated": true,
+  "new_secret": "a1b2c3d4e5f6..."
+}
+```
+
+**Response `404`** — webhook not found.
+
+#### `GET /api/v1/webhooks/{id}/deliveries`
+
+List recent delivery logs for a webhook.
+
+**Query Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | int | `50` | Max deliveries to return (1–100) |
+
+**Response `200`**
+
+```json
+{
+  "deliveries": [
+    {
+      "id": "d1a2b3c4",
+      "webhook_id": "w1a2b3c4",
+      "event_type": "push",
+      "payload_summary": "{\"ref\": \"refs/heads/main\", ...}",
+      "task_id": "t1a2b3c4",
+      "status": "accepted",
+      "source_ip": "140.82.115.1",
+      "created_at": "2026-02-16T14:30:00Z"
+    }
+  ]
+}
+```
+
+Delivery statuses: `accepted`, `rejected_disabled`, `rejected_signature`, `rejected_event`, `rejected_empty`, `rejected_too_large`.
+
 ## Toolkit Management
 
 Toolkit visibility controls which tools appear in the agent's context window and how they are represented. Each toolkit (Composer package) and each individual tool can be set to one of three visibility tiers:
@@ -2157,3 +2488,19 @@ Every REPL slash command has an API equivalent, allowing dashboards and client a
 | `GET` | `/api/v1/toolkits` | Yes | List toolkits and tools with visibility |
 | `POST` | `/api/v1/toolkits/visibility` | Yes | Set package or tool visibility |
 | `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt |
+| `GET` | `/api/v1/schedules` | Yes | List schedules |
+| `POST` | `/api/v1/schedules` | Yes | Create schedule |
+| `GET` | `/api/v1/schedules/{id}` | Yes | Get schedule |
+| `PATCH` | `/api/v1/schedules/{id}` | Yes | Update schedule |
+| `DELETE` | `/api/v1/schedules/{id}` | Yes | Delete schedule |
+| `POST` | `/api/v1/schedules/{id}/trigger` | Yes | Trigger schedule immediately |
+| `POST` | `/api/v1/schedules/{id}/enable` | Yes | Enable schedule |
+| `POST` | `/api/v1/schedules/{id}/disable` | Yes | Disable schedule |
+| `POST` | `/api/v1/webhooks/incoming/{name}` | No* | Receive webhook (signature-verified) |
+| `GET` | `/api/v1/webhooks` | Yes | List webhook subscriptions |
+| `POST` | `/api/v1/webhooks` | Yes | Create webhook subscription |
+| `GET` | `/api/v1/webhooks/{id}` | Yes | Get webhook |
+| `PUT` | `/api/v1/webhooks/{id}` | Yes | Update webhook |
+| `DELETE` | `/api/v1/webhooks/{id}` | Yes | Delete webhook |
+| `POST` | `/api/v1/webhooks/{id}/rotate` | Yes | Rotate signing secret |
+| `GET` | `/api/v1/webhooks/{id}/deliveries` | Yes | List delivery logs |
