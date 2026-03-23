@@ -334,6 +334,184 @@ Coqui supports running individual tools asynchronously in background processes. 
 | `src/Toolkit/BackgroundTaskToolkit.php` | Agent-facing tools including `start_background_tool`                  |
 | `src/Command/TaskRunCommand.php`        | Branches on `tool_name` presence: agent path vs direct tool execution |
 
+## Schedule System Architecture
+
+Coqui supports autonomous, timer-driven execution via a cron-style scheduling system. The agent can create, manage, and self-schedule recurring or one-shot tasks that execute as background tasks inside the ReactPHP event loop.
+
+### How It Works
+
+1. **`ScheduleStore`** manages a `scheduled_tasks` SQLite table. Each schedule has a name, cron expression, prompt, role, iteration limit, timezone, and circuit-breaker counters.
+2. **`ScheduleManager`** runs inside the ReactPHP event loop via a 60-second periodic timer. On each `tick()`, it queries `getReadySchedules(now)` for enabled schedules whose `next_run_at` has passed, creates background tasks via `SessionStorage`, and updates the schedule records.
+3. **`ScheduleHandler`** exposes 8 REST endpoints for CRUD, manual trigger, and enable/disable operations.
+4. **`ScheduleToolkit`** provides 6 agent-facing tools so the agent can create and manage its own schedules during conversations.
+5. **Circuit breaker** — when a schedule's `failure_count` reaches `max_failures` (default 3), the schedule is automatically disabled. The agent or user must re-enable it after investigating.
+6. **One-shot schedules** — the special expression `@once` creates a schedule that runs once at the next tick and is then automatically disabled.
+
+### Schedule Schema
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | TEXT PK | Random hex ID |
+| `name` | TEXT UNIQUE | Human-readable schedule name |
+| `description` | TEXT | Optional description |
+| `schedule_expression` | TEXT | Cron expression or `@once` |
+| `prompt` | TEXT | Prompt sent to the agent on execution |
+| `role` | TEXT | Agent role for the background task (default: `orchestrator`) |
+| `max_iterations` | INTEGER | Iteration limit for the background task (default: 48) |
+| `enabled` | INTEGER | 1 = active, 0 = disabled |
+| `timezone` | TEXT | Timezone for cron evaluation (default: `UTC`) |
+| `next_run_at` | TEXT | Computed next execution time (ISO 8601) |
+| `last_run_at` | TEXT | Last execution time |
+| `last_task_id` | TEXT | ID of the most recent background task |
+| `last_status` | TEXT | Status of the last run |
+| `run_count` | INTEGER | Total successful executions |
+| `failure_count` | INTEGER | Consecutive failures (resets on success) |
+| `max_failures` | INTEGER | Circuit breaker threshold (default: 3) |
+| `metadata` | TEXT | Optional JSON metadata |
+
+### Agent-Facing Tools (ScheduleToolkit)
+
+| Tool | Description |
+| --- | --- |
+| `schedule_create` | Create a new schedule with cron expression, prompt, role, timezone |
+| `schedule_list` | List all schedules with optional enabled filter |
+| `schedule_get` | Get schedule details by ID or name |
+| `schedule_update` | Update cron, prompt, enabled, role, or max_iterations |
+| `schedule_delete` | Delete a schedule |
+| `schedule_trigger` | Immediately trigger a schedule without waiting for the next cron tick |
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/api/v1/schedules` | List schedules |
+| `POST` | `/api/v1/schedules` | Create schedule |
+| `GET` | `/api/v1/schedules/{id}` | Get schedule |
+| `PATCH` | `/api/v1/schedules/{id}` | Update schedule |
+| `DELETE` | `/api/v1/schedules/{id}` | Delete schedule |
+| `POST` | `/api/v1/schedules/{id}/trigger` | Manual trigger |
+| `POST` | `/api/v1/schedules/{id}/enable` | Enable schedule |
+| `POST` | `/api/v1/schedules/{id}/disable` | Disable schedule |
+
+### ReactPHP Timer Integration
+
+`ScheduleManager` uses two timer patterns inside the API server's event loop:
+
+- **60-second tick** — evaluates due schedules and creates background tasks. Enforces a minimum 60-second gap (`MIN_INTERVAL_SECONDS`) between consecutive runs of the same schedule to prevent duplicate executions.
+- **Result polling** — after creating tasks, the manager polls for recently completed schedule-linked tasks to update success/failure counters on the schedule record.
+
+### REPL Command
+
+| Command | Description |
+| --- | --- |
+| `/schedules` | Table-formatted list of all schedules with status, cron, next run, and run count |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Storage/ScheduleStore.php` | SQLite CRUD with circuit breaker, cron next-run computation, stats |
+| `src/Api/ScheduleManager.php` | ReactPHP timer-driven scheduler with MIN_INTERVAL_SECONDS enforcement |
+| `src/Api/Handler/ScheduleHandler.php` | 8 REST endpoints for schedule management |
+| `src/Toolkit/ScheduleToolkit.php` | 6 agent-facing tools for self-scheduling |
+
+
+## Webhook System Architecture
+
+Coqui supports receiving external webhooks that trigger agent background tasks. The system verifies webhook signatures (GitHub, Slack, or generic HMAC), logs deliveries for auditing, and provides full CRUD management via both API and agent tools.
+
+### How It Works
+
+1. **External service sends a POST** to `/api/v1/webhooks/incoming/{name}` with a signed payload.
+2. **`WebhookHandler`** looks up the subscription by name, verifies the signature using the appropriate `WebhookVerifierInterface` implementation, and creates a background task with the webhook's prompt template (with `{{payload}}` replaced by the request body).
+3. **`WebhookStore`** persists subscriptions and delivery logs to SQLite. Each subscription auto-generates an HMAC signing secret (`bin2hex(random_bytes(32))`) at creation time.
+4. **`WebhookManagementHandler`** exposes CRUD + secret rotation + delivery log endpoints.
+5. **`WebhookToolkit`** provides 4 agent-facing tools for the agent to create and manage its own webhook subscriptions.
+6. **Delivery purging** — a 3600-second ReactPHP timer periodically calls `purgeOldDeliveries()` to remove delivery records older than 7 days.
+
+### Webhook Subscription Schema
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | TEXT PK | Random hex ID |
+| `name` | TEXT UNIQUE | Subscription name (used in the incoming URL) |
+| `description` | TEXT | Optional description |
+| `source` | TEXT | Verifier type: `generic`, `github`, or `slack` |
+| `secret` | TEXT | HMAC signing secret (auto-generated) |
+| `prompt_template` | TEXT | Prompt with `{{payload}}` placeholder |
+| `role` | TEXT | Agent role for the background task (default: `orchestrator`) |
+| `max_iterations` | INTEGER | Iteration limit (default: 48) |
+| `enabled` | INTEGER | 1 = active, 0 = disabled |
+| `event_filter` | TEXT | Optional comma-separated event types to accept |
+| `trigger_count` | INTEGER | Total deliveries processed |
+
+### Webhook Delivery Log Schema
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `id` | TEXT PK | Random hex ID |
+| `webhook_id` | TEXT FK | References webhook subscription (CASCADE delete) |
+| `event_type` | TEXT | Event type from the request headers |
+| `payload_summary` | TEXT | Truncated payload for auditing |
+| `task_id` | TEXT | Background task created (if any) |
+| `status` | TEXT | Delivery status (e.g. `accepted`, `rejected_disabled`, `rejected_signature`, `rejected_event`) |
+| `source_ip` | TEXT | Sender IP address |
+
+### Signature Verification
+
+Three verifier implementations, selected by the subscription's `source` field:
+
+| Verifier | Source | Header | Algorithm |
+| --- | --- | --- | --- |
+| `GithubWebhookVerifier` | `github` | `X-Hub-Signature-256` | HMAC-SHA256 with `sha256=` prefix |
+| `SlackWebhookVerifier` | `slack` | `X-Slack-Signature` | HMAC-SHA256 v0 signing with 5-minute replay protection |
+| `GenericWebhookVerifier` | `generic` | `X-Webhook-Signature`, `X-Signature`, or `Authorization: Bearer` | HMAC-SHA256 or bearer token match |
+
+`WebhookVerifierRegistry` maps source names to verifier instances. The registry is populated at boot in `ApiCommand`.
+
+### Agent-Facing Tools (WebhookToolkit)
+
+| Tool | Description |
+| --- | --- |
+| `webhook_create` | Create a webhook subscription with prompt template, source type, event filter |
+| `webhook_list` | List all webhook subscriptions |
+| `webhook_get` | Get subscription details by ID |
+| `webhook_delete` | Delete a webhook subscription |
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `POST` | `/api/v1/webhooks/incoming/{name}` | Receive and process incoming webhook |
+| `GET` | `/api/v1/webhooks` | List subscriptions (secrets masked) |
+| `POST` | `/api/v1/webhooks` | Create subscription |
+| `GET` | `/api/v1/webhooks/{id}` | Get subscription |
+| `PUT` | `/api/v1/webhooks/{id}` | Update subscription |
+| `DELETE` | `/api/v1/webhooks/{id}` | Delete subscription |
+| `POST` | `/api/v1/webhooks/{id}/rotate` | Rotate signing secret |
+| `GET` | `/api/v1/webhooks/{id}/deliveries` | List delivery log |
+
+### REPL Command
+
+| Command | Description |
+| --- | --- |
+| `/webhooks` | Table-formatted list of all webhook subscriptions with status, source, and trigger count |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Storage/WebhookStore.php` | SQLite CRUD for subscriptions + delivery log with auto-purge |
+| `src/Api/Handler/WebhookHandler.php` | Incoming webhook receiver with signature verification |
+| `src/Api/Handler/WebhookManagementHandler.php` | CRUD + secret rotation + delivery log endpoints |
+| `src/Contract/WebhookVerifierInterface.php` | Verifier contract: `verify(request, secret): bool` |
+| `src/Api/Webhook/GithubWebhookVerifier.php` | GitHub X-Hub-Signature-256 verification |
+| `src/Api/Webhook/SlackWebhookVerifier.php` | Slack v0 signing with replay protection |
+| `src/Api/Webhook/GenericWebhookVerifier.php` | Generic HMAC or bearer token verification |
+| `src/Api/Webhook/WebhookVerifierRegistry.php` | Maps source names to verifier instances |
+| `src/Toolkit/WebhookToolkit.php` | 4 agent-facing tools for webhook management |
+
+
 ## Artifact-Driven Planning & Role Handoff
 
 Coqui supports structured planning and implementation handoffs via the artifact management system. The `plan` role creates versioned plan artifacts that flow through a lifecycle (`draft` → `review` → `final`), then hand off to the `coder` role for execution.

@@ -1298,9 +1298,150 @@
                 "forPath(string): self — config file not found at path",
                 "unreadable(string): self — config file exists but cannot be read"
             ]
+        },
+        {
+            "path": "src/Storage/ScheduleStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\ScheduleStore",
+            "layer": "storage",
+            "description": "SQLite-backed persistence for scheduled tasks. Stores cron-style schedule definitions that the ScheduleManager evaluates on each tick. Supports one-shot (@once) and recurring schedules with circuit-breaker logic for consecutive failures.",
+            "methods": [
+                "create(string, string, string, ...): string — create a new schedule, returns ID",
+                "get(string): ?array — get schedule by ID",
+                "getByName(string): ?array — get schedule by unique name",
+                "update(string, ...): bool — update schedule fields, recomputes next_run_at",
+                "delete(string): bool — delete a schedule",
+                "list(?bool, ?string, int): array — list schedules with optional filters",
+                "getReadySchedules(DateTimeImmutable): array — get enabled schedules past due",
+                "markExecuted(string, string): void — record execution, update next_run_at",
+                "markSuccess(string): void — record success, reset failure counter",
+                "markFailed(string): bool — record failure, returns true if circuit breaker tripped",
+                "enable(string): bool — enable schedule and reset failure counter",
+                "disable(string): bool — disable schedule",
+                "getStats(): array — count total, enabled, disabled, total_runs",
+                "getUpcoming(int): array — get schedules due within N hours",
+                "forceNextRun(string, string): void — force next_run_at to a specific time",
+                "computeNextRun(string, string): ?DateTimeImmutable — compute next run from cron expression"
+            ]
+        },
+        {
+            "path": "src/Storage/WebhookStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\WebhookStore",
+            "layer": "storage",
+            "description": "SQLite-backed persistence for webhook subscriptions and delivery logs. Webhook subscriptions map incoming HTTP requests to background task creation. Delivery logs provide an audit trail.",
+            "methods": [
+                "create(string, string, ...): string — create webhook subscription, returns ID",
+                "get(string): ?array — get subscription by ID",
+                "getByName(string): ?array — get subscription by unique name",
+                "update(string, ...): bool — update subscription fields",
+                "delete(string): bool — delete subscription and deliveries",
+                "list(?bool, int): array — list subscriptions with optional enabled filter",
+                "rotateSecret(string): ?string — generate and store new signing secret",
+                "markTriggered(string): void — increment trigger count",
+                "getStats(): array — count total, enabled, disabled, total_triggers",
+                "logDelivery(string, string, ...): string — create delivery audit entry",
+                "getDeliveries(string, int): array — get recent deliveries for a webhook",
+                "purgeOldDeliveries(int): int — delete deliveries older than N days"
+            ]
+        },
+        {
+            "path": "src/Api/ScheduleManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\ScheduleManager",
+            "layer": "agent",
+            "description": "ReactPHP timer-driven scheduler that evaluates cron schedules on each tick. Queries ready schedules, creates background tasks via SessionStorage, handles one-shot schedule disabling, and tracks task completion status.",
+            "methods": [
+                "tick(): void — evaluate ready schedules and spawn background tasks",
+                "checkCompletedTasks(): void — poll pending tasks and update schedule status",
+                "trigger(string): ?string — force immediate execution of a schedule",
+                "setOnNotify(Closure): void — set callback for scheduler events"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/ScheduleHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ScheduleHandler",
+            "layer": "agent",
+            "description": "REST API endpoints for schedule CRUD. Provides list, create, get, update, delete, trigger, enable, and disable operations.",
+            "methods": [
+                "list(ServerRequestInterface): Response — GET /api/v1/schedules",
+                "create(ServerRequestInterface): Response — POST /api/v1/schedules",
+                "get(ServerRequestInterface, string): Response — GET /api/v1/schedules/{id}",
+                "update(ServerRequestInterface, string): Response — PATCH /api/v1/schedules/{id}",
+                "delete(ServerRequestInterface, string): Response — DELETE /api/v1/schedules/{id}",
+                "trigger(ServerRequestInterface, string): Response — POST /api/v1/schedules/{id}/trigger",
+                "enable(ServerRequestInterface, string): Response — POST /api/v1/schedules/{id}/enable",
+                "disable(ServerRequestInterface, string): Response — POST /api/v1/schedules/{id}/disable"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/WebhookHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\WebhookHandler",
+            "layer": "agent",
+            "description": "Incoming webhook receiver. Looks up subscriptions by name, verifies HMAC signatures, extracts event types, renders prompt templates with payload data, and spawns background tasks.",
+            "methods": [
+                "register(Router): void — register POST /api/v1/webhooks/incoming/{name} route"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/WebhookManagementHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\WebhookManagementHandler",
+            "layer": "agent",
+            "description": "CRUD API for webhook subscriptions. Provides list, create, get, update, delete, secret rotation, and delivery history.",
+            "methods": [
+                "register(Router): void — register all webhook management routes"
+            ]
+        },
+        {
+            "path": "src/Contract/WebhookVerifierInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\WebhookVerifierInterface",
+            "layer": "contract",
+            "description": "Interface for webhook signature verification. Implementations validate HMAC signatures from different webhook sources.",
+            "methods": [
+                "verify(string, string, array): bool — verify payload signature",
+                "sourceType(): string — return the source type identifier"
+            ]
+        },
+        {
+            "path": "src/Api/Webhook/WebhookVerifierRegistry.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Webhook\\WebhookVerifierRegistry",
+            "layer": "agent",
+            "description": "Registry mapping source types to WebhookVerifierInterface implementations. Auto-registers GitHub, Slack, and Generic verifiers. Falls back to generic for unknown sources.",
+            "methods": [
+                "register(WebhookVerifierInterface): void — add a verifier",
+                "get(string): WebhookVerifierInterface — get verifier by source type",
+                "supportedTypes(): array — list registered source types"
+            ]
+        },
+        {
+            "path": "src/Toolkit/ScheduleToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ScheduleToolkit",
+            "layer": "toolkit",
+            "description": "Agent-facing tools for creating and managing scheduled tasks. Enables the agent to schedule its own future work using cron expressions. 6 tools: schedule_create, schedule_list, schedule_get, schedule_update, schedule_delete, schedule_trigger.",
+            "methods": [
+                "tools(): array — return all 6 schedule tools",
+                "guidelines(): string — dynamic stats and cron reference"
+            ]
+        },
+        {
+            "path": "src/Toolkit/WebhookToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\WebhookToolkit",
+            "layer": "toolkit",
+            "description": "Agent-facing tools for managing webhook subscriptions. 4 tools: webhook_create, webhook_list, webhook_get, webhook_delete. Returns webhook URLs and secrets for external service configuration.",
+            "methods": [
+                "tools(): array — return all 4 webhook tools",
+                "guidelines(): string — dynamic stats and webhook reference"
+            ]
         }
     ],
     "externalDependencies": [
+        {
+            "package": "dragonmantank/cron-expression",
+            "description": "CRON scheduling library for parsing and evaluating cron expressions",
+            "keyFiles": [
+                {
+                    "path": "src/CronExpression.php",
+                    "description": "Parses cron expressions (5-field) and computes next/previous run dates. Used by ScheduleStore for schedule evaluation."
+                }
+            ]
+        },
         {
             "package": "carmelosantana/php-agents",
             "description": "Core library providing agents, toolkits, providers, and the tool-use loop",
