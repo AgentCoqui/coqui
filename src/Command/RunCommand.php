@@ -669,6 +669,16 @@ final class RunCommand extends Command
                 return $this->handleSpaceCommand($io, $arg);
             })(),
 
+            '/schedules' => (function () use ($io, $arg) {
+                $this->handleSchedulesCommand($io, $arg);
+                return true;
+            })(),
+
+            '/webhooks' => (function () use ($io, $arg) {
+                $this->handleWebhooksCommand($io, $arg);
+                return true;
+            })(),
+
             '/help' => (function () use ($io) {
                 $io->table(
                     ['Command', 'Description'],
@@ -692,6 +702,8 @@ final class RunCommand extends Command
                         ['/roles ignore <name>', 'Ignore future updates for a role'],
                         ['/roles unignore <name>', 'Resume receiving updates for a role'],
                         ['/space [search|install|remove|installed|skills|toolkits|update]', 'Coqui Space marketplace'],
+                        ['/schedules', 'List scheduled tasks with status and next run time'],
+                        ['/webhooks', 'List webhook subscriptions with status and trigger counts'],
                         ['/summarize [recent N] [focus "topic"]', 'Summarize conversation history to save tokens'],
                         ['/update', 'Check for and apply dependency updates'],
                         ['/restart', 'Restart Coqui (re-reads config, re-discovers toolkits)'],
@@ -1766,6 +1778,67 @@ final class RunCommand extends Command
         if (!empty($parts)) {
             $io->text('<fg=gray>' . implode(' | ', $parts) . '</>');
         }
+    }
+
+    private function handleSchedulesCommand(SymfonyStyle $io, string $arg = ''): void
+    {
+        $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
+        $schedules = $scheduleStore->list();
+
+        if (empty($schedules)) {
+            $io->info('No scheduled tasks. Create schedules via the agent (schedule_create tool) or the API.');
+            return;
+        }
+
+        $stats = $scheduleStore->getStats();
+        $io->section(sprintf('Schedules (%d active / %d total)', $stats['enabled'], $stats['total']));
+
+        $rows = [];
+        foreach ($schedules as $s) {
+            $status = ((int) $s['enabled']) ? '<fg=green>✓</>' : '<fg=red>✗</>';
+            $rows[] = [
+                $status,
+                substr($s['id'], 0, 8) . '...',
+                $s['name'],
+                $s['schedule_expression'],
+                $s['next_run_at'] ?? 'N/A',
+                $s['last_status'] ?? '-',
+                $s['run_count'],
+                $s['failure_count'],
+            ];
+        }
+
+        $io->table(['', 'ID', 'Name', 'Expression', 'Next Run', 'Last Status', 'Runs', 'Fails'], $rows);
+    }
+
+    private function handleWebhooksCommand(SymfonyStyle $io, string $arg = ''): void
+    {
+        $webhookStore = new \CoquiBot\Coqui\Storage\WebhookStore($this->storage->getPdo());
+        $webhooks = $webhookStore->list();
+
+        if (empty($webhooks)) {
+            $io->info('No webhook subscriptions. Create webhooks via the agent (webhook_create tool) or the API.');
+            return;
+        }
+
+        $stats = $webhookStore->getStats();
+        $io->section(sprintf('Webhooks (%d active / %d total — %d deliveries)', $stats['enabled'], $stats['total'], $stats['total_triggers']));
+
+        $rows = [];
+        foreach ($webhooks as $w) {
+            $status = ((int) $w['enabled']) ? '<fg=green>✓</>' : '<fg=red>✗</>';
+            $rows[] = [
+                $status,
+                substr($w['id'], 0, 8) . '...',
+                $w['name'],
+                $w['source'],
+                $w['event_filter'] ?? '*',
+                $w['trigger_count'],
+                $w['last_triggered_at'] ?? 'never',
+            ];
+        }
+
+        $io->table(['', 'ID', 'Name', 'Source', 'Events', 'Triggers', 'Last Triggered'], $rows);
     }
 
     private function taskStatusCommand(SymfonyStyle $io, string $taskIdPrefix = ''): void
