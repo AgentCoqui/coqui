@@ -19,6 +19,9 @@ final class WebhookStore
 {
     private const int DELIVERY_RETENTION_DAYS = 7;
 
+    /** Supported webhook source types for signature verification. */
+    public const array VALID_SOURCES = ['generic', 'github', 'slack'];
+
     private PDO $db;
 
     public function __construct(PDO $db)

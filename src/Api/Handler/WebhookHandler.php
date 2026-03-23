@@ -63,6 +63,12 @@ final readonly class WebhookHandler
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Empty request body');
         }
 
+        // Reject oversized payloads (1 MB limit)
+        if (strlen($payload) > 1_048_576) {
+            $this->logDelivery($webhook, 'rejected_too_large', request: $request);
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Payload exceeds 1 MB limit');
+        }
+
         // Verify signature
         $headers = $this->normalizeHeaders($request);
         $verifier = $this->verifierRegistry->get((string) $webhook['source']);

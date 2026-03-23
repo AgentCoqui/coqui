@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\ScheduleManager;
 use CoquiBot\Coqui\Storage\ScheduleStore;
+use CoquiBot\Coqui\Utility\ScheduleValidator;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -65,14 +66,9 @@ final readonly class ScheduleHandler
         }
 
         $name = isset($body['name']) ? trim((string) $body['name']) : '';
-        if ($name === '') {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'name is required');
-        }
-        if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/', $name)) {
-            return Router::errorResponse(
-                ApiErrorCode::VALIDATION_ERROR,
-                'Name must be 1-64 alphanumeric characters, hyphens, or underscores (must start with alphanumeric)',
-            );
+        if (($error = ScheduleValidator::validateName($name)) !== null) {
+            $nameCode = $name === '' ? ApiErrorCode::MISSING_FIELD : ApiErrorCode::VALIDATION_ERROR;
+            return Router::errorResponse($nameCode, $error);
         }
 
         // Check uniqueness
@@ -81,37 +77,28 @@ final readonly class ScheduleHandler
         }
 
         $expression = isset($body['schedule_expression']) ? trim((string) $body['schedule_expression']) : '';
-        if ($expression === '') {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'schedule_expression is required');
-        }
-        if (!ScheduleStore::isValidExpression($expression)) {
-            return Router::errorResponse(
-                ApiErrorCode::VALIDATION_ERROR,
-                'Invalid schedule expression. Use cron format (e.g., "0 9 * * *") or "@once" for one-shot.',
-            );
+        if (($error = ScheduleValidator::validateExpression($expression)) !== null) {
+            $exprCode = $expression === '' ? ApiErrorCode::MISSING_FIELD : ApiErrorCode::VALIDATION_ERROR;
+            return Router::errorResponse($exprCode, $error);
         }
 
         $prompt = isset($body['prompt']) ? trim((string) $body['prompt']) : '';
         if ($prompt === '') {
             return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'prompt is required');
         }
-        if (mb_strlen($prompt) > 50000) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Prompt must be 50000 characters or less');
+        if (($error = ScheduleValidator::validatePromptLength($prompt)) !== null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
         }
 
         $role = isset($body['role']) ? trim((string) $body['role']) : 'orchestrator';
-        $maxIterations = isset($body['max_iterations']) ? (int) $body['max_iterations'] : 48;
-        $maxIterations = max(1, min($maxIterations, 100));
+        $maxIterations = ScheduleValidator::normalizeMaxIterations(isset($body['max_iterations']) ? (int) $body['max_iterations'] : 48);
 
         $timezone = isset($body['timezone']) ? trim((string) $body['timezone']) : 'UTC';
-        try {
-            new \DateTimeZone($timezone);
-        } catch (\Throwable) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, sprintf('Invalid timezone: %s', $timezone));
+        if (($error = ScheduleValidator::validateTimezone($timezone)) !== null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
         }
 
-        $maxFailures = isset($body['max_failures']) ? (int) $body['max_failures'] : 3;
-        $maxFailures = max(1, min($maxFailures, 100));
+        $maxFailures = ScheduleValidator::normalizeMaxFailures(isset($body['max_failures']) ? (int) $body['max_failures'] : 3);
 
         $id = $this->store->create(
             name: $name,
@@ -159,8 +146,8 @@ final readonly class ScheduleHandler
         }
 
         $name = isset($body['name']) ? trim((string) $body['name']) : null;
-        if ($name !== null && !preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/', $name)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid name format');
+        if ($name !== null && ($error = ScheduleValidator::validateName($name)) !== null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
         }
         if ($name !== null && $name !== $schedule['name']) {
             $existing = $this->store->getByName($name);
@@ -170,27 +157,23 @@ final readonly class ScheduleHandler
         }
 
         $expression = isset($body['schedule_expression']) ? trim((string) $body['schedule_expression']) : null;
-        if ($expression !== null && !ScheduleStore::isValidExpression($expression)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid schedule expression');
+        if ($expression !== null && ($error = ScheduleValidator::validateExpression($expression)) !== null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
         }
 
         $prompt = isset($body['prompt']) ? trim((string) $body['prompt']) : null;
-        if ($prompt !== null && mb_strlen($prompt) > 50000) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Prompt must be 50000 characters or less');
+        if ($prompt !== null && ($error = ScheduleValidator::validatePromptLength($prompt)) !== null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
         }
 
         $timezone = isset($body['timezone']) ? trim((string) $body['timezone']) : null;
-        if ($timezone !== null) {
-            try {
-                new \DateTimeZone($timezone);
-            } catch (\Throwable) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, sprintf('Invalid timezone: %s', $timezone));
-            }
+        if ($timezone !== null && ($error = ScheduleValidator::validateTimezone($timezone)) !== null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $error);
         }
 
         $enabled = isset($body['enabled']) ? (bool) $body['enabled'] : null;
-        $maxIterations = isset($body['max_iterations']) ? max(1, min((int) $body['max_iterations'], 100)) : null;
-        $maxFailures = isset($body['max_failures']) ? max(1, min((int) $body['max_failures'], 100)) : null;
+        $maxIterations = isset($body['max_iterations']) ? ScheduleValidator::normalizeMaxIterations((int) $body['max_iterations']) : null;
+        $maxFailures = isset($body['max_failures']) ? ScheduleValidator::normalizeMaxFailures((int) $body['max_failures']) : null;
 
         $this->store->update(
             id: $id,

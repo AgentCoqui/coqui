@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 
 use CoquiBot\Coqui\Storage\WebhookStore;
+use CoquiBot\Coqui\Utility\SecretMasker;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -25,7 +26,6 @@ use React\Http\Message\Response;
  */
 final readonly class WebhookManagementHandler
 {
-    private const array VALID_SOURCES = ['generic', 'github', 'slack'];
 
     public function __construct(
         private WebhookStore $webhookStore,
@@ -77,6 +77,12 @@ final readonly class WebhookManagementHandler
         if ($name === '') {
             return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'name is required');
         }
+        if (!preg_match('/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/', $name)) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                'Name must be 1-64 alphanumeric characters, hyphens, or underscores (must start with alphanumeric)',
+            );
+        }
         if ($promptTemplate === '') {
             return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'prompt_template is required');
         }
@@ -88,10 +94,10 @@ final readonly class WebhookManagementHandler
 
         // Validate source type
         $source = (string) ($body['source'] ?? 'generic');
-        if (!in_array($source, self::VALID_SOURCES, true)) {
+        if (!in_array($source, WebhookStore::VALID_SOURCES, true)) {
             return Router::errorResponse(
                 ApiErrorCode::VALIDATION_ERROR,
-                'Invalid source type. Supported: ' . implode(', ', self::VALID_SOURCES),
+                'Invalid source type. Supported: ' . implode(', ', WebhookStore::VALID_SOURCES),
             );
         }
 
@@ -149,10 +155,10 @@ final readonly class WebhookManagementHandler
         // Validate source type if changing
         if (isset($body['source'])) {
             $source = (string) $body['source'];
-            if (!in_array($source, self::VALID_SOURCES, true)) {
+            if (!in_array($source, WebhookStore::VALID_SOURCES, true)) {
                 return Router::errorResponse(
                     ApiErrorCode::VALIDATION_ERROR,
-                    'Invalid source type. Supported: ' . implode(', ', self::VALID_SOURCES),
+                    'Invalid source type. Supported: ' . implode(', ', WebhookStore::VALID_SOURCES),
                 );
             }
         }
@@ -220,11 +226,7 @@ final readonly class WebhookManagementHandler
     private function maskSecret(array $webhook): array
     {
         $secret = (string) ($webhook['secret'] ?? '');
-        if (mb_strlen($secret) > 8) {
-            $webhook['secret'] = mb_substr($secret, 0, 4) . str_repeat('*', mb_strlen($secret) - 8) . mb_substr($secret, -4);
-        } else {
-            $webhook['secret'] = str_repeat('*', mb_strlen($secret));
-        }
+        $webhook['secret'] = SecretMasker::mask($secret);
         return $webhook;
     }
 }

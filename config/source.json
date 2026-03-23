@@ -1414,9 +1414,9 @@
             "path": "src/Toolkit/ScheduleToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\ScheduleToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing tools for creating and managing scheduled tasks. Enables the agent to schedule its own future work using cron expressions. 6 tools: schedule_create, schedule_list, schedule_get, schedule_update, schedule_delete, schedule_trigger.",
+            "description": "Agent-facing tools for creating and managing scheduled tasks. Enables the agent to schedule its own future work using cron expressions. 8 tools: schedule_create, schedule_list, schedule_get, schedule_update, schedule_delete, schedule_trigger, schedule_enable, schedule_disable. Uses ScheduleValidator for shared input validation.",
             "methods": [
-                "tools(): array — return all 6 schedule tools",
+                "tools(): array — return all 8 schedule tools",
                 "guidelines(): string — dynamic stats and cron reference"
             ]
         },
@@ -1424,10 +1424,33 @@
             "path": "src/Toolkit/WebhookToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\WebhookToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing tools for managing webhook subscriptions. 4 tools: webhook_create, webhook_list, webhook_get, webhook_delete. Returns webhook URLs and secrets for external service configuration.",
+            "description": "Agent-facing tools for managing webhook subscriptions. 6 tools: webhook_create, webhook_list, webhook_get, webhook_update, webhook_delete, webhook_rotate_secret. Returns webhook URLs and secrets for external service configuration. Uses SecretMasker for consistent secret display.",
             "methods": [
-                "tools(): array — return all 4 webhook tools",
+                "tools(): array — return all 6 webhook tools",
                 "guidelines(): string — dynamic stats and webhook reference"
+            ]
+        }
+        ,{
+            "path": "src/Utility/SecretMasker.php",
+            "fqcn": "CoquiBot\\Coqui\\Utility\\SecretMasker",
+            "layer": "config",
+            "description": "Consistent secret masking across the application. Shows first N and last N characters with asterisks in between. Used by WebhookManagementHandler and WebhookToolkit.",
+            "methods": [
+                "mask(string, int, int): string — mask a secret, showing prefix/suffix with asterisks"
+            ]
+        },
+        {
+            "path": "src/Utility/ScheduleValidator.php",
+            "fqcn": "CoquiBot\\Coqui\\Utility\\ScheduleValidator",
+            "layer": "config",
+            "description": "Shared validation for schedule parameters. Used by both ScheduleHandler (API) and ScheduleToolkit (agent tools) to ensure consistent validation of names, cron expressions, timezones, prompt lengths, and iteration/failure limits.",
+            "methods": [
+                "validateName(string): ?string — validate schedule name format (lowercase, hyphens, underscores, max 100)",
+                "validateExpression(string): ?string — validate cron expression or @once",
+                "validateTimezone(string): ?string — validate IANA timezone",
+                "validatePromptLength(string): ?string — enforce max 50,000 char prompt length",
+                "normalizeMaxIterations(int): int — clamp to 1-100",
+                "normalizeMaxFailures(int): int — clamp to 1-100"
             ]
         }
     ],

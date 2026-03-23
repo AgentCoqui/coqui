@@ -11,7 +11,9 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CoquiBot\Coqui\Api\ScheduleManager;
 use CoquiBot\Coqui\Storage\ScheduleStore;
+use CoquiBot\Coqui\Utility\ScheduleValidator;
 
 /**
  * Agent-facing tools for creating and managing scheduled tasks.
@@ -28,6 +30,7 @@ final readonly class ScheduleToolkit implements ToolkitInterface
 {
     public function __construct(
         private ScheduleStore $scheduleStore,
+        private ?ScheduleManager $scheduleManager = null,
     ) {}
 
     public function tools(): array
@@ -39,6 +42,8 @@ final readonly class ScheduleToolkit implements ToolkitInterface
             $this->updateScheduleTool(),
             $this->deleteScheduleTool(),
             $this->triggerScheduleTool(),
+            $this->enableScheduleTool(),
+            $this->disableScheduleTool(),
         ];
     }
 
@@ -235,6 +240,38 @@ final readonly class ScheduleToolkit implements ToolkitInterface
         );
     }
 
+    private function enableScheduleTool(): Tool
+    {
+        return new Tool(
+            name: 'schedule_enable',
+            description: 'Enable a disabled schedule so it resumes automatic execution. Also resets the failure counter.',
+            parameters: [
+                new StringParameter(
+                    name: 'id',
+                    description: 'Schedule ID or name',
+                    required: true,
+                ),
+            ],
+            callback: fn(array $args): ToolResult => $this->executeEnable($args),
+        );
+    }
+
+    private function disableScheduleTool(): Tool
+    {
+        return new Tool(
+            name: 'schedule_disable',
+            description: 'Disable a schedule to stop automatic execution. The schedule is preserved and can be re-enabled later.',
+            parameters: [
+                new StringParameter(
+                    name: 'id',
+                    description: 'Schedule ID or name',
+                    required: true,
+                ),
+            ],
+            callback: fn(array $args): ToolResult => $this->executeDisable($args),
+        );
+    }
+
     // =========================================================================
     // Tool Implementations
     // =========================================================================
@@ -252,26 +289,32 @@ final readonly class ScheduleToolkit implements ToolkitInterface
             return ToolResult::error('name, cron, and prompt are required');
         }
 
+        if (($error = ScheduleValidator::validateName($name)) !== null) {
+            return ToolResult::error($error);
+        }
+
         // Check for duplicate name
         if ($this->scheduleStore->getByName($name) !== null) {
             return ToolResult::error("Schedule '{$name}' already exists. Use schedule_update to modify it.");
         }
 
         // Validate cron expression
-        $isOneShot = ($cron === '@once');
-        if (!$isOneShot && !\Cron\CronExpression::isValidExpression($cron)) {
-            return ToolResult::error("Invalid cron expression: {$cron}. Use standard 5-field cron format or '@once'.");
+        if (($error = ScheduleValidator::validateExpression($cron)) !== null) {
+            return ToolResult::error($error);
+        }
+
+        if (($error = ScheduleValidator::validatePromptLength($prompt)) !== null) {
+            return ToolResult::error($error);
         }
 
         $timezone = trim((string) ($args['timezone'] ?? 'UTC'));
-        try {
-            new \DateTimeZone($timezone);
-        } catch (\Throwable) {
-            return ToolResult::error("Invalid timezone: {$timezone}");
+        if (($error = ScheduleValidator::validateTimezone($timezone)) !== null) {
+            return ToolResult::error($error);
         }
 
         $role = (string) ($args['role'] ?? 'orchestrator');
-        $maxIterations = max(1, min(100, (int) ($args['max_iterations'] ?? 48)));
+        $maxIterations = ScheduleValidator::normalizeMaxIterations((int) ($args['max_iterations'] ?? 48));
+        $isOneShot = ($cron === '@once');
 
         $id = $this->scheduleStore->create(
             name: $name,
@@ -360,12 +403,24 @@ final readonly class ScheduleToolkit implements ToolkitInterface
 
         // Validate cron if provided
         $cron = isset($args['cron']) ? trim((string) $args['cron']) : null;
-        if ($cron !== null && $cron !== '@once' && !\Cron\CronExpression::isValidExpression($cron)) {
-            return ToolResult::error("Invalid cron expression: {$cron}");
+        if ($cron !== null && ($error = ScheduleValidator::validateExpression($cron)) !== null) {
+            return ToolResult::error($error);
+        }
+
+        // Validate prompt length if provided
+        $prompt = isset($args['prompt']) ? trim((string) $args['prompt']) : null;
+        if ($prompt !== null && ($error = ScheduleValidator::validatePromptLength($prompt)) !== null) {
+            return ToolResult::error($error);
+        }
+
+        // Validate timezone if provided
+        $timezone = isset($args['timezone']) ? trim((string) $args['timezone']) : null;
+        if ($timezone !== null && ($error = ScheduleValidator::validateTimezone($timezone)) !== null) {
+            return ToolResult::error($error);
         }
 
         $maxIterations = isset($args['max_iterations'])
-            ? max(1, min(100, (int) $args['max_iterations']))
+            ? ScheduleValidator::normalizeMaxIterations((int) $args['max_iterations'])
             : null;
 
         $this->scheduleStore->update(
@@ -414,20 +469,68 @@ final readonly class ScheduleToolkit implements ToolkitInterface
             return ToolResult::error('Schedule not found');
         }
 
-        // This creates a background task directly — requires ScheduleManager
-        // For now, we update the next_run_at to trigger on next tick
         $id = (string) $schedule['id'];
+        $name = (string) $schedule['name'];
+
+        // If ScheduleManager is available (API server context), trigger immediately
+        if ($this->scheduleManager !== null) {
+            $taskId = $this->scheduleManager->trigger($id);
+            if ($taskId === null) {
+                return ToolResult::error('Failed to trigger schedule');
+            }
+
+            return ToolResult::success((string) json_encode([
+                'message' => "Schedule '{$name}' triggered immediately",
+                'schedule_id' => $id,
+                'task_id' => $taskId,
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        }
+
+        // Fallback: force next_run_at to now so the scheduler picks it up on next tick
         $now = gmdate('Y-m-d\TH:i:s\Z');
-
         $this->scheduleStore->update($id, enabled: true);
-
-        // Force next_run_at to now so the scheduler picks it up on next tick
         $this->scheduleStore->forceNextRun($id, $now);
 
         return ToolResult::success((string) json_encode([
-            'message' => "Schedule '{$schedule['name']}' will be triggered on next scheduler tick (within 60 seconds)",
+            'message' => "Schedule '{$name}' will be triggered on next scheduler tick (within 60 seconds)",
             'schedule_id' => $id,
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * @param array<string, mixed> $args
+     */
+    private function executeEnable(array $args): ToolResult
+    {
+        $schedule = $this->resolveSchedule((string) ($args['id'] ?? ''));
+        if ($schedule === null) {
+            return ToolResult::error('Schedule not found');
+        }
+
+        $id = (string) $schedule['id'];
+        $name = (string) $schedule['name'];
+
+        $this->scheduleStore->enable($id);
+
+        return ToolResult::success("Schedule '{$name}' enabled. Failure counter reset.");
+    }
+
+    /**
+     * @param array<string, mixed> $args
+     */
+    private function executeDisable(array $args): ToolResult
+    {
+        $schedule = $this->resolveSchedule((string) ($args['id'] ?? ''));
+        if ($schedule === null) {
+            return ToolResult::error('Schedule not found');
+        }
+
+        $id = (string) $schedule['id'];
+        $name = (string) $schedule['name'];
+
+        $this->scheduleStore->disable($id);
+
+        return ToolResult::success("Schedule '{$name}' disabled.");
     }
 
     /**

@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Storage\WebhookStore;
+use CoquiBot\Coqui\Utility\SecretMasker;
 
 /**
  * Agent-facing tools for managing webhook subscriptions.
@@ -31,7 +32,9 @@ final readonly class WebhookToolkit implements ToolkitInterface
             $this->createWebhookTool(),
             $this->listWebhooksTool(),
             $this->getWebhookTool(),
+            $this->updateWebhookTool(),
             $this->deleteWebhookTool(),
+            $this->rotateSecretTool(),
         ];
     }
 
@@ -94,7 +97,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
                 new EnumParameter(
                     name: 'source',
                     description: 'Signature verification scheme',
-                    values: ['generic', 'github', 'slack'],
+                    values: WebhookStore::VALID_SOURCES,
                     required: false,
                 ),
                 new StringParameter(
@@ -151,6 +154,56 @@ final readonly class WebhookToolkit implements ToolkitInterface
         );
     }
 
+    private function updateWebhookTool(): Tool
+    {
+        return new Tool(
+            name: 'webhook_update',
+            description: 'Update a webhook subscription\'s prompt template, source type, event filter, enabled state, or other properties.',
+            parameters: [
+                new StringParameter(
+                    name: 'id',
+                    description: 'Webhook ID or name',
+                    required: true,
+                ),
+                new StringParameter(
+                    name: 'prompt_template',
+                    description: 'New prompt template',
+                    required: false,
+                ),
+                new EnumParameter(
+                    name: 'source',
+                    description: 'New signature verification scheme',
+                    values: WebhookStore::VALID_SOURCES,
+                    required: false,
+                ),
+                new StringParameter(
+                    name: 'event_filter',
+                    description: 'New comma-separated event type filter (empty string to clear)',
+                    required: false,
+                ),
+                new StringParameter(
+                    name: 'description',
+                    description: 'New description',
+                    required: false,
+                ),
+                new NumberParameter(
+                    name: 'max_iterations',
+                    description: 'New max iterations (1-100)',
+                    required: false,
+                    integer: true,
+                    minimum: 1,
+                    maximum: 100,
+                ),
+                new StringParameter(
+                    name: 'role',
+                    description: 'New role for triggered tasks',
+                    required: false,
+                ),
+            ],
+            callback: fn(array $args): ToolResult => $this->executeUpdate($args),
+        );
+    }
+
     private function deleteWebhookTool(): Tool
     {
         return new Tool(
@@ -164,6 +217,22 @@ final readonly class WebhookToolkit implements ToolkitInterface
                 ),
             ],
             callback: fn(array $args): ToolResult => $this->executeDelete($args),
+        );
+    }
+
+    private function rotateSecretTool(): Tool
+    {
+        return new Tool(
+            name: 'webhook_rotate_secret',
+            description: 'Rotate the signing secret for a webhook. Returns the new secret — update the external service configuration immediately.',
+            parameters: [
+                new StringParameter(
+                    name: 'id',
+                    description: 'Webhook ID or name',
+                    required: true,
+                ),
+            ],
+            callback: fn(array $args): ToolResult => $this->executeRotateSecret($args),
         );
     }
 
@@ -262,9 +331,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
 
         // Mask the secret
         $secret = (string) $webhook['secret'];
-        if (mb_strlen($secret) > 8) {
-            $webhook['secret'] = mb_substr($secret, 0, 4) . '****' . mb_substr($secret, -4);
-        }
+        $webhook['secret'] = SecretMasker::mask($secret);
 
         return ToolResult::success((string) json_encode([
             'webhook' => $webhook,
@@ -286,6 +353,81 @@ final readonly class WebhookToolkit implements ToolkitInterface
         $this->webhookStore->delete((string) $webhook['id']);
 
         return ToolResult::success("Webhook '{$name}' deleted.");
+    }
+
+    /**
+     * @param array<string, mixed> $args
+     */
+    private function executeUpdate(array $args): ToolResult
+    {
+        $webhook = $this->resolveWebhook((string) ($args['id'] ?? ''));
+        if ($webhook === null) {
+            return ToolResult::error('Webhook not found');
+        }
+
+        $id = (string) $webhook['id'];
+
+        $promptTemplate = isset($args['prompt_template']) ? trim((string) $args['prompt_template']) : null;
+        $source = isset($args['source']) ? (string) $args['source'] : null;
+        $role = isset($args['role']) ? (string) $args['role'] : null;
+        $description = isset($args['description']) ? trim((string) $args['description']) : null;
+        $maxIterations = isset($args['max_iterations']) ? max(1, min(100, (int) $args['max_iterations'])) : null;
+
+        $eventFilter = null;
+        $hasEventFilter = isset($args['event_filter']);
+        if ($hasEventFilter) {
+            $filter = trim((string) $args['event_filter']);
+            $eventFilter = $filter !== '' ? $filter : '';
+        }
+
+        if ($promptTemplate === null && $source === null && $role === null
+            && $description === null && $maxIterations === null && !$hasEventFilter) {
+            return ToolResult::error('No fields to update. Provide at least one field.');
+        }
+
+        $this->webhookStore->update(
+            id: $id,
+            promptTemplate: $promptTemplate,
+            source: $source,
+            role: $role,
+            description: $description,
+            maxIterations: $maxIterations,
+            eventFilter: $hasEventFilter ? ($eventFilter !== '' ? $eventFilter : '') : null,
+        );
+
+        $updated = $this->webhookStore->get($id);
+
+        if ($updated !== null) {
+            $updated['secret'] = SecretMasker::mask((string) $updated['secret']);
+        }
+
+        return ToolResult::success((string) json_encode([
+            'message' => "Webhook '{$webhook['name']}' updated",
+            'webhook' => $updated,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * @param array<string, mixed> $args
+     */
+    private function executeRotateSecret(array $args): ToolResult
+    {
+        $webhook = $this->resolveWebhook((string) ($args['id'] ?? ''));
+        if ($webhook === null) {
+            return ToolResult::error('Webhook not found');
+        }
+
+        $id = (string) $webhook['id'];
+        $name = (string) $webhook['name'];
+
+        $newSecret = $this->webhookStore->rotateSecret($id);
+        $baseUrl = $this->apiBaseUrl !== '' ? $this->apiBaseUrl : 'http://localhost:3300';
+
+        return ToolResult::success((string) json_encode([
+            'message' => "Secret rotated for webhook '{$name}'. Update the external service immediately.",
+            'webhook_url' => "{$baseUrl}/api/v1/webhooks/incoming/{$name}",
+            'new_secret' => $newSecret,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
     /**

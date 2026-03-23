@@ -63,7 +63,21 @@ final class ScheduleManager
         $readySchedules = $this->scheduleStore->getReadySchedules($now);
 
         foreach ($readySchedules as $schedule) {
-            $this->executeSchedule($schedule, $now);
+            try {
+                $this->executeSchedule($schedule, $now);
+            } catch (\Throwable $e) {
+                $scheduleId = (string) $schedule['id'];
+                $scheduleName = (string) $schedule['name'];
+
+                // Mark as failed so the circuit breaker can track it
+                $this->scheduleStore->markFailed($scheduleId);
+
+                $this->notify('schedule.error', [
+                    'schedule_id' => $scheduleId,
+                    'schedule_name' => $scheduleName,
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
     }
 
@@ -83,6 +97,11 @@ final class ScheduleManager
                 $lastRun = new \DateTimeImmutable($schedule['last_run_at']);
                 $elapsed = $now->getTimestamp() - $lastRun->getTimestamp();
                 if ($elapsed < self::MIN_INTERVAL_SECONDS) {
+                    $this->notify('schedule.skipped', [
+                        'schedule_id' => $scheduleId,
+                        'schedule_name' => $scheduleName,
+                        'reason' => sprintf('Minimum interval not elapsed (%ds since last run, requires %ds)', $elapsed, self::MIN_INTERVAL_SECONDS),
+                    ]);
                     return;
                 }
             } catch (\Throwable) {
