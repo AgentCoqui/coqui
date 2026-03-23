@@ -231,6 +231,7 @@ final class OrchestratorAgent extends AbstractAgent
                 $artifactStore,
                 $this->sessionId,
                 planTodoGenerator: $planTodoGenerator,
+                todoStore: $todoStore,
             ));
         }
 
@@ -243,6 +244,7 @@ final class OrchestratorAgent extends AbstractAgent
                 $this->sessionId,
                 $activeRoleName,
                 $effectiveAccessLevel,
+                $artifactStore ?? null,
             ));
         }
 
@@ -344,6 +346,8 @@ final class OrchestratorAgent extends AbstractAgent
                 roleResolver: $this->roleResolver,
                 config: $this->config,
                 sessionId: $this->sessionId,
+                todoStore: $todoStore ?? null,
+                artifactStore: $artifactStore ?? null,
             );
         }
 

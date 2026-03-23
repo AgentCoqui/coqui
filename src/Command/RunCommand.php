@@ -165,6 +165,8 @@ final class RunCommand extends Command
             configGuard: new ConfigGuard(),
             visibilityRegistry: $this->boot->visibilityRegistry(),
             spaceToolkit: $this->boot->spaceToolkit(),
+            todoStore: $this->boot->todoStore(),
+            artifactStore: $this->boot->artifactStore(),
         );
 
         // Handle session
@@ -867,11 +869,13 @@ final class RunCommand extends Command
         $io->text('<fg=gray>Summarizing conversation...</>');
 
         try {
+            $workflowContext = $this->buildSummarizeWorkflowContext();
             $result = $summarizer->summarizeAndPersist(
                 sessionId: $this->sessionId,
                 provider: $provider,
                 keepRecentTurns: $keepRecent,
                 focus: $focus,
+                workflowContext: $workflowContext,
             );
         } catch (\Throwable $e) {
             $io->error('Summarization failed: ' . $e->getMessage());
@@ -892,6 +896,66 @@ final class RunCommand extends Command
         ));
 
         return true;
+    }
+
+    /**
+     * Build workflow context for summarization from session todos and artifacts.
+     */
+    private function buildSummarizeWorkflowContext(): ?string
+    {
+        $sections = [];
+
+        try {
+            $todoStore = $this->boot->todoStore();
+            if ($todoStore !== null) {
+                $stats = $todoStore->getStats($this->sessionId);
+                $total = $stats['total'];
+
+                if ($total > 0) {
+                    $lines = ["Todos: {$stats['completed']}/{$total} completed"];
+
+                    foreach ($todoStore->list($this->sessionId, 'in_progress') as $todo) {
+                        $lines[] = "  - [in_progress] {$todo['title']}";
+                    }
+
+                    $pending = $todoStore->list($this->sessionId, 'pending');
+                    foreach (array_slice($pending, 0, 5) as $todo) {
+                        $lines[] = "  - [pending] {$todo['title']}";
+                    }
+                    if (count($pending) > 5) {
+                        $lines[] = '  - ... and ' . (count($pending) - 5) . ' more pending';
+                    }
+
+                    $sections[] = implode("\n", $lines);
+                }
+            }
+        } catch (\Throwable) {
+            // Non-critical
+        }
+
+        try {
+            $artifactStore = $this->boot->artifactStore();
+            if ($artifactStore !== null) {
+                $artifacts = $artifactStore->list($this->sessionId);
+                if ($artifacts !== []) {
+                    $lines = ['Artifacts:'];
+                    foreach (array_slice($artifacts, 0, 5) as $artifact) {
+                        $type = $artifact['type'] ?? 'unknown';
+                        $stage = $artifact['stage'] ?? 'draft';
+                        $title = $artifact['title'] ?? 'Untitled';
+                        $lines[] = "  - [{$type}/{$stage}] {$title}";
+                    }
+                    if (count($artifacts) > 5) {
+                        $lines[] = '  - ... and ' . (count($artifacts) - 5) . ' more';
+                    }
+                    $sections[] = implode("\n", $lines);
+                }
+            }
+        } catch (\Throwable) {
+            // Non-critical
+        }
+
+        return $sections !== [] ? implode("\n", $sections) : null;
     }
 
     /**
@@ -1989,6 +2053,8 @@ final class RunCommand extends Command
             configManager: $this->boot->configManager(),
             configGuard: new ConfigGuard(),
             spaceToolkit: $this->boot->spaceToolkit(),
+            todoStore: $this->boot->todoStore(),
+            artifactStore: $this->boot->artifactStore(),
         );
 
         // Handle session

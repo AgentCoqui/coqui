@@ -143,6 +143,8 @@ final class TaskRunCommand extends Command
             memorySummarizer: $boot->memorySummarizer(),
             mountManager: $boot->mountManager(),
             spaceToolkit: $boot->spaceToolkit(),
+            todoStore: $boot->todoStore(),
+            artifactStore: $boot->artifactStore(),
         );
 
         // Create execution policy (auto-approve — no human in the loop)

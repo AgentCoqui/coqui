@@ -226,11 +226,11 @@ final class ApiCommand extends Command
         );
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($previewRunner);
-        $summarizeHandler = new SummarizeHandler($storage, $boot->config(), $boot->roleResolver(), $boot->memoryStore());
         $artifactStore = new ArtifactStore($storage->getPdo());
         $artifactHandler = new ArtifactHandler($artifactStore);
         $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($storage->getPdo());
         $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
+        $summarizeHandler = new SummarizeHandler($storage, $boot->config(), $boot->roleResolver(), $boot->memoryStore(), $todoStore, $artifactStore);
 
         // Build router
         $router = new Router();

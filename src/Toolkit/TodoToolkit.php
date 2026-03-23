@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
+use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\TodoStore;
 
 /**
@@ -40,6 +41,7 @@ final class TodoToolkit implements ToolkitInterface
         private readonly string $sessionId,
         private readonly string $currentRole = 'orchestrator',
         private readonly string $accessLevel = 'full',
+        private readonly ?ArtifactStore $artifactStore = null,
     ) {}
 
     public function tools(): array
@@ -99,10 +101,12 @@ final class TodoToolkit implements ToolkitInterface
 
         $lines = [];
         foreach ($activeTodos as $todo) {
-            $lines[] = sprintf('- 🔲 **[in_progress]** %s (id: %s)', $todo['title'], substr($todo['id'], 0, 8) . '...');
+            $artifactRef = $this->resolveArtifactRef($todo['artifact_id'] ?? null);
+            $lines[] = sprintf('- 🔲 **[in_progress]** %s (id: %s)%s', $todo['title'], substr($todo['id'], 0, 8) . '...', $artifactRef);
         }
         foreach ($pendingTodos as $todo) {
-            $lines[] = sprintf('- ☐ %s (id: %s)', $todo['title'], substr($todo['id'], 0, 8) . '...');
+            $artifactRef = $this->resolveArtifactRef($todo['artifact_id'] ?? null);
+            $lines[] = sprintf('- ☐ %s (id: %s)%s', $todo['title'], substr($todo['id'], 0, 8) . '...', $artifactRef);
         }
         $listing = $lines !== [] ? "\n\nActive/Pending:\n" . implode("\n", $lines) : '';
 
@@ -113,6 +117,7 @@ final class TodoToolkit implements ToolkitInterface
         {$listing}
 
         Use `todo_complete` after finishing each task. Use `todo_add` to track newly discovered work.
+        If the conversation was recently summarized, check `todo_list` and `artifact_list` to re-establish your context before continuing work.
         </TODO-GUIDELINES>
         GUIDELINES;
     }
@@ -522,5 +527,27 @@ final class TodoToolkit implements ToolkitInterface
                 ], JSON_UNESCAPED_SLASHES) ?: '{}');
             },
         );
+    }
+
+    /**
+     * Resolve artifact title for cross-reference display in guidelines.
+     */
+    private function resolveArtifactRef(?string $artifactId): string
+    {
+        if ($artifactId === null || $artifactId === '' || $this->artifactStore === null) {
+            return '';
+        }
+
+        try {
+            $artifact = $this->artifactStore->get($artifactId);
+            if ($artifact !== null) {
+                $title = $artifact['title'] ?? 'Untitled';
+                return " → artifact: {$title}";
+            }
+        } catch (\Throwable) {
+            // Non-critical
+        }
+
+        return '';
     }
 }

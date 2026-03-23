@@ -462,6 +462,57 @@ final class TodoStore
     }
 
     /**
+     * Delete todos whose session no longer exists in the sessions table.
+     *
+     * Handles orphaned todos that survive session deletion when FK CASCADE
+     * is not enforced (e.g. across different PDO connections or after
+     * database restoration).
+     *
+     * @return int Number of orphaned todos deleted
+     */
+    public function cleanupOrphaned(): int
+    {
+        $stmt = $this->db->query(<<<'SQL'
+            DELETE FROM todos
+            WHERE session_id NOT IN (SELECT id FROM sessions)
+        SQL);
+
+        return $stmt !== false ? $stmt->rowCount() : 0;
+    }
+
+    /**
+     * Delete stale completed/cancelled todos from inactive sessions.
+     *
+     * Removes todos that are:
+     * - completed or cancelled
+     * - completed more than $staleDays ago
+     * - in sessions not updated within $inactiveDays
+     *
+     * Active sessions (recently updated) are never touched.
+     *
+     * @return int Number of stale todos deleted
+     */
+    public function cleanupStale(int $staleDays = 30, int $inactiveDays = 7): int
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            DELETE FROM todos
+            WHERE status IN ('completed', 'cancelled')
+              AND completed_at IS NOT NULL
+              AND completed_at < datetime('now', :stale_offset)
+              AND session_id NOT IN (
+                  SELECT id FROM sessions
+                  WHERE updated_at > datetime('now', :inactive_offset)
+              )
+        SQL);
+        $stmt->execute([
+            ':stale_offset' => "-{$staleDays} days",
+            ':inactive_offset' => "-{$inactiveDays} days",
+        ]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * Calculate the next sort order value for a new todo.
      */
     private function nextSortOrder(string $sessionId, ?string $artifactId): int

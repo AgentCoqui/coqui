@@ -15,6 +15,8 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\TodoStore;
 
 /**
  * Agent-facing tool that summarizes conversation history to reduce token usage.
@@ -30,6 +32,8 @@ final class SummarizeConversationTool implements ToolInterface
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
         private readonly string $sessionId,
+        private readonly ?TodoStore $todoStore = null,
+        private readonly ?ArtifactStore $artifactStore = null,
     ) {}
 
     public function name(): string
@@ -102,6 +106,7 @@ final class SummarizeConversationTool implements ToolInterface
             provider: $provider,
             keepRecentTurns: $keepRecent,
             focus: $focus,
+            workflowContext: $this->buildWorkflowContext(),
         );
 
         if (!$result->wasSummarized()) {
@@ -151,6 +156,65 @@ final class SummarizeConversationTool implements ToolInterface
         $schema['function']['parameters']['required'] = $required;
 
         return $schema;
+    }
+
+    /**
+     * Build a workflow context string from active todos and artifacts.
+     */
+    private function buildWorkflowContext(): ?string
+    {
+        $sections = [];
+
+        if ($this->todoStore !== null) {
+            try {
+                $stats = $this->todoStore->getStats($this->sessionId);
+                $total = $stats['total'];
+
+                if ($total > 0) {
+                    $lines = ["Todos: {$stats['completed']}/{$total} completed"];
+
+                    $activeTodos = $this->todoStore->list($this->sessionId, 'in_progress');
+                    foreach ($activeTodos as $todo) {
+                        $lines[] = "  - [in_progress] {$todo['title']}";
+                    }
+
+                    $pendingTodos = $this->todoStore->list($this->sessionId, 'pending');
+                    foreach (array_slice($pendingTodos, 0, 5) as $todo) {
+                        $lines[] = "  - [pending] {$todo['title']}";
+                    }
+                    if (count($pendingTodos) > 5) {
+                        $lines[] = '  - ... and ' . (count($pendingTodos) - 5) . ' more pending';
+                    }
+
+                    $sections[] = implode("\n", $lines);
+                }
+            } catch (\Throwable) {
+                // Non-critical
+            }
+        }
+
+        if ($this->artifactStore !== null) {
+            try {
+                $artifacts = $this->artifactStore->list($this->sessionId);
+                if ($artifacts !== []) {
+                    $lines = ['Artifacts:'];
+                    foreach (array_slice($artifacts, 0, 5) as $artifact) {
+                        $type = $artifact['type'] ?? 'unknown';
+                        $stage = $artifact['stage'] ?? 'draft';
+                        $title = $artifact['title'] ?? 'Untitled';
+                        $lines[] = "  - [{$type}/{$stage}] {$title}";
+                    }
+                    if (count($artifacts) > 5) {
+                        $lines[] = '  - ... and ' . (count($artifacts) - 5) . ' more';
+                    }
+                    $sections[] = implode("\n", $lines);
+                }
+            } catch (\Throwable) {
+                // Non-critical
+            }
+        }
+
+        return $sections !== [] ? implode("\n", $sections) : null;
     }
 
     /**
