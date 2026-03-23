@@ -42,14 +42,15 @@
             "path": "src/Agent/AgentRunner.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunner",
             "layer": "agent",
-            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Includes autoSummarizeIfNeeded() for pre-turn budget checks, and autoExtractMemories() which runs LLM-based memory extraction after each successful turn (configurable via agents.defaults.memory.autoExtract).",
+            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Includes autoSummarizeIfNeeded() for pre-turn budget checks with workflow context injection, and autoExtractMemories() which runs LLM-based memory extraction after each successful turn (configurable via agents.defaults.memory.autoExtract). Accepts optional TodoStore and ArtifactStore to build workflow context for summarization.",
             "methods": [
                 "run(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy): AgentTurnResult — runs a single agent turn using the default observer",
                 "runWithObserver(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy, SplObserver $observer): AgentTurnResult — runs a turn with a per-turn observer override",
                 "runForTask(..., ?string $role, ?int $maxIterations): AgentTurnResult — runs a background task with specified role and iteration limit",
                 "createAgent(..., ?SplObserver $observer, string $role, ?int $maxIterations): OrchestratorAgent — builds the orchestrator agent with role-resolved model and iteration limit",
-                "autoSummarizeIfNeeded(OrchestratorAgent, Conversation, string $sessionId, ?SplObserver): Conversation — checks token budget and auto-summarizes if threshold exceeded",
-                "autoExtractMemories(Conversation, string $sessionId): void — runs LLM-based memory extraction from completed turn"
+                "autoSummarizeIfNeeded(OrchestratorAgent, Conversation, string $sessionId, ?SplObserver): Conversation — checks token budget and auto-summarizes with workflow context if threshold exceeded",
+                "autoExtractMemories(Conversation, string $sessionId): void — runs LLM-based memory extraction from completed turn",
+                "buildWorkflowContext(string $sessionId): ?string — queries TodoStore and ArtifactStore to build workflow context for summarization"
             ]
         },
         {
@@ -403,9 +404,9 @@
             "path": "src/Tool/SummarizeConversationTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SummarizeConversationTool",
             "layer": "tool",
-            "description": "Agent-facing tool for on-demand conversation summarization. Exposes a summarize_conversation tool with scope (all/recent), keep_recent (1-20), and focus parameters. Resolves a cheap provider via utility model resolution (agents.defaults.model.utility → title-generator role → orchestrator fallback). Reads keepRecentTurns from agents.defaults.context.keepRecentTurns config. Delegates to ConversationSummarizer for the actual compression.",
+            "description": "Agent-facing tool for on-demand conversation summarization. Exposes a summarize_conversation tool with scope (all/recent), keep_recent (1-20), and focus parameters. Resolves a cheap provider via utility model resolution. Accepts optional TodoStore and ArtifactStore to build workflow context injected into the summarization prompt. Delegates to ConversationSummarizer for the actual compression.",
             "methods": [
-                "execute(array $input): ToolResult — validates parameters, resolves provider, delegates to ConversationSummarizer, returns summary metrics"
+                "execute(array $input): ToolResult — validates parameters, resolves provider, builds workflow context, delegates to ConversationSummarizer, returns summary metrics"
             ]
         },
         {
@@ -814,9 +815,9 @@
             "path": "src/Api/Handler/SummarizeHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SummarizeHandler",
             "layer": "command",
-            "description": "POST /api/v1/sessions/{id}/summarize — triggers conversation summarization for a session. Accepts optional keep_recent (1-20) and focus parameters. Resolves a cheap provider via title-generator role with orchestrator fallback. Returns summary text, message count, and token metrics.",
+            "description": "POST /api/v1/sessions/{id}/summarize — triggers conversation summarization for a session. Accepts optional keep_recent (1-20) and focus parameters. Resolves a cheap provider via utility model resolution. Accepts optional TodoStore and ArtifactStore to inject workflow context into summarization. Returns summary text, message count, and token metrics.",
             "methods": [
-                "summarize(request, id): Response — validates session, summarizes conversation, returns JSON metrics"
+                "summarize(request, id): Response — validates session, builds workflow context, summarizes conversation, returns JSON metrics"
             ]
         },
         {
@@ -916,7 +917,7 @@
             "path": "src/Storage/TodoStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\TodoStore",
             "layer": "storage",
-            "description": "SQLite-backed session-scoped todo persistence. Table: todos (id, session_id, artifact_id, parent_id, title, status, priority, created_by, completed_by, notes, sort_order, timestamps). Shares PDO connection from SessionStorage. Supports CRUD, subtask hierarchy, artifact linking, status transitions (pending/in_progress/completed/cancelled), priority levels, and session-scoped statistics.",
+            "description": "SQLite-backed session-scoped todo persistence. Table: todos (id, session_id, artifact_id, parent_id, title, status, priority, created_by, completed_by, notes, sort_order, timestamps). Shares PDO connection from SessionStorage. Supports CRUD, subtask hierarchy, artifact linking, status transitions (pending/in_progress/completed/cancelled), priority levels, session-scoped statistics, and boot-time cleanup of orphaned and stale todos.",
             "methods": [
                 "create(sessionId, title, priority, artifactId, parentId, createdBy, notes): string — creates todo, returns ID",
                 "get(id): ?array — retrieves todo by ID",
@@ -927,7 +928,9 @@
                 "listByArtifact(artifactId, includeSubtasks): array — lists todos linked to an artifact",
                 "getSubtasks(parentId): array — returns child todos",
                 "getStats(sessionId, artifactId): array — returns total/pending/in_progress/completed/cancelled counts",
-                "reorder(ordering): void — bulk-updates sort_order"
+                "reorder(ordering): void — bulk-updates sort_order",
+                "cleanupOrphaned(): int — removes todos whose session no longer exists, returns count deleted",
+                "cleanupStale(staleDays, inactiveDays): int — removes old completed/cancelled todos from inactive sessions"
             ]
         },
         {
@@ -989,10 +992,10 @@
             "path": "src/Memory/ConversationSummarizer.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\ConversationSummarizer",
             "layer": "storage",
-            "description": "Summarizes conversation history to reduce token usage while preserving context. Runs automatic memory extraction before summarization to preserve facts before they are compressed. Splits conversations into a segment to summarize and recent turns to keep, compresses the older segment via a cheap LLM provider, and rebuilds the conversation with a summary SystemMessage.",
+            "description": "Summarizes conversation history to reduce token usage while preserving context. Runs automatic memory extraction before summarization to preserve facts before they are compressed. Splits conversations into a segment to summarize and recent turns to keep, compresses the older segment via a cheap LLM provider, and rebuilds the conversation with a summary SystemMessage. Accepts optional workflowContext parameter to inject active todo/artifact state into the LLM compression prompt.",
             "methods": [
-                "summarize(Conversation, ProviderInterface, keepRecentTurns, ?focus): ConversationSummaryResult — compresses older messages into a structured summary",
-                "summarizeAndPersist(sessionId, provider, keepRecentTurns, ?focus): ConversationSummaryResult — extracts memories, summarizes, stores in MemoryStore, and persists summary SystemMessage to session"
+                "summarize(Conversation, ProviderInterface, keepRecentTurns, ?focus, ?workflowContext): ConversationSummaryResult — compresses older messages into a structured summary, preserving workflow context",
+                "summarizeAndPersist(sessionId, provider, keepRecentTurns, ?focus, ?workflowContext): ConversationSummaryResult — extracts memories, summarizes with workflow context, stores in MemoryStore, and persists summary SystemMessage to session"
             ]
         },
         {
@@ -1019,20 +1022,20 @@
             "path": "src/Toolkit/ArtifactToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\ArtifactToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing artifact management toolkit providing 5 tools: artifact_create (new versioned artifact), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage filter), artifact_stage (draft→review→final transition). Guidelines dynamically list existing artifacts.",
+            "description": "Agent-facing artifact management toolkit providing 5 tools: artifact_create (new versioned artifact), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage filter), artifact_stage (draft→review→final transition). Accepts optional TodoStore to show todo progress next to plan artifacts in guidelines. Guidelines dynamically list existing artifacts with todo counts for plans.",
             "methods": [
                 "tools(): array — returns 5 Tool instances for artifact CRUD + staging",
-                "guidelines(): string — dynamic guidelines showing existing artifact listing or empty state prompt"
+                "guidelines(): string — dynamic guidelines showing existing artifact listing with todo progress for plans"
             ]
         },
         {
             "path": "src/Toolkit/TodoToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\TodoToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing session-scoped todo management toolkit providing 6 tools: todo_add (create with priority/artifact link/subtask support), todo_update (modify fields), todo_complete (mark done with role attribution), todo_list (filtered checklist with progress icons), todo_get (detail with subtasks), todo_delete (remove). Role-aware permissions: readonly gets list+get only, full gets all tools. Guidelines dynamically show progress bar and active/pending listing.",
+            "description": "Agent-facing session-scoped todo management toolkit providing 8 tools: todo_add, todo_update, todo_complete, todo_list, todo_get, todo_delete, todo_bulk_add, todo_bulk_update. Role-aware permissions. Accepts optional ArtifactStore to resolve artifact titles for linked todos. Guidelines dynamically show progress bar, active/pending listing with artifact cross-references, and post-summarization recovery hints.",
             "methods": [
                 "tools(): array — returns filtered Tool instances based on access level",
-                "guidelines(): string — dynamic progress summary with bar visualization and active todo listing"
+                "guidelines(): string — dynamic progress summary with bar visualization, artifact cross-refs, and recovery hints"
             ]
         },
         {

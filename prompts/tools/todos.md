@@ -45,3 +45,11 @@ Use `parent_id` to create subtasks when a top-level todo needs to be broken down
 4. **Add notes on completion.** When completing a todo, include brief notes about what was done or any follow-ups needed.
 5. **Don't over-create.** Only create todos for actionable work items. Don't create a todo for reading a file or thinking about a problem.
 6. **Use bulk operations for efficiency.** When creating 5+ todos at once (e.g. from a plan checklist), use `todo_bulk_add` instead of multiple `todo_add` calls. Similarly, use `todo_bulk_update` to batch status changes.
+
+### After Summarization
+
+When the conversation has been summarized, some older context may be compressed. If you notice missing context:
+1. Call `todo_list` to see current progress and active tasks
+2. Call `artifact_list` to see session artifacts and their stages
+3. Use `todo_get` or `artifact_get` for details on specific items
+4. Resume work from where the todo list indicates you left off

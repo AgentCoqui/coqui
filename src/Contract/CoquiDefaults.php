@@ -24,10 +24,10 @@ final class CoquiDefaults
     public const int MAX_CONCURRENT_TASKS = 6;
 
     /** Default recent turns preserved during on-demand summarization (config: agents.defaults.context.keepRecentTurns). */
-    public const int KEEP_RECENT_TURNS = 6;
+    public const int KEEP_RECENT_TURNS = 10;
 
     /** Default recent turns preserved during auto-summarization (config: agents.defaults.context.autoSummarizeKeepRecent). */
-    public const int AUTO_SUMMARIZE_KEEP_RECENT = 10;
+    public const int AUTO_SUMMARIZE_KEEP_RECENT = 15;
 
     /** Token usage percentage threshold that triggers auto-summarization (config: agents.defaults.context.autoSummarizeThreshold). */
     public const float AUTO_SUMMARIZE_THRESHOLD = 75.0;
