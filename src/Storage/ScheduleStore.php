@@ -319,7 +319,7 @@ final class ScheduleStore
             $stmt = $this->db->prepare(<<<'SQL'
                 UPDATE scheduled_tasks
                 SET last_run_at = ?, last_task_id = ?, run_count = run_count + 1,
-                    enabled = 0, next_run_at = NULL, updated_at = ?
+                    last_status = NULL, enabled = 0, next_run_at = NULL, updated_at = ?
                 WHERE id = ?
             SQL);
             $stmt->execute([$now, $taskId, $now, $id]);
@@ -332,7 +332,7 @@ final class ScheduleStore
             $stmt = $this->db->prepare(<<<'SQL'
                 UPDATE scheduled_tasks
                 SET last_run_at = ?, last_task_id = ?, run_count = run_count + 1,
-                    next_run_at = ?, updated_at = ?
+                    last_status = NULL, next_run_at = ?, updated_at = ?
                 WHERE id = ?
             SQL);
             $stmt->execute([

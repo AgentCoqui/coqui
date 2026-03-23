@@ -42,7 +42,10 @@ final readonly class HealthHandler
         }
 
         if ($this->scheduleStore !== null) {
-            $data['schedules'] = $this->scheduleStore->getStats();
+            $stats = $this->scheduleStore->getStats();
+            $upcoming = $this->scheduleStore->getUpcoming(1);
+            $stats['next_run_at'] = $upcoming !== [] ? ($upcoming[0]['next_run_at'] ?? null) : null;
+            $data['schedules'] = $stats;
         }
 
         if ($this->webhookStore !== null) {
