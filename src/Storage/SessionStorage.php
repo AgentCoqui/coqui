@@ -445,6 +445,7 @@ final class SessionStorage
                     $item['id'],
                     $item['name'],
                     is_array($item['arguments']) ? $item['arguments'] : [],
+                    is_array($item['metadata'] ?? null) ? $item['metadata'] : [],
                 );
             }
         }
