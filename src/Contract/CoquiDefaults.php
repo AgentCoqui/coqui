@@ -30,7 +30,10 @@ final class CoquiDefaults
     public const int AUTO_SUMMARIZE_KEEP_RECENT = 15;
 
     /** Token usage percentage threshold that triggers auto-summarization (config: agents.defaults.context.autoSummarizeThreshold). */
-    public const float AUTO_SUMMARIZE_THRESHOLD = 75.0;
+    public const float AUTO_SUMMARIZE_THRESHOLD = 50.0;
+
+    /** User turn count that triggers auto-summarization regardless of token usage (config: agents.defaults.context.autoSummarizeTurnThreshold). */
+    public const int AUTO_SUMMARIZE_TURN_THRESHOLD = 20;
 
     /** Fallback context window size in tokens when no model definition is available. */
     public const int CONTEXT_WINDOW_FALLBACK = 128_000;
