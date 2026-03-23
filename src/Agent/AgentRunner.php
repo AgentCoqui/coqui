@@ -433,6 +433,7 @@ final class AgentRunner
                                 'id' => $tc->id,
                                 'name' => $tc->name,
                                 'arguments' => $tc->arguments,
+                                ...($tc->metadata !== [] ? ['metadata' => $tc->metadata] : []),
                             ], $msg->toolCalls()),
                             JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
                         ) : null,
@@ -605,14 +606,16 @@ final class AgentRunner
     }
 
     /**
-     * Auto-summarize conversation history when it approaches the context window limit.
+     * Auto-summarize conversation history when it approaches the context window limit
+     * or the conversation has grown too many turns.
      *
-     * Checks the estimated token usage against the model's context window.
-     * At 75% usage, triggers automatic summarization to preserve context
-     * via LLM compression instead of losing information through hard pruning.
+     * Two independent triggers (whichever fires first):
+     *   1. Token usage exceeds threshold % of context window (default: 50%)
+     *   2. User turn count exceeds turn threshold (default: 20 turns)
      *
      * Thresholds are configurable via openclaw.json:
-     *   agents.defaults.context.autoSummarizeThreshold (default: 75)
+     *   agents.defaults.context.autoSummarizeThreshold       (default: 50)
+     *   agents.defaults.context.autoSummarizeTurnThreshold   (default: 20)
      */
     private function autoSummarizeIfNeeded(
         OrchestratorAgent $agent,
@@ -624,33 +627,41 @@ final class AgentRunner
             return $history;
         }
 
+        // Count user turns for the turn-count trigger
+        $userTurnCount = count($history->filter(Role::User));
+
+        // Read turn threshold from config (default: 20)
+        $turnThresholdCfg = $this->config->get('agents.defaults.context.autoSummarizeTurnThreshold');
+        $turnThreshold = is_numeric($turnThresholdCfg) ? (int) $turnThresholdCfg : CoquiDefaults::AUTO_SUMMARIZE_TURN_THRESHOLD;
+
+        // Check token-based trigger
+        $tokenTrigger = false;
         $contextWindow = $agent->getContextWindow();
-        if ($contextWindow === null) {
-            return $history;
+
+        if ($contextWindow !== null) {
+            $estimatedTokens = $history->estimateTokens();
+            $maxTokens = $contextWindow->maxTokens();
+            $reserved = $contextWindow->reservedTokens();
+            $effectiveMax = $maxTokens - $reserved;
+
+            if ($effectiveMax > 0) {
+                $usagePercent = ($estimatedTokens / $effectiveMax) * 100;
+
+                // Read threshold from config (default: 50%)
+                $threshold = $this->config->get('agents.defaults.context.autoSummarizeThreshold');
+                $threshold = is_numeric($threshold) ? (float) $threshold : CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD;
+
+                // Normalize: accept both ratio (0.0–1.0) and percentage (1–100)
+                if ($threshold > 0.0 && $threshold <= 1.0) {
+                    $threshold *= 100;
+                }
+
+                $tokenTrigger = $usagePercent >= $threshold;
+            }
         }
 
-        // Estimate current conversation token usage
-        $estimatedTokens = $history->estimateTokens();
-        $maxTokens = $contextWindow->maxTokens();
-        $reserved = $contextWindow->reservedTokens();
-        $effectiveMax = $maxTokens - $reserved;
-
-        if ($effectiveMax <= 0) {
-            return $history;
-        }
-
-        $usagePercent = ($estimatedTokens / $effectiveMax) * 100;
-
-        // Read threshold from config (default: 75%)
-        $threshold = $this->config->get('agents.defaults.context.autoSummarizeThreshold');
-        $threshold = is_numeric($threshold) ? (float) $threshold : CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD;
-
-        // Normalize: accept both ratio (0.0–1.0) and percentage (1–100)
-        if ($threshold > 0.0 && $threshold <= 1.0) {
-            $threshold *= 100;
-        }
-
-        if ($usagePercent < $threshold) {
+        // Neither trigger fired — no summarization needed
+        if (!$tokenTrigger && $userTurnCount < $turnThreshold) {
             return $history;
         }
 

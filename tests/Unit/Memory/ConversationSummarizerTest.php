@@ -142,10 +142,10 @@ test('summarize keeps exactly the requested number of recent turns', function ()
 
     $result = $this->summarizer->summarize($conv, $provider, keepRecentTurns: 4);
 
-    // Count user messages in the result conversation (should be 4 kept + 0 summarized)
+    // Count user messages excluding the summary itself (which is now a UserMessage)
     $userMessages = array_filter(
         $result->conversation->messages(),
-        fn($m) => $m->role() === Role::User,
+        fn($m) => $m->role() === Role::User && !str_contains($m->content(), '[CONVERSATION SUMMARY'),
     );
 
     expect(count($userMessages))->toBe(4);
@@ -202,10 +202,11 @@ test('summarizeAndPersist stores a summary message in the session', function () 
 
     expect($result->wasSummarized())->toBeTrue();
 
-    // Verify a summary system message was persisted
+    // Verify a summary was persisted as a user message (not system —
+    // AbstractAgent skips system messages from history)
     $messages = $this->storage->getMessages($sessionId);
     $summaryMessages = array_filter($messages, fn($m) =>
-        $m['role'] === 'system' && str_contains($m['content'], '[CONVERSATION SUMMARY'),
+        $m['role'] === 'user' && str_contains($m['content'], '[CONVERSATION SUMMARY'),
     );
 
     expect(count($summaryMessages))->toBe(1);
@@ -303,4 +304,189 @@ test('summarize omits workflow section when context is null', function () {
 
     $systemContent = $provider->capturedMessages[0]['content'] ?? '';
     expect($systemContent)->not->toContain('Current workflow state');
+});
+
+// --- Summary message role (critical bug fix) ---
+
+test('summarize produces a UserMessage summary, not SystemMessage', function () {
+    $conv = buildConversation(8);
+    $provider = createFakeProvider('Summary of older turns.');
+
+    $result = $this->summarizer->summarize($conv, $provider, keepRecentTurns: 3);
+
+    expect($result->wasSummarized())->toBeTrue();
+
+    // The summary message in the result conversation must be a UserMessage
+    $summaryMsg = null;
+    foreach ($result->conversation->messages() as $msg) {
+        if (str_contains($msg->content(), '[CONVERSATION SUMMARY')) {
+            $summaryMsg = $msg;
+            break;
+        }
+    }
+
+    expect($summaryMsg)->not->toBeNull();
+    expect($summaryMsg->role())->toBe(Role::User);
+    expect($summaryMsg)->toBeInstanceOf(UserMessage::class);
+});
+
+// --- DB cleanup after summarization ---
+
+test('summarizeAndPersist deletes old messages from the database', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    // Add 8 turns (16 messages)
+    for ($i = 1; $i <= 8; $i++) {
+        $this->storage->addMessage($sessionId, 'user', "Question {$i}");
+        $this->storage->addMessage($sessionId, 'assistant', "Answer {$i}");
+    }
+
+    $messagesBefore = $this->storage->getMessages($sessionId);
+    $countBefore = count($messagesBefore);
+
+    $provider = createFakeProvider('Summary of the conversation.');
+
+    $result = $this->summarizer->summarizeAndPersist(
+        sessionId: $sessionId,
+        provider: $provider,
+        keepRecentTurns: 3,
+    );
+
+    expect($result->wasSummarized())->toBeTrue();
+
+    // After summarization: old messages deleted, summary inserted,
+    // remaining count should be less than before
+    $messagesAfter = $this->storage->getMessages($sessionId);
+    expect(count($messagesAfter))->toBeLessThan($countBefore);
+
+    // The most recent 3 user turns should still be present
+    $remainingUserMessages = array_filter($messagesAfter, fn($m) =>
+        $m['role'] === 'user' && !str_contains($m['content'], '[CONVERSATION SUMMARY'),
+    );
+    expect(count($remainingUserMessages))->toBe(3);
+});
+
+test('summarizeAndPersist preserves system messages in the database', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    // Add a system message plus turns
+    $this->storage->addMessage($sessionId, 'system', 'You are a helpful assistant.');
+    for ($i = 1; $i <= 8; $i++) {
+        $this->storage->addMessage($sessionId, 'user', "Question {$i}");
+        $this->storage->addMessage($sessionId, 'assistant', "Answer {$i}");
+    }
+
+    $provider = createFakeProvider('Summary of the conversation.');
+
+    $this->summarizer->summarizeAndPersist(
+        sessionId: $sessionId,
+        provider: $provider,
+        keepRecentTurns: 3,
+    );
+
+    $messagesAfter = $this->storage->getMessages($sessionId);
+    $systemMessages = array_filter($messagesAfter, fn($m) => $m['role'] === 'system');
+
+    // System messages are never deleted
+    expect(count($systemMessages))->toBeGreaterThanOrEqual(1);
+});
+
+// --- formatSummaryMessage recency guidance ---
+
+test('summary message contains recency guidance text', function () {
+    $conv = buildConversation(8);
+    $provider = createFakeProvider('Summary of older turns.');
+
+    $result = $this->summarizer->summarize($conv, $provider, keepRecentTurns: 3);
+
+    expect($result->wasSummarized())->toBeTrue();
+
+    // Find the summary message and check for recency guidance
+    foreach ($result->conversation->messages() as $msg) {
+        if (str_contains($msg->content(), '[CONVERSATION SUMMARY')) {
+            expect($msg->content())->toContain('Focus on the most recent messages below');
+            expect($msg->content())->toContain('background context only');
+            break;
+        }
+    }
+});
+
+// --- identifySummarizedMessageIds ---
+
+test('identifySummarizedMessageIds correctly identifies messages before cut point', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    // Add 6 turns (12 messages)
+    for ($i = 1; $i <= 6; $i++) {
+        $this->storage->addMessage($sessionId, 'user', "Question {$i}");
+        $this->storage->addMessage($sessionId, 'assistant', "Answer {$i}");
+    }
+
+    $rawMessages = $this->storage->getMessages($sessionId);
+
+    // Use reflection to test the private method
+    $reflection = new ReflectionClass($this->summarizer);
+    $method = $reflection->getMethod('identifySummarizedMessageIds');
+
+    $ids = $method->invoke($this->summarizer, $rawMessages, 2);
+
+    // With 6 user turns and keepRecentTurns=2, the first 4 user turns
+    // (8 messages: 4 user + 4 assistant) should be identified for deletion
+    expect(count($ids))->toBe(8);
+
+    // Verify none of the last 2 user turns' messages are included
+    $lastFourMessages = array_slice($rawMessages, -4);
+    $lastFourIds = array_column($lastFourMessages, 'id');
+    foreach ($lastFourIds as $id) {
+        expect(in_array($id, $ids, true))->toBeFalse();
+    }
+});
+
+test('identifySummarizedMessageIds returns empty when conversation is short', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    // Add 2 turns (4 messages)
+    for ($i = 1; $i <= 2; $i++) {
+        $this->storage->addMessage($sessionId, 'user', "Question {$i}");
+        $this->storage->addMessage($sessionId, 'assistant', "Answer {$i}");
+    }
+
+    $rawMessages = $this->storage->getMessages($sessionId);
+
+    $reflection = new ReflectionClass($this->summarizer);
+    $method = $reflection->getMethod('identifySummarizedMessageIds');
+
+    $ids = $method->invoke($this->summarizer, $rawMessages, 3);
+
+    expect($ids)->toBe([]);
+});
+
+test('identifySummarizedMessageIds never includes system messages', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    // Add a system message first, then turns
+    $this->storage->addMessage($sessionId, 'system', 'You are a helpful assistant.');
+    for ($i = 1; $i <= 6; $i++) {
+        $this->storage->addMessage($sessionId, 'user', "Question {$i}");
+        $this->storage->addMessage($sessionId, 'assistant', "Answer {$i}");
+    }
+
+    $rawMessages = $this->storage->getMessages($sessionId);
+
+    $reflection = new ReflectionClass($this->summarizer);
+    $method = $reflection->getMethod('identifySummarizedMessageIds');
+
+    $ids = $method->invoke($this->summarizer, $rawMessages, 2);
+
+    // Find the system message ID
+    $systemId = null;
+    foreach ($rawMessages as $row) {
+        if ($row['role'] === 'system') {
+            $systemId = $row['id'];
+            break;
+        }
+    }
+
+    expect($systemId)->not->toBeNull();
+    expect(in_array($systemId, $ids, true))->toBeFalse();
 });

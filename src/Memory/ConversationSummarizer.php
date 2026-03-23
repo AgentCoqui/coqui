@@ -99,6 +99,10 @@ final class ConversationSummarizer
     /**
      * Summarize and persist: replace old messages in the database with a summary message.
      *
+     * Deletes the summarized messages from the database and inserts a single
+     * summary message in their place. The summary is stored as a user message
+     * (not system) because AbstractAgent skips system messages from history.
+     *
      * @return ConversationSummaryResult
      */
     public function summarizeAndPersist(
@@ -108,6 +112,8 @@ final class ConversationSummarizer
         ?string $focus = null,
         ?string $workflowContext = null,
     ): ConversationSummaryResult {
+        // Load raw message rows (with DB IDs) for cleanup after summarization
+        $rawMessages = $this->storage->getMessages($sessionId);
         $conversation = $this->storage->loadConversation($sessionId);
 
         // Extract memories before summarization discards older messages
@@ -126,6 +132,14 @@ final class ConversationSummarizer
             return $result;
         }
 
+        // Delete summarized messages from the database.
+        // The summarize() method splits by user turn index — we mirror
+        // that logic on the raw rows to identify which DB IDs to remove.
+        $idsToDelete = $this->identifySummarizedMessageIds($rawMessages, $keepRecentTurns);
+        if ($idsToDelete !== []) {
+            $this->storage->deleteMessages($idsToDelete);
+        }
+
         // Store summary as a session-scoped memory if memory store is available
         if ($this->memoryStore !== null && $result->summary !== '') {
             $this->memoryStore->save(new MemoryEntry(
@@ -142,10 +156,11 @@ final class ConversationSummarizer
             ));
         }
 
-        // Persist summary message into the session
+        // Persist summary as a user message (not system — AbstractAgent
+        // skips system messages from history, so system summaries are lost).
         $this->storage->addMessage(
             $sessionId,
-            'system',
+            'user',
             $this->formatSummaryMessage($result->summary, $result->messagesSummarized),
         );
 
@@ -282,6 +297,11 @@ final class ConversationSummarizer
     /**
      * Build a new Conversation with the summary replacing old messages.
      *
+     * The summary is injected as a UserMessage — not SystemMessage — because
+     * AbstractAgent::run() skips all System messages from history when building
+     * the conversation for the provider. A UserMessage with the
+     * [CONVERSATION SUMMARY] marker is preserved and reaches the LLM.
+     *
      * @param list<\CarmeloSantana\PHPAgents\Contract\MessageInterface> $keptMessages
      */
     private function buildSummarizedConversation(
@@ -299,8 +319,8 @@ final class ConversationSummarizer
             }
         }
 
-        // Add summary as a system message
-        $result->add(new SystemMessage($this->formatSummaryMessage($summary, 0)));
+        // Add summary as a user message so it survives history injection
+        $result->add(new UserMessage($this->formatSummaryMessage($summary, 0)));
 
         // Add kept messages (skip system messages already added)
         foreach ($keptMessages as $msg) {
@@ -320,6 +340,49 @@ final class ConversationSummarizer
         $date = date('Y-m-d H:i');
         $countNote = $messageCount > 0 ? " ({$messageCount} messages condensed)" : '';
 
-        return "[CONVERSATION SUMMARY - {$date}]{$countNote}\n\n{$summary}";
+        return "[CONVERSATION SUMMARY - {$date}]{$countNote}\n\n"
+            . "{$summary}\n\n"
+            . 'Focus on the most recent messages below for the user\'s current intent. '
+            . 'This summary provides background context only.';
+    }
+
+    /**
+     * Identify DB message IDs that correspond to summarized (older) messages.
+     *
+     * Mirrors the splitConversation() cut-point logic but operates on raw DB
+     * rows instead of MessageInterface objects. System messages are never deleted.
+     *
+     * @param array<int, array<string, mixed>> $rawMessages
+     * @return string[] DB message IDs to delete
+     */
+    private function identifySummarizedMessageIds(array $rawMessages, int $keepRecentTurns): array
+    {
+        $userIndices = [];
+        foreach ($rawMessages as $i => $row) {
+            if ($row['role'] === 'user') {
+                $userIndices[] = $i;
+            }
+        }
+
+        if (count($userIndices) <= $keepRecentTurns) {
+            return [];
+        }
+
+        $cutIndex = $userIndices[count($userIndices) - $keepRecentTurns];
+
+        $ids = [];
+        foreach ($rawMessages as $i => $row) {
+            // System messages are never deleted (they're skipped during history
+            // injection anyway, and some may be prior summaries being replaced)
+            if ($row['role'] === 'system') {
+                continue;
+            }
+
+            if ($i < $cutIndex) {
+                $ids[] = $row['id'];
+            }
+        }
+
+        return $ids;
     }
 }
