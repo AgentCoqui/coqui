@@ -41,6 +41,7 @@ final class ConversationSummarizer
         ProviderInterface $provider,
         int $keepRecentTurns = CoquiDefaults::KEEP_RECENT_TURNS,
         ?string $focus = null,
+        ?string $workflowContext = null,
     ): ConversationSummaryResult {
         $messages = $conversation->messages();
         $tokensBefore = $conversation->estimateTokens();
@@ -70,7 +71,7 @@ final class ConversationSummarizer
 
         // Build summary text from messages to summarize
         $conversationText = $this->formatMessagesForSummary($toSummarize);
-        $summaryText = $this->compressWithLlm($provider, $conversationText, $focus);
+        $summaryText = $this->compressWithLlm($provider, $conversationText, $focus, $workflowContext);
 
         if ($summaryText === '') {
             return new ConversationSummaryResult(
@@ -105,6 +106,7 @@ final class ConversationSummarizer
         ProviderInterface $provider,
         int $keepRecentTurns = CoquiDefaults::KEEP_RECENT_TURNS,
         ?string $focus = null,
+        ?string $workflowContext = null,
     ): ConversationSummaryResult {
         $conversation = $this->storage->loadConversation($sessionId);
 
@@ -118,7 +120,7 @@ final class ConversationSummarizer
             }
         }
 
-        $result = $this->summarize($conversation, $provider, $keepRecentTurns, $focus);
+        $result = $this->summarize($conversation, $provider, $keepRecentTurns, $focus, $workflowContext);
 
         if ($result->messagesSummarized === 0) {
             return $result;
@@ -235,10 +237,16 @@ final class ConversationSummarizer
         ProviderInterface $provider,
         string $conversationText,
         ?string $focus = null,
+        ?string $workflowContext = null,
     ): string {
         $focusInstruction = $focus !== null
             ? "\n\nPay special attention to: {$focus}"
             : '';
+
+        $workflowSection = '';
+        if ($workflowContext !== null && $workflowContext !== '') {
+            $workflowSection = "\n\nIMPORTANT — Current workflow state (preserve these details in the summary):\n{$workflowContext}";
+        }
 
         $systemPrompt = <<<PROMPT
             You are a conversation summarizer. Compress the following conversation into a concise, structured summary.
@@ -249,7 +257,8 @@ final class ConversationSummarizer
             - Files modified or created
             - Tool actions taken and their outcomes
             - Unresolved questions or pending tasks
-            - User preferences expressed{$focusInstruction}
+            - Current plan/todo status and next steps
+            - User preferences expressed{$focusInstruction}{$workflowSection}
 
             Format as a compact paragraph with bullet points for key items. Keep it under 500 words.
             Do not add commentary — output ONLY the summary.

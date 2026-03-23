@@ -378,9 +378,14 @@ Coqui provides session-scoped task tracking via the todo system. Agents use todo
 
 1. **`TodoStore`** manages a `todos` table in the shared SQLite database (same PDO as SessionStorage). Each todo is scoped to a session and optionally linked to an artifact and/or parent todo. Supports `bulkCreate()` and `bulkUpdate()` for efficient batch operations.
 2. **`TodoToolkit`** exposes 8 agent-facing tools: `todo_add`, `todo_update`, `todo_complete`, `todo_list`, `todo_get`, `todo_delete`, `todo_bulk_add`, `todo_bulk_update`. Tool availability is role-aware — readonly roles only get list, get, add, and update tools.
-3. **Guidelines injection** — `TodoToolkit::guidelines()` dynamically generates a progress summary (progress bar, active/pending listing) that is included in the system prompt on every iteration.
+3. **Guidelines injection** — `TodoToolkit::guidelines()` dynamically generates a progress summary (progress bar, active/pending listing) that is included in the system prompt on every iteration. Todos linked to artifacts display ` → artifact: {title}` for traceability. A recovery hint reminds agents to check `todo_list` and `artifact_list` after conversation summarization.
 4. **Child agent sharing** — `SpawnAgentTool::buildToolkits()` injects `TodoToolkit` into every child agent with the parent's session ID, so todos are visible across all agents in a session.
 5. **Auto-generation** — `PlanTodoGenerator` automatically creates todos when a plan artifact reaches `final` stage via `artifact_stage`. Uses the utility model to extract implementation steps from the plan content.
+6. **Boot cleanup** — `BootManager::initializeArtifacts()` calls `TodoStore::cleanupOrphaned()` and `TodoStore::cleanupStale()` on every boot to remove orphaned todos (sessions deleted) and stale completed/cancelled todos from inactive sessions.
+
+### Cross-References
+
+`TodoToolkit` accepts an optional `ArtifactStore` to resolve artifact titles for linked todos. `ArtifactToolkit` accepts an optional `TodoStore` to show todo progress (e.g. `todos: 3/5`) next to plan artifacts in guidelines. `SpawnAgentTool` wires both stores into child agent toolkits.
 
 ### Todo Schema
 
@@ -782,9 +787,20 @@ Before each agent turn, `AgentRunner::autoSummarizeIfNeeded()` checks the conver
 
 1. **Threshold check** — `agents.defaults.context.autoSummarizeThreshold` in `openclaw.json` (default: `75` = 75% of available budget). Accepts both percentage (1–100) and ratio (0.0–1.0) — ratios are automatically converted to percentages.
 2. **Provider resolution** — uses the utility model resolution chain (see Utility Model section below).
-3. **Keep recent** — `agents.defaults.context.autoSummarizeKeepRecent` controls how many recent turns are preserved during auto-summarization (default: `10`, clamped 1–20).
-4. **Summarization** — `ConversationSummarizer` splits the conversation, compresses older messages via LLM, rebuilds with a summary `SystemMessage`.
-5. **Observer notification** — emits `agent.summary` event so terminal/SSE observers can alert the user.
+3. **Keep recent** — `agents.defaults.context.autoSummarizeKeepRecent` controls how many recent turns are preserved during auto-summarization (default: `15`, clamped 1–20).
+4. **Workflow context injection** — `AgentRunner::buildWorkflowContext()` queries `TodoStore` (stats, active, pending todos) and `ArtifactStore` (active artifacts) to build a structured context string. This is passed to `ConversationSummarizer` so the LLM preserves plan/todo state in the summary, preventing agents from losing their place after summarization.
+5. **Summarization** — `ConversationSummarizer` splits the conversation, compresses older messages via LLM, rebuilds with a summary `SystemMessage`.
+6. **Observer notification** — emits `agent.summary` event so terminal/SSE observers can alert the user.
+
+### Workflow Context in Summarization
+
+All summarization paths (auto-summarize, on-demand tool, API handler, REPL command) inject workflow context into the LLM compression prompt. The context includes:
+
+- Active todo stats (total, completed, in-progress, pending counts)
+- In-progress and pending todo titles
+- Active artifact list with types and stages
+
+This ensures that after summarization, agents retain awareness of their current plan, progress, and next steps. The prompt file `prompts/tools/todos.md` includes a recovery section instructing agents to check `todo_list` and `artifact_list` after detecting a `[CONVERSATION SUMMARY]` in history.
 
 ### On-Demand Summarization
 
@@ -800,8 +816,8 @@ Users and agents can trigger summarization manually:
 
 `ConversationSummarizer` performs the following steps:
 
-1. **Split** — finds user turn boundaries, keeps the N most recent turns (configurable via `agents.defaults.context.keepRecentTurns`, default 6), marks older messages for compression. System messages are always preserved.
-2. **Compress** — sends the older messages to a cheap LLM with a structured prompt requesting a <500 word summary covering key decisions, technical details, code references, and unresolved items.
+1. **Split** — finds user turn boundaries, keeps the N most recent turns (configurable via `agents.defaults.context.keepRecentTurns`, default 10), marks older messages for compression. System messages are always preserved.
+2. **Compress** — sends the older messages to a cheap LLM with a structured prompt requesting a <500 word summary covering key decisions, technical details, code references, and unresolved items. If a `workflowContext` string is provided, it is injected into the LLM prompt as a "Current workflow state" section that must be preserved in the summary.
 3. **Rebuild** — constructs a new `Conversation` with: original system messages + summary `SystemMessage` (marked with `[CONVERSATION SUMMARY]`) + preserved recent messages.
 4. **Persist** (optional) — stores the summary as a `session_summary` area `MemoryEntry` in `MemoryStore` for cross-session awareness.
 
@@ -813,8 +829,8 @@ Users and agents can trigger summarization manually:
         "defaults": {
             "context": {
                 "autoSummarizeThreshold": 75,
-                "autoSummarizeKeepRecent": 10,
-                "keepRecentTurns": 6
+                "autoSummarizeKeepRecent": 15,
+                "keepRecentTurns": 10
             }
         }
     }
@@ -824,8 +840,8 @@ Users and agents can trigger summarization manually:
 | Key | Default | Description |
 | --- | --- | --- |
 | `autoSummarizeThreshold` | `75` | Token usage percentage that triggers auto-summarization. Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
-| `autoSummarizeKeepRecent` | `10` | Turns preserved during auto-summarization (1–20) |
-| `keepRecentTurns` | `6` | Default turns preserved during on-demand summarization |
+| `autoSummarizeKeepRecent` | `15` | Turns preserved during auto-summarization (1–20) |
+| `keepRecentTurns` | `10` | Default turns preserved during on-demand summarization |
 
 ### Key Source Files
 
