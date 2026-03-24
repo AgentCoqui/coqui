@@ -7,6 +7,7 @@ access_level: minimal
 is_builtin: true
 is_template: true
 max_iterations: 5
+toolkits: "-*"
 ---
 
 Generate a 3-8 word title for this conversation. Return ONLY the title — no quotes, no punctuation, no explanation.

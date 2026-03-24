@@ -17,6 +17,7 @@ use CoquiBot\Coqui\Agent\ChildAgent;
 use CoquiBot\Coqui\Agent\PlanTodoGenerator;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
+use CoquiBot\Coqui\Config\RoleToolkitResolver;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
@@ -261,6 +262,15 @@ final class SpawnAgentTool implements ToolInterface
             );
         }
 
+        // Apply role-based toolkit filtering from the child role's frontmatter
+        $resolver = $this->buildChildRoleResolver($role);
+        if ($resolver->hasRules()) {
+            $toolkits = array_values(array_filter(
+                $toolkits,
+                static fn($toolkit) => $resolver->isToolkitAllowed($toolkit::class),
+            ));
+        }
+
         return $toolkits;
     }
 
@@ -283,6 +293,24 @@ final class SpawnAgentTool implements ToolInterface
             'coder' => 'full',
             default => 'readonly',
         };
+    }
+
+    /**
+     * Build a RoleToolkitResolver for a child role's frontmatter.
+     */
+    private function buildChildRoleResolver(string $role): RoleToolkitResolver
+    {
+        if ($this->roleDiscovery === null) {
+            return new RoleToolkitResolver(null);
+        }
+
+        try {
+            $properties = $this->roleDiscovery->getRole($role);
+
+            return new RoleToolkitResolver($properties->toolkits);
+        } catch (\Throwable) {
+            return new RoleToolkitResolver(null);
+        }
     }
 
     public function setCurrentIteration(int $iteration): void

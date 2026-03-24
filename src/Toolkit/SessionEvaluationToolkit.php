@@ -7,7 +7,6 @@ namespace CoquiBot\Coqui\Toolkit;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Tool;
-use CoquiBot\Coqui\Contract\RoleScopedToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
@@ -29,14 +28,9 @@ use CoquiBot\Coqui\Storage\SessionStorage;
  * - evaluation_read_child_runs: Read child agent executions for a session
  * - evaluation_save_report: Save a structured evaluation report with scores
  */
-final class SessionEvaluationToolkit implements RoleScopedToolkitInterface
+final class SessionEvaluationToolkit implements ToolkitInterface
 {
     private const int MAX_TOOL_RESULT_LENGTH = 500;
-
-    public function roleScope(): string
-    {
-        return 'evaluator';
-    }
 
     public function __construct(
         private readonly EvaluationStore $evaluationStore,

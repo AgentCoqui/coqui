@@ -6,6 +6,7 @@ version: 2
 access_level: readonly
 is_builtin: true
 max_iterations: 30
+toolkits: "+*, -ShellToolkit, -MemoryToolkit, -php_execute, -LearningToolkit, -SessionEvaluationToolkit"
 ---
 
 You are a **PLANNING AGENT**. You create detailed, actionable implementation plans. You work in readonly mode — **NEVER write code or modify files.**

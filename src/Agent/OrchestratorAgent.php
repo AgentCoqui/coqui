@@ -19,11 +19,11 @@ use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Provider\FallbackProvider;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
-use CoquiBot\Coqui\Contract\RoleScopedToolkitInterface;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Config\RoleToolkitResolver;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\MountManager;
@@ -94,6 +94,8 @@ final class OrchestratorAgent extends AbstractAgent
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
 
+    private readonly RoleToolkitResolver $roleToolkitResolver;
+
     public function __construct(
         ProviderInterface $provider,
         private readonly RoleResolver $roleResolver,
@@ -126,6 +128,9 @@ final class OrchestratorAgent extends AbstractAgent
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
         $this->toolRegistry = new ToolRegistry();
+
+        // Build role toolkit resolver from the active role's frontmatter
+        $this->roleToolkitResolver = $this->buildRoleToolkitResolver($this->activeRole, $this->roleDiscovery);
 
         // Wrap primary provider with FallbackProvider when fallback models are configured
         $effectiveProvider = $provider;
@@ -368,9 +373,9 @@ final class OrchestratorAgent extends AbstractAgent
             $this->addToolkit(new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore));
         }
 
-        // Session evaluation toolkit — role-scoped to 'evaluator' via RoleScopedToolkitInterface.
+        // Session evaluation toolkit — registered when role allows it.
         // Conditional instantiation avoids creating EvaluationStore when not needed.
-        if ($this->activeRole === 'evaluator' && $this->storage !== null) {
+        if ($this->roleToolkitResolver->isToolkitAllowed(SessionEvaluationToolkit::class) && $this->storage !== null) {
             $evaluationStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
             $lookbackHours = (int) ($this->config->get('agents.defaults.evaluation.lookbackHours') ?? 24);
             $inactivityHours = (int) ($this->config->get('agents.defaults.evaluation.inactivityHours') ?? 3);
@@ -382,9 +387,9 @@ final class OrchestratorAgent extends AbstractAgent
             ));
         }
 
-        // Learning toolkit — role-scoped to 'learner' via RoleScopedToolkitInterface.
+        // Learning toolkit — registered when role allows it.
         // Reads poor evaluations and generates corrective Skills.
-        if ($this->activeRole === 'learner' && $this->storage !== null) {
+        if ($this->roleToolkitResolver->isToolkitAllowed(LearningToolkit::class) && $this->storage !== null) {
             $learnerEvalStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
             $this->addToolkit(new LearningToolkit(
                 evaluationStore: $learnerEvalStore,
@@ -443,14 +448,16 @@ final class OrchestratorAgent extends AbstractAgent
     #[\Override]
     public function addToolkit(ToolkitInterface $toolkit): static
     {
-        // Role-scoped toolkits are skipped when the active role doesn't match
-        if ($toolkit instanceof RoleScopedToolkitInterface) {
-            $scope = $toolkit->roleScope();
-            if ($scope !== null) {
-                $allowed = is_array($scope) ? $scope : [$scope];
-                if (!in_array($this->activeRole, $allowed, true)) {
-                    return $this;
-                }
+        // Role-based toolkit filtering via declarative frontmatter patterns.
+        // Check toolkit class basename against the role's toolkits rules.
+        if ($this->roleToolkitResolver->hasRules()) {
+            $className = $toolkit::class;
+            // Unwrap StubToolkit to check the real toolkit class
+            if ($toolkit instanceof StubToolkit) {
+                $className = $toolkit->innerClass();
+            }
+            if (!$this->roleToolkitResolver->isToolkitAllowed($className)) {
+                return $this;
             }
         }
 
@@ -580,6 +587,11 @@ final class OrchestratorAgent extends AbstractAgent
         $tools = $alwaysEnabled;
 
         foreach ($visibilityManaged as $name => $tool) {
+            // Role-based filtering for standalone tools
+            if (!$this->roleToolkitResolver->isToolAllowed($name)) {
+                continue;
+            }
+
             $vis = $this->visibilityRegistry?->getToolVisibility($name)
                 ?? ToolkitVisibility::Enabled;
 
@@ -754,6 +766,24 @@ final class OrchestratorAgent extends AbstractAgent
     public function getContextWindow(): ?ContextWindowInterface
     {
         return $this->contextWindowInstance;
+    }
+
+    /**
+     * Build a RoleToolkitResolver from the active role's frontmatter.
+     */
+    private function buildRoleToolkitResolver(?string $activeRole, ?RoleDiscovery $roleDiscovery): RoleToolkitResolver
+    {
+        if ($activeRole === null || $activeRole === 'orchestrator' || $roleDiscovery === null) {
+            return new RoleToolkitResolver(null);
+        }
+
+        try {
+            $roleProps = $roleDiscovery->getRole($activeRole);
+
+            return new RoleToolkitResolver($roleProps->toolkits);
+        } catch (\Throwable) {
+            return new RoleToolkitResolver(null);
+        }
     }
 
     /**

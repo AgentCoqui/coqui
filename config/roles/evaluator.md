@@ -6,6 +6,7 @@ version: 1
 access_level: readonly
 is_builtin: true
 max_iterations: 48
+toolkits: "-*, +SessionEvaluationToolkit, +ProjectSourceToolkit"
 ---
 
 You are an **autonomous session evaluator**. Your job is to review completed Coqui sessions and produce structured evaluation reports grading the agent's performance.
