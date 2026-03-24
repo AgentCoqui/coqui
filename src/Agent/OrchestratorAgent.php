@@ -184,9 +184,12 @@ final class OrchestratorAgent extends AbstractAgent
         // Resolve the effective access level for toolkit filtering.
         // When activeRole is set (via /role command), use the role's declared access_level.
         $effectiveAccessLevel = 'full';
-        if ($this->activeRole !== null && $this->activeRole !== 'orchestrator' && $this->roleDiscovery !== null) {
+        if ($this->roleDiscovery !== null) {
+            $effectiveRole = ($this->activeRole === null || $this->activeRole === 'orchestrator')
+                ? 'orchestrator'
+                : $this->activeRole;
             try {
-                $roleProps = $this->roleDiscovery->getRole($this->activeRole);
+                $roleProps = $this->roleDiscovery->getRole($effectiveRole);
                 $effectiveAccessLevel = $roleProps->accessLevel;
             } catch (\Throwable) {
                 // Role not found — fall through with 'full' access
@@ -260,7 +263,9 @@ final class OrchestratorAgent extends AbstractAgent
         $this->addToolkit(new ProjectSourceToolkit(projectRoot: $this->projectRoot));
 
         // Toolkit generator — scaffold new toolkit packages
-        $this->addToolkit(new ToolkitGeneratorToolkit(workspacePath: $this->workspacePath));
+        if ($this->roleToolkitResolver->isToolkitAllowed(ToolkitGeneratorToolkit::class)) {
+            $this->addToolkit(new ToolkitGeneratorToolkit(workspacePath: $this->workspacePath));
+        }
 
         // Skill toolkit — discover and use Agent Skills
         if ($this->skillDiscovery !== null) {
@@ -365,12 +370,17 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         // Schedule and webhook toolkits — self-scheduling and webhook management
+        // Conditional instantiation avoids creating Store objects when role denies the toolkit.
         if ($this->storage !== null && $effectiveAccessLevel === 'full') {
-            $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
-            $this->addToolkit(new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore));
+            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\ScheduleToolkit::class)) {
+                $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
+                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore));
+            }
 
-            $webhookStore = new \CoquiBot\Coqui\Storage\WebhookStore($this->storage->getPdo());
-            $this->addToolkit(new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore));
+            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\WebhookToolkit::class)) {
+                $webhookStore = new \CoquiBot\Coqui\Storage\WebhookStore($this->storage->getPdo());
+                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore));
+            }
         }
 
         // Session evaluation toolkit — registered when role allows it.
@@ -562,11 +572,6 @@ final class OrchestratorAgent extends AbstractAgent
             $this->credentialTool,
         ];
 
-        // Summarize tool is always available when a session exists
-        if ($this->summarizeTool !== null) {
-            $alwaysEnabled[] = $this->summarizeTool;
-        }
-
         // Visibility-aware standalone tools (by tool name => instance)
         /** @var array<string, ToolInterface> */
         $visibilityManaged = [
@@ -575,6 +580,10 @@ final class OrchestratorAgent extends AbstractAgent
             'php_execute'    => $this->phpExecuteTool,
             'vision_analyze' => $this->visionTool,
         ];
+
+        if ($this->summarizeTool !== null) {
+            $visibilityManaged['summarize_conversation'] = $this->summarizeTool;
+        }
 
         if ($this->restartTool !== null) {
             $visibilityManaged['restart_coqui'] = $this->restartTool;
@@ -773,12 +782,14 @@ final class OrchestratorAgent extends AbstractAgent
      */
     private function buildRoleToolkitResolver(?string $activeRole, ?RoleDiscovery $roleDiscovery): RoleToolkitResolver
     {
-        if ($activeRole === null || $activeRole === 'orchestrator' || $roleDiscovery === null) {
+        if ($roleDiscovery === null) {
             return new RoleToolkitResolver(null);
         }
 
+        $effectiveRole = ($activeRole === null || $activeRole === 'orchestrator') ? 'orchestrator' : $activeRole;
+
         try {
-            $roleProps = $roleDiscovery->getRole($activeRole);
+            $roleProps = $roleDiscovery->getRole($effectiveRole);
 
             return new RoleToolkitResolver($roleProps->toolkits);
         } catch (\Throwable) {

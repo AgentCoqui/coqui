@@ -175,3 +175,18 @@ MD);
 
     expect($props->toolkits)->toBeNull();
 });
+
+test('parses orchestrator role file from config/roles', function () {
+    $path = dirname(__DIR__, 3) . '/config/roles/orchestrator.md';
+
+    if (!file_exists($path)) {
+        $this->markTestSkipped('orchestrator.md not found in config/roles/');
+    }
+
+    $props = $this->parser->readProperties($path);
+
+    expect($props->name)->toBe('orchestrator');
+    expect($props->accessLevel)->toBe('full');
+    expect($props->isBuiltin)->toBeTrue();
+    expect($props->toolkits)->toBe('+*, -SessionEvaluationToolkit, -LearningToolkit, -ToolkitGeneratorToolkit');
+});
