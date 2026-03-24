@@ -223,12 +223,13 @@ test('toolkit returns three tools', function () {
     $toolkit = new SkillToolkit($discovery);
 
     $tools = $toolkit->tools();
-    expect($tools)->toHaveCount(3);
+    expect($tools)->toHaveCount(4);
 
     $names = array_map(fn($t) => $t->name(), $tools);
     expect($names)->toContain('skill_list');
     expect($names)->toContain('skill_read');
     expect($names)->toContain('skill_create');
+    expect($names)->toContain('skill_update');
 
     cleanupToolkitWorkspace($workspace);
 });

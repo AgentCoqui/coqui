@@ -19,6 +19,7 @@ use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Provider\FallbackProvider;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Contract\RoleScopedToolkitInterface;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Config\RoleDiscovery;
@@ -40,6 +41,7 @@ use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
+use CoquiBot\Coqui\Toolkit\LearningToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
@@ -366,7 +368,8 @@ final class OrchestratorAgent extends AbstractAgent
             $this->addToolkit(new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore));
         }
 
-        // Session evaluation toolkit — only for the evaluator role
+        // Session evaluation toolkit — role-scoped to 'evaluator' via RoleScopedToolkitInterface.
+        // Conditional instantiation avoids creating EvaluationStore when not needed.
         if ($this->activeRole === 'evaluator' && $this->storage !== null) {
             $evaluationStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
             $lookbackHours = (int) ($this->config->get('agents.defaults.evaluation.lookbackHours') ?? 24);
@@ -376,6 +379,15 @@ final class OrchestratorAgent extends AbstractAgent
                 storage: $this->storage,
                 defaultLookbackHours: $lookbackHours,
                 defaultInactivityHours: $inactivityHours,
+            ));
+        }
+
+        // Learning toolkit — role-scoped to 'learner' via RoleScopedToolkitInterface.
+        // Reads poor evaluations and generates corrective Skills.
+        if ($this->activeRole === 'learner' && $this->storage !== null) {
+            $learnerEvalStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
+            $this->addToolkit(new LearningToolkit(
+                evaluationStore: $learnerEvalStore,
             ));
         }
 
@@ -431,6 +443,17 @@ final class OrchestratorAgent extends AbstractAgent
     #[\Override]
     public function addToolkit(ToolkitInterface $toolkit): static
     {
+        // Role-scoped toolkits are skipped when the active role doesn't match
+        if ($toolkit instanceof RoleScopedToolkitInterface) {
+            $scope = $toolkit->roleScope();
+            if ($scope !== null) {
+                $allowed = is_array($scope) ? $scope : [$scope];
+                if (!in_array($this->activeRole, $allowed, true)) {
+                    return $this;
+                }
+            }
+        }
+
         // Register real tool descriptions in BM25 registry for tool_search
         $toolsForRegistry = ($toolkit instanceof StubToolkit)
             ? $toolkit->realTools()
