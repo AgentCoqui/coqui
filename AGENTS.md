@@ -636,6 +636,158 @@ This is best-effort — the stage transition always succeeds even if todo genera
 | `src/Agent/PlanTodoGenerator.php` | Auto-generates todos from finalized plan artifacts via utility model |
 | `prompts/tools/todos.md` | Agent usage guidelines for todo workflow |
 
+## Evaluation System Architecture
+
+Coqui provides an asynchronous post-run evaluation pipeline where a utility/cheap model grades completed sessions on performance, hallucinations, and tool efficiency. The system leverages the existing Schedule System and Background Tasks infrastructure for autonomous operation.
+
+### How It Works
+
+1. **`EvaluationStore`** manages an `evaluations` table in the shared SQLite database. Each evaluation is linked to a session and contains numeric scores (0.0–1.0) for completion, hallucination absence, and tool efficiency, plus a weighted composite score and a full markdown report.
+2. **`SessionEvaluationToolkit`** provides 4 agent-facing tools: `evaluation_list_sessions`, `evaluation_read_transcript`, `evaluation_read_child_runs`, `evaluation_save_report`. The toolkit is only registered when the active role is `evaluator`.
+3. **The `evaluator` role** (`config/roles/evaluator.md`) defines the grading criteria, scoring rubric (A–F scale), and structured report format. It operates at `access_level: readonly` — no file writes or shell commands.
+4. **Session eligibility** — sessions are eligible for evaluation when they have no existing evaluation record, are not background task sessions, have been inactive longer than the inactivity threshold (default 3 hours), fall within the lookback window (default 24 hours), and have a minimum number of turns (default 2).
+5. **Autonomous operation** — the user or agent creates a schedule via the Schedule System to run evaluations periodically (e.g., daily). The schedule spawns a background task with `role: evaluator`, which grades all eligible sessions and saves reports.
+
+### Evaluation Criteria
+
+| Criterion | Weight | Score Range | Description |
+| --- | --- | --- | --- |
+| Completion | 40% | 0.0–1.0 | Did the agent fulfill the user's request? |
+| Hallucination Absence | 40% | 0.0–1.0 | Were all references to APIs, methods, and files accurate? |
+| Tool Efficiency | 20% | 0.0–1.0 | Did the agent use tools effectively without waste? |
+
+### Grading Scale
+
+| Grade | Criteria |
+| --- | --- |
+| A | All scores ≥ 0.8, no major issues |
+| B | Mostly successful, minor issues (overall ≥ 0.7) |
+| C | Partial completion or notable hallucinations (overall ≥ 0.5) |
+| D | Major failures in at least one criterion (overall ≥ 0.3) |
+| F | Fundamental failure |
+
+### Agent-Facing Tools (SessionEvaluationToolkit)
+
+| Tool | Description |
+| --- | --- |
+| `evaluation_list_sessions` | Find unevaluated sessions within the lookback window |
+| `evaluation_read_transcript` | Read a session's conversation history with tool call summaries |
+| `evaluation_read_child_runs` | Read child agent executions for a session |
+| `evaluation_save_report` | Save a structured evaluation report with grade and scores |
+
+### Configuration
+
+Optional keys in `openclaw.json` under `agents.defaults.evaluation`:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `lookbackHours` | `24` | How far back to search for sessions to evaluate |
+| `inactivityHours` | `3` | Minimum hours since last activity before a session is eligible |
+| `minTurns` | `2` | Minimum turns for a session to be worth evaluating |
+
+The evaluator model is assigned via the standard roles mapping: `"roles": {"evaluator": "ollama/gemma3:4b"}`.
+
+### REPL Command
+
+| Command | Description |
+| --- | --- |
+| `/evaluations [grade]` | Table-formatted list of evaluation reports with optional grade filter |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Storage/EvaluationStore.php` | SQLite CRUD with unevaluated session discovery via LEFT JOIN |
+| `src/Toolkit/SessionEvaluationToolkit.php` | 4 agent-facing tools with dynamic guidelines |
+| `config/roles/evaluator.md` | Role definition with grading criteria and report format |
+
+
+## Role-Scoped Toolkit Architecture
+
+Coqui supports restricting toolkits to specific agent roles via the `RoleScopedToolkitInterface`. This is a declarative mechanism — toolkits declare their role scope, and `OrchestratorAgent` enforces it at registration time.
+
+### How It Works
+
+1. **Toolkit implements `RoleScopedToolkitInterface`** — extends `ToolkitInterface` with a single method: `roleScope(): string|array|null`.
+2. **`OrchestratorAgent::addToolkit()`** checks every toolkit before registration. If the toolkit implements `RoleScopedToolkitInterface` and `roleScope()` returns a non-null value, the active role must match one of the allowed roles. Non-matching toolkits are silently skipped.
+3. **Conditional instantiation** — role-scoped toolkits often depend on stores or services that shouldn't be created unnecessarily. The `if ($this->activeRole === 'role_name')` guard in the constructor prevents wasteful object creation. The `RoleScopedToolkitInterface` check in `addToolkit()` is a belt-and-suspenders safety net.
+
+### Scope Values
+
+| Return Value | Behavior |
+| --- | --- |
+| `null` | Unrestricted — available to all roles (equivalent to not implementing the interface) |
+| `'evaluator'` | Only available when `activeRole === 'evaluator'` |
+| `['learner', 'evaluator']` | Available to either role |
+
+### Current Role-Scoped Toolkits
+
+| Toolkit | Role Scope | Purpose |
+| --- | --- | --- |
+| `SessionEvaluationToolkit` | `evaluator` | Introspect past sessions and save evaluation reports |
+| `LearningToolkit` | `learner` | Query poor evaluations to drive corrective skill creation |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Contract/RoleScopedToolkitInterface.php` | Interface: `roleScope(): string\|array\|null` |
+| `src/Agent/OrchestratorAgent.php` | Enforces role scope in `addToolkit()` override |
+
+
+## Learning System Architecture
+
+Coqui provides an autonomous learning loop where a `learner` role analyzes poor evaluation reports and synthesizes corrective Skills (SOPs) to prevent the system from repeating the same mistakes. This closes the evaluate→learn feedback loop and fulfills the "Learning" element of the 10 Elements of Agentic System Design.
+
+### How It Works
+
+1. **`EvaluationStore::getPoorEvaluations()`** queries the evaluations table for sessions scoring below a threshold (default 0.5) within a rolling time window (default 7 days).
+2. **`LearningToolkit`** provides 2 agent-facing tools: `learning_list_poor_evaluations` and `learning_read_evaluation`. The toolkit implements `RoleScopedToolkitInterface` with `roleScope()` returning `'learner'`, so these tools are only available when the active role is `learner`.
+3. **The `learner` role** (`config/roles/learner.md`) defines the autonomous workflow: list poor evaluations → read each report → identify failure patterns → check existing skills → create or update Skills with corrective procedures.
+4. **Skill creation and updates** — the learner uses the standard `SkillToolkit` (available to all roles) to create new skills via `skill_create` or append lessons to existing skills via `skill_update`.
+5. **Autonomous scheduling** — the user creates a schedule via the Schedule System to run the learner periodically (e.g., daily). The schedule spawns a background task with `role: learner`.
+
+### Failure Pattern Categories
+
+The learner classifies failures into three categories:
+
+| Category | Trigger | SOP Focus |
+| --- | --- | --- |
+| Hallucination | Low `score_hallucination` | Document correct APIs, add anti-patterns |
+| Completion | Low `score_completion` | Step-by-step procedures, verification checkpoints |
+| Tool Efficiency | Low `score_efficiency` | Batching patterns, early-exit conditions |
+
+### Agent-Facing Tools (LearningToolkit)
+
+| Tool | Description |
+| --- | --- |
+| `learning_list_poor_evaluations` | Find recent evaluations below a score threshold (default: 0.5) within a time window (default: 7 days) |
+| `learning_read_evaluation` | Read the full evaluation report, scores, and session context for a specific evaluation |
+
+### Scheduling the Learner
+
+Create a daily learning schedule via the agent or API:
+
+```
+schedule_create(
+    name: "daily-learning",
+    expression: "0 2 * * *",
+    prompt: "Analyze recent poor evaluations and create or update Skills with corrective operating procedures.",
+    role: "learner",
+    timezone: "UTC"
+)
+```
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `config/roles/learner.md` | Role definition with failure analysis workflow and skill creation guidelines |
+| `src/Toolkit/LearningToolkit.php` | 2 agent-facing tools with role-scoped access (`learner` only) |
+| `src/Storage/EvaluationStore.php` | `getPoorEvaluations()` — threshold-based query with rolling time window |
+| `src/Toolkit/SkillToolkit.php` | `skill_update` tool enables iterative skill refinement |
+
+
 ## Vision Architecture
 
 Coqui provides image analysis via a dedicated `vision` role. The system uses a single-shot child agent pattern (like `TitleGenerator`) — no persistent state, no tool access, just one LLM call with the image embedded.
