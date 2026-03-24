@@ -27,7 +27,7 @@ final readonly class RoleProperties
         public bool $ignoreUpdates = false,
         public ?string $model = null,
         public ?string $titleModel = null,
-        public ?string $allowedTools = null,
+        public ?string $toolkits = null,
         public ?int $maxIterations = null,
     ) {}
 
@@ -51,6 +51,7 @@ final readonly class RoleProperties
             'ignore_updates' => $this->ignoreUpdates,
             'model' => $this->model,
             'title_model' => $this->titleModel,
+            'toolkits' => $this->toolkits,
             'max_iterations' => $this->maxIterations,
         ];
     }

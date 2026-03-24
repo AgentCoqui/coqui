@@ -31,7 +31,7 @@ enum ToolkitVisibility: string
      * Tools that can be stubbed but NOT fully disabled.
      * Functional but optional to surface with full schema.
      */
-    public const array CANNOT_DISABLE = ['spawn_agent', 'vision_analyze', 'restart_coqui'];
+    public const array CANNOT_DISABLE = ['spawn_agent', 'vision_analyze', 'restart_coqui', 'summarize_conversation'];
 
     /**
      * Whether a tool name is protected from any visibility change.

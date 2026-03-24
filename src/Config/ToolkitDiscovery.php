@@ -658,6 +658,63 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
     }
 
     /**
+     * Load role-scope declaration from a package's composer.json.
+     *
+     * Reads extra.php-agents.role-scope — an array of role names that
+     * this toolkit is designed for. When set, the toolkit is only
+     * instantiated for the listed roles (unless overridden by the role's
+     * toolkits frontmatter).
+     *
+     * @return string[]|null Role names, or null if unrestricted
+     */
+    public function loadRoleScope(string $packageName): ?array
+    {
+        $composerJson = $this->projectRoot . '/vendor/' . $packageName . '/composer.json';
+
+        if (!file_exists($composerJson)) {
+            $composerJson = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName . '/composer.json';
+        }
+
+        if (!file_exists($composerJson)) {
+            return null;
+        }
+
+        $data = json_decode((string) file_get_contents($composerJson), true);
+        if (!is_array($data)) {
+            return null;
+        }
+
+        $roleScope = $data['extra']['php-agents']['role-scope'] ?? null;
+        if (!is_array($roleScope)) {
+            return null;
+        }
+
+        $filtered = array_values(array_filter($roleScope, 'is_string'));
+
+        return $filtered !== [] ? $filtered : null;
+    }
+
+    /**
+     * Collect role-scope declarations from all registered packages.
+     *
+     * @return array<string, string[]> Package name => allowed role names
+     */
+    public function collectAllRoleScopes(): array
+    {
+        $registry = $this->loadRegistry();
+        $scopes = [];
+
+        foreach (array_keys($registry) as $packageName) {
+            $scope = $this->loadRoleScope($packageName);
+            if ($scope !== null) {
+                $scopes[$packageName] = $scope;
+            }
+        }
+
+        return $scopes;
+    }
+
+    /**
      * Load gated tool declarations from a package's composer.json.
      *
      * Reads extra.php-agents.gated — a map of tool names to gating rules.

@@ -1058,7 +1058,7 @@
             "path": "src/Toolkit/SessionEvaluationToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\SessionEvaluationToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing toolkit for the evaluator role. Implements RoleScopedToolkitInterface with roleScope() returning 'evaluator'. Provides 4 tools for introspecting past sessions and recording structured evaluation reports: evaluation_list_sessions, evaluation_read_transcript, evaluation_read_child_runs, evaluation_save_report. Guidelines dynamically show evaluation statistics and grade distribution.",
+            "description": "Agent-facing toolkit for the evaluator role. Visibility restricted via the evaluator role's toolkits frontmatter field. Provides 4 tools for introspecting past sessions and recording structured evaluation reports: evaluation_list_sessions, evaluation_read_transcript, evaluation_read_child_runs, evaluation_save_report. Guidelines dynamically show evaluation statistics and grade distribution.",
             "methods": [
                 "roleScope(): string \u2014 returns 'evaluator' to restrict this toolkit to the evaluator role",
                 "tools(): array \u2014 returns 4 evaluation Tool instances",
@@ -1100,12 +1100,24 @@
             "path": "src/Config/RoleParser.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleParser",
             "layer": "config",
-            "description": "Stateless parser for role .md files with YAML frontmatter. Reads properties (metadata only) and body (instructions) separately for progressive disclosure. Validates names, access levels, parses max_iterations from frontmatter, and can build role files from properties+instructions.",
+            "description": "Stateless parser for role .md files with YAML frontmatter. Reads properties (metadata only) and body (instructions) separately for progressive disclosure. Validates names, access levels, parses max_iterations and toolkits from frontmatter (with backward-compat fallback to allowed-tools), and can build role files from properties+instructions.",
             "methods": [
                 "readProperties(string $filePath): RoleProperties — parses frontmatter into value object",
                 "readBody(string $filePath): string — returns instruction text after frontmatter",
                 "validateName(string $name): string[] — returns validation error messages",
                 "buildRoleFile(array $properties, string $instructions): string — serializes to role .md format"
+            ]
+        },
+        {
+            "path": "src/Config/RoleToolkitResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\RoleToolkitResolver",
+            "layer": "config",
+            "description": "Resolves toolkit and tool visibility for a given role based on the declarative toolkits field in role frontmatter. Parses comma-separated +/- patterns (e.g. '+*, -ShellToolkit, -php_execute') and evaluates them left-to-right, last-match-wins. Matches against class basenames, tool names, and package names. ALWAYS_ENABLED tools bypass all deny rules.",
+            "methods": [
+                "isToolkitAllowed(string $toolkitClass, ?string $packageName = null): bool — check if a toolkit class is allowed",
+                "isToolAllowed(string $toolName): bool — check if an individual tool is allowed (ALWAYS_ENABLED bypass)",
+                "getEffectiveVisibility(string $identifier, ToolkitVisibility $globalVisibility, ?string $packageName = null): ToolkitVisibility — combine role policy with global visibility",
+                "hasRules(): bool — whether the resolver has any rules from the role's toolkits field"
             ]
         },
         {
@@ -1481,21 +1493,11 @@
             ]
         },
         {
-            "path": "src/Contract/RoleScopedToolkitInterface.php",
-            "fqcn": "CoquiBot\\Coqui\\Contract\\RoleScopedToolkitInterface",
-            "layer": "contract",
-            "description": "Interface extending ToolkitInterface that restricts a toolkit to specific agent roles. OrchestratorAgent::addToolkit() checks roleScope() against the active role before registering. Used by SessionEvaluationToolkit (evaluator) and LearningToolkit (learner).",
-            "methods": [
-                "roleScope(): string|array|null — role name(s) this toolkit is restricted to, or null for unrestricted"
-            ]
-        },
-        {
             "path": "src/Toolkit/LearningToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\LearningToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing toolkit for the learner role. Implements RoleScopedToolkitInterface with roleScope() returning 'learner'. Provides 2 tools for querying poor evaluations to drive autonomous skill creation: learning_list_poor_evaluations, learning_read_evaluation. Guidelines dynamically show poor evaluation count and learning workflow.",
+            "description": "Agent-facing toolkit for the learner role. Visibility restricted via the learner role's toolkits frontmatter field. Provides 2 tools for querying poor evaluations to drive autonomous skill creation: learning_list_poor_evaluations, learning_read_evaluation. Guidelines dynamically show poor evaluation count and learning workflow.",
             "methods": [
-                "roleScope(): string — returns 'learner' to restrict this toolkit to the learner role",
                 "tools(): array — returns 2 learning Tool instances",
                 "guidelines(): string — dynamic stats with poor evaluation count and workflow instructions"
             ]

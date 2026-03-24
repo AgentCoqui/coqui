@@ -6,6 +6,7 @@ version: 2
 access_level: minimal
 is_builtin: true
 max_iterations: 5
+toolkits: "-*"
 ---
 
 Analyze the provided image. Cover:
