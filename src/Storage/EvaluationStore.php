@@ -56,6 +56,8 @@ final class EvaluationStore
 
     /**
      * Create a new evaluation report.
+     *
+     * @param array<string, mixed>|null $metadata
      */
     public function create(
         string $sessionId,
@@ -257,6 +259,41 @@ final class EvaluationStore
                 'F' => (int) ($row['grade_f'] ?? 0),
             ],
         ];
+    }
+
+    /**
+     * Fetch evaluations with overall_score below a threshold.
+     *
+     * Used by the learner role to find sessions that performed poorly
+     * and need corrective SOPs or skills generated.
+     *
+     * @param int $sinceHours Rolling window — only evaluations created within this many hours.
+     * @return list<array<string, mixed>>
+     */
+    public function getPoorEvaluations(
+        int $limit = 20,
+        float $thresholdScore = 0.5,
+        int $sinceHours = 168,
+    ): array {
+        $sinceCutoff = gmdate('Y-m-d\TH:i:s\Z', time() - ($sinceHours * 3600));
+
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT e.*, s.title AS session_title
+            FROM evaluations e
+            LEFT JOIN sessions s ON s.id = e.session_id
+            WHERE e.overall_score < ?
+              AND e.created_at > ?
+            ORDER BY e.overall_score ASC, e.created_at DESC
+            LIMIT ?
+        SQL);
+        $stmt->execute([
+            $thresholdScore,
+            $sinceCutoff,
+            $limit,
+        ]);
+
+        /** @var list<array<string, mixed>> */
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     /**
