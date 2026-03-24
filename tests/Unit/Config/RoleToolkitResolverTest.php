@@ -207,3 +207,29 @@ test('hasRules returns false for null pattern', function () {
 
     expect($resolver->hasRules())->toBeFalse();
 });
+
+// --- summarize_conversation filtering ---
+
+test('deny-all blocks summarize_conversation', function () {
+    $resolver = new RoleToolkitResolver('-*');
+
+    expect($resolver->isToolAllowed('summarize_conversation'))->toBeFalse();
+});
+
+test('allow-all permits summarize_conversation', function () {
+    $resolver = new RoleToolkitResolver('+*');
+
+    expect($resolver->isToolAllowed('summarize_conversation'))->toBeTrue();
+});
+
+test('summarize_conversation is not ALWAYS_ENABLED', function () {
+    expect(ToolkitVisibility::isAlwaysEnabled('summarize_conversation'))->toBeFalse();
+});
+
+test('summarize_conversation cannot be globally disabled', function () {
+    expect(ToolkitVisibility::canDisable('summarize_conversation'))->toBeFalse();
+});
+
+test('summarize_conversation can be stubbed', function () {
+    expect(ToolkitVisibility::canStub('summarize_conversation'))->toBeTrue();
+});
