@@ -58,6 +58,7 @@ use CoquiBot\Coqui\Tool\SummarizeConversationTool;
 use CoquiBot\Coqui\Tool\ToolRegistry;
 use CoquiBot\Coqui\Tool\ToolSearchTool;
 use CoquiBot\Coqui\Tool\VisionTool;
+use CoquiBot\Coqui\Toolkit\SessionEvaluationToolkit;
 use CarmeloSantana\PHPAgents\Context\ContextWindow;
 use CarmeloSantana\PHPAgents\Contract\ContextWindowInterface;
 use CarmeloSantana\PHPAgents\Contract\TokenCounterInterface;
@@ -363,6 +364,19 @@ final class OrchestratorAgent extends AbstractAgent
 
             $webhookStore = new \CoquiBot\Coqui\Storage\WebhookStore($this->storage->getPdo());
             $this->addToolkit(new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore));
+        }
+
+        // Session evaluation toolkit — only for the evaluator role
+        if ($this->activeRole === 'evaluator' && $this->storage !== null) {
+            $evaluationStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
+            $lookbackHours = (int) ($this->config->get('agents.defaults.evaluation.lookbackHours') ?? 24);
+            $inactivityHours = (int) ($this->config->get('agents.defaults.evaluation.inactivityHours') ?? 3);
+            $this->addToolkit(new SessionEvaluationToolkit(
+                evaluationStore: $evaluationStore,
+                storage: $this->storage,
+                defaultLookbackHours: $lookbackHours,
+                defaultInactivityHours: $inactivityHours,
+            ));
         }
 
         // Register standalone tools in the registry now that they're all created.
