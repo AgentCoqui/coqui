@@ -65,7 +65,8 @@ The simplest valid config only needs a primary model:
         "defaults": {
             "model": {
                 "primary": "ollama/qwen3:latest",
-                "fallbacks": ["ollama/llama3.2:latest"]
+                "fallbacks": ["ollama/llama3.2:latest"],
+                "utility": "ollama/gemma3:4b"
             },
             "roles": {
                 "orchestrator": "ollama/qwen3:latest",
@@ -87,6 +88,16 @@ The simplest valid config only needs a primary model:
             ],
             "memory": {
                 "embeddingModel": "openai/text-embedding-3-small"
+            },
+            "context": {
+                "autoSummarizeThreshold": 75,
+                "autoSummarizeKeepRecent": 15,
+                "keepRecentTurns": 10
+            },
+            "evaluation": {
+                "lookbackHours": 24,
+                "inactivityHours": 3,
+                "minTurns": 2
             }
         }
     },
@@ -119,15 +130,19 @@ The primary model used when no role-specific mapping exists.
 |-----|------|----------|-------------|
 | `primary` | string | yes | Model string in `provider/model` format |
 | `fallbacks` | string[] | no | Fallback models tried in order if the primary fails |
+| `utility` | string | no | Cheap/fast model for internal tasks (titles, summaries, memory compression) |
 
 ```json
 {
     "model": {
         "primary": "ollama/qwen3:latest",
-        "fallbacks": ["ollama/llama3.2:latest", "openai/gpt-4.1-mini"]
+        "fallbacks": ["ollama/llama3.2:latest", "openai/gpt-4.1-mini"],
+        "utility": "ollama/gemma3:4b"
     }
 }
 ```
+
+**Utility model resolution**: `model.utility` → `COQUI_UTILITY_MODEL` env var → title-generator role model → primary model.
 
 ### `roles`
 
@@ -253,6 +268,50 @@ Configure the memory system's embedding provider for semantic search.
 ```
 
 **Auto-detection**: If no embedding model is configured but an `OPENAI_API_KEY` is set, Coqui automatically uses `text-embedding-3-small`. Without any embedding provider, memory still works using SQLite FTS5 keyword search.
+
+### `context`
+
+Configure automatic conversation summarization behavior.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `autoSummarizeThreshold` | int/float | `75` | Token usage percentage that triggers auto-summarization. Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeKeepRecent` | int | `15` | Turns preserved during auto-summarization (clamped 1–20) |
+| `keepRecentTurns` | int | `10` | Default turns preserved during on-demand summarization (`/summarize`) |
+
+```json
+{
+    "context": {
+        "autoSummarizeThreshold": 75,
+        "autoSummarizeKeepRecent": 15,
+        "keepRecentTurns": 10
+    }
+}
+```
+
+When the estimated token usage exceeds the threshold before an agent turn, older messages are compressed via LLM while preserving recent turns and workflow state (todos, artifacts).
+
+### `evaluation`
+
+Configure the session evaluation system.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `lookbackHours` | int | `24` | How far back to search for sessions to evaluate |
+| `inactivityHours` | int | `3` | Minimum hours since last activity before a session is eligible |
+| `minTurns` | int | `2` | Minimum turns for a session to be worth evaluating |
+
+```json
+{
+    "evaluation": {
+        "lookbackHours": 24,
+        "inactivityHours": 3,
+        "minTurns": 2
+    }
+}
+```
+
+The evaluator model is configured via the roles mapping: `"roles": {"evaluator": "ollama/gemma3:4b"}`.
 
 ## Model Providers (`models.providers`)
 

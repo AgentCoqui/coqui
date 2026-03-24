@@ -87,11 +87,33 @@ The agent calls `task_status` and reports back with the current state and recent
 | Tool | Description |
 |------|-------------|
 | `start_background_task` | Create and queue a new task with a prompt, title, and optional role/iteration limit |
+| `start_background_tool` | Execute a single tool directly in a background process (zero LLM tokens) |
 | `task_status` | Check the status, result, and recent events of a specific task (result/error capped at 2000 chars) |
 | `list_tasks` | List tasks with optional status filter |
 | `cancel_task` | Cancel a pending or running task |
 
 > These tools are available in both API and REPL modes. They are intentionally excluded from background task agents themselves to prevent recursive task spawning.
+
+### Background Tool Execution
+
+`start_background_tool` runs a single tool call directly in a background process without spawning an LLM agent. This is ideal for long-running operations where the exact tool and arguments are already known.
+
+```
+start_background_tool(
+    tool_name: "exec",
+    arguments: {"command": "composer test"},
+    title: "Run test suite"
+)
+```
+
+| Aspect | `start_background_task` | `start_background_tool` |
+|--------|------------------------|------------------------|
+| Execution | Full LLM agent loop | Direct `tool->execute()` call |
+| LLM tokens | Yes (agent reasons and iterates) | None (zero token cost) |
+| Iterations | Up to 100 (configurable) | Always 1 (single tool call) |
+| Use case | Complex multi-step work | Single long-running tool call |
+
+The background tool executor builds the same toolkit set as `OrchestratorAgent` (filesystem, shell, discovered packages), resolves the tool by name, and calls `execute()` directly. Results are persisted to the task record and streamed via SSE, monitored with the same `task_status` and `list_tasks` tools.
 
 ### Via REPL Slash Commands
 

@@ -359,6 +359,46 @@ Delete a session and all its associated data.
 }
 ```
 
+#### `POST /api/v1/sessions/{id}/summarize`
+
+Compress older conversation history into a concise summary, preserving recent turns and workflow state (todos, artifacts).
+
+**Request Body**
+
+```json
+{
+  "keep_recent": 10,
+  "focus": "database migration"
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `keep_recent` | int | No | Config value or `10` | Number of recent turns to preserve (clamped 1–20) |
+| `focus` | string | No | — | Optional topic to emphasize in the summary |
+
+**Response `200`**
+
+```json
+{
+  "summarized": true,
+  "messages_summarized": 42,
+  "tokens_before": 24000,
+  "tokens_after": 8500,
+  "tokens_saved": 15500,
+  "summary": "Conversation summary text..."
+}
+```
+
+**Response `200`** — conversation too short:
+
+```json
+{
+  "summarized": false,
+  "reason": "Conversation too short to summarize."
+}
+```
+
 ### Messages
 
 Messages are the conversation records within a session. Each message has a role (`user`, `assistant`, or `tool`).
@@ -1824,6 +1864,157 @@ Delete a todo and all its subtasks.
 }
 ```
 
+### Artifacts
+
+Artifacts are versioned content objects scoped to a session. They support a lifecycle (`draft` → `review` → `final`) and are used for structured planning, code generation, and handoff between roles.
+
+#### `GET /api/v1/sessions/{id}/artifacts`
+
+List artifacts for a session with optional filters.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | string | Filter by artifact type (e.g. `code`, `plan`, `document`) |
+| `stage` | string | Filter by lifecycle stage (e.g. `draft`, `review`, `final`) |
+
+**Response `200`**
+
+```json
+{
+  "artifacts": [
+    {
+      "id": "art_1a2b3c4d",
+      "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+      "title": "Database migration plan",
+      "type": "plan",
+      "stage": "draft",
+      "language": null,
+      "filepath": null,
+      "version": 1,
+      "created_by": "plan",
+      "created_at": "2026-02-16T14:30:00Z",
+      "updated_at": "2026-02-16T14:35:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+#### `POST /api/v1/sessions/{id}/artifacts`
+
+Create a new artifact.
+
+**Request Body**
+
+```json
+{
+  "title": "API refactor plan",
+  "content": "## Steps\n1. Extract handlers...",
+  "type": "plan",
+  "language": "markdown",
+  "filepath": null
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `title` | string | Yes | — | Artifact title |
+| `content` | string | No | `""` | Initial content |
+| `type` | string | No | `"code"` | Artifact type (`code`, `plan`, `document`, etc.) |
+| `language` | string | No | `null` | Programming language (for code artifacts) |
+| `filepath` | string | No | `null` | Associated file path |
+
+**Response `201`**
+
+Returns the created artifact object.
+
+#### `GET /api/v1/sessions/{id}/artifacts/{artifactId}`
+
+Get a specific artifact with its current content.
+
+**Response `200`**
+
+Returns the full artifact object including content.
+
+**Response `404`**
+
+```json
+{
+  "error": "Artifact not found",
+  "code": "not_found"
+}
+```
+
+#### `PATCH /api/v1/sessions/{id}/artifacts/{artifactId}`
+
+Update an artifact's content, title, or stage. If only `stage` is provided (no `content`), performs a stage-only transition.
+
+**Request Body**
+
+```json
+{
+  "content": "## Updated Steps\n1. ...",
+  "title": "Revised plan",
+  "stage": "review",
+  "change_summary": "Added error handling steps"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `content` | string | No | New artifact content (creates new version) |
+| `title` | string | No | Updated title |
+| `stage` | string | No | Lifecycle stage transition (`draft`, `review`, `final`) |
+| `change_summary` | string | No | Description of changes for version history |
+
+**Response `200`**
+
+Returns the updated artifact object.
+
+#### `DELETE /api/v1/sessions/{id}/artifacts/{artifactId}`
+
+Delete an artifact and all its version history.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "id": "art_1a2b3c4d"
+}
+```
+
+#### `GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions`
+
+List all versions of an artifact.
+
+**Response `200`**
+
+```json
+{
+  "artifact_id": "art_1a2b3c4d",
+  "versions": [
+    {
+      "version": 1,
+      "content": "## Steps\n1. ...",
+      "change_summary": "Initial version",
+      "created_by": "plan",
+      "created_at": "2026-02-16T14:30:00Z"
+    },
+    {
+      "version": 2,
+      "content": "## Updated Steps\n1. ...",
+      "change_summary": "Added error handling steps",
+      "created_by": "coder",
+      "created_at": "2026-02-16T15:00:00Z"
+    }
+  ],
+  "count": 2
+}
+```
+
 ### Schedules
 
 Schedules enable autonomous, timer-driven execution via cron-style expressions. The API server evaluates due schedules every 60 seconds and creates background tasks automatically. A circuit breaker auto-disables schedules after consecutive failures.
@@ -2504,3 +2695,10 @@ Every REPL slash command has an API equivalent, allowing dashboards and client a
 | `DELETE` | `/api/v1/webhooks/{id}` | Yes | Delete webhook |
 | `POST` | `/api/v1/webhooks/{id}/rotate` | Yes | Rotate signing secret |
 | `GET` | `/api/v1/webhooks/{id}/deliveries` | Yes | List delivery logs |
+| `POST` | `/api/v1/sessions/{id}/summarize` | Yes | Summarize conversation |
+| `GET` | `/api/v1/sessions/{id}/artifacts` | Yes | List artifacts |
+| `POST` | `/api/v1/sessions/{id}/artifacts` | Yes | Create artifact |
+| `GET` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Get artifact |
+| `PATCH` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Update artifact |
+| `DELETE` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Delete artifact |
+| `GET` | `/api/v1/sessions/{id}/artifacts/{artifactId}/versions` | Yes | List artifact versions |

@@ -34,25 +34,22 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 
 ## Features
 
-- **Multi-model orchestration** — route tasks to the right model: cheap local models for orchestration, powerful cloud models for coding and review
-- **Persistent sessions** — SQLite-backed conversations that survive restarts; resume where you left off
-- **Workspace sandboxing** — all file I/O is sandboxed to the workspace directory (`~/.coqui/.workspace` by default) with its own Composer project, keeping your project safe
-- **Runtime extensibility** — install Composer packages at runtime and Coqui auto-discovers new toolkits on every boot
-- **Child agent delegation** — spawns specialized agents (coder, reviewer) using role-appropriate models
-- **Interactive approval** — dangerous operations (package installs, shell exec, PHP execution) require your confirmation
-- **Auto-approve mode** — skip interactive prompts with `--auto-approve` for unattended workflows; catastrophic commands are still blocked
-- **Unsafe mode** — lift PHP function restrictions with `--unsafe` for power users; only affects `php_execute`, not shell commands; catastrophic commands are still blocked
-- **Catastrophic blacklist** — hardcoded safety net that blocks destructive commands (`rm -rf /`, `shutdown`, fork bombs, etc.) regardless of mode
-- **Audit logging** — every tool execution decision (approved, denied, blocked) is logged to SQLite for traceability
-- **Turn tracking** — each request-response cycle is tracked as a turn with token usage, duration, tools used, and child agent counts for full observability
-- **Credential management** — secure `.env`-based secret storage with automatic credential guards; toolkits declare required credentials in `composer.json` and Coqui intercepts tool calls with actionable instructions when keys are missing
-- **Script sanitization** — static analysis blocks dangerous functions before any generated code runs
-- **Memory persistence** — saves facts to `MEMORY.md` across sessions so Coqui remembers what matters
-- **Vision / image analysis** — analyze images from URLs, file paths, or base64 data URIs using a vision-capable model; images are pre-downloaded and base64-encoded for universal provider compatibility
-- **Background tasks** — run long-running agent work in separate processes while the main conversation continues (API mode)
-- **Network access** — expose the API to your local network with `--host 0.0.0.0` so you can connect from phones, tablets, and other machines
-- **Observer pattern** — real-time terminal rendering of agent lifecycle events with nested child output
-- **OpenClaw compatible** — drop-in support for the [OpenClaw](https://github.com/openclaw/openclaw) config format; use your existing `openclaw.json` without any changes, or start fresh with the built-in setup wizard
+- 🤖 [**Multi-Model Orchestration**](docs/FEATURES.md#multi-model-orchestration) — route tasks to the right model with automatic failover
+- 🔀 [**Child Agent Delegation**](docs/FEATURES.md#child-agent-delegation) — spawn specialized agents (coder, reviewer, planner) with role-appropriate models
+- 🧠 [**Memory Persistence**](docs/FEATURES.md#memory-persistence) — cross-session memory with SQLite, FTS5, and optional vector embeddings
+- 📦 [**Runtime Extensibility**](docs/FEATURES.md#runtime-extensibility) — install Composer toolkits at runtime; browse [coqui.space](https://coqui.space)
+- 🔐 [**Credential Management**](docs/FEATURES.md#credential-management) — declarative `.env`-based secrets with hot-reload and automatic guards
+- 📋 [**Skills System**](docs/FEATURES.md#skills-system) — markdown SOPs that teach Coqui your exact workflows
+- ⏰ [**Scheduled Tasks**](docs/FEATURES.md#scheduled-tasks) — cron-style automation with circuit breakers
+- 🏗️ [**Background Tasks**](docs/FEATURES.md#background-tasks) — isolated processes for long-running work
+- 🗂️ [**Artifacts & Plans**](docs/FEATURES.md#artifacts-and-plans) — versioned plan artifacts with draft→review→final lifecycle
+- 🔧 [**Toolkit Visibility**](docs/FEATURES.md#toolkit-visibility) — 3-tier model (enabled/stub/disabled) to reduce token usage
+- 🛡️ [**Layered Safety**](docs/FEATURES.md#layered-safety) — 5-layer security: sandbox → sanitizer → blacklist → approval → audit
+- 🌐 [**HTTP API**](docs/FEATURES.md#http-api) — async REST + SSE server for dashboards and headless automation
+- 💾 [**Persistent Sessions**](docs/FEATURES.md#persistent-sessions) — SQLite-backed conversations that survive restarts
+- 👁️ [**Vision Analysis**](docs/FEATURES.md#vision-analysis) — analyze images from URLs, files, or base64 data
+
+See [docs/FEATURES.md](docs/FEATURES.md) for the full feature reference with usage examples and token efficiency strategies.
 
 ## Requirements
 
@@ -73,6 +70,8 @@ curl -fsSL https://coquibot.org/install | bash
 ```
 
 ### Windows (PowerShell)
+
+> **Beta:** Windows support is in beta. Please [report issues](https://github.com/AgentCoqui/coqui/issues) if you encounter problems.
 
 ```powershell
 irm https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1 | iex
@@ -146,65 +145,53 @@ The launcher starts the REPL (foreground) + API server (background on port 3300)
 
 > Make sure Ollama is running: `ollama serve` and a model is pulled: `ollama pull glm-4.7-flash`
 
+### Getting Started
+
+Once you're in the REPL:
+
+1. **Have a conversation** — ask questions, request code changes, or describe a task
+2. **Try a different role** — `/role coder` for focused coding, `/role plan` for structured planning
+3. **Install a toolkit** — `/space search github` to browse, `/space install <package>` to add capabilities
+4. **Start the API** — `coqui api` or use the launcher for REPL + API together
+5. **Explore models** — map roles to models in `openclaw.json` for cost-optimized routing
+
+See [docs/ROLES.md](docs/ROLES.md) for all built-in roles and [docs/COMMANDS.md](docs/COMMANDS.md) for the full command reference.
+
 ### CLI Options
 
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--config` | `-c` | Path to `openclaw.json` config file |
-| `--wizard` | `-w` | Run the setup wizard to edit configuration (no REPL, no session) |
+| `--wizard` | `-w` | Run the setup wizard |
 | `--new` | | Start a fresh session |
 | `--session` | `-s` | Resume a specific session by ID |
-| `--workdir` | | Working directory / project root (default: current directory) |
-| `--workspace` | | Workspace directory override (default: `~/.coqui/.workspace` or config) |
-| `--unsafe` | | Disable denied-function checks in ScriptSanitizer (catastrophic blacklist still active) |
-| `--auto-approve` | | Auto-approve all tool executions without prompting (catastrophic blacklist still active) |
+| `--workdir` | | Working directory / project root |
+| `--workspace` | | Workspace directory override |
+| `--unsafe` | | Disable PHP script sanitization |
+| `--auto-approve` | | Auto-approve all tool executions |
+| `--no-terminal` | | Headless mode: run a single prompt without the REPL |
+| `--update` | | Check for and apply dependency updates |
 
-### Commands
-
-| Command | Description |
-|---------|-------------|
-| `run` | Start the Coqui REPL (default command) |
-| `setup` | Interactive wizard to create or overwrite `openclaw.json` |
-| `doctor` | Run system health checks and optionally repair issues |
-
-#### Doctor Command
-
-The `doctor` command checks 10 health categories and reports issues:
-
-```bash
-./bin/coqui doctor
-./bin/coqui doctor --repair      # Auto-fix issues where possible
-./bin/coqui doctor --json        # Machine-readable output
-```
-
-| Option | Description |
-|--------|-------------|
-| `--config` | Path to `openclaw.json` config file |
-| `--workdir` | Working directory / project root (default: current directory) |
-| `--workspace` | Workspace directory override |
-| `--repair` | Attempt to auto-fix detected issues |
-| `--json` | Output results as JSON |
-
-**Health checks:** PHP environment, config validation, workspace integrity, database health (including per-session UTF-8 message integrity scans), credentials, provider connectivity, toolkit discovery, skills, launcher, and disk space.
+See [docs/COMMANDS.md](docs/COMMANDS.md) for the full CLI reference including `api`, `setup`, and `doctor` subcommands.
 
 ## REPL Commands
-
-Once inside the Coqui REPL, use slash commands:
 
 | Command | Description |
 |---------|-------------|
 | `/new` | Start a new session |
-| `/history` | Show conversation history |
 | `/sessions` | List all saved sessions |
 | `/resume <id>` | Resume a session by ID |
-| `/model [role]` | Show model configuration |
-| `/role [name]` | Show/switch active role (`/role coder`, `/role reset`) |
-| `/tasks [status]` | List background tasks (optional status filter) |
-| `/task <id>` | Show background task details |
-| `/task-cancel <id>` | Cancel a background task |
-| `/help` | List available commands |
-| `/restart` | Restart Coqui (re-reads config, re-discovers toolkits) |
-| `/quit` `/exit` `/q` | Exit Coqui |
+| `/role [name]` | Show/switch active role |
+| `/toolkits` | Manage toolkit visibility |
+| `/tasks [status]` | List background tasks |
+| `/todos [status]` | Show session todos |
+| `/schedules` | List scheduled tasks |
+| `/space` | Coqui Space marketplace |
+| `/summarize` | Summarize conversation for token savings |
+| `/help` | List all commands |
+| `/quit` | Exit Coqui |
+
+See [docs/COMMANDS.md](docs/COMMANDS.md) for the full command reference with examples.
 
 ## Providers & OpenClaw Config
 
@@ -220,12 +207,15 @@ For the full config reference, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md
 |----------|----------|----------------|
 | Ollama (local) | `openai-completions` | — |
 | OpenAI | `openai-completions` | `OPENAI_API_KEY` |
+| OpenAI Responses | `openai-responses` | `OPENAI_API_KEY` |
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` |
 | OpenRouter | `openai-completions` | `OPENROUTER_API_KEY` |
 | xAI (Grok) | `openai-completions` | `XAI_API_KEY` |
 | Google Gemini | `gemini` | `GEMINI_API_KEY` |
 | Mistral | `mistral` | `MISTRAL_API_KEY` |
 | MiniMax | `openai-completions` | `MINIMAX_API_KEY` |
+
+> **OpenAI Responses API** — use `openai-responses` for Codex models (e.g. `openai/codex-mini`). Standard OpenAI models use `openai-completions`.
 
 Any OpenAI-compatible provider can be added by specifying `openai-completions` as the API protocol.
 
@@ -309,203 +299,33 @@ Define short aliases for quick reference:
 
 ## Built-in Tools
 
-Coqui ships with a rich set of tools the agent can use autonomously:
+Coqui ships with a rich set of tools organized into toolkits:
 
-### Custom Tools
+| Category | Key Tools | Description |
+|----------|-----------|-------------|
+| **Agent** | `spawn_agent`, `restart_coqui` | Delegate to child agents, restart Coqui |
+| **Filesystem** | `read_file`, `write_file`, `list_directory` | Sandboxed workspace file I/O |
+| **Shell** | `exec` | Run shell commands with configurable allowlist |
+| **Code** | `php_execute` | Execute PHP in a sandboxed subprocess |
+| **Memory** | `memory_save`, `memory_search` | Persistent cross-session memory |
+| **Background** | `start_background_task`, `start_background_tool` | Isolated processes for long-running work |
+| **Planning** | `artifact_create`, `todo_add` | Versioned artifacts and task tracking |
+| **Scheduling** | `schedule_create`, `webhook_create` | Cron-style automation and incoming webhooks |
+| **Vision** | `vision_analyze` | Multi-provider image analysis |
+| **Packages** | `composer`, `packagist` | Dependency management and package search |
+| **Credentials** | `credentials` | Secure `.env`-based secret storage |
 
-| Tool | Description |
-|------|-------------|
-| `spawn_agent` | Delegate tasks to specialized child agents (coder, reviewer) using role-appropriate models |
-| `composer` | Manage Composer dependencies — target the workspace (default) or project root, with framework denylist |
-| `credentials` | Secure credential management via `.env` — values are never exposed to the LLM; toolkit credential requirements are enforced automatically |
-| `packagist` | Search Packagist for packages by keyword, popularity, advisories |
-| `package_info` | Introspect installed packages — read READMEs, list classes, inspect method signatures |
-| `php_execute` | Execute generated PHP code in a sandboxed subprocess with script sanitization |
-| `vision_analyze` | Analyze images from URLs, file paths, or base64 data URIs using a vision-capable model |
-| `restart_coqui` | Trigger a graceful restart — re-reads config, re-discovers toolkits, resumes session automatically |
-| `start_background_task` | Start a long-running task in a background process — keeps the main conversation responsive |
-| `task_status` | Check a background task's status and recent output |
-| `list_tasks` | List all background tasks in the current session |
-| `cancel_task` | Cancel a running background task |
-| `artifact_create` | Create a versioned artifact (code, document, config) tracked across turns |
-| `artifact_update` | Update artifact content with automatic version snapshots |
-| `artifact_get` | Retrieve an artifact by ID, optionally at a specific version |
-| `artifact_list` | List session artifacts with type/stage filters |
-| `artifact_stage` | Transition artifact stage: draft → review → final |
-| `evaluation_list_sessions` | Find unevaluated sessions within a configurable lookback window |
-| `evaluation_read_transcript` | Read a session's conversation history with tool call summaries |
-| `evaluation_save_report` | Save a structured evaluation report with grade and scores |
-
-### Inherited Toolkits (from php-agents)
-
-| Toolkit | Description |
-|---------|-------------|
-| `FilesystemToolkit` | Sandboxed read/write to the workspace directory (`~/.coqui/.workspace` by default) |
-| `ShellToolkit` | Run shell commands from project root — configurable allowlist (default includes `git`, `grep`, `find`, `cat`, `ls`, `curl`, `wget`, etc.) |
-| `MemoryToolkit` | Persistent memory via `MEMORY.md` for facts that survive across sessions |
-
-## Background Tasks
-
-Coqui can run long-running agent work in separate processes so the main conversation stays responsive. The agent spawns a background task, continues answering questions, and reports back when the task finishes.
-
-Background tasks are automatically available when running the API server — no configuration required:
-
-```bash
-php bin/coqui api
-```
-
-Each task runs as an isolated PHP process (`task:run`) with its own agent stack, session storage, and lifecycle. Tasks support:
-
-- **Process isolation** — each task is a separate OS process managed via `proc_open`
-- **Live progress** — events stream via Server-Sent Events (SSE)
-- **User input** — send follow-up messages to running tasks
-- **Cancellation** — cooperative cancellation via `SIGTERM`
-- **Crash recovery** — orphaned tasks are automatically marked as failed on server restart
-- **Concurrency control** — configurable via `api.tasks.maxConcurrent` in `openclaw.json` (default: 6)
-
-The agent can start, monitor, and cancel tasks using four built-in tools (`start_background_task`, `task_status`, `list_tasks`, `cancel_task`). The HTTP API exposes the same capabilities for external clients.
-
-For full API reference, architecture details, and usage examples, see [docs/BACKGROUND-TASKS.md](docs/BACKGROUND-TASKS.md).
-
-## Vision / Image Analysis
-
-Coqui can analyze images using a vision-capable model. The agent uses the `vision_analyze` tool, which accepts:
-
-- **URLs** — `https://example.com/photo.jpg` (auto-downloaded and base64-encoded)
-- **File paths** — absolute or workspace-relative paths to local image files
-- **Base64 data URIs** — `data:image/png;base64,...`
-
-Images are always pre-downloaded and converted to base64 before being sent to the provider, ensuring compatibility with all providers (including Gemini, which doesn't support URL references natively).
-
-### Configuration
-
-Assign a vision-capable model to the `vision` role in `openclaw.json`:
-
-```json
-{
-    "agents": {
-        "defaults": {
-            "roles": {
-                "vision": "openai/gpt-5"
-            }
-        }
-    }
-}
-```
-
-Any vision-capable model works: OpenAI GPT-4o/GPT-5, Anthropic Claude, Google Gemini, xAI Grok, etc.
-
-If no vision role is configured, the primary model is used as a fallback. Ensure the fallback model supports image input.
-
-### Provider Image Support
-
-| Provider | Base64 | URL | Notes |
-|----------|:------:|:---:|-------|
-| OpenAI | ✅ | ✅ | Native support for both formats |
-| OpenAI Responses | ✅ | ✅ | Same as OpenAI |
-| Anthropic | ✅ | ✅ | Auto-converted to Anthropic's `image` source format |
-| Gemini | ✅ | ✅* | URLs auto-downloaded to base64 `inlineData` |
-| Ollama | ✅ | ✅ | Via OpenAI-compatible format |
-| xAI (Grok) | ✅ | ✅ | Content types converted to `input_image` format |
-| Mistral | ✅ | ✅ | Image URLs flattened to Mistral's string format |
-
-\* Gemini doesn't support URL references natively; both `VisionAnalyzer` and `GeminiProvider` download and base64-encode the image automatically.
-
-### Supported Image Formats
-
-JPEG, PNG, GIF, WebP, BMP, TIFF, SVG
+Toolkits from [Coqui Space](https://coqui.space) add more: GitHub, Brave Search, browser automation, Canva, Cloudflare, and more.
 
 ## Extending Coqui
 
-Coqui auto-discovers toolkits from installed Composer packages. Create a package that implements `ToolkitInterface` and Coqui picks it up automatically.
+Coqui auto-discovers toolkits from installed Composer packages. Create a package that implements `ToolkitInterface`, register it in `composer.json`, and Coqui picks it up automatically — including credentials and gated operations.
 
-### 1. Implement `ToolkitInterface`
-
-```php
-<?php
-
-declare(strict_types=1);
-
-namespace Acme\BraveSearch;
-
-use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
-
-final class BraveSearchToolkit implements ToolkitInterface
-{
-    public function __construct(
-        private readonly string $apiKey = '',
-    ) {}
-
-    public static function fromEnv(): self
-    {
-        $key = getenv('BRAVE_SEARCH_API_KEY');
-        return new self(apiKey: $key !== false ? $key : '');
-    }
-
-    public function tools(): array
-    {
-        return [$this->buildSearchTool()];
-    }
-
-    public function guidelines(): string
-    {
-        return 'Use brave_search to find current information from the web.';
-    }
-}
-```
-
-### 2. Register in `composer.json`
-
-Declare your toolkit class and any required credentials:
-
-```json
-{
-    "extra": {
-        "php-agents": {
-            "toolkits": [
-                "Acme\\BraveSearch\\BraveSearchToolkit"
-            ],
-            "credentials": {
-                "BRAVE_SEARCH_API_KEY": "Brave Search API key — free tier at https://brave.com/search/api/"
-            }
-        }
-    }
-}
-```
-
-When a toolkit declares `credentials`, Coqui automatically wraps its tools with a credential guard. If the user calls a tool before setting the required key, the agent receives a structured error with the exact credential name and instructions for saving it — no token-wasting guesswork.
-
-### 3. Install and go
-
-```bash
-composer require acme/brave-search
-```
-
-Coqui discovers the toolkit on next startup — no configuration needed. If credentials are missing, the agent will ask the user and save them with the correct key name automatically.
-
-### Safety
-
-Coqui has multiple layers of protection:
-
-1. **Framework denylist** — blocks full-framework packages (`laravel/*`, `symfony/symfony`, `laminas/*`, etc.) from being installed to keep the runtime lean
-2. **ScriptSanitizer** — static analysis blocks dangerous functions (`eval`, `exec`, `system`, `passthru`, etc.) in generated PHP code. Bypass with `--unsafe` for power users
-3. **Catastrophic blacklist** — a hardcoded safety net that *always* blocks destructive commands like `rm -rf /`, `shutdown`, `mkfs`, fork bombs, and credential exfiltration — even in `--unsafe` and `--auto-approve` modes. Additional patterns can be added via `agents.defaults.blacklist` in `openclaw.json`
-4. **Interactive approval** — gated tools require user confirmation before execution. Bypass with `--auto-approve` for unattended workflows
-5. **Audit logging** — every tool execution decision (approved, denied, blocked) is recorded in the session database
-
-```json
-{
-    "agents": {
-        "defaults": {
-            "blacklist": [
-                "custom-pattern-to-block"
-            ]
-        }
-    }
-}
-```
+See [docs/TOOLKITS.md](docs/TOOLKITS.md) for the full walkthrough with examples.
 
 ## Docker
+
+> **Experimental:** Docker support is experimental. GPU passthrough and some terminal features may behave differently. Please [report issues](https://github.com/AgentCoqui/coqui/issues).
 
 Run Coqui in a container with zero host dependencies. The Docker setup uses `php:8.4-cli` with all required extensions and Composer.
 
@@ -578,6 +398,20 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 | `Makefile` | Self-documenting targets: native (`start`, `api`) and Docker (`docker-*`) |
 | `.env.example` | Environment variable documentation |
 | `conf.d/coqui.ini` | CLI-optimized PHP config (OPcache + JIT) |
+
+## Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Features](docs/FEATURES.md) | Complete feature reference with usage examples |
+| [Commands](docs/COMMANDS.md) | REPL slash commands and CLI reference |
+| [Roles](docs/ROLES.md) | Built-in roles, access levels, and custom role creation |
+| [Configuration](docs/CONFIGURATION.md) | `openclaw.json` reference |
+| [API](docs/API.md) | HTTP API endpoints |
+| [Background Tasks](docs/BACKGROUND-TASKS.md) | Background task architecture and usage |
+| [Toolkits](docs/TOOLKITS.md) | Creating toolkit packages |
+| [Skills](docs/SKILLS.md) | Skills system and schema |
+| [GitHub Actions](docs/GITHUB-ACTIONS.md) | CI/CD integration |
 
 ## Community
 
