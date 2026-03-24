@@ -636,6 +636,71 @@ This is best-effort — the stage transition always succeeds even if todo genera
 | `src/Agent/PlanTodoGenerator.php` | Auto-generates todos from finalized plan artifacts via utility model |
 | `prompts/tools/todos.md` | Agent usage guidelines for todo workflow |
 
+## Evaluation System Architecture
+
+Coqui provides an asynchronous post-run evaluation pipeline where a utility/cheap model grades completed sessions on performance, hallucinations, and tool efficiency. The system leverages the existing Schedule System and Background Tasks infrastructure for autonomous operation.
+
+### How It Works
+
+1. **`EvaluationStore`** manages an `evaluations` table in the shared SQLite database. Each evaluation is linked to a session and contains numeric scores (0.0–1.0) for completion, hallucination absence, and tool efficiency, plus a weighted composite score and a full markdown report.
+2. **`SessionEvaluationToolkit`** provides 4 agent-facing tools: `evaluation_list_sessions`, `evaluation_read_transcript`, `evaluation_read_child_runs`, `evaluation_save_report`. The toolkit is only registered when the active role is `evaluator`.
+3. **The `evaluator` role** (`config/roles/evaluator.md`) defines the grading criteria, scoring rubric (A–F scale), and structured report format. It operates at `access_level: readonly` — no file writes or shell commands.
+4. **Session eligibility** — sessions are eligible for evaluation when they have no existing evaluation record, are not background task sessions, have been inactive longer than the inactivity threshold (default 3 hours), fall within the lookback window (default 24 hours), and have a minimum number of turns (default 2).
+5. **Autonomous operation** — the user or agent creates a schedule via the Schedule System to run evaluations periodically (e.g., daily). The schedule spawns a background task with `role: evaluator`, which grades all eligible sessions and saves reports.
+
+### Evaluation Criteria
+
+| Criterion | Weight | Score Range | Description |
+| --- | --- | --- | --- |
+| Completion | 40% | 0.0–1.0 | Did the agent fulfill the user's request? |
+| Hallucination Absence | 40% | 0.0–1.0 | Were all references to APIs, methods, and files accurate? |
+| Tool Efficiency | 20% | 0.0–1.0 | Did the agent use tools effectively without waste? |
+
+### Grading Scale
+
+| Grade | Criteria |
+| --- | --- |
+| A | All scores ≥ 0.8, no major issues |
+| B | Mostly successful, minor issues (overall ≥ 0.7) |
+| C | Partial completion or notable hallucinations (overall ≥ 0.5) |
+| D | Major failures in at least one criterion (overall ≥ 0.3) |
+| F | Fundamental failure |
+
+### Agent-Facing Tools (SessionEvaluationToolkit)
+
+| Tool | Description |
+| --- | --- |
+| `evaluation_list_sessions` | Find unevaluated sessions within the lookback window |
+| `evaluation_read_transcript` | Read a session's conversation history with tool call summaries |
+| `evaluation_read_child_runs` | Read child agent executions for a session |
+| `evaluation_save_report` | Save a structured evaluation report with grade and scores |
+
+### Configuration
+
+Optional keys in `openclaw.json` under `agents.defaults.evaluation`:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `lookbackHours` | `24` | How far back to search for sessions to evaluate |
+| `inactivityHours` | `3` | Minimum hours since last activity before a session is eligible |
+| `minTurns` | `2` | Minimum turns for a session to be worth evaluating |
+
+The evaluator model is assigned via the standard roles mapping: `"roles": {"evaluator": "ollama/gemma3:4b"}`.
+
+### REPL Command
+
+| Command | Description |
+| --- | --- |
+| `/evaluations [grade]` | Table-formatted list of evaluation reports with optional grade filter |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Storage/EvaluationStore.php` | SQLite CRUD with unevaluated session discovery via LEFT JOIN |
+| `src/Toolkit/SessionEvaluationToolkit.php` | 4 agent-facing tools with dynamic guidelines |
+| `config/roles/evaluator.md` | Role definition with grading criteria and report format |
+
 ## Vision Architecture
 
 Coqui provides image analysis via a dedicated `vision` role. The system uses a single-shot child agent pattern (like `TitleGenerator`) — no persistent state, no tool access, just one LLM call with the image embedded.

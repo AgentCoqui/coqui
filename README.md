@@ -332,6 +332,9 @@ Coqui ships with a rich set of tools the agent can use autonomously:
 | `artifact_get` | Retrieve an artifact by ID, optionally at a specific version |
 | `artifact_list` | List session artifacts with type/stage filters |
 | `artifact_stage` | Transition artifact stage: draft → review → final |
+| `evaluation_list_sessions` | Find unevaluated sessions within a configurable lookback window |
+| `evaluation_read_transcript` | Read a session's conversation history with tool call summaries |
+| `evaluation_save_report` | Save a structured evaluation report with grade and scores |
 
 ### Inherited Toolkits (from php-agents)
 
