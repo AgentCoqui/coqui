@@ -9,7 +9,7 @@ use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
-use CoquiBot\Coqui\Contract\RoleScopedToolkitInterface;
+use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CoquiBot\Coqui\Storage\EvaluationStore;
 
 /**
@@ -17,22 +17,17 @@ use CoquiBot\Coqui\Storage\EvaluationStore;
  *
  * Provides tools to query poor evaluations and read their reports so the
  * learner agent can synthesize corrective Skills. Only available when the
- * active role is 'learner' (enforced via RoleScopedToolkitInterface).
+ * active role is 'learner' (enforced via role frontmatter toolkits field).
  *
  * Tools:
  * - learning_list_poor_evaluations: Find recent evaluations with low scores
  * - learning_read_evaluation: Read a full evaluation report by ID
  */
-final class LearningToolkit implements RoleScopedToolkitInterface
+final class LearningToolkit implements ToolkitInterface
 {
     public function __construct(
         private readonly EvaluationStore $evaluationStore,
     ) {}
-
-    public function roleScope(): string
-    {
-        return 'learner';
-    }
 
     /**
      * @return ToolInterface[]

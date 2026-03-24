@@ -7,6 +7,7 @@ access_level: minimal
 is_builtin: true
 is_template: true
 max_iterations: 5
+toolkits: "-*"
 ---
 
 Extract concrete implementation steps from the given plan as a JSON array.

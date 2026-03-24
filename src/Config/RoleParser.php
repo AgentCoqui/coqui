@@ -99,7 +99,9 @@ final class RoleParser
             ignoreUpdates: $ignoreUpdates,
             model: isset($meta['model']) && is_string($meta['model']) && $meta['model'] !== '' ? $meta['model'] : null,
             titleModel: isset($meta['title_model']) && is_string($meta['title_model']) && $meta['title_model'] !== '' ? $meta['title_model'] : null,
-            allowedTools: isset($meta['allowed-tools']) && is_string($meta['allowed-tools']) ? $meta['allowed-tools'] : null,
+            toolkits: isset($meta['toolkits']) && is_string($meta['toolkits'])
+                ? $meta['toolkits']
+                : (isset($meta['allowed-tools']) && is_string($meta['allowed-tools']) ? $meta['allowed-tools'] : null),
             maxIterations: isset($meta['max_iterations']) && is_numeric($meta['max_iterations']) ? (int) $meta['max_iterations'] : null,
         );
     }
@@ -200,8 +202,8 @@ final class RoleParser
             $lines[] = "title_model: {$properties->titleModel}";
         }
 
-        if ($properties->allowedTools !== null) {
-            $lines[] = "allowed-tools: {$properties->allowedTools}";
+        if ($properties->toolkits !== null) {
+            $lines[] = "toolkits: {$properties->toolkits}";
         }
 
         if ($properties->maxIterations !== null) {
