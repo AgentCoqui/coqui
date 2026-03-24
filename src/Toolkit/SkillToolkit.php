@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\SkillParser;
@@ -17,9 +18,9 @@ use CoquiBot\Coqui\Exception\SkillValidationException;
 /**
  * Toolkit providing skill management tools.
  *
- * Three tools: skill_list (browse available skills), skill_read (activate a
+ * Four tools: skill_list (browse available skills), skill_read (activate a
  * skill by loading full instructions), skill_create (scaffold a new skill
- * directory with SKILL.md).
+ * directory with SKILL.md), skill_update (modify an existing skill).
  *
  * Follows progressive disclosure — skill_read is the activation mechanism
  * that loads full instructions into agent context.
@@ -43,6 +44,7 @@ final class SkillToolkit implements ToolkitInterface
             $this->buildSkillListTool(),
             $this->buildSkillReadTool(),
             $this->buildSkillCreateTool(),
+            $this->buildSkillUpdateTool(),
         ];
     }
 
@@ -230,6 +232,101 @@ final class SkillToolkit implements ToolkitInterface
 
                 return ToolResult::success(
                     sprintf("Skill \"%s\" created successfully at:\n%s", $name, $skillDir),
+                );
+            },
+        );
+    }
+
+    private function buildSkillUpdateTool(): Tool
+    {
+        return new Tool(
+            name: 'skill_update',
+            description: 'Update an existing skill\'s description or instructions. Can replace or append to existing instructions.',
+            parameters: [
+                new StringParameter('name', 'The skill name to update (e.g. "code-review").', required: true),
+                new StringParameter('description', 'New description. Omit to keep existing.', required: false),
+                new StringParameter('instructions', 'New or additional instructions. Omit to keep existing.', required: false),
+                new BoolParameter('append', 'If true, append instructions to existing content instead of replacing. Default: false.', required: false),
+            ],
+            callback: function (array $args): ToolResult {
+                $name = $args['name'] ?? '';
+                $description = $args['description'] ?? null;
+                $instructions = $args['instructions'] ?? null;
+                $append = (bool) ($args['append'] ?? false);
+
+                if ($name === '') {
+                    return ToolResult::error('Skill name is required.');
+                }
+
+                if ($description === null && $instructions === null) {
+                    return ToolResult::error('At least one of description or instructions must be provided.');
+                }
+
+                // Validate skill exists
+                if (!$this->discovery->skillExists($name)) {
+                    return ToolResult::error(
+                        sprintf('Skill "%s" not found. Use skill_list to see available skills.', $name),
+                    );
+                }
+
+                $skill = $this->discovery->getSkill($name);
+
+                // Block updates to package-bundled skills
+                if ($skill->isPackageBundled) {
+                    return ToolResult::error(
+                        sprintf('Skill "%s" is package-bundled and cannot be updated. Create a workspace copy instead.', $name),
+                    );
+                }
+
+                // Validate description length
+                if ($description !== null && $description !== '' && strlen($description) > 1024) {
+                    return ToolResult::error('Description must be at most 1024 characters.');
+                }
+
+                // Read existing content
+                $existingBody = $this->discovery->readBody($name);
+                $newDescription = ($description !== null && $description !== '') ? $description : $skill->description;
+                $newBody = $existingBody;
+
+                if ($instructions !== null) {
+                    $newBody = $append
+                        ? $existingBody . "\n\n" . $instructions
+                        : $instructions;
+                }
+
+                // Rebuild SKILL.md content
+                $content = "---\n";
+                $content .= "name: {$name}\n";
+                $content .= "description: {$newDescription}\n";
+
+                if ($skill->license !== null && $skill->license !== '') {
+                    $content .= "license: {$skill->license}\n";
+                }
+
+                if ($skill->compatibility !== null && $skill->compatibility !== '') {
+                    $content .= "compatibility: {$skill->compatibility}\n";
+                }
+
+                $content .= "---\n\n";
+                $content .= $newBody;
+
+                if (!str_ends_with($content, "\n")) {
+                    $content .= "\n";
+                }
+
+                // Write updated file
+                $skillMdPath = $skill->path . '/SKILL.md';
+                if (file_put_contents($skillMdPath, $content) === false) {
+                    return ToolResult::error(
+                        sprintf('Failed to write SKILL.md: %s', $skillMdPath),
+                    );
+                }
+
+                $this->discovery->invalidateCache();
+
+                $mode = $append ? 'appended to' : 'replaced';
+                return ToolResult::success(
+                    sprintf('Skill "%s" updated successfully. Instructions %s.', $name, $mode),
                 );
             },
         );

@@ -353,7 +353,7 @@ final class RunCommand extends Command
                     $commands = [
                         '/new', '/history', '/sessions', '/resume', '/model',
                         '/config', '/tasks', '/task', '/task-cancel', '/todos', '/toolkits',
-                        '/prompt', '/role', '/roles', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/help', '/quit',
+                        '/prompt', '/role', '/roles', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/evaluations', '/help', '/quit',
                     ];
 
                     return array_filter($commands, fn(string $c) => str_starts_with($c, $input));
@@ -679,6 +679,11 @@ final class RunCommand extends Command
                 return true;
             })(),
 
+            '/evaluations' => (function () use ($io, $arg) {
+                $this->handleEvaluationsCommand($io, $arg);
+                return true;
+            })(),
+
             '/help' => (function () use ($io) {
                 $io->table(
                     ['Command', 'Description'],
@@ -704,6 +709,7 @@ final class RunCommand extends Command
                         ['/space [search|install|remove|installed|skills|toolkits|update]', 'Coqui Space marketplace'],
                         ['/schedules', 'List scheduled tasks with status and next run time'],
                         ['/webhooks', 'List webhook subscriptions with status and trigger counts'],
+                        ['/evaluations', 'List session evaluation reports with grades and scores'],
                         ['/summarize [recent N] [focus "topic"]', 'Summarize conversation history to save tokens'],
                         ['/update', 'Check for and apply dependency updates'],
                         ['/restart', 'Restart Coqui (re-reads config, re-discovers toolkits)'],
@@ -1839,6 +1845,61 @@ final class RunCommand extends Command
         }
 
         $io->table(['', 'ID', 'Name', 'Source', 'Events', 'Triggers', 'Last Triggered'], $rows);
+    }
+
+    private function handleEvaluationsCommand(SymfonyStyle $io, string $arg = ''): void
+    {
+        $evaluationStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
+        $grade = $arg !== '' ? strtoupper($arg) : null;
+
+        if ($grade !== null && !in_array($grade, ['A', 'B', 'C', 'D', 'F'], true)) {
+            $io->error("Invalid grade filter: {$arg}. Use A, B, C, D, or F.");
+            return;
+        }
+
+        $evaluations = $evaluationStore->list(grade: $grade, limit: 20);
+
+        if (empty($evaluations)) {
+            $io->info('No evaluation reports found.' . ($grade !== null ? " (filtered by grade: {$grade})" : ''));
+            return;
+        }
+
+        $stats = $evaluationStore->getStats();
+        $dist = $stats['grade_distribution'];
+        $io->section(sprintf(
+            'Evaluations (%d total — A:%d B:%d C:%d D:%d F:%d — avg: %.2f)',
+            $stats['total'],
+            $dist['A'],
+            $dist['B'],
+            $dist['C'],
+            $dist['D'],
+            $dist['F'],
+            $stats['avg_overall'],
+        ));
+
+        $rows = [];
+        foreach ($evaluations as $e) {
+            $gradeColor = match ($e['overall_grade']) {
+                'A' => 'green',
+                'B' => 'cyan',
+                'C' => 'yellow',
+                'D' => 'red',
+                'F' => 'red',
+                default => 'white',
+            };
+            $rows[] = [
+                substr($e['session_id'], 0, 8) . '...',
+                mb_substr($e['session_title'] ?? '(untitled)', 0, 30),
+                "<fg={$gradeColor}>{$e['overall_grade']}</>",
+                sprintf('%.2f', $e['score_completion']),
+                sprintf('%.2f', $e['score_hallucination']),
+                sprintf('%.2f', $e['score_efficiency']),
+                sprintf('%.2f', $e['overall_score']),
+                $e['created_at'],
+            ];
+        }
+
+        $io->table(['Session', 'Title', 'Grade', 'Compl.', 'Halluc.', 'Effic.', 'Overall', 'Evaluated'], $rows);
     }
 
     private function taskStatusCommand(SymfonyStyle $io, string $taskIdPrefix = ''): void
