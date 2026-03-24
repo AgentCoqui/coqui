@@ -704,35 +704,58 @@ The evaluator model is assigned via the standard roles mapping: `"roles": {"eval
 
 ## Role-Scoped Toolkit Architecture
 
-Coqui supports restricting toolkits to specific agent roles via the `RoleScopedToolkitInterface`. This is a declarative mechanism — toolkits declare their role scope, and `OrchestratorAgent` enforces it at registration time.
+Coqui supports restricting toolkits and individual tools to specific agent roles via the declarative `toolkits` field in role frontmatter. This replaces the need for PHP interface implementations — toolkit visibility is configured entirely in role `.md` files.
 
 ### How It Works
 
-1. **Toolkit implements `RoleScopedToolkitInterface`** — extends `ToolkitInterface` with a single method: `roleScope(): string|array|null`.
-2. **`OrchestratorAgent::addToolkit()`** checks every toolkit before registration. If the toolkit implements `RoleScopedToolkitInterface` and `roleScope()` returns a non-null value, the active role must match one of the allowed roles. Non-matching toolkits are silently skipped.
-3. **Conditional instantiation** — role-scoped toolkits often depend on stores or services that shouldn't be created unnecessarily. The `if ($this->activeRole === 'role_name')` guard in the constructor prevents wasteful object creation. The `RoleScopedToolkitInterface` check in `addToolkit()` is a belt-and-suspenders safety net.
+1. **Role frontmatter declares `toolkits:`** — a comma-separated string of `+Pattern` (allow) and `-Pattern` (deny) rules. Example: `toolkits: "+*, -ShellToolkit, -php_execute"`.
+2. **`RoleToolkitResolver`** parses the pattern string at agent construction. Rules are evaluated left-to-right, last match wins. The first `*` rule sets the default mode (`-*` = deny-by-default, `+*` = allow-by-default).
+3. **`OrchestratorAgent::addToolkit()`** checks every toolkit against the resolver before registration. Denied toolkits are silently skipped. `StubToolkit` wrappers are unwrapped for matching.
+4. **`OrchestratorAgent::tools()`** checks individual standalone tools against the resolver. `ALWAYS_ENABLED` tools (`tool_search`, `credentials`) bypass all role filtering.
+5. **`SpawnAgentTool`** builds a `RoleToolkitResolver` from the child role's frontmatter and filters toolkits before passing them to child agents.
 
-### Scope Values
+### Pattern Format
 
-| Return Value | Behavior |
+| Pattern | Behavior |
 | --- | --- |
-| `null` | Unrestricted — available to all roles (equivalent to not implementing the interface) |
-| `'evaluator'` | Only available when `activeRole === 'evaluator'` |
-| `['learner', 'evaluator']` | Available to either role |
+| `+*` | Allow all by default |
+| `-*` | Deny all by default |
+| `+ToolkitName` | Allow a specific toolkit (matches class basename) |
+| `-ToolkitName` | Deny a specific toolkit |
+| `+tool_name` | Allow a specific tool |
+| `-tool_name` | Deny a specific tool |
+| `+vendor/package` | Allow by Composer package name |
+| `-vendor/package` | Deny by Composer package name |
 
-### Current Role-Scoped Toolkits
+Rules are case-insensitive. Multiple rules separated by commas. Last match wins.
 
-| Toolkit | Role Scope | Purpose |
+### Built-in Role Toolkit Configurations
+
+| Role | `toolkits` | Strategy |
 | --- | --- | --- |
-| `SessionEvaluationToolkit` | `evaluator` | Introspect past sessions and save evaluation reports |
-| `LearningToolkit` | `learner` | Query poor evaluations to drive corrective skill creation |
+| orchestrator | *(none — allow all)* | Full access to all toolkits |
+| coder | *(none — allow all)* | Full access to all toolkits |
+| assistant | *(none — allow all)* | Full access to all toolkits |
+| explorer | `+*, -MemoryToolkit, -spawn_agent, -php_execute` | Allow-all minus dangerous tools |
+| plan | `+*, -ShellToolkit, -MemoryToolkit, -php_execute, -LearningToolkit, -SessionEvaluationToolkit` | Allow-all minus write-capable and role-specific |
+| reviewer | `+*, -MemoryToolkit, -LearningToolkit, -SessionEvaluationToolkit, -php_execute` | Allow-all minus write-capable and role-specific |
+| evaluator | `-*, +SessionEvaluationToolkit, +ProjectSourceToolkit` | Deny-all, only evaluation tools |
+| learner | `-*, +LearningToolkit, +SkillToolkit, +ProjectSourceToolkit` | Deny-all, only learning tools |
+| vision | `-*` | Deny all (single-shot image analysis, no tools) |
+| title-generator | `-*` | Deny all (single-shot title generation) |
+| plan-todo-generator | `-*` | Deny all (single-shot todo extraction) |
+
+### Backward Compatibility
+
+The `RoleParser` falls back to reading `allowed-tools:` from frontmatter when `toolkits:` is absent, supporting older role files.
 
 ### Key Source Files
 
 | File | Purpose |
 | --- | --- |
-| `src/Contract/RoleScopedToolkitInterface.php` | Interface: `roleScope(): string\|array\|null` |
-| `src/Agent/OrchestratorAgent.php` | Enforces role scope in `addToolkit()` override |
+| `src/Config/RoleToolkitResolver.php` | Parses `toolkits` patterns and evaluates allow/deny rules |
+| `src/Agent/OrchestratorAgent.php` | Applies role toolkit filtering in `addToolkit()` and `tools()` |
+| `src/Tool/SpawnAgentTool.php` | Builds child `RoleToolkitResolver` and filters child toolkits |
 
 
 ## Learning System Architecture
@@ -742,7 +765,7 @@ Coqui provides an autonomous learning loop where a `learner` role analyzes poor 
 ### How It Works
 
 1. **`EvaluationStore::getPoorEvaluations()`** queries the evaluations table for sessions scoring below a threshold (default 0.5) within a rolling time window (default 7 days).
-2. **`LearningToolkit`** provides 2 agent-facing tools: `learning_list_poor_evaluations` and `learning_read_evaluation`. The toolkit implements `RoleScopedToolkitInterface` with `roleScope()` returning `'learner'`, so these tools are only available when the active role is `learner`.
+2. **`LearningToolkit`** provides 2 agent-facing tools: `learning_list_poor_evaluations` and `learning_read_evaluation`. The toolkit's visibility is controlled by the `learner` role's `toolkits` frontmatter field (`-*, +LearningToolkit, +SkillToolkit, +ProjectSourceToolkit`), so these tools are only available when the active role is `learner`.
 3. **The `learner` role** (`config/roles/learner.md`) defines the autonomous workflow: list poor evaluations → read each report → identify failure patterns → check existing skills → create or update Skills with corrective procedures.
 4. **Skill creation and updates** — the learner uses the standard `SkillToolkit` (available to all roles) to create new skills via `skill_create` or append lessons to existing skills via `skill_update`.
 5. **Autonomous scheduling** — the user creates a schedule via the Schedule System to run the learner periodically (e.g., daily). The schedule spawns a background task with `role: learner`.

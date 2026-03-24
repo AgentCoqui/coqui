@@ -122,3 +122,56 @@ MD);
 
     $this->parser->readProperties($path);
 })->throws(RoleParseException::class);
+
+test('parses toolkits field from frontmatter', function () {
+    $path = $this->tmpDir . '/evaluator.md';
+    file_put_contents($path, <<<'MD'
+---
+name: evaluator
+display_name: Evaluator
+description: Grades past sessions
+access_level: readonly
+toolkits: "-*, +SessionEvaluationToolkit, +ProjectSourceToolkit"
+---
+Instructions here.
+MD);
+
+    $props = $this->parser->readProperties($path);
+
+    expect($props->toolkits)->toBe('-*, +SessionEvaluationToolkit, +ProjectSourceToolkit');
+});
+
+test('falls back to allowed-tools when toolkits is absent', function () {
+    $path = $this->tmpDir . '/legacy.md';
+    file_put_contents($path, <<<'MD'
+---
+name: legacy-agent
+display_name: Legacy
+description: Uses old allowed-tools field
+access_level: readonly
+allowed-tools: "+*, -ShellToolkit"
+---
+Instructions here.
+MD);
+
+    $props = $this->parser->readProperties($path);
+
+    expect($props->toolkits)->toBe('+*, -ShellToolkit');
+});
+
+test('toolkits is null when neither field is present', function () {
+    $path = $this->tmpDir . '/plain.md';
+    file_put_contents($path, <<<'MD'
+---
+name: plain-agent
+display_name: Plain
+description: No toolkit restrictions
+access_level: full
+---
+Instructions here.
+MD);
+
+    $props = $this->parser->readProperties($path);
+
+    expect($props->toolkits)->toBeNull();
+});

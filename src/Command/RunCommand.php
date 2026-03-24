@@ -1273,7 +1273,7 @@ final class RunCommand extends Command
             ignoreUpdates: $ignore,
             model: $props->model,
             titleModel: $props->titleModel,
-            allowedTools: $props->allowedTools,
+            toolkits: $props->toolkits,
             maxIterations: $props->maxIterations,
             path: $props->path,
         );

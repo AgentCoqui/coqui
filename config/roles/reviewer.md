@@ -6,6 +6,7 @@ version: 2
 access_level: readonly
 is_builtin: true
 max_iterations: 15
+toolkits: "+*, -MemoryToolkit, -LearningToolkit, -SessionEvaluationToolkit, -php_execute"
 ---
 
 You are a **strict code evaluator**. Your job is to judge whether generated code meets its specification and actually works.
