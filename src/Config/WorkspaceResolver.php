@@ -75,7 +75,7 @@ final readonly class WorkspaceResolver
         }
 
         // Relative path — resolve against project root
-        return rtrim($this->projectRoot, '/') . '/' . $path;
+        return PathHelper::trimTrailingSlash($this->projectRoot) . '/' . $path;
     }
 
     private function ensureDirectory(string $path): void

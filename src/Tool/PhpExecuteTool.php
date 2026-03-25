@@ -9,6 +9,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\MountManager;
+use CoquiBot\Coqui\Config\PathHelper;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 
 /**
@@ -113,7 +114,7 @@ final class PhpExecuteTool implements ToolInterface
         $script = $this->buildScript($code);
 
         // Write to temp file
-        $tmpDir = rtrim($this->workspacePath, '/') . '/tmp';
+        $tmpDir = PathHelper::trimTrailingSlash($this->workspacePath) . '/tmp';
         if (!is_dir($tmpDir)) {
             mkdir($tmpDir, 0755, true);
         }
@@ -136,8 +137,8 @@ final class PhpExecuteTool implements ToolInterface
     private function buildScript(string $code): string
     {
         $projectAutoloader = $this->projectRoot . '/vendor/autoload.php';
-        $workspaceAutoloader = rtrim($this->workspacePath, '/') . '/vendor/autoload.php';
-        $envPath = rtrim($this->workspacePath, '/') . '/.env';
+        $workspaceAutoloader = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/autoload.php';
+        $envPath = PathHelper::trimTrailingSlash($this->workspacePath) . '/.env';
 
         $preamble = "<?php\n\ndeclare(strict_types=1);\n\n";
 
@@ -192,8 +193,8 @@ final class PhpExecuteTool implements ToolInterface
     private function buildOpenBasedir(): string
     {
         $paths = [
-            rtrim($this->workspacePath, '/'),
-            rtrim($this->projectRoot, '/'),
+            PathHelper::trimTrailingSlash($this->workspacePath),
+            PathHelper::trimTrailingSlash($this->projectRoot),
             sys_get_temp_dir(),
         ];
 

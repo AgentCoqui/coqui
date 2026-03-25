@@ -18,7 +18,7 @@ final class WorkspaceComposerManager
     public function __construct(
         private readonly string $workspacePath,
     ) {
-        $this->composerJsonPath = rtrim($this->workspacePath, '/') . '/composer.json';
+        $this->composerJsonPath = PathHelper::trimTrailingSlash($this->workspacePath) . '/composer.json';
     }
 
     /**
@@ -84,7 +84,7 @@ final class WorkspaceComposerManager
      */
     public function loadAutoloader(): bool
     {
-        $autoloader = rtrim($this->workspacePath, '/') . '/vendor/autoload.php';
+        $autoloader = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/autoload.php';
 
         if (!file_exists($autoloader)) {
             return false;

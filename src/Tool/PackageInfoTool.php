@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CoquiBot\Coqui\Config\PathHelper;
 
 /**
  * Introspects installed Composer packages on demand.
@@ -134,7 +135,7 @@ final class PackageInfoTool implements ToolInterface
         $classCount = 0;
 
         foreach ($autoloadMap as $namespace => $directory) {
-            $fullDir = $packageDir . '/' . rtrim($directory, '/');
+            $fullDir = $packageDir . '/' . PathHelper::trimTrailingSlash($directory);
 
             if (!is_dir($fullDir)) {
                 continue;
