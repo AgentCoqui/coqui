@@ -495,6 +495,54 @@ final class ScheduleStore
     }
 
     /**
+     * Delete all schedules.
+     *
+     * @return int Number of deleted schedules
+     */
+    public function deleteAll(): int
+    {
+        $count = $this->db->exec('DELETE FROM scheduled_tasks');
+
+        return $count !== false ? $count : 0;
+    }
+
+    /**
+     * Disable all enabled schedules.
+     *
+     * @return int Number of newly disabled schedules
+     */
+    public function disableAll(): int
+    {
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $stmt = $this->db->prepare(<<<'SQL'
+            UPDATE scheduled_tasks SET enabled = 0, updated_at = ? WHERE enabled = 1
+        SQL);
+        $stmt->execute([$now]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Enable all disabled schedules with recomputed next_run_at.
+     *
+     * Loops per-row because each schedule has its own cron expression and timezone.
+     *
+     * @return int Number of newly enabled schedules
+     */
+    public function enableAll(): int
+    {
+        $disabled = $this->list(enabled: false);
+        $count = 0;
+
+        foreach ($disabled as $schedule) {
+            $this->enable((string) $schedule['id']);
+            $count++;
+        }
+
+        return $count;
+    }
+
+    /**
      * Compute the next run time for a cron expression.
      *
      * Returns null for invalid expressions or @once (which has no next run).

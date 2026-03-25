@@ -20,6 +20,9 @@ final class ScheduleValidator
     /** Name must start with alphanumeric, 1-64 chars total, allows hyphens and underscores. */
     private const string NAME_PATTERN = '/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/';
 
+    /** Names reserved for bulk operations. */
+    private const array RESERVED_NAMES = ['all'];
+
     /**
      * Validate a schedule name format.
      *
@@ -29,6 +32,10 @@ final class ScheduleValidator
     {
         if ($name === '') {
             return 'name is required';
+        }
+
+        if (in_array(strtolower($name), self::RESERVED_NAMES, true)) {
+            return "Name '{$name}' is reserved and cannot be used";
         }
 
         if (!preg_match(self::NAME_PATTERN, $name)) {

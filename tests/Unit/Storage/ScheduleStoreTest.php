@@ -373,3 +373,83 @@ test('computeNextRun returns null for @once', function () {
 
     expect($next)->toBeInstanceOf(DateTimeImmutable::class);
 });
+
+// --- Bulk Operations ---
+
+test('deleteAll removes all schedules and returns count', function () {
+    $this->store->create(name: 'a', scheduleExpression: '* * * * *', prompt: 'a');
+    $this->store->create(name: 'b', scheduleExpression: '* * * * *', prompt: 'b');
+    $this->store->create(name: 'c', scheduleExpression: '* * * * *', prompt: 'c');
+
+    $count = $this->store->deleteAll();
+
+    expect($count)->toBe(3);
+    expect($this->store->list())->toBeEmpty();
+});
+
+test('deleteAll returns 0 on empty store', function () {
+    expect($this->store->deleteAll())->toBe(0);
+});
+
+test('disableAll disables all enabled schedules and returns count', function () {
+    $id1 = $this->store->create(name: 'a', scheduleExpression: '* * * * *', prompt: 'a');
+    $id2 = $this->store->create(name: 'b', scheduleExpression: '* * * * *', prompt: 'b');
+    $id3 = $this->store->create(name: 'c', scheduleExpression: '* * * * *', prompt: 'c');
+    $this->store->disable($id3);
+
+    $count = $this->store->disableAll();
+
+    expect($count)->toBe(2);
+    expect((int) $this->store->get($id1)['enabled'])->toBe(0);
+    expect((int) $this->store->get($id2)['enabled'])->toBe(0);
+    expect((int) $this->store->get($id3)['enabled'])->toBe(0);
+});
+
+test('disableAll returns 0 when all already disabled', function () {
+    $id = $this->store->create(name: 'a', scheduleExpression: '* * * * *', prompt: 'a');
+    $this->store->disable($id);
+
+    expect($this->store->disableAll())->toBe(0);
+});
+
+test('enableAll enables all disabled schedules with recomputed next_run_at', function () {
+    $id1 = $this->store->create(name: 'a', scheduleExpression: '* * * * *', prompt: 'a');
+    $id2 = $this->store->create(name: 'b', scheduleExpression: '0 9 * * *', prompt: 'b');
+    $this->store->disable($id1);
+    $this->store->disable($id2);
+
+    $count = $this->store->enableAll();
+
+    expect($count)->toBe(2);
+    $s1 = $this->store->get($id1);
+    $s2 = $this->store->get($id2);
+    expect((int) $s1['enabled'])->toBe(1);
+    expect((int) $s2['enabled'])->toBe(1);
+    expect($s1['next_run_at'])->not->toBeNull();
+    expect($s2['next_run_at'])->not->toBeNull();
+    // Failure counters should be reset
+    expect((int) $s1['failure_count'])->toBe(0);
+    expect((int) $s2['failure_count'])->toBe(0);
+});
+
+test('enableAll returns 0 when all already enabled', function () {
+    $this->store->create(name: 'a', scheduleExpression: '* * * * *', prompt: 'a');
+
+    expect($this->store->enableAll())->toBe(0);
+});
+
+// --- Reserved Name Validation ---
+
+test('reserved name "all" is rejected by validator', function () {
+    $error = \CoquiBot\Coqui\Utility\ScheduleValidator::validateName('all');
+
+    expect($error)->not->toBeNull();
+    expect($error)->toContain('reserved');
+});
+
+test('reserved name "ALL" (case-insensitive) is rejected by validator', function () {
+    $error = \CoquiBot\Coqui\Utility\ScheduleValidator::validateName('ALL');
+
+    expect($error)->not->toBeNull();
+    expect($error)->toContain('reserved');
+});
