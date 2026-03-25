@@ -419,12 +419,10 @@ final class SetupWizard
      */
     private function resolveHome(): string
     {
-        $home = $_SERVER['HOME'] ?? $_ENV['HOME'] ?? '';
-        if ($home === '' && function_exists('posix_getpwuid') && function_exists('posix_getuid')) {
-            $home = posix_getpwuid(posix_getuid())['dir'] ?? '~';
-        }
+        $home = HomeDirectory::resolve();
 
-        return $home !== '' ? $home : '~';
+        // HomeDirectory falls back to sys_get_temp_dir() — display ~ if that happened
+        return $home !== sys_get_temp_dir() ? $home : '~';
     }
 
     /**

@@ -915,8 +915,8 @@ final class DoctorCommand extends Command
             return $resolver->resolve();
         } catch (\Throwable) {
             // Fallback to common default
-            $home = $_SERVER['HOME'] ?? $_ENV['HOME'] ?? '';
-            if ($home !== '') {
+            $home = \CoquiBot\Coqui\Config\HomeDirectory::resolve();
+            if ($home !== sys_get_temp_dir()) {
                 return $home . '/.coqui/.workspace';
             }
 
