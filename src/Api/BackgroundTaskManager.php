@@ -99,8 +99,12 @@ final class BackgroundTaskManager
             $status = proc_get_status($process);
 
             if ($status['running'] && $status['pid'] > 0) {
-                // Send SIGTERM to the process group
-                posix_kill($status['pid'], SIGTERM);
+                // Send SIGTERM to the process group (Unix) or TerminateProcess (Windows)
+                if (function_exists('posix_kill') && defined('SIGTERM')) {
+                    posix_kill($status['pid'], SIGTERM);
+                } else {
+                    proc_terminate($process);
+                }
             }
 
             return true;
@@ -318,7 +322,11 @@ final class BackgroundTaskManager
                 $status = proc_get_status($process);
 
                 if ($status['running'] && $status['pid'] > 0) {
-                    posix_kill($status['pid'], SIGTERM);
+                    if (function_exists('posix_kill') && defined('SIGTERM')) {
+                        posix_kill($status['pid'], SIGTERM);
+                    } else {
+                        proc_terminate($process);
+                    }
                 }
                 // Process will be reaped on next tick — TaskRunCommand sets final status
             } else {

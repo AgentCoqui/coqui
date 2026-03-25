@@ -288,6 +288,15 @@
             ]
         },
         {
+            "path": "src/Config/HomeDirectory.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\HomeDirectory",
+            "layer": "config",
+            "description": "Cross-platform home directory resolution. Checks HOME (Unix), USERPROFILE (Windows), guarded POSIX fallback, and sys_get_temp_dir() in order. Used by WorkspaceResolver, SetupWizard, and DoctorCommand to avoid unguarded posix_getpwuid() calls on Windows.",
+            "methods": [
+                "resolve(): string — returns the current user's home directory path"
+            ]
+        },
+        {
             "path": "src/Config/WorkspaceResolver.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\WorkspaceResolver",
             "layer": "config",
