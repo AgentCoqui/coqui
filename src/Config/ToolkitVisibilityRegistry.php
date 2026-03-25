@@ -23,7 +23,7 @@ final class ToolkitVisibilityRegistry
 
     public function __construct(string $workspacePath)
     {
-        $this->filePath = rtrim($workspacePath, '/') . '/toolkit-visibility.json';
+        $this->filePath = PathHelper::trimTrailingSlash($workspacePath) . '/toolkit-visibility.json';
     }
 
     public function getPackageVisibility(string $package): ToolkitVisibility

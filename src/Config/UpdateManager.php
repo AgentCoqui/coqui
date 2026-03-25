@@ -68,7 +68,7 @@ final class UpdateManager
         }
 
         // Check workspace
-        $composerJson = rtrim($this->workspacePath, '/') . '/composer.json';
+        $composerJson = PathHelper::trimTrailingSlash($this->workspacePath) . '/composer.json';
         if (file_exists($composerJson)) {
             $workspacePackages = $this->runOutdated($this->workspacePath);
             if ($workspacePackages !== null) {
@@ -99,7 +99,7 @@ final class UpdateManager
         }
 
         // Update workspace if it has a composer.json
-        $composerJson = rtrim($this->workspacePath, '/') . '/composer.json';
+        $composerJson = PathHelper::trimTrailingSlash($this->workspacePath) . '/composer.json';
         if (file_exists($composerJson)) {
             $result = $this->runComposerUpdate($this->workspacePath);
             if ($result !== null) {

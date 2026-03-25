@@ -24,7 +24,7 @@ final class RoleUpdateTracker
         private readonly string $workspacePath,
         private readonly string $builtinRolesDir,
     ) {
-        $this->hashFilePath = rtrim($workspacePath, '/') . '/data/role-hashes.json';
+        $this->hashFilePath = PathHelper::trimTrailingSlash($workspacePath) . '/data/role-hashes.json';
         $this->hashes = $this->load();
     }
 
@@ -65,7 +65,7 @@ final class RoleUpdateTracker
             }
 
             $builtinPath = $builtinDir . '/' . $entry;
-            $workspacePath = rtrim($this->workspacePath, '/') . '/roles/' . $entry;
+            $workspacePath = PathHelper::trimTrailingSlash($this->workspacePath) . '/roles/' . $entry;
             $roleName = basename($entry, '.md');
 
             if (!file_exists($workspacePath)) {
@@ -119,7 +119,7 @@ final class RoleUpdateTracker
     public function applyUpdate(string $roleName, RoleDiscovery $roleDiscovery): bool
     {
         $builtinPath = $this->builtinRolesDir . '/' . $roleName . '.md';
-        $workspacePath = rtrim($this->workspacePath, '/') . '/roles/' . $roleName . '.md';
+        $workspacePath = PathHelper::trimTrailingSlash($this->workspacePath) . '/roles/' . $roleName . '.md';
 
         if (!file_exists($builtinPath) || !file_exists($workspacePath)) {
             return false;
@@ -130,7 +130,7 @@ final class RoleUpdateTracker
             $role = $roleDiscovery->getRole($roleName);
             // Backup is handled internally by updateRole, but we're doing a direct copy
             // so we backup manually
-            $backupsDir = rtrim($this->workspacePath, '/') . '/backups/roles';
+            $backupsDir = PathHelper::trimTrailingSlash($this->workspacePath) . '/backups/roles';
             if (!is_dir($backupsDir)) {
                 mkdir($backupsDir, 0755, true);
             }
