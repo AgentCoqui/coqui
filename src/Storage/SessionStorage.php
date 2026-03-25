@@ -36,6 +36,9 @@ final class SessionStorage
         $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $this->db->exec('PRAGMA journal_mode=WAL');
         $this->db->exec('PRAGMA foreign_keys=ON');
+        $this->db->exec('PRAGMA synchronous=NORMAL');
+        $this->db->exec('PRAGMA cache_size=-8000');
+        $this->db->exec('PRAGMA temp_store=MEMORY');
 
         $this->createTables();
     }
@@ -252,14 +255,18 @@ final class SessionStorage
      */
     public function listSessions(int $limit = 50, bool $excludeTaskSessions = true): array
     {
-        $where = $excludeTaskSessions
-            ? 'WHERE s.id NOT IN (SELECT session_id FROM background_tasks)'
+        $join = $excludeTaskSessions
+            ? 'LEFT JOIN background_tasks bt ON bt.session_id = s.id'
+            : '';
+        $filter = $excludeTaskSessions
+            ? 'WHERE bt.id IS NULL'
             : '';
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT s.id, s.model_role, s.model, s.title, s.created_at, s.updated_at, s.token_count
             FROM sessions s
-            {$where}
+            {$join}
+            {$filter}
             ORDER BY s.updated_at DESC
             LIMIT :limit
         SQL);
