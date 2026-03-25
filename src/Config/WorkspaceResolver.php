@@ -64,16 +64,13 @@ final readonly class WorkspaceResolver
     {
         // Expand ~ to home directory
         if (str_starts_with($path, '~/') || $path === '~') {
-            $home = $_SERVER['HOME'] ?? $_ENV['HOME'] ?? '';
-            if ($home === '') {
-                $home = posix_getpwuid(posix_getuid())['dir'] ?? '/tmp';
-            }
+            $home = HomeDirectory::resolve();
 
             return $home . substr($path, 1);
         }
 
-        // Absolute path — return as-is
-        if (str_starts_with($path, '/')) {
+        // Absolute path — return as-is (Unix / and Windows C:\ or D:/)
+        if (str_starts_with($path, '/') || (strlen($path) >= 3 && ctype_alpha($path[0]) && $path[1] === ':' && ($path[2] === '\\' || $path[2] === '/'))) {
             return $path;
         }
 
