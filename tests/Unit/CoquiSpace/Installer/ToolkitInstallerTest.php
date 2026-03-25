@@ -135,6 +135,10 @@ test('validatePackageName rejects name with spaces', function () {
 // ── disable() state file management ──────────────────────────────────────────
 
 test('disable writes state file with constraint', function () {
+    if (PHP_OS_FAMILY === 'Windows') {
+        $this->markTestSkipped('Fake shell-script Composer binary cannot execute on Windows.');
+    }
+
     file_put_contents($this->tmpDir . '/composer.json', json_encode([
         'require' => ['vendor/my-toolkit' => '^1.0'],
     ]));
@@ -146,6 +150,10 @@ test('disable writes state file with constraint', function () {
 });
 
 test('state file records correct constraint after disable', function () {
+    if (PHP_OS_FAMILY === 'Windows') {
+        $this->markTestSkipped('Fake shell-script Composer binary cannot execute on Windows.');
+    }
+
     file_put_contents($this->tmpDir . '/composer.json', json_encode([
         'require' => ['vendor/my-toolkit' => '^2.0'],
     ]));
@@ -165,6 +173,10 @@ test('enable with no saved state and not installed throws RuntimeException', fun
 });
 
 test('state file entry is removed after disable then enable', function () {
+    if (PHP_OS_FAMILY === 'Windows') {
+        $this->markTestSkipped('Fake shell-script Composer binary cannot execute on Windows.');
+    }
+
     file_put_contents($this->tmpDir . '/composer.json', json_encode([
         'require' => ['vendor/my-toolkit' => '^1.0'],
     ]));

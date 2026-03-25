@@ -216,8 +216,13 @@ final class PhpExecuteTool implements ToolInterface
             2 => ['pipe', 'w'],
         ];
 
+        $openBasedirDirective = 'open_basedir=' . $this->buildOpenBasedir();
+        if (PHP_OS_FAMILY === 'Windows') {
+            $openBasedirDirective = '"' . $openBasedirDirective . '"';
+        }
+
         $process = proc_open(
-            ['php', '-d', 'open_basedir=' . $this->buildOpenBasedir(), $scriptPath],
+            ['php', '-d', $openBasedirDirective, $scriptPath],
             $descriptors,
             $pipes,
             $this->workspacePath,

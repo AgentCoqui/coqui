@@ -67,6 +67,10 @@ test('mounts returns declared mounts', function () {
 });
 
 test('initialize creates symlinks in mnt directory', function () {
+    if (PHP_OS_FAMILY === 'Windows') {
+        $this->markTestSkipped('Symlinks require Developer Mode on Windows.');
+    }
+
     $manager = new MountManager($this->workspace, [
         new MountDefinition($this->mountA, 'alpha'),
         new MountDefinition($this->mountB, 'beta', 'rw'),
@@ -92,6 +96,10 @@ test('initialize skips when no mounts', function () {
 });
 
 test('initialize cleans up stale symlinks', function () {
+    if (PHP_OS_FAMILY === 'Windows') {
+        $this->markTestSkipped('Symlinks require Developer Mode on Windows.');
+    }
+
     $mntDir = $this->workspace . '/mnt';
     mkdir($mntDir, 0755, true);
 
@@ -110,6 +118,10 @@ test('initialize cleans up stale symlinks', function () {
 });
 
 test('initialize updates symlink if target changed', function () {
+    if (PHP_OS_FAMILY === 'Windows') {
+        $this->markTestSkipped('Symlinks require Developer Mode on Windows.');
+    }
+
     $mntDir = $this->workspace . '/mnt';
     mkdir($mntDir, 0755, true);
 
@@ -127,6 +139,10 @@ test('initialize updates symlink if target changed', function () {
 });
 
 test('initialize is idempotent for correct symlinks', function () {
+    if (PHP_OS_FAMILY === 'Windows') {
+        $this->markTestSkipped('Symlinks require Developer Mode on Windows.');
+    }
+
     $manager = new MountManager($this->workspace, [
         new MountDefinition($this->mountA, 'alpha'),
     ]);
