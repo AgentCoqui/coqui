@@ -104,7 +104,22 @@
                 "checkToolkits(): void — installed.json validity, toolkit class autoloadability",
                 "checkSkills(): void — skills directory, SKILL.md presence per skill",
                 "checkLauncher(): void — bin/coqui-launcher existence and executable permission",
-                "checkDiskSpace(): void — free disk space on workspace partition"
+                "checkDiskSpace(): void — free disk space on workspace partition",
+                "checkPerformance(): void — OPcache status, JIT status and buffer size, realpath cache"
+            ]
+        },
+        {
+            "path": "src/Command/BenchmarkCommand.php",
+            "fqcn": "CoquiBot\\Coqui\\Command\\BenchmarkCommand",
+            "layer": "command",
+            "description": "Performance benchmark command that measures key hot paths: autoloader class resolution, BootManager boot time and memory delta, SQLite PRAGMA initialization overhead, and token estimation throughput. Supports --iterations flag for custom iteration count, --json for machine-readable output. Collects runtime info including OPcache/JIT status.",
+            "methods": [
+                "execute(InputInterface, OutputInterface): int — runs all benchmarks and prints results",
+                "benchmarkAutoloader(): array — measures class_exists resolution time",
+                "benchmarkBoot(): array — measures BootManager boot time and memory delta",
+                "benchmarkSqlitePragmas(): array — measures PDO + PRAGMA initialization overhead",
+                "benchmarkTokenEstimation(): array — measures Conversation::estimateTokens throughput",
+                "collectRuntimeInfo(): array — gathers PHP version, OPcache, JIT, memory stats"
             ]
         },
         {

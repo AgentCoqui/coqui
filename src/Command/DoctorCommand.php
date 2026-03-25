@@ -113,6 +113,9 @@ final class DoctorCommand extends Command
         // 10. Disk space
         $results['disk_space'] = $this->checkDiskSpace($io, $workspacePath, $jsonOutput);
 
+        // 11. Performance (OPcache, JIT)
+        $results['performance'] = $this->checkPerformance($io, $jsonOutput);
+
         if ($jsonOutput) {
             $output->writeln(json_encode([
                 'ok' => $this->failCount === 0,
@@ -894,6 +897,55 @@ final class DoctorCommand extends Command
             $this->warn($io, "Disk space: only {$freeMb} MB free", $jsonOutput);
             $results['free'] = ['status' => 'warn', 'free_mb' => $freeMb];
         }
+
+        return $results;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function checkPerformance(SymfonyStyle $io, bool $jsonOutput): array
+    {
+        $results = [];
+
+        // OPcache
+        if (function_exists('opcache_get_status')) {
+            $status = opcache_get_status(false);
+            if (is_array($status) && ($status['opcache_enabled'] ?? false)) {
+                $this->ok($io, 'OPcache: enabled', $jsonOutput);
+                $results['opcache'] = ['status' => 'ok', 'enabled' => true];
+            } else {
+                $this->warn($io, 'OPcache: disabled — enable for faster boot and lower latency', $jsonOutput);
+                $results['opcache'] = ['status' => 'warn', 'enabled' => false];
+            }
+        } else {
+            $this->warn($io, 'OPcache: extension not loaded — install php-opcache', $jsonOutput);
+            $results['opcache'] = ['status' => 'warn', 'loaded' => false];
+        }
+
+        // JIT
+        if (function_exists('opcache_get_status')) {
+            $status = opcache_get_status(false);
+            $jitEnabled = is_array($status)
+                && isset($status['jit']['enabled'])
+                && $status['jit']['enabled'];
+
+            if ($jitEnabled) {
+                $jitBuffer = $status['jit']['buffer_size'] ?? 0;
+                $bufferMb = round($jitBuffer / 1024 / 1024);
+                $this->ok($io, "JIT: enabled ({$bufferMb} MB buffer)", $jsonOutput);
+                $results['jit'] = ['status' => 'ok', 'enabled' => true, 'buffer_mb' => $bufferMb];
+            } else {
+                $this->warn($io, 'JIT: disabled — enable for improved loop performance (opcache.jit=1255)', $jsonOutput);
+                $results['jit'] = ['status' => 'warn', 'enabled' => false];
+            }
+        } else {
+            $results['jit'] = ['status' => 'warn', 'loaded' => false];
+        }
+
+        // Realpath cache
+        $realpathCacheSize = ini_get('realpath_cache_size') ?: '4096k';
+        $results['realpath_cache_size'] = ['status' => 'ok', 'value' => $realpathCacheSize];
 
         return $results;
     }
