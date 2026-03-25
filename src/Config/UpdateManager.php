@@ -239,7 +239,10 @@ final class UpdateManager
         $candidates = ['composer', 'composer.phar'];
 
         foreach ($candidates as $candidate) {
-            $which = trim((string) shell_exec("which {$candidate} 2>/dev/null"));
+            $cmd = PHP_OS_FAMILY === 'Windows'
+                ? "where {$candidate} 2>NUL"
+                : "which {$candidate} 2>/dev/null";
+            $which = trim((string) shell_exec($cmd));
             if ($which !== '') {
                 return $which;
             }

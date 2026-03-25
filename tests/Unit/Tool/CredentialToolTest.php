@@ -96,6 +96,10 @@ test('requires value for set', function () {
 });
 
 test('env file has restricted permissions', function () {
+    if (PHP_OS_FAMILY === 'Windows') {
+        $this->markTestSkipped('Unix file permissions are not enforced on Windows.');
+    }
+
     $this->tool->execute(['action' => 'set', 'key' => 'TEST_KEY', 'value' => 'test']);
 
     $envFile = $this->tmpDir . '/.env';

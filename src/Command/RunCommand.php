@@ -1320,7 +1320,7 @@ final class RunCommand extends Command
         }
 
         $props = $roleDiscovery->getRole($name);
-        $editor = getenv('EDITOR') ?: getenv('VISUAL') ?: 'vi';
+        $editor = getenv('EDITOR') ?: getenv('VISUAL') ?: (PHP_OS_FAMILY === 'Windows' ? 'notepad' : 'vi');
         $path = $props->path;
 
         $io->text(sprintf('Opening <fg=cyan>%s</> in %s...', $name, basename($editor)));
