@@ -78,11 +78,16 @@ final class ComposerRunner
             return $envBin;
         }
 
-        $candidates = [
-            '/opt/homebrew/bin/composer',   // macOS ARM (Homebrew)
-            '/usr/local/bin/composer',      // macOS Intel / Linux
-            '/usr/bin/composer',            // System-wide
-        ];
+        $candidates = PHP_OS_FAMILY === 'Windows'
+            ? [
+                getenv('APPDATA') . '\\Composer\\vendor\\bin\\composer',
+                getenv('USERPROFILE') . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer',
+            ]
+            : [
+                '/opt/homebrew/bin/composer',   // macOS ARM (Homebrew)
+                '/usr/local/bin/composer',      // macOS Intel / Linux
+                '/usr/bin/composer',            // System-wide
+            ];
 
         foreach ($candidates as $path) {
             if (file_exists($path) && is_executable($path)) {
@@ -105,7 +110,12 @@ final class ComposerRunner
     {
         $env = [];
 
-        foreach (['HOME', 'PATH', 'COMPOSER_HOME', 'COMPOSER_ALLOW_SUPERUSER'] as $key) {
+        $keys = ['HOME', 'PATH', 'COMPOSER_HOME', 'COMPOSER_ALLOW_SUPERUSER'];
+        if (PHP_OS_FAMILY === 'Windows') {
+            array_push($keys, 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'SystemRoot', 'TEMP', 'TMP');
+        }
+
+        foreach ($keys as $key) {
             $value = getenv($key);
             if ($value !== false) {
                 $env[$key] = $value;
