@@ -87,5 +87,6 @@ coverage/
 *.coverage
 clover.xml
 junit.xml
+debug_*.php
 
 # cspell:ignore openclaw phpstan neon aider codeium carmelo carmelosantana
