@@ -230,3 +230,44 @@ test('HomeDirectory resolve works on any platform', function () {
     expect($home)->not->toBe('');
     expect(is_dir($home))->toBeTrue();
 });
+
+test('source code never uses cd && shell chaining for command execution', function () {
+    // "cd dir && command" is Unix-only shell syntax. Use proc_open() cwd parameter instead.
+    $srcDir = dirname(__DIR__, 3) . '/src';
+    $found = [];
+
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($srcDir, RecursiveDirectoryIterator::SKIP_DOTS),
+    );
+
+    foreach ($iterator as $file) {
+        if ($file->getExtension() !== 'php') {
+            continue;
+        }
+
+        $content = file_get_contents($file->getPathname());
+        if ($content === false) {
+            continue;
+        }
+
+        $lines = explode("\n", $content);
+        foreach ($lines as $lineNum => $line) {
+            $trimmed = ltrim($line);
+
+            // Skip comments
+            if (str_starts_with($trimmed, '//') || str_starts_with($trimmed, '*') || str_starts_with($trimmed, '#') || str_starts_with($trimmed, '/**')) {
+                continue;
+            }
+
+            // Detect "cd <path> &&" or "cd <path>;" patterns in shell command strings
+            if (preg_match('/[\'"]cd\s+.*?\s*&&/', $line)) {
+                $found[] = str_replace('\\', '/', $file->getPathname()) . ':' . ($lineNum + 1);
+            }
+        }
+    }
+
+    expect($found)->toBeEmpty(
+        '"cd dir && command" is Unix-only. Use proc_open() with cwd parameter instead. Found in: '
+        . implode(', ', $found),
+    );
+});
