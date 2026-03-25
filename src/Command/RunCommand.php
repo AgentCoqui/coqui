@@ -400,32 +400,48 @@ final class RunCommand extends Command
             // which was causing $quitAttempts to reach 2 on what felt like one press.
             $ctrlCPressed = false;
 
-            readline_callback_handler_install(' › ', static function (?string $input) use (&$line, &$lineReady): void {
-                $line = $input;
-                $lineReady = true;
-            });
+            $hasReadline = function_exists('readline_callback_handler_install');
 
-            // Install our SIGINT handler AFTER readline's setup — readline installs
-            // its own handler during callback_handler_install, so ours must come last.
-            if ($hasSignals) {
-                pcntl_signal(SIGINT, static function () use (&$ctrlCPressed, &$lineReady): void {
-                    $ctrlCPressed = true;
-                    $lineReady = true; // break the inner wait loop
+            if ($hasReadline) {
+                readline_callback_handler_install(' › ', static function (?string $input) use (&$line, &$lineReady): void {
+                    $line = $input;
+                    $lineReady = true;
                 });
-            }
 
-            while (!$lineReady) {
-                $read = [STDIN];
-                $write = $except = [];
-                /** @var int|false $ready */
-                $ready = @stream_select($read, $write, $except, 0, 200000); // 200ms
+                // Install our SIGINT handler AFTER readline's setup — readline installs
+                // its own handler during callback_handler_install, so ours must come last.
+                if ($hasSignals) {
+                    pcntl_signal(SIGINT, static function () use (&$ctrlCPressed, &$lineReady): void {
+                        $ctrlCPressed = true;
+                        $lineReady = true; // break the inner wait loop
+                    });
+                }
 
-                if ($ready > 0) {
-                    readline_callback_read_char();
+                while (!$lineReady) {
+                    $read = [STDIN];
+                    $write = $except = [];
+                    /** @var int|false $ready */
+                    $ready = @stream_select($read, $write, $except, 0, 200000); // 200ms
+
+                    if ($ready > 0) {
+                        readline_callback_read_char();
+                    }
+                }
+
+                readline_callback_handler_remove();
+            } else {
+                // Fallback for environments without readline (e.g. minimal PHP builds).
+                // No arrow keys, tab-complete, or history — but the REPL works.
+                $io->write(' › ');
+                $raw = fgets(STDIN);
+                if ($raw === false) {
+                    $line = null;
+                    $lineReady = true;
+                } else {
+                    $line = rtrim($raw, "\r\n");
+                    $lineReady = true;
                 }
             }
-
-            readline_callback_handler_remove();
 
             // Ctrl+C — count attempts; exit only on the second consecutive press.
             // A single Ctrl+C at the prompt shows a hint without quitting, matching
@@ -455,7 +471,9 @@ final class RunCommand extends Command
             }
 
             $prompt = trim($line);
-            readline_add_history($prompt);
+            if (function_exists('readline_add_history')) {
+                readline_add_history($prompt);
+            }
             $quitAttempts = 0; // reset on successful input
 
             // Handle commands
@@ -2151,7 +2169,7 @@ final class RunCommand extends Command
 
         if ($prompt === null || trim($prompt) === '') {
             // Try reading from stdin (piped input)
-            if (!posix_isatty(STDIN)) {
+            if (!stream_isatty(STDIN)) {
                 $stdinContent = stream_get_contents(STDIN);
                 $prompt = $stdinContent !== false ? $stdinContent : null;
             }
