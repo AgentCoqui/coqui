@@ -513,6 +513,87 @@ final class TodoStore
     }
 
     /**
+     * Delete all todos for a session.
+     *
+     * @return int Number of todos deleted
+     */
+    public function deleteBySession(string $sessionId): int
+    {
+        $stmt = $this->db->prepare('DELETE FROM todos WHERE session_id = ?');
+        $stmt->execute([$sessionId]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Delete all completed and cancelled todos for a session.
+     *
+     * @return int Number of todos deleted
+     */
+    public function deleteCompletedBySession(string $sessionId): int
+    {
+        $stmt = $this->db->prepare(
+            "DELETE FROM todos WHERE session_id = ? AND status IN ('completed', 'cancelled')",
+        );
+        $stmt->execute([$sessionId]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Mark all pending and in_progress todos as completed for a session.
+     *
+     * @return int Number of todos completed
+     */
+    public function completeAllBySession(string $sessionId, ?string $completedBy = null): int
+    {
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $stmt = $this->db->prepare(<<<'SQL'
+            UPDATE todos
+            SET status = 'completed', completed_by = ?, completed_at = ?, updated_at = ?
+            WHERE session_id = ? AND status IN ('pending', 'in_progress')
+        SQL);
+        $stmt->execute([$completedBy, $now, $now, $sessionId]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Find a todo by ID prefix within a session.
+     *
+     * Returns the todo if exactly one match is found, null otherwise.
+     * Use for REPL partial-ID matching.
+     *
+     * @return array{todo: array<string, mixed>, ambiguous: bool, candidates: list<array<string, mixed>>}|null
+     */
+    public function findByPrefix(string $sessionId, string $prefix): ?array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT * FROM todos WHERE session_id = ? AND id LIKE ? ORDER BY sort_order ASC',
+        );
+        $stmt->execute([$sessionId, $prefix . '%']);
+        /** @var list<array<string, mixed>> $candidates */
+        $candidates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        if ($candidates === []) {
+            return null;
+        }
+
+        if (count($candidates) === 1) {
+            return ['todo' => $candidates[0], 'ambiguous' => false, 'candidates' => $candidates];
+        }
+
+        // Check for exact match first
+        foreach ($candidates as $candidate) {
+            if ($candidate['id'] === $prefix) {
+                return ['todo' => $candidate, 'ambiguous' => false, 'candidates' => $candidates];
+            }
+        }
+
+        return ['todo' => $candidates[0], 'ambiguous' => true, 'candidates' => $candidates];
+    }
+
+    /**
      * Calculate the next sort order value for a new todo.
      */
     private function nextSortOrder(string $sessionId, ?string $artifactId): int
