@@ -908,21 +908,65 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
 
     private function runComposerInstall(string $packageDir): string
     {
-        $command = sprintf(
-            'cd %s && composer install --no-interaction --no-progress 2>&1',
-            escapeshellarg($packageDir),
-        );
+        $composer = $this->resolveComposerBinary();
+        $cmd = escapeshellarg($composer) . ' install --no-interaction --no-progress';
 
-        $output = [];
-        $returnCode = 0;
-        exec($command, $output, $returnCode);
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
 
-        $result = implode("\n", $output);
+        $process = proc_open($cmd, $descriptors, $pipes, $packageDir);
+
+        if (!is_resource($process)) {
+            return '⚠ Failed to start Composer process.';
+        }
+
+        fclose($pipes[0]);
+
+        $stdout = (string) stream_get_contents($pipes[1]);
+        $stderr = (string) stream_get_contents($pipes[2]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        $returnCode = proc_close($process);
 
         if ($returnCode !== 0) {
+            $result = trim($stderr . "\n" . $stdout);
             return "⚠ Composer install exited with code {$returnCode}:\n{$result}";
         }
 
         return "✓ Dependencies installed successfully.";
+    }
+
+    /**
+     * Resolve the Composer binary path.
+     */
+    private function resolveComposerBinary(): string
+    {
+        $envBin = getenv('COMPOSER_BIN');
+        if ($envBin !== false && $envBin !== '') {
+            return $envBin;
+        }
+
+        $candidates = PHP_OS_FAMILY === 'Windows'
+            ? [
+                getenv('APPDATA') . '\\Composer\\vendor\\bin\\composer',
+                getenv('USERPROFILE') . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer',
+            ]
+            : [
+                '/opt/homebrew/bin/composer',
+                '/usr/local/bin/composer',
+                '/usr/bin/composer',
+            ];
+
+        foreach ($candidates as $path) {
+            if (file_exists($path) && is_executable($path)) {
+                return $path;
+            }
+        }
+
+        return 'composer';
     }
 }
