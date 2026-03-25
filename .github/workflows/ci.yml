@@ -8,11 +8,12 @@ on:
 
 jobs:
   tests:
-    name: Tests (PHP ${{ matrix.php }})
-    runs-on: ubuntu-latest
+    name: Tests (PHP ${{ matrix.php }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         php: ['8.4', '8.5']
 
     steps:
@@ -23,11 +24,12 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: pdo_sqlite, mbstring, curl, xml, zip, pcntl
+          extensions: pdo_sqlite, mbstring, curl, xml, zip${{ matrix.os != 'windows-latest' && ', pcntl' || '' }}
           coverage: none
 
       - name: Get Composer cache directory
         id: composer-cache
+        shell: bash
         run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
 
       - name: Cache Composer dependencies
@@ -44,11 +46,12 @@ jobs:
         run: composer test
 
   static-analysis:
-    name: PHPStan (PHP ${{ matrix.php }})
-    runs-on: ubuntu-latest
+    name: PHPStan (PHP ${{ matrix.php }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         php: ['8.4', '8.5']
 
     steps:
@@ -59,11 +62,12 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: pdo_sqlite, mbstring, curl, xml, zip, pcntl
+          extensions: pdo_sqlite, mbstring, curl, xml, zip${{ matrix.os != 'windows-latest' && ', pcntl' || '' }}
           coverage: none
 
       - name: Get Composer cache directory
         id: composer-cache
+        shell: bash
         run: echo "dir=$(composer config cache-files-dir)" >> $GITHUB_OUTPUT
 
       - name: Cache Composer dependencies

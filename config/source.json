@@ -297,6 +297,15 @@
             ]
         },
         {
+            "path": "src/Config/PathHelper.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\PathHelper",
+            "layer": "config",
+            "description": "Cross-platform path helpers. Centralizes DIRECTORY_SEPARATOR-aware operations so the codebase works correctly on both Unix (/) and Windows (\\) paths. Provides trimTrailingSlash() that handles both separators while preserving root paths.",
+            "methods": [
+                "trimTrailingSlash(string $path): string — trims trailing / and \\ from a path, preserving root paths (/ on Unix, C:\\ on Windows)"
+            ]
+        },
+        {
             "path": "src/Config/WorkspaceResolver.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\WorkspaceResolver",
             "layer": "config",
