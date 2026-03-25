@@ -102,11 +102,11 @@ final class TodoToolkit implements ToolkitInterface
         $lines = [];
         foreach ($activeTodos as $todo) {
             $artifactRef = $this->resolveArtifactRef($todo['artifact_id'] ?? null);
-            $lines[] = sprintf('- 🔲 **[in_progress]** %s (id: %s)%s', $todo['title'], substr($todo['id'], 0, 8) . '...', $artifactRef);
+            $lines[] = sprintf('- 🔲 **[in_progress]** %s (id: %s)%s', $todo['title'], $todo['id'], $artifactRef);
         }
         foreach ($pendingTodos as $todo) {
             $artifactRef = $this->resolveArtifactRef($todo['artifact_id'] ?? null);
-            $lines[] = sprintf('- ☐ %s (id: %s)%s', $todo['title'], substr($todo['id'], 0, 8) . '...', $artifactRef);
+            $lines[] = sprintf('- ☐ %s (id: %s)%s', $todo['title'], $todo['id'], $artifactRef);
         }
         $listing = $lines !== [] ? "\n\nActive/Pending:\n" . implode("\n", $lines) : '';
 
@@ -434,7 +434,7 @@ final class TodoToolkit implements ToolkitInterface
                         $icon,
                         $todo['title'],
                         $priorityTag,
-                        substr($todo['id'], 0, 8) . '...',
+                        $todo['id'],
                     );
 
                     // Include subtasks
@@ -450,7 +450,7 @@ final class TodoToolkit implements ToolkitInterface
                             '  %s %s (id: %s)',
                             $subIcon,
                             $sub['title'],
-                            substr($sub['id'], 0, 8) . '...',
+                            $sub['id'],
                         );
                     }
                 }

@@ -299,6 +299,36 @@ final class RunCommand extends Command
                     }
                 }
 
+                // Complete /todos subcommands, statuses, and todo IDs
+                if (count($parts) >= 2 && $cmd === '/todos') {
+                    $sub = $parts[1];
+                    $todoSubCommands = ['delete', 'complete', 'cancel', 'clear', 'pending', 'in_progress', 'completed', 'cancelled'];
+
+                    if (count($parts) === 2) {
+                        return array_values(array_filter(
+                            $todoSubCommands,
+                            fn(string $s) => str_starts_with($s, $input),
+                        ));
+                    }
+
+                    // Complete todo IDs or "all" after delete/complete/cancel
+                    if (count($parts) === 3 && in_array($sub, ['delete', 'complete', 'cancel'], true)) {
+                        $prefix = $parts[2];
+                        $candidates = ['all'];
+                        $todoStore = $this->boot->todoStore();
+                        if ($todoStore !== null) {
+                            $todos = $todoStore->list(sessionId: $this->sessionId, limit: 50);
+                            foreach ($todos as $todo) {
+                                $candidates[] = $todo['id'];
+                            }
+                        }
+                        return array_values(array_filter(
+                            $candidates,
+                            fn(string $c) => str_starts_with($c, $prefix),
+                        ));
+                    }
+                }
+
                 // Complete role names after /role (use selectableRoles for switching, all for edit)
                 if (count($parts) >= 2 && $cmd === '/role') {
                     $sub = $parts[1];
@@ -1743,7 +1773,7 @@ final class RunCommand extends Command
         }
     }
 
-    private function handleTodosCommand(SymfonyStyle $io, string $statusFilter = ''): void
+    private function handleTodosCommand(SymfonyStyle $io, string $arg = ''): void
     {
         $todoStore = $this->boot->todoStore();
         if ($todoStore === null) {
@@ -1751,9 +1781,35 @@ final class RunCommand extends Command
             return;
         }
 
-        $status = trim($statusFilter) !== '' ? trim($statusFilter) : null;
+        $trimmedArg = trim($arg);
 
-        $todos = $todoStore->list(
+        // Parse subcommand: /todos <action> <target>
+        $argParts = $trimmedArg !== '' ? explode(' ', $trimmedArg, 2) : [];
+        $action = strtolower($argParts[0] ?? '');
+        $target = trim($argParts[1] ?? '');
+
+        // Route subcommands
+        match ($action) {
+            'delete' => $this->handleTodosDelete($io, $todoStore, $target),
+            'complete' => $this->handleTodosComplete($io, $todoStore, $target),
+            'cancel' => $this->handleTodosCancel($io, $todoStore, $target),
+            'clear' => $this->handleTodosClear($io, $todoStore),
+            default => $this->handleTodosList($io, $todoStore, $trimmedArg),
+        };
+    }
+
+    private function handleTodosList(SymfonyStyle $io, \CoquiBot\Coqui\Storage\TodoStore $store, string $statusFilter): void
+    {
+        // Check if it's a known status or empty
+        $validStatuses = ['pending', 'in_progress', 'completed', 'cancelled'];
+        $status = $statusFilter !== '' && in_array($statusFilter, $validStatuses, true) ? $statusFilter : null;
+
+        if ($statusFilter !== '' && $status === null) {
+            $io->error("Unknown subcommand or status: '{$statusFilter}'. Use: delete, complete, cancel, clear, or a status (pending, in_progress, completed, cancelled).");
+            return;
+        }
+
+        $todos = $store->list(
             sessionId: $this->sessionId,
             status: $status,
         );
@@ -1762,7 +1818,7 @@ final class RunCommand extends Command
             return;
         }
 
-        $stats = $todoStore->getStats($this->sessionId);
+        $stats = $store->getStats($this->sessionId);
         $total = $stats['total'];
         $completed = $stats['completed'];
         $pct = $total > 0 ? (int) round(($completed / $total) * 100) : 0;
@@ -1784,7 +1840,7 @@ final class RunCommand extends Command
             };
             $rows[] = [
                 $icon,
-                substr($todo['id'], 0, 8) . '...',
+                $todo['id'],
                 $todo['title'],
                 $priority,
                 $todo['created_by'] ?? '',
@@ -1802,6 +1858,136 @@ final class RunCommand extends Command
         if (!empty($parts)) {
             $io->text('<fg=gray>' . implode(' | ', $parts) . '</>');
         }
+    }
+
+    private function handleTodosDelete(SymfonyStyle $io, \CoquiBot\Coqui\Storage\TodoStore $store, string $target): void
+    {
+        if ($target === '') {
+            $io->error('Usage: /todos delete <id|all>');
+            return;
+        }
+
+        if (strtolower($target) === 'all') {
+            $stats = $store->getStats($this->sessionId);
+            if ($stats['total'] === 0) {
+                $io->info('No todos to delete.');
+                return;
+            }
+            if (!$io->confirm("Delete all {$stats['total']} todos in this session?", false)) {
+                $io->text('<fg=gray>Cancelled.</>');
+                return;
+            }
+            $count = $store->deleteBySession($this->sessionId);
+            $io->success("Deleted {$count} todo(s).");
+            return;
+        }
+
+        $result = $store->findByPrefix($this->sessionId, $target);
+        if ($result === null) {
+            $io->error("No todo found matching '{$target}'.");
+            return;
+        }
+        if ($result['ambiguous']) {
+            $io->error("Ambiguous ID prefix '{$target}' — matches " . count($result['candidates']) . ' todos:');
+            foreach ($result['candidates'] as $c) {
+                $io->text("  {$c['id']}  {$c['title']}");
+            }
+            return;
+        }
+
+        $todo = $result['todo'];
+        $store->delete($todo['id']);
+        $io->success("Deleted: {$todo['title']}");
+    }
+
+    private function handleTodosComplete(SymfonyStyle $io, \CoquiBot\Coqui\Storage\TodoStore $store, string $target): void
+    {
+        if ($target === '') {
+            $io->error('Usage: /todos complete <id|all>');
+            return;
+        }
+
+        if (strtolower($target) === 'all') {
+            $stats = $store->getStats($this->sessionId);
+            $actionable = $stats['pending'] + $stats['in_progress'];
+            if ($actionable === 0) {
+                $io->info('No pending or in-progress todos to complete.');
+                return;
+            }
+            if (!$io->confirm("Mark {$actionable} pending/in-progress todo(s) as completed?", false)) {
+                $io->text('<fg=gray>Cancelled.</>');
+                return;
+            }
+            $count = $store->completeAllBySession($this->sessionId, 'user');
+            $io->success("Completed {$count} todo(s).");
+            return;
+        }
+
+        $result = $store->findByPrefix($this->sessionId, $target);
+        if ($result === null) {
+            $io->error("No todo found matching '{$target}'.");
+            return;
+        }
+        if ($result['ambiguous']) {
+            $io->error("Ambiguous ID prefix '{$target}' — matches " . count($result['candidates']) . ' todos:');
+            foreach ($result['candidates'] as $c) {
+                $io->text("  {$c['id']}  {$c['title']}");
+            }
+            return;
+        }
+
+        $todo = $result['todo'];
+        if ($todo['status'] === 'completed') {
+            $io->info("Already completed: {$todo['title']}");
+            return;
+        }
+        $store->complete($todo['id'], 'user');
+        $io->success("Completed: {$todo['title']}");
+    }
+
+    private function handleTodosCancel(SymfonyStyle $io, \CoquiBot\Coqui\Storage\TodoStore $store, string $target): void
+    {
+        if ($target === '') {
+            $io->error('Usage: /todos cancel <id>');
+            return;
+        }
+
+        $result = $store->findByPrefix($this->sessionId, $target);
+        if ($result === null) {
+            $io->error("No todo found matching '{$target}'.");
+            return;
+        }
+        if ($result['ambiguous']) {
+            $io->error("Ambiguous ID prefix '{$target}' — matches " . count($result['candidates']) . ' todos:');
+            foreach ($result['candidates'] as $c) {
+                $io->text("  {$c['id']}  {$c['title']}");
+            }
+            return;
+        }
+
+        $todo = $result['todo'];
+        if ($todo['status'] === 'cancelled') {
+            $io->info("Already cancelled: {$todo['title']}");
+            return;
+        }
+        $store->update($todo['id'], status: 'cancelled');
+        $io->success("Cancelled: {$todo['title']}");
+    }
+
+    private function handleTodosClear(SymfonyStyle $io, \CoquiBot\Coqui\Storage\TodoStore $store): void
+    {
+        $stats = $store->getStats($this->sessionId);
+        $clearable = $stats['completed'] + $stats['cancelled'];
+        if ($clearable === 0) {
+            $io->info('No completed or cancelled todos to clear.');
+            return;
+        }
+        if (!$io->confirm("Remove {$clearable} completed/cancelled todo(s)?", false)) {
+            $io->text('<fg=gray>Cancelled.</>');
+            return;
+        }
+        $count = $store->deleteCompletedBySession($this->sessionId);
+        $io->success("Cleared {$count} todo(s).");
     }
 
     private function handleSchedulesCommand(SymfonyStyle $io, string $arg = ''): void

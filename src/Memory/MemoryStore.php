@@ -558,6 +558,9 @@ final class MemoryStore implements MemoryInterface
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
         $db->exec('PRAGMA journal_mode=WAL');
         $db->exec('PRAGMA foreign_keys=ON');
+        $db->exec('PRAGMA synchronous=NORMAL');
+        $db->exec('PRAGMA cache_size=-8000');
+        $db->exec('PRAGMA temp_store=MEMORY');
 
         return $db;
     }
@@ -583,6 +586,7 @@ final class MemoryStore implements MemoryInterface
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_area ON memories(area)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_updated ON memories(updated_at)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_tags ON memories(tags)');
 
         // FTS5 virtual table for full-text search
         $this->db->exec(<<<SQL

@@ -156,15 +156,20 @@ final class EvaluationStore
                 s.token_count,
                 s.created_at,
                 s.updated_at,
-                (SELECT COUNT(*) FROM turns WHERE turns.session_id = s.id) AS turn_count
+                tc.turn_count
             FROM sessions s
             LEFT JOIN evaluations e ON e.session_id = s.id
             LEFT JOIN background_tasks bt ON bt.session_id = s.id
+            INNER JOIN (
+                SELECT session_id, COUNT(*) AS turn_count
+                FROM turns
+                GROUP BY session_id
+            ) tc ON tc.session_id = s.id
             WHERE e.id IS NULL
               AND bt.id IS NULL
               AND s.updated_at < ?
               AND s.created_at > ?
-              AND (SELECT COUNT(*) FROM turns WHERE turns.session_id = s.id) >= ?
+              AND tc.turn_count >= ?
             ORDER BY s.updated_at DESC
             LIMIT ?
         SQL);
