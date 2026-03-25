@@ -404,7 +404,11 @@ Coqui supports autonomous, timer-driven execution via a cron-style scheduling sy
 
 | Command | Description |
 | --- | --- |
-| `/schedules` | Table-formatted list of all schedules with status, cron, next run, and run count |
+| `/schedules` | Table-formatted list of all schedules with status, cron, next run, last run, and run count |
+| `/schedules enable <name\|id\|all>` | Enable a schedule or all disabled schedules |
+| `/schedules disable <name\|id\|all>` | Disable a schedule or all enabled schedules |
+| `/schedules delete <name\|id\|all>` | Delete a schedule or all schedules |
+| `/schedules trigger <name\|id\|all>` | Force-trigger a schedule on the next API tick |
 
 ### Key Source Files
 
@@ -413,7 +417,7 @@ Coqui supports autonomous, timer-driven execution via a cron-style scheduling sy
 | `src/Storage/ScheduleStore.php` | SQLite CRUD with circuit breaker, cron next-run computation, stats |
 | `src/Api/ScheduleManager.php` | ReactPHP timer-driven scheduler with MIN_INTERVAL_SECONDS enforcement |
 | `src/Api/Handler/ScheduleHandler.php` | 8 REST endpoints for schedule management |
-| `src/Toolkit/ScheduleToolkit.php` | 6 agent-facing tools for self-scheduling |
+| `src/Toolkit/ScheduleToolkit.php` | 8 agent-facing tools for self-scheduling with bulk operation support |
 
 
 ## Webhook System Architecture

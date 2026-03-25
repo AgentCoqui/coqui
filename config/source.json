@@ -1382,6 +1382,9 @@
                 "getByName(string): ?array — get schedule by unique name",
                 "update(string, ...): bool — update schedule fields, recomputes next_run_at",
                 "delete(string): bool — delete a schedule",
+                "deleteAll(): int — delete all schedules, returns count",
+                "disableAll(): int — disable all enabled schedules, returns count",
+                "enableAll(): int — enable all disabled schedules with recomputed next_run_at, returns count",
                 "list(?bool, ?string, int): array — list schedules with optional filters",
                 "getReadySchedules(DateTimeImmutable): array — get enabled schedules past due",
                 "markExecuted(string, string): void — record execution, update next_run_at",
@@ -1486,7 +1489,7 @@
             "path": "src/Toolkit/ScheduleToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\ScheduleToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing tools for creating and managing scheduled tasks. Enables the agent to schedule its own future work using cron expressions. 8 tools: schedule_create, schedule_list, schedule_get, schedule_update, schedule_delete, schedule_trigger, schedule_enable, schedule_disable. Uses ScheduleValidator for shared input validation.",
+            "description": "Agent-facing tools for creating and managing scheduled tasks. Enables the agent to schedule its own future work using cron expressions. 8 tools: schedule_create, schedule_list, schedule_get, schedule_update, schedule_delete, schedule_trigger, schedule_enable, schedule_disable. Supports bulk operations via 'all' keyword. Uses ScheduleValidator for shared input validation.",
             "methods": [
                 "tools(): array — return all 8 schedule tools",
                 "guidelines(): string — dynamic stats and cron reference"
