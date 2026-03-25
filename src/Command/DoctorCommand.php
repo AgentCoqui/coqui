@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\CredentialResolver;
+use CoquiBot\Coqui\Config\PathHelper;
 use CoquiBot\Coqui\Config\WorkspaceComposerManager;
 use CoquiBot\Coqui\Config\WorkspaceResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -622,7 +623,7 @@ final class DoctorCommand extends Command
             ?? 'http://localhost:11434/v1';
 
         // Strip /v1 suffix for health check
-        $ollamaBase = rtrim(preg_replace('#/v1/?$#', '', $ollamaUrl), '/');
+        $ollamaBase = PathHelper::trimTrailingSlash(preg_replace('#/v1/?$#', '', $ollamaUrl));
         $this->checkOllamaConnectivity($io, $ollamaBase, $results, $jsonOutput);
 
         // Check cloud provider API keys

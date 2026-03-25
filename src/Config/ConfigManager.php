@@ -25,7 +25,7 @@ final class ConfigManager
         private readonly DefaultsLoader $defaultsLoader,
         private readonly ?ConfigValidator $validator = null,
     ) {
-        $this->configPath = rtrim($this->workspacePath, '/') . '/openclaw.json';
+        $this->configPath = PathHelper::trimTrailingSlash($this->workspacePath) . '/openclaw.json';
     }
 
     /**
@@ -166,7 +166,7 @@ final class ConfigManager
         $this->ensureDirectory();
 
         // Try project root openclaw.json
-        $projectConfig = rtrim($this->projectRoot, '/') . '/openclaw.json';
+        $projectConfig = PathHelper::trimTrailingSlash($this->projectRoot) . '/openclaw.json';
         if (file_exists($projectConfig)) {
             $content = file_get_contents($projectConfig);
             if ($content !== false) {

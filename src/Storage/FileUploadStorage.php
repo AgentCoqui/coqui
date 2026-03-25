@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Config\PathHelper;
 use CoquiBot\Coqui\Contract\FileUploadMetadata;
 
 /**
@@ -51,7 +52,7 @@ final class FileUploadStorage
     public function __construct(
         string $workspacePath,
     ) {
-        $this->uploadsDir = rtrim($workspacePath, '/') . '/uploads';
+        $this->uploadsDir = PathHelper::trimTrailingSlash($workspacePath) . '/uploads';
     }
 
     /**

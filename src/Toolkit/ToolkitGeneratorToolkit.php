@@ -9,6 +9,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
+use CoquiBot\Coqui\Config\PathHelper;
 
 /**
  * Generates complete toolkit package scaffolds for Coqui.
@@ -721,7 +722,7 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
 
     private function packagesDir(): string
     {
-        return rtrim($this->workspacePath, '/') . '/' . self::PACKAGES_DIR;
+        return PathHelper::trimTrailingSlash($this->workspacePath) . '/' . self::PACKAGES_DIR;
     }
 
     private function sanitizeName(string $name): string

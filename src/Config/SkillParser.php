@@ -37,7 +37,7 @@ final class SkillParser
      */
     public function findSkillMd(string $skillDir): ?string
     {
-        $dir = rtrim($skillDir, '/');
+        $dir = PathHelper::trimTrailingSlash($skillDir);
         $entries = @scandir($dir);
 
         if ($entries === false) {
@@ -134,7 +134,7 @@ final class SkillParser
         return new SkillProperties(
             name: $meta['name'],
             description: $meta['description'],
-            path: rtrim($skillDir, '/'),
+            path: PathHelper::trimTrailingSlash($skillDir),
             license: isset($meta['license']) && is_string($meta['license']) ? $meta['license'] : null,
             compatibility: isset($meta['compatibility']) && is_string($meta['compatibility']) ? $meta['compatibility'] : null,
             allowedTools: isset($meta['allowed-tools']) && is_string($meta['allowed-tools']) ? $meta['allowed-tools'] : null,
@@ -223,7 +223,7 @@ final class SkillParser
             }
 
             // Name must match directory name
-            $dirName = basename(rtrim($skillDir, '/'));
+            $dirName = basename(PathHelper::trimTrailingSlash($skillDir));
             if ($name !== $dirName) {
                 $errors[] = sprintf('Name "%s" does not match directory name "%s".', $name, $dirName);
             }
