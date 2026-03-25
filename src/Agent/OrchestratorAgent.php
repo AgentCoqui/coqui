@@ -94,6 +94,11 @@ final class OrchestratorAgent extends AbstractAgent
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
 
+    // Prompt cache — avoids rebuilding from disk (glob + file reads) on every iteration
+    private ?string $cachedInstructions = null;
+    private ?string $cachedInstructionsRole = null;
+    private ?string $cachedMemoryHash = null;
+
     private readonly RoleToolkitResolver $roleToolkitResolver;
 
     public function __construct(
@@ -488,6 +493,21 @@ final class OrchestratorAgent extends AbstractAgent
 
     public function instructions(): string
     {
+        // Cache key: active role + memory summary hash.
+        // The prompt is rebuilt from disk (glob + file reads) each time, which
+        // is expensive in a loop-heavy agent. Cache it and invalidate only when
+        // the role changes or memory content is updated.
+        $currentRole = $this->activeRole ?? 'orchestrator';
+        $currentMemoryHash = $this->computeMemoryHash();
+
+        if (
+            $this->cachedInstructions !== null
+            && $this->cachedInstructionsRole === $currentRole
+            && $this->cachedMemoryHash === $currentMemoryHash
+        ) {
+            return $this->cachedInstructions;
+        }
+
         // When a non-orchestrator role is active, use the role's instructions
         // instead of the full orchestrator prompt. This enables /role switching
         // while preserving memory injection and context awareness.
@@ -507,7 +527,26 @@ final class OrchestratorAgent extends AbstractAgent
         // and recapitulation at END (recency attention) of the instructions block.
         $rendered = $this->injectMemoryContext($rendered);
 
+        $this->cachedInstructions = $rendered;
+        $this->cachedInstructionsRole = $currentRole;
+        $this->cachedMemoryHash = $currentMemoryHash;
+
         return $rendered;
+    }
+
+    /**
+     * Compute a lightweight hash of the memory state for cache invalidation.
+     *
+     * Uses the memory count (same key MemorySummarizer uses for its own cache)
+     * so the prompt cache invalidates whenever memories change.
+     */
+    private function computeMemoryHash(): string
+    {
+        if ($this->memoryStore === null) {
+            return '';
+        }
+
+        return (string) $this->memoryStore->count();
     }
 
     private function renderOrchestratorPrompt(): string

@@ -323,6 +323,44 @@ Coqui auto-discovers toolkits from installed Composer packages. Create a package
 
 See [docs/TOOLKITS.md](docs/TOOLKITS.md) for the full walkthrough with examples.
 
+## Performance
+
+Coqui is optimized for low-latency agent loops. Key design decisions:
+
+| Metric | Value | Notes |
+|---|---|---|
+| Cold boot | ~78 ms | Autoload + BootManager + workspace init |
+| Memory at boot | ~4 MB | Before toolkit discovery |
+| Memory with toolkits | ~8 MB | 44 tools, 7 packages |
+| Source files | ~40K lines | 157 PHP files in `src/` |
+| Runtime dependencies | 8 direct, 27 total | Minimal dependency tree |
+
+### OPcache & JIT
+
+Coqui ships with a tuned `conf.d/coqui.ini` that enables OPcache and JIT (tracing mode 1255, 128MB buffer). The installer and `coqui doctor` check for proper OPcache/JIT configuration.
+
+For best performance, ensure your PHP CLI has OPcache enabled:
+
+```ini
+opcache.enable_cli=1
+opcache.jit=1255
+opcache.jit_buffer_size=128M
+```
+
+### Benchmarking
+
+Run the built-in benchmark command to measure performance on your system:
+
+```bash
+coqui benchmark
+coqui benchmark --json          # Machine-readable output
+coqui benchmark -i 500          # Custom iteration count
+```
+
+### SQLite Tuning
+
+Coqui configures SQLite for CLI workloads: WAL journal mode, `synchronous=NORMAL`, 8MB page cache, and in-memory temp storage. These PRAGMAs reduce fsync overhead and improve query throughput for the single-user agent use case.
+
 ## Docker
 
 > **Experimental:** Docker support is experimental. GPU passthrough and some terminal features may behave differently. Please [report issues](https://github.com/AgentCoqui/coqui/issues).
