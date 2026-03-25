@@ -28,7 +28,11 @@ afterEach(function () {
             }
             $path = $mntDir . '/' . $entry;
             if (is_link($path)) {
-                unlink($path);
+                if (PHP_OS_FAMILY === 'Windows' && is_dir($path)) {
+                    rmdir($path);
+                } else {
+                    unlink($path);
+                }
             }
         }
         rmdir($mntDir);
@@ -67,9 +71,11 @@ test('mounts returns declared mounts', function () {
 });
 
 test('initialize creates symlinks in mnt directory', function () {
-    if (PHP_OS_FAMILY === 'Windows') {
-        $this->markTestSkipped('Symlinks require Developer Mode on Windows.');
+    $testLink = sys_get_temp_dir() . '/coqui-symlink-probe-' . bin2hex(random_bytes(4));
+    if (!@symlink(sys_get_temp_dir(), $testLink)) {
+        $this->markTestSkipped('Symlinks not available (Developer Mode required on Windows).');
     }
+    (PHP_OS_FAMILY === 'Windows' && is_dir($testLink)) ? rmdir($testLink) : unlink($testLink);
 
     $manager = new MountManager($this->workspace, [
         new MountDefinition($this->mountA, 'alpha'),
@@ -83,8 +89,8 @@ test('initialize creates symlinks in mnt directory', function () {
 
     expect(is_link($linkA))->toBeTrue();
     expect(is_link($linkB))->toBeTrue();
-    expect(readlink($linkA))->toBe($this->mountA);
-    expect(readlink($linkB))->toBe($this->mountB);
+    expect(realpath(readlink($linkA)))->toBe(realpath($this->mountA));
+    expect(realpath(readlink($linkB)))->toBe(realpath($this->mountB));
 });
 
 test('initialize skips when no mounts', function () {
@@ -96,9 +102,11 @@ test('initialize skips when no mounts', function () {
 });
 
 test('initialize cleans up stale symlinks', function () {
-    if (PHP_OS_FAMILY === 'Windows') {
-        $this->markTestSkipped('Symlinks require Developer Mode on Windows.');
+    $testLink = sys_get_temp_dir() . '/coqui-symlink-probe-' . bin2hex(random_bytes(4));
+    if (!@symlink(sys_get_temp_dir(), $testLink)) {
+        $this->markTestSkipped('Symlinks not available (Developer Mode required on Windows).');
     }
+    (PHP_OS_FAMILY === 'Windows' && is_dir($testLink)) ? rmdir($testLink) : unlink($testLink);
 
     $mntDir = $this->workspace . '/mnt';
     mkdir($mntDir, 0755, true);
@@ -118,9 +126,11 @@ test('initialize cleans up stale symlinks', function () {
 });
 
 test('initialize updates symlink if target changed', function () {
-    if (PHP_OS_FAMILY === 'Windows') {
-        $this->markTestSkipped('Symlinks require Developer Mode on Windows.');
+    $testLink = sys_get_temp_dir() . '/coqui-symlink-probe-' . bin2hex(random_bytes(4));
+    if (!@symlink(sys_get_temp_dir(), $testLink)) {
+        $this->markTestSkipped('Symlinks not available (Developer Mode required on Windows).');
     }
+    (PHP_OS_FAMILY === 'Windows' && is_dir($testLink)) ? rmdir($testLink) : unlink($testLink);
 
     $mntDir = $this->workspace . '/mnt';
     mkdir($mntDir, 0755, true);
@@ -135,13 +145,16 @@ test('initialize updates symlink if target changed', function () {
 
     $manager->initialize();
 
-    expect(readlink($mntDir . '/data'))->toBe($this->mountB);
+    expect(readlink($mntDir . '/data'))->not->toBeFalse();
+    expect(realpath(readlink($mntDir . '/data')))->toBe(realpath($this->mountB));
 });
 
 test('initialize is idempotent for correct symlinks', function () {
-    if (PHP_OS_FAMILY === 'Windows') {
-        $this->markTestSkipped('Symlinks require Developer Mode on Windows.');
+    $testLink = sys_get_temp_dir() . '/coqui-symlink-probe-' . bin2hex(random_bytes(4));
+    if (!@symlink(sys_get_temp_dir(), $testLink)) {
+        $this->markTestSkipped('Symlinks not available (Developer Mode required on Windows).');
     }
+    (PHP_OS_FAMILY === 'Windows' && is_dir($testLink)) ? rmdir($testLink) : unlink($testLink);
 
     $manager = new MountManager($this->workspace, [
         new MountDefinition($this->mountA, 'alpha'),
@@ -151,7 +164,7 @@ test('initialize is idempotent for correct symlinks', function () {
     $manager->initialize(); // Second call should not error
 
     expect(is_link($this->workspace . '/mnt/alpha'))->toBeTrue();
-    expect(readlink($this->workspace . '/mnt/alpha'))->toBe($this->mountA);
+    expect(realpath(readlink($this->workspace . '/mnt/alpha')))->toBe(realpath($this->mountA));
 });
 
 test('allowedPaths returns correct structure', function () {

@@ -20,7 +20,7 @@ final class CredentialResolver implements CredentialResolverInterface
     public function __construct(
         private readonly string $workspacePath,
     ) {
-        $this->envPath = rtrim($this->workspacePath, '/') . '/.env';
+        $this->envPath = PathHelper::trimTrailingSlash($this->workspacePath) . '/.env';
     }
 
     public function get(string $key): ?string

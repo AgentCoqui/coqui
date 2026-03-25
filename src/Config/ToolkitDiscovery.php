@@ -29,7 +29,7 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
         private readonly ?CredentialResolverInterface $credentialResolver = null,
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
     ) {
-        $this->registryPath = rtrim($this->workspacePath, '/') . '/toolkits.json';
+        $this->registryPath = PathHelper::trimTrailingSlash($this->workspacePath) . '/toolkits.json';
     }
 
     /**
@@ -184,7 +184,7 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
         }
 
         // Also scan workspace packages if the workspace has its own vendor
-        $workspaceInstalledPath = rtrim($this->workspacePath, '/') . '/vendor/composer/installed.json';
+        $workspaceInstalledPath = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/composer/installed.json';
         if (file_exists($workspaceInstalledPath)) {
             $workspaceData = json_decode((string) file_get_contents($workspaceInstalledPath), true);
             if (is_array($workspaceData)) {
@@ -203,7 +203,7 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
                         $toolkitClasses = $this->findDeclaredToolkitsFromInstalled($pkg);
 
                         if (empty($toolkitClasses)) {
-                            $vendorComposer = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName . '/composer.json';
+                            $vendorComposer = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/' . $packageName . '/composer.json';
                             if (file_exists($vendorComposer)) {
                                 $data = json_decode((string) file_get_contents($vendorComposer), true);
                                 $toolkitClasses = is_array($data) ? ($data['extra']['php-agents']['toolkits'] ?? []) : [];
@@ -615,7 +615,7 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
 
         if (!file_exists($composerJson)) {
             // Fallback: check workspace vendor
-            $composerJson = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName . '/composer.json';
+            $composerJson = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/' . $packageName . '/composer.json';
         }
 
         if (!file_exists($composerJson)) {
@@ -672,7 +672,7 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
         $composerJson = $this->projectRoot . '/vendor/' . $packageName . '/composer.json';
 
         if (!file_exists($composerJson)) {
-            $composerJson = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName . '/composer.json';
+            $composerJson = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/' . $packageName . '/composer.json';
         }
 
         if (!file_exists($composerJson)) {
@@ -748,7 +748,7 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
 
         if (!file_exists($composerJson)) {
             // Fallback: check workspace vendor
-            $composerJson = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName . '/composer.json';
+            $composerJson = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/' . $packageName . '/composer.json';
         }
 
         if (!file_exists($composerJson)) {
@@ -878,8 +878,8 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
 
         if (!file_exists($composerJson)) {
             // Fallback: check workspace vendor
-            $composerJson = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName . '/composer.json';
-            $vendorRoot = rtrim($this->workspacePath, '/') . '/vendor/' . $packageName;
+            $composerJson = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/' . $packageName . '/composer.json';
+            $vendorRoot = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/' . $packageName;
         }
 
         if (!file_exists($composerJson)) {

@@ -34,7 +34,7 @@ final class SkillDiscovery
         string $workspacePath,
         private readonly array $packageSkillDirs = [],
     ) {
-        $this->skillsDir = rtrim($workspacePath, '/') . '/skills';
+        $this->skillsDir = PathHelper::trimTrailingSlash($workspacePath) . '/skills';
         $this->parser = new SkillParser();
     }
 

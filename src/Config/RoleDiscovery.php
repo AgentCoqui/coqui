@@ -31,9 +31,9 @@ final class RoleDiscovery
         string $workspacePath,
         ?string $projectRoot = null,
     ) {
-        $this->rolesDir = rtrim($workspacePath, '/') . '/roles';
-        $this->backupsDir = rtrim($workspacePath, '/') . '/backups/roles';
-        $this->builtinRolesDir = ($projectRoot !== null ? rtrim($projectRoot, '/') : dirname(__DIR__, 2)) . '/config/roles';
+        $this->rolesDir = PathHelper::trimTrailingSlash($workspacePath) . '/roles';
+        $this->backupsDir = PathHelper::trimTrailingSlash($workspacePath) . '/backups/roles';
+        $this->builtinRolesDir = ($projectRoot !== null ? PathHelper::trimTrailingSlash($projectRoot) : dirname(__DIR__, 2)) . '/config/roles';
         $this->parser = new RoleParser();
     }
 

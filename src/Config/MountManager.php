@@ -32,7 +32,7 @@ final class MountManager
         string $workspacePath,
         array $mounts = [],
     ) {
-        $this->mountDir = rtrim($workspacePath, '/') . '/mnt';
+        $this->mountDir = PathHelper::trimTrailingSlash($workspacePath) . '/mnt';
         $this->mounts = array_values($mounts);
     }
 
@@ -64,11 +64,11 @@ final class MountManager
             // Symlink already exists and points to correct target
             if (is_link($linkPath)) {
                 $currentTarget = readlink($linkPath);
-                if ($currentTarget === $targetPath) {
+                if ($currentTarget !== false && realpath($currentTarget) === realpath($targetPath)) {
                     continue;
                 }
                 // Stale symlink pointing to wrong target — remove and recreate
-                unlink($linkPath);
+                $this->removeSymlink($linkPath);
             }
 
             // Path exists but isn't a symlink (user created a real dir) — skip
@@ -229,8 +229,23 @@ final class MountManager
 
             // Only remove symlinks — never delete real files/dirs
             if (is_link($linkPath) && !in_array($entry, $declaredAliases, true)) {
-                unlink($linkPath);
+                $this->removeSymlink($linkPath);
             }
+        }
+    }
+
+    /**
+     * Remove a symlink, handling Windows directory symlinks correctly.
+     *
+     * On Windows, directory symlinks must be removed with rmdir() rather
+     * than unlink(), which only works for file symlinks.
+     */
+    private function removeSymlink(string $linkPath): void
+    {
+        if (PHP_OS_FAMILY === 'Windows' && is_dir($linkPath)) {
+            rmdir($linkPath);
+        } else {
+            unlink($linkPath);
         }
     }
 }

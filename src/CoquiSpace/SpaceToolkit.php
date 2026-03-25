@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\CoquiSpace;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Config\PathHelper;
 use CoquiBot\Coqui\CoquiSpace\Installer\ComposerRunner;
 use CoquiBot\Coqui\CoquiSpace\Installer\SkillInstaller;
 use CoquiBot\Coqui\CoquiSpace\Installer\ToolkitInstaller;
@@ -62,7 +63,7 @@ final class SpaceToolkit implements ToolkitInterface
 
         $urlResolver = static function (): string {
             $env = getenv('COQUI_SPACE_URL');
-            return $env !== false && $env !== '' ? rtrim($env, '/') : SpaceRegistry::DEFAULT_BASE_URL;
+            return $env !== false && $env !== '' ? PathHelper::trimTrailingSlash($env) : SpaceRegistry::DEFAULT_BASE_URL;
         };
 
         $tokenResolver = static function (): string {

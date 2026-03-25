@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
+use CoquiBot\Coqui\Config\PathHelper;
 
 /**
  * Read-only toolkit providing structured access to the Coqui project source code.
@@ -30,7 +31,7 @@ final class ProjectSourceToolkit implements ToolkitInterface
     public function __construct(
         private readonly string $projectRoot,
     ) {
-        $this->sourceMapPath = rtrim($this->projectRoot, '/') . '/config/source.json';
+        $this->sourceMapPath = PathHelper::trimTrailingSlash($this->projectRoot) . '/config/source.json';
     }
 
     public function tools(): array
@@ -229,7 +230,7 @@ final class ProjectSourceToolkit implements ToolkitInterface
                     return ToolResult::error('Pattern is required');
                 }
 
-                $fullPattern = rtrim($this->projectRoot, '/') . '/' . $pattern;
+                $fullPattern = PathHelper::trimTrailingSlash($this->projectRoot) . '/' . $pattern;
                 $files = glob($fullPattern, GLOB_BRACE) ?: [];
 
                 if ($files === []) {
@@ -258,7 +259,7 @@ final class ProjectSourceToolkit implements ToolkitInterface
      */
     private function resolvePath(string $relativePath): ?string
     {
-        $path = rtrim($this->projectRoot, '/') . '/' . $relativePath;
+        $path = PathHelper::trimTrailingSlash($this->projectRoot) . '/' . $relativePath;
         $realRoot = realpath($this->projectRoot);
 
         if ($realRoot === false) {

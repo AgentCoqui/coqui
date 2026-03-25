@@ -321,7 +321,7 @@ final class BootManager
             return false;
         }
 
-        $projectConfig = rtrim($this->workDir, '/') . '/openclaw.json';
+        $projectConfig = PathHelper::trimTrailingSlash($this->workDir) . '/openclaw.json';
         $workspaceConfig = $this->configManager->path();
 
         // If both exist and workspace was just created (within last 2 seconds), likely seeded
@@ -387,7 +387,7 @@ final class BootManager
 
     private function discoverRoles(): void
     {
-        $builtinDir = ($this->workDir !== '' ? rtrim($this->workDir, '/') : dirname(__DIR__, 2)) . '/config/roles';
+        $builtinDir = ($this->workDir !== '' ? PathHelper::trimTrailingSlash($this->workDir) : dirname(__DIR__, 2)) . '/config/roles';
 
         $this->roleDiscovery = new RoleDiscovery($this->workspacePath, $this->workDir);
         $this->roleUpdateTracker = new RoleUpdateTracker($this->workspacePath, $builtinDir);

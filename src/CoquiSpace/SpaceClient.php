@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\CoquiSpace;
 
 use Symfony\Contracts\HttpClient\Exception\HttpExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
+use CoquiBot\Coqui\Config\PathHelper;
 
 /**
  * HTTP client for the Coqui Space REST API.
@@ -741,7 +742,7 @@ final class SpaceClient
 
     private function baseUrl(): string
     {
-        return rtrim(($this->urlResolver)(), '/');
+        return PathHelper::trimTrailingSlash(($this->urlResolver)());
     }
 
     private function token(): string
