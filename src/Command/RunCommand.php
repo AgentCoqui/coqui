@@ -66,6 +66,7 @@ final class RunCommand extends Command
     private bool $unsafeMode = false;
     private bool $autoApprove = false;
     private bool $restartRequested = false;
+    private bool $hintsEnabled = true;
     private string $activeRole = 'orchestrator';
 
     protected function configure(): void
@@ -186,6 +187,10 @@ final class RunCommand extends Command
             $this->restoreActiveRoleFromSession();
         }
 
+        // Load hints preference from config (default: enabled)
+        $hintsConfig = $this->boot->config()->get('agents.defaults.hints', true);
+        $this->hintsEnabled = (bool) $hintsConfig;
+
         // Display safety mode warnings
         if ($this->unsafeMode) {
             $io->warning('UNSAFE MODE — all PHP functions allowed, catastrophic commands still blocked.');
@@ -204,16 +209,22 @@ final class RunCommand extends Command
             '<fg=green>·▀▀▀  ▀█▄▀▪·▀▀█.  ▀▀▀ ▀▀▀·▀▀▀▀  ▀█▄▀▪ ▀▀▀ </>',
             '',
         ]);
-        $io->section('REPL');
-        $io->text([
+
+        $bannerLines = [
             '<fg=gray>Session:</> ' . substr($this->sessionId, 0, 8) . '...',
             '<fg=gray>Model:</> ' . $this->boot->roleResolver()->resolve('orchestrator'),
             '<fg=gray>Project root:</> ' . $this->workDir,
             '<fg=gray>Workspace:</> ' . $this->boot->workspacePath(),
-            '',
-            '<fg=gray>Commands: /new, /history, /sessions, /tasks, /todos, /roles, /config, /update, /restart, /quit</>',
-            '<fg=gray>Press ESC or Ctrl+C to cancel agent</>',
-        ]);
+        ];
+
+        if ($this->hintsEnabled) {
+            $io->section('REPL');
+            $bannerLines[] = '';
+            $bannerLines[] = '<fg=gray>Commands: /new, /history, /sessions, /tasks, /todos, /roles, /config, /update, /restart, /quit</>';
+            $bannerLines[] = '<fg=gray>Press ESC or Ctrl+C to cancel agent</>';
+        }
+
+        $io->text($bannerLines);
         $io->newLine();
 
         // Notify about pending role updates from boot
@@ -413,7 +424,7 @@ final class RunCommand extends Command
                     $commands = [
                         '/new', '/history', '/sessions', '/resume', '/model',
                         '/config', '/tasks', '/task', '/task-cancel', '/todos', '/projects', '/sprints', '/toolkits', '/schedules',
-                        '/prompt', '/role', '/roles', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/evaluations', '/help', '/quit',
+                        '/prompt', '/role', '/roles', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/evaluations', '/hints', '/help', '/quit',
                     ];
 
                     return array_filter($commands, fn(string $c) => str_starts_with($c, $input));
@@ -441,10 +452,12 @@ final class RunCommand extends Command
 
         while (true) {
             $io->writeln('');
-            if ($this->activeRole !== 'orchestrator') {
-                $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>:', $this->activeRole));
-            } else {
-                $io->writeln(' <fg=cyan>You:</>');
+            if ($this->hintsEnabled) {
+                if ($this->activeRole !== 'orchestrator') {
+                    $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>:', $this->activeRole));
+                } else {
+                    $io->writeln(' <fg=cyan>You:</>');
+                }
             }
 
             // Read input using readline's callback API for non-blocking signal handling.
@@ -793,6 +806,13 @@ final class RunCommand extends Command
                 return true;
             })(),
 
+            '/hints' => (function () use ($io) {
+                $this->hintsEnabled = !$this->hintsEnabled;
+                $this->boot->configManager()->set('agents.defaults.hints', $this->hintsEnabled);
+                $io->success($this->hintsEnabled ? 'Hints enabled' : 'Hints disabled');
+                return true;
+            })(),
+
             '/help' => (function () use ($io) {
                 $io->table(
                     ['Command', 'Description'],
@@ -822,6 +842,7 @@ final class RunCommand extends Command
                         ['/webhooks', 'List webhook subscriptions with status and trigger counts'],
                         ['/evaluations', 'List session evaluation reports with grades and scores'],
                         ['/summarize [recent N] [focus "topic"]', 'Summarize conversation history to save tokens'],
+                        ['/hints', 'Toggle command hints in the input area'],
                         ['/update', 'Check for and apply dependency updates'],
                         ['/restart', 'Restart Coqui (re-reads config, re-discovers toolkits)'],
                         ['/quit', 'Exit Coqui'],

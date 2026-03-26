@@ -400,9 +400,6 @@ case "${mode}" in
         exit $?
         ;;
     repl-only)
-        echo ""
-        echo "  Coqui — REPL only"
-        echo ""
         run_repl
         ;;
     api-only)
@@ -419,9 +416,6 @@ case "${mode}" in
         ;;
     *)
         # Default: REPL + API
-        echo ""
-        echo "  Coqui — REPL + API"
-        echo ""
         export COQUI_LAUNCHER=1
         trap cleanup_session INT TERM EXIT
         start_api_bg
