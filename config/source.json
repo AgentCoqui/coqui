@@ -67,16 +67,212 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system: loads config, resolves workspace, initializes WorkspaceComposerManager, ToolkitDiscovery, SessionStorage, then runs the REPL loop. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Contains gated tools definition, approval policy construction with mergeGatedTools() combining hardcoded + package-declared gates, restart logic (RESTART_EXIT_CODE = 10, restartRequested flag), startup update checking (COQUI_CHECK_UPDATES, COQUI_AUTO_UPDATE env vars), and background task REPL commands (/tasks, /task, /task-cancel).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
             "methods": [
-                "execute(InputInterface, OutputInterface): int — main entry point; boots system and enters REPL loop",
-                "handleCommand(string, SymfonyStyle): int|true — processes REPL commands (/new, /history, /sessions, /resume, /model, /tasks, /task, /task-cancel, /help, /restart, /quit); returns exit code or true to continue",
-                "runAgent(string, SymfonyStyle): void — creates OrchestratorAgent with restart callback, runs agent turn, checks restartRequested flag",
-                "listTasksCommand(?string $statusFilter, SymfonyStyle $io): void — /tasks command: lists tasks with optional status filter",
-                "taskStatusCommand(string $idPrefix, SymfonyStyle $io): void — /task command: shows detailed task status with events",
-                "taskCancelCommand(string $idPrefix, SymfonyStyle $io): void — /task-cancel command: cancels pending or running tasks",
-                "resolveTaskByPrefix(string $prefix): ?array — resolves a task by ID prefix match",
-                "mergeGatedTools(): array — merges hardcoded GATED_TOOLS with package-declared extra.php-agents.gated from ToolkitDiscovery"
+                "execute(InputInterface, OutputInterface): int — main entry point; boots system, resolves session, enters REPL or headless mode",
+                "runRepl(SymfonyStyle, bool): int — interactive REPL loop with readline, signal handling, slash command routing, and agent turn execution",
+                "runHeadless(InputInterface, OutputInterface): int — single-prompt execution without REPL",
+                "resolveWorkspaceOverride(?string): ?string — resolves --workdir flag to absolute path"
+            ]
+        },
+        {
+            "path": "src/Repl/AgentTurnExecutor.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\AgentTurnExecutor",
+            "layer": "command",
+            "description": "Executes a single agent turn: builds execution policy, sets up cancellation token and SIGINT handler, switches terminal to raw mode for ESC detection, runs the agent via AgentRunner, renders output, handles title generation and sprint continuation.",
+            "methods": [
+                "execute(string, string, string, SymfonyStyle, bool, bool, ?string&): AgentTurnResult — full agent turn lifecycle"
+            ]
+        },
+        {
+            "path": "src/Repl/AgentTurnResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\AgentTurnResult",
+            "layer": "command",
+            "description": "Value object returned by AgentTurnExecutor. Carries optional exit code and optional continuation prompt for sprint flow.",
+            "methods": [
+                "shouldExit(): bool — true when exitCode is set"
+            ]
+        },
+        {
+            "path": "src/Repl/SlashCommandRouter.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\SlashCommandRouter",
+            "layer": "command",
+            "description": "Routes REPL slash commands to the appropriate handler class. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session).",
+            "methods": [
+                "route(string, string, string, SymfonyStyle): RouteResult — dispatches a slash command string to the matching handler"
+            ]
+        },
+        {
+            "path": "src/Repl/RouteResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\RouteResult",
+            "layer": "command",
+            "description": "Value object returned by SlashCommandRouter. Carries shouldContinue flag, optional exit code, and optional state changes (newActiveRole, newSessionId).",
+            "methods": [
+                "static continue(): self — continue the REPL loop",
+                "static exit(int): self — exit with code",
+                "static stateChange(?string, ?string): self — continue with role/session update"
+            ]
+        },
+        {
+            "path": "src/Repl/TerminalStateManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\TerminalStateManager",
+            "layer": "command",
+            "description": "Manages terminal stty state for raw mode ESC detection. Saves/restores stty, enters raw mode, drains STDIN, and provides a shutdown guard closure.",
+            "methods": [
+                "isInteractiveTty(): bool — checks for interactive TTY",
+                "saveState(): ?string — captures stty -g output",
+                "enterRawMode(): void — switches to raw non-blocking mode",
+                "restoreState(?string): void — restores saved stty state",
+                "drainStdin(): void — clears buffered STDIN bytes",
+                "registerShutdownGuard(): Closure — returns a guard that restores stty on crash"
+            ]
+        },
+        {
+            "path": "src/Repl/TimeFormatter.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\TimeFormatter",
+            "layer": "command",
+            "description": "Static utility for human-friendly relative time formatting (e.g. '5m ago', '2h ago').",
+            "methods": [
+                "static timeSince(string): string — formats ISO 8601 datetime as relative time"
+            ]
+        },
+        {
+            "path": "src/Repl/ExecutionPolicyFactory.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\ExecutionPolicyFactory",
+            "layer": "command",
+            "description": "Builds ToolExecutionPolicyInterface instances for agent turns. Merges hardcoded GATED_TOOLS with package-declared gates from ToolkitDiscovery. Creates InteractiveApprovalPolicy or AutoApprovalPolicy based on --auto-approve flag.",
+            "methods": [
+                "build(string, bool, ?string): ToolExecutionPolicyInterface — builds policy without interactive IO",
+                "buildInteractive(string, SymfonyStyle, bool, ?string): ToolExecutionPolicyInterface — builds policy with interactive confirmation"
+            ]
+        },
+        {
+            "path": "src/Repl/TabCompletion.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\TabCompletion",
+            "layer": "command",
+            "description": "Readline tab-completion for REPL slash commands. Provides context-aware completions for /role, /roles, /toolkits, /todos, /schedules, and top-level commands.",
+            "methods": [
+                "register(): void — installs readline_completion_function",
+                "setSessionId(string): void — updates session for todo completions"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/SessionHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\SessionHandler",
+            "layer": "command",
+            "description": "Handles session-related REPL commands: /new, /history, /sessions, /resume, /model. Manages session file persistence and session restoration.",
+            "methods": [
+                "createNewSession(): string — creates a new session and returns its ID",
+                "loadOrCreateSession(SymfonyStyle): string — loads session from file or creates new one",
+                "showHistory(SymfonyStyle, string): void — displays session conversation history",
+                "listSessions(SymfonyStyle, string): void — lists recent sessions",
+                "resume(SymfonyStyle, string): ?string — resumes a session by ID prefix"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/TaskHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\TaskHandler",
+            "layer": "command",
+            "description": "Handles /tasks, /task, and /task-cancel REPL commands for background task monitoring.",
+            "methods": [
+                "listTasks(SymfonyStyle, ?string): void — lists tasks with optional status filter",
+                "taskStatus(SymfonyStyle, string): void — shows detailed task status with events",
+                "taskCancel(SymfonyStyle, string): void — cancels a pending or running task"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/TodoHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\TodoHandler",
+            "layer": "command",
+            "description": "Handles /todos REPL command with subcommands: list (with status filter), delete, complete, cancel, clear.",
+            "methods": [
+                "handle(SymfonyStyle, string, string): void — dispatches todo subcommand"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/ScheduleHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ScheduleHandler",
+            "layer": "command",
+            "description": "Handles /schedules REPL command with subcommands: list, enable, disable, delete, trigger.",
+            "methods": [
+                "handle(SymfonyStyle, string): void — dispatches schedule subcommand"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/ProjectHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ProjectHandler",
+            "layer": "command",
+            "description": "Handles /projects and /sprints REPL commands for project and sprint management.",
+            "methods": [
+                "handleProjects(SymfonyStyle, string): void — lists or manages projects",
+                "handleSprints(SymfonyStyle, string): void — lists or manages sprints"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/RoleHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\RoleHandler",
+            "layer": "command",
+            "description": "Handles /role and /roles REPL commands. Switches active role, opens role editor, lists roles with update status.",
+            "methods": [
+                "handleRole(SymfonyStyle, string, string, string): RouteResult — /role switching and editing",
+                "handleRoles(SymfonyStyle, string, string): void — /roles listing and update management"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/ToolkitVisibilityHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ToolkitVisibilityHandler",
+            "layer": "command",
+            "description": "Handles /toolkits and /prompt REPL commands. Lists toolkit packages/tools with visibility status, enables/stubs/disables packages and tools.",
+            "methods": [
+                "handleToolkits(SymfonyStyle, string): void — /toolkits listing and visibility management",
+                "handlePrompt(SymfonyStyle, string): void — /prompt system prompt preview"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/SpaceHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\SpaceHandler",
+            "layer": "command",
+            "description": "Handles /space REPL command with subcommands: search, install, remove, installed, skills, toolkits, update, status.",
+            "methods": [
+                "handle(SymfonyStyle, string): void — dispatches space subcommand"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/ConfigHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ConfigHandler",
+            "layer": "command",
+            "description": "Handles /config and /update REPL commands. Runs config wizard, shows config file/summary, manages updates. Contains RESTART_EXIT_CODE constant.",
+            "methods": [
+                "handle(SymfonyStyle, string): RouteResult — /config subcommand dispatch",
+                "runUpdate(SymfonyStyle): RouteResult — /update command",
+                "checkForUpdatesOnStartup(SymfonyStyle): bool — startup update check, returns true if restart needed"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/ConversationHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ConversationHandler",
+            "layer": "command",
+            "description": "Handles /summarize REPL command. Parses 'recent N' and 'focus \"topic\"' arguments, invokes ConversationSummarizer.",
+            "methods": [
+                "handleSummarize(SymfonyStyle, string, string): void — /summarize with optional recent/focus args"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/WebhookHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\WebhookHandler",
+            "layer": "command",
+            "description": "Handles /webhooks REPL command. Displays webhook subscriptions in a table.",
+            "methods": [
+                "handle(SymfonyStyle, string): void — /webhooks listing"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/EvaluationHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\EvaluationHandler",
+            "layer": "command",
+            "description": "Handles /evaluations REPL command. Displays evaluation reports with optional grade filtering.",
+            "methods": [
+                "handle(SymfonyStyle, string): void — /evaluations listing with optional grade filter"
             ]
         },
         {
