@@ -90,6 +90,7 @@ final class OrchestratorAgent extends AbstractAgent
     private ToolRegistry $toolRegistry;
     private ToolSearchTool $toolSearchTool;
     private ?ContextWindowInterface $contextWindowInstance = null;
+    private ?SummarizePruningStrategy $pruningStrategyInstance = null;
 
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
@@ -173,12 +174,15 @@ final class OrchestratorAgent extends AbstractAgent
                         storage: $this->storage,
                         memoryStore: $this->memoryStore,
                         keepRecentTurns: $keepRecent,
+                        sessionId: $this->sessionId,
                     );
                 }
             } catch (\Throwable) {
                 // Fall through — use default pruning strategy
             }
         }
+
+        $this->pruningStrategyInstance = $pruningStrategy;
 
         parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow, $pruningStrategy);
 
@@ -814,6 +818,11 @@ final class OrchestratorAgent extends AbstractAgent
     public function getContextWindow(): ?ContextWindowInterface
     {
         return $this->contextWindowInstance;
+    }
+
+    public function getPruningStrategy(): ?SummarizePruningStrategy
+    {
+        return $this->pruningStrategyInstance;
     }
 
     /**

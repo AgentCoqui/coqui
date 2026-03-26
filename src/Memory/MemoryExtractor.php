@@ -45,8 +45,9 @@ final class MemoryExtractor
         Conversation $conversation,
         ProviderInterface $provider,
         int $recentTurns = 5,
+        bool $bypassCooldown = false,
     ): int {
-        if (!$this->shouldExtract()) {
+        if (!$bypassCooldown && !$this->shouldExtract()) {
             return 0;
         }
 
