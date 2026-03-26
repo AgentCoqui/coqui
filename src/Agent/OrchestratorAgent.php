@@ -130,6 +130,7 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
         private readonly ?SpaceToolkit $spaceToolkit = null,
         private readonly ?string $activeRole = null,
+        private readonly ?\CoquiBot\Coqui\Storage\ProjectStore $projectStore = null,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
@@ -272,6 +273,20 @@ final class OrchestratorAgent extends AbstractAgent
             ));
         }
 
+        // Sprint toolkit — project and sprint management across sessions
+        if ($this->projectStore !== null) {
+            $todoStore ??= $this->storage !== null
+                ? new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo())
+                : null;
+            if ($todoStore !== null) {
+                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\SprintToolkit(
+                    $this->projectStore,
+                    $todoStore,
+                    $this->sessionId,
+                ));
+            }
+        }
+
         // Project source toolkit — read-only access to the Coqui project codebase
         $this->addToolkit(new ProjectSourceToolkit(projectRoot: $this->projectRoot));
 
@@ -318,6 +333,7 @@ final class OrchestratorAgent extends AbstractAgent
             observer: $this->observer,
             mountManager: $this->mountManager,
             shellAllowedCommands: $shellAllowed,
+            projectStore: $this->projectStore,
         );
 
         // Create credential tool for API key management

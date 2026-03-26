@@ -87,6 +87,12 @@ final class RoleParser
             $ignoreUpdates = $meta['ignore_updates'] === 'true' || $meta['ignore_updates'] === true;
         }
 
+        // Parse pre_summarize
+        $preSummarize = false;
+        if (isset($meta['pre_summarize'])) {
+            $preSummarize = $meta['pre_summarize'] === 'true' || $meta['pre_summarize'] === true;
+        }
+
         return new RoleProperties(
             name: $meta['name'],
             displayName: $meta['display_name'],
@@ -97,6 +103,7 @@ final class RoleParser
             isBuiltin: $isBuiltin,
             isTemplate: $isTemplate,
             ignoreUpdates: $ignoreUpdates,
+            preSummarize: $preSummarize,
             model: isset($meta['model']) && is_string($meta['model']) && $meta['model'] !== '' ? $meta['model'] : null,
             titleModel: isset($meta['title_model']) && is_string($meta['title_model']) && $meta['title_model'] !== '' ? $meta['title_model'] : null,
             toolkits: isset($meta['toolkits']) && is_string($meta['toolkits'])
@@ -192,6 +199,10 @@ final class RoleParser
 
         if ($properties->ignoreUpdates) {
             $lines[] = 'ignore_updates: true';
+        }
+
+        if ($properties->preSummarize) {
+            $lines[] = 'pre_summarize: true';
         }
 
         if ($properties->model !== null) {

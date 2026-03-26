@@ -967,6 +967,28 @@
             ]
         },
         {
+            "path": "src/Storage/ProjectStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\ProjectStore",
+            "layer": "storage",
+            "description": "SQLite-backed session-independent project and sprint persistence. Tables: projects (id, title, slug UNIQUE, description, status, timestamps) and sprints (id, project_id FK CASCADE, title, sprint_number, status, contract_artifact_id, acceptance_criteria, reviewer_notes, review_round, max_review_rounds, last_session_id, timestamps, completed_at). Enforces a 4-state sprint lifecycle (planned→in_progress→review→complete/rejected) via transitionSprint() with validation and review round tracking.",
+            "methods": [
+                "createProject(title, slug, description): string — creates project, returns ID",
+                "getProject(idOrSlug): ?array — retrieves project by ID or slug",
+                "listProjects(status, limit): array — lists projects with optional status filter",
+                "updateProject(id, title, description, status): bool — updates project fields",
+                "deleteProject(id): bool — cascade-deletes project and sprints",
+                "createSprint(projectId, title, acceptanceCriteria): string — creates sprint with auto sprint_number",
+                "getSprint(id): ?array — retrieves sprint by ID",
+                "listSprints(projectId, status): array — lists sprints with optional status filter",
+                "transitionSprint(id, newStatus, notes): bool — enforces lifecycle transitions with review round tracking",
+                "updateSprint(id, title, acceptanceCriteria, contractArtifactId, lastSessionId): bool — updates sprint fields",
+                "getActiveSprintForProject(projectId): ?array — first in_progress or review sprint",
+                "getActiveSprintsForSession(sessionId): array — sprints linked to a session via last_session_id",
+                "getSprintProgress(sprintId, TodoStore): array — aggregates todo stats for a sprint",
+                "deleteSprint(id): bool — deletes a sprint"
+            ]
+        },
+        {
             "path": "src/Storage/EvaluationStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\EvaluationStore",
             "layer": "storage",
@@ -1085,6 +1107,16 @@
             "methods": [
                 "tools(): array — returns filtered Tool instances based on access level",
                 "guidelines(): string — dynamic progress summary with bar visualization, artifact cross-refs, and recovery hints"
+            ]
+        },
+        {
+            "path": "src/Toolkit/SprintToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\SprintToolkit",
+            "layer": "toolkit",
+            "description": "Agent-facing project and sprint management toolkit providing 9 tools: project_create, project_list, project_get, project_update, sprint_create, sprint_list, sprint_get, sprint_transition, sprint_update. Projects persist across sessions. Sprints follow a 4-state lifecycle (planned→in_progress→review→complete/rejected). Dynamic guidelines show active project and sprint progress when a sprint is linked to the current session.",
+            "methods": [
+                "tools(): array — returns 9 project and sprint management Tool instances",
+                "guidelines(): string — dynamic active project/sprint summary with progress bar, empty when no active sprint"
             ]
         },
         {

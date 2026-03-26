@@ -14,6 +14,7 @@ use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -47,6 +48,7 @@ final class BootManager
     private ConfigManager $configManager;
     private ?ArtifactStore $artifactStore = null;
     private ?TodoStore $todoStore = null;
+    private ?ProjectStore $projectStore = null;
     private ?SpaceToolkit $spaceToolkit = null;
 
     public function __construct(
@@ -206,6 +208,11 @@ final class BootManager
     public function todoStore(): ?TodoStore
     {
         return $this->todoStore;
+    }
+
+    public function projectStore(): ?ProjectStore
+    {
+        return $this->projectStore;
     }
 
     private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
@@ -422,11 +429,14 @@ final class BootManager
         $dbPath = $this->workspacePath . '/data/coqui.db';
 
         $storage = new SessionStorage($dbPath);
-        $this->artifactStore = new ArtifactStore($storage->getPdo());
+        $pdo = $storage->getPdo();
+
+        $this->artifactStore = new ArtifactStore($pdo);
         $this->artifactStore->cleanupFinalized();
-        $this->todoStore = new TodoStore($storage->getPdo());
+        $this->todoStore = new TodoStore($pdo);
         $this->todoStore->cleanupOrphaned();
         $this->todoStore->cleanupStale();
+        $this->projectStore = new ProjectStore($pdo);
     }
 
     /**

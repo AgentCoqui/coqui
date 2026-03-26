@@ -66,6 +66,25 @@ final class TodoStore
         $this->db->exec(<<<'SQL'
             CREATE INDEX IF NOT EXISTS idx_todos_parent ON todos(parent_id)
         SQL);
+
+        // Harness column — added to existing installations via migration
+        $this->migrateAddColumn('todos', 'sprint_id', 'TEXT');
+    }
+
+    private function migrateAddColumn(string $table, string $column, string $definition): void
+    {
+        $stmt = $this->db->query("PRAGMA table_info({$table})");
+
+        if ($stmt === false) {
+            return;
+        }
+
+        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $exists = array_any($columns, fn(array $col): bool => $col['name'] === $column);
+
+        if (!$exists) {
+            $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
+        }
     }
 
     /**
@@ -80,6 +99,7 @@ final class TodoStore
         ?string $createdBy = null,
         ?string $notes = null,
         ?int $sortOrder = null,
+        ?string $sprintId = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = gmdate('Y-m-d\TH:i:s\Z');
@@ -90,8 +110,8 @@ final class TodoStore
         }
 
         $stmt = $this->db->prepare(<<<'SQL'
-            INSERT INTO todos (id, session_id, artifact_id, parent_id, title, status, priority, created_by, notes, sort_order, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
+            INSERT INTO todos (id, session_id, artifact_id, parent_id, title, status, priority, created_by, notes, sort_order, sprint_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
         SQL);
         $stmt->execute([
             $id,
@@ -103,6 +123,7 @@ final class TodoStore
             $createdBy,
             $notes,
             $sortOrder,
+            $sprintId,
             $now,
             $now,
         ]);
@@ -301,6 +322,57 @@ final class TodoStore
     }
 
     /**
+     * List all todos linked to a specific sprint.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listBySprint(string $sprintId, bool $includeSubtasks = true): array
+    {
+        if ($includeSubtasks) {
+            $stmt = $this->db->prepare(
+                'SELECT * FROM todos WHERE sprint_id = ? ORDER BY sort_order ASC, created_at ASC',
+            );
+        } else {
+            $stmt = $this->db->prepare(
+                'SELECT * FROM todos WHERE sprint_id = ? AND parent_id IS NULL ORDER BY sort_order ASC, created_at ASC',
+            );
+        }
+
+        $stmt->execute([$sprintId]);
+
+        /** @var list<array<string, mixed>> */
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Get progress stats for a sprint's todos.
+     *
+     * @return array{total: int, pending: int, in_progress: int, completed: int, cancelled: int}
+     */
+    public function getSprintStats(string $sprintId): array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
+            FROM todos WHERE sprint_id = ?
+        SQL);
+        $stmt->execute([$sprintId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return [
+            'total' => (int) ($row['total'] ?? 0),
+            'pending' => (int) ($row['pending'] ?? 0),
+            'in_progress' => (int) ($row['in_progress'] ?? 0),
+            'completed' => (int) ($row['completed'] ?? 0),
+            'cancelled' => (int) ($row['cancelled'] ?? 0),
+        ];
+    }
+
+    /**
      * Get subtasks for a parent todo.
      *
      * @return list<array<string, mixed>>
@@ -379,6 +451,7 @@ final class TodoStore
         array $items,
         ?string $createdBy = null,
         ?string $artifactId = null,
+        ?string $sprintId = null,
     ): array {
         $ids = [];
         $now = gmdate('Y-m-d\TH:i:s\Z');
@@ -388,8 +461,8 @@ final class TodoStore
 
         try {
             $stmt = $this->db->prepare(<<<'SQL'
-                INSERT INTO todos (id, session_id, artifact_id, parent_id, title, status, priority, created_by, notes, sort_order, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
+                INSERT INTO todos (id, session_id, artifact_id, parent_id, title, status, priority, created_by, notes, sort_order, sprint_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
             SQL);
 
             foreach ($items as $i => $item) {
@@ -404,6 +477,7 @@ final class TodoStore
                     $createdBy,
                     $item['notes'] ?? null,
                     $baseSortOrder + $i,
+                    $sprintId,
                     $now,
                     $now,
                 ]);

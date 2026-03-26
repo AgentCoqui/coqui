@@ -108,6 +108,8 @@ final class ArtifactToolkit implements ToolkitInterface
                 new EnumParameter('type', 'Artifact type', ['code', 'document', 'config', 'plan', 'data', 'other'], required: false),
                 new StringParameter('language', 'Programming language (for code artifacts, e.g. php, python, javascript)', required: false),
                 new StringParameter('filepath', 'Intended file path relative to workspace (e.g. src/MyClass.php)', required: false),
+                new StringParameter('project_id', 'Link artifact to a project (makes it persistent across sessions)', required: false),
+                new StringParameter('sprint_id', 'Link artifact to a sprint', required: false),
             ],
             callback: function (array $args): ToolResult {
                 $title = trim($args['title'] ?? '');
@@ -115,6 +117,8 @@ final class ArtifactToolkit implements ToolkitInterface
                 $type = $args['type'] ?? 'code';
                 $language = isset($args['language']) ? trim($args['language']) : null;
                 $filepath = isset($args['filepath']) ? trim($args['filepath']) : null;
+                $projectId = isset($args['project_id']) && trim($args['project_id']) !== '' ? trim($args['project_id']) : null;
+                $sprintId = isset($args['sprint_id']) && trim($args['sprint_id']) !== '' ? trim($args['sprint_id']) : null;
 
                 if ($title === '') {
                     return ToolResult::error('Title is required.');
@@ -127,6 +131,8 @@ final class ArtifactToolkit implements ToolkitInterface
                     type: $type,
                     language: $language,
                     filepath: $filepath,
+                    projectId: $projectId,
+                    sprintId: $sprintId,
                 );
 
                 return ToolResult::success(json_encode([

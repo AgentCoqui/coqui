@@ -19,6 +19,7 @@ use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleToolkitResolver;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Toolkit\TodoToolkit;
@@ -63,6 +64,7 @@ final class SpawnAgentTool implements ToolInterface
         private readonly ?SplObserver $observer = null,
         private readonly ?MountManager $mountManager = null,
         private readonly array $shellAllowedCommands = self::DEFAULT_CHILD_SHELL_COMMANDS,
+        private readonly ?ProjectStore $projectStore = null,
     ) {}
 
     public function name(): string
@@ -259,6 +261,16 @@ final class SpawnAgentTool implements ToolInterface
                 $role,
                 $accessLevel,
                 $artifactStore ?? null,
+            );
+        }
+
+        // Sprint toolkit — project/sprint management shared with child agents.
+        if ($this->projectStore !== null && $this->storage !== null) {
+            $todoStore ??= new TodoStore($this->storage->getPdo());
+            $toolkits[] = new \CoquiBot\Coqui\Toolkit\SprintToolkit(
+                $this->projectStore,
+                $todoStore,
+                $this->sessionId,
             );
         }
 

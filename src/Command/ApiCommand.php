@@ -234,6 +234,7 @@ final class ApiCommand extends Command
             configManager: $boot->configManager(),
             visibilityRegistry: $boot->visibilityRegistry(),
             spaceToolkit: $boot->spaceToolkit(),
+            projectStore: $boot->projectStore(),
         );
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($previewRunner);
