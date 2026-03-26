@@ -200,7 +200,7 @@ final class AgentRunner
             // Auto-summarize when conversation history is nearing the context limit.
             // This preserves important context via LLM summarization instead of
             // silently dropping oldest turns via fitWithinBudget().
-            $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $observer);
+            $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer);
 
             // Per-iteration pruning is handled by AbstractAgent using the
             // model-aware ContextWindow passed to OrchestratorAgent.
@@ -215,6 +215,34 @@ final class AgentRunner
             // Persist intermediate messages from this turn (tool calls + results)
             if ($output->conversation !== null) {
                 $this->persistTurnMessages($output->conversation, $history->count(), $sessionId, $turnId);
+            }
+
+            // If the in-loop pruning strategy applied summarization during agent->run(),
+            // persist it now (mid-loop persistence would corrupt turn message offsets).
+            $pruningStrategy = $agent->getPruningStrategy();
+            if ($pruningStrategy !== null && $pruningStrategy->wasSummarizationApplied()) {
+                try {
+                    $summarizer = new ConversationSummarizer(
+                        storage: $this->storage,
+                        memoryStore: $this->memoryStore,
+                    );
+                    $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+                    $utilityModel = $this->roleResolver->resolveUtility();
+                    if ($utilityModel !== '') {
+                        $utilityProvider = $factory->create($utilityModel);
+                        $summarizer->summarizeAndPersist(
+                            sessionId: $sessionId,
+                            provider: $utilityProvider,
+                            keepRecentTurns: $pruningStrategy->sessionId() !== null
+                                ? CoquiDefaults::KEEP_RECENT_TURNS
+                                : CoquiDefaults::KEEP_RECENT_TURNS,
+                            workflowContext: $this->buildWorkflowContext($sessionId),
+                        );
+                    }
+                } catch (\Throwable) {
+                    // Deferred persistence failure is non-fatal
+                }
+                $pruningStrategy->reset();
             }
 
             // Save final assistant response if not already persisted
@@ -621,6 +649,7 @@ final class AgentRunner
         OrchestratorAgent $agent,
         Conversation $history,
         string $sessionId,
+        string $prompt = '',
         ?SplObserver $observer = null,
     ): Conversation {
         if ($history->count() === 0) {
@@ -634,12 +663,16 @@ final class AgentRunner
         $turnThresholdCfg = $this->config->get('agents.defaults.context.autoSummarizeTurnThreshold');
         $turnThreshold = is_numeric($turnThresholdCfg) ? (int) $turnThresholdCfg : CoquiDefaults::AUTO_SUMMARIZE_TURN_THRESHOLD;
 
-        // Check token-based trigger
+        // Check token-based trigger — include system prompt + user prompt + history + 15% buffer
         $tokenTrigger = false;
         $contextWindow = $agent->getContextWindow();
 
         if ($contextWindow !== null) {
-            $estimatedTokens = $history->estimateTokens();
+            $historyTokens = $history->estimateTokens();
+            $systemPromptTokens = (int) (strlen($agent->getSystemPromptText()) / 4);
+            $userPromptTokens = (int) (strlen($prompt) / 4);
+            $estimatedTokens = (int) (($historyTokens + $systemPromptTokens + $userPromptTokens) * 1.15);
+
             $maxTokens = $contextWindow->maxTokens();
             $reserved = $contextWindow->reservedTokens();
             $effectiveMax = $maxTokens - $reserved;
@@ -647,7 +680,7 @@ final class AgentRunner
             if ($effectiveMax > 0) {
                 $usagePercent = ($estimatedTokens / $effectiveMax) * 100;
 
-                // Read threshold from config (default: 50%)
+                // Read threshold from config (default: 70%)
                 $threshold = $this->config->get('agents.defaults.context.autoSummarizeThreshold');
                 $threshold = is_numeric($threshold) ? (float) $threshold : CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD;
 
@@ -708,6 +741,11 @@ final class AgentRunner
         if (!$result->wasSummarized()) {
             return $history;
         }
+
+        // Tell the pruning strategy to skip its next prune() call —
+        // we just summarized, so the per-iteration safety net should not
+        // double-summarize on the first iteration of this turn.
+        $agent->getPruningStrategy()?->skipNextPrune();
 
         // Notify observer about auto-summarization
         $agent->notify(

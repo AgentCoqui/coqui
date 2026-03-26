@@ -184,6 +184,9 @@ final class SessionStorage
         // Migration: add schedule_id for scheduled task tracking
         $this->migrateAddColumn('background_tasks', 'schedule_id', 'TEXT DEFAULT NULL');
 
+        // Migration: soft-delete flag for summarized messages
+        $this->migrateAddColumn('messages', 'is_summarized', 'INTEGER NOT NULL DEFAULT 0');
+
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON background_tasks(status)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_session ON background_tasks(session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_schedule ON background_tasks(schedule_id)');
@@ -399,7 +402,15 @@ final class SessionStorage
      */
     public function loadConversation(string $sessionId): Conversation
     {
-        $messages = $this->getMessages($sessionId);
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, role, content, tool_calls, tool_call_id, created_at
+            FROM messages
+            WHERE session_id = :session_id AND is_summarized = 0
+            ORDER BY created_at ASC
+        SQL);
+
+        $stmt->execute(['session_id' => $sessionId]);
+        $messages = $stmt->fetchAll(PDO::FETCH_ASSOC);
         $conversation = new Conversation();
 
         foreach ($messages as $msg) {
@@ -579,6 +590,28 @@ final class SessionStorage
 
         $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
         $stmt = $this->db->prepare("DELETE FROM messages WHERE id IN ({$placeholders})");
+        $stmt->execute(array_values($messageIds));
+
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Soft-delete messages by marking them as summarized.
+     *
+     * Marked messages are excluded from loadConversation() but remain in the
+     * database for audit, doctor, and summarization ID calculation.
+     *
+     * @param string[] $messageIds
+     * @return int Number of rows marked
+     */
+    public function markMessagesAsSummarized(array $messageIds): int
+    {
+        if (empty($messageIds)) {
+            return 0;
+        }
+
+        $placeholders = implode(',', array_fill(0, count($messageIds), '?'));
+        $stmt = $this->db->prepare("UPDATE messages SET is_summarized = 1 WHERE id IN ({$placeholders})");
         $stmt->execute(array_values($messageIds));
 
         return $stmt->rowCount();

@@ -332,7 +332,7 @@ test('summarize produces a UserMessage summary, not SystemMessage', function () 
 
 // --- DB cleanup after summarization ---
 
-test('summarizeAndPersist deletes old messages from the database', function () {
+test('summarizeAndPersist marks old messages as summarized in the database', function () {
     $sessionId = $this->storage->createSession('orchestrator', 'test/model');
 
     // Add 8 turns (16 messages)
@@ -354,16 +354,22 @@ test('summarizeAndPersist deletes old messages from the database', function () {
 
     expect($result->wasSummarized())->toBeTrue();
 
-    // After summarization: old messages deleted, summary inserted,
-    // remaining count should be less than before
+    // After summarization: old messages are soft-deleted (is_summarized = 1),
+    // getMessages() still returns all rows (unfiltered)
     $messagesAfter = $this->storage->getMessages($sessionId);
-    expect(count($messagesAfter))->toBeLessThan($countBefore);
+    // +1 for the summary message that was inserted
+    expect(count($messagesAfter))->toBe($countBefore + 1);
 
-    // The most recent 3 user turns should still be present
-    $remainingUserMessages = array_filter($messagesAfter, fn($m) =>
-        $m['role'] === 'user' && !str_contains($m['content'], '[CONVERSATION SUMMARY'),
+    // loadConversation() should return fewer messages (filters is_summarized = 0)
+    $conversation = $this->storage->loadConversation($sessionId);
+    expect($conversation->count())->toBeLessThan($countBefore);
+
+    // The most recent 3 user turns should still be present in loaded conversation
+    $loadedUserMessages = $conversation->filter(\CarmeloSantana\PHPAgents\Enum\Role::User);
+    $nonSummaryUserMessages = array_filter($loadedUserMessages, fn($m) =>
+        !str_contains($m->content(), '[CONVERSATION SUMMARY'),
     );
-    expect(count($remainingUserMessages))->toBe(3);
+    expect(count($nonSummaryUserMessages))->toBe(3);
 });
 
 test('summarizeAndPersist preserves system messages in the database', function () {
