@@ -57,7 +57,7 @@ final class PlanTodoGenerator
      *
      * @return list<string> Created todo IDs
      */
-    public function generate(string $artifactId, string $sessionId, string $planContent): array
+    public function generate(string $artifactId, string $sessionId, string $planContent, ?string $sprintId = null): array
     {
         try {
             $provider = $this->resolveProvider();
@@ -125,6 +125,7 @@ final class PlanTodoGenerator
                 items: $normalized,
                 createdBy: 'plan',
                 artifactId: $artifactId,
+                sprintId: $sprintId,
             );
         } catch (\Throwable $e) {
             error_log(sprintf(

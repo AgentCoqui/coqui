@@ -829,8 +829,35 @@ final class SessionStorage
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
-    public function deleteSession(string $id): void
+    /**
+     * Delete a session and its cascaded data.
+     *
+     * Refuses deletion if the session owns persistent (project-linked) artifacts,
+     * since those must survive across sessions. Detach artifacts from the session
+     * or remove the persistent flag before deleting.
+     *
+     * @throws \RuntimeException If the session has persistent artifacts.
+     */
+    public function deleteSession(string $id, bool $force = false): void
     {
+        if (!$force) {
+            try {
+                $stmt = $this->db->prepare(
+                    'SELECT COUNT(*) FROM artifacts WHERE session_id = :id AND persistent = 1',
+                );
+                $stmt->execute(['id' => $id]);
+
+                if (((int) $stmt->fetchColumn()) > 0) {
+                    throw new \RuntimeException(sprintf(
+                        'Session "%s" has persistent project artifacts. Use force=true or detach artifacts first.',
+                        $id,
+                    ));
+                }
+            } catch (\PDOException) {
+                // Artifacts table may not exist yet — safe to proceed
+            }
+        }
+
         $this->db->prepare('DELETE FROM sessions WHERE id = :id')
             ->execute(['id' => $id]);
     }
