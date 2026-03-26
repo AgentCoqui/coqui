@@ -404,7 +404,11 @@ Coqui supports autonomous, timer-driven execution via a cron-style scheduling sy
 
 | Command | Description |
 | --- | --- |
-| `/schedules` | Table-formatted list of all schedules with status, cron, next run, and run count |
+| `/schedules` | Table-formatted list of all schedules with status, cron, next run, last run, and run count |
+| `/schedules enable <name\|id\|all>` | Enable a schedule or all disabled schedules |
+| `/schedules disable <name\|id\|all>` | Disable a schedule or all enabled schedules |
+| `/schedules delete <name\|id\|all>` | Delete a schedule or all schedules |
+| `/schedules trigger <name\|id\|all>` | Force-trigger a schedule on the next API tick |
 
 ### Key Source Files
 
@@ -413,7 +417,7 @@ Coqui supports autonomous, timer-driven execution via a cron-style scheduling sy
 | `src/Storage/ScheduleStore.php` | SQLite CRUD with circuit breaker, cron next-run computation, stats |
 | `src/Api/ScheduleManager.php` | ReactPHP timer-driven scheduler with MIN_INTERVAL_SECONDS enforcement |
 | `src/Api/Handler/ScheduleHandler.php` | 8 REST endpoints for schedule management |
-| `src/Toolkit/ScheduleToolkit.php` | 6 agent-facing tools for self-scheduling |
+| `src/Toolkit/ScheduleToolkit.php` | 8 agent-facing tools for self-scheduling with bulk operation support |
 
 
 ## Webhook System Architecture
@@ -1138,7 +1142,7 @@ Coqui provides automatic context window management and conversation summarizatio
 
 Before each agent turn, `AgentRunner::autoSummarizeIfNeeded()` checks the conversation's estimated token usage against the context window budget. If usage exceeds a configurable threshold, the conversation is automatically summarized:
 
-1. **Threshold check** — `agents.defaults.context.autoSummarizeThreshold` in `openclaw.json` (default: `75` = 75% of available budget). Accepts both percentage (1–100) and ratio (0.0–1.0) — ratios are automatically converted to percentages.
+1. **Threshold check** — `agents.defaults.context.autoSummarizeThreshold` in `openclaw.json` (default: `70` = 70% of available budget). Accepts both percentage (1–100) and ratio (0.0–1.0) — ratios are automatically converted to percentages.
 2. **Provider resolution** — uses the utility model resolution chain (see Utility Model section below).
 3. **Keep recent** — `agents.defaults.context.autoSummarizeKeepRecent` controls how many recent turns are preserved during auto-summarization (default: `15`, clamped 1–20).
 4. **Workflow context injection** — `AgentRunner::buildWorkflowContext()` queries `TodoStore` (stats, active, pending todos) and `ArtifactStore` (active artifacts) to build a structured context string. This is passed to `ConversationSummarizer` so the LLM preserves plan/todo state in the summary, preventing agents from losing their place after summarization.
@@ -1181,7 +1185,7 @@ Users and agents can trigger summarization manually:
     "agents": {
         "defaults": {
             "context": {
-                "autoSummarizeThreshold": 75,
+                "autoSummarizeThreshold": 70,
                 "autoSummarizeKeepRecent": 15,
                 "keepRecentTurns": 10
             }
@@ -1192,9 +1196,10 @@ Users and agents can trigger summarization manually:
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `autoSummarizeThreshold` | `75` | Token usage percentage that triggers auto-summarization. Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeThreshold` | `70` | Token usage percentage that triggers auto-summarization. Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
 | `autoSummarizeKeepRecent` | `15` | Turns preserved during auto-summarization (1–20) |
 | `keepRecentTurns` | `10` | Default turns preserved during on-demand summarization |
+| `budgetSafetyMarginPercent` | `20` | Safety margin percentage applied by per-iteration budget pruning to account for token estimation inaccuracy (0–50) |
 
 ### Key Source Files
 

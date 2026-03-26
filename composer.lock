@@ -8,16 +8,16 @@
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "v0.10.1",
+            "version": "v0.10.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "e7037387013045cbc02d9f1dddf7dcf1025f424c"
+                "reference": "1ebbf6f6d04d8f7d259fb91f7d28c365cc526667"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/e7037387013045cbc02d9f1dddf7dcf1025f424c",
-                "reference": "e7037387013045cbc02d9f1dddf7dcf1025f424c",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/1ebbf6f6d04d8f7d259fb91f7d28c365cc526667",
+                "reference": "1ebbf6f6d04d8f7d259fb91f7d28c365cc526667",
                 "shasum": ""
             },
             "require": {
@@ -61,9 +61,9 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.10.1"
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.10.2"
             },
-            "time": "2026-03-23T21:22:51+00:00"
+            "time": "2026-03-26T02:14:27+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-composer",
@@ -3315,11 +3315,11 @@
         },
         {
             "name": "phpstan/phpstan",
-            "version": "2.1.43",
+            "version": "2.1.44",
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/d01bebe3edfd4d49b9666ee5b8271ddca561042f",
-                "reference": "d01bebe3edfd4d49b9666ee5b8271ddca561042f",
+                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/4a88c083c668b2c364a425c9b3171b2d9ea5d218",
+                "reference": "4a88c083c668b2c364a425c9b3171b2d9ea5d218",
                 "shasum": ""
             },
             "require": {
@@ -3364,7 +3364,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-03-24T20:40:50+00:00"
+            "time": "2026-03-25T17:34:21+00:00"
         },
         {
             "name": "phpunit/php-code-coverage",

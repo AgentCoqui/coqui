@@ -90,6 +90,7 @@ final class OrchestratorAgent extends AbstractAgent
     private ToolRegistry $toolRegistry;
     private ToolSearchTool $toolSearchTool;
     private ?ContextWindowInterface $contextWindowInstance = null;
+    private ?SummarizePruningStrategy $pruningStrategyInstance = null;
 
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
@@ -173,6 +174,7 @@ final class OrchestratorAgent extends AbstractAgent
                         storage: $this->storage,
                         memoryStore: $this->memoryStore,
                         keepRecentTurns: $keepRecent,
+                        sessionId: $this->sessionId,
                     );
                 }
             } catch (\Throwable) {
@@ -180,7 +182,13 @@ final class OrchestratorAgent extends AbstractAgent
             }
         }
 
-        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow, $pruningStrategy);
+        $this->pruningStrategyInstance = $pruningStrategy;
+
+        // Resolve budget safety margin from config (default: 20%)
+        $safetyMarginCfg = $config->get('agents.defaults.context.budgetSafetyMarginPercent');
+        $safetyMarginPercent = is_numeric($safetyMarginCfg) ? max(0, min(50, (int) $safetyMarginCfg)) : CoquiDefaults::BUDGET_SAFETY_MARGIN_PERCENT;
+
+        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow, $pruningStrategy, $safetyMarginPercent);
 
         // Use injected resolver or create one (backward compat for standalone use)
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);
@@ -555,15 +563,52 @@ final class OrchestratorAgent extends AbstractAgent
         $skillsSummary = $this->skillDiscovery?->buildPromptSummary() ?? 'No skills installed.';
         $storageMap = $this->mountManager?->storageMap() ?? '';
 
+        $timeSinceLastMessage = 'New session';
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $session = $this->storage->getSession($this->sessionId);
+            $timeSinceLastMessage = $this->formatTimeSince($session['updated_at'] ?? null);
+        }
+
         $prompt = new OrchestratorPrompt(
             workspacePath: $this->workspacePath,
             projectRoot: $this->projectRoot,
             availableRoles: $roles,
             availableSkills: $skillsSummary,
             storageMap: $storageMap,
+            timeSinceLastMessage: $timeSinceLastMessage,
         );
 
         return $prompt->render();
+    }
+
+    /**
+     * Format an ISO 8601 timestamp as a human-readable elapsed duration.
+     */
+    private function formatTimeSince(?string $isoTimestamp): string
+    {
+        if ($isoTimestamp === null) {
+            return 'New session';
+        }
+
+        try {
+            $then = new \DateTimeImmutable($isoTimestamp);
+            $now = new \DateTimeImmutable();
+            $diff = $now->diff($then);
+        } catch (\Throwable) {
+            return 'Unknown';
+        }
+
+        if ($diff->days >= 1) {
+            return $diff->days === 1 ? '1 day' : $diff->days . ' days';
+        }
+        if ($diff->h >= 1) {
+            return $diff->h === 1 ? '1 hour' : $diff->h . ' hours';
+        }
+        if ($diff->i >= 1) {
+            return $diff->i === 1 ? '1 minute' : $diff->i . ' minutes';
+        }
+
+        return 'Just now';
     }
 
     private function injectMemoryContext(string $rendered): string
@@ -814,6 +859,11 @@ final class OrchestratorAgent extends AbstractAgent
     public function getContextWindow(): ?ContextWindowInterface
     {
         return $this->contextWindowInstance;
+    }
+
+    public function getPruningStrategy(): ?SummarizePruningStrategy
+    {
+        return $this->pruningStrategyInstance;
     }
 
     /**

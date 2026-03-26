@@ -90,9 +90,10 @@ The simplest valid config only needs a primary model:
                 "embeddingModel": "openai/text-embedding-3-small"
             },
             "context": {
-                "autoSummarizeThreshold": 75,
+                "autoSummarizeThreshold": 70,
                 "autoSummarizeKeepRecent": 15,
-                "keepRecentTurns": 10
+                "keepRecentTurns": 10,
+                "budgetSafetyMarginPercent": 20
             },
             "evaluation": {
                 "lookbackHours": 24,
@@ -275,14 +276,15 @@ Configure automatic conversation summarization behavior.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `autoSummarizeThreshold` | int/float | `75` | Token usage percentage that triggers auto-summarization. Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeThreshold` | int/float | `70` | Token usage percentage that triggers auto-summarization. Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
 | `autoSummarizeKeepRecent` | int | `15` | Turns preserved during auto-summarization (clamped 1–20) |
 | `keepRecentTurns` | int | `10` | Default turns preserved during on-demand summarization (`/summarize`) |
+| `budgetSafetyMarginPercent` | int | `20` | Safety margin percentage applied by per-iteration budget pruning to account for token estimation inaccuracy (0–50) |
 
 ```json
 {
     "context": {
-        "autoSummarizeThreshold": 75,
+        "autoSummarizeThreshold": 70,
         "autoSummarizeKeepRecent": 15,
         "keepRecentTurns": 10
     }

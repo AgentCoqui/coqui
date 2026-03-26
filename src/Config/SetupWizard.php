@@ -23,6 +23,9 @@ final class SetupWizard
     /** @var array<string, string> All available models as "provider/model" => "Display Name" */
     private array $availableModels = [];
 
+    /** @var array<string, array<string, mixed>> Full model metadata keyed by "provider/model" */
+    private array $modelMetadata = [];
+
     public function __construct(
         private readonly SymfonyStyle $io,
         private readonly DefaultsLoader $defaults,
@@ -202,6 +205,7 @@ final class SetupWizard
         foreach ($selected as $model) {
             $fullId = "{$provider}/{$model['id']}";
             $this->availableModels[$fullId] = $model['name'] ?? $model['id'];
+            $this->modelMetadata[$fullId] = $model;
         }
     }
 
@@ -237,6 +241,9 @@ final class SetupWizard
     /**
      * Fetch models from a provider's API.
      *
+     * Returns model arrays enriched with any available ModelDefinition fields.
+     * Curated metadata from defaults.json is merged in for known models.
+     *
      * @return array<int, array<string, mixed>>
      */
     private function fetchModelsFromProvider(string $provider, string $baseUrl, string $apiKey): array
@@ -253,7 +260,30 @@ final class SetupWizard
         };
 
         return array_map(
-            fn(ModelDefinition $m) => ['id' => $m->id, 'name' => $m->name],
+            function (ModelDefinition $m) use ($provider): array {
+                // Start with fields from the API-discovered ModelDefinition
+                $model = [
+                    'id' => $m->id,
+                    'name' => $m->name,
+                    'contextWindow' => $m->contextWindow,
+                    'maxTokens' => $m->maxTokens,
+                    'reasoning' => $m->reasoning,
+                ];
+
+                if ($m->numCtx !== null) {
+                    $model['numCtx'] = $m->numCtx;
+                }
+
+                // Enrich with curated metadata from defaults.json when available
+                $curated = $this->defaults->curatedModel($provider, $m->id);
+                if ($curated !== null) {
+                    $model = array_merge($model, $curated);
+                    // Preserve the API-discovered name if curated didn't provide one
+                    $model['name'] = $curated['name'] ?? $m->name;
+                }
+
+                return $model;
+            },
             $definitions,
         );
     }
@@ -499,13 +529,14 @@ final class SetupWizard
     /**
      * Build the final openclaw.json config array.
      *
+     * Uses model metadata from discovery/curated data to preserve accurate
+     * contextWindow, maxTokens, reasoning, vision, and cost information.
+     *
      * @param array<string, string> $roles
      * @return array<string, mixed>
      */
     private function buildConfig(string $primaryModel, array $roles, string $workspace): array
     {
-        // Build model alias map
-        $aliases = [];
         $modelDefinitions = [];
 
         foreach ($this->configuredProviders as $providerName => $providerConfig) {
@@ -517,15 +548,38 @@ final class SetupWizard
                     continue;
                 }
 
-                $providerModels[] = [
+                $meta = $this->modelMetadata[$fullId] ?? [];
+
+                // Build input capabilities from metadata
+                $input = ['text'];
+                if (!empty($meta['vision'])) {
+                    $input[] = 'image';
+                }
+
+                // Build cost array from metadata (default: zeros)
+                $rawCost = $meta['cost'] ?? [];
+                $cost = [
+                    'input' => $rawCost['input'] ?? 0,
+                    'output' => $rawCost['output'] ?? 0,
+                    'cacheRead' => $rawCost['cacheRead'] ?? 0,
+                    'cacheWrite' => $rawCost['cacheWrite'] ?? 0,
+                ];
+
+                $modelEntry = [
                     'id' => $modelId,
                     'name' => $name,
-                    'reasoning' => false,
-                    'input' => ['text'],
-                    'cost' => ['input' => 0, 'output' => 0, 'cacheRead' => 0, 'cacheWrite' => 0],
-                    'contextWindow' => 128000,
-                    'maxTokens' => 8192,
+                    'reasoning' => $meta['reasoning'] ?? false,
+                    'input' => $input,
+                    'cost' => $cost,
+                    'contextWindow' => $meta['contextWindow'] ?? 4096,
+                    'maxTokens' => $meta['maxTokens'] ?? 2048,
                 ];
+
+                if (isset($meta['numCtx'])) {
+                    $modelEntry['numCtx'] = (int) $meta['numCtx'];
+                }
+
+                $providerModels[] = $modelEntry;
             }
 
             if (!empty($providerModels)) {

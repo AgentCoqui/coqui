@@ -30,7 +30,7 @@ final class CoquiDefaults
     public const int AUTO_SUMMARIZE_KEEP_RECENT = 15;
 
     /** Token usage percentage threshold that triggers auto-summarization (config: agents.defaults.context.autoSummarizeThreshold). */
-    public const float AUTO_SUMMARIZE_THRESHOLD = 50.0;
+    public const float AUTO_SUMMARIZE_THRESHOLD = 70.0;
 
     /** User turn count that triggers auto-summarization regardless of token usage (config: agents.defaults.context.autoSummarizeTurnThreshold). */
     public const int AUTO_SUMMARIZE_TURN_THRESHOLD = 20;
@@ -40,4 +40,7 @@ final class CoquiDefaults
 
     /** Fallback reserved tokens for completion when no model definition is available. */
     public const int CONTEXT_WINDOW_RESERVED = 4_096;
+
+    /** Safety margin percentage applied by fitWithinBudget to account for token estimation inaccuracy (config: agents.defaults.context.budgetSafetyMarginPercent). */
+    public const int BUDGET_SAFETY_MARGIN_PERCENT = 20;
 }

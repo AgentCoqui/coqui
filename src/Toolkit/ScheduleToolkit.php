@@ -212,11 +212,11 @@ final readonly class ScheduleToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'schedule_delete',
-            description: 'Delete a scheduled task permanently.',
+            description: 'Delete a scheduled task permanently. Pass "all" as the ID to delete all schedules.',
             parameters: [
                 new StringParameter(
                     name: 'id',
-                    description: 'Schedule ID or name',
+                    description: 'Schedule ID or name, or "all" to delete all schedules',
                     required: true,
                 ),
             ],
@@ -228,11 +228,11 @@ final readonly class ScheduleToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'schedule_trigger',
-            description: 'Immediately trigger a schedule, creating a background task without waiting for the next cron tick.',
+            description: 'Immediately trigger a schedule, creating a background task without waiting for the next cron tick. Pass "all" as the ID to trigger all enabled schedules.',
             parameters: [
                 new StringParameter(
                     name: 'id',
-                    description: 'Schedule ID or name',
+                    description: 'Schedule ID or name, or "all" to trigger all enabled schedules',
                     required: true,
                 ),
             ],
@@ -244,11 +244,11 @@ final readonly class ScheduleToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'schedule_enable',
-            description: 'Enable a disabled schedule so it resumes automatic execution. Also resets the failure counter.',
+            description: 'Enable a disabled schedule so it resumes automatic execution. Also resets the failure counter. Pass "all" as the ID to enable all disabled schedules.',
             parameters: [
                 new StringParameter(
                     name: 'id',
-                    description: 'Schedule ID or name',
+                    description: 'Schedule ID or name, or "all" to enable all disabled schedules',
                     required: true,
                 ),
             ],
@@ -260,11 +260,11 @@ final readonly class ScheduleToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'schedule_disable',
-            description: 'Disable a schedule to stop automatic execution. The schedule is preserved and can be re-enabled later.',
+            description: 'Disable a schedule to stop automatic execution. The schedule is preserved and can be re-enabled later. Pass "all" as the ID to disable all enabled schedules.',
             parameters: [
                 new StringParameter(
                     name: 'id',
-                    description: 'Schedule ID or name',
+                    description: 'Schedule ID or name, or "all" to disable all enabled schedules',
                     required: true,
                 ),
             ],
@@ -448,7 +448,14 @@ final readonly class ScheduleToolkit implements ToolkitInterface
      */
     private function executeDelete(array $args): ToolResult
     {
-        $schedule = $this->resolveSchedule((string) ($args['id'] ?? ''));
+        $id = trim((string) ($args['id'] ?? ''));
+
+        if (strtolower($id) === 'all') {
+            $count = $this->scheduleStore->deleteAll();
+            return ToolResult::success("Deleted all schedules ({$count} total).");
+        }
+
+        $schedule = $this->resolveSchedule($id);
         if ($schedule === null) {
             return ToolResult::error('Schedule not found');
         }
@@ -464,36 +471,80 @@ final readonly class ScheduleToolkit implements ToolkitInterface
      */
     private function executeTrigger(array $args): ToolResult
     {
-        $schedule = $this->resolveSchedule((string) ($args['id'] ?? ''));
+        $id = trim((string) ($args['id'] ?? ''));
+
+        if (strtolower($id) === 'all') {
+            return $this->executeTriggerAll();
+        }
+
+        $schedule = $this->resolveSchedule($id);
         if ($schedule === null) {
             return ToolResult::error('Schedule not found');
         }
 
-        $id = (string) $schedule['id'];
+        $scheduleId = (string) $schedule['id'];
         $name = (string) $schedule['name'];
 
         // If ScheduleManager is available (API server context), trigger immediately
         if ($this->scheduleManager !== null) {
-            $taskId = $this->scheduleManager->trigger($id);
+            $taskId = $this->scheduleManager->trigger($scheduleId);
             if ($taskId === null) {
                 return ToolResult::error('Failed to trigger schedule');
             }
 
             return ToolResult::success((string) json_encode([
                 'message' => "Schedule '{$name}' triggered immediately",
-                'schedule_id' => $id,
+                'schedule_id' => $scheduleId,
                 'task_id' => $taskId,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         }
 
         // Fallback: force next_run_at to now so the scheduler picks it up on next tick
         $now = gmdate('Y-m-d\TH:i:s\Z');
-        $this->scheduleStore->update($id, enabled: true);
-        $this->scheduleStore->forceNextRun($id, $now);
+        $this->scheduleStore->update($scheduleId, enabled: true);
+        $this->scheduleStore->forceNextRun($scheduleId, $now);
 
         return ToolResult::success((string) json_encode([
             'message' => "Schedule '{$name}' will be triggered on next scheduler tick (within 60 seconds)",
-            'schedule_id' => $id,
+            'schedule_id' => $scheduleId,
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    }
+
+    /**
+     * Trigger all enabled schedules.
+     */
+    private function executeTriggerAll(): ToolResult
+    {
+        $enabled = $this->scheduleStore->list(enabled: true);
+        if ($enabled === []) {
+            return ToolResult::success('No enabled schedules to trigger.');
+        }
+
+        // If ScheduleManager is available, trigger immediately per-schedule
+        if ($this->scheduleManager !== null) {
+            $triggered = [];
+            foreach ($enabled as $s) {
+                $taskId = $this->scheduleManager->trigger((string) $s['id']);
+                if ($taskId !== null) {
+                    $triggered[] = ['name' => $s['name'], 'task_id' => $taskId];
+                }
+            }
+            return ToolResult::success((string) json_encode([
+                'message' => sprintf('Triggered %d schedule(s) immediately', count($triggered)),
+                'triggered' => $triggered,
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        }
+
+        // Fallback: force next_run_at to now
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $count = 0;
+        foreach ($enabled as $s) {
+            $this->scheduleStore->forceNextRun((string) $s['id'], $now);
+            $count++;
+        }
+
+        return ToolResult::success((string) json_encode([
+            'message' => "{$count} schedule(s) will be triggered on next scheduler tick (within 60 seconds)",
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
@@ -502,15 +553,20 @@ final readonly class ScheduleToolkit implements ToolkitInterface
      */
     private function executeEnable(array $args): ToolResult
     {
-        $schedule = $this->resolveSchedule((string) ($args['id'] ?? ''));
+        $id = trim((string) ($args['id'] ?? ''));
+
+        if (strtolower($id) === 'all') {
+            $count = $this->scheduleStore->enableAll();
+            return ToolResult::success("Enabled {$count} schedule(s). Failure counters reset.");
+        }
+
+        $schedule = $this->resolveSchedule($id);
         if ($schedule === null) {
             return ToolResult::error('Schedule not found');
         }
 
-        $id = (string) $schedule['id'];
         $name = (string) $schedule['name'];
-
-        $this->scheduleStore->enable($id);
+        $this->scheduleStore->enable((string) $schedule['id']);
 
         return ToolResult::success("Schedule '{$name}' enabled. Failure counter reset.");
     }
@@ -520,15 +576,20 @@ final readonly class ScheduleToolkit implements ToolkitInterface
      */
     private function executeDisable(array $args): ToolResult
     {
-        $schedule = $this->resolveSchedule((string) ($args['id'] ?? ''));
+        $id = trim((string) ($args['id'] ?? ''));
+
+        if (strtolower($id) === 'all') {
+            $count = $this->scheduleStore->disableAll();
+            return ToolResult::success("Disabled {$count} schedule(s).");
+        }
+
+        $schedule = $this->resolveSchedule($id);
         if ($schedule === null) {
             return ToolResult::error('Schedule not found');
         }
 
-        $id = (string) $schedule['id'];
         $name = (string) $schedule['name'];
-
-        $this->scheduleStore->disable($id);
+        $this->scheduleStore->disable((string) $schedule['id']);
 
         return ToolResult::success("Schedule '{$name}' disabled.");
     }

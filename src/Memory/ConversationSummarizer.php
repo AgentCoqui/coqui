@@ -116,11 +116,11 @@ final class ConversationSummarizer
         $rawMessages = $this->storage->getMessages($sessionId);
         $conversation = $this->storage->loadConversation($sessionId);
 
-        // Extract memories before summarization discards older messages
+        // Extract memories before summarization marks older messages
         if ($this->memoryStore !== null) {
             try {
                 $extractor = new MemoryExtractor($this->memoryStore);
-                $extractor->extractFromConversation($conversation, $provider);
+                $extractor->extractFromConversation($conversation, $provider, bypassCooldown: true);
             } catch (\Throwable) {
                 // Extraction failure should never block summarization
             }
@@ -132,12 +132,12 @@ final class ConversationSummarizer
             return $result;
         }
 
-        // Delete summarized messages from the database.
+        // Mark summarized messages as soft-deleted in the database.
         // The summarize() method splits by user turn index — we mirror
-        // that logic on the raw rows to identify which DB IDs to remove.
-        $idsToDelete = $this->identifySummarizedMessageIds($rawMessages, $keepRecentTurns);
-        if ($idsToDelete !== []) {
-            $this->storage->deleteMessages($idsToDelete);
+        // that logic on the raw rows to identify which DB IDs to mark.
+        $idsToMark = $this->identifySummarizedMessageIds($rawMessages, $keepRecentTurns);
+        if ($idsToMark !== []) {
+            $this->storage->markMessagesAsSummarized($idsToMark);
         }
 
         // Store summary as a session-scoped memory if memory store is available

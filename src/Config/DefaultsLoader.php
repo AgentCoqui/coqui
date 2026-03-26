@@ -126,6 +126,25 @@ final readonly class DefaultsLoader
     }
 
     /**
+     * Look up a single curated model by provider and model ID.
+     *
+     * Useful for enriching API-discovered models with curated metadata
+     * (contextWindow, maxTokens, cost, etc.) from defaults.json.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function curatedModel(string $provider, string $modelId): ?array
+    {
+        foreach ($this->curatedModels($provider) as $model) {
+            if (($model['id'] ?? '') === $modelId) {
+                return $model;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Get all role definitions.
      *
      * @return array<string, array<string, mixed>>
