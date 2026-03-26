@@ -67,6 +67,27 @@ final class ArtifactStore
         $this->db->exec(<<<'SQL'
             CREATE INDEX IF NOT EXISTS idx_artifact_versions_artifact ON artifact_versions(artifact_id)
         SQL);
+
+        // Harness columns — added to existing installations via migration
+        $this->migrateAddColumn('artifacts', 'project_id', "TEXT");
+        $this->migrateAddColumn('artifacts', 'sprint_id', "TEXT");
+        $this->migrateAddColumn('artifacts', 'persistent', 'INTEGER NOT NULL DEFAULT 0');
+    }
+
+    private function migrateAddColumn(string $table, string $column, string $definition): void
+    {
+        $stmt = $this->db->query("PRAGMA table_info({$table})");
+
+        if ($stmt === false) {
+            return;
+        }
+
+        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $exists = array_any($columns, fn(array $col): bool => $col['name'] === $column);
+
+        if (!$exists) {
+            $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
+        }
     }
 
     /**
@@ -84,13 +105,16 @@ final class ArtifactStore
         string $stage = 'draft',
         ?string $turnId = null,
         ?array $metadata = null,
+        ?string $projectId = null,
+        ?string $sprintId = null,
+        bool $persistent = false,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = gmdate('Y-m-d\TH:i:s\Z');
 
         $stmt = $this->db->prepare(<<<'SQL'
-            INSERT INTO artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)
+            INSERT INTO artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, sprint_id, persistent, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
         SQL);
         $stmt->execute([
             $id,
@@ -103,6 +127,9 @@ final class ArtifactStore
             $filepath,
             $stage,
             $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
+            $projectId,
+            $sprintId,
+            $persistent ? 1 : 0,
             $now,
             $now,
         ]);
@@ -178,6 +205,8 @@ final class ArtifactStore
         ?string $type = null,
         ?string $stage = null,
         int $limit = 50,
+        ?string $projectId = null,
+        ?string $sprintId = null,
     ): array {
         $where = ['session_id = ?'];
         $params = [$sessionId];
@@ -190,6 +219,16 @@ final class ArtifactStore
         if ($stage !== null) {
             $where[] = 'stage = ?';
             $params[] = $stage;
+        }
+
+        if ($projectId !== null) {
+            $where[] = 'project_id = ?';
+            $params[] = $projectId;
+        }
+
+        if ($sprintId !== null) {
+            $where[] = 'sprint_id = ?';
+            $params[] = $sprintId;
         }
 
         $params[] = $limit;
@@ -261,19 +300,33 @@ final class ArtifactStore
     }
 
     /**
-     * Delete artifacts in 'final' stage (they have been consumed by coders).
+     * Delete non-persistent artifacts in 'final' stage (they have been consumed by coders).
      *
      * Draft and review artifacts are preserved across sessions so in-progress
      * planning work survives restarts. Version history is cascade-deleted by FK.
+     * Persistent artifacts (linked to projects) are never cleaned up.
      *
      * @return int Number of artifacts deleted.
      */
     public function cleanupFinalized(): int
     {
-        $stmt = $this->db->prepare("DELETE FROM artifacts WHERE stage = 'final'");
+        $stmt = $this->db->prepare("DELETE FROM artifacts WHERE stage = 'final' AND persistent = 0");
         $stmt->execute();
 
         return $stmt->rowCount();
+    }
+
+    /**
+     * Check if a session has any persistent (project-linked) artifacts.
+     */
+    public function hasPersistentArtifacts(string $sessionId): bool
+    {
+        $stmt = $this->db->prepare(
+            'SELECT COUNT(*) FROM artifacts WHERE session_id = ? AND persistent = 1',
+        );
+        $stmt->execute([$sessionId]);
+
+        return ((int) $stmt->fetchColumn()) > 0;
     }
 
     private function saveVersion(

@@ -34,6 +34,7 @@ use CoquiBot\Coqui\Memory\MemoryExtractor;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
@@ -72,6 +73,7 @@ final class AgentRunner
         private readonly ?SpaceToolkit $spaceToolkit = null,
         private readonly ?TodoStore $todoStore = null,
         private readonly ?ArtifactStore $artifactStore = null,
+        private readonly ?ProjectStore $projectStore = null,
     ) {}
 
     /**
@@ -197,6 +199,20 @@ final class AgentRunner
         }
 
         try {
+            // Pre-summarize when the role requests it (e.g. plan role switching
+            // to coder needs a compressed context). Reuses existing summarization
+            // infrastructure — the only new logic is the trigger condition.
+            if ($this->roleDiscovery !== null && $history->count() > 20) {
+                try {
+                    $roleProps = $this->roleDiscovery->getRole($effectiveRole);
+                    if ($roleProps->preSummarize) {
+                        $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer);
+                    }
+                } catch (\Throwable) {
+                    // Role not found or summarization failure — non-fatal
+                }
+            }
+
             // Auto-summarize when conversation history is nearing the context limit.
             // This preserves important context via LLM summarization instead of
             // silently dropping oldest turns via fitWithinBudget().
@@ -211,6 +227,10 @@ final class AgentRunner
             $usage = ($output->usage !== null && $output->usage->totalTokens > 0)
                 ? $output->usage
                 : $this->estimateUsage($output, $modelString);
+
+            // Detect whether the agent exhausted its iteration budget
+            $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole);
+            $iterationLimitReached = $resolvedMaxIterations > 0 && $output->iterations >= $resolvedMaxIterations;
 
             // Persist intermediate messages from this turn (tool calls + results)
             if ($output->conversation !== null) {
@@ -283,6 +303,7 @@ final class AgentRunner
                 toolsUsed: $toolsUsed,
                 childAgentCount: $childAgentCount,
                 restartRequested: $restartRequested,
+                iterationLimitReached: $iterationLimitReached,
             );
         } catch (\Throwable $e) {
             // Complete turn even on error so duration/state is tracked
@@ -360,6 +381,7 @@ final class AgentRunner
             visibilityRegistry: $this->visibilityRegistry,
             spaceToolkit: $this->spaceToolkit,
             activeRole: $role !== 'orchestrator' ? $role : null,
+            projectStore: $this->projectStore,
         );
     }
 
@@ -399,6 +421,7 @@ final class AgentRunner
             visibilityRegistry: $this->visibilityRegistry,
             spaceToolkit: $this->spaceToolkit,
             activeRole: $effectiveRole !== 'orchestrator' ? $effectiveRole : null,
+            projectStore: $this->projectStore,
         );
 
         $counter = TokenCounterFactory::forModel($modelString);
@@ -820,8 +843,45 @@ final class AgentRunner
                 // Non-critical
             }
         }
-
+        $this->appendSprintContext($sessionId, $sections);
         return $sections !== [] ? implode("\n", $sections) : null;
+    }
+
+    /**
+     * Append active sprint context to workflow sections.
+     *
+     * @param string[] $sections Mutable reference to sections array.
+     */
+    private function appendSprintContext(string $sessionId, array &$sections): void
+    {
+        if ($this->projectStore === null) {
+            return;
+        }
+
+        try {
+            $sprints = $this->projectStore->getActiveSprintsForSession($sessionId);
+            if ($sprints === []) {
+                return;
+            }
+
+            $lines = ['Active sprints:'];
+            foreach (array_slice($sprints, 0, 3) as $sprint) {
+                $title = $sprint['title'];
+                $number = $sprint['sprint_number'];
+                $status = $sprint['status'];
+                $round = $sprint['review_round'] ?? 0;
+                $maxRounds = $sprint['max_review_rounds'] ?? 3;
+                $progress = '';
+                if ($this->todoStore !== null) {
+                    $stats = $this->projectStore->getSprintProgress($sprint['id'], $this->todoStore);
+                    $progress = " — {$stats['percent']}% complete";
+                }
+                $lines[] = "  - Sprint #{$number} '{$title}' ({$status}{$progress}, round {$round}/{$maxRounds})";
+            }
+            $sections[] = implode("\n", $lines);
+        } catch (\Throwable) {
+            // Non-critical
+        }
     }
 
     /**

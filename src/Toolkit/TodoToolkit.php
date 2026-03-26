@@ -133,6 +133,7 @@ final class TodoToolkit implements ToolkitInterface
                 new StringParameter('artifact_id', 'Link to an artifact ID (e.g. a plan artifact)', required: false),
                 new StringParameter('parent_id', 'Parent todo ID for creating a subtask', required: false),
                 new StringParameter('notes', 'Additional context, requirements, or implementation details', required: false),
+                new StringParameter('sprint_id', 'Link to a sprint for project tracking', required: false),
             ],
             callback: function (array $args): ToolResult {
                 $title = trim($args['title'] ?? '');
@@ -148,6 +149,8 @@ final class TodoToolkit implements ToolkitInterface
                 $parentId = isset($args['parent_id']) && trim($args['parent_id']) !== '' ? trim($args['parent_id']) : null;
                 $notes = isset($args['notes']) && trim($args['notes']) !== '' ? trim($args['notes']) : null;
 
+                $sprintId = isset($args['sprint_id']) && trim($args['sprint_id']) !== '' ? trim($args['sprint_id']) : null;
+
                 $id = $this->store->create(
                     sessionId: $this->sessionId,
                     title: $title,
@@ -156,6 +159,7 @@ final class TodoToolkit implements ToolkitInterface
                     parentId: $parentId,
                     createdBy: $this->currentRole,
                     notes: $notes,
+                    sprintId: $sprintId,
                 );
 
                 return ToolResult::success(json_encode([
@@ -178,6 +182,7 @@ final class TodoToolkit implements ToolkitInterface
             parameters: [
                 new StringParameter('items', 'JSON array of items: [{"title": "...", "priority"?: "high|medium|low", "notes"?: "..."}]. Max 25 items.', required: true),
                 new StringParameter('artifact_id', 'Link all todos to this artifact ID (e.g. a plan artifact)', required: false),
+                new StringParameter('sprint_id', 'Link all todos to this sprint for project tracking', required: false),
             ],
             callback: function (array $args): ToolResult {
                 $itemsRaw = $args['items'] ?? '';
@@ -217,11 +222,14 @@ final class TodoToolkit implements ToolkitInterface
                     return $result;
                 }, $items));
 
+                $sprintId = isset($args['sprint_id']) && trim($args['sprint_id']) !== '' ? trim($args['sprint_id']) : null;
+
                 $ids = $this->store->bulkCreate(
                     sessionId: $this->sessionId,
                     items: $normalized,
                     createdBy: $this->currentRole,
                     artifactId: $artifactId,
+                    sprintId: $sprintId,
                 );
 
                 return ToolResult::success(json_encode([
