@@ -23,6 +23,7 @@ final readonly class OrchestratorPrompt
         private string $availableRoles,
         private string $availableSkills = '',
         private string $storageMap = '',
+        private string $timeSinceLastMessage = 'New session',
         ?string $promptsDir = null,
     ) {
         $this->loader = new PromptLoader(
@@ -34,6 +35,7 @@ final readonly class OrchestratorPrompt
                 'available_skills' => $this->availableSkills,
                 'storage_map' => $this->storageMap,
                 'current_datetime' => date('Y-m-d H:i:s (T)'),
+                'time_since_last_message' => $this->timeSinceLastMessage,
             ],
         );
     }

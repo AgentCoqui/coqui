@@ -72,7 +72,11 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 
 | Command | Description |
 | --- | --- |
-| `/schedules` | List scheduled tasks with status, cron expression, and next run time |
+| `/schedules` | List scheduled tasks with status, cron expression, next/last run time |
+| `/schedules enable <name\|id\|all>` | Enable a schedule (or all disabled schedules) |
+| `/schedules disable <name\|id\|all>` | Disable a schedule (or all enabled schedules) |
+| `/schedules delete <name\|id\|all>` | Delete a schedule (or all schedules) |
+| `/schedules trigger <name\|id\|all>` | Force-trigger a schedule on the next API tick |
 | `/webhooks` | List webhook subscriptions with status and trigger counts |
 | `/evaluations [grade]` | List session evaluation reports, optionally filtered by grade |
 

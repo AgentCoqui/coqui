@@ -269,3 +269,64 @@ test('loadConversation handles ToolCall without metadata field', function () {
 
     expect($tc->metadata)->toBe([]);
 });
+
+// --- Soft-delete (is_summarized) tests ---
+
+test('markMessagesAsSummarized marks messages correctly', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    $this->storage->addMessage($sessionId, 'user', 'Question 1');
+    $this->storage->addMessage($sessionId, 'assistant', 'Answer 1');
+    $this->storage->addMessage($sessionId, 'user', 'Question 2');
+    $this->storage->addMessage($sessionId, 'assistant', 'Answer 2');
+
+    $messages = $this->storage->getMessages($sessionId);
+    $idsToMark = [$messages[0]['id'], $messages[1]['id']];
+
+    $marked = $this->storage->markMessagesAsSummarized($idsToMark);
+    expect($marked)->toBe(2);
+});
+
+test('markMessagesAsSummarized returns 0 for empty array', function () {
+    expect($this->storage->markMessagesAsSummarized([]))->toBe(0);
+});
+
+test('loadConversation excludes summarized messages', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    $this->storage->addMessage($sessionId, 'user', 'Old question');
+    $this->storage->addMessage($sessionId, 'assistant', 'Old answer');
+    $this->storage->addMessage($sessionId, 'user', 'New question');
+    $this->storage->addMessage($sessionId, 'assistant', 'New answer');
+
+    $messages = $this->storage->getMessages($sessionId);
+    // Mark first two messages as summarized
+    $this->storage->markMessagesAsSummarized([$messages[0]['id'], $messages[1]['id']]);
+
+    // getMessages still returns all 4 (unfiltered)
+    $allMessages = $this->storage->getMessages($sessionId);
+    expect(count($allMessages))->toBe(4);
+
+    // loadConversation should only return the 2 non-summarized messages
+    $conversation = $this->storage->loadConversation($sessionId);
+    expect($conversation->count())->toBe(2);
+});
+
+test('summary message is not filtered after soft-delete', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    // Add messages, summarize some, then add a summary message
+    $this->storage->addMessage($sessionId, 'user', 'Old question');
+    $this->storage->addMessage($sessionId, 'assistant', 'Old answer');
+
+    $messages = $this->storage->getMessages($sessionId);
+    $this->storage->markMessagesAsSummarized([$messages[0]['id'], $messages[1]['id']]);
+
+    // Add summary message (not marked as summarized)
+    $this->storage->addMessage($sessionId, 'user', '[CONVERSATION SUMMARY] Summary of old conversation.');
+    $this->storage->addMessage($sessionId, 'user', 'New question');
+
+    // loadConversation should return the summary + new question (2 messages)
+    $conversation = $this->storage->loadConversation($sessionId);
+    expect($conversation->count())->toBe(2);
+});

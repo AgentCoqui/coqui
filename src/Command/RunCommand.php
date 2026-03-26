@@ -378,11 +378,40 @@ final class RunCommand extends Command
                     ));
                 }
 
+                // Complete /schedules subcommands and schedule names
+                if (count($parts) >= 2 && $cmd === '/schedules') {
+                    $sub = $parts[1];
+                    $scheduleSubCommands = ['enable', 'disable', 'delete', 'trigger'];
+
+                    if (count($parts) === 2) {
+                        return array_values(array_filter(
+                            $scheduleSubCommands,
+                            fn(string $s) => str_starts_with($s, $input),
+                        ));
+                    }
+
+                    // Complete schedule names/IDs or "all" after subcommand
+                    if (count($parts) === 3 && in_array($sub, $scheduleSubCommands, true)) {
+                        $prefix = $parts[2];
+                        $candidates = ['all'];
+                        $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
+                        $schedules = $scheduleStore->list();
+                        foreach ($schedules as $s) {
+                            $candidates[] = $s['name'];
+                            $candidates[] = $s['id'];
+                        }
+                        return array_values(array_filter(
+                            $candidates,
+                            fn(string $c) => str_starts_with($c, $prefix),
+                        ));
+                    }
+                }
+
                 // Complete top-level slash commands
                 if (str_starts_with($input, '/') || $line === '' || $line === '/') {
                     $commands = [
                         '/new', '/history', '/sessions', '/resume', '/model',
-                        '/config', '/tasks', '/task', '/task-cancel', '/todos', '/toolkits',
+                        '/config', '/tasks', '/task', '/task-cancel', '/todos', '/toolkits', '/schedules',
                         '/prompt', '/role', '/roles', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/evaluations', '/help', '/quit',
                     ];
 
@@ -1993,32 +2022,200 @@ final class RunCommand extends Command
     private function handleSchedulesCommand(SymfonyStyle $io, string $arg = ''): void
     {
         $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
-        $schedules = $scheduleStore->list();
+
+        $trimmedArg = trim($arg);
+        $argParts = $trimmedArg !== '' ? explode(' ', $trimmedArg, 2) : [];
+        $action = strtolower($argParts[0] ?? '');
+        $target = trim($argParts[1] ?? '');
+
+        match ($action) {
+            'enable' => $this->handleSchedulesEnable($io, $scheduleStore, $target),
+            'disable' => $this->handleSchedulesDisable($io, $scheduleStore, $target),
+            'delete' => $this->handleSchedulesDelete($io, $scheduleStore, $target),
+            'trigger' => $this->handleSchedulesTrigger($io, $scheduleStore, $target),
+            default => $this->handleSchedulesList($io, $scheduleStore),
+        };
+    }
+
+    private function handleSchedulesList(SymfonyStyle $io, \CoquiBot\Coqui\Storage\ScheduleStore $store): void
+    {
+        $schedules = $store->list();
 
         if (empty($schedules)) {
             $io->info('No scheduled tasks. Create schedules via the agent (schedule_create tool) or the API.');
             return;
         }
 
-        $stats = $scheduleStore->getStats();
+        $stats = $store->getStats();
         $io->section(sprintf('Schedules (%d active / %d total)', $stats['enabled'], $stats['total']));
 
         $rows = [];
         foreach ($schedules as $s) {
             $status = ((int) $s['enabled']) ? '<fg=green>✓</>' : '<fg=red>✗</>';
+            $lastRun = $s['last_run_at'] !== null ? $this->timeSince($s['last_run_at']) : '-';
             $rows[] = [
                 $status,
                 substr($s['id'], 0, 8) . '...',
                 $s['name'],
                 $s['schedule_expression'],
                 $s['next_run_at'] ?? 'N/A',
+                $lastRun,
                 $s['last_status'] ?? '-',
                 $s['run_count'],
                 $s['failure_count'],
             ];
         }
 
-        $io->table(['', 'ID', 'Name', 'Expression', 'Next Run', 'Last Status', 'Runs', 'Fails'], $rows);
+        $io->table(['', 'ID', 'Name', 'Expression', 'Next Run', 'Last Run', 'Last Status', 'Runs', 'Fails'], $rows);
+    }
+
+    private function handleSchedulesEnable(SymfonyStyle $io, \CoquiBot\Coqui\Storage\ScheduleStore $store, string $target): void
+    {
+        if ($target === '') {
+            $io->error('Usage: /schedules enable <name|id|all>');
+            return;
+        }
+
+        if (strtolower($target) === 'all') {
+            $stats = $store->getStats();
+            if ($stats['disabled'] === 0) {
+                $io->info('No disabled schedules to enable.');
+                return;
+            }
+            if (!$io->confirm("Enable all {$stats['disabled']} disabled schedule(s)?", false)) {
+                $io->text('<fg=gray>Cancelled.</>'); 
+                return;
+            }
+            $count = $store->enableAll();
+            $io->success("Enabled {$count} schedule(s). Failure counters reset.");
+            return;
+        }
+
+        $schedule = $this->resolveScheduleByIdOrName($store, $target);
+        if ($schedule === null) {
+            $io->error("No schedule found matching '{$target}'.");
+            return;
+        }
+
+        $store->enable((string) $schedule['id']);
+        $io->success("Enabled: {$schedule['name']}");
+    }
+
+    private function handleSchedulesDisable(SymfonyStyle $io, \CoquiBot\Coqui\Storage\ScheduleStore $store, string $target): void
+    {
+        if ($target === '') {
+            $io->error('Usage: /schedules disable <name|id|all>');
+            return;
+        }
+
+        if (strtolower($target) === 'all') {
+            $stats = $store->getStats();
+            if ($stats['enabled'] === 0) {
+                $io->info('No enabled schedules to disable.');
+                return;
+            }
+            if (!$io->confirm("Disable all {$stats['enabled']} enabled schedule(s)?", false)) {
+                $io->text('<fg=gray>Cancelled.</>'); 
+                return;
+            }
+            $count = $store->disableAll();
+            $io->success("Disabled {$count} schedule(s).");
+            return;
+        }
+
+        $schedule = $this->resolveScheduleByIdOrName($store, $target);
+        if ($schedule === null) {
+            $io->error("No schedule found matching '{$target}'.");
+            return;
+        }
+
+        $store->disable((string) $schedule['id']);
+        $io->success("Disabled: {$schedule['name']}");
+    }
+
+    private function handleSchedulesDelete(SymfonyStyle $io, \CoquiBot\Coqui\Storage\ScheduleStore $store, string $target): void
+    {
+        if ($target === '') {
+            $io->error('Usage: /schedules delete <name|id|all>');
+            return;
+        }
+
+        if (strtolower($target) === 'all') {
+            $stats = $store->getStats();
+            if ($stats['total'] === 0) {
+                $io->info('No schedules to delete.');
+                return;
+            }
+            if (!$io->confirm("Permanently delete all {$stats['total']} schedule(s)? This cannot be undone.", false)) {
+                $io->text('<fg=gray>Cancelled.</>'); 
+                return;
+            }
+            $count = $store->deleteAll();
+            $io->success("Deleted {$count} schedule(s).");
+            return;
+        }
+
+        $schedule = $this->resolveScheduleByIdOrName($store, $target);
+        if ($schedule === null) {
+            $io->error("No schedule found matching '{$target}'.");
+            return;
+        }
+
+        $store->delete((string) $schedule['id']);
+        $io->success("Deleted: {$schedule['name']}");
+    }
+
+    private function handleSchedulesTrigger(SymfonyStyle $io, \CoquiBot\Coqui\Storage\ScheduleStore $store, string $target): void
+    {
+        if ($target === '') {
+            $io->error('Usage: /schedules trigger <name|id|all>');
+            return;
+        }
+
+        if (strtolower($target) === 'all') {
+            $enabled = $store->list(enabled: true);
+            if ($enabled === []) {
+                $io->info('No enabled schedules to trigger.');
+                return;
+            }
+            if (!$io->confirm(sprintf('Force-trigger all %d enabled schedule(s) on next API tick?', count($enabled)), false)) {
+                $io->text('<fg=gray>Cancelled.</>'); 
+                return;
+            }
+            $now = gmdate('Y-m-d\TH:i:s\Z');
+            $count = 0;
+            foreach ($enabled as $s) {
+                $store->forceNextRun((string) $s['id'], $now);
+                $count++;
+            }
+            $io->success("{$count} schedule(s) will fire on the next API scheduler tick (within 60 seconds).");
+            return;
+        }
+
+        $schedule = $this->resolveScheduleByIdOrName($store, $target);
+        if ($schedule === null) {
+            $io->error("No schedule found matching '{$target}'.");
+            return;
+        }
+
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $store->forceNextRun((string) $schedule['id'], $now);
+        $io->success("Schedule '{$schedule['name']}' will fire on the next API scheduler tick (within 60 seconds).");
+    }
+
+    /**
+     * Resolve a schedule by ID or name.
+     *
+     * @return array<string, mixed>|null
+     */
+    private function resolveScheduleByIdOrName(\CoquiBot\Coqui\Storage\ScheduleStore $store, string $idOrName): ?array
+    {
+        $schedule = $store->get($idOrName);
+        if ($schedule !== null) {
+            return $schedule;
+        }
+
+        return $store->getByName($idOrName);
     }
 
     private function handleWebhooksCommand(SymfonyStyle $io, string $arg = ''): void
