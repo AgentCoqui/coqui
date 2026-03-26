@@ -40,4 +40,7 @@ final class CoquiDefaults
 
     /** Fallback reserved tokens for completion when no model definition is available. */
     public const int CONTEXT_WINDOW_RESERVED = 4_096;
+
+    /** Safety margin percentage applied by fitWithinBudget to account for token estimation inaccuracy (config: agents.defaults.context.budgetSafetyMarginPercent). */
+    public const int BUDGET_SAFETY_MARGIN_PERCENT = 20;
 }

@@ -184,7 +184,11 @@ final class OrchestratorAgent extends AbstractAgent
 
         $this->pruningStrategyInstance = $pruningStrategy;
 
-        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow, $pruningStrategy);
+        // Resolve budget safety margin from config (default: 20%)
+        $safetyMarginCfg = $config->get('agents.defaults.context.budgetSafetyMarginPercent');
+        $safetyMarginPercent = is_numeric($safetyMarginCfg) ? max(0, min(50, (int) $safetyMarginCfg)) : CoquiDefaults::BUDGET_SAFETY_MARGIN_PERCENT;
+
+        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow, $pruningStrategy, $safetyMarginPercent);
 
         // Use injected resolver or create one (backward compat for standalone use)
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);
