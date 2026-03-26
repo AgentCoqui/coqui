@@ -167,6 +167,7 @@ final class RunCommand extends Command
             spaceToolkit: $this->boot->spaceToolkit(),
             todoStore: $this->boot->todoStore(),
             artifactStore: $this->boot->artifactStore(),
+            projectStore: $this->boot->projectStore(),
         );
 
         // Handle session
@@ -411,7 +412,7 @@ final class RunCommand extends Command
                 if (str_starts_with($input, '/') || $line === '' || $line === '/') {
                     $commands = [
                         '/new', '/history', '/sessions', '/resume', '/model',
-                        '/config', '/tasks', '/task', '/task-cancel', '/todos', '/toolkits', '/schedules',
+                        '/config', '/tasks', '/task', '/task-cancel', '/todos', '/projects', '/sprints', '/toolkits', '/schedules',
                         '/prompt', '/role', '/roles', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/evaluations', '/help', '/quit',
                     ];
 
@@ -615,6 +616,27 @@ final class RunCommand extends Command
                 $io->info('Restart requested by agent. Restarting...');
                 return self::RESTART_EXIT_CODE;
             }
+
+            // Offer continuation when iteration limit was reached and an active sprint exists
+            if ($result->iterationLimitReached && $this->boot->projectStore() !== null) {
+                $sprints = $this->boot->projectStore()->getActiveSprintsForSession($this->sessionId);
+                if ($sprints !== []) {
+                    $sprint = $sprints[0];
+                    $todoStore = $this->boot->todoStore();
+                    $progress = $todoStore !== null
+                        ? $this->boot->projectStore()->getSprintProgress($sprint['id'], $todoStore)
+                        : ['percent' => 0, 'completed' => 0, 'total' => 0];
+                    $title = $sprint['title'];
+                    $pct = $progress['percent'];
+                    $done = $progress['completed'];
+                    $total = $progress['total'];
+                    $io->newLine();
+                    if ($io->confirm("Sprint '{$title}' is {$pct}% complete ({$done}/{$total} todos). Continue?", true)) {
+                        $prompt = "Continue working on sprint '{$title}'. Check todo_list for remaining items.";
+                        continue;
+                    }
+                }
+            }
         }
     }
 
@@ -693,6 +715,16 @@ final class RunCommand extends Command
 
             '/todos' => (function () use ($io, $arg) {
                 $this->handleTodosCommand($io, $arg);
+                return true;
+            })(),
+
+            '/projects' => (function () use ($io, $arg) {
+                $this->handleProjectsCommand($io, $arg);
+                return true;
+            })(),
+
+            '/sprints' => (function () use ($io, $arg) {
+                $this->handleSprintsCommand($io, $arg);
                 return true;
             })(),
 
@@ -775,6 +807,8 @@ final class RunCommand extends Command
                         ['/task <id>', 'Show background task status and recent events'],
                         ['/task-cancel <id>', 'Cancel a pending or running background task'],
                         ['/todos [status]', 'Show session todos (optionally filter by pending/in_progress/completed/cancelled)'],
+                        ['/projects [status]', 'List projects (optionally filter by active/completed/archived)'],
+                        ['/sprints [project_slug]', 'List sprints for a project (all projects if no slug given)'],
                         ['/toolkits [enable|stub|disable <pkg|tool:name>]', 'Manage toolkit visibility'],
                         ['/prompt', 'Show the full system prompt sent to the LLM'],
                         ['/role [name]', 'Switch active role (e.g. /role coder). No argument shows current role'],
@@ -2019,6 +2053,92 @@ final class RunCommand extends Command
         $io->success("Cleared {$count} todo(s).");
     }
 
+    private function handleProjectsCommand(SymfonyStyle $io, string $arg = ''): void
+    {
+        $projectStore = $this->boot->projectStore();
+        if ($projectStore === null) {
+            $io->error('Project system not initialized.');
+            return;
+        }
+
+        $statusFilter = trim($arg) !== '' ? trim($arg) : null;
+        $projects = $projectStore->listProjects($statusFilter);
+        if ($projects === []) {
+            $io->info($statusFilter !== null ? "No projects with status '{$statusFilter}'." : 'No projects yet.');
+            return;
+        }
+
+        $io->section('Projects');
+        $rows = [];
+        foreach ($projects as $project) {
+            $sprints = $projectStore->listSprints($project['id']);
+            $active = count(array_filter($sprints, fn(array $s) => in_array($s['status'], ['in_progress', 'review'], true)));
+            $rows[] = [
+                $project['title'],
+                $project['slug'],
+                $project['status'],
+                count($sprints) . ($active > 0 ? " ({$active} active)" : ''),
+                substr($project['created_at'], 0, 10),
+            ];
+        }
+        $io->table(['Title', 'Slug', 'Status', 'Sprints', 'Created'], $rows);
+    }
+
+    private function handleSprintsCommand(SymfonyStyle $io, string $arg = ''): void
+    {
+        $projectStore = $this->boot->projectStore();
+        if ($projectStore === null) {
+            $io->error('Project system not initialized.');
+            return;
+        }
+        $todoStore = $this->boot->todoStore();
+
+        $slug = trim($arg);
+        if ($slug !== '') {
+            $project = $projectStore->getProject($slug);
+            if ($project === null) {
+                $io->error("Project not found: {$slug}");
+                return;
+            }
+            $sprints = $projectStore->listSprints($project['id']);
+        } else {
+            // Show sprints for all active projects
+            $projects = $projectStore->listProjects('active');
+            $sprints = [];
+            foreach ($projects as $project) {
+                foreach ($projectStore->listSprints($project['id']) as $sprint) {
+                    $sprint['_project_title'] = $project['title'];
+                    $sprints[] = $sprint;
+                }
+            }
+        }
+
+        if ($sprints === []) {
+            $io->info('No sprints found.');
+            return;
+        }
+
+        $io->section('Sprints');
+        $rows = [];
+        foreach ($sprints as $sprint) {
+            $progress = '';
+            if ($todoStore !== null) {
+                $stats = $projectStore->getSprintProgress($sprint['id'], $todoStore);
+                $progress = "{$stats['percent']}% ({$stats['completed']}/{$stats['total']})";
+            }
+            $projectLabel = $sprint['_project_title'] ?? '';
+            $rows[] = [
+                "#{$sprint['sprint_number']}",
+                $sprint['title'],
+                $sprint['status'],
+                $progress,
+                "{$sprint['review_round']}/{$sprint['max_review_rounds']}",
+                $projectLabel,
+            ];
+        }
+        $io->table(['#', 'Title', 'Status', 'Progress', 'Review', 'Project'], $rows);
+    }
+
     private function handleSchedulesCommand(SymfonyStyle $io, string $arg = ''): void
     {
         $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
@@ -2590,6 +2710,7 @@ final class RunCommand extends Command
             spaceToolkit: $this->boot->spaceToolkit(),
             todoStore: $this->boot->todoStore(),
             artifactStore: $this->boot->artifactStore(),
+            projectStore: $this->boot->projectStore(),
         );
 
         // Handle session

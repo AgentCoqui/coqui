@@ -26,6 +26,7 @@ final readonly class AgentTurnResult
         public array $toolsUsed,
         public int $childAgentCount,
         public bool $restartRequested,
+        public bool $iterationLimitReached = false,
         public ?string $error = null,
     ) {}
 
@@ -77,6 +78,7 @@ final readonly class AgentTurnResult
             'tools_used' => $this->toolsUsed,
             'child_agent_count' => $this->childAgentCount,
             'restart_requested' => $this->restartRequested,
+            'iteration_limit_reached' => $this->iterationLimitReached,
             'error' => $this->error,
         ];
     }

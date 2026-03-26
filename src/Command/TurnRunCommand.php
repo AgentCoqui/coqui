@@ -153,6 +153,7 @@ final class TurnRunCommand extends Command
             spaceToolkit: $boot->spaceToolkit(),
             todoStore: $boot->todoStore(),
             artifactStore: $boot->artifactStore(),
+            projectStore: $boot->projectStore(),
         );
 
         // Create execution policy (auto-approve — no human in the loop)
