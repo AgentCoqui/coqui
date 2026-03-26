@@ -563,15 +563,52 @@ final class OrchestratorAgent extends AbstractAgent
         $skillsSummary = $this->skillDiscovery?->buildPromptSummary() ?? 'No skills installed.';
         $storageMap = $this->mountManager?->storageMap() ?? '';
 
+        $timeSinceLastMessage = 'New session';
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $session = $this->storage->getSession($this->sessionId);
+            $timeSinceLastMessage = $this->formatTimeSince($session['updated_at'] ?? null);
+        }
+
         $prompt = new OrchestratorPrompt(
             workspacePath: $this->workspacePath,
             projectRoot: $this->projectRoot,
             availableRoles: $roles,
             availableSkills: $skillsSummary,
             storageMap: $storageMap,
+            timeSinceLastMessage: $timeSinceLastMessage,
         );
 
         return $prompt->render();
+    }
+
+    /**
+     * Format an ISO 8601 timestamp as a human-readable elapsed duration.
+     */
+    private function formatTimeSince(?string $isoTimestamp): string
+    {
+        if ($isoTimestamp === null) {
+            return 'New session';
+        }
+
+        try {
+            $then = new \DateTimeImmutable($isoTimestamp);
+            $now = new \DateTimeImmutable();
+            $diff = $now->diff($then);
+        } catch (\Throwable) {
+            return 'Unknown';
+        }
+
+        if ($diff->days >= 1) {
+            return $diff->days === 1 ? '1 day' : $diff->days . ' days';
+        }
+        if ($diff->h >= 1) {
+            return $diff->h === 1 ? '1 hour' : $diff->h . ' hours';
+        }
+        if ($diff->i >= 1) {
+            return $diff->i === 1 ? '1 minute' : $diff->i . ' minutes';
+        }
+
+        return 'Just now';
     }
 
     private function injectMemoryContext(string $rendered): string
