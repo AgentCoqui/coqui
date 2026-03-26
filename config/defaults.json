@@ -1,4 +1,21 @@
 {
+    "families": {
+        "gpt": {"name": "GPT", "description": "GPT-architecture models (OpenAI and open-source)"},
+        "claude": {"name": "Claude", "description": "Anthropic Claude models"},
+        "gemini": {"name": "Gemini", "description": "Google Gemini models"},
+        "grok": {"name": "Grok", "description": "xAI Grok models"},
+        "mistral": {"name": "Mistral", "description": "Mistral AI general-purpose models"},
+        "magistral": {"name": "Magistral", "description": "Mistral AI reasoning models"},
+        "codestral": {"name": "Codestral", "description": "Mistral AI code generation and agent models"},
+        "minimax": {"name": "MiniMax", "description": "MiniMax models"},
+        "qwen": {"name": "Qwen", "description": "Alibaba Qwen models"},
+        "deepseek": {"name": "DeepSeek", "description": "DeepSeek models"},
+        "llama": {"name": "Llama", "description": "Meta Llama models"},
+        "granite": {"name": "Granite", "description": "IBM Granite models"},
+        "nemotron": {"name": "Nemotron", "description": "NVIDIA Nemotron models"},
+        "glm": {"name": "GLM", "description": "Zhipu AI GLM models"},
+        "lfm": {"name": "LFM", "description": "Liquid AI foundation models"}
+    },
     "providers": {
         "ollama": {
             "name": "Ollama (Local)",
@@ -9,19 +26,21 @@
             "api": "openai-completions",
             "supportsModelDiscovery": true,
             "curatedModels": [
-                {"id": "qwen3:latest", "name": "Qwen 3 (General)", "recommended": true},
-                {"id": "llama3.2:latest", "name": "Llama 3.2 (General)"},
-                {"id": "gemma3:latest", "name": "Gemma 3 (General)"},
-                {"id": "deepseek-r1:latest", "name": "DeepSeek R1 (Reasoning)", "reasoning": true},
-                {"id": "qwen3-coder:latest", "name": "Qwen 3 Coder (Programming)"},
-                {"id": "gpt-oss:latest", "name": "GPT OSS (Coding)"},
-                {"id": "devstral:latest", "name": "Devstral (Coding Agents)"},
-                {"id": "qwen3-vl:latest", "name": "Qwen 3 VL (Vision)", "vision": true},
-                {"id": "llama3.2-vision:latest", "name": "Llama 3.2 Vision", "vision": true},
-                {"id": "mistral:latest", "name": "Mistral 7B (Fast)"},
-                {"id": "phi4:latest", "name": "Phi 4 (Compact)"},
-                {"id": "glm-4.7-flash:latest", "name": "GLM 4.7 Flash (Fast)"},
-                {"id": "tinyllama:latest", "name": "TinyLlama (Ultra Fast)"}
+                {"id": "qwen3.5:latest", "name": "Qwen 3.5 (General)", "recommended": true, "contextWindow": 256000, "maxTokens": 32768, "vision": true, "thinking": true, "family": "qwen", "size": "9b", "diskSize": "6.6GB"},
+                {"id": "qwen3-vl:latest", "name": "Qwen 3 VL (Vision)", "contextWindow": 256000, "maxTokens": 32768, "vision": true, "thinking": true, "family": "qwen", "size": "8b", "diskSize": "6.1GB"},
+                {"id": "qwen3-coder:30b", "name": "Qwen 3 Coder 30B (Programming)", "contextWindow": 256000, "maxTokens": 32768, "family": "qwen", "size": "30b", "diskSize": "19GB"},
+                {"id": "deepseek-r1:latest", "name": "DeepSeek R1 (Reasoning)", "contextWindow": 128000, "maxTokens": 16384, "reasoning": true, "thinking": true, "family": "deepseek", "size": "8b", "diskSize": "5.2GB"},
+                {"id": "deepseek-r1:32b", "name": "DeepSeek R1 32B (Reasoning)", "contextWindow": 128000, "maxTokens": 16384, "reasoning": true, "thinking": true, "family": "deepseek", "size": "32b", "diskSize": "20GB"},
+                {"id": "llama3.1:8b", "name": "Llama 3.1 8B (General)", "contextWindow": 128000, "maxTokens": 8192, "family": "llama", "size": "8b", "diskSize": "4.9GB"},
+                {"id": "granite3.3:8b", "name": "Granite 3.3 (General)", "contextWindow": 128000, "maxTokens": 8192, "family": "granite", "size": "8b", "diskSize": "4.9GB"},
+                {"id": "granite4:3b", "name": "Granite 4 3B (Compact)", "contextWindow": 128000, "maxTokens": 4096, "family": "granite", "size": "3b", "diskSize": "2.1GB"},
+                {"id": "devstral:24b", "name": "Devstral 24B (Code Agents)", "contextWindow": 128000, "maxTokens": 16384, "family": "codestral", "size": "24b", "diskSize": "14GB"},
+                {"id": "gpt-oss:20b", "name": "GPT OSS 20B (Coding)", "contextWindow": 128000, "maxTokens": 16384, "thinking": true, "family": "gpt", "size": "20b", "diskSize": "14GB"},
+                {"id": "nemotron-cascade-2:30b", "name": "Nemotron Cascade 2 30B (Thinking)", "contextWindow": 256000, "maxTokens": 16384, "thinking": true, "family": "nemotron", "size": "30b", "diskSize": "24GB"},
+                {"id": "nemotron-3-nano:4b", "name": "Nemotron 3 Nano 4B (Compact)", "contextWindow": 256000, "maxTokens": 8192, "thinking": true, "family": "nemotron", "size": "4b", "diskSize": "2.8GB"},
+                {"id": "glm-4.7-flash:latest", "name": "GLM 4.7 Flash (Fast)", "contextWindow": 198000, "maxTokens": 8192, "thinking": true, "family": "glm", "size": "30b", "diskSize": "19GB"},
+                {"id": "ministral-3:8b", "name": "Ministral 3 8B (Vision)", "contextWindow": 256000, "maxTokens": 8192, "vision": true, "family": "mistral", "size": "8b", "diskSize": "6.0GB"},
+                {"id": "lfm2:24b", "name": "LFM2 24B (Liquid Foundation)", "contextWindow": 32000, "maxTokens": 8192, "family": "lfm", "size": "24b", "diskSize": "14GB"}
             ]
         },
         "openai": {
@@ -33,13 +52,10 @@
             "api": "openai-completions",
             "supportsModelDiscovery": true,
             "curatedModels": [
-                {"id": "gpt-5.2", "name": "GPT-5.2 (Flagship)", "recommended": true},
-                {"id": "gpt-5-mini", "name": "GPT-5 Mini (Fast)"},
-                {"id": "gpt-5-nano", "name": "GPT-5 Nano (Cheapest)"},
-                {"id": "gpt-4.1", "name": "GPT-4.1 (Non-Reasoning)"},
-                {"id": "gpt-4.1-mini", "name": "GPT-4.1 Mini"},
-                {"id": "gpt-4o", "name": "GPT-4o (Legacy)"},
-                {"id": "gpt-4o-mini", "name": "GPT-4o Mini (Legacy)"}
+                {"id": "gpt-5.4", "name": "GPT-5.4 (Flagship)", "recommended": true, "contextWindow": 1000000, "maxTokens": 128000, "cost": {"input": 2.50, "output": 15.00}, "reasoning": true, "vision": true, "thinking": true, "family": "gpt"},
+                {"id": "gpt-5.4-mini", "name": "GPT-5.4 Mini (Fast)", "contextWindow": 400000, "maxTokens": 128000, "cost": {"input": 0.75, "output": 4.50}, "vision": true, "family": "gpt"},
+                {"id": "gpt-5.4-nano", "name": "GPT-5.4 Nano (Cheapest)", "contextWindow": 400000, "maxTokens": 128000, "cost": {"input": 0.20, "output": 1.25}, "family": "gpt"},
+                {"id": "gpt-4.1", "name": "GPT-4.1 (Non-Reasoning)", "contextWindow": 200000, "maxTokens": 32768, "cost": {"input": 2.00, "output": 8.00}, "family": "gpt"}
             ]
         },
         "anthropic": {
@@ -51,9 +67,9 @@
             "api": "anthropic",
             "supportsModelDiscovery": false,
             "curatedModels": [
-                {"id": "claude-opus-4-6", "name": "Claude Opus 4.6 (Most Intelligent)", "recommended": true},
-                {"id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5 (Balanced)"},
-                {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5 (Fastest)"}
+                {"id": "claude-opus-4-6", "name": "Claude Opus 4.6 (Most Intelligent)", "recommended": true, "contextWindow": 1000000, "maxTokens": 128000, "cost": {"input": 5.00, "output": 25.00}, "reasoning": true, "vision": true, "thinking": true, "family": "claude"},
+                {"id": "claude-sonnet-4-5", "name": "Claude Sonnet 4.5 (Balanced)", "contextWindow": 1000000, "maxTokens": 64000, "cost": {"input": 3.00, "output": 15.00}, "reasoning": true, "vision": true, "thinking": true, "family": "claude"},
+                {"id": "claude-haiku-4-5", "name": "Claude Haiku 4.5 (Fastest)", "contextWindow": 200000, "maxTokens": 64000, "cost": {"input": 1.00, "output": 5.00}, "vision": true, "thinking": true, "family": "claude"}
             ]
         },
         "openrouter": {
@@ -65,10 +81,10 @@
             "api": "openai-completions",
             "supportsModelDiscovery": true,
             "curatedModels": [
-                {"id": "anthropic/claude-opus-4-6", "name": "Claude Opus 4.6 via OpenRouter"},
-                {"id": "openai/gpt-5.2", "name": "GPT-5.2 via OpenRouter"},
-                {"id": "google/gemini-2.5-flash", "name": "Gemini 2.5 Flash via OpenRouter"},
-                {"id": "meta-llama/llama-3.3-70b-instruct", "name": "Llama 3.3 70B via OpenRouter"}
+                {"id": "anthropic/claude-opus-4-6", "name": "Claude Opus 4.6 via OpenRouter", "contextWindow": 1000000, "maxTokens": 128000, "cost": {"input": 5.00, "output": 25.00}, "reasoning": true, "vision": true, "thinking": true, "family": "claude"},
+                {"id": "openai/gpt-5.4", "name": "GPT-5.4 via OpenRouter", "contextWindow": 1000000, "maxTokens": 128000, "cost": {"input": 2.50, "output": 15.00}, "reasoning": true, "vision": true, "thinking": true, "family": "gpt"},
+                {"id": "google/gemini-2.5-flash", "name": "Gemini 2.5 Flash via OpenRouter", "contextWindow": 1000000, "maxTokens": 65536, "cost": {"input": 0.30, "output": 2.50}, "vision": true, "thinking": true, "family": "gemini"},
+                {"id": "meta-llama/llama-3.3-70b-instruct", "name": "Llama 3.3 70B via OpenRouter", "contextWindow": 128000, "maxTokens": 8192, "cost": {"input": 0.40, "output": 0.40}, "family": "llama"}
             ]
         },
         "xai": {
@@ -80,11 +96,11 @@
             "api": "openai-completions",
             "supportsModelDiscovery": true,
             "curatedModels": [
-                {"id": "grok-4", "name": "Grok 4 (Flagship Reasoning)", "recommended": true},
-                {"id": "grok-4-1-fast-reasoning", "name": "Grok 4.1 Fast (Reasoning)"},
-                {"id": "grok-3", "name": "Grok 3 (Previous Gen)"},
-                {"id": "grok-3-mini", "name": "Grok 3 Mini (Fast)"},
-                {"id": "grok-2-vision-1212", "name": "Grok 2 Vision (Image Understanding)", "vision": true}
+                {"id": "grok-4", "name": "Grok 4 (Flagship Reasoning)", "recommended": true, "contextWindow": 2000000, "maxTokens": 131072, "cost": {"input": 2.00, "output": 6.00}, "reasoning": true, "thinking": true, "family": "grok"},
+                {"id": "grok-4-1-fast-reasoning", "name": "Grok 4.1 Fast (Reasoning)", "contextWindow": 2000000, "maxTokens": 131072, "cost": {"input": 0.20, "output": 0.50}, "reasoning": true, "thinking": true, "family": "grok"},
+                {"id": "grok-3", "name": "Grok 3 (Previous Gen)", "contextWindow": 131072, "maxTokens": 32768, "cost": {"input": 3.00, "output": 15.00}, "family": "grok"},
+                {"id": "grok-3-mini", "name": "Grok 3 Mini (Fast)", "contextWindow": 131072, "maxTokens": 32768, "cost": {"input": 0.30, "output": 0.50}, "reasoning": true, "thinking": true, "family": "grok"},
+                {"id": "grok-2-vision-1212", "name": "Grok 2 Vision (Image Understanding)", "contextWindow": 131072, "maxTokens": 8192, "cost": {"input": 2.00, "output": 10.00}, "vision": true, "family": "grok"}
             ]
         },
         "gemini": {
@@ -96,12 +112,12 @@
             "api": "gemini",
             "supportsModelDiscovery": true,
             "curatedModels": [
-                {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro (Flagship)", "recommended": true},
-                {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash (Fast)"},
-                {"id": "gemini-2.5-flash-lite", "name": "Gemini 2.5 Flash Lite (Cheapest)"},
-                {"id": "gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro Preview (Next-gen Flagship)"},
-                {"id": "gemini-3-flash-preview", "name": "Gemini 3 Flash Preview (Next-gen Fast)"},
-                {"id": "gemini-3.1-flash-lite-preview", "name": "Gemini 3.1 Flash Lite Preview (Next-gen Cheapest)"}
+                {"id": "gemini-2.5-pro", "name": "Gemini 2.5 Pro (Flagship)", "recommended": true, "contextWindow": 1000000, "maxTokens": 65536, "cost": {"input": 1.25, "output": 10.00}, "reasoning": true, "vision": true, "thinking": true, "family": "gemini"},
+                {"id": "gemini-2.5-flash", "name": "Gemini 2.5 Flash (Fast)", "contextWindow": 1000000, "maxTokens": 65536, "cost": {"input": 0.30, "output": 2.50}, "vision": true, "thinking": true, "family": "gemini"},
+                {"id": "gemini-2.5-flash-lite", "name": "Gemini 2.5 Flash Lite (Cheapest)", "contextWindow": 1000000, "maxTokens": 65536, "cost": {"input": 0.10, "output": 0.40}, "vision": true, "thinking": true, "family": "gemini"},
+                {"id": "gemini-3.1-pro-preview", "name": "Gemini 3.1 Pro Preview (Next-gen Flagship)", "contextWindow": 1000000, "maxTokens": 65536, "cost": {"input": 2.00, "output": 12.00}, "vision": true, "thinking": true, "family": "gemini"},
+                {"id": "gemini-3-flash-preview", "name": "Gemini 3 Flash Preview (Next-gen Fast)", "contextWindow": 1000000, "maxTokens": 65536, "cost": {"input": 0.50, "output": 3.00}, "vision": true, "thinking": true, "family": "gemini"},
+                {"id": "gemini-3.1-flash-lite-preview", "name": "Gemini 3.1 Flash Lite Preview (Next-gen Cheapest)", "contextWindow": 1000000, "maxTokens": 65536, "cost": {"input": 0.25, "output": 1.50}, "vision": true, "family": "gemini"}
             ]
         },
         "mistral": {
@@ -113,11 +129,13 @@
             "api": "openai-completions",
             "supportsModelDiscovery": true,
             "curatedModels": [
-                {"id": "mistral-large-latest", "name": "Mistral Large (Flagship)", "recommended": true},
-                {"id": "mistral-medium-latest", "name": "Mistral Medium (Balanced)"},
-                {"id": "mistral-small-latest", "name": "Mistral Small (Fast)"},
-                {"id": "codestral-latest", "name": "Codestral (Code Generation)"},
-                {"id": "pixtral-large-latest", "name": "Pixtral Large (Vision)", "vision": true}
+                {"id": "mistral-large-latest", "name": "Mistral Large (Flagship)", "recommended": true, "contextWindow": 256000, "maxTokens": 32768, "cost": {"input": 0.50, "output": 1.50}, "vision": true, "family": "mistral"},
+                {"id": "mistral-medium-latest", "name": "Mistral Medium (Balanced)", "contextWindow": 128000, "maxTokens": 32768, "cost": {"input": 0.40, "output": 2.00}, "vision": true, "family": "mistral"},
+                {"id": "mistral-small-latest", "name": "Mistral Small (Fast)", "contextWindow": 256000, "maxTokens": 32768, "cost": {"input": 0.15, "output": 0.60}, "vision": true, "family": "mistral"},
+                {"id": "codestral-latest", "name": "Codestral (Code Generation)", "contextWindow": 128000, "maxTokens": 32768, "cost": {"input": 0.30, "output": 0.90}, "family": "codestral"},
+                {"id": "devstral-latest", "name": "Devstral (Code Agents)", "contextWindow": 256000, "maxTokens": 32768, "cost": {"input": 0.40, "output": 2.00}, "family": "codestral"},
+                {"id": "magistral-medium-latest", "name": "Magistral Medium (Reasoning)", "contextWindow": 128000, "maxTokens": 32768, "cost": {"input": 2.00, "output": 5.00}, "reasoning": true, "vision": true, "thinking": true, "family": "magistral"},
+                {"id": "magistral-small-latest", "name": "Magistral Small (Reasoning Fast)", "contextWindow": 128000, "maxTokens": 32768, "cost": {"input": 0.50, "output": 1.50}, "reasoning": true, "vision": true, "thinking": true, "family": "magistral"}
             ]
         },
         "minimax": {
@@ -129,9 +147,9 @@
             "api": "openai-completions",
             "supportsModelDiscovery": false,
             "curatedModels": [
-                {"id": "minimax-01", "name": "MiniMax-01 (Flagship)", "recommended": true},
-                {"id": "minimax-text-01", "name": "MiniMax Text 01"},
-                {"id": "abab7-chat-preview", "name": "ABAB 7 Chat (Preview)"}
+                {"id": "minimax-01", "name": "MiniMax-01 (Flagship)", "recommended": true, "contextWindow": 1000000, "maxTokens": 32768, "cost": {"input": 0.40, "output": 1.10}, "family": "minimax"},
+                {"id": "minimax-text-01", "name": "MiniMax Text 01", "contextWindow": 1000000, "maxTokens": 32768, "cost": {"input": 0.20, "output": 0.60}, "family": "minimax"},
+                {"id": "abab7-chat-preview", "name": "ABAB 7 Chat (Preview)", "contextWindow": 1000000, "maxTokens": 32768, "cost": {"input": 0.10, "output": 0.30}, "family": "minimax"}
             ]
         }
     },
@@ -158,7 +176,7 @@
         }
     },
     "defaults": {
-        "model": "ollama/qwen3:latest",
+        "model": "ollama/qwen3.5:latest",
         "workspace": "~/.coqui/.workspace"
     }
 }
