@@ -78,8 +78,11 @@ final class SetupWizard
         // Step 7: Generate API key for HTTP API server
         $this->configureApiKey();
 
-        // Step 8: Build and preview
-        $config = $this->buildConfig($primaryModel, $roles, $workspace);
+        // Step 8: Configure directory mounts
+        $mounts = $this->configureMounts();
+
+        // Build and preview
+        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts);
 
         $this->io->section('Configuration Preview');
         $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -527,15 +530,236 @@ final class SetupWizard
     }
 
     /**
+     * Step 8: Configure directory mounts for agent workspace access.
+     *
+     * Guides the user through adding local directories that the agent can
+     * access via symlinks under workspace/mnt/. Supports adding multiple
+     * mounts with an iterative add/review/edit/remove flow.
+     *
+     * @return array<int, array{path: string, alias: string, access: string, description?: string}>
+     */
+    private function configureMounts(): array
+    {
+        $this->io->section('Step 8: Directory Mounts');
+
+        $this->io->text([
+            'Mounts give the agent access to directories outside the workspace.',
+            'Mounted directories appear under <fg=cyan>workspace/mnt/{alias}</>.',
+            '',
+            '<fg=yellow>Security tips:</>',
+            '  • Only mount directories the agent actually needs',
+            '  • Use <fg=cyan>read-only</> access unless the agent must write files',
+            '  • Avoid mounting directories with sensitive credentials or secrets',
+            '',
+        ]);
+
+        if (!$this->io->confirm('Would you like to mount local directories into the agent\'s workspace?', false)) {
+            return [];
+        }
+
+        /** @var array<int, array{path: string, alias: string, access: string, description?: string}> */
+        $mounts = [];
+
+        // Entry loop — add at least one mount, then optionally more
+        $mounts[] = $this->promptForMount($mounts);
+
+        while ($this->io->confirm('Add another mount?', false)) {
+            $mounts[] = $this->promptForMount($mounts);
+        }
+
+        // Review loop
+        return $this->reviewMounts($mounts);
+    }
+
+    /**
+     * Prompt the user for a single mount entry.
+     *
+     * @param array<int, array{path: string, alias: string, access: string, description?: string}> $existingMounts
+     * @return array{path: string, alias: string, access: string, description?: string}
+     */
+    private function promptForMount(array $existingMounts, ?int $editIndex = null): array
+    {
+        $existingAliases = array_map(fn(array $m): string => $m['alias'], $existingMounts);
+        $defaults = $editIndex !== null ? $existingMounts[$editIndex] : null;
+
+        // If editing, remove the current alias from the uniqueness check
+        if ($editIndex !== null) {
+            $existingAliases = array_values(array_filter(
+                $existingAliases,
+                fn(string $a): bool => $a !== $defaults['alias'],
+            ));
+        }
+
+        // Local path
+        $defaultPath = $defaults['path'] ?? null;
+        $path = '';
+        while (true) {
+            $input = $this->io->ask('Local directory path', $defaultPath);
+            if (!is_string($input) || $input === '') {
+                $this->io->error('A directory path is required.');
+                continue;
+            }
+
+            $validated = $this->validateMountPath($input);
+            if ($validated === null) {
+                $this->io->error("Directory not found: {$input}");
+                continue;
+            }
+
+            $path = $validated;
+            break;
+        }
+
+        // Alias
+        $suggestedAlias = $this->suggestAlias($path, $existingAliases);
+        $defaultAlias = $defaults['alias'] ?? $suggestedAlias;
+        $alias = '';
+        while (true) {
+            $input = $this->io->ask(
+                sprintf('Mount alias (accessible at <fg=cyan>mnt/%s</>)', $defaultAlias),
+                $defaultAlias,
+            );
+            $input = is_string($input) ? trim($input) : '';
+
+            if ($input === '' || str_contains($input, '/') || str_contains($input, '\\')) {
+                $this->io->error('Alias must be a non-empty name without path separators.');
+                continue;
+            }
+
+            if (in_array($input, $existingAliases, true)) {
+                $this->io->error("Alias \"{$input}\" is already in use. Choose a different name.");
+                continue;
+            }
+
+            $alias = $input;
+            break;
+        }
+
+        // Access level
+        $defaultAccess = $defaults['access'] ?? 'ro';
+        $accessChoices = ['Read-only (recommended)', 'Read-write'];
+        $accessDefault = $defaultAccess === 'rw' ? $accessChoices[1] : $accessChoices[0];
+        $accessSelected = $this->io->choice('Access level', $accessChoices, $accessDefault);
+        $access = $accessSelected === 'Read-write' ? 'rw' : 'ro';
+
+        // Description
+        $defaultDesc = $defaults['description'] ?? null;
+        $description = $this->io->ask('Description (optional)', $defaultDesc);
+
+        $mount = [
+            'path' => $path,
+            'alias' => $alias,
+            'access' => $access,
+        ];
+
+        if (is_string($description) && $description !== '') {
+            $mount['description'] = $description;
+        }
+
+        return $mount;
+    }
+
+    /**
+     * Display mount configuration for review and let the user accept, edit, remove, or add more.
+     *
+     * @param array<int, array{path: string, alias: string, access: string, description?: string}> $mounts
+     * @return array<int, array{path: string, alias: string, access: string, description?: string}>
+     */
+    private function reviewMounts(array $mounts): array
+    {
+        while (true) {
+            if ($mounts === []) {
+                $this->io->text('<fg=gray>No mounts configured.</>');
+                return [];
+            }
+
+            $this->io->newLine();
+            $this->io->text('<fg=cyan>Configured mounts:</>');
+
+            $rows = [];
+            foreach (array_values($mounts) as $i => $mount) {
+                $rows[] = [
+                    $i + 1,
+                    $mount['path'],
+                    "mnt/{$mount['alias']}",
+                    $mount['access'] === 'rw' ? 'read-write' : 'read-only',
+                    $mount['description'] ?? '—',
+                ];
+            }
+
+            $this->io->table(['#', 'Path', 'Mount Point', 'Access', 'Description'], $rows);
+
+            $action = $this->io->choice('Mount configuration', [
+                'Accept',
+                'Add another mount',
+                'Edit a mount',
+                'Remove a mount',
+                'Clear all and skip',
+            ], 'Accept');
+
+            switch ($action) {
+                case 'Accept':
+                    return array_values($mounts);
+
+                case 'Add another mount':
+                    $mounts[] = $this->promptForMount($mounts);
+                    break;
+
+                case 'Edit a mount':
+                    $index = $this->selectMountIndex($mounts, 'Which mount to edit?');
+                    if ($index !== null) {
+                        $mounts[$index] = $this->promptForMount($mounts, $index);
+                        $mounts = array_values($mounts);
+                    }
+                    break;
+
+                case 'Remove a mount':
+                    $index = $this->selectMountIndex($mounts, 'Which mount to remove?');
+                    if ($index !== null) {
+                        unset($mounts[$index]);
+                        $mounts = array_values($mounts);
+                        $this->io->text('<fg=gray>Mount removed.</>');
+                    }
+                    break;
+
+                case 'Clear all and skip':
+                    $this->io->text('<fg=gray>Mounts cleared — continuing without mounts.</>');
+                    return [];
+            }
+        }
+    }
+
+    /**
+     * Prompt the user to select a mount by number.
+     *
+     * @param array<int, array{path: string, alias: string, access: string, description?: string}> $mounts
+     */
+    private function selectMountIndex(array $mounts, string $question): ?int
+    {
+        $choices = [];
+        foreach (array_values($mounts) as $i => $mount) {
+            $choices[] = sprintf('%d: %s (mnt/%s)', $i + 1, $mount['path'], $mount['alias']);
+        }
+
+        $selected = $this->io->choice($question, $choices);
+        if (is_string($selected) && preg_match('/^(\d+):/', $selected, $matches)) {
+            return ((int) $matches[1]) - 1;
+        }
+
+        return null;
+    }
+
+    /**
      * Build the final openclaw.json config array.
      *
      * Uses model metadata from discovery/curated data to preserve accurate
      * contextWindow, maxTokens, reasoning, vision, and cost information.
      *
      * @param array<string, string> $roles
+     * @param array<int, array{path: string, alias: string, access: string, description?: string}> $mounts
      * @return array<string, mixed>
      */
-    private function buildConfig(string $primaryModel, array $roles, string $workspace): array
+    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = []): array
     {
         $modelDefinitions = [];
 
@@ -604,15 +828,21 @@ final class SetupWizard
             }
         }
 
+        $defaults = [
+            'workspace' => $workspace,
+            'model' => [
+                'primary' => $primaryModel,
+            ],
+            'roles' => $roles,
+        ];
+
+        if ($mounts !== []) {
+            $defaults['mounts'] = $mounts;
+        }
+
         return [
             'agents' => [
-                'defaults' => [
-                    'workspace' => $workspace,
-                    'model' => [
-                        'primary' => $primaryModel,
-                    ],
-                    'roles' => $roles,
-                ],
+                'defaults' => $defaults,
             ],
             'models' => [
                 'mode' => 'merge',
@@ -632,5 +862,62 @@ final class SetupWizard
         }
 
         return $apiKey;
+    }
+
+    /**
+     * Validate and expand a mount path entered by the user.
+     *
+     * Expands ~ to the home directory, resolves the real path, and checks
+     * that the result is an existing directory.
+     *
+     * @return string|null The expanded absolute path, or null if invalid.
+     */
+    private function validateMountPath(string $path): ?string
+    {
+        $expanded = $path;
+
+        // Expand ~ to home directory
+        if (str_starts_with($expanded, '~/') || $expanded === '~') {
+            $home = HomeDirectory::resolve();
+            $expanded = $home . substr($expanded, 1);
+        }
+
+        // Resolve to absolute path
+        $real = realpath($expanded);
+        if ($real === false || !is_dir($real)) {
+            return null;
+        }
+
+        return $real;
+    }
+
+    /**
+     * Suggest a unique alias derived from a directory path.
+     *
+     * Takes the basename, lowercases it, replaces non-alphanumeric characters
+     * with hyphens, and appends a numeric suffix if the alias is already taken.
+     *
+     * @param string[] $existingAliases Aliases already in use
+     */
+    private function suggestAlias(string $path, array $existingAliases): string
+    {
+        $base = basename($path);
+        $alias = strtolower((string) preg_replace('/[^a-zA-Z0-9-]/', '-', $base));
+        $alias = trim($alias, '-');
+
+        if ($alias === '') {
+            $alias = 'mount';
+        }
+
+        if (!in_array($alias, $existingAliases, true)) {
+            return $alias;
+        }
+
+        $counter = 2;
+        while (in_array("{$alias}-{$counter}", $existingAliases, true)) {
+            $counter++;
+        }
+
+        return "{$alias}-{$counter}";
     }
 }
