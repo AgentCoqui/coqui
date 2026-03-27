@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Utility;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 
 /**
@@ -97,7 +98,7 @@ final class ScheduleValidator
      */
     public static function normalizeMaxIterations(int $value): int
     {
-        return max(1, min($value, 100));
+        return max(1, min($value, CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS));
     }
 
     /**
@@ -105,6 +106,6 @@ final class ScheduleValidator
      */
     public static function normalizeMaxFailures(int $value): int
     {
-        return max(1, min($value, 100));
+        return max(1, min($value, CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS));
     }
 }

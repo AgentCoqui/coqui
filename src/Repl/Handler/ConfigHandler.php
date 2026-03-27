@@ -40,8 +40,9 @@ final class ConfigHandler
     public function runConfigWizard(SymfonyStyle $io): int|true
     {
         $outputPath = $this->boot->configManager()->path();
+        $existingConfig = $this->boot->configManager()->toArray();
         $wizard = new SetupWizard($io, $this->boot->defaultsLoader(), $this->boot->credentialResolver());
-        $saved = $wizard->runAndSave($outputPath);
+        $saved = $wizard->runAndSave($outputPath, $existingConfig !== [] ? $existingConfig : null);
 
         if ($saved && file_exists($outputPath)) {
             if ($io->confirm('Restart now to apply the new configuration?', true)) {

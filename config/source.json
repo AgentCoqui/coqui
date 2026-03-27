@@ -441,9 +441,11 @@
             "path": "src/Config/SetupWizard.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\SetupWizard",
             "layer": "config",
-            "description": "Interactive wizard for building openclaw.json. Steps: select providers → configure each (base URL, API key, model discovery) → assign roles → set primary model → configure workspace. Supports live model discovery via Ollama/OpenAI APIs.",
+            "description": "Interactive wizard for building openclaw.json. Full setup: select providers → configure each (base URL, API key, model discovery) → assign roles → set primary model → child background tasks → workspace → updates → API key → mounts. Section-based editing: presents a menu of editable sections, preserves existing values for unselected sections. Supports live model discovery via Ollama/OpenAI APIs.",
             "methods": [
-                "run(): array — runs the interactive wizard, returns the generated config array"
+                "run(): array — runs the full linear wizard, returns the generated config array",
+                "runEdit(array $existingConfig): array — section-based editing against existing config",
+                "runAndSave(string $outputPath, ?array $existingConfig = null): bool — runs appropriate mode and saves to file"
             ]
         },
         {

@@ -385,7 +385,14 @@ final class AgentRunner
             cancellationToken: $cancellationToken,
             pendingInputProvider: $pendingInputProvider,
             backgroundTaskToolkit: ($enableBackgroundTasks && $this->backgroundTasksEnabled)
-                ? new BackgroundTaskToolkit($this->storage, $sessionId, $this->roleResolver)
+                ? new BackgroundTaskToolkit(
+                    storage: $this->storage,
+                    parentSessionId: $sessionId,
+                    roleResolver: $this->roleResolver,
+                    maxIterationsCap: $this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig
+                        ? $this->config->getBackgroundTaskMaxIterations()
+                        : CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
+                )
                 : null,
             memoryStore: $this->memoryStore,
             memorySummarizer: $this->memorySummarizer,

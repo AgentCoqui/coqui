@@ -12,6 +12,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Api\ScheduleManager;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Utility\ScheduleValidator;
 
@@ -116,11 +117,11 @@ final readonly class ScheduleToolkit implements ToolkitInterface
                 ),
                 new NumberParameter(
                     name: 'max_iterations',
-                    description: 'Max agent iterations per run (1-100, default: 48)',
+                    description: 'Max agent iterations per run (1-' . CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS . ', default: 48)',
                     required: false,
                     integer: true,
                     minimum: 1,
-                    maximum: 100,
+                    maximum: CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
                 ),
                 new StringParameter(
                     name: 'timezone',
@@ -197,11 +198,11 @@ final readonly class ScheduleToolkit implements ToolkitInterface
                 ),
                 new NumberParameter(
                     name: 'max_iterations',
-                    description: 'New max iterations (1-100)',
+                    description: 'New max iterations (1-' . CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS . ')',
                     required: false,
                     integer: true,
                     minimum: 1,
-                    maximum: 100,
+                    maximum: CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
                 ),
             ],
             callback: fn(array $args): ToolResult => $this->executeUpdate($args),

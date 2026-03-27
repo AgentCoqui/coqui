@@ -23,6 +23,7 @@ use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Storage\ArtifactStore;
@@ -358,6 +359,9 @@ final class SpawnAgentTool implements ToolInterface
             $toolkits[] = new BackgroundTaskToolkit(
                 storage: $this->storage,
                 parentSessionId: $this->sessionId,
+                maxIterationsCap: $this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig
+                    ? $this->config->getBackgroundTaskMaxIterations()
+                    : CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
             );
         }
 

@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Config;
 use CarmeloSantana\PHPAgents\Config\ModelDefinition;
 use CarmeloSantana\PHPAgents\Provider\OllamaProvider;
 use CarmeloSantana\PHPAgents\Provider\OpenAICompatibleProvider;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -69,20 +70,23 @@ final class SetupWizard
         // Step 4: Set primary model
         $primaryModel = $this->selectPrimaryModel($roles);
 
-        // Step 5: Configure workspace
+        // Step 5: Child background tasks
+        $childBackgroundTasks = $this->configureChildBackgroundTasks();
+
+        // Step 6: Configure workspace
         $workspace = $this->configureWorkspace();
 
-        // Step 6: Update preferences (ENV-based, not in openclaw.json)
+        // Step 7: Update preferences (ENV-based, not in openclaw.json)
         $this->configureUpdatePreferences();
 
-        // Step 7: Generate API key for HTTP API server
+        // Step 8: Generate API key for HTTP API server
         $this->configureApiKey();
 
-        // Step 8: Configure directory mounts
+        // Step 9: Configure directory mounts
         $mounts = $this->configureMounts();
 
         // Build and preview
-        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts);
+        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks);
 
         $this->io->section('Configuration Preview');
         $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -102,10 +106,17 @@ final class SetupWizard
 
     /**
      * Run the wizard and save the result to a file.
+     *
+     * When an existing config is available, presents a section menu
+     * instead of running the full linear wizard.
+     *
+     * @param array<string, mixed>|null $existingConfig Existing openclaw.json data for section-based editing.
      */
-    public function runAndSave(string $outputPath): bool
+    public function runAndSave(string $outputPath, ?array $existingConfig = null): bool
     {
-        $config = $this->run();
+        $config = ($existingConfig !== null && $existingConfig !== [])
+            ? $this->runEdit($existingConfig)
+            : $this->run();
 
         if ($config === null) {
             return false;
@@ -122,6 +133,174 @@ final class SetupWizard
         $this->io->success("Configuration saved to {$outputPath}");
 
         return true;
+    }
+
+    /**
+     * Run section-based editing against an existing configuration.
+     *
+     * Presents a menu of editable sections. Only the selected sections
+     * run their interactive configure methods; unselected sections
+     * retain their existing values in the output config.
+     *
+     * @param array<string, mixed> $existingConfig The current openclaw.json data.
+     * @return array<string, mixed>|null Returns null if the user aborts.
+     */
+    public function runEdit(array $existingConfig): ?array
+    {
+        $this->io->title('Coqui Configuration Editor');
+        $this->io->text([
+            'Select which sections to reconfigure. Unselected sections keep their current values.',
+            '',
+        ]);
+
+        $sections = [
+            'providers' => 'Providers & Models (providers, model discovery, role assignments, primary model)',
+            'child_bg'  => 'Child Background Tasks (allow child agents to spawn background tasks)',
+            'workspace' => 'Workspace Directory',
+            'updates'   => 'Update Preferences (check/auto-update on startup)',
+            'api_key'   => 'API Server Key',
+            'mounts'    => 'Directory Mounts',
+        ];
+
+        $selected = $this->io->choice(
+            'Which sections do you want to edit? (comma-separated for multiple)',
+            array_values($sections),
+            null,
+        );
+
+        // Normalize to array — Symfony choice returns string for single, but we allow comma-separated
+        $selectedValues = is_array($selected) ? $selected : [$selected];
+        $selectedKeys = [];
+        $flipped = array_flip($sections);
+        foreach ($selectedValues as $val) {
+            if (isset($flipped[$val])) {
+                $selectedKeys[] = $flipped[$val];
+            }
+        }
+
+        if ($selectedKeys === []) {
+            $this->io->info('No sections selected. Configuration unchanged.');
+            return null;
+        }
+
+        $defaults = $existingConfig['agents']['defaults'] ?? [];
+
+        // --- Providers & Models ---
+        if (in_array('providers', $selectedKeys, true)) {
+            $selectedProviders = $this->selectProviders();
+            if (empty($selectedProviders)) {
+                $this->io->warning('No providers selected. Aborting.');
+                return null;
+            }
+
+            foreach ($selectedProviders as $provider) {
+                $this->configureProvider($provider);
+            }
+
+            if (empty($this->availableModels)) {
+                $this->io->warning('No models available. Check your provider configuration.');
+                return null;
+            }
+
+            $roles = $this->assignRoles();
+            $primaryModel = $this->selectPrimaryModel($roles);
+        } else {
+            $roles = is_array($defaults['roles'] ?? null) ? $defaults['roles'] : [];
+            $primaryModel = is_string($defaults['model']['primary'] ?? null) ? $defaults['model']['primary'] : '';
+        }
+
+        // --- Child Background Tasks ---
+        if (in_array('child_bg', $selectedKeys, true)) {
+            $childBackgroundTasks = $this->configureChildBackgroundTasks();
+        } else {
+            $childBackgroundTasks = !empty($defaults['childBackgroundTasks']);
+        }
+
+        // --- Workspace ---
+        if (in_array('workspace', $selectedKeys, true)) {
+            $workspace = $this->configureWorkspace();
+        } else {
+            $workspace = is_string($defaults['workspace'] ?? null) ? $defaults['workspace'] : $this->defaults->defaultWorkspace();
+        }
+
+        // --- Updates (ENV-based, no config output) ---
+        if (in_array('updates', $selectedKeys, true)) {
+            $this->configureUpdatePreferences();
+        }
+
+        // --- API Key (ENV-based, no config output) ---
+        if (in_array('api_key', $selectedKeys, true)) {
+            $this->configureApiKey();
+        }
+
+        // --- Mounts ---
+        if (in_array('mounts', $selectedKeys, true)) {
+            $mounts = $this->configureMounts();
+        } else {
+            $mounts = is_array($defaults['mounts'] ?? null) ? $defaults['mounts'] : [];
+        }
+
+        // Build the new config, merging with existing for non-edited sections
+        $config = $this->buildEditedConfig($existingConfig, $primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, in_array('providers', $selectedKeys, true));
+
+        $this->io->section('Configuration Preview');
+        $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        if ($json === false) {
+            $json = '{}';
+        }
+        $this->io->writeln($json);
+        $this->io->newLine();
+
+        if (!$this->io->confirm('Save this configuration?', true)) {
+            $this->io->warning('Configuration not saved.');
+            return null;
+        }
+
+        return $config;
+    }
+
+    /**
+     * Build a config array for section-based editing, preserving unedited sections.
+     *
+     * @param array<string, mixed> $existingConfig
+     * @param array<string, string> $roles
+     * @param array<int, array{path: string, alias: string, access: string, description?: string}> $mounts
+     * @return array<string, mixed>
+     */
+    private function buildEditedConfig(
+        array $existingConfig,
+        string $primaryModel,
+        array $roles,
+        string $workspace,
+        array $mounts,
+        bool $childBackgroundTasks,
+        bool $providersEdited,
+    ): array {
+        $config = $existingConfig;
+
+        // Update defaults
+        $config['agents']['defaults']['workspace'] = $workspace;
+        $config['agents']['defaults']['model']['primary'] = $primaryModel;
+        $config['agents']['defaults']['roles'] = $roles;
+
+        if ($childBackgroundTasks) {
+            $config['agents']['defaults']['childBackgroundTasks'] = true;
+        } else {
+            unset($config['agents']['defaults']['childBackgroundTasks']);
+        }
+
+        if ($mounts !== []) {
+            $config['agents']['defaults']['mounts'] = $mounts;
+        } else {
+            unset($config['agents']['defaults']['mounts']);
+        }
+
+        // Only rebuild the models section when providers were re-configured
+        if ($providersEdited) {
+            $config['models'] = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks)['models'];
+        }
+
+        return $config;
     }
 
     /**
@@ -427,11 +606,33 @@ final class SetupWizard
     }
 
     /**
-     * Step 5: Configure the workspace directory.
+     * Step 5: Configure child agent background task spawning.
+     */
+    private function configureChildBackgroundTasks(): bool
+    {
+        $this->io->section('Step 5: Child Background Tasks');
+
+        $this->io->text([
+            'Child agents (spawned via <fg=cyan>spawn_agent</>) can optionally create background tasks.',
+            'This enables powerful autonomous workflows where delegated agents can kick off',
+            'long-running work independently.',
+            '',
+            '<fg=yellow>Risks:</>',
+            '  • A child agent could spawn background tasks that spawn more child agents',
+            '  • Each background task is capped at <fg=cyan>' . CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS . ' iterations</> for safety',
+            '  • Background tasks spawned from within a background task cannot spawn further tasks',
+            '',
+        ]);
+
+        return $this->io->confirm('Allow child agents to spawn background tasks?', false);
+    }
+
+    /**
+     * Step 6: Configure the workspace directory.
      */
     private function configureWorkspace(): string
     {
-        $this->io->section('Step 5: Workspace');
+        $this->io->section('Step 6: Workspace');
 
         $default = $this->defaults->defaultWorkspace();
 
@@ -459,11 +660,11 @@ final class SetupWizard
     }
 
     /**
-     * Step 6: Configure update preferences (stored as ENV vars, not in openclaw.json).
+     * Step 7: Configure update preferences (stored as ENV vars, not in openclaw.json).
      */
     private function configureUpdatePreferences(): void
     {
-        $this->io->section('Step 6: Updates');
+        $this->io->section('Step 7: Updates');
 
         $this->io->text('Coqui can check for dependency updates on startup and optionally apply them automatically.');
 
@@ -485,7 +686,7 @@ final class SetupWizard
     }
 
     /**
-     * Step 7: Generate an API key for the HTTP API server.
+     * Step 8: Generate an API key for the HTTP API server.
      *
      * The key is stored in the workspace .env file via CredentialResolver.
      * Required for running `coqui api` — the server refuses to start
@@ -500,7 +701,7 @@ final class SetupWizard
             return;
         }
 
-        $this->io->section('Step 7: API Server Key');
+        $this->io->section('Step 8: API Server Key');
 
         $this->io->text([
             'The HTTP API server requires an API key for authentication.',
@@ -530,7 +731,7 @@ final class SetupWizard
     }
 
     /**
-     * Step 8: Configure directory mounts for agent workspace access.
+     * Step 9: Configure directory mounts for agent workspace access.
      *
      * Guides the user through adding local directories that the agent can
      * access via symlinks under workspace/mnt/. Supports adding multiple
@@ -540,7 +741,7 @@ final class SetupWizard
      */
     private function configureMounts(): array
     {
-        $this->io->section('Step 8: Directory Mounts');
+        $this->io->section('Step 9: Directory Mounts');
 
         $this->io->text([
             'Mounts give the agent access to directories outside the workspace.',
@@ -759,7 +960,7 @@ final class SetupWizard
      * @param array<int, array{path: string, alias: string, access: string, description?: string}> $mounts
      * @return array<string, mixed>
      */
-    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = []): array
+    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $childBackgroundTasks = false): array
     {
         $modelDefinitions = [];
 
@@ -835,6 +1036,10 @@ final class SetupWizard
             ],
             'roles' => $roles,
         ];
+
+        if ($childBackgroundTasks) {
+            $defaults['childBackgroundTasks'] = true;
+        }
 
         if ($mounts !== []) {
             $defaults['mounts'] = $mounts;
