@@ -15,16 +15,22 @@ use CoquiBot\Coqui\Contract\CredentialResolverInterface;
  * Each tool returned by the inner toolkit is wrapped in a CredentialGuardTool
  * that checks credential availability before execution. The guidelines are
  * augmented with credential status information.
+ *
+ * When childMode is enabled, error messages and guidelines are adjusted to
+ * reflect that the agent cannot set credentials directly — it should report
+ * missing credentials back to the parent agent.
  */
 final class CredentialGuardToolkit implements ToolkitInterface
 {
     /**
      * @param CredentialRequirement[] $requirements
+     * @param bool $childMode When true, wraps tools with child-aware error messages
      */
     public function __construct(
         private readonly ToolkitInterface $inner,
         private readonly array $requirements,
         private readonly CredentialResolverInterface $resolver,
+        private readonly bool $childMode = false,
     ) {}
 
     /**
@@ -37,6 +43,7 @@ final class CredentialGuardToolkit implements ToolkitInterface
                 inner: $tool,
                 requirements: $this->requirements,
                 resolver: $this->resolver,
+                childMode: $this->childMode,
             ),
             $this->inner->tools(),
         );
@@ -83,6 +90,8 @@ final class CredentialGuardToolkit implements ToolkitInterface
 
         if ($allConfigured) {
             $block .= "All required credentials are configured.\n";
+        } elseif ($this->childMode) {
+            $block .= "Some credentials are MISSING. You cannot set credentials directly — report missing credentials back to the parent agent.\n";
         } else {
             $block .= "Some credentials are MISSING. Use the `credentials` tool to set them before using these tools.\n";
         }
