@@ -7,6 +7,7 @@ vendor/
 .php-cs-fixer.cache
 psalm.xml.cache
 phpstan.neon.cache
+*.php.bak
 
 # =============================================================================
 # Environment & Secrets
