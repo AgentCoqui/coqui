@@ -757,7 +757,7 @@ while (true) {
         console.log(`Response: ${data.content}`);
         break;
       case 'complete':
-        console.log(`Tokens: ${data.total_tokens}, Duration: ${data.duration_ms}ms`);
+        console.log(`Tokens: ${data.total_tokens}, Duration ${data.duration_ms}ms`);
         break;
     }
   }
