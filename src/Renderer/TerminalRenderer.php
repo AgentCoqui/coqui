@@ -41,7 +41,8 @@ public function render(AgentTurnResult $result, bool $contentStreamed = false): 
 
         if (!$contentStreamed) {
             $this->io->writeln('<fg=green>Assistant:</>');
-            $this->io->writeln($result->content);
+            $rendered = MarkdownRenderer::render($result->content);
+            $this->io->write($rendered);
         }
 
         $this->io->newLine();

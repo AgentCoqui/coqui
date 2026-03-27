@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
@@ -201,7 +202,7 @@ final class SlashCommandRouter
         $role = $activeRole !== 'orchestrator' ? $activeRole : null;
         $preview = $this->agentRunner->buildPromptPreview($role);
         $io->section('System Prompt');
-        $io->writeln($preview['prompt']);
+        $io->write(MarkdownRenderer::render($preview['prompt']));
         $io->newLine();
         $io->text([
             '<fg=gray>Tool count:</> ' . $preview['tool_count'],
