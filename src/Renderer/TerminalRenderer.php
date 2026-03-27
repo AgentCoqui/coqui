@@ -17,6 +17,7 @@ final class TerminalRenderer implements OutputRendererInterface
 {
     public function __construct(
         private readonly SymfonyStyle $io,
+        private readonly bool $showHints = true,
     ) {}
 
 public function render(AgentTurnResult $result, bool $contentStreamed = false): void
@@ -61,6 +62,15 @@ public function render(AgentTurnResult $result, bool $contentStreamed = false): 
                 $result->toolsUsed,
             );
             $this->io->writeln('<fg=gray>  • Tools: </>' . implode('<fg=gray>, </>', $yellowTools));
+        }
+
+        // Context usage progress bar
+        if ($result->contextUsage !== null) {
+            ContextUsageBar::render(
+                io: $this->io,
+                snapshot: $result->contextUsage,
+                showLegend: $this->showHints,
+            );
         }
     }
 

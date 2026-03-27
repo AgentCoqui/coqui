@@ -870,7 +870,7 @@
             "path": "src/Renderer/TerminalRenderer.php",
             "fqcn": "CoquiBot\\Coqui\\Renderer\\TerminalRenderer",
             "layer": "observer",
-            "description": "OutputRendererInterface implementation that renders AgentTurnResult to SymfonyStyle terminal output. Shows 'Assistant:' header, content, and stats summary.",
+            "description": "OutputRendererInterface implementation that renders AgentTurnResult to SymfonyStyle terminal output. Shows content, stats summary (iterations, tokens, tools), and context usage progress bar. Respects hints toggle for legend visibility.",
             "methods": [
                 "render(AgentTurnResult $result): void",
                 "renderError(string $message): void"
@@ -894,6 +894,47 @@
             "methods": [
                 "render(AgentTurnResult $result): void — no-op",
                 "renderError(string $message): void — no-op"
+            ]
+        },
+        {
+            "path": "src/Renderer/ProgressBarSegment.php",
+            "fqcn": "CoquiBot\\Coqui\\Renderer\\ProgressBarSegment",
+            "layer": "observer",
+            "description": "Immutable value object representing a single colored segment of a progress bar. Each segment has a label, a numeric value, and a Symfony Console style tag for coloring.",
+            "methods": []
+        },
+        {
+            "path": "src/Renderer/ProgressBar.php",
+            "fqcn": "CoquiBot\\Coqui\\Renderer\\ProgressBar",
+            "layer": "observer",
+            "description": "Generic terminal progress bar renderer with colored proportional segments. Renders Unicode block characters with each segment styled via Symfony Console tags. Supports configurable width, percentage labels, and legend rows. Designed for context window usage, sprint progress, and other visualizations.",
+            "methods": [
+                "render(SymfonyStyle $io, int|float $total, array $segments, ...): void — render progress bar to terminal",
+                "build(int|float $total, array $segments, ...): string — build bar as styled string",
+                "buildLegend(array $segments, string $emptyStyle): string — build legend row with category labels"
+            ]
+        },
+        {
+            "path": "src/Renderer/ContextUsageBar.php",
+            "fqcn": "CoquiBot\\Coqui\\Renderer\\ContextUsageBar",
+            "layer": "observer",
+            "description": "Bridge between agent data model (Conversation, ContextWindow) and the generic ProgressBar renderer. Categorizes messages by role, detects summary messages via [CONVERSATION SUMMARY] marker, estimates per-category token usage, and delegates to ProgressBar for rendering.",
+            "methods": [
+                "buildSnapshot(Conversation, ?ContextWindowInterface): ContextUsageSnapshot — categorize messages and build usage snapshot",
+                "render(SymfonyStyle $io, ContextUsageSnapshot $snapshot, bool $showLegend, int $width): void — render context usage bar"
+            ]
+        },
+        {
+            "path": "src/Contract/ContextUsageSnapshot.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ContextUsageSnapshot",
+            "layer": "contract",
+            "description": "Immutable snapshot of context window usage broken down by message category (system, user, assistant, tool, summary). Built from conversation messages and context window limits. Converts to ProgressBarSegment[] with predefined colors for rendering.",
+            "methods": [
+                "effectiveBudget(): int — max tokens minus reserved",
+                "availableTokens(): int — remaining budget",
+                "toSegments(): ProgressBarSegment[] — convert breakdown to colored segments",
+                "formatMaxTokens(): string — human-readable token count (e.g. 128K, 1M)",
+                "toArray(): array — serialize for JSON"
             ]
         },
         {
