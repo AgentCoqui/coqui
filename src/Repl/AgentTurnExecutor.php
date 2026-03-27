@@ -94,8 +94,7 @@ final class AgentTurnExecutor
         }
 
         // Render output
-        $hintsEnabled = (bool) $this->boot->config()->get('agents.defaults.hints', true);
-        $renderer = new TerminalRenderer($io, showHints: $hintsEnabled);
+        $renderer = new TerminalRenderer($io, showHints: fn(): bool => (bool) $this->boot->config()->get('agents.defaults.hints', true));
         $renderer->render($result, contentStreamed: true);
 
         // Generate session title on first turn (best-effort)

@@ -102,7 +102,7 @@ final class ContextUsageBar
         $bar = new ProgressBar($width);
         $total = $snapshot->effectiveBudget();
         $segments = $snapshot->toSegments();
-        $label = sprintf('<fg=gray>Context</> <fg=gray>[%s]</>', $snapshot->formatMaxTokens());
+        $label = sprintf('<fg=gray>• Context</> <fg=gray>[%s]</>', $snapshot->formatMaxTokens());
 
         $bar->render(
             io: $io,
