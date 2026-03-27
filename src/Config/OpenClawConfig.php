@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PHPAgents\Config\ModelDefinition;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Exception\ConfigNotFoundException;
 
 final class OpenClawConfig implements ConfigInterface
@@ -132,6 +133,23 @@ final class OpenClawConfig implements ConfigInterface
         $model = $this->get('agents.defaults.imageModel.primary');
 
         return is_string($model) ? $model : null;
+    }
+
+    /**
+     * Get the maximum iteration cap for background tasks.
+     *
+     * This is a per-task safety limit that prevents any single background
+     * task from running indefinitely. Configurable via openclaw.json.
+     */
+    public function getBackgroundTaskMaxIterations(): int
+    {
+        $value = $this->get('agents.defaults.backgroundTaskMaxIterations');
+
+        if (is_int($value) && $value >= 1) {
+            return $value;
+        }
+
+        return CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS;
     }
 
     public function getProviderConfig(string $provider): array
