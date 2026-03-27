@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
 /**
@@ -27,11 +28,16 @@ use CoquiBot\Coqui\Storage\SessionStorage;
  */
 final readonly class BackgroundTaskToolkit implements ToolkitInterface
 {
+    private int $maxIterationsCap;
+
     public function __construct(
         private SessionStorage $storage,
         private string $parentSessionId,
         private ?RoleResolver $roleResolver = null,
-    ) {}
+        int $maxIterationsCap = CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
+    ) {
+        $this->maxIterationsCap = max(1, $maxIterationsCap);
+    }
 
     public function tools(): array
     {
@@ -100,11 +106,11 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
                 ),
                 new NumberParameter(
                     name: 'max_iterations',
-                    description: 'Maximum number of agent iterations (1-100, default: 25)',
+                    description: sprintf('Maximum number of agent iterations (1-%d, default: 25)', $this->maxIterationsCap),
                     required: false,
                     integer: true,
                     minimum: 1,
-                    maximum: 100,
+                    maximum: $this->maxIterationsCap,
                 ),
             ],
             callback: fn(array $args): ToolResult => $this->executeStartTask($args),
@@ -213,7 +219,7 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
 
         $role = trim((string) ($args['role'] ?? 'orchestrator'));
         $maxIterations = (int) ($args['max_iterations'] ?? ($this->roleResolver?->resolveMaxIterations($role) ?? 25));
-        $maxIterations = max(1, min($maxIterations, 100));
+        $maxIterations = max(1, min($maxIterations, $this->maxIterationsCap));
 
         // Create a dedicated session for the task
         $model = 'background-task'; // Resolved at runtime by TaskRunCommand

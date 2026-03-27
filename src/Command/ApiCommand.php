@@ -91,8 +91,7 @@ final class ApiCommand extends Command
             ? $input->getOption('cors-origin')
             : '*';
 
-        $output->writeln('<info>Coqui API Server</info>');
-        $output->writeln('');
+        $output->writeln('<info>Coqui API Server is running!</info>');
 
         // Boot sequence (headless — no SymfonyStyle)
         $configOption = $input->getOption('config');
@@ -337,11 +336,11 @@ final class ApiCommand extends Command
             Loop::addSignal(SIGINT, $shutdownHandler);
         }
 
+        $output->writeln('');
         $output->writeln(sprintf('Listening on <info>http://%s</info>', $listenAddress));
         $output->writeln(sprintf('Project root: <fg=gray>%s</>', $workDir));
         $output->writeln(sprintf('Workspace: <fg=gray>%s</>', $boot->workspacePath()));
-        $output->writeln(sprintf('Model: <fg=gray>%s</>', $boot->roleResolver()->resolve('orchestrator')));
-        $output->writeln(sprintf('Auth: <fg=gray>%s</>', $apiKey !== null ? 'API key required' : 'none'));
+        $output->writeln(sprintf('PID: <fg=gray>%s</>', getmypid()));
         $output->writeln('');
 
         if ($unsafeMode) {

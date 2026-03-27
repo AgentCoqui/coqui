@@ -1,0 +1,176 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CoquiBot\Coqui\Repl\Handler;
+
+use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Repl\TimeFormatter;
+use CoquiBot\Coqui\Storage\SessionStorage;
+use Symfony\Component\Console\Style\SymfonyStyle;
+
+/**
+ * Handles /new, /history, /sessions, /resume, /model slash commands.
+ */
+final class SessionHandler
+{
+    private const SESSION_FILE = '.coqui-session';
+
+    public function __construct(
+        private readonly BootManager $boot,
+        private readonly SessionStorage $storage,
+    ) {}
+
+    public function createNewSession(): string
+    {
+        $modelString = $this->boot->roleResolver()->resolve('orchestrator');
+        $sessionId = $this->storage->createSession('orchestrator', $modelString);
+        $this->saveSessionFile($sessionId);
+
+        return $sessionId;
+    }
+
+    public function loadOrCreateSession(SymfonyStyle $io): string
+    {
+        $sessionFile = $this->boot->workspacePath() . '/' . self::SESSION_FILE;
+        if (file_exists($sessionFile)) {
+            $fileContent = file_get_contents($sessionFile);
+            if ($fileContent !== false) {
+                $sessionId = trim($fileContent);
+                if ($this->storage->getSession($sessionId) !== null) {
+                    $io->info('Resumed previous session: ' . substr($sessionId, 0, 8) . '...');
+                    return $sessionId;
+                }
+            }
+        }
+
+        $latestId = $this->storage->getLatestSessionId();
+        if ($latestId !== null) {
+            $this->saveSessionFile($latestId);
+            $io->info('Resumed latest session: ' . substr($latestId, 0, 8) . '...');
+            return $latestId;
+        }
+
+        $sessionId = $this->createNewSession();
+        $io->info('Created new session: ' . substr($sessionId, 0, 8) . '...');
+
+        return $sessionId;
+    }
+
+    public function saveSessionFile(?string $sessionId = null): void
+    {
+        if ($sessionId === null) {
+            return;
+        }
+        $sessionFile = $this->boot->workspacePath() . '/' . self::SESSION_FILE;
+        file_put_contents($sessionFile, $sessionId);
+    }
+
+    public function restoreActiveRoleFromSession(string $sessionId): ?string
+    {
+        $session = $this->storage->getSession($sessionId);
+        if ($session === null) {
+            return null;
+        }
+
+        $storedRole = (string) ($session['model_role'] ?? 'orchestrator');
+        if ($storedRole !== '' && $storedRole !== 'orchestrator') {
+            return $storedRole;
+        }
+
+        return null;
+    }
+
+    public function showHistory(SymfonyStyle $io, string $sessionId): void
+    {
+        $messages = $this->storage->getMessages($sessionId);
+
+        if (empty($messages)) {
+            $io->info('No messages in this session.');
+            return;
+        }
+
+        $io->section('Conversation History');
+
+        foreach ($messages as $msg) {
+            $role = ucfirst($msg['role']);
+            $content = $msg['content'];
+
+            if (strlen($content) > 200) {
+                $content = substr($content, 0, 197) . '...';
+            }
+
+            $color = match ($msg['role']) {
+                'user' => 'cyan',
+                'assistant' => 'green',
+                'system' => 'yellow',
+                default => 'gray',
+            };
+
+            $io->writeln("<fg={$color}>{$role}:</> {$content}");
+        }
+    }
+
+    public function listSessions(SymfonyStyle $io, string $currentSessionId): void
+    {
+        $sessions = $this->storage->listSessions(20);
+
+        if (empty($sessions)) {
+            $io->info('No sessions found.');
+            return;
+        }
+
+        $rows = [];
+        foreach ($sessions as $session) {
+            $isCurrent = $session['id'] === $currentSessionId ? ' (current)' : '';
+            $title = isset($session['title']) && $session['title'] !== ''
+                ? ' — ' . $session['title']
+                : '';
+            $rows[] = [
+                $session['id'] . $isCurrent . $title,
+                $session['model_role'],
+                $session['token_count'],
+                TimeFormatter::timeSince($session['updated_at']),
+            ];
+        }
+
+        $io->table(['ID', 'Role', 'Tokens', 'Updated'], $rows);
+    }
+
+    public function showModelInfo(SymfonyStyle $io, string $role = ''): void
+    {
+        if ($role !== '') {
+            $model = $this->boot->roleResolver()->resolve($role);
+            $io->writeln("<fg=gray>{$role}:</> {$model}");
+            return;
+        }
+
+        $io->section('Model Configuration');
+        $roles = $this->boot->roleResolver()->toArray();
+
+        $rows = [];
+        foreach ($roles as $r => $m) {
+            $rows[] = [$r, $m['model'] ?? ''];
+        }
+
+        $io->table(['Role', 'Model'], $rows);
+    }
+
+    public function resume(SymfonyStyle $io, string $arg): ?string
+    {
+        if ($arg === '') {
+            $io->error('Usage: /resume <session-id>');
+            return null;
+        }
+
+        $session = $this->storage->getSession($arg);
+        if ($session === null) {
+            $io->error("Session not found: {$arg}");
+            return null;
+        }
+
+        $this->saveSessionFile($arg);
+        $io->success('Resumed session: ' . $arg);
+        return $arg;
+    }
+}
