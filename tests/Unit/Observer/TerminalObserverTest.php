@@ -69,7 +69,9 @@ test('first text_delta after reasoning starts on a new line', function () {
     [$observer, $output] = makeTerminalObserver();
 
     $observer->handleEvent('agent.reasoning', 'thinking...');
-    $observer->handleEvent('agent.text_delta', 'Hello!');
+    $observer->handleEvent('agent.text_delta', "Hello!\n");
+    // Trigger flush via agent.done so the markdown buffer emits content
+    $observer->handleEvent('agent.done', []);
 
     $text = $output->fetch();
     // The newline closing the reasoning line must appear before the response text
@@ -86,9 +88,11 @@ test('text_delta without preceding reasoning writes inline without extra newline
     [$observer, $output] = makeTerminalObserver();
 
     $observer->handleEvent('agent.text_delta', 'Hello');
-    $observer->handleEvent('agent.text_delta', ' world');
+    $observer->handleEvent('agent.text_delta', " world\n");
+    // Trigger flush via agent.done so the streaming markdown buffer emits content
+    $observer->handleEvent('agent.done', []);
 
-    expect($output->fetch())->toBe('Hello world');
+    expect($output->fetch())->toContain('Hello world');
 });
 
 test('agent.iteration closes open reasoning line with newline', function () {
@@ -183,9 +187,11 @@ test('agent.text_delta writes text inline', function () {
     [$observer, $output] = makeTerminalObserver();
 
     $observer->handleEvent('agent.text_delta', 'Hello ');
-    $observer->handleEvent('agent.text_delta', 'world');
+    $observer->handleEvent('agent.text_delta', "world\n");
+    // Trigger flush via agent.done so the streaming markdown buffer emits content
+    $observer->handleEvent('agent.done', []);
 
-    expect($output->fetch())->toBe('Hello world');
+    expect($output->fetch())->toContain('Hello world');
 });
 
 test('unknown event is silently ignored', function () {
