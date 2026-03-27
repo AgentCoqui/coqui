@@ -533,6 +533,8 @@ Coqui supports structured planning and implementation handoffs via the artifact 
 
 `SpawnAgentTool::buildToolkits()` injects `ArtifactToolkit` into every child agent (regardless of access level). The toolkit uses the parent's `sessionId`, so all artifacts created by the orchestrator, plan agent, or coder are visible to each other within the same session.
 
+Child agents with `full` access level also receive: auto-discovered toolkits from installed packages, `MemoryToolkit`, `SkillToolkit`, `PhpExecuteTool`, and `VisionTool`. Non-full access levels receive `SkillToolkit` (except `minimal`). All toolkits are subject to role-based toolkit filtering via the child role's `toolkits:` frontmatter field.
+
 ### Built-in Roles for Planning
 
 | Role       | Access Level     | Purpose                                              |
@@ -550,7 +552,7 @@ Coqui supports structured planning and implementation handoffs via the artifact 
 | `config/roles/explorer.md`     | Explorer role for focused read-only codebase investigation         |
 | `src/Toolkit/ArtifactToolkit.php` | Agent-facing CRUD tools for versioned artifacts                 |
 | `src/Storage/ArtifactStore.php`   | SQLite-backed artifact persistence with version history          |
-| `src/Tool/SpawnAgentTool.php`     | Injects ArtifactToolkit into child agents for session-shared access |
+| `src/Tool/SpawnAgentTool.php`     | Injects ArtifactToolkit, MemoryToolkit, SkillToolkit, discovered toolkits, and standalone tools into child agents |
 
 ## Todo System Architecture
 
@@ -1042,7 +1044,8 @@ Add mounts to `openclaw.json`:
 
 - **Default read-only.** Mounts default to `ro` unless explicitly set to `rw`.
 - **Orchestrator** gets the declared access level (`ro` or `rw`) for each mount.
-- **Child agents** (spawned via `spawn_agent`) always get read-only access to mounts, regardless of the mount's declared access level.
+- **Full-access child agents** (spawned via `spawn_agent` with `access_level: full`) get the same mount permissions as the orchestrator — respecting the declared `ro`/`rw` per mount.
+- **Non-full child agents** (`readonly`, `readonly-shell`, `minimal`) get read-only access to all mounts, regardless of the mount's declared access level.
 - **PhpExecuteTool** includes mount paths in `open_basedir` so PHP subprocesses can access them.
 - **Write protection** is enforced at the `FilesystemToolkit` level — `write_file`, `create_directory`, and `delete_file` check `isReadOnlyMountPath()` before executing.
 

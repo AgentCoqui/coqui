@@ -15,13 +15,20 @@ use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
 use CoquiBot\Coqui\Agent\PlanTodoGenerator;
+use CoquiBot\Coqui\Agent\VisionAnalyzer;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleToolkitResolver;
+use CoquiBot\Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Config\SkillDiscovery;
+use CoquiBot\Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
+use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
+use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\TodoToolkit;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -49,6 +56,7 @@ final class SpawnAgentTool implements ToolInterface
 
     private int $currentIteration = 0;
     private int $childRunCount = 0;
+    private ?VisionAnalyzer $visionAnalyzer = null;
 
     /**
      * @param array<string> $shellAllowedCommands
@@ -65,6 +73,10 @@ final class SpawnAgentTool implements ToolInterface
         private readonly ?MountManager $mountManager = null,
         private readonly array $shellAllowedCommands = self::DEFAULT_CHILD_SHELL_COMMANDS,
         private readonly ?ProjectStore $projectStore = null,
+        private readonly ?ToolkitDiscovery $discovery = null,
+        private readonly ?MemoryStore $memoryStore = null,
+        private readonly ?SkillDiscovery $skillDiscovery = null,
+        private readonly ?ScriptSanitizer $sanitizer = null,
     ) {}
 
     public function name(): string
@@ -197,8 +209,12 @@ final class SpawnAgentTool implements ToolInterface
     {
         $accessLevel = $this->resolveAccessLevel($role);
 
-        // Child agents get read-only mount access regardless of role access level
-        $mountPaths = $this->mountManager?->allowedPathsReadOnly() ?? [];
+        // Full-access children get the same mount permissions as the orchestrator.
+        // Non-full access levels are forced to read-only mount access.
+        $mountPaths = match ($accessLevel) {
+            'full' => $this->mountManager?->allowedPaths() ?? [],
+            default => $this->mountManager?->allowedPathsReadOnly() ?? [],
+        };
 
         $toolkits = match ($accessLevel) {
             'full' => [
@@ -229,6 +245,16 @@ final class SpawnAgentTool implements ToolInterface
             // 'minimal' — no toolkits
             default => [],
         };
+
+        // Memory toolkit — gives child agents access to persistent cross-session memory.
+        if ($this->memoryStore !== null && $accessLevel === 'full') {
+            $toolkits[] = new MemoryToolkit($this->memoryStore);
+        }
+
+        // Skill toolkit — gives child agents access to discovered Agent Skills.
+        if ($this->skillDiscovery !== null && $accessLevel !== 'minimal') {
+            $toolkits[] = new SkillToolkit($this->skillDiscovery);
+        }
 
         // Artifact toolkit — share parent session's artifacts with child agents.
         // Non-full access levels get read-only artifact access (no delete).
@@ -272,6 +298,33 @@ final class SpawnAgentTool implements ToolInterface
                 $todoStore,
                 $this->sessionId,
             );
+        }
+
+        // PHP execution tool — available to full-access child agents.
+        if ($accessLevel === 'full' && $this->sanitizer !== null) {
+            $toolkits[] = new \CoquiBot\Coqui\Toolkit\SingleToolToolkit(
+                new PhpExecuteTool(
+                    projectRoot: $this->projectRoot,
+                    workspacePath: $this->workspacePath,
+                    sanitizer: $this->sanitizer,
+                    mountManager: $this->mountManager,
+                ),
+            );
+        }
+
+        // Vision tool — available to full-access child agents.
+        if ($accessLevel === 'full' && $this->visionAnalyzer !== null) {
+            $toolkits[] = new \CoquiBot\Coqui\Toolkit\SingleToolToolkit(
+                new VisionTool(analyzer: $this->visionAnalyzer),
+            );
+        }
+
+        // Auto-discovered toolkits from installed packages.
+        // Child agents get the same discovered toolkits as the orchestrator.
+        if ($this->discovery !== null && $accessLevel !== 'minimal') {
+            foreach ($this->discovery->instantiateRegistered() as $toolkit) {
+                $toolkits[] = $toolkit;
+            }
         }
 
         // Apply role-based toolkit filtering from the child role's frontmatter
@@ -328,6 +381,11 @@ final class SpawnAgentTool implements ToolInterface
     public function setCurrentIteration(int $iteration): void
     {
         $this->currentIteration = $iteration;
+    }
+
+    public function setVisionAnalyzer(VisionAnalyzer $analyzer): void
+    {
+        $this->visionAnalyzer = $analyzer;
     }
 
     public function getChildRunCount(): int
