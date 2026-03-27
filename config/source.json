@@ -455,6 +455,7 @@
                 "discover(string $packageName): string[] — scan a single package for toolkit classes",
                 "discoverAll(): array — scan all installed packages (project + workspace)",
                 "instantiateRegistered(): ToolkitInterface[] — instantiate all registered toolkit classes",
+                "instantiateRegisteredGrouped(bool $childMode = false): array — returns [{package, toolkit}] pairs with CredentialGuardToolkit childMode flag for child agent error messages",
                 "register(string $packageName, string[] $classNames): void — persist toolkit registry",
                 "unregister(string $packageName): void — remove from registry",
                 "loadCredentialRequirements(string $packageName): CredentialRequirement[] — load credential declarations (supports string shorthand and object format with optional flag)",
@@ -568,8 +569,9 @@
             "path": "src/Tool/CredentialGuardTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\CredentialGuardTool",
             "layer": "tool",
-            "description": "ToolInterface decorator that intercepts execute() and checks if required (non-optional) credentials exist. Returns structured error with exact key names and credentials tool call syntax when missing. Optional credentials are skipped — they do not block execution. The inner tool is never invoked when required credentials are missing.",
+            "description": "ToolInterface decorator that intercepts execute() and checks if required (non-optional) credentials exist. Returns structured error with exact key names and credentials tool call syntax when missing. In child mode (childMode: true), error messages instruct the agent to report missing credentials to the parent via the done tool instead of suggesting the credentials tool. Optional credentials are skipped — they do not block execution. The inner tool is never invoked when required credentials are missing.",
             "methods": [
+                "__construct(inner, requirements, resolver, childMode: false) — childMode switches error messages to parent-delegation style",
                 "execute(array $input): ToolResult — checks credentials, delegates to inner tool if all present"
             ]
         },
@@ -577,9 +579,10 @@
             "path": "src/Tool/CredentialGuardToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\CredentialGuardToolkit",
             "layer": "tool",
-            "description": "ToolkitInterface decorator that wraps all inner toolkit tools with CredentialGuardTool. Appends credential status (configured/MISSING/optional) to the guidelines string. Optional credentials show ○ indicator.",
+            "description": "ToolkitInterface decorator that wraps all inner toolkit tools with CredentialGuardTool. Appends credential status (configured/MISSING/optional) to the guidelines string. Optional credentials show ○ indicator. In child mode (childMode: true), guidelines omit references to the credentials tool and error messages instruct agents to report to parent.",
             "methods": [
-                "tools(): ToolInterface[] — returns wrapped tools",
+                "__construct(inner, requirements, resolver, childMode: false) — childMode propagates to CredentialGuardTool wrappers",
+                "tools(): ToolInterface[] — returns wrapped tools with childMode flag",
                 "guidelines(): string — inner guidelines + credential status appendix"
             ]
         },
@@ -642,13 +645,14 @@
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",
-            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/minimal) to determine toolkit assignment, falling back to hardcoded defaults. Passes RoleDiscovery to ChildAgent for file-based role instructions. Accepts a configurable shell allowlist from OrchestratorAgent; child agents use DEFAULT_CHILD_SHELL_COMMANDS or the parent-supplied list.",
+            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/minimal) to determine toolkit assignment, falling back to hardcoded defaults. Passes RoleDiscovery to ChildAgent for file-based role instructions. Accepts a configurable shell allowlist from OrchestratorAgent; child agents use DEFAULT_CHILD_SHELL_COMMANDS or the parent-supplied list. Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
             "methods": [
                 "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
-                "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level with configurable shell allowlist",
+                "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level with visibility filtering, credential guards in child mode, and optional BackgroundTaskToolkit",
                 "resolveAccessLevel(string $role): string — looks up access_level from RoleProperties",
                 "setCurrentIteration(int $iteration): void — tracks parent iteration for logging",
-                "getChildRunCount(): int — returns number of child agents spawned during this turn"
+                "getChildRunCount(): int — returns number of child agents spawned during this turn",
+                "isChildBackgroundTasksEnabled(): bool — checks agents.defaults.childBackgroundTasks config flag"
             ]
         },
         {

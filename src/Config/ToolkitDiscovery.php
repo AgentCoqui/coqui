@@ -288,9 +288,10 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
      * Skips packages whose visibility is Disabled.
      * Returns an array of ['package' => string, 'toolkit' => ToolkitInterface].
      *
+     * @param bool $childMode When true, wraps credential guards with child-aware error messages
      * @return array<int, array{package: string, toolkit: ToolkitInterface}>
      */
-    public function instantiateRegisteredGrouped(): array
+    public function instantiateRegisteredGrouped(bool $childMode = false): array
     {
         $registry = $this->loadRegistry();
         $result = [];
@@ -318,6 +319,7 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
                         inner: $toolkit,
                         requirements: $requirements,
                         resolver: $this->credentialResolver,
+                        childMode: $childMode,
                     );
                 }
 

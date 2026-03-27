@@ -22,10 +22,13 @@ use CoquiBot\Coqui\Config\RoleToolkitResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
+use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
+use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
@@ -77,6 +80,7 @@ final class SpawnAgentTool implements ToolInterface
         private readonly ?MemoryStore $memoryStore = null,
         private readonly ?SkillDiscovery $skillDiscovery = null,
         private readonly ?ScriptSanitizer $sanitizer = null,
+        private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
     ) {}
 
     public function name(): string
@@ -320,11 +324,41 @@ final class SpawnAgentTool implements ToolInterface
         }
 
         // Auto-discovered toolkits from installed packages.
-        // Child agents get the same discovered toolkits as the orchestrator.
+        // Uses instantiateRegisteredGrouped() to get package names for visibility filtering.
+        // Child agents get child-mode credential guards (error messages say "report to parent"
+        // instead of suggesting the non-existent credentials tool).
         if ($this->discovery !== null && $accessLevel !== 'minimal') {
-            foreach ($this->discovery->instantiateRegistered() as $toolkit) {
+            foreach ($this->discovery->instantiateRegisteredGrouped(childMode: true) as $entry) {
+                $toolkit = $entry['toolkit'];
+
+                // Apply per-package visibility from toolkit-visibility.json.
+                // Disabled packages are already skipped by instantiateRegisteredGrouped().
+                // Stub packages are treated as Enabled for children because children lack
+                // tool_search — stub schemas would instruct the LLM to call a non-existent tool.
+                if ($this->visibilityRegistry !== null) {
+                    $vis = $this->visibilityRegistry->getPackageVisibility($entry['package']);
+                    if ($vis === ToolkitVisibility::Disabled) {
+                        continue;
+                    }
+                    // Stub → Enabled: children don't have tool_search, so stub is useless
+                }
+
                 $toolkits[] = $toolkit;
             }
+        }
+
+        // Background task toolkit — available to full-access children when enabled via config.
+        // Lets child agents spawn long-running background tools for autonomous execution.
+        if (
+            $accessLevel === 'full'
+            && $this->storage !== null
+            && $this->sessionId !== null
+            && $this->isChildBackgroundTasksEnabled()
+        ) {
+            $toolkits[] = new BackgroundTaskToolkit(
+                storage: $this->storage,
+                parentSessionId: $this->sessionId,
+            );
         }
 
         // Apply role-based toolkit filtering from the child role's frontmatter
@@ -391,6 +425,16 @@ final class SpawnAgentTool implements ToolInterface
     public function getChildRunCount(): int
     {
         return $this->childRunCount;
+    }
+
+    /**
+     * Check if the config flag enables background tasks for child agents.
+     */
+    private function isChildBackgroundTasksEnabled(): bool
+    {
+        $value = $this->config->get('agents.defaults.childBackgroundTasks', false);
+
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN);
     }
 
     public function toFunctionSchema(): array

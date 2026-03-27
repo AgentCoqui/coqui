@@ -338,6 +338,7 @@ final class OrchestratorAgent extends AbstractAgent
             memoryStore: $this->memoryStore,
             skillDiscovery: $this->skillDiscovery,
             sanitizer: $this->sanitizer,
+            visibilityRegistry: $this->visibilityRegistry,
         );
 
         // Create credential tool for API key management
