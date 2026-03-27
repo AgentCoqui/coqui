@@ -27,6 +27,7 @@ final readonly class AgentTurnResult
         public int $childAgentCount,
         public bool $restartRequested,
         public bool $iterationLimitReached = false,
+        public ?ContextUsageSnapshot $contextUsage = null,
         public ?string $error = null,
     ) {}
 
@@ -79,6 +80,7 @@ final readonly class AgentTurnResult
             'child_agent_count' => $this->childAgentCount,
             'restart_requested' => $this->restartRequested,
             'iteration_limit_reached' => $this->iterationLimitReached,
+            'context_usage' => $this->contextUsage?->toArray(),
             'error' => $this->error,
         ];
     }

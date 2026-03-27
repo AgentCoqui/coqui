@@ -36,20 +36,39 @@ final class SetupCommand extends Command
         $outputOption = $input->getOption('output');
         $outputPath = is_string($outputOption) ? $outputOption : $workDir . '/openclaw.json';
 
-        // Check for existing config
+        // Check for existing config — offer section-based editing instead of full overwrite
+        $existingConfig = null;
         if (file_exists($outputPath)) {
-            $io->warning("An openclaw.json already exists at: {$outputPath}");
+            $json = file_get_contents($outputPath);
+            $decoded = ($json !== false) ? json_decode($json, true) : null;
+            $existingConfig = is_array($decoded) ? $decoded : null;
 
-            if (!$io->confirm('Overwrite the existing configuration?', false)) {
-                $io->info('Setup cancelled. Existing config preserved.');
-                return Command::SUCCESS;
+            if ($existingConfig !== null) {
+                $editMode = $io->choice(
+                    "An openclaw.json already exists at: {$outputPath}",
+                    [
+                        'Edit specific sections (preserves other settings)',
+                        'Start fresh (overwrite everything)',
+                        'Cancel',
+                    ],
+                    'Edit specific sections (preserves other settings)',
+                );
+
+                if ($editMode === 'Cancel') {
+                    $io->info('Setup cancelled. Existing config preserved.');
+                    return Command::SUCCESS;
+                }
+
+                if ($editMode === 'Start fresh (overwrite everything)') {
+                    $existingConfig = null;
+                }
             }
         }
 
         $defaults = new DefaultsLoader();
         $wizard = new SetupWizard($io, $defaults);
 
-        $saved = $wizard->runAndSave($outputPath);
+        $saved = $wizard->runAndSave($outputPath, $existingConfig);
 
         return $saved ? Command::SUCCESS : Command::FAILURE;
     }

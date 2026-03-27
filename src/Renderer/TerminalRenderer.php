@@ -15,9 +15,20 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  */
 final class TerminalRenderer implements OutputRendererInterface
 {
+    /** @var \Closure(): bool */
+    private readonly \Closure $showHints;
+
+    /**
+     * @param bool|(\Closure(): bool) $showHints
+     */
     public function __construct(
         private readonly SymfonyStyle $io,
-    ) {}
+        bool|\Closure $showHints = true,
+    ) {
+        $this->showHints = $showHints instanceof \Closure
+            ? $showHints
+            : static fn(): bool => $showHints;
+    }
 
 public function render(AgentTurnResult $result, bool $contentStreamed = false): void
     {
@@ -30,7 +41,8 @@ public function render(AgentTurnResult $result, bool $contentStreamed = false): 
 
         if (!$contentStreamed) {
             $this->io->writeln('<fg=green>Assistant:</>');
-            $this->io->writeln($result->content);
+            $rendered = MarkdownRenderer::render($result->content);
+            $this->io->write($rendered);
         }
 
         $this->io->newLine();
@@ -40,7 +52,7 @@ public function render(AgentTurnResult $result, bool $contentStreamed = false): 
 
     private function renderStatsSummary(AgentTurnResult $result): void
     {
-        $line = "<fg=gray>  • Iteration: </>{$result->iterations}";
+        $line = "<fg=gray>  • Iteration </>{$result->iterations}";
 
         if ($result->durationMs > 0) {
             $seconds = round($result->durationMs / 1000, 1);
@@ -50,8 +62,8 @@ public function render(AgentTurnResult $result, bool $contentStreamed = false): 
         $this->io->writeln($line);
 
         if ($result->promptTokens > 0 || $result->completionTokens > 0) {
-            $tokenLine = '<fg=gray>  • Input Tokens: </>' . number_format($result->promptTokens)
-                . '<fg=gray> • Output Tokens: </>' . number_format($result->completionTokens);
+            $tokenLine = '<fg=gray>  • Input Tokens </>' . number_format($result->promptTokens)
+                . '<fg=gray> • Output Tokens </>' . number_format($result->completionTokens);
             $this->io->writeln($tokenLine);
         }
 
@@ -60,7 +72,16 @@ public function render(AgentTurnResult $result, bool $contentStreamed = false): 
                 fn(string $tool): string => "<fg=yellow>{$tool}</>",
                 $result->toolsUsed,
             );
-            $this->io->writeln('<fg=gray>  • Tools: </>' . implode('<fg=gray>, </>', $yellowTools));
+            $this->io->writeln('<fg=gray>  • Tools </>' . implode('<fg=gray>, </>', $yellowTools));
+        }
+
+        // Context usage progress bar
+        if ($result->contextUsage !== null) {
+            ContextUsageBar::render(
+                io: $this->io,
+                snapshot: $result->contextUsage,
+                showLegend: ($this->showHints)(),
+            );
         }
     }
 

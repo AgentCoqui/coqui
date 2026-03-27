@@ -24,6 +24,7 @@ final class ConfigGuard
         'agents.defaults.roles.',
         'agents.defaults.maxIterations',
         'agents.defaults.maxTools',
+        'agents.defaults.hints',
     ];
 
     /**

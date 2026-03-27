@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\Coqui\Utility\SecretMasker;
 
@@ -117,11 +118,11 @@ final readonly class WebhookToolkit implements ToolkitInterface
                 ),
                 new NumberParameter(
                     name: 'max_iterations',
-                    description: 'Max agent iterations per triggered task (1-100, default: 48)',
+                    description: 'Max agent iterations per triggered task (1-' . CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS . ', default: 48)',
                     required: false,
                     integer: true,
                     minimum: 1,
-                    maximum: 100,
+                    maximum: CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
                 ),
             ],
             callback: fn(array $args): ToolResult => $this->executeCreate($args),
@@ -188,11 +189,11 @@ final readonly class WebhookToolkit implements ToolkitInterface
                 ),
                 new NumberParameter(
                     name: 'max_iterations',
-                    description: 'New max iterations (1-100)',
+                    description: 'New max iterations (1-' . CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS . ')',
                     required: false,
                     integer: true,
                     minimum: 1,
-                    maximum: 100,
+                    maximum: CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
                 ),
                 new StringParameter(
                     name: 'role',
@@ -258,7 +259,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
 
         $source = (string) ($args['source'] ?? 'generic');
         $role = (string) ($args['role'] ?? 'orchestrator');
-        $maxIterations = max(1, min(100, (int) ($args['max_iterations'] ?? 48)));
+        $maxIterations = max(1, min(CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS, (int) ($args['max_iterations'] ?? 48)));
         $eventFilter = isset($args['event_filter']) ? trim((string) $args['event_filter']) : null;
         $description = isset($args['description']) ? trim((string) $args['description']) : null;
 
@@ -371,7 +372,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
         $source = isset($args['source']) ? (string) $args['source'] : null;
         $role = isset($args['role']) ? (string) $args['role'] : null;
         $description = isset($args['description']) ? trim((string) $args['description']) : null;
-        $maxIterations = isset($args['max_iterations']) ? max(1, min(100, (int) $args['max_iterations'])) : null;
+        $maxIterations = isset($args['max_iterations']) ? max(1, min(CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS, (int) $args['max_iterations'])) : null;
 
         $eventFilter = null;
         $hasEventFilter = isset($args['event_filter']);

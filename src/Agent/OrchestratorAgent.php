@@ -334,6 +334,11 @@ final class OrchestratorAgent extends AbstractAgent
             mountManager: $this->mountManager,
             shellAllowedCommands: $shellAllowed,
             projectStore: $this->projectStore,
+            discovery: $discovery,
+            memoryStore: $this->memoryStore,
+            skillDiscovery: $this->skillDiscovery,
+            sanitizer: $this->sanitizer,
+            visibilityRegistry: $this->visibilityRegistry,
         );
 
         // Create credential tool for API key management
@@ -359,15 +364,21 @@ final class OrchestratorAgent extends AbstractAgent
             $this->restartTool = new RestartTool(onRestart: $onRestart);
         }
 
+        // Create vision analyzer — shared with spawn tool for child agent image analysis
+        $visionAnalyzer = new VisionAnalyzer(
+            roleResolver: $this->roleResolver,
+            config: $this->config,
+            roleDiscovery: $this->roleDiscovery,
+            providerFactory: new ProviderFactory($this->config),
+        );
+
         // Create vision tool for image analysis
         $this->visionTool = new VisionTool(
-            analyzer: new VisionAnalyzer(
-                roleResolver: $this->roleResolver,
-                config: $this->config,
-                roleDiscovery: $this->roleDiscovery,
-                providerFactory: new ProviderFactory($this->config),
-            ),
+            analyzer: $visionAnalyzer,
         );
+
+        // Wire vision analyzer into spawn tool for child agent access
+        $this->spawnTool->setVisionAnalyzer($visionAnalyzer);
 
         // Config tool — agent-facing config read/modify
         if ($configManager !== null) {

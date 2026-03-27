@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
@@ -68,7 +69,7 @@ final readonly class TaskHandler
 
         $title = isset($body['title']) ? trim((string) $body['title']) : null;
         $parentSessionId = isset($body['parent_session_id']) ? (string) $body['parent_session_id'] : null;
-        $maxIterations = isset($body['max_iterations']) ? max(1, min((int) $body['max_iterations'], 100)) : 25;
+        $maxIterations = isset($body['max_iterations']) ? max(1, min((int) $body['max_iterations'], CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS)) : 25;
 
         // Validate parent session exists if provided
         if ($parentSessionId !== null && $this->storage->getSession($parentSessionId) === null) {

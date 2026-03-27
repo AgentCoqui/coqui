@@ -79,6 +79,7 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/schedules trigger <name\|id\|all>` | Force-trigger a schedule on the next API tick |
 | `/webhooks` | List webhook subscriptions with status and trigger counts |
 | `/evaluations [grade]` | List session evaluation reports, optionally filtered by grade |
+| `/hints` | Toggle command hints in the input area |
 
 ### Context Management
 

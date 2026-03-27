@@ -10,6 +10,7 @@ use CoquiBot\Coqui\Api\DatabasePendingInputProvider;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Observer\BackgroundTaskObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -106,8 +107,9 @@ final class TaskRunCommand extends Command
         $role = $task['role'] ?? 'orchestrator';
         $resolvedMax = $boot->roleResolver()->resolveMaxIterations($role);
         $dbMax = isset($task['max_iterations']) ? (int) $task['max_iterations'] : $resolvedMax;
-        // Background tasks are always clamped to 100 for safety (even if role allows unlimited)
-        $maxIterations = max(1, min($dbMax, 100));
+        // Background tasks are always clamped for safety (even if role allows unlimited)
+        $cap = $boot->config()->getBackgroundTaskMaxIterations();
+        $maxIterations = max(1, min($dbMax, $cap));
 
         // Update status to running
         $storage->updateTaskStatus($taskId, 'running', ['pid' => getmypid()]);

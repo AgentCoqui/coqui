@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Tool\SpawnAgentTool;
 
 test('has correct name', function () {
@@ -143,4 +144,100 @@ test('description includes available roles', function () {
 
     expect($description)->toContain('coder');
     expect($description)->toContain('reviewer');
+});
+
+test('isChildBackgroundTasksEnabled returns false by default', function () {
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'ollama/qwen3:latest'],
+            ],
+        ],
+    ]);
+
+    $tool = new SpawnAgentTool(
+        roleResolver: new RoleResolver($config),
+        config: $config,
+        projectRoot: '/tmp',
+        workspacePath: '/tmp',
+    );
+
+    $method = new ReflectionMethod($tool, 'isChildBackgroundTasksEnabled');
+
+    expect($method->invoke($tool))->toBeFalse();
+});
+
+test('isChildBackgroundTasksEnabled returns true when config enabled', function () {
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'ollama/qwen3:latest'],
+                'childBackgroundTasks' => true,
+            ],
+        ],
+    ]);
+
+    $tool = new SpawnAgentTool(
+        roleResolver: new RoleResolver($config),
+        config: $config,
+        projectRoot: '/tmp',
+        workspacePath: '/tmp',
+    );
+
+    $method = new ReflectionMethod($tool, 'isChildBackgroundTasksEnabled');
+
+    expect($method->invoke($tool))->toBeTrue();
+});
+
+test('isChildBackgroundTasksEnabled handles string true value', function () {
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'ollama/qwen3:latest'],
+                'childBackgroundTasks' => 'true',
+            ],
+        ],
+    ]);
+
+    $tool = new SpawnAgentTool(
+        roleResolver: new RoleResolver($config),
+        config: $config,
+        projectRoot: '/tmp',
+        workspacePath: '/tmp',
+    );
+
+    $method = new ReflectionMethod($tool, 'isChildBackgroundTasksEnabled');
+
+    expect($method->invoke($tool))->toBeTrue();
+});
+
+test('accepts visibility registry constructor parameter', function () {
+    $tmpDir = sys_get_temp_dir() . '/coqui-test-' . bin2hex(random_bytes(4));
+    mkdir($tmpDir);
+
+    try {
+        $config = OpenClawConfig::fromArray([
+            'agents' => [
+                'defaults' => [
+                    'model' => ['primary' => 'ollama/qwen3:latest'],
+                ],
+            ],
+        ]);
+
+        $registry = new ToolkitVisibilityRegistry($tmpDir);
+
+        $tool = new SpawnAgentTool(
+            roleResolver: new RoleResolver($config),
+            config: $config,
+            projectRoot: '/tmp',
+            workspacePath: '/tmp',
+            visibilityRegistry: $registry,
+        );
+
+        expect($tool->name())->toBe('spawn_agent');
+    } finally {
+        // Cleanup
+        array_map('unlink', glob($tmpDir . '/*') ?: []);
+        rmdir($tmpDir);
+    }
 });

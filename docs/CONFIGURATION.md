@@ -76,6 +76,8 @@ The simplest valid config only needs a primary model:
             },
             "workspace": "~/.coqui/.workspace",
             "maxIterations": 48,
+            "backgroundTaskMaxIterations": 100,
+            "childBackgroundTasks": false,
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
             "blacklist": ["/pattern-to-block/i"],
             "mounts": [
@@ -186,9 +188,41 @@ The sandboxed directory where Coqui reads and writes files. Supports `~` (home d
 
 Global limit on agent loop iterations per turn. Each iteration is one LLM call that may include tool use. Default: `25`.
 
-Set to `0` for unlimited iterations (the agent runs until it calls the `done` tool or encounters an error). Background tasks are always clamped to 100 regardless of this setting.
+Set to `0` for unlimited iterations (the agent runs until it calls the `done` tool or encounters an error). Background tasks are clamped separately via `backgroundTaskMaxIterations`.
 
 Per-role overrides are configured in role `.md` files via the `max_iterations` frontmatter field.
+
+### `backgroundTaskMaxIterations`
+
+Maximum iterations any single background task can run. This is a per-task safety limit that prevents unattended tasks from running indefinitely. Default: `100`.
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "backgroundTaskMaxIterations": 100
+        }
+    }
+}
+```
+
+This cap applies to all background tasks: those created via `start_background_task`, webhook-triggered tasks, schedule-triggered tasks, and API-created tasks.
+
+### `childBackgroundTasks`
+
+When `true`, child agents spawned via `spawn_agent` with `full` access level can create their own background tasks. Default: `false`.
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "childBackgroundTasks": true
+        }
+    }
+}
+```
+
+**Warning:** Enabling this allows child agents to spawn background tasks, which consume LLM tokens and system resources. Background tasks spawned by children cannot spawn further background tasks (recursion is bounded to 2 levels).
 
 ### `shellAllowedCommands`
 
@@ -443,6 +477,8 @@ Coqui adds the following keys under `agents.defaults` that are specific to Coqui
 | `agents.defaults.mounts` | External directory mounts |
 | `agents.defaults.shellAllowedCommands` | Shell command allowlist |
 | `agents.defaults.maxIterations` | Agent iteration budget |
+| `agents.defaults.backgroundTaskMaxIterations` | Per-task background iteration cap |
+| `agents.defaults.childBackgroundTasks` | Allow child agents to spawn background tasks |
 | `agents.defaults.blacklist` | Additional catastrophic blacklist patterns |
 | `agents.defaults.memory` | Memory system configuration |
 | `api.*` | HTTP API server settings |
@@ -474,7 +510,7 @@ coqui setup
 /config edit
 ```
 
-The wizard guides you through provider selection, API key entry, model discovery, and role assignment.
+When an existing `openclaw.json` is detected, the wizard offers **section-based editing** — you choose which sections to reconfigure while preserving all other settings. You can also start fresh if needed.
 
 ### REPL Commands
 

@@ -40,6 +40,7 @@ use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Renderer\ContextUsageBar;
 
 /**
  * Handles agent creation, execution, and turn message persistence.
@@ -293,6 +294,18 @@ final class AgentRunner
             // Automatic memory extraction from completed turn
             $this->autoExtractMemories($output->conversation ?? $history, $sessionId);
 
+            // Build context usage snapshot for progress bar rendering
+            $contextUsage = null;
+            try {
+                $finalConversation = $output->conversation ?? $history;
+                $contextUsage = ContextUsageBar::buildSnapshot(
+                    $finalConversation,
+                    $agent->getContextWindow(),
+                );
+            } catch (\Throwable) {
+                // Non-fatal — progress bar is optional
+            }
+
             return new AgentTurnResult(
                 content: $output->content,
                 iterations: $output->iterations,
@@ -304,6 +317,7 @@ final class AgentRunner
                 childAgentCount: $childAgentCount,
                 restartRequested: $restartRequested,
                 iterationLimitReached: $iterationLimitReached,
+                contextUsage: $contextUsage,
             );
         } catch (\Throwable $e) {
             // Complete turn even on error so duration/state is tracked
@@ -371,7 +385,14 @@ final class AgentRunner
             cancellationToken: $cancellationToken,
             pendingInputProvider: $pendingInputProvider,
             backgroundTaskToolkit: ($enableBackgroundTasks && $this->backgroundTasksEnabled)
-                ? new BackgroundTaskToolkit($this->storage, $sessionId, $this->roleResolver)
+                ? new BackgroundTaskToolkit(
+                    storage: $this->storage,
+                    parentSessionId: $sessionId,
+                    roleResolver: $this->roleResolver,
+                    maxIterationsCap: $this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig
+                        ? $this->config->getBackgroundTaskMaxIterations()
+                        : CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
+                )
                 : null,
             memoryStore: $this->memoryStore,
             memorySummarizer: $this->memorySummarizer,

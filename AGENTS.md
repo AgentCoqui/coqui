@@ -136,6 +136,14 @@ private function resolveApiKey(): string
 
 The `CredentialGuardTool` handles the missing-credential UX — your toolkit does not need to produce its own "key not configured" errors.
 
+### Child Agent Credential Behavior
+
+Child agents (spawned via `spawn_agent`) share the parent's `CredentialResolver` through the shared `ToolkitDiscovery` instance. However, children do **not** receive the `CredentialTool` — they cannot set, delete, or manage credentials directly.
+
+When a child agent calls a tool with missing credentials, `CredentialGuardTool` operates in **child mode** (`childMode: true`). Instead of suggesting `credentials(action: "set", ...)`, the error message instructs the child to report the missing credential back to the parent agent via the `done` tool. The parent can then set the credential and retry.
+
+Child mode is activated automatically: `ToolkitDiscovery::instantiateRegisteredGrouped(childMode: true)` passes the flag through `CredentialGuardToolkit` → `CredentialGuardTool`. The `buildCredentialStatus()` guidelines also omit references to the `credentials` tool in child mode.
+
 
 
 ## Tool Gating Architecture
@@ -302,6 +310,32 @@ new OrchestratorAgent(visibilityRegistry)
 | `/prompt`                       | Print the fully rendered system prompt              |
 
 Tab autocomplete is provided for all subcommands, package names, and tool names via `readline_completion_function()`.
+
+### Child Agent Visibility
+
+Child agents (spawned via `spawn_agent`) respect the workspace `toolkit-visibility.json` settings for discovered packages. `SpawnAgentTool` receives the parent's `ToolkitVisibilityRegistry` and applies per-package visibility when building child toolkits:
+
+- **Disabled** packages are skipped entirely — children never see them.
+- **Stub** packages are treated as **Enabled** for children. Children lack `tool_search` and `ToolRegistry`, so stub schemas (which instruct the LLM to call `tool_search()`) would waste iterations on a non-existent tool.
+- **Enabled** packages pass through normally.
+
+Per-tool visibility overrides are not applied to children — only per-package visibility is enforced. This keeps child agent construction simple while still respecting the user's high-level package visibility preferences.
+
+### Child Background Tasks
+
+Full-access child agents can optionally receive `BackgroundTaskToolkit` for spawning long-running background tools and tasks. This is gated behind a config flag to prevent uncontrolled background process spawning:
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "childBackgroundTasks": true
+        }
+    }
+}
+```
+
+When enabled, `SpawnAgentTool` adds `BackgroundTaskToolkit` to children with `full` access level that have a valid session. The flag defaults to `false`. The value is read via `OpenClawConfig::get()` and validated with `filter_var(FILTER_VALIDATE_BOOLEAN)` for flexibility (supports `true`, `"true"`, `"1"`, etc.).
 
 ## Background Tool Architecture
 
@@ -533,6 +567,8 @@ Coqui supports structured planning and implementation handoffs via the artifact 
 
 `SpawnAgentTool::buildToolkits()` injects `ArtifactToolkit` into every child agent (regardless of access level). The toolkit uses the parent's `sessionId`, so all artifacts created by the orchestrator, plan agent, or coder are visible to each other within the same session.
 
+Child agents with `full` access level also receive: auto-discovered toolkits from installed packages, `MemoryToolkit`, `SkillToolkit`, `PhpExecuteTool`, and `VisionTool`. Non-full access levels receive `SkillToolkit` (except `minimal`). All toolkits are subject to role-based toolkit filtering via the child role's `toolkits:` frontmatter field.
+
 ### Built-in Roles for Planning
 
 | Role       | Access Level     | Purpose                                              |
@@ -550,7 +586,7 @@ Coqui supports structured planning and implementation handoffs via the artifact 
 | `config/roles/explorer.md`     | Explorer role for focused read-only codebase investigation         |
 | `src/Toolkit/ArtifactToolkit.php` | Agent-facing CRUD tools for versioned artifacts                 |
 | `src/Storage/ArtifactStore.php`   | SQLite-backed artifact persistence with version history          |
-| `src/Tool/SpawnAgentTool.php`     | Injects ArtifactToolkit into child agents for session-shared access |
+| `src/Tool/SpawnAgentTool.php`     | Injects ArtifactToolkit, MemoryToolkit, SkillToolkit, discovered toolkits, and standalone tools into child agents |
 
 ## Todo System Architecture
 
@@ -1042,7 +1078,8 @@ Add mounts to `openclaw.json`:
 
 - **Default read-only.** Mounts default to `ro` unless explicitly set to `rw`.
 - **Orchestrator** gets the declared access level (`ro` or `rw`) for each mount.
-- **Child agents** (spawned via `spawn_agent`) always get read-only access to mounts, regardless of the mount's declared access level.
+- **Full-access child agents** (spawned via `spawn_agent` with `access_level: full`) get the same mount permissions as the orchestrator — respecting the declared `ro`/`rw` per mount.
+- **Non-full child agents** (`readonly`, `readonly-shell`, `minimal`) get read-only access to all mounts, regardless of the mount's declared access level.
 - **PhpExecuteTool** includes mount paths in `open_basedir` so PHP subprocesses can access them.
 - **Write protection** is enforced at the `FilesystemToolkit` level — `write_file`, `create_directory`, and `delete_file` check `isReadOnlyMountPath()` before executing.
 

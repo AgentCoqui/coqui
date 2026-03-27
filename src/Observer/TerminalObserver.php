@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Observer;
 use CarmeloSantana\PHPAgents\Contract\AgentInterface;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CoquiBot\Coqui\Renderer\StreamingMarkdownBuffer;
 use SplObserver;
 use SplSubject;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -22,10 +23,15 @@ final class TerminalObserver implements SplObserver
     private int $indentLevel = 0;
     private bool $hasStreamedText = false;
     private bool $hasStreamedReasoning = false;
+    private readonly StreamingMarkdownBuffer $markdownBuffer;
 
     public function __construct(
         private readonly OutputInterface $output,
-    ) {}
+    ) {
+        $this->markdownBuffer = new StreamingMarkdownBuffer(
+            fn(string $rendered) => $this->output->write($rendered),
+        );
+    }
 
     public function update(SplSubject $subject): void
     {
@@ -53,6 +59,7 @@ final class TerminalObserver implements SplObserver
             'agent.start' => (function () use ($indent): void {
                 $this->hasStreamedText = false;
                 $this->hasStreamedReasoning = false;
+                $this->markdownBuffer->reset();
                 $this->output->writeln("{$indent}<fg=cyan>▶ Agent started</>");
             })(),
 
@@ -114,9 +121,10 @@ final class TerminalObserver implements SplObserver
             $this->hasStreamedReasoning = false;
         }
 
-        // If text was being streamed, add a newline to separate
+        // If text was being streamed, flush and add a newline to separate
         // the streamed content from the tool call display.
         if ($this->hasStreamedText) {
+            $this->markdownBuffer->flush();
             $this->output->writeln('');
             $this->hasStreamedText = false;
         }
@@ -159,7 +167,7 @@ final class TerminalObserver implements SplObserver
         }
 
         $this->hasStreamedText = true;
-        $this->output->write($data);
+        $this->markdownBuffer->feed($data);
     }
 
     private function handleDone(mixed $data, string $indent): void
@@ -170,6 +178,7 @@ final class TerminalObserver implements SplObserver
         }
 
         if ($this->hasStreamedText) {
+            $this->markdownBuffer->flush();
             $this->output->writeln('');
             $this->hasStreamedText = false;
             return;
