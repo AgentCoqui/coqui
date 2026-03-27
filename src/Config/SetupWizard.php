@@ -784,7 +784,7 @@ final class SetupWizard
         $defaults = $editIndex !== null ? $existingMounts[$editIndex] : null;
 
         // If editing, remove the current alias from the uniqueness check
-        if ($editIndex !== null) {
+        if ($editIndex !== null && $defaults !== null) {
             $existingAliases = array_values(array_filter(
                 $existingAliases,
                 fn(string $a): bool => $a !== $defaults['alias'],
