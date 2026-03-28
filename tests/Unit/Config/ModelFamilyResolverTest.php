@@ -71,6 +71,48 @@ test('resolves gpt-oss:20b to gpt family (tag stripped)', function () {
     expect(buildResolver()->resolveFamily('gpt-oss:20b'))->toBe('gpt');
 });
 
+test('resolves gpt-5.1 to gpt family', function () {
+    expect(buildResolver()->resolveFamily('gpt-5.1'))->toBe('gpt');
+});
+
+test('resolves gpt-5 to gpt family', function () {
+    expect(buildResolver()->resolveFamily('gpt-5'))->toBe('gpt');
+});
+
+test('resolves gpt-5-mini to gpt family', function () {
+    expect(buildResolver()->resolveFamily('gpt-5-mini'))->toBe('gpt');
+});
+
+test('resolves gpt-5-nano to gpt family', function () {
+    expect(buildResolver()->resolveFamily('gpt-5-nano'))->toBe('gpt');
+});
+
+test('resolves gpt-5.4-pro to gpt family', function () {
+    expect(buildResolver()->resolveFamily('gpt-5.4-pro'))->toBe('gpt');
+});
+
+test('resolves gpt-5.2 to gpt family', function () {
+    expect(buildResolver()->resolveFamily('gpt-5.2'))->toBe('gpt');
+});
+
+test('resolves gpt-4o to gpt family', function () {
+    expect(buildResolver()->resolveFamily('gpt-4o'))->toBe('gpt');
+});
+
+test('resolves gpt-4o-mini to gpt family', function () {
+    expect(buildResolver()->resolveFamily('gpt-4o-mini'))->toBe('gpt');
+});
+
+// --- o-series models (no family match — curated only) ---
+
+test('o3 does not match any family', function () {
+    expect(buildResolver()->resolveFamily('o3'))->toBeNull();
+});
+
+test('o4-mini does not match any family', function () {
+    expect(buildResolver()->resolveFamily('o4-mini'))->toBeNull();
+});
+
 // --- Claude family ---
 
 test('resolves claude-opus-4-6 to claude family', function () {

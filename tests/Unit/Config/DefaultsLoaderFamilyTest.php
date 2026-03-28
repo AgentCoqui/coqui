@@ -80,3 +80,25 @@ test('familyDefaults casts values to integers', function () {
     expect($defaults['contextWindow'])->toBeInt();
     expect($defaults['maxTokens'])->toBeInt();
 });
+
+test('familyDefaults returns correct values for gpt family', function () {
+    $loader = new DefaultsLoader();
+    $defaults = $loader->familyDefaults('gpt');
+
+    expect($defaults)->toBe(['contextWindow' => 400000, 'maxTokens' => 128000]);
+});
+
+test('curatedModel returns gpt-5.1 with correct context window', function () {
+    $loader = new DefaultsLoader();
+    $curated = $loader->curatedModel('openai', 'gpt-5.1');
+
+    expect($curated)->not->toBeNull();
+    expect($curated['contextWindow'])->toBe(400000);
+    expect($curated['maxTokens'])->toBe(128000);
+});
+
+test('curatedModel returns null for unknown model', function () {
+    $loader = new DefaultsLoader();
+
+    expect($loader->curatedModel('openai', 'gpt-99'))->toBeNull();
+});

@@ -1,6 +1,6 @@
 {
     "families": {
-        "gpt": {"name": "GPT", "description": "GPT-architecture models (OpenAI and open-source)", "contextWindow": 200000, "maxTokens": 32768},
+        "gpt": {"name": "GPT", "description": "GPT-architecture models (OpenAI and open-source)", "contextWindow": 400000, "maxTokens": 128000},
         "claude": {"name": "Claude", "description": "Anthropic Claude models", "contextWindow": 200000, "maxTokens": 64000},
         "gemini": {"name": "Gemini", "description": "Google Gemini models", "contextWindow": 1000000, "maxTokens": 65536},
         "grok": {"name": "Grok", "description": "xAI Grok models", "contextWindow": 131072, "maxTokens": 32768},
@@ -55,7 +55,19 @@
                 {"id": "gpt-5.4", "name": "GPT-5.4 (Flagship)", "recommended": true, "contextWindow": 1000000, "maxTokens": 128000, "cost": {"input": 2.50, "output": 15.00}, "reasoning": true, "vision": true, "thinking": true, "family": "gpt"},
                 {"id": "gpt-5.4-mini", "name": "GPT-5.4 Mini (Fast)", "contextWindow": 400000, "maxTokens": 128000, "cost": {"input": 0.75, "output": 4.50}, "vision": true, "family": "gpt"},
                 {"id": "gpt-5.4-nano", "name": "GPT-5.4 Nano (Cheapest)", "contextWindow": 400000, "maxTokens": 128000, "cost": {"input": 0.20, "output": 1.25}, "family": "gpt"},
-                {"id": "gpt-4.1", "name": "GPT-4.1 (Non-Reasoning)", "contextWindow": 200000, "maxTokens": 32768, "cost": {"input": 2.00, "output": 8.00}, "family": "gpt"}
+                {"id": "gpt-5.4-pro", "name": "GPT-5.4 Pro (Maximum Intelligence)", "contextWindow": 1000000, "maxTokens": 128000, "cost": {"input": 30.00, "output": 180.00}, "reasoning": true, "vision": true, "thinking": true, "family": "gpt"},
+                {"id": "gpt-5.2", "name": "GPT-5.2 (Previous Frontier)", "contextWindow": 400000, "maxTokens": 128000, "cost": {"input": 1.75, "output": 14.00}, "reasoning": true, "vision": true, "thinking": true, "family": "gpt"},
+                {"id": "gpt-5.1", "name": "GPT-5.1 (Coding & Agents)", "contextWindow": 400000, "maxTokens": 128000, "cost": {"input": 1.25, "output": 10.00}, "reasoning": true, "vision": true, "thinking": true, "family": "gpt"},
+                {"id": "gpt-5", "name": "GPT-5 (Reasoning)", "contextWindow": 400000, "maxTokens": 128000, "cost": {"input": 1.25, "output": 10.00}, "reasoning": true, "vision": true, "thinking": true, "family": "gpt"},
+                {"id": "gpt-5-mini", "name": "GPT-5 Mini (Fast)", "contextWindow": 400000, "maxTokens": 128000, "cost": {"input": 0.25, "output": 2.00}, "reasoning": true, "vision": true, "family": "gpt"},
+                {"id": "gpt-5-nano", "name": "GPT-5 Nano (Cheapest)", "contextWindow": 400000, "maxTokens": 128000, "cost": {"input": 0.05, "output": 0.40}, "family": "gpt"},
+                {"id": "gpt-4.1", "name": "GPT-4.1 (Non-Reasoning)", "contextWindow": 200000, "maxTokens": 32768, "cost": {"input": 2.00, "output": 8.00}, "family": "gpt"},
+                {"id": "gpt-4.1-mini", "name": "GPT-4.1 Mini (Fast)", "contextWindow": 200000, "maxTokens": 32768, "cost": {"input": 0.40, "output": 1.60}, "family": "gpt"},
+                {"id": "gpt-4.1-nano", "name": "GPT-4.1 Nano (Cheapest)", "contextWindow": 200000, "maxTokens": 32768, "cost": {"input": 0.10, "output": 0.40}, "family": "gpt"},
+                {"id": "gpt-4o", "name": "GPT-4o (Multimodal)", "contextWindow": 128000, "maxTokens": 16384, "cost": {"input": 2.50, "output": 10.00}, "vision": true, "family": "gpt"},
+                {"id": "gpt-4o-mini", "name": "GPT-4o Mini (Fast)", "contextWindow": 128000, "maxTokens": 16384, "cost": {"input": 0.15, "output": 0.60}, "vision": true, "family": "gpt"},
+                {"id": "o3", "name": "o3 (Reasoning)", "contextWindow": 200000, "maxTokens": 100000, "cost": {"input": 2.00, "output": 8.00}, "reasoning": true, "vision": true, "thinking": true, "family": "gpt"},
+                {"id": "o4-mini", "name": "o4-mini (Fast Reasoning)", "contextWindow": 200000, "maxTokens": 100000, "cost": {"input": 1.10, "output": 4.40}, "reasoning": true, "vision": true, "thinking": true, "family": "gpt"}
             ]
         },
         "anthropic": {
