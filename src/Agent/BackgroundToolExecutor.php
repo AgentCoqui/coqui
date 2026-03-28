@@ -26,11 +26,6 @@ use CoquiBot\Coqui\Tool\PhpExecuteTool;
  */
 final class BackgroundToolExecutor
 {
-    private const array DEFAULT_SHELL_COMMANDS = [
-        'php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
-        'curl', 'wget', 'make', 'sort', 'uniq', 'sed', 'awk', 'diff',
-    ];
-
     /** @var array<string, ToolInterface> */
     private array $tools = [];
 
@@ -98,9 +93,11 @@ final class BackgroundToolExecutor
 
         // Shell toolkit — runs in project root
         $shellAllowed = $this->resolveShellAllowedCommands($config);
+        $shellDenied = $this->resolveShellDeniedCommands($config);
         $this->registerToolkit(new ShellToolkit(
             workDir: $this->projectRoot,
             allowedCommands: $shellAllowed,
+            deniedCommands: $shellDenied,
             timeout: 60,
         ));
 
@@ -141,7 +138,9 @@ final class BackgroundToolExecutor
     }
 
     /**
-     * Resolve shell allowed commands from config or defaults.
+     * Resolve shell allowed commands from config.
+     *
+     * Returns empty array (all commands allowed) unless explicitly configured.
      *
      * @return string[]
      */
@@ -153,7 +152,22 @@ final class BackgroundToolExecutor
             return array_values(array_filter($configured, 'is_string'));
         }
 
-        return self::DEFAULT_SHELL_COMMANDS;
+        return [];
+    }
+
+    /**
+     * Resolve shell denied commands from config.
+     *
+     * @return string[]
+     */
+    private function resolveShellDeniedCommands(ConfigInterface $config): array
+    {
+        $allowSudo = filter_var(
+            $config->get('agents.defaults.allowSudo', false),
+            FILTER_VALIDATE_BOOLEAN,
+        );
+
+        return $allowSudo ? [] : ['sudo'];
     }
 
     /**

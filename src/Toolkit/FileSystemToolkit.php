@@ -205,7 +205,8 @@ final class FileSystemToolkit implements ToolkitInterface
             description: 'List directory contents. Returns entries with [f] (file) or [d] (directory) prefix. Defaults to workspace root.',
             parameters: [
                 new StringParameter('path', 'Directory path relative to workspace. Defaults to root.', required: false),
-                new BoolParameter('recursive', 'List recursively (max 3 levels). Default false.', required: false),
+                new BoolParameter('recursive', 'List recursively. Default false.', required: false),
+                new NumberParameter('max_depth', 'Maximum recursion depth (1–10). Default 3. Only used when recursive is true.', required: false, integer: true),
             ],
             callback: fn(array $args): ToolResult => $this->executeListDir($args),
         );
@@ -216,6 +217,7 @@ final class FileSystemToolkit implements ToolkitInterface
     {
         $path = $args['path'] ?? '.';
         $recursive = (bool) ($args['recursive'] ?? false);
+        $maxDepth = min(max((int) ($args['max_depth'] ?? 3), 1), 10);
 
         try {
             $resolved = $this->fs->resolvePath($path);
@@ -227,7 +229,7 @@ final class FileSystemToolkit implements ToolkitInterface
             return ToolResult::error("Not a directory: {$path}");
         }
 
-        $entries = $this->scanDir($resolved, $recursive ? 3 : 0, 0);
+        $entries = $this->scanDir($resolved, $recursive ? $maxDepth : 0, 0);
 
         if ($entries === []) {
             return ToolResult::success("(empty directory)");
@@ -281,9 +283,9 @@ final class FileSystemToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'search_files',
-            description: 'Search for files matching a glob pattern within the workspace. Returns a list of matching file paths.',
+            description: 'Search for files matching a glob pattern within the workspace. Supports ** for recursive directory traversal. Returns a list of matching file paths.',
             parameters: [
-                new StringParameter('pattern', 'Glob pattern (e.g. "src/**/*.php", "*.json", "tests/*Test.php").'),
+                new StringParameter('pattern', 'Glob pattern. Use ** to match any directory depth (e.g. "src/**/*.php", "**/*Controller.php", "*.json").'),
             ],
             callback: fn(array $args): ToolResult => $this->executeSearchFiles($args),
         );

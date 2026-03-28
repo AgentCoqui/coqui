@@ -232,16 +232,18 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Shell toolkit — available for 'full' and 'readonly-shell' access roles
         $shellAllowed = $this->resolveShellAllowedCommands();
+        $shellDenied = $this->resolveShellDeniedCommands();
         if ($effectiveAccessLevel === 'full') {
             $this->addToolkit(new ShellToolkit(
                 workDir: $this->projectRoot,
                 allowedCommands: $shellAllowed,
+                deniedCommands: $shellDenied,
                 timeout: 60,
             ));
         } elseif ($effectiveAccessLevel === 'readonly-shell') {
             $this->addToolkit(new ShellToolkit(
                 workDir: $this->projectRoot,
-                allowedCommands: ['grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls', 'sort', 'uniq', 'sed', 'awk', 'diff'],
+                allowedCommands: self::READ_ONLY_SHELL_COMMANDS,
                 timeout: 60,
             ));
         }
@@ -350,6 +352,7 @@ final class OrchestratorAgent extends AbstractAgent
             skillDiscovery: $this->skillDiscovery,
             sanitizer: $this->sanitizer,
             visibilityRegistry: $this->visibilityRegistry,
+            shellDeniedCommands: $shellDenied,
         );
 
         // Create credential tool for API key management
@@ -859,17 +862,18 @@ final class OrchestratorAgent extends AbstractAgent
         return $counter->countTools($this->tools());
     }
 
-    /** Default shell commands available to the orchestrator. */
-    private const array DEFAULT_SHELL_COMMANDS = [
-        'php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
-        'curl', 'wget', 'make', 'sort', 'uniq', 'sed', 'awk', 'diff',
+    /** Read-only shell commands for readonly-shell access level. */
+    private const array READ_ONLY_SHELL_COMMANDS = [
+        'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
+        'sort', 'uniq', 'sed', 'awk', 'diff',
     ];
 
     /**
-     * Resolve shell allowed commands from config or defaults.
+     * Resolve shell allowed commands from config.
      *
      * Reads `agents.defaults.shellAllowedCommands` from openclaw.json.
-     * If not set, uses DEFAULT_SHELL_COMMANDS.
+     * If not set, returns empty array (all commands allowed — open mode).
+     * Users can opt-in to a restrictive allowlist by explicitly configuring this.
      *
      * @return string[]
      */
@@ -881,7 +885,25 @@ final class OrchestratorAgent extends AbstractAgent
             return array_values(array_filter($configured, 'is_string'));
         }
 
-        return self::DEFAULT_SHELL_COMMANDS;
+        return [];
+    }
+
+    /**
+     * Resolve shell denied commands from config.
+     *
+     * By default, only `sudo` is denied. Users can unlock sudo access
+     * by setting `agents.defaults.allowSudo: true` in openclaw.json.
+     *
+     * @return string[]
+     */
+    private function resolveShellDeniedCommands(): array
+    {
+        $allowSudo = filter_var(
+            $this->config->get('agents.defaults.allowSudo', false),
+            FILTER_VALIDATE_BOOLEAN,
+        );
+
+        return $allowSudo ? [] : ['sudo'];
     }
 
     /**
