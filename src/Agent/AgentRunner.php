@@ -748,7 +748,8 @@ final class AgentRunner
      *   2. User turn count exceeds turn threshold (default: 20 turns)
      *
      * Thresholds are configurable via openclaw.json:
-     *   agents.defaults.context.autoSummarizeThreshold       (default: 50)
+     *   agents.defaults.context.autoSummarizeMode            (default: 'token')
+     *   agents.defaults.context.autoSummarizeThreshold       (default: 70)
      *   agents.defaults.context.autoSummarizeTurnThreshold   (default: 20)
      */
     private function autoSummarizeIfNeeded(
@@ -762,45 +763,59 @@ final class AgentRunner
             return $history;
         }
 
-        // Count user turns for the turn-count trigger
-        $userTurnCount = count($history->filter(Role::User));
+        // Read summarization mode from config (default: 'token')
+        $modeCfg = $this->config->get('agents.defaults.context.autoSummarizeMode');
+        $mode = is_string($modeCfg) && in_array($modeCfg, ['token', 'turn', 'manual'], true)
+            ? $modeCfg
+            : CoquiDefaults::AUTO_SUMMARIZE_MODE;
 
-        // Read turn threshold from config (default: 20)
-        $turnThresholdCfg = $this->config->get('agents.defaults.context.autoSummarizeTurnThreshold');
-        $turnThreshold = is_numeric($turnThresholdCfg) ? (int) $turnThresholdCfg : CoquiDefaults::AUTO_SUMMARIZE_TURN_THRESHOLD;
+        // Manual mode disables pre-turn auto-summarization entirely.
+        // The SummarizePruningStrategy safety net still fires per-iteration
+        // to prevent context window overflow.
+        if ($mode === 'manual') {
+            return $history;
+        }
 
-        // Check token-based trigger — include system prompt + user prompt + history + 15% buffer
-        $tokenTrigger = false;
-        $contextWindow = $agent->getContextWindow();
+        $shouldSummarize = false;
 
-        if ($contextWindow !== null) {
-            $historyTokens = $history->estimateTokens();
-            $systemPromptTokens = (int) (strlen($agent->getSystemPromptText()) / 4);
-            $userPromptTokens = (int) (strlen($prompt) / 4);
-            $estimatedTokens = (int) (($historyTokens + $systemPromptTokens + $userPromptTokens) * 1.15);
+        if ($mode === 'turn') {
+            // Turn-based trigger: summarize when user turn count reaches threshold
+            $userTurnCount = count($history->filter(Role::User));
+            $turnThresholdCfg = $this->config->get('agents.defaults.context.autoSummarizeTurnThreshold');
+            $turnThreshold = is_numeric($turnThresholdCfg) ? (int) $turnThresholdCfg : CoquiDefaults::AUTO_SUMMARIZE_TURN_THRESHOLD;
+            $shouldSummarize = $userTurnCount >= $turnThreshold;
+        } elseif ($mode === 'token') {
+            // Token-based trigger: summarize when estimated token usage exceeds threshold
+            $contextWindow = $agent->getContextWindow();
 
-            $maxTokens = $contextWindow->maxTokens();
-            $reserved = $contextWindow->reservedTokens();
-            $effectiveMax = $maxTokens - $reserved;
+            if ($contextWindow !== null) {
+                $historyTokens = $history->estimateTokens();
+                $systemPromptTokens = (int) (strlen($agent->getSystemPromptText()) / 4);
+                $userPromptTokens = (int) (strlen($prompt) / 4);
+                $estimatedTokens = (int) (($historyTokens + $systemPromptTokens + $userPromptTokens) * 1.15);
 
-            if ($effectiveMax > 0) {
-                $usagePercent = ($estimatedTokens / $effectiveMax) * 100;
+                $maxTokens = $contextWindow->maxTokens();
+                $reserved = $contextWindow->reservedTokens();
+                $effectiveMax = $maxTokens - $reserved;
 
-                // Read threshold from config (default: 70%)
-                $threshold = $this->config->get('agents.defaults.context.autoSummarizeThreshold');
-                $threshold = is_numeric($threshold) ? (float) $threshold : CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD;
+                if ($effectiveMax > 0) {
+                    $usagePercent = ($estimatedTokens / $effectiveMax) * 100;
 
-                // Normalize: accept both ratio (0.0–1.0) and percentage (1–100)
-                if ($threshold > 0.0 && $threshold <= 1.0) {
-                    $threshold *= 100;
+                    // Read threshold from config (default: 70%)
+                    $threshold = $this->config->get('agents.defaults.context.autoSummarizeThreshold');
+                    $threshold = is_numeric($threshold) ? (float) $threshold : CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD;
+
+                    // Normalize: accept both ratio (0.0–1.0) and percentage (1–100)
+                    if ($threshold > 0.0 && $threshold <= 1.0) {
+                        $threshold *= 100;
+                    }
+
+                    $shouldSummarize = $usagePercent >= $threshold;
                 }
-
-                $tokenTrigger = $usagePercent >= $threshold;
             }
         }
 
-        // Neither trigger fired — no summarization needed
-        if (!$tokenTrigger && $userTurnCount < $turnThreshold) {
+        if (!$shouldSummarize) {
             return $history;
         }
 

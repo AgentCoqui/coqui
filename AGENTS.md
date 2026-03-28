@@ -1310,14 +1310,23 @@ Coqui provides automatic context window management and conversation summarizatio
 
 ### Automatic Summarization
 
-Before each agent turn, `AgentRunner::autoSummarizeIfNeeded()` checks the conversation's estimated token usage against the context window budget. If usage exceeds a configurable threshold, the conversation is automatically summarized:
+Before each agent turn, `AgentRunner::autoSummarizeIfNeeded()` evaluates whether to summarize based on the configured **summarization mode** (`agents.defaults.context.autoSummarizeMode`). Three modes are available:
 
-1. **Threshold check** — `agents.defaults.context.autoSummarizeThreshold` in `openclaw.json` (default: `70` = 70% of available budget). Accepts both percentage (1–100) and ratio (0.0–1.0) — ratios are automatically converted to percentages.
-2. **Provider resolution** — uses the utility model resolution chain (see Utility Model section below).
-3. **Keep recent** — `agents.defaults.context.autoSummarizeKeepRecent` controls how many recent turns are preserved during auto-summarization (default: `15`, clamped 1–20).
-4. **Workflow context injection** — `AgentRunner::buildWorkflowContext()` queries `TodoStore` (stats, active, pending todos) and `ArtifactStore` (active artifacts) to build a structured context string. This is passed to `ConversationSummarizer` so the LLM preserves plan/todo state in the summary, preventing agents from losing their place after summarization.
-5. **Summarization** — `ConversationSummarizer` splits the conversation, compresses older messages via LLM, rebuilds with a summary `SystemMessage`.
-6. **Observer notification** — emits `agent.summary` event so terminal/SSE observers can alert the user.
+| Mode | Trigger | Config Key | Default |
+| --- | --- | --- | --- |
+| `token` (default) | Estimated token usage exceeds a percentage of the effective context window | `autoSummarizeThreshold` | `70` (70%) |
+| `turn` | User turn count reaches a threshold | `autoSummarizeTurnThreshold` | `20` |
+| `manual` | Never auto-summarizes; user must invoke `/summarize`, the agent tool, or the API endpoint | — | — |
+
+When summarization triggers:
+
+1. **Mode check** — reads `autoSummarizeMode` from config (default: `token`). If `manual`, returns immediately. The `SummarizePruningStrategy` per-iteration safety net still fires to prevent context window overflow.
+2. **Trigger evaluation** — for `token` mode, estimates token usage (history + system prompt + user prompt + 15% buffer) against the context window budget. For `turn` mode, counts user turns against the threshold.
+3. **Provider resolution** — uses the utility model resolution chain (see Utility Model section below).
+4. **Keep recent** — `agents.defaults.context.autoSummarizeKeepRecent` controls how many recent turns are preserved during auto-summarization (default: `15`, clamped 1–20).
+5. **Workflow context injection** — `AgentRunner::buildWorkflowContext()` queries `TodoStore` (stats, active, pending todos) and `ArtifactStore` (active artifacts) to build a structured context string. This is passed to `ConversationSummarizer` so the LLM preserves plan/todo state in the summary, preventing agents from losing their place after summarization.
+6. **Summarization** — `ConversationSummarizer` splits the conversation, compresses older messages via LLM, rebuilds with a summary `SystemMessage`.
+7. **Observer notification** — emits `agent.summary` event so terminal/SSE observers can alert the user.
 
 ### Workflow Context in Summarization
 
@@ -1355,7 +1364,9 @@ Users and agents can trigger summarization manually:
     "agents": {
         "defaults": {
             "context": {
+                "autoSummarizeMode": "token",
                 "autoSummarizeThreshold": 70,
+                "autoSummarizeTurnThreshold": 20,
                 "autoSummarizeKeepRecent": 15,
                 "keepRecentTurns": 10
             }
@@ -1366,7 +1377,9 @@ Users and agents can trigger summarization manually:
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `autoSummarizeThreshold` | `70` | Token usage percentage that triggers auto-summarization. Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeMode` | `"token"` | Summarization trigger mode: `"token"`, `"turn"`, or `"manual"` |
+| `autoSummarizeThreshold` | `70` | Token usage percentage that triggers auto-summarization (mode: `token`). Accepts 1–100 or 0.0–1.0 (auto-converted) |
+| `autoSummarizeTurnThreshold` | `20` | User turn count that triggers auto-summarization (mode: `turn`) |
 | `autoSummarizeKeepRecent` | `15` | Turns preserved during auto-summarization (1–20) |
 | `keepRecentTurns` | `10` | Default turns preserved during on-demand summarization |
 | `budgetSafetyMarginPercent` | `20` | Safety margin percentage applied by per-iteration budget pruning to account for token estimation inaccuracy (0–50) |
