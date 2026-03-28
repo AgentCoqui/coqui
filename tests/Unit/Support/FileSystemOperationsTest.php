@@ -181,7 +181,7 @@ test('resolvePath resolves relative segments', function () {
 
     $resolved = $this->fs->resolvePath('sub/./file.txt');
 
-    expect($resolved)->toEndWith('/sub/file.txt');
+    expect(str_replace('\\', '/', $resolved))->toEndWith('/sub/file.txt');
 });
 
 test('makeRelative strips root prefix', function () {

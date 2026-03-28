@@ -372,18 +372,26 @@ final readonly class FileSystemOperations
 
     /**
      * Convert an absolute path back to a workspace-relative path.
+     *
+     * Normalizes backslashes to forward slashes before comparison so that
+     * the method works correctly on Windows where PHP's realpath() and
+     * RecursiveDirectoryIterator::getPathname() return backslash-separated paths.
      */
     public function makeRelative(string $absolutePath): string
     {
-        if (str_starts_with($absolutePath, $this->rootPath . '/')) {
-            return substr($absolutePath, strlen($this->rootPath) + 1);
+        $normalized = str_replace('\\', '/', $absolutePath);
+        $normalizedRoot = str_replace('\\', '/', $this->rootPath);
+        $normalizedReal = str_replace('\\', '/', $this->realRoot);
+
+        if (str_starts_with($normalized, $normalizedRoot . '/')) {
+            return substr($normalized, strlen($normalizedRoot) + 1);
         }
 
-        if (str_starts_with($absolutePath, $this->realRoot . '/')) {
-            return substr($absolutePath, strlen($this->realRoot) + 1);
+        if (str_starts_with($normalized, $normalizedReal . '/')) {
+            return substr($normalized, strlen($normalizedReal) + 1);
         }
 
-        return $absolutePath;
+        return $normalized;
     }
 
     /**
