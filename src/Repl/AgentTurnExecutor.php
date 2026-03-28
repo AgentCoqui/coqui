@@ -93,12 +93,16 @@ final class AgentTurnExecutor
             $savedStty = null;
         }
 
-        // Render output
+        // Render output — user sees stats immediately
         $renderer = new TerminalRenderer($io, showHints: fn(): bool => (bool) $this->boot->config()->get('agents.defaults.hints', true));
         $renderer->render($result, contentStreamed: true);
 
-        // Generate session title on first turn (best-effort)
-        $this->maybeGenerateTitle($sessionId, $prompt);
+        // Enqueue title generation as deferred work (first-turn LLM call)
+        $result->deferredWork?->enqueue(fn() => $this->maybeGenerateTitle($sessionId, $prompt));
+
+        // Process deferred work (memory extraction, title generation) after
+        // stats are visible but before returning control to the REPL.
+        $result->deferredWork?->process();
 
         // Check restart
         if ($result->restartRequested) {
