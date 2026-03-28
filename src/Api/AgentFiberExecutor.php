@@ -79,6 +79,9 @@ final class AgentFiberExecutor
                 // Write the final complete event
                 $sseObserver->writeComplete($result->toArray());
 
+                // Process deferred work (memory extraction) after response is sent
+                $result->deferredWork?->process();
+
                 // Generate title on first turn if no title exists
                 $this->maybeGenerateTitle($sessionId, $prompt, $sseObserver);
             } catch (\Throwable $e) {
@@ -189,6 +192,9 @@ final class AgentFiberExecutor
                     new NullObserver(),
                     $filePaths,
                 );
+
+                // Process deferred work (memory extraction) before resolving
+                $result->deferredWork?->process();
 
                 // Generate title on first turn (best-effort, no observer needed)
                 $this->maybeGenerateTitleBlocking($sessionId, $prompt);

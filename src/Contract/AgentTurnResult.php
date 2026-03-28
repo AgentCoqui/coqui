@@ -16,6 +16,7 @@ final readonly class AgentTurnResult
      * @param string[]  $toolsUsed       Unique tool names invoked during the turn.
      * @param ?array<int, array{file_path: string, operation: string}> $fileEdits  Files edited during the turn.
      * @param ?string   $error           Error message if the turn failed.
+     * @param ?DeferredWorkQueue $deferredWork  Non-critical tasks to run after stats are rendered.
      */
     public function __construct(
         public string $content,
@@ -33,6 +34,7 @@ final readonly class AgentTurnResult
         public ?string $error = null,
         public ?string $reviewFeedback = null,
         public ?bool $reviewApproved = null,
+        public ?DeferredWorkQueue $deferredWork = null,
     ) {}
 
     public function isError(): bool

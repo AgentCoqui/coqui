@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Observer;
 
 use CarmeloSantana\PHPAgents\Contract\AgentInterface;
+use CarmeloSantana\PHPAgents\Tool\DoneTool;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Renderer\StreamingMarkdownBuffer;
@@ -116,6 +117,22 @@ final class TerminalObserver implements SplObserver
     private function handleToolCall(mixed $data, string $indent): void
     {
         if (!$data instanceof ToolCall) {
+            return;
+        }
+
+        // When the done tool fires, flush any remaining buffered content
+        // immediately so single-line responses appear before the done
+        // confirmation rather than waiting for handleDone().
+        if ($data->name === DoneTool::NAME) {
+            if ($this->hasStreamedReasoning) {
+                $this->output->writeln('');
+                $this->hasStreamedReasoning = false;
+            }
+            if ($this->hasStreamedText) {
+                $this->markdownBuffer->flush();
+                $this->output->writeln('');
+                $this->hasStreamedText = false;
+            }
             return;
         }
 

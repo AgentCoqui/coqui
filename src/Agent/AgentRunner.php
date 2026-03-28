@@ -30,6 +30,7 @@ use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Contract\DeferredWorkQueue;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryExtractor;
@@ -238,9 +239,46 @@ final class AgentRunner
             $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole);
             $iterationLimitReached = $resolvedMaxIterations > 0 && $output->iterations >= $resolvedMaxIterations;
 
-            // Persist intermediate messages from this turn (tool calls + results)
-            if ($output->conversation !== null) {
-                $this->persistTurnMessages($output->conversation, $history->count(), $sessionId, $turnId);
+            // Batch all post-turn DB writes in a single transaction to reduce fsync overhead
+            $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
+            $toolsUsed = $this->extractToolsUsed($output->conversation, $history->count());
+            $childAgentCount = $agent->getSpawnTool()->getChildRunCount();
+
+            $pdo = $this->storage->getPdo();
+            $pdo->beginTransaction();
+            try {
+                // Persist intermediate messages from this turn (tool calls + results)
+                if ($output->conversation !== null) {
+                    $this->persistTurnMessages($output->conversation, $history->count(), $sessionId, $turnId);
+                }
+
+                // Save final assistant response if not already persisted
+                if ($output->conversation === null) {
+                    $this->storage->addMessage($sessionId, 'assistant', $output->content, turnId: $turnId);
+                }
+
+                // Update session token count
+                $this->storage->updateTokenCount($sessionId, $usage->totalTokens);
+
+                // Complete turn with metadata
+                $this->storage->completeTurn(
+                    turnId: $turnId,
+                    responseText: $output->content,
+                    promptTokens: $usage->promptTokens,
+                    completionTokens: $usage->completionTokens,
+                    totalTokens: $usage->totalTokens,
+                    iterations: $output->iterations,
+                    durationMs: $durationMs,
+                    toolsUsed: json_encode($toolsUsed, JSON_UNESCAPED_SLASHES) ?: '[]',
+                    childAgentCount: $childAgentCount,
+                );
+
+                $pdo->commit();
+            } catch (\Throwable $dbError) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $dbError;
             }
 
             // If the in-loop pruning strategy applied summarization during agent->run(),
@@ -271,33 +309,10 @@ final class AgentRunner
                 $pruningStrategy->reset();
             }
 
-            // Save final assistant response if not already persisted
-            if ($output->conversation === null) {
-                $this->storage->addMessage($sessionId, 'assistant', $output->content, turnId: $turnId);
-            }
-
-            // Update session token count
-            $this->storage->updateTokenCount($sessionId, $usage->totalTokens);
-
-            // Complete turn with metadata
-            $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
-            $toolsUsed = $this->extractToolsUsed($output->conversation, $history->count());
-            $childAgentCount = $agent->getSpawnTool()->getChildRunCount();
-
-            $this->storage->completeTurn(
-                turnId: $turnId,
-                responseText: $output->content,
-                promptTokens: $usage->promptTokens,
-                completionTokens: $usage->completionTokens,
-                totalTokens: $usage->totalTokens,
-                iterations: $output->iterations,
-                durationMs: $durationMs,
-                toolsUsed: json_encode($toolsUsed, JSON_UNESCAPED_SLASHES) ?: '[]',
-                childAgentCount: $childAgentCount,
-            );
-
-            // Automatic memory extraction from completed turn
-            $this->autoExtractMemories($output->conversation ?? $history, $sessionId);
+            // Enqueue memory extraction as deferred work — runs after stats are rendered
+            $deferredWork = new DeferredWorkQueue();
+            $conversationForExtraction = $output->conversation ?? $history;
+            $deferredWork->enqueue(fn() => $this->autoExtractMemories($conversationForExtraction, $sessionId));
 
             // Build context usage snapshot for progress bar rendering
             $contextUsage = null;
@@ -345,6 +360,7 @@ final class AgentRunner
                 fileEdits: $fileEdits,
                 reviewFeedback: $reviewFeedback,
                 reviewApproved: $reviewApproved,
+                deferredWork: $deferredWork,
             );
         } catch (\Throwable $e) {
             // Complete turn even on error so duration/state is tracked
