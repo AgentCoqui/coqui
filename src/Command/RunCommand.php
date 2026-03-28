@@ -167,7 +167,6 @@ final class RunCommand extends Command
             todoStore: $this->boot->todoStore(),
             artifactStore: $this->boot->artifactStore(),
             projectStore: $this->boot->projectStore(),
-            defaultsLoader: $this->boot->defaultsLoader(),
         );
 
         // Handle session
@@ -503,7 +502,6 @@ final class RunCommand extends Command
             todoStore: $this->boot->todoStore(),
             artifactStore: $this->boot->artifactStore(),
             projectStore: $this->boot->projectStore(),
-            defaultsLoader: $this->boot->defaultsLoader(),
         );
 
         // Handle session
