@@ -1232,6 +1232,63 @@ No explicit configuration is required. The memory system initializes automatical
 ```
 
 
+## Memory Extraction Architecture
+
+Coqui extracts noteworthy facts, preferences, and solutions from conversations into persistent memory entries via `MemoryExtractor`. Extraction is triggered at three controlled points, with transparency events so users always know when memories are being saved.
+
+### Trigger Points
+
+| Trigger | When | Cooldown | Transparency |
+| --- | --- | --- | --- |
+| **Summarization** | During any conversation summarization (auto, manual, API) | Bypassed | `agent.memory_extraction` event with `source: 'summarization'` |
+| **Explicit tool** | Agent calls `extract_memories` | Bypassed | Tool result reports count |
+| **Per-turn** (optional) | After each agent turn via `DeferredWorkQueue` | 300s cooldown | `agent.memory_extraction` event with `source: 'auto_turn'` |
+
+Per-turn extraction is **disabled by default** (`CoquiDefaults::MEMORY_AUTO_EXTRACT = false`). Users can enable it via the setup wizard (Step 6) or by setting `agents.defaults.memory.autoExtract: true` in `openclaw.json`.
+
+### Observer Transparency
+
+All extraction triggers emit an `agent.memory_extraction` event via the agent's observer system:
+
+| Observer | Rendering |
+| --- | --- |
+| `TerminalObserver` | Yellow `🧠 Memory extraction ({source}): N memory/memories saved` |
+| `SseObserver` | `memory_extraction` SSE event with `{memories_saved, source, auto}` data |
+
+Events are suppressed when zero memories are saved to avoid noise.
+
+### Configuration
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "memory": {
+                "autoExtract": false,
+                "embeddingModel": "ollama/nomic-embed-text"
+            }
+        }
+    }
+}
+```
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `autoExtract` | `false` | Enable per-turn automatic extraction via deferred work |
+| `embeddingModel` | *(auto-detect)* | Embedding model for vector similarity deduplication |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Memory/MemoryExtractor.php` | LLM-based extraction with cooldown, deduplication, and area classification |
+| `src/Tool/ExtractMemoriesTool.php` | Agent-facing tool for explicit extraction (bypasses cooldown) |
+| `src/Agent/AgentRunner.php` | `autoExtractMemories()` — per-turn deferred extraction with config check |
+| `src/Memory/ConversationSummarizer.php` | `summarizeAndPersist()` — extraction during summarization with `onExtraction` callback |
+| `src/Observer/TerminalObserver.php` | `handleMemoryExtraction()` — terminal transparency rendering |
+| `src/Observer/SseObserver.php` | `memory_extraction` SSE event emission |
+
+
 ## Context Window & Conversation Summarization
 
 Coqui provides automatic context window management and conversation summarization to prevent token limit overflows. The system uses php-agents' `ContextWindow` for per-iteration pruning, a pluggable `BudgetPruningStrategyInterface` for custom pruning logic, and LLM-powered summarization for intelligent conversation compression.

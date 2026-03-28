@@ -88,6 +88,8 @@ final class TerminalObserver implements SplObserver
 
             'agent.summary' => $this->handleSummary($data, $indent),
 
+            'agent.memory_extraction' => $this->handleMemoryExtraction($data, $indent),
+
             'child.start' => $this->handleChildStart($data, $indent),
 
             'child.end' => $this->handleChildEnd($indent),
@@ -263,6 +265,24 @@ final class TerminalObserver implements SplObserver
 
         $this->output->writeln(
             "{$indent}<fg=yellow>📋 Conversation summarized{$auto}: {$count} messages compressed, {$saved} tokens saved</>",
+        );
+    }
+
+    private function handleMemoryExtraction(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $count = (int) ($data['memories_saved'] ?? 0);
+        $source = (string) ($data['source'] ?? 'unknown');
+
+        if ($count === 0) {
+            return;
+        }
+
+        $this->output->writeln(
+            "{$indent}<fg=yellow>🧠 Memory extraction ({$source}): {$count} " . ($count === 1 ? 'memory' : 'memories') . ' saved</>',
         );
     }
 

@@ -101,12 +101,16 @@ final class SummarizeConversationTool implements ToolInterface
             return ToolResult::error('No provider available for summarization. Cannot generate summary.');
         }
 
+        $memoriesExtracted = 0;
         $result = $this->summarizer->summarizeAndPersist(
             sessionId: $this->sessionId,
             provider: $provider,
             keepRecentTurns: $keepRecent,
             focus: $focus,
             workflowContext: $this->buildWorkflowContext(),
+            onExtraction: function (int $saved) use (&$memoriesExtracted): void {
+                $memoriesExtracted = $saved;
+            },
         );
 
         if (!$result->wasSummarized()) {
@@ -114,13 +118,17 @@ final class SummarizeConversationTool implements ToolInterface
         }
 
         $saved = $result->tokensSaved();
+        $extractionNote = $memoriesExtracted > 0
+            ? "- Memories extracted: {$memoriesExtracted}\n"
+            : '';
 
         return ToolResult::success(
             "Conversation summarized successfully.\n"
             . "- Messages condensed: {$result->messagesSummarized}\n"
             . "- Tokens before: {$result->tokensBefore}\n"
             . "- Tokens after: {$result->tokensAfter}\n"
-            . "- Tokens saved: {$saved}\n\n"
+            . "- Tokens saved: {$saved}\n"
+            . $extractionNote . "\n"
             . "Summary:\n{$result->summary}",
         );
     }

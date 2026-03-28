@@ -657,6 +657,15 @@
             ]
         },
         {
+            "path": "src/Tool/ExtractMemoriesTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ExtractMemoriesTool",
+            "layer": "tool",
+            "description": "Agent-facing tool for explicit memory extraction from conversation history. Exposes an extract_memories tool with an optional recent_turns parameter (default 5, max 20). Loads conversation from SessionStorage, resolves a utility provider, and delegates to MemoryExtractor with bypassCooldown: true. Returns the count of new memories saved after deduplication.",
+            "methods": [
+                "execute(array $arguments): ToolResult — loads conversation, resolves provider, delegates to MemoryExtractor, returns extraction result"
+            ]
+        },
+        {
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",

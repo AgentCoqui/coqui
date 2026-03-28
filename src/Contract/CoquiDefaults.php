@@ -52,4 +52,7 @@ final class CoquiDefaults
 
     /** Whether spawned coder agents auto-iterate on NEEDS_CHANGES (config: agents.defaults.codeReview.autoIterate). */
     public const bool CODE_REVIEW_AUTO_ITERATE = true;
+
+    /** Whether automatic memory extraction runs after every turn (config: agents.defaults.memory.autoExtract). */
+    public const bool MEMORY_AUTO_EXTRACT = false;
 }
