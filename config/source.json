@@ -1825,6 +1825,54 @@
                 "tools(): array — returns 2 learning Tool instances",
                 "guidelines(): string — dynamic stats with poor evaluation count and workflow instructions"
             ]
+        },
+        {
+            "path": "src/Toolkit/FileSystemToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\FileSystemToolkit",
+            "layer": "toolkit",
+            "description": "Unified filesystem toolkit providing 16 tools: 4 read (read_file, list_dir, search_files, file_info), 3 write (write_file, create_dir, delete_file), 8 surgical edit (replace_in_file, insert_before, insert_after, replace_block, remove_lines, write_lines, batch_replace, indent_lines, append_to_file), and 1 history (edit_history). Supports readOnly mode, mount-aware path sandboxing, and SQLite-backed edit history with unified diff and undo.",
+            "methods": [
+                "tools(): array — returns 4 read tools always, plus 12 write/edit/history tools when not readOnly",
+                "guidelines(): string — tool selection guide with best practices, mode-aware"
+            ]
+        },
+        {
+            "path": "src/Support/FileSystemOperations.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\FileSystemOperations",
+            "layer": "support",
+            "description": "Shared file I/O helpers with path sandboxing, atomic writes, and line ending detection. Combines path resolution (mount-aware sandbox) with atomic write via temp-file + rename. Used by FileSystemToolkit for all file operations.",
+            "methods": [
+                "resolvePath(string): string — canonicalize and sandbox-check a relative path",
+                "resolveGlob(string): array — glob within sandbox boundaries",
+                "read(string): string — read file contents with sandbox enforcement",
+                "readLines(string): array — read and split by detected EOL",
+                "write(string, string): void — atomic write with permission preservation",
+                "append(string, string): int — append with file creation",
+                "delete(string): void — unlink with mount read-only guard",
+                "isReadOnlyMountPath(string): bool — check if path is under a read-only mount",
+                "detectEol(string): string — detect dominant line ending style"
+            ]
+        },
+        {
+            "path": "src/Support/FileSystemException.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\FileSystemException",
+            "layer": "support",
+            "description": "Domain exception for filesystem operations with static factories for common error types: fileNotFound, readFailed, writeFailed, readOnlyMount, pathEscapesSandbox, invalidRange, invalidRegex.",
+            "methods": []
+        },
+        {
+            "path": "src/Storage/EditHistory.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\EditHistory",
+            "layer": "storage",
+            "description": "SQLite-backed edit history with file backups for undo support. Records each mutating edit with the original file content as a backup. Supports undo by edit ID, unified diff generation, listing recent edits, and pruning old entries. Used by FileSystemToolkit.",
+            "methods": [
+                "record(string, string, string, array): int — record an edit with backup, returns edit ID",
+                "getBackup(int): array — retrieve backup content for a specific edit",
+                "getLastEdits(string, int): array — get last N edits for a file",
+                "getEditsSince(string): array — edits since a timestamp (for REPL summary)",
+                "generateDiff(int): string — unified diff between backup and current file",
+                "prune(int): int — remove old entries and backup files"
+            ]
         }
     ],
     "externalDependencies": [
@@ -1876,7 +1924,7 @@
                 },
                 {
                     "path": "src/Toolkit/FilesystemToolkit.php",
-                    "description": "Read/write filesystem tools (read_file, write_file, list_dir, search_files, file_info, create_dir, delete_file). Supports readOnly mode."
+                    "description": "DEPRECATED — replaced by Coqui's FileSystemToolkit (src/Toolkit/FileSystemToolkit.php). Legacy read/write filesystem tools."
                 },
                 {
                     "path": "src/Toolkit/ShellToolkit.php",

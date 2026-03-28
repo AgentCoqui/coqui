@@ -11,8 +11,8 @@ use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
 use CoquiBot\Coqui\Agent\PlanTodoGenerator;
 use CoquiBot\Coqui\Agent\VisionAnalyzer;
@@ -223,7 +223,7 @@ final class SpawnAgentTool implements ToolInterface
 
         $toolkits = match ($accessLevel) {
             'full' => [
-                new FilesystemToolkit(rootPath: $this->workspacePath, allowedPaths: $mountPaths),
+                new FileSystemToolkit(workspacePath: $this->workspacePath, allowedPaths: $mountPaths),
                 new ShellToolkit(
                     workDir: $this->projectRoot,
                     allowedCommands: $this->shellAllowedCommands,
@@ -233,7 +233,7 @@ final class SpawnAgentTool implements ToolInterface
             ],
 
             'readonly-shell' => [
-                new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
+                new FileSystemToolkit(workspacePath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
                 new ShellToolkit(
                     workDir: $this->projectRoot,
                     allowedCommands: self::READ_ONLY_SHELL_COMMANDS,
@@ -243,7 +243,7 @@ final class SpawnAgentTool implements ToolInterface
             ],
 
             'readonly' => [
-                new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
+                new FileSystemToolkit(workspacePath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 

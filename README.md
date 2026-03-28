@@ -304,7 +304,7 @@ Coqui ships with a rich set of tools organized into toolkits:
 | Category | Key Tools | Description |
 |----------|-----------|-------------|
 | **Agent** | `spawn_agent`, `restart_coqui` | Delegate to child agents, restart Coqui |
-| **Filesystem** | `read_file`, `write_file`, `list_directory` | Sandboxed workspace file I/O |
+| **Filesystem** | `read_file`, `write_file`, `replace_in_file`, `edit_history` | Sandboxed file I/O, surgical edits, undo history |
 | **Shell** | `exec` | Run shell commands with configurable allowlist |
 | **Code** | `php_execute` | Execute PHP in a sandboxed subprocess |
 | **Memory** | `memory_save`, `memory_search` | Persistent cross-session memory |

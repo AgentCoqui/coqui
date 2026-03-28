@@ -37,6 +37,7 @@ use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
+use CoquiBot\Coqui\Storage\EditHistory;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
@@ -170,6 +171,7 @@ final class AgentRunner
         // Create turn record before execution
         $turnId = $this->storage->createTurn($sessionId, $prompt, $modelString);
         $startTime = hrtime(true);
+        $turnStartedAt = (new \DateTimeImmutable())->format('c');
 
         // Save user message to database before running agent
         $this->storage->addMessage($sessionId, 'user', $prompt, turnId: $turnId);
@@ -309,6 +311,9 @@ final class AgentRunner
                 // Non-fatal — progress bar is optional
             }
 
+            // Collect file edits for post-turn summary
+            $fileEdits = $this->collectFileEdits($turnStartedAt);
+
             return new AgentTurnResult(
                 content: $output->content,
                 iterations: $output->iterations,
@@ -321,6 +326,7 @@ final class AgentRunner
                 restartRequested: $restartRequested,
                 iterationLimitReached: $iterationLimitReached,
                 contextUsage: $contextUsage,
+                fileEdits: $fileEdits,
             );
         } catch (\Throwable $e) {
             // Complete turn even on error so duration/state is tracked
@@ -918,8 +924,33 @@ final class AgentRunner
 
     /**
      * Run automatic memory extraction from a completed conversation turn.
+     *     * Collect file edits that occurred during the current turn.
      *
-     * Uses a cheap LLM call to identify noteworthy facts in recent turns
+     * @return ?array<int, array{file_path: string, operation: string}>
+     */
+    private function collectFileEdits(string $turnStartedAt): ?array
+    {
+        try {
+            $history = new EditHistory($this->workspacePath . '/data/edit-history');
+            $edits = $history->getEditsSince($turnStartedAt);
+
+            if ($edits === []) {
+                return null;
+            }
+
+            return array_map(
+                fn(array $edit) => [
+                    'file_path' => $edit['file_path'],
+                    'operation' => $edit['operation'],
+                ],
+                $edits,
+            );
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**     * Uses a cheap LLM call to identify noteworthy facts in recent turns
      * and saves them as memories. Respects cooldown and config toggle.
      */
     private function autoExtractMemories(Conversation $conversation, string $sessionId): void
