@@ -92,7 +92,9 @@ The simplest valid config only needs a primary model:
                 "embeddingModel": "openai/text-embedding-3-small"
             },
             "context": {
+                "autoSummarizeMode": "token",
                 "autoSummarizeThreshold": 70,
+                "autoSummarizeTurnThreshold": 20,
                 "autoSummarizeKeepRecent": 15,
                 "keepRecentTurns": 10,
                 "budgetSafetyMarginPercent": 20
@@ -310,7 +312,9 @@ Configure automatic conversation summarization behavior.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `autoSummarizeThreshold` | int/float | `70` | Token usage percentage that triggers auto-summarization. Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeMode` | string | `"token"` | Summarization trigger mode: `"token"` (trigger on context window usage), `"turn"` (trigger after N user turns), or `"manual"` (no auto-summarization; use `/summarize` on demand) |
+| `autoSummarizeThreshold` | int/float | `70` | Token usage percentage that triggers auto-summarization (used when mode is `"token"`). Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeTurnThreshold` | int | `20` | Number of user turns that triggers auto-summarization (used when mode is `"turn"`) |
 | `autoSummarizeKeepRecent` | int | `15` | Turns preserved during auto-summarization (clamped 1–20) |
 | `keepRecentTurns` | int | `10` | Default turns preserved during on-demand summarization (`/summarize`) |
 | `budgetSafetyMarginPercent` | int | `20` | Safety margin percentage applied by per-iteration budget pruning to account for token estimation inaccuracy (0–50) |
@@ -318,6 +322,7 @@ Configure automatic conversation summarization behavior.
 ```json
 {
     "context": {
+        "autoSummarizeMode": "token",
         "autoSummarizeThreshold": 70,
         "autoSummarizeKeepRecent": 15,
         "keepRecentTurns": 10
@@ -325,7 +330,13 @@ Configure automatic conversation summarization behavior.
 }
 ```
 
-When the estimated token usage exceeds the threshold before an agent turn, older messages are compressed via LLM while preserving recent turns and workflow state (todos, artifacts).
+**Summarization modes:**
+
+- **`token`** (default) — Summarizes when estimated token usage exceeds `autoSummarizeThreshold` percent of the effective context window. This is the recommended mode: it preserves as much conversation as possible while preventing context overflow.
+- **`turn`** — Summarizes after `autoSummarizeTurnThreshold` user turns, regardless of token usage. Useful for predictable summarization behavior on smaller context models.
+- **`manual`** — Disables all automatic pre-turn summarization. Use the `/summarize` REPL command, the `summarize_conversation` agent tool, or the API endpoint to summarize on demand. The per-iteration `SummarizePruningStrategy` safety net still fires to prevent context window overflow during agent execution.
+
+Regardless of mode, the per-iteration budget pruning strategy always runs as a safety net to prevent the conversation from exceeding the model's context window within a single turn.
 
 ### `evaluation`
 

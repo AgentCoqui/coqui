@@ -75,7 +75,7 @@ final class ExtractMemoriesTool implements ToolInterface
         }
 
         $conversation = $this->storage->loadConversation($this->sessionId);
-        if ($conversation === null || $conversation->count() < 2) {
+        if ($conversation->count() < 2) {
             return ToolResult::error('Conversation is too short for memory extraction.');
         }
 
