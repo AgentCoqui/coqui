@@ -43,4 +43,13 @@ final class CoquiDefaults
 
     /** Safety margin percentage applied by fitWithinBudget to account for token estimation inaccuracy (config: agents.defaults.context.budgetSafetyMarginPercent). */
     public const int BUDGET_SAFETY_MARGIN_PERCENT = 20;
+
+    /** Whether automated code review is enabled globally (config: agents.defaults.codeReview.enabled). */
+    public const bool CODE_REVIEW_ENABLED = true;
+
+    /** Maximum review→iterate rounds for spawned coder agents (config: agents.defaults.codeReview.maxRounds). */
+    public const int CODE_REVIEW_MAX_ROUNDS = 2;
+
+    /** Whether spawned coder agents auto-iterate on NEEDS_CHANGES (config: agents.defaults.codeReview.autoIterate). */
+    public const bool CODE_REVIEW_AUTO_ITERATE = true;
 }

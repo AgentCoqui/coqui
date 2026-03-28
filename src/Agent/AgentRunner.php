@@ -314,6 +314,22 @@ final class AgentRunner
             // Collect file edits for post-turn summary
             $fileEdits = $this->collectFileEdits($turnStartedAt);
 
+            // Post-turn automated code review for coder role interactive sessions.
+            // Single pass only — feedback is shown to user, no auto-iterate.
+            $reviewFeedback = null;
+            $reviewApproved = null;
+            if ($this->shouldPostTurnReview($effectiveRole, $fileEdits)) {
+                $reviewResult = $this->runPostTurnReview(
+                    coderOutput: $output->content,
+                    originalTask: $prompt,
+                    observer: $observer,
+                );
+                if ($reviewResult !== null) {
+                    $reviewFeedback = $reviewResult->reviewFeedback;
+                    $reviewApproved = $reviewResult->approved;
+                }
+            }
+
             return new AgentTurnResult(
                 content: $output->content,
                 iterations: $output->iterations,
@@ -327,6 +343,8 @@ final class AgentRunner
                 iterationLimitReached: $iterationLimitReached,
                 contextUsage: $contextUsage,
                 fileEdits: $fileEdits,
+                reviewFeedback: $reviewFeedback,
+                reviewApproved: $reviewApproved,
             );
         } catch (\Throwable $e) {
             // Complete turn even on error so duration/state is tracked
@@ -944,6 +962,86 @@ final class AgentRunner
                     'operation' => $edit['operation'],
                 ],
                 $edits,
+            );
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Determine if the current turn should receive a post-turn code review.
+     *
+     * @param ?array<int, array{file_path: string, operation: string}> $fileEdits
+     */
+    private function shouldPostTurnReview(string $role, ?array $fileEdits): bool
+    {
+        // Only review when there are actual file changes
+        if ($fileEdits === null || $fileEdits === []) {
+            return false;
+        }
+
+        // Check global config
+        if ($this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig) {
+            $reviewConfig = $this->config->getCodeReviewConfig();
+            if (!$reviewConfig['enabled']) {
+                return false;
+            }
+        }
+
+        // Check role-level auto_review flag
+        if ($this->roleDiscovery !== null) {
+            try {
+                $properties = $this->roleDiscovery->getRole($role);
+                return $properties->autoReview;
+            } catch (\Throwable) {
+                // Fall through
+            }
+        }
+
+        // Default: only coder role
+        return $role === 'coder';
+    }
+
+    /**
+     * Run a single-pass code review for interactive coder sessions.
+     *
+     * Returns the review result for display, but does not auto-iterate.
+     */
+    private function runPostTurnReview(
+        string $coderOutput,
+        string $originalTask,
+        ?SplObserver $observer,
+    ): ?\CoquiBot\Coqui\Contract\CodeReviewResult {
+        try {
+            $cycle = new CodeReviewCycle(
+                roleResolver: $this->roleResolver,
+                config: $this->config,
+                roleDiscovery: $this->roleDiscovery,
+                observer: $observer,
+            );
+
+            // Build reviewer toolkits: read-only filesystem + shell search
+            $mountPaths = $this->mountManager?->allowedPathsReadOnly() ?? [];
+            $reviewerToolkits = [
+                new \CoquiBot\Coqui\Toolkit\FileSystemToolkit(
+                    workspacePath: $this->workspacePath,
+                    readOnly: true,
+                    allowedPaths: $mountPaths,
+                ),
+                new \CarmeloSantana\PHPAgents\Toolkit\ShellToolkit(
+                    workDir: $this->projectRoot,
+                    allowedCommands: ['grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls', 'sort', 'uniq', 'sed', 'awk', 'diff'],
+                    timeout: 60,
+                ),
+                new \CoquiBot\Coqui\Toolkit\ProjectSourceToolkit(projectRoot: $this->projectRoot),
+            ];
+
+            return $cycle->run(
+                coderOutput: $coderOutput,
+                originalTask: $originalTask,
+                reviewerToolkits: $reviewerToolkits,
+                maxRounds: 1,
+                autoIterate: false,
             );
         } catch (\Throwable) {
             return null;

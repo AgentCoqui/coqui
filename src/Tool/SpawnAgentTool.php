@@ -14,6 +14,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
+use CoquiBot\Coqui\Agent\CodeReviewCycle;
 use CoquiBot\Coqui\Agent\PlanTodoGenerator;
 use CoquiBot\Coqui\Agent\VisionAnalyzer;
 use CoquiBot\Coqui\Config\MountManager;
@@ -196,6 +197,21 @@ final class SpawnAgentTool implements ToolInterface
             }
 
             $this->childRunCount++;
+
+            // Run automated code review cycle for coder agents
+            if ($this->shouldAutoReview($role)) {
+                $reviewResult = $this->runCodeReviewCycle(
+                    coderOutput: $output->content,
+                    originalTask: $prompt,
+                    coderRole: $role,
+                );
+
+                if ($reviewResult !== null) {
+                    $summary = $reviewResult->buildSummary();
+
+                    return ToolResult::success($reviewResult->finalContent . "\n\n" . $summary);
+                }
+            }
 
             return ToolResult::success($output->content);
         } catch (\Throwable $e) {
@@ -439,6 +455,71 @@ final class SpawnAgentTool implements ToolInterface
         $value = $this->config->get('agents.defaults.childBackgroundTasks', false);
 
         return filter_var($value, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    /**
+     * Determine if the role should receive automated code review.
+     */
+    private function shouldAutoReview(string $role): bool
+    {
+        // Check global config
+        if ($this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig) {
+            $reviewConfig = $this->config->getCodeReviewConfig();
+            if (!$reviewConfig['enabled']) {
+                return false;
+            }
+        }
+
+        // Check role-level auto_review flag
+        if ($this->roleDiscovery !== null) {
+            try {
+                $properties = $this->roleDiscovery->getRole($role);
+                return $properties->autoReview;
+            } catch (\Throwable) {
+                // Fall through
+            }
+        }
+
+        // Default: only coder role
+        return $role === 'coder';
+    }
+
+    /**
+     * Run the code review cycle against a coder's output.
+     */
+    private function runCodeReviewCycle(
+        string $coderOutput,
+        string $originalTask,
+        string $coderRole,
+    ): ?\CoquiBot\Coqui\Contract\CodeReviewResult {
+        try {
+            $reviewConfig = $this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig
+                ? $this->config->getCodeReviewConfig()
+                : ['maxRounds' => CoquiDefaults::CODE_REVIEW_MAX_ROUNDS, 'autoIterate' => CoquiDefaults::CODE_REVIEW_AUTO_ITERATE];
+
+            $cycle = new CodeReviewCycle(
+                roleResolver: $this->roleResolver,
+                config: $this->config,
+                roleDiscovery: $this->roleDiscovery,
+                observer: $this->observer,
+            );
+
+            $reviewerToolkits = $this->buildToolkits('reviewer');
+            $coderToolkits = $reviewConfig['autoIterate'] ? $this->buildToolkits($coderRole) : [];
+
+            return $cycle->run(
+                coderOutput: $coderOutput,
+                originalTask: $originalTask,
+                reviewerToolkits: $reviewerToolkits,
+                maxRounds: $reviewConfig['maxRounds'],
+                coderToolkits: $coderToolkits,
+                autoIterate: $reviewConfig['autoIterate'],
+                coderMaxIterations: $this->roleResolver->resolveMaxIterations($coderRole),
+            );
+        } catch (\Throwable) {
+            // Review cycle failure should not prevent returning the coder's output
+            return null;
+        }
     }
 
     public function toFunctionSchema(): array

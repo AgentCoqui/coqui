@@ -98,6 +98,14 @@ public function render(AgentTurnResult $result, bool $contentStreamed = false): 
             $this->io->writeln($line);
         }
 
+        // Code review feedback
+        if ($result->reviewFeedback !== null) {
+            $statusTag = $result->reviewApproved === true
+                ? '<fg=green>APPROVED</>'
+                : '<fg=yellow>NEEDS CHANGES</>';
+            $this->io->writeln("<fg=gray>  • Review </>{$statusTag}");
+        }
+
         // Context usage progress bar
         if ($result->contextUsage !== null) {
             ContextUsageBar::render(

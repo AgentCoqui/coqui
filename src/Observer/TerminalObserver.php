@@ -91,6 +91,10 @@ final class TerminalObserver implements SplObserver
 
             'child.end' => $this->handleChildEnd($indent),
 
+            'child.review_start' => $this->handleReviewStart($data, $indent),
+
+            'child.review_end' => $this->handleReviewEnd($data, $indent),
+
             default => null,
         };
     }
@@ -207,6 +211,27 @@ final class TerminalObserver implements SplObserver
         $this->indentLevel = max(0, $this->indentLevel - 1);
         $newIndent = str_repeat('  ', $this->indentLevel);
         $this->output->writeln("{$newIndent}<fg=blue>└─</> <fg=gray>Child agent completed</>");
+    }
+
+    private function handleReviewStart(mixed $data, string $indent): void
+    {
+        $round = is_array($data) ? ($data['round'] ?? 1) : 1;
+        $maxRounds = is_array($data) ? ($data['max_rounds'] ?? 1) : 1;
+        $this->output->writeln("{$indent}<fg=magenta>⚖ Code Review</> <fg=gray>Round {$round}/{$maxRounds}</>");
+        $this->indentLevel++;
+    }
+
+    private function handleReviewEnd(mixed $data, string $indent): void
+    {
+        $this->indentLevel = max(0, $this->indentLevel - 1);
+        $newIndent = str_repeat('  ', $this->indentLevel);
+        $approved = is_array($data) && ($data['approved'] ?? false);
+        if ($approved) {
+            $this->output->writeln("{$newIndent}<fg=green>✓ APPROVED</>");
+        } else {
+            $verdict = is_array($data) ? ($data['verdict'] ?? 'needs_changes') : 'needs_changes';
+            $this->output->writeln("{$newIndent}<fg=yellow>⟳ {$verdict}</>");
+        }
     }
 
     private function handleSummary(mixed $data, string $indent): void

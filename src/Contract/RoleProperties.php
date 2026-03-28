@@ -30,6 +30,7 @@ final readonly class RoleProperties
         public ?string $titleModel = null,
         public ?string $toolkits = null,
         public ?int $maxIterations = null,
+        public bool $autoReview = false,
     ) {}
 
     /**
@@ -55,6 +56,7 @@ final readonly class RoleProperties
             'title_model' => $this->titleModel,
             'toolkits' => $this->toolkits,
             'max_iterations' => $this->maxIterations,
+            'auto_review' => $this->autoReview,
         ];
     }
 }

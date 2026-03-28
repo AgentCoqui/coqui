@@ -31,6 +31,8 @@ final readonly class AgentTurnResult
         public ?ContextUsageSnapshot $contextUsage = null,
         public ?array $fileEdits = null,
         public ?string $error = null,
+        public ?string $reviewFeedback = null,
+        public ?bool $reviewApproved = null,
     ) {}
 
     public function isError(): bool
@@ -85,6 +87,8 @@ final readonly class AgentTurnResult
             'context_usage' => $this->contextUsage?->toArray(),
             'file_edits' => $this->fileEdits,
             'error' => $this->error,
+            'review_feedback' => $this->reviewFeedback,
+            'review_approved' => $this->reviewApproved,
         ];
     }
 }
