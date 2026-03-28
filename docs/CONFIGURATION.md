@@ -79,6 +79,7 @@ The simplest valid config only needs a primary model:
             "backgroundTaskMaxIterations": 100,
             "childBackgroundTasks": false,
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
+            "allowSudo": false,
             "blacklist": ["/pattern-to-block/i"],
             "mounts": [
                 {
@@ -228,16 +229,38 @@ When `true`, child agents spawned via `spawn_agent` with `full` access level can
 
 ### `shellAllowedCommands`
 
-Restricts which shell commands the agent can execute. When set, only commands whose first word matches the allowlist are permitted.
-
-**Default allowlist** (when not configured):
+An opt-in restrictive allowlist for shell commands. When omitted, all commands are permitted (open-by-default mode), subject to built-in deny patterns and the `allowSudo` setting below. When set to a non-empty array, only commands whose first word matches the list are permitted, and shell metacharacters (`;`, `&&`, `|`, `$(...)`, backticks) are also blocked to prevent allowlist bypass.
 
 ```json
-["php", "git", "grep", "find", "cat", "head", "tail", "wc", "ls",
- "curl", "wget", "make", "sort", "uniq", "sed", "awk", "diff"]
+{
+    "agents": {
+        "defaults": {
+            "shellAllowedCommands": [
+                "php", "git", "grep", "find", "cat", "head", "tail", "wc", "ls",
+                "curl", "wget", "make", "sort", "uniq", "sed", "awk", "diff"
+            ]
+        }
+    }
+}
 ```
 
-Shell metacharacters (`;`, `&&`, `|`, `$(...)`, backticks) are blocked when an allowlist is active to prevent bypass.
+Omit the key entirely to keep the default open-by-default behavior.
+
+### `allowSudo`
+
+Controls whether the `sudo` command is permitted. Defaults to `false` (sudo is blocked via the denied-commands list). Set to `true` to allow sudo — it will still be subject to `CatastrophicBlacklist` and `InteractiveApprovalPolicy`.
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "allowSudo": true
+        }
+    }
+}
+```
+
+> **`exec` `cwd` parameter** — the `exec` tool accepts an optional `cwd` argument. Relative paths are resolved from the default working directory (project root). If the path does not exist or is not a directory, the tool returns an error.
 
 ### `blacklist`
 
@@ -486,7 +509,8 @@ Coqui adds the following keys under `agents.defaults` that are specific to Coqui
 |-----|---------|
 | `agents.defaults.workspace` | Workspace directory path |
 | `agents.defaults.mounts` | External directory mounts |
-| `agents.defaults.shellAllowedCommands` | Shell command allowlist |
+| `agents.defaults.shellAllowedCommands` | Opt-in shell command allowlist (empty = open-by-default) |
+| `agents.defaults.allowSudo` | Allow `sudo` commands (default: `false`) |
 | `agents.defaults.maxIterations` | Agent iteration budget |
 | `agents.defaults.backgroundTaskMaxIterations` | Per-task background iteration cap |
 | `agents.defaults.childBackgroundTasks` | Allow child agents to spawn background tasks |

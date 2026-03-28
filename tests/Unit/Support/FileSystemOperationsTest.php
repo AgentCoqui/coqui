@@ -278,3 +278,63 @@ test('resolveGlob matches files within sandbox', function () {
         expect($m)->toEndWith('.php');
     }
 });
+
+// ---------------------------------------------------------------
+// Recursive glob (** pattern)
+// ---------------------------------------------------------------
+
+test('resolveGlob with ** matches files in subdirectories', function () {
+    mkdir($this->root . '/sub', 0755, true);
+    file_put_contents($this->root . '/sub/nested.php', '');
+    file_put_contents($this->root . '/sub/other.txt', '');
+
+    $matches = $this->fs->resolveGlob('**/*.php');
+
+    $relatives = array_map(fn(string $p): string => $this->fs->makeRelative($p), $matches);
+    sort($relatives);
+
+    // **/*.php requires at least one parent directory component (fnmatch FNM_PATHNAME)
+    // so root-level files are not matched; use *.php for those
+    expect($relatives)->toBe(['sub/nested.php']);
+});
+
+test('resolveGlob with ** does not return files outside sandbox', function () {
+    $external = sys_get_temp_dir() . '/coqui-ext-' . bin2hex(random_bytes(4)) . '.php';
+    file_put_contents($external, '<?php');
+
+    mkdir($this->root . '/sub');
+    file_put_contents($this->root . '/sub/good.php', '');
+
+    $matches = $this->fs->resolveGlob('**/*.php');
+
+    foreach ($matches as $match) {
+        expect($match)->not->toBe($external);
+    }
+
+    unlink($external);
+});
+
+// ---------------------------------------------------------------
+// Path-escape throws
+// ---------------------------------------------------------------
+
+test('resolvePath throws when symlink escapes sandbox', function () {
+    $external = sys_get_temp_dir() . '/coqui-escape-' . bin2hex(random_bytes(8));
+    mkdir($external, 0755, true);
+    file_put_contents($external . '/secret.txt', 'outside');
+
+    symlink($external, $this->root . '/escape-link');
+
+    $threw = false;
+    try {
+        $this->fs->resolvePath('escape-link/secret.txt');
+    } catch (FileSystemException $e) {
+        $threw = true;
+    } finally {
+        unlink($this->root . '/escape-link');
+        unlink($external . '/secret.txt');
+        rmdir($external);
+    }
+
+    expect($threw)->toBeTrue();
+});
