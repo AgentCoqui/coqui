@@ -380,7 +380,7 @@
             "path": "src/Config/DefaultsLoader.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\DefaultsLoader",
             "layer": "config",
-            "description": "Loads and provides typed access to config/defaults.json. Centralizes all hardcoded defaults (providers, models, base URLs, roles) into a single editable JSON file shipped with the package.",
+            "description": "Loads and provides typed access to config/defaults.json. Centralizes all hardcoded defaults (providers, models, base URLs, roles, family budget defaults) into a single editable JSON file shipped with the package.",
             "methods": [
                 "providerNames(): string[] — all provider keys (ollama, openai, anthropic, openrouter, xai)",
                 "provider(string $name): array — full provider config block",
@@ -388,9 +388,22 @@
                 "defaultBaseUrl(string $provider): string — default API base URL",
                 "requiresApiKey(string $provider): bool — whether the provider needs an API key",
                 "curatedModels(string $provider): array — list of recommended models",
+                "curatedModel(string $provider, string $modelId): ?array — single curated model lookup",
+                "familyNames(): string[] — all family keys from defaults.json",
+                "family(string $name): array — full family config (name, description, contextWindow, maxTokens)",
+                "familyDefaults(string $name): ?array — budget defaults {contextWindow, maxTokens} or null",
                 "roleDefinitions(): array — all role definitions with descriptions",
                 "defaultModel(): string — default model string (provider/model)",
                 "defaultWorkspace(): string — default workspace directory path"
+            ]
+        },
+        {
+            "path": "src/Config/ModelFamilyResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ModelFamilyResolver",
+            "layer": "config",
+            "description": "Resolves a model ID string to its model family using prefix matching against known family keys from defaults.json. Handles special cases where model name prefixes differ from family keys (e.g. ministral → mistral, devstral → codestral). Strips Ollama tag suffixes and supports OpenRouter sub-provider formats.",
+            "methods": [
+                "resolveFamily(string $modelId): ?string — resolve model ID to family key, or null if no match"
             ]
         },
         {

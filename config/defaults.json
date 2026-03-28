@@ -1,20 +1,20 @@
 {
     "families": {
-        "gpt": {"name": "GPT", "description": "GPT-architecture models (OpenAI and open-source)"},
-        "claude": {"name": "Claude", "description": "Anthropic Claude models"},
-        "gemini": {"name": "Gemini", "description": "Google Gemini models"},
-        "grok": {"name": "Grok", "description": "xAI Grok models"},
-        "mistral": {"name": "Mistral", "description": "Mistral AI general-purpose models"},
-        "magistral": {"name": "Magistral", "description": "Mistral AI reasoning models"},
-        "codestral": {"name": "Codestral", "description": "Mistral AI code generation and agent models"},
-        "minimax": {"name": "MiniMax", "description": "MiniMax models"},
-        "qwen": {"name": "Qwen", "description": "Alibaba Qwen models"},
-        "deepseek": {"name": "DeepSeek", "description": "DeepSeek models"},
-        "llama": {"name": "Llama", "description": "Meta Llama models"},
-        "granite": {"name": "Granite", "description": "IBM Granite models"},
-        "nemotron": {"name": "Nemotron", "description": "NVIDIA Nemotron models"},
-        "glm": {"name": "GLM", "description": "Zhipu AI GLM models"},
-        "lfm": {"name": "LFM", "description": "Liquid AI foundation models"}
+        "gpt": {"name": "GPT", "description": "GPT-architecture models (OpenAI and open-source)", "contextWindow": 200000, "maxTokens": 32768},
+        "claude": {"name": "Claude", "description": "Anthropic Claude models", "contextWindow": 200000, "maxTokens": 64000},
+        "gemini": {"name": "Gemini", "description": "Google Gemini models", "contextWindow": 1000000, "maxTokens": 65536},
+        "grok": {"name": "Grok", "description": "xAI Grok models", "contextWindow": 131072, "maxTokens": 32768},
+        "mistral": {"name": "Mistral", "description": "Mistral AI general-purpose models", "contextWindow": 128000, "maxTokens": 32768},
+        "magistral": {"name": "Magistral", "description": "Mistral AI reasoning models", "contextWindow": 128000, "maxTokens": 32768},
+        "codestral": {"name": "Codestral", "description": "Mistral AI code generation and agent models", "contextWindow": 128000, "maxTokens": 32768},
+        "minimax": {"name": "MiniMax", "description": "MiniMax models", "contextWindow": 1000000, "maxTokens": 32768},
+        "qwen": {"name": "Qwen", "description": "Alibaba Qwen models", "contextWindow": 256000, "maxTokens": 32768},
+        "deepseek": {"name": "DeepSeek", "description": "DeepSeek models", "contextWindow": 128000, "maxTokens": 16384},
+        "llama": {"name": "Llama", "description": "Meta Llama models", "contextWindow": 128000, "maxTokens": 8192},
+        "granite": {"name": "Granite", "description": "IBM Granite models", "contextWindow": 128000, "maxTokens": 8192},
+        "nemotron": {"name": "Nemotron", "description": "NVIDIA Nemotron models", "contextWindow": 256000, "maxTokens": 16384},
+        "glm": {"name": "GLM", "description": "Zhipu AI GLM models", "contextWindow": 198000, "maxTokens": 8192},
+        "lfm": {"name": "LFM", "description": "Liquid AI foundation models", "contextWindow": 32000, "maxTokens": 8192}
     },
     "providers": {
         "ollama": {
@@ -96,8 +96,12 @@
             "api": "openai-completions",
             "supportsModelDiscovery": true,
             "curatedModels": [
-                {"id": "grok-4", "name": "Grok 4 (Flagship Reasoning)", "recommended": true, "contextWindow": 2000000, "maxTokens": 131072, "cost": {"input": 2.00, "output": 6.00}, "reasoning": true, "thinking": true, "family": "grok"},
-                {"id": "grok-4-1-fast-reasoning", "name": "Grok 4.1 Fast (Reasoning)", "contextWindow": 2000000, "maxTokens": 131072, "cost": {"input": 0.20, "output": 0.50}, "reasoning": true, "thinking": true, "family": "grok"},
+                {"id": "grok-4", "name": "Grok 4 (Flagship Reasoning)", "recommended": true, "contextWindow": 2000000, "maxTokens": 131072, "cost": {"input": 2.00, "output": 6.00}, "reasoning": true, "vision": true, "thinking": true, "family": "grok"},
+                {"id": "grok-4.20-0309-reasoning", "name": "Grok 4.20 Reasoning", "contextWindow": 2000000, "maxTokens": 131072, "cost": {"input": 2.00, "output": 6.00}, "reasoning": true, "vision": true, "thinking": true, "family": "grok"},
+                {"id": "grok-4.20-0309-non-reasoning", "name": "Grok 4.20 Non-Reasoning", "contextWindow": 2000000, "maxTokens": 131072, "cost": {"input": 2.00, "output": 6.00}, "vision": true, "family": "grok"},
+                {"id": "grok-4-1-fast-reasoning", "name": "Grok 4.1 Fast (Reasoning)", "contextWindow": 2000000, "maxTokens": 131072, "cost": {"input": 0.20, "output": 0.50}, "reasoning": true, "vision": true, "thinking": true, "family": "grok"},
+                {"id": "grok-4-1-fast-non-reasoning", "name": "Grok 4.1 Fast Non-Reasoning", "contextWindow": 2000000, "maxTokens": 131072, "cost": {"input": 0.20, "output": 0.50}, "vision": true, "family": "grok"},
+                {"id": "grok-4.20-multi-agent-0309", "name": "Grok 4.20 Multi-Agent", "contextWindow": 2000000, "maxTokens": 131072, "cost": {"input": 2.00, "output": 6.00}, "reasoning": true, "vision": true, "thinking": true, "family": "grok"},
                 {"id": "grok-3", "name": "Grok 3 (Previous Gen)", "contextWindow": 131072, "maxTokens": 32768, "cost": {"input": 3.00, "output": 15.00}, "family": "grok"},
                 {"id": "grok-3-mini", "name": "Grok 3 Mini (Fast)", "contextWindow": 131072, "maxTokens": 32768, "cost": {"input": 0.30, "output": 0.50}, "reasoning": true, "thinking": true, "family": "grok"},
                 {"id": "grok-2-vision-1212", "name": "Grok 2 Vision (Image Understanding)", "contextWindow": 131072, "maxTokens": 8192, "cost": {"input": 2.00, "output": 10.00}, "vision": true, "family": "grok"}

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Agent;
 
 use CarmeloSantana\PHPAgents\Agent\AbstractAgent;
+use CarmeloSantana\PHPAgents\Config\ModelDefinition;
 use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
@@ -16,6 +17,8 @@ use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Config\DefaultsLoader;
+use CoquiBot\Coqui\Config\ModelFamilyResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Provider\FallbackProvider;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
@@ -131,6 +134,8 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?SpaceToolkit $spaceToolkit = null,
         private readonly ?string $activeRole = null,
         private readonly ?\CoquiBot\Coqui\Storage\ProjectStore $projectStore = null,
+        private readonly ?DefaultsLoader $defaultsLoader = null,
+        private readonly ?ModelFamilyResolver $familyResolver = null,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
@@ -857,26 +862,54 @@ final class OrchestratorAgent extends AbstractAgent
     /**
      * Resolve a ContextWindow from the model definition in config.
      *
-     * Uses the orchestrator model's declared contextWindow and maxTokens
-     * to create an accurate token budget. Falls back to a conservative
-     * 128K window when no model definition is available.
+     * Uses a 4-layer resolution chain:
+     * 1. User-configured model definition (openclaw.json)
+     * 2. Curated model from defaults.json
+     * 3. Family-level defaults from defaults.json
+     * 4. Conservative hardcoded fallback (128K/4K)
      */
     private function resolveContextWindow(ConfigInterface $config, RoleResolver $roleResolver): ContextWindowInterface
     {
         if ($config instanceof OpenClawConfig) {
             $modelString = $roleResolver->resolve('orchestrator');
             $parts = explode('/', $modelString, 2);
+            $provider = $parts[0] ?? '';
             $modelId = $parts[1] ?? $modelString;
 
+            // Layer 1: User-configured model definition (openclaw.json)
             $modelDef = $config->getModelDefinition($modelId)
                 ?? $config->getModelDefinition($modelString);
 
             if ($modelDef !== null) {
                 return ContextWindow::fromModel($modelDef);
             }
+
+            // Layer 2: Curated model from defaults.json
+            if ($this->defaultsLoader !== null && $provider !== '') {
+                $curated = $this->defaultsLoader->curatedModel($provider, $modelId);
+                if ($curated !== null) {
+                    $def = ModelDefinition::fromOpenClaw($provider, $curated);
+
+                    return ContextWindow::fromModel($def);
+                }
+            }
+
+            // Layer 3: Family-level defaults
+            if ($this->defaultsLoader !== null && $this->familyResolver !== null) {
+                $family = $this->familyResolver->resolveFamily($modelId);
+                if ($family !== null) {
+                    $familyDefaults = $this->defaultsLoader->familyDefaults($family);
+                    if ($familyDefaults !== null) {
+                        return new ContextWindow(
+                            maxTok: $familyDefaults['contextWindow'],
+                            reservedTok: $familyDefaults['maxTokens'],
+                        );
+                    }
+                }
+            }
         }
 
-        // Conservative fallback: 128K context window, 4K reserved for completion
+        // Layer 4: Conservative hardcoded fallback
         return new ContextWindow(maxTok: CoquiDefaults::CONTEXT_WINDOW_FALLBACK, reservedTok: CoquiDefaults::CONTEXT_WINDOW_RESERVED);
     }
 

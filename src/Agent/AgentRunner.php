@@ -19,6 +19,8 @@ use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigManager;
+use CoquiBot\Coqui\Config\DefaultsLoader;
+use CoquiBot\Coqui\Config\ModelFamilyResolver;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -75,6 +77,7 @@ final class AgentRunner
         private readonly ?TodoStore $todoStore = null,
         private readonly ?ArtifactStore $artifactStore = null,
         private readonly ?ProjectStore $projectStore = null,
+        private readonly ?DefaultsLoader $defaultsLoader = null,
     ) {}
 
     /**
@@ -403,6 +406,10 @@ final class AgentRunner
             spaceToolkit: $this->spaceToolkit,
             activeRole: $role !== 'orchestrator' ? $role : null,
             projectStore: $this->projectStore,
+            defaultsLoader: $this->defaultsLoader,
+            familyResolver: $this->defaultsLoader !== null
+                ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
+                : null,
         );
     }
 
@@ -443,6 +450,10 @@ final class AgentRunner
             spaceToolkit: $this->spaceToolkit,
             activeRole: $effectiveRole !== 'orchestrator' ? $effectiveRole : null,
             projectStore: $this->projectStore,
+            defaultsLoader: $this->defaultsLoader,
+            familyResolver: $this->defaultsLoader !== null
+                ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
+                : null,
         );
 
         $counter = TokenCounterFactory::forModel($modelString);
