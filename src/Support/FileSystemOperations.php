@@ -1,0 +1,398 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CoquiBot\Coqui\Support;
+
+/**
+ * Shared file I/O helpers with path sandboxing, atomic writes, and line ending detection.
+ *
+ * Combines the path resolution logic from php-agents' FilesystemToolkit (mount-aware
+ * sandbox) with the atomic write and EOL detection from the code-edit toolkit.
+ *
+ * All file operations go through resolvePath() to prevent directory traversal.
+ * Write operations additionally check mount read-only status.
+ */
+final readonly class FileSystemOperations
+{
+    private string $realRoot;
+
+    /**
+     * @param string $rootPath      Primary sandbox root directory (workspace).
+     * @param array<int, array{realPath: string, readOnly: bool}> $allowedPaths
+     *        Additional allowed directories (mounts). Each entry has a realPath
+     *        (absolute canonical path) and a readOnly flag.
+     */
+    public function __construct(
+        private string $rootPath,
+        private array $allowedPaths = [],
+    ) {
+        $real = realpath($this->rootPath);
+        $this->realRoot = $real !== false ? $real : $this->rootPath;
+    }
+
+    // ---------------------------------------------------------------
+    // Read operations
+    // ---------------------------------------------------------------
+
+    /**
+     * Read the full contents of a file.
+     *
+     * @throws FileSystemException If the file does not exist or cannot be read.
+     */
+    public function read(string $relativePath): string
+    {
+        $path = $this->resolvePath($relativePath);
+
+        if (!is_file($path)) {
+            throw FileSystemException::fileNotFound($relativePath);
+        }
+
+        $content = @file_get_contents($path);
+        if ($content === false) {
+            throw FileSystemException::readFailed($relativePath);
+        }
+
+        return $content;
+    }
+
+    /**
+     * Read a file and split into lines, preserving the detected line ending style.
+     *
+     * @return array{lines: string[], eol: non-empty-string}
+     * @throws FileSystemException
+     */
+    public function readLines(string $relativePath): array
+    {
+        $content = $this->read($relativePath);
+        $eol = self::detectEol($content);
+        $lines = explode($eol, $content);
+
+        return ['lines' => $lines, 'eol' => $eol];
+    }
+
+    /**
+     * Check if a file exists within the sandbox.
+     */
+    public function exists(string $relativePath): bool
+    {
+        $path = $this->resolvePath($relativePath);
+
+        return file_exists($path);
+    }
+
+    /**
+     * Check if a path is a regular file.
+     */
+    public function isFile(string $relativePath): bool
+    {
+        return is_file($this->resolvePath($relativePath));
+    }
+
+    /**
+     * Check if a path is a directory.
+     */
+    public function isDir(string $relativePath): bool
+    {
+        return is_dir($this->resolvePath($relativePath));
+    }
+
+    // ---------------------------------------------------------------
+    // Write operations (all check mount read-only status)
+    // ---------------------------------------------------------------
+
+    /**
+     * Write content to a file atomically (temp file + rename).
+     *
+     * Creates parent directories automatically. Preserves original file
+     * permissions when overwriting.
+     *
+     * @throws FileSystemException If the path is read-only or writing fails.
+     */
+    public function write(string $relativePath, string $content): void
+    {
+        $path = $this->resolvePath($relativePath);
+        $this->guardReadOnly($path, $relativePath);
+
+        $dir = dirname($path);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+
+        $tmp = $path . '.tmp-' . bin2hex(random_bytes(6));
+
+        if (@file_put_contents($tmp, $content) === false) {
+            @unlink($tmp);
+            throw FileSystemException::writeFailed($relativePath);
+        }
+
+        // Preserve original permissions if file exists
+        if (is_file($path)) {
+            $perms = fileperms($path);
+            if ($perms !== false) {
+                @chmod($tmp, $perms);
+            }
+        }
+
+        if (!@rename($tmp, $path)) {
+            @unlink($tmp);
+            throw FileSystemException::writeFailed($relativePath);
+        }
+    }
+
+    /**
+     * Join lines with the given EOL and write atomically.
+     *
+     * @param string[] $lines
+     */
+    public function writeLines(string $relativePath, array $lines, string $eol = "\n"): void
+    {
+        $this->write($relativePath, implode($eol, $lines));
+    }
+
+    /**
+     * Append content to a file. Creates the file if it does not exist.
+     *
+     * @return int Bytes appended.
+     * @throws FileSystemException
+     */
+    public function append(string $relativePath, string $content): int
+    {
+        $path = $this->resolvePath($relativePath);
+        $this->guardReadOnly($path, $relativePath);
+
+        $dir = dirname($path);
+        if (!is_dir($dir)) {
+            @mkdir($dir, 0755, true);
+        }
+
+        $bytes = @file_put_contents($path, $content, FILE_APPEND | LOCK_EX);
+        if ($bytes === false) {
+            throw FileSystemException::writeFailed($relativePath);
+        }
+
+        return $bytes;
+    }
+
+    /**
+     * Delete a file within the sandbox.
+     *
+     * @throws FileSystemException
+     */
+    public function delete(string $relativePath): void
+    {
+        $path = $this->resolvePath($relativePath);
+        $this->guardReadOnly($path, $relativePath);
+
+        if (!file_exists($path)) {
+            throw FileSystemException::fileNotFound($relativePath);
+        }
+
+        if (is_dir($path)) {
+            throw new FileSystemException(sprintf('Cannot delete directory with this operation: %s', $relativePath));
+        }
+
+        if (!@unlink($path)) {
+            throw new FileSystemException(sprintf('Failed to delete file: %s', $relativePath));
+        }
+    }
+
+    /**
+     * Create a directory recursively within the sandbox.
+     *
+     * @throws FileSystemException
+     */
+    public function createDir(string $relativePath): void
+    {
+        $path = $this->resolvePath($relativePath);
+        $this->guardReadOnly($path, $relativePath);
+
+        if (is_dir($path)) {
+            return; // Already exists
+        }
+
+        if (!@mkdir($path, 0755, true)) {
+            throw FileSystemException::directoryCreationFailed($relativePath);
+        }
+    }
+
+    // ---------------------------------------------------------------
+    // Path resolution and sandbox enforcement
+    // ---------------------------------------------------------------
+
+    /**
+     * Resolve a relative path to an absolute path within the sandbox.
+     *
+     * Prevents directory traversal by canonicalizing path segments
+     * and verifying the result stays within the root or an allowed mount.
+     */
+    public function resolvePath(string $relativePath): string
+    {
+        // Canonicalize relative path segments to prevent traversal
+        $segments = explode('/', str_replace('\\', '/', $relativePath));
+        $resolved = [];
+        foreach ($segments as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+            if ($segment === '..') {
+                array_pop($resolved);
+            } else {
+                $resolved[] = $segment;
+            }
+        }
+        $canonicalized = implode('/', $resolved);
+        $path = $this->rootPath . '/' . $canonicalized;
+
+        // For existing paths — verify via realpath
+        $realPath = realpath($path);
+        if ($realPath !== false) {
+            if (str_starts_with($realPath, $this->realRoot)) {
+                return $realPath;
+            }
+            if ($this->isUnderAllowedPath($realPath)) {
+                return $realPath;
+            }
+
+            return $this->rootPath;
+        }
+
+        // Path doesn't exist yet — verify the deepest existing ancestor
+        $parentPath = dirname($path);
+        $realParent = realpath($parentPath);
+        if ($realParent !== false) {
+            if (!str_starts_with($realParent, $this->realRoot) && !$this->isUnderAllowedPath($realParent)) {
+                return $this->rootPath;
+            }
+        }
+
+        return $path;
+    }
+
+    /**
+     * Resolve a glob pattern to absolute paths within the sandbox.
+     *
+     * @return string[] Matching file paths (absolute), all within the sandbox.
+     */
+    public function resolveGlob(string $pattern): array
+    {
+        $globPattern = $this->rootPath . '/' . ltrim($pattern, "/\\");
+        $matches = glob($globPattern, GLOB_NOSORT | GLOB_BRACE) ?: [];
+
+        return array_filter(
+            $matches,
+            function (string $path): bool {
+                $real = realpath($path);
+                if ($real === false) {
+                    return false;
+                }
+
+                return str_starts_with($real, $this->realRoot) || $this->isUnderAllowedPath($real);
+            },
+        );
+    }
+
+    /**
+     * Convert an absolute path back to a workspace-relative path.
+     */
+    public function makeRelative(string $absolutePath): string
+    {
+        if (str_starts_with($absolutePath, $this->rootPath . '/')) {
+            return substr($absolutePath, strlen($this->rootPath) + 1);
+        }
+
+        if (str_starts_with($absolutePath, $this->realRoot . '/')) {
+            return substr($absolutePath, strlen($this->realRoot) + 1);
+        }
+
+        return $absolutePath;
+    }
+
+    /**
+     * Check if an absolute real path falls under any allowed (mounted) path.
+     */
+    public function isUnderAllowedPath(string $realPath): bool
+    {
+        foreach ($this->allowedPaths as $allowed) {
+            if (str_starts_with($realPath, $allowed['realPath'])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if an absolute path falls under a read-only mount.
+     *
+     * Returns false if the path is under the primary root (not a mount).
+     */
+    public function isReadOnlyMountPath(string $absolutePath): bool
+    {
+        $realPath = realpath($absolutePath);
+
+        // For non-existent files, resolve via parent directory
+        if ($realPath === false) {
+            $realPath = realpath(dirname($absolutePath));
+        }
+
+        if ($realPath === false) {
+            return false;
+        }
+
+        // Path under the primary root is never a read-only mount
+        if (str_starts_with($realPath, $this->realRoot)) {
+            return false;
+        }
+
+        // Path is outside root — check if it's under a read-only mount
+        foreach ($this->allowedPaths as $allowed) {
+            if (str_starts_with($realPath, $allowed['realPath'])) {
+                return $allowed['readOnly'];
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Detect the dominant line ending in a string.
+     *
+     * @return non-empty-string
+     */
+    public static function detectEol(string $content): string
+    {
+        $crlf = substr_count($content, "\r\n");
+        $lf = substr_count($content, "\n") - $crlf;
+        $cr = substr_count($content, "\r") - $crlf;
+
+        if ($crlf >= $lf && $crlf >= $cr && $crlf > 0) {
+            return "\r\n";
+        }
+
+        if ($cr > $lf && $cr > 0) {
+            return "\r";
+        }
+
+        return "\n";
+    }
+
+    public function rootPath(): string
+    {
+        return $this->rootPath;
+    }
+
+    // ---------------------------------------------------------------
+    // Internal helpers
+    // ---------------------------------------------------------------
+
+    /**
+     * @throws FileSystemException If the path is under a read-only mount.
+     */
+    private function guardReadOnly(string $absolutePath, string $displayPath): void
+    {
+        if ($this->isReadOnlyMountPath($absolutePath)) {
+            throw FileSystemException::readOnlyMount($displayPath);
+        }
+    }
+}

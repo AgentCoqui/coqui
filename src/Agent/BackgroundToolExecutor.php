@@ -7,8 +7,8 @@ namespace CoquiBot\Coqui\Agent;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
@@ -91,8 +91,8 @@ final class BackgroundToolExecutor
         $workspacePath = $this->boot->workspacePath();
 
         // Filesystem toolkit — sandboxed to workspace
-        $this->registerToolkit(new FilesystemToolkit(
-            rootPath: $workspacePath,
+        $this->registerToolkit(new FileSystemToolkit(
+            workspacePath: $workspacePath,
             allowedPaths: $this->boot->mountManager()->allowedPaths(),
         ));
 

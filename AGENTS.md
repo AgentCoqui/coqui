@@ -879,6 +879,82 @@ Coqui provides image analysis via a dedicated `vision` role. The system uses a s
 
 
 
+## FileSystem Toolkit Architecture
+
+Coqui provides a unified `FileSystemToolkit` that replaces both the deprecated php-agents `FilesystemToolkit` and the external `coqui-toolkit-code-edit` package. It covers reading, writing, surgical editing, and edit history — all in one toolkit with consistent path sandboxing and mount awareness.
+
+### Tool Categories
+
+| Category | Tools | Description |
+| --- | --- | --- |
+| Read | `read_file`, `list_dir`, `search_files`, `file_info` | Non-mutating file inspection |
+| Write | `write_file`, `create_dir`, `delete_file` | Full-file creation and deletion |
+| Surgical Edit | `replace_in_file`, `insert_before`, `insert_after`, `replace_block`, `remove_lines`, `write_lines`, `batch_replace`, `indent_lines`, `append_to_file` | Line/pattern-based mutation with edit history |
+| History | `edit_history` | Undo, diff, list, prune recorded edits |
+
+Read tools are always registered. Write/edit/history tools are omitted when `readOnly: true`.
+
+### Path Sandboxing
+
+All path resolution goes through `FileSystemOperations::resolvePath()`:
+
+1. Expands `~` to workspace root.
+2. Resolves relative paths against the workspace root.
+3. Canonicalizes via `realpath()` (or `dirname()` realpath for new files).
+4. Verifies the resolved path is under the workspace root **or** under an allowed mount path.
+5. Write operations additionally check `isReadOnlyMountPath()` to block writes to `ro` mounts.
+
+Symlinks are followed and verified — the real path must fall within allowed boundaries.
+
+### Edit History
+
+`EditHistory` provides SQLite-backed tracking of every file mutation. Before any write/edit tool modifies a file, the original content is backed up and a record is created.
+
+| Feature | Implementation |
+| --- | --- |
+| Storage | SQLite WAL mode at `workspace/data/edit-history/history.db` |
+| Backups | Full file copies in `workspace/data/edit-history/backups/` |
+| Undo | Restores the backup file to the original path |
+| Diff | Pure PHP Myers LCS algorithm producing unified diff output |
+| Prune | Removes old edits and their backup files by age |
+
+The `edit_history` tool exposes four actions: `list` (recent edits, optionally filtered by file), `undo` (restore a specific edit), `diff` (show unified diff), `prune` (clean up old records).
+
+Edit history is only created for the orchestrator agent. Child agents and background tool executors do not receive an `EditHistory` instance — they are ephemeral and do not need edit tracking.
+
+### REPL File-Change Summary
+
+After each agent turn, the REPL displays a summary of files modified during that turn:
+
+1. `AgentRunner` captures a timestamp before the agent runs.
+2. After the turn completes, `collectFileEdits()` queries `EditHistory::getEditsSince()` for edits since the timestamp.
+3. The edit list is passed to `AgentTurnResult` as `fileEdits`.
+4. `TerminalRenderer` groups edits by filename, shows up to 5 files with edit counts, and truncates with "+N more" for larger sets.
+
+### Atomic Writes
+
+`FileSystemOperations::write()` uses atomic write-via-rename:
+
+1. Write content to a temp file in the same directory.
+2. Copy permissions from the original file (if it exists).
+3. Rename the temp file to the target path.
+
+This prevents partial writes and ensures readers always see either the old or new content.
+
+### EOL Preservation
+
+`FileSystemOperations` detects and preserves the existing line ending style (`\r\n`, `\r`, or `\n`) when performing line-based operations. `readLines()` splits on the detected EOL and `writeLines()` joins with it. New files default to `\n`.
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Toolkit/FileSystemToolkit.php` | 16 agent-facing tools with guidelines and read-only mode support |
+| `src/Support/FileSystemOperations.php` | Shared file I/O: atomic writes, path sandboxing, mount awareness, EOL detection |
+| `src/Support/FileSystemException.php` | Domain exception with static factories for all filesystem error scenarios |
+| `src/Storage/EditHistory.php` | SQLite-backed edit history with backup, undo, and pure PHP unified diff engine |
+
+
 ## Shell Allowlist Architecture
 
 The `ShellToolkit` (from php-agents) restricts which shell commands the agent can execute via a configurable allowlist. This is a separate safety layer from the `CatastrophicBlacklist` and `InteractiveApprovalPolicy`.

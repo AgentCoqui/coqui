@@ -15,8 +15,9 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
-use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Storage\EditHistory;
+use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
 use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\ModelFamilyResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
@@ -217,10 +218,13 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Filesystem toolkit — access level determines read/write vs read-only
         if ($effectiveAccessLevel !== 'minimal') {
-            $this->addToolkit(new FilesystemToolkit(
-                rootPath: $this->workspacePath,
+            $isReadOnly = in_array($effectiveAccessLevel, ['readonly', 'readonly-shell'], true);
+            $editHistory = $isReadOnly ? null : new EditHistory($this->workspacePath . '/data/edit-history');
+            $this->addToolkit(new FileSystemToolkit(
+                workspacePath: $this->workspacePath,
+                readOnly: $isReadOnly,
                 allowedPaths: $this->mountManager?->allowedPaths() ?? [],
-                readOnly: in_array($effectiveAccessLevel, ['readonly', 'readonly-shell'], true),
+                history: $editHistory,
             ));
         }
 
