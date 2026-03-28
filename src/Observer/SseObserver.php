@@ -81,6 +81,10 @@ final class SseObserver implements SplObserver
 
             'child.end' => $this->handleChildEnd(),
 
+            'child.review_start' => $this->handleReviewStart($data),
+
+            'child.review_end' => $this->handleReviewEnd($data),
+
             default => null,
         };
     }
@@ -157,6 +161,34 @@ final class SseObserver implements SplObserver
         $this->indentLevel = max(0, $this->indentLevel - 1);
 
         $this->writeEvent('child_end', [
+            'depth' => $this->indentLevel,
+        ]);
+    }
+
+    private function handleReviewStart(mixed $data): void
+    {
+        $round = is_array($data) ? ($data['round'] ?? 1) : 1;
+        $maxRounds = is_array($data) ? ($data['max_rounds'] ?? 1) : 1;
+
+        $this->writeEvent('review_start', [
+            'round' => $round,
+            'max_rounds' => $maxRounds,
+            'depth' => $this->indentLevel,
+        ]);
+
+        $this->indentLevel++;
+    }
+
+    private function handleReviewEnd(mixed $data): void
+    {
+        $this->indentLevel = max(0, $this->indentLevel - 1);
+        $approved = is_array($data) && ($data['approved'] ?? false);
+        $verdict = is_array($data) ? ($data['verdict'] ?? 'needs_changes') : 'needs_changes';
+
+        $this->writeEvent('review_end', [
+            'round' => is_array($data) ? ($data['round'] ?? 1) : 1,
+            'verdict' => $verdict,
+            'approved' => $approved,
             'depth' => $this->indentLevel,
         ]);
     }

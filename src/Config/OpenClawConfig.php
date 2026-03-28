@@ -152,6 +152,24 @@ final class OpenClawConfig implements ConfigInterface
         return CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS;
     }
 
+    /**
+     * Get code review configuration.
+     *
+     * @return array{enabled: bool, maxRounds: int, autoIterate: bool}
+     */
+    public function getCodeReviewConfig(): array
+    {
+        $enabled = $this->get('agents.defaults.codeReview.enabled');
+        $maxRounds = $this->get('agents.defaults.codeReview.maxRounds');
+        $autoIterate = $this->get('agents.defaults.codeReview.autoIterate');
+
+        return [
+            'enabled' => is_bool($enabled) ? $enabled : CoquiDefaults::CODE_REVIEW_ENABLED,
+            'maxRounds' => is_int($maxRounds) && $maxRounds >= 1 ? $maxRounds : CoquiDefaults::CODE_REVIEW_MAX_ROUNDS,
+            'autoIterate' => is_bool($autoIterate) ? $autoIterate : CoquiDefaults::CODE_REVIEW_AUTO_ITERATE,
+        ];
+    }
+
     public function getProviderConfig(string $provider): array
     {
         $config = $this->get("models.providers.{$provider}", []);
