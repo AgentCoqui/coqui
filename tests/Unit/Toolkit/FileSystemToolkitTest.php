@@ -345,6 +345,52 @@ test('edit_history undo restores previous content', function () {
 });
 
 // ---------------------------------------------------------------
+// list_dir max_depth parameter
+// ---------------------------------------------------------------
+
+test('list_dir with max_depth 1 omits entries deeper than one level', function () {
+    mkdir($this->root . '/sub/deeper', 0755, true);
+    file_put_contents($this->root . '/sub/deeper/hidden.txt', '');
+
+    $tool = findToolByName($this->toolkit, 'list_dir');
+    $result = $tool->execute(['recursive' => true, 'max_depth' => 1]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('sub');
+    expect($result->content)->not->toContain('hidden.txt');
+});
+
+test('list_dir default max_depth 3 does not recurse beyond three levels', function () {
+    mkdir($this->root . '/a/b/c/d', 0755, true);
+    file_put_contents($this->root . '/a/b/c/d/deep.txt', '');
+
+    $tool = findToolByName($this->toolkit, 'list_dir');
+    // default max_depth=3: root→a(D0)→b(D1)→c(D2)→d(D3) listed, d/ won't recurse
+    $result = $tool->execute(['recursive' => true]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->not->toContain('deep.txt');
+});
+
+// ---------------------------------------------------------------
+// search_files with ** pattern
+// ---------------------------------------------------------------
+
+test('search_files with ** finds files in subdirectories', function () {
+    mkdir($this->root . '/sub');
+    file_put_contents($this->root . '/sub/nested.php', '');
+    file_put_contents($this->root . '/sub/other.txt', '');
+
+    $tool = findToolByName($this->toolkit, 'search_files');
+    $result = $tool->execute(['pattern' => '**/*.php']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    // **/*.php requires a parent directory component; nested files are matched
+    expect($result->content)->toContain('nested.php');
+    expect($result->content)->not->toContain('other.txt');
+});
+
+// ---------------------------------------------------------------
 // Helper — uses $this->toolkit via Pest closures
 // ---------------------------------------------------------------
 

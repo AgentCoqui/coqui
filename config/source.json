@@ -17,7 +17,7 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit with configurable allowlist, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation). Shell allowlist is resolved from agents.defaults.shellAllowedCommands in openclaw.json or falls back to DEFAULT_SHELL_COMMANDS (includes curl, wget). Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string \u2014 returns the full system prompt with role descriptions, security rules, and operational guidelines",
                 "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation)",
@@ -57,7 +57,7 @@
             "path": "src/Agent/BackgroundToolExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\BackgroundToolExecutor",
             "layer": "agent",
-            "description": "Lightweight tool resolver and executor for background tool tasks. Builds the same toolkits as OrchestratorAgent (filesystem, shell, memory, project source, PHP execute, discovered packages) but without creating an agent or involving an LLM. Finds a tool by name from the collected toolkit tools and calls execute() directly. Used by TaskRunCommand when a task record has tool_name set.",
+            "description": "Lightweight tool resolver and executor for background tool tasks. Builds the same toolkits as OrchestratorAgent (filesystem, shell, memory, project source, PHP execute, discovered packages) but without creating an agent or involving an LLM. Shell is open by default — resolveShellAllowedCommands() returns an empty array unless agents.defaults.shellAllowedCommands is configured; resolveShellDeniedCommands() returns ['sudo'] unless allowSudo is true. Finds a tool by name from the collected toolkit tools and calls execute() directly. Used by TaskRunCommand when a task record has tool_name set.",
             "methods": [
                 "execute(string $toolName, array $arguments): ToolResult — resolve tool and call execute() directly",
                 "hasTool(string $toolName): bool — check if a tool exists in the index"
@@ -669,7 +669,7 @@
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",
-            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/minimal) to determine toolkit assignment, falling back to hardcoded defaults. Passes RoleDiscovery to ChildAgent for file-based role instructions. Accepts a configurable shell allowlist from OrchestratorAgent; child agents use DEFAULT_CHILD_SHELL_COMMANDS or the parent-supplied list. Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
+            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/readonly-shell/minimal) to determine toolkit assignment. Full-access children inherit the parent's shellAllowedCommands and shellDeniedCommands. readonly-shell children receive ShellToolkit restricted to READ_ONLY_SHELL_COMMANDS (grep, find, cat, head, tail, wc, ls, sort, uniq, sed, awk, diff). Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
             "methods": [
                 "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
                 "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level with visibility filtering, credential guards in child mode, and optional BackgroundTaskToolkit",
@@ -1839,7 +1839,7 @@
             "path": "src/Toolkit/FileSystemToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\FileSystemToolkit",
             "layer": "toolkit",
-            "description": "Unified filesystem toolkit providing 16 tools: 4 read (read_file, list_dir, search_files, file_info), 3 write (write_file, create_dir, delete_file), 8 surgical edit (replace_in_file, insert_before, insert_after, replace_block, remove_lines, write_lines, batch_replace, indent_lines, append_to_file), and 1 history (edit_history). Supports readOnly mode, mount-aware path sandboxing, and SQLite-backed edit history with unified diff and undo.",
+            "description": "Unified filesystem toolkit providing 16 tools: 4 read (read_file, list_dir, search_files, file_info), 3 write (write_file, create_dir, delete_file), 8 surgical edit (replace_in_file, insert_before, insert_after, replace_block, remove_lines, write_lines, batch_replace, indent_lines, append_to_file), and 1 history (edit_history). list_dir accepts a max_depth parameter (1–10, default 3) when recursive=true. search_files supports ** for recursive glob (delegated to FileSystemOperations::resolveGlob). Supports readOnly mode, mount-aware path sandboxing, and SQLite-backed edit history with unified diff and undo.",
             "methods": [
                 "tools(): array — returns 4 read tools always, plus 12 write/edit/history tools when not readOnly",
                 "guidelines(): string — tool selection guide with best practices, mode-aware"
@@ -1851,8 +1851,8 @@
             "layer": "support",
             "description": "Shared file I/O helpers with path sandboxing, atomic writes, and line ending detection. Combines path resolution (mount-aware sandbox) with atomic write via temp-file + rename. Used by FileSystemToolkit for all file operations.",
             "methods": [
-                "resolvePath(string): string — canonicalize and sandbox-check a relative path",
-                "resolveGlob(string): array — glob within sandbox boundaries",
+                "resolvePath(string): string — canonicalize and sandbox-check a relative path; throws FileSystemException::pathEscapesSandbox if realpath escapes root and all allowed mounts",
+                "resolveGlob(string): array — glob within sandbox boundaries; supports ** for recursive directory traversal (RecursiveIteratorIterator + fnmatch), capped at MAX_GLOB_RESULTS (500)",
                 "read(string): string — read file contents with sandbox enforcement",
                 "readLines(string): array — read and split by detected EOL",
                 "write(string, string): void — atomic write with permission preservation",
