@@ -301,6 +301,13 @@ final class AgentRunner
                                 ? CoquiDefaults::KEEP_RECENT_TURNS
                                 : CoquiDefaults::KEEP_RECENT_TURNS,
                             workflowContext: $this->buildWorkflowContext($sessionId),
+                            onExtraction: function (int $saved, string $source) use ($agent): void {
+                                $agent->notify('agent.memory_extraction', [
+                                    'memories_saved' => $saved,
+                                    'source' => $source,
+                                    'auto' => true,
+                                ]);
+                            },
                         );
                     }
                 } catch (\Throwable) {
@@ -312,7 +319,11 @@ final class AgentRunner
             // Enqueue memory extraction as deferred work — runs after stats are rendered
             $deferredWork = new DeferredWorkQueue();
             $conversationForExtraction = $output->conversation ?? $history;
-            $deferredWork->enqueue(fn() => $this->autoExtractMemories($conversationForExtraction, $sessionId));
+            $deferredWork->enqueue(fn() => $this->autoExtractMemories(
+                $conversationForExtraction,
+                $sessionId,
+                fn(string $event, mixed $data) => $agent->notify($event, $data),
+            ));
 
             // Build context usage snapshot for progress bar rendering
             $contextUsage = null;
@@ -831,6 +842,13 @@ final class AgentRunner
             provider: $provider,
             keepRecentTurns: $keepRecent,
             workflowContext: $this->buildWorkflowContext($sessionId),
+            onExtraction: function (int $saved, string $source) use ($agent): void {
+                $agent->notify('agent.memory_extraction', [
+                    'memories_saved' => $saved,
+                    'source' => $source,
+                    'auto' => true,
+                ]);
+            },
         );
 
         if (!$result->wasSummarized()) {
@@ -1066,16 +1084,24 @@ final class AgentRunner
 
     /**     * Uses a cheap LLM call to identify noteworthy facts in recent turns
      * and saves them as memories. Respects cooldown and config toggle.
+     *
+     * @param ?\Closure(string, mixed): void $notify  Optional observer callback for transparency events
      */
-    private function autoExtractMemories(Conversation $conversation, string $sessionId): void
-    {
+    private function autoExtractMemories(
+        Conversation $conversation,
+        string $sessionId,
+        ?\Closure $notify = null,
+    ): void {
         if ($this->memoryStore === null) {
             return;
         }
 
-        // Check config toggle (default: true)
+        // Check config toggle — defaults to disabled (CoquiDefaults::MEMORY_AUTO_EXTRACT = false)
         $autoExtract = $this->config->get('agents.defaults.memory.autoExtract');
-        if ($autoExtract === false || $autoExtract === 'false') {
+        if ($autoExtract === null) {
+            $autoExtract = CoquiDefaults::MEMORY_AUTO_EXTRACT;
+        }
+        if ($autoExtract === false || $autoExtract === 'false' || $autoExtract === '0') {
             return;
         }
 
@@ -1095,7 +1121,15 @@ final class AgentRunner
             }
 
             $extractor = new MemoryExtractor($this->memoryStore);
-            $extractor->extractFromConversation($conversation, $provider);
+            $saved = $extractor->extractFromConversation($conversation, $provider);
+
+            if ($saved > 0 && $notify !== null) {
+                $notify('agent.memory_extraction', [
+                    'memories_saved' => $saved,
+                    'source' => 'auto_turn',
+                    'auto' => true,
+                ]);
+            }
         } catch (\Throwable) {
             // Extraction failure is non-fatal — never interrupt the user flow
         }

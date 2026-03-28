@@ -73,20 +73,23 @@ final class SetupWizard
         // Step 5: Child background tasks
         $childBackgroundTasks = $this->configureChildBackgroundTasks();
 
-        // Step 6: Configure workspace
+        // Step 6: Memory extraction behavior
+        $memoryAutoExtract = $this->configureMemoryExtraction();
+
+        // Step 7: Configure workspace
         $workspace = $this->configureWorkspace();
 
-        // Step 7: Update preferences (ENV-based, not in openclaw.json)
+        // Step 8: Update preferences (ENV-based, not in openclaw.json)
         $this->configureUpdatePreferences();
 
-        // Step 8: Generate API key for HTTP API server
+        // Step 9: Generate API key for HTTP API server
         $this->configureApiKey();
 
-        // Step 9: Configure directory mounts
+        // Step 10: Configure directory mounts
         $mounts = $this->configureMounts();
 
         // Build and preview
-        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks);
+        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, $memoryAutoExtract);
 
         $this->io->section('Configuration Preview');
         $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -628,11 +631,32 @@ final class SetupWizard
     }
 
     /**
-     * Step 6: Configure the workspace directory.
+     * Step 6: Configure automatic memory extraction behavior.
+     */
+    private function configureMemoryExtraction(): bool
+    {
+        $this->io->section('Step 6: Memory Extraction');
+
+        $this->io->text([
+            'Coqui can automatically extract and save noteworthy memories (facts, preferences,',
+            'solutions) from each conversation turn. This adds latency to every turn but builds',
+            'a persistent knowledge base over time.',
+            '',
+            'When disabled, memories are still extracted:',
+            '  • During conversation summarization (automatic or manual)',
+            '  • When the agent explicitly calls the <fg=cyan>extract_memories</> tool',
+            '',
+        ]);
+
+        return $this->io->confirm('Enable automatic memory extraction after every turn?', CoquiDefaults::MEMORY_AUTO_EXTRACT);
+    }
+
+    /**
+     * Step 7: Configure the workspace directory.
      */
     private function configureWorkspace(): string
     {
-        $this->io->section('Step 6: Workspace');
+        $this->io->section('Step 7: Workspace');
 
         $default = $this->defaults->defaultWorkspace();
 
@@ -660,11 +684,11 @@ final class SetupWizard
     }
 
     /**
-     * Step 7: Configure update preferences (stored as ENV vars, not in openclaw.json).
+     * Step 8: Configure update preferences (stored as ENV vars, not in openclaw.json).
      */
     private function configureUpdatePreferences(): void
     {
-        $this->io->section('Step 7: Updates');
+        $this->io->section('Step 8: Updates');
 
         $this->io->text('Coqui can check for dependency updates on startup and optionally apply them automatically.');
 
@@ -686,7 +710,7 @@ final class SetupWizard
     }
 
     /**
-     * Step 8: Generate an API key for the HTTP API server.
+     * Step 9: Generate an API key for the HTTP API server.
      *
      * The key is stored in the workspace .env file via CredentialResolver.
      * Required for running `coqui api` — the server refuses to start
@@ -701,7 +725,7 @@ final class SetupWizard
             return;
         }
 
-        $this->io->section('Step 8: API Server Key');
+        $this->io->section('Step 9: API Server Key');
 
         $this->io->text([
             'The HTTP API server requires an API key for authentication.',
@@ -741,7 +765,7 @@ final class SetupWizard
      */
     private function configureMounts(): array
     {
-        $this->io->section('Step 9: Directory Mounts');
+        $this->io->section('Step 10: Directory Mounts');
 
         $this->io->text([
             'Mounts give the agent access to directories outside the workspace.',
@@ -960,7 +984,7 @@ final class SetupWizard
      * @param array<int, array{path: string, alias: string, access: string, description?: string}> $mounts
      * @return array<string, mixed>
      */
-    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $childBackgroundTasks = false): array
+    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $childBackgroundTasks = false, bool $memoryAutoExtract = false): array
     {
         $modelDefinitions = [];
 
@@ -1039,6 +1063,10 @@ final class SetupWizard
 
         if ($childBackgroundTasks) {
             $defaults['childBackgroundTasks'] = true;
+        }
+
+        if ($memoryAutoExtract) {
+            $defaults['memory'] = ['autoExtract' => true];
         }
 
         if ($mounts !== []) {

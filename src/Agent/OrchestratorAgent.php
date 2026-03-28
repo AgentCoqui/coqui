@@ -60,6 +60,7 @@ use CoquiBot\Coqui\Tool\PhpExecuteTool;
 use CoquiBot\Coqui\Tool\RestartTool;
 use CoquiBot\Coqui\Tool\SpawnAgentTool;
 use CoquiBot\Coqui\Tool\StubTool;
+use CoquiBot\Coqui\Tool\ExtractMemoriesTool;
 use CoquiBot\Coqui\Tool\SummarizeConversationTool;
 use CoquiBot\Coqui\Tool\ToolRegistry;
 use CoquiBot\Coqui\Tool\ToolSearchTool;
@@ -91,6 +92,7 @@ final class OrchestratorAgent extends AbstractAgent
     private ?ConfigTool $configTool = null;
     private VisionTool $visionTool;
     private ?SummarizeConversationTool $summarizeTool = null;
+    private ?ExtractMemoriesTool $extractMemoriesTool = null;
     private ToolRegistry $toolRegistry;
     private ToolSearchTool $toolSearchTool;
     private ?ContextWindowInterface $contextWindowInstance = null;
@@ -413,6 +415,17 @@ final class OrchestratorAgent extends AbstractAgent
             );
         }
 
+        // Extract memories tool — agent can explicitly trigger memory extraction
+        if ($this->memoryStore !== null && $this->storage !== null && $this->sessionId !== null) {
+            $this->extractMemoriesTool = new ExtractMemoriesTool(
+                memoryStore: $this->memoryStore,
+                storage: $this->storage,
+                sessionId: $this->sessionId,
+                roleResolver: $this->roleResolver,
+                config: $this->config,
+            );
+        }
+
         // Background task toolkit — only in API mode
         if ($backgroundTaskToolkit !== null) {
             $this->addToolkit($backgroundTaskToolkit);
@@ -473,6 +486,10 @@ final class OrchestratorAgent extends AbstractAgent
 
         if ($this->summarizeTool !== null) {
             $this->toolRegistry->register($this->summarizeTool);
+        }
+
+        if ($this->extractMemoriesTool !== null) {
+            $this->toolRegistry->register($this->extractMemoriesTool);
         }
 
         // Create the tool search tool — always-loaded, not subject to maxTools cap.
@@ -703,6 +720,10 @@ final class OrchestratorAgent extends AbstractAgent
 
         if ($this->summarizeTool !== null) {
             $visibilityManaged['summarize_conversation'] = $this->summarizeTool;
+        }
+
+        if ($this->extractMemoriesTool !== null) {
+            $visibilityManaged['extract_memories'] = $this->extractMemoriesTool;
         }
 
         if ($this->restartTool !== null) {
