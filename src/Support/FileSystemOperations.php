@@ -225,6 +225,8 @@ final readonly class FileSystemOperations
      *
      * Prevents directory traversal by canonicalizing path segments
      * and verifying the result stays within the root or an allowed mount.
+     *
+     * @throws FileSystemException If the resolved path escapes the sandbox.
      */
     public function resolvePath(string $relativePath): string
     {
@@ -254,7 +256,7 @@ final readonly class FileSystemOperations
                 return $realPath;
             }
 
-            return $this->rootPath;
+            throw FileSystemException::pathEscapesSandbox($relativePath);
         }
 
         // Path doesn't exist yet — verify the deepest existing ancestor
@@ -262,7 +264,7 @@ final readonly class FileSystemOperations
         $realParent = realpath($parentPath);
         if ($realParent !== false) {
             if (!str_starts_with($realParent, $this->realRoot) && !$this->isUnderAllowedPath($realParent)) {
-                return $this->rootPath;
+                throw FileSystemException::pathEscapesSandbox($relativePath);
             }
         }
 
@@ -270,26 +272,102 @@ final readonly class FileSystemOperations
     }
 
     /**
+     * Maximum results returned from resolveGlob to prevent context overflow.
+     */
+    private const int MAX_GLOB_RESULTS = 500;
+
+    /**
      * Resolve a glob pattern to absolute paths within the sandbox.
+     *
+     * Supports `**` for recursive directory traversal (e.g. `src/**\/*.php`).
+     * When `**` is not present, falls back to PHP's native glob().
      *
      * @return string[] Matching file paths (absolute), all within the sandbox.
      */
     public function resolveGlob(string $pattern): array
     {
-        $globPattern = $this->rootPath . '/' . ltrim($pattern, "/\\");
+        $pattern = ltrim($pattern, "/\\");
+
+        // If the pattern contains **, use recursive matching
+        if (str_contains($pattern, '**')) {
+            return $this->resolveGlobRecursive($pattern);
+        }
+
+        // Standard glob — no ** present
+        $globPattern = $this->rootPath . '/' . $pattern;
         $matches = glob($globPattern, GLOB_NOSORT | GLOB_BRACE) ?: [];
 
-        return array_filter(
+        return array_values(array_filter(
             $matches,
-            function (string $path): bool {
-                $real = realpath($path);
-                if ($real === false) {
-                    return false;
+            fn(string $path): bool => $this->isWithinSandbox($path),
+        ));
+    }
+
+    /**
+     * Recursive glob matching using directory iteration.
+     *
+     * Walks the entire directory tree under the root (and allowed mounts),
+     * matching each file's relative path against the pattern via fnmatch().
+     *
+     * @return string[] Matching absolute paths, capped at MAX_GLOB_RESULTS.
+     */
+    private function resolveGlobRecursive(string $pattern): array
+    {
+        $matches = [];
+        $searchRoots = [$this->rootPath];
+
+        // Also search mounted directories
+        foreach ($this->allowedPaths as $allowed) {
+            $searchRoots[] = $allowed['realPath'];
+        }
+
+        foreach ($searchRoots as $searchRoot) {
+            if (!is_dir($searchRoot)) {
+                continue;
+            }
+
+            try {
+                $iterator = new \RecursiveIteratorIterator(
+                    new \RecursiveDirectoryIterator(
+                        $searchRoot,
+                        \FilesystemIterator::SKIP_DOTS | \FilesystemIterator::FOLLOW_SYMLINKS,
+                    ),
+                    \RecursiveIteratorIterator::SELF_FIRST,
+                );
+            } catch (\UnexpectedValueException) {
+                continue;
+            }
+
+            foreach ($iterator as $file) {
+                if (count($matches) >= self::MAX_GLOB_RESULTS) {
+                    return $matches;
                 }
 
-                return str_starts_with($real, $this->realRoot) || $this->isUnderAllowedPath($real);
-            },
-        );
+                $absolutePath = $file->getPathname();
+                $relativePath = $this->makeRelative($absolutePath);
+
+                if (fnmatch($pattern, $relativePath, FNM_PATHNAME)) {
+                    if ($this->isWithinSandbox($absolutePath)) {
+                        $matches[] = $absolutePath;
+                    }
+                }
+            }
+        }
+
+        return $matches;
+    }
+
+    /**
+     * Check if a path is within the sandbox (root or allowed mount).
+     */
+    private function isWithinSandbox(string $path): bool
+    {
+        $real = realpath($path);
+        if ($real === false) {
+            return false;
+        }
+
+        return str_starts_with($real, $this->realRoot) || $this->isUnderAllowedPath($real);
     }
 
     /**

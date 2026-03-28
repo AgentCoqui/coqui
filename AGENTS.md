@@ -955,21 +955,23 @@ This prevents partial writes and ensures readers always see either the old or ne
 | `src/Storage/EditHistory.php` | SQLite-backed edit history with backup, undo, and pure PHP unified diff engine |
 
 
-## Shell Allowlist Architecture
+## Shell Execution Architecture
 
-The `ShellToolkit` (from php-agents) restricts which shell commands the agent can execute via a configurable allowlist. This is a separate safety layer from the `CatastrophicBlacklist` and `InteractiveApprovalPolicy`.
+The `ShellToolkit` (from php-agents) provides shell command execution with a layered safety model. By default, **all commands are allowed** — safety is enforced by built-in deny patterns, a configurable denylist, an optional allowlist, and the `CatastrophicBlacklist`/`InteractiveApprovalPolicy` layers above.
 
 ### How It Works
 
-1. **`ShellToolkit`** accepts an `allowedCommands` array at construction. If non-empty, only commands whose first word matches the allowlist can execute.
-2. **`OrchestratorAgent`** reads the allowlist from `agents.defaults.shellAllowedCommands` in `openclaw.json`. If not configured, it uses a built-in default.
-3. **`SpawnAgentTool`** passes the same allowlist to child agents (children cannot exceed parent permissions).
-4. **Shell injection detection** — when an allowlist is active, `ShellToolkit` also blocks metacharacters (`;`, `&&`, `|`, `$(...)`, backticks) that could bypass the allowlist.
-5. **Deny patterns** — regardless of the allowlist, built-in regex patterns block `rm -rf`, pipe-to-shell (`curl | bash`), `php -r`, `mkfifo`, and `netcat` variants.
+1. **Open by default** — when `agents.defaults.shellAllowedCommands` is not configured in `openclaw.json`, the allowlist is empty and all commands pass the allowlist check. Safety is enforced by the deny layers below.
+2. **Optional allowlist** — if `agents.defaults.shellAllowedCommands` is set to a non-empty array, only commands whose first word matches the list can execute. Shell injection detection also activates to prevent metacharacter bypass.
+3. **Configurable denylist** — `agents.defaults.allowSudo` (default `false`) controls whether `sudo` is permitted. When `false`, `sudo` is added to the denied commands list. This is enforced via substring match.
+4. **Built-in deny patterns** — regardless of any configuration, regex patterns always block `rm -rf`, pipe-to-shell (`curl | bash`), `php -r`, `mkfifo`, and `netcat` variants.
+5. **Working directory** — the `exec` tool accepts an optional `cwd` parameter. Relative paths are resolved against the default working directory. The path must exist and be a directory. Omitting `cwd` uses the project root.
 
 ### Configuration
 
-Customize the shell allowlist in `openclaw.json`:
+#### Opt-in Allowlist (Restrictive Mode)
+
+To restrict the agent to specific commands, set an explicit allowlist:
 
 ```json
 {
@@ -985,11 +987,21 @@ Customize the shell allowlist in `openclaw.json`:
 }
 ```
 
-### Default Allowlist
+When omitted, all commands are allowed (subject to deny patterns and denylist).
 
-When `agents.defaults.shellAllowedCommands` is not set, the following commands are allowed:
+#### Sudo Access (Opt-in)
 
-`php`, `git`, `grep`, `find`, `cat`, `head`, `tail`, `wc`, `ls`, `curl`, `wget`, `make`, `sort`, `uniq`, `sed`, `awk`, `diff`
+```json
+{
+    "agents": {
+        "defaults": {
+            "allowSudo": true
+        }
+    }
+}
+```
+
+When `false` (default), `sudo` is blocked via the denied commands list. When `true`, `sudo` is permitted (still subject to `CatastrophicBlacklist` and `InteractiveApprovalPolicy`).
 
 ### Read-Only Shell Access (`readonly-shell`)
 
@@ -1001,28 +1013,38 @@ The restricted command list is defined in `SpawnAgentTool::READ_ONLY_SHELL_COMMA
 
 These are all read-only search and inspection commands — no `git`, `php`, `curl`, `wget`, `make`, or any command that can modify state. The `OrchestratorAgent` uses the same restricted list when the active role's access level is `readonly-shell`.
 
+### Safety Layer Summary
+
+| Layer | Scope | Default | Can be disabled? |
+| --- | --- | --- | --- |
+| `CatastrophicBlacklist` | Hardcoded destructive patterns | Always on | **No** — never disabled |
+| Built-in deny patterns | `rm -rf`, `curl\|bash`, `php -r`, `mkfifo`, `netcat` | Always on | No |
+| Sudo denylist | `sudo` substring block | On (deny) | Yes — `allowSudo: true` in config |
+| `InteractiveApprovalPolicy` | Gated tools confirmation prompt | On | Yes — `--auto-approve` flag |
+| Allowlist | First-word command restriction | Off (open) | N/A — opt-in via `shellAllowedCommands` |
+| Shell injection detection | Metacharacter blocking | Only when allowlist is active | N/A — tied to allowlist |
+
 ### Safety Layer Interactions
 
 Each CLI flag affects a specific safety layer. They do **not** interact with each other:
 
 | Flag             | Affects                     | What it changes                            | What it does NOT change                                 |
 | ---------------- | --------------------------- | ------------------------------------------ | ------------------------------------------------------- |
-| `--auto-approve` | `InteractiveApprovalPolicy` | Skips confirmation prompts for gated tools | Shell allowlist, ScriptSanitizer, CatastrophicBlacklist |
-| `--unsafe`       | `ScriptSanitizer`           | Allows all PHP functions in `php_execute`  | Shell allowlist, approval policy, CatastrophicBlacklist |
+| `--auto-approve` | `InteractiveApprovalPolicy` | Skips confirmation prompts for gated tools | Shell denylist, ScriptSanitizer, CatastrophicBlacklist  |
+| `--unsafe`       | `ScriptSanitizer`           | Allows all PHP functions in `php_execute`  | Shell denylist, approval policy, CatastrophicBlacklist  |
 | Neither          | —                           | All safety layers active at defaults       | —                                                       |
 
 The `CatastrophicBlacklist` (hardcoded destructive patterns) **cannot be disabled by any flag**.
 
-The shell allowlist is only configurable via `openclaw.json` — it is not affected by CLI flags. This is by design: the allowlist is a structural configuration choice, not a runtime safety toggle.
-
 ### Key Source Files
 
-| File                                      | Purpose                                                           |
-| ----------------------------------------- | ----------------------------------------------------------------- |
-| `src/Agent/OrchestratorAgent.php`         | Reads `shellAllowedCommands` from config, constructs ShellToolkit |
-| `src/Tool/SpawnAgentTool.php`             | Passes shell allowlist to child agent ShellToolkit                |
-| php-agents `src/Toolkit/ShellToolkit.php` | Enforces allowlist, injection detection, deny patterns            |
-| `src/Config/CatastrophicBlacklist.php`    | Always-on destructive command blocking                            |
+| File                                      | Purpose                                                                |
+| ----------------------------------------- | ---------------------------------------------------------------------- |
+| `src/Agent/OrchestratorAgent.php`         | Reads config, resolves allowed/denied commands, constructs ShellToolkit |
+| `src/Tool/SpawnAgentTool.php`             | Passes allowed/denied commands to child agent ShellToolkit              |
+| `src/Agent/BackgroundToolExecutor.php`    | Resolves allowed/denied commands for background tool execution          |
+| php-agents `src/Toolkit/ShellToolkit.php` | Enforces allowlist, denylist, injection detection, deny patterns, cwd   |
+| `src/Config/CatastrophicBlacklist.php`    | Always-on destructive command blocking                                  |
 
 
 

@@ -47,12 +47,6 @@ use SplObserver;
  */
 final class SpawnAgentTool implements ToolInterface
 {
-    /** Default shell commands for child agents (subset of orchestrator's). */
-    private const array DEFAULT_CHILD_SHELL_COMMANDS = [
-        'php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc',
-        'curl', 'wget', 'sort', 'uniq', 'sed', 'awk', 'diff',
-    ];
-
     /** Read-only shell commands for readonly-shell access level. */
     private const array READ_ONLY_SHELL_COMMANDS = [
         'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
@@ -65,6 +59,7 @@ final class SpawnAgentTool implements ToolInterface
 
     /**
      * @param array<string> $shellAllowedCommands
+     * @param array<string> $shellDeniedCommands
      */
     public function __construct(
         private readonly RoleResolver $roleResolver,
@@ -76,13 +71,14 @@ final class SpawnAgentTool implements ToolInterface
         private readonly ?string $sessionId = null,
         private readonly ?SplObserver $observer = null,
         private readonly ?MountManager $mountManager = null,
-        private readonly array $shellAllowedCommands = self::DEFAULT_CHILD_SHELL_COMMANDS,
+        private readonly array $shellAllowedCommands = [],
         private readonly ?ProjectStore $projectStore = null,
         private readonly ?ToolkitDiscovery $discovery = null,
         private readonly ?MemoryStore $memoryStore = null,
         private readonly ?SkillDiscovery $skillDiscovery = null,
         private readonly ?ScriptSanitizer $sanitizer = null,
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
+        private readonly array $shellDeniedCommands = ['sudo'],
     ) {}
 
     public function name(): string
@@ -243,6 +239,7 @@ final class SpawnAgentTool implements ToolInterface
                 new ShellToolkit(
                     workDir: $this->projectRoot,
                     allowedCommands: $this->shellAllowedCommands,
+                    deniedCommands: $this->shellDeniedCommands,
                     timeout: 60,
                 ),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
