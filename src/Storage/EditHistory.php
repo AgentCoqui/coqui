@@ -238,9 +238,12 @@ final class EditHistory
         $originalContent = $backup['content'];
 
         // Try to read the current file content
-        $currentContent = @file_get_contents($filePath);
+        if (!file_exists($filePath)) {
+            return sprintf("--- a/%s\n+++ /dev/null\n@@ File deleted @@\n", basename($filePath));
+        }
+
+        $currentContent = file_get_contents($filePath);
         if ($currentContent === false) {
-            // File no longer exists — try resolving from backup metadata
             return sprintf("--- a/%s\n+++ /dev/null\n@@ File deleted @@\n", basename($filePath));
         }
 
@@ -420,15 +423,16 @@ final class EditHistory
             }
         }
 
-        if ($hunkStart !== null) {
-            $hunks[] = $this->formatHunk($diff, $hunkStart, $hunkEnd);
-        }
+        // $changeIndices is non-empty (checked above), so hunkStart/hunkEnd are always set here
+        $hunks[] = $this->formatHunk($diff, $hunkStart, $hunkEnd);
 
         return $hunks;
     }
 
     /**
      * Format a single unified diff hunk.
+     *
+     * @param list<array{op: string, old?: string, new?: string, oldIdx?: int, newIdx?: int}> $diff
      */
     private function formatHunk(array $diff, int $start, int $end): string
     {

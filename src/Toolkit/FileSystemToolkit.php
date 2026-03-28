@@ -34,7 +34,7 @@ final class FileSystemToolkit implements ToolkitInterface
      * @param ?EditHistory $history   Edit history store. Pass null to disable history.
      */
     public function __construct(
-        private readonly string $workspacePath,
+        string $workspacePath,
         private readonly bool $readOnly = false,
         array $allowedPaths = [],
         private readonly ?EditHistory $history = null,
@@ -150,6 +150,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeReadFile(array $args): ToolResult
     {
         $path = $args['path'] ?? '';
@@ -210,6 +211,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeListDir(array $args): ToolResult
     {
         $path = $args['path'] ?? '.';
@@ -287,6 +289,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeSearchFiles(array $args): ToolResult
     {
         $pattern = $args['pattern'] ?? '';
@@ -319,6 +322,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeFileInfo(array $args): ToolResult
     {
         $path = $args['path'] ?? '';
@@ -351,7 +355,7 @@ final class FileSystemToolkit implements ToolkitInterface
             $info['mime'] = mime_content_type($resolved) ?: 'unknown';
         }
 
-        return ToolResult::success(json_encode($info, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        return ToolResult::success(json_encode($info, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
     }
 
     // =======================================================================
@@ -371,6 +375,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeWriteFile(array $args): ToolResult
     {
         $path = $args['path'] ?? '';
@@ -410,6 +415,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeCreateDir(array $args): ToolResult
     {
         $path = $args['path'] ?? '';
@@ -435,6 +441,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeDeleteFile(array $args): ToolResult
     {
         $path = $args['path'] ?? '';
@@ -479,6 +486,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeReplaceInFile(array $args): ToolResult
     {
         $path = $args['path'] ?? '';
@@ -543,6 +551,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeInsertBefore(array $args): ToolResult
     {
         return $this->executeInsertRelative($args, 'before');
@@ -564,11 +573,13 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeInsertAfter(array $args): ToolResult
     {
         return $this->executeInsertRelative($args, 'after');
     }
 
+    /** @param array<string, mixed> $args */
     private function executeInsertRelative(array $args, string $position): ToolResult
     {
         $path = $args['path'] ?? '';
@@ -644,6 +655,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeReplaceBlock(array $args): ToolResult
     {
         $path = $args['path'] ?? '';
@@ -665,9 +677,9 @@ final class FileSystemToolkit implements ToolkitInterface
 
             foreach ($lines as $i => $line) {
                 if ($startIdx === null && $this->lineMatches($line, $startMarker, $isRegex)) {
-                    $startIdx = $i;
+                    $startIdx = (int) $i;
                 } elseif ($startIdx !== null && $this->lineMatches($line, $endMarker, $isRegex)) {
-                    $endIdx = $i;
+                    $endIdx = (int) $i;
                     break;
                 }
             }
@@ -715,6 +727,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeRemoveLines(array $args): ToolResult
     {
         $path = $args['path'] ?? '';
@@ -767,6 +780,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeWriteLines(array $args): ToolResult
     {
         $path = $args['path'] ?? '';
@@ -822,6 +836,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeBatchReplace(array $args): ToolResult
     {
         $glob = $args['glob'] ?? '';
@@ -913,6 +928,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeIndentLines(array $args): ToolResult
     {
         $path = $args['path'] ?? '';
@@ -988,6 +1004,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeAppendToFile(array $args): ToolResult
     {
         $path = $args['path'] ?? '';
@@ -1033,6 +1050,7 @@ final class FileSystemToolkit implements ToolkitInterface
         );
     }
 
+    /** @param array<string, mixed> $args */
     private function executeEditHistory(array $args): ToolResult
     {
         $action = $args['action'] ?? '';
@@ -1050,8 +1068,10 @@ final class FileSystemToolkit implements ToolkitInterface
         };
     }
 
+    /** @param array<string, mixed> $args */
     private function historyList(array $args): ToolResult
     {
+        assert($this->history !== null);
         $file = $args['file'] ?? null;
         $count = (int) ($args['count'] ?? 20);
 
@@ -1070,8 +1090,10 @@ final class FileSystemToolkit implements ToolkitInterface
         return ToolResult::success(implode("\n", $lines));
     }
 
+    /** @param array<string, mixed> $args */
     private function historyUndo(array $args): ToolResult
     {
+        assert($this->history !== null);
         $editId = isset($args['edit_id']) ? (int) $args['edit_id'] : null;
         $file = $args['file'] ?? null;
         $count = (int) ($args['count'] ?? 1);
@@ -1104,6 +1126,7 @@ final class FileSystemToolkit implements ToolkitInterface
 
     private function undoSingleEdit(int $editId): ToolResult
     {
+        assert($this->history !== null);
         try {
             $backup = $this->history->getBackup($editId);
         } catch (\RuntimeException $e) {
@@ -1129,8 +1152,10 @@ final class FileSystemToolkit implements ToolkitInterface
         return ToolResult::success("Undid edit #{$editId} ({$backup['operation']}) on {$relPath}.");
     }
 
+    /** @param array<string, mixed> $args */
     private function historyDiff(array $args): ToolResult
     {
+        assert($this->history !== null);
         $editId = isset($args['edit_id']) ? (int) $args['edit_id'] : null;
 
         if ($editId === null) {
@@ -1146,8 +1171,10 @@ final class FileSystemToolkit implements ToolkitInterface
         return ToolResult::success($diff);
     }
 
+    /** @param array<string, mixed> $args */
     private function historyPrune(array $args): ToolResult
     {
+        assert($this->history !== null);
         $days = (int) ($args['prune_days'] ?? 7);
 
         $pruned = $this->history->prune($days);
@@ -1161,6 +1188,8 @@ final class FileSystemToolkit implements ToolkitInterface
 
     /**
      * Record original content in history and write new content to disk.
+     *
+     * @param array<string, mixed> $metadata
      */
     private function recordAndWrite(
         string $path,

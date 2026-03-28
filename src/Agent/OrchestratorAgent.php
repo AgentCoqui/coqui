@@ -877,7 +877,7 @@ final class OrchestratorAgent extends AbstractAgent
         if ($config instanceof OpenClawConfig) {
             $modelString = $roleResolver->resolve('orchestrator');
             $parts = explode('/', $modelString, 2);
-            $provider = $parts[0] ?? '';
+            $provider = $parts[0];
             $modelId = $parts[1] ?? $modelString;
 
             // Layer 1: User-configured model definition (openclaw.json)
