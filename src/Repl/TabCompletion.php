@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl;
 
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Config\LoopDiscovery;
+use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
@@ -66,6 +68,11 @@ final class TabCompletion
             // Complete /schedules subcommands and schedule names
             if (count($parts) >= 2 && $cmd === '/schedules') {
                 return $this->completeSchedules($parts, $input);
+            }
+
+            // Complete /loops subcommands and loop IDs
+            if (count($parts) >= 2 && $cmd === '/loops') {
+                return $this->completeLoops($parts, $input);
             }
 
             // Complete top-level slash commands
@@ -239,13 +246,46 @@ final class TabCompletion
     }
 
     /**
+     * @param array<string> $parts
+     * @return list<string>
+     */
+    private function completeLoops(array $parts, string $input): array
+    {
+        $sub = $parts[1];
+        $loopSubCommands = ['definitions', 'status', 'pause', 'resume', 'stop', 'running', 'paused', 'completed', 'failed', 'cancelled'];
+
+        if (count($parts) === 2) {
+            return array_values(array_filter(
+                $loopSubCommands,
+                fn(string $s) => str_starts_with($s, $input),
+            ));
+        }
+
+        if (count($parts) === 3 && in_array($sub, ['status', 'pause', 'resume', 'stop'], true)) {
+            $prefix = $parts[2];
+            $candidates = ['all'];
+            $loopStore = new LoopStore($this->storage->getPdo());
+            $loops = $loopStore->listLoops();
+            foreach ($loops as $loop) {
+                $candidates[] = $loop['id'];
+            }
+            return array_values(array_filter(
+                $candidates,
+                fn(string $c) => str_starts_with($c, $prefix),
+            ));
+        }
+
+        return [];
+    }
+
+    /**
      * @return list<string>
      */
     private function completeTopLevel(string $input): array
     {
         $commands = [
             '/new', '/history', '/sessions', '/resume', '/model',
-            '/config', '/tasks', '/task', '/task-cancel', '/todos', '/projects', '/sprints', '/toolkits', '/schedules',
+            '/config', '/tasks', '/task', '/task-cancel', '/todos', '/projects', '/sprints', '/toolkits', '/schedules', '/loops',
             '/prompt', '/role', '/roles', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/evaluations', '/hints', '/help', '/quit',
         ];
 

@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
+use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
@@ -42,6 +43,7 @@ final class SlashCommandRouter
         private readonly ConversationHandler $conversation,
         private readonly WebhookHandler $webhook,
         private readonly EvaluationHandler $evaluation,
+        private readonly LoopHandler $loop,
         private readonly AgentRunner $agentRunner,
         private readonly \Closure $onHintsToggle,
     ) {}
@@ -86,6 +88,7 @@ final class SlashCommandRouter
             '/schedules' => $this->handleSchedules($io, $arg),
             '/webhooks' => $this->handleWebhooks($io, $arg),
             '/evaluations' => $this->handleEvaluations($io, $arg),
+            '/loops' => $this->handleLoops($io, $arg),
             '/hints' => $this->handleHints($io),
             '/help' => $this->handleHelp($io),
             default => $this->handleUnknown($io, $cmd),
@@ -259,6 +262,12 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
+    private function handleLoops(SymfonyStyle $io, string $arg): RouteResult
+    {
+        $this->loop->handle($io, $arg);
+        return RouteResult::continue();
+    }
+
     private function handleHints(SymfonyStyle $io): RouteResult
     {
         ($this->onHintsToggle)();
@@ -294,6 +303,7 @@ final class SlashCommandRouter
                 ['/schedules', 'List scheduled tasks with status and next run time'],
                 ['/webhooks', 'List webhook subscriptions with status and trigger counts'],
                 ['/evaluations', 'List session evaluation reports with grades and scores'],
+                ['/loops [status|definitions|status <id>|pause|resume|stop <id|all>]', 'Manage automated loop workflows'],
                 ['/summarize [recent N] [focus "topic"]', 'Summarize conversation history to save tokens'],
                 ['/hints', 'Toggle command hints in the input area'],
                 ['/update', 'Check for and apply dependency updates'],

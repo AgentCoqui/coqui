@@ -42,6 +42,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - 📋 [**Skills System**](docs/FEATURES.md#skills-system) — markdown SOPs that teach Coqui your exact workflows
 - ⏰ [**Scheduled Tasks**](docs/FEATURES.md#scheduled-tasks) — cron-style automation with circuit breakers
 - 🏗️ [**Background Tasks**](docs/FEATURES.md#background-tasks) — isolated processes for long-running work
+- 🔁 [**Loops**](docs/FEATURES.md#loops) — fully automated multi-iteration workflows chaining roles in sequence
 - 🗂️ [**Artifacts & Plans**](docs/FEATURES.md#artifacts-and-plans) — versioned plan artifacts with draft→review→final lifecycle
 - 🔧 [**Toolkit Visibility**](docs/FEATURES.md#toolkit-visibility) — 3-tier model (enabled/stub/disabled) to reduce token usage
 - 🛡️ [**Layered Safety**](docs/FEATURES.md#layered-safety) — 5-layer security: sandbox → sanitizer → blacklist → approval → audit
@@ -186,6 +187,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full CLI reference including `a
 | `/tasks [status]` | List background tasks |
 | `/todos [status]` | Show session todos |
 | `/schedules` | List scheduled tasks |
+| `/loops` | List and manage automated loops |
 | `/space` | Coqui Space marketplace |
 | `/summarize` | Summarize conversation for token savings |
 | `/help` | List all commands |
@@ -311,6 +313,7 @@ Coqui ships with a rich set of tools organized into toolkits:
 | **Background** | `start_background_task`, `start_background_tool` | Isolated processes for long-running work |
 | **Planning** | `artifact_create`, `todo_add` | Versioned artifacts and task tracking |
 | **Scheduling** | `schedule_create`, `webhook_create` | Cron-style automation and incoming webhooks |
+| **Loops** | `loop_start`, `loop_status`, `loop_definitions` | Automated multi-iteration workflows chaining roles |
 | **Vision** | `vision_analyze` | Multi-provider image analysis |
 | **Packages** | `composer`, `packagist` | Dependency management and package search |
 | **Credentials** | `credentials` | Secure `.env`-based secret storage |

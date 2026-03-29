@@ -36,6 +36,12 @@ final class TerminalObserver implements SplObserver
 
     public function update(SplSubject $subject): void
     {
+        // Handle loop events from transient SplSubject
+        if (method_exists($subject, 'getEventName') && method_exists($subject, 'getEventData')) {
+            $this->handleEvent($subject->getEventName(), $subject->getEventData());
+            return;
+        }
+
         if (!$subject instanceof AgentInterface) {
             return;
         }
@@ -97,6 +103,13 @@ final class TerminalObserver implements SplObserver
             'child.review_start' => $this->handleReviewStart($data, $indent),
 
             'child.review_end' => $this->handleReviewEnd($data, $indent),
+
+            'loop.start' => $this->handleLoopStart($data, $indent),
+            'loop.iteration_start' => $this->handleLoopIterationStart($data, $indent),
+            'loop.stage_start' => $this->handleLoopStageStart($data, $indent),
+            'loop.stage_end' => $this->handleLoopStageEnd($data, $indent),
+            'loop.iteration_end' => $this->handleLoopIterationEnd($data, $indent),
+            'loop.complete' => $this->handleLoopComplete($data, $indent),
 
             default => null,
         };
@@ -318,5 +331,75 @@ final class TerminalObserver implements SplObserver
     public function decreaseIndent(): void
     {
         $this->indentLevel = max(0, $this->indentLevel - 1);
+    }
+
+    private function handleLoopStart(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        $def = $data['definition'] ?? '?';
+        $goal = $data['goal'] ?? '';
+        $goalShort = mb_strlen($goal) > 80 ? mb_substr($goal, 0, 77) . '...' : $goal;
+        $this->output->writeln('');
+        $this->output->writeln("{$indent}<fg=magenta>🔄 Loop started:</> <fg=white;options=bold>{$def}</>");
+        $this->output->writeln("{$indent}   <fg=gray>{$goalShort}</>");
+    }
+
+    private function handleLoopIterationStart(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        $iter = $data['iteration'] ?? '?';
+        $this->output->writeln("{$indent}<fg=magenta>  ⟳ Iteration {$iter}</>");
+    }
+
+    private function handleLoopStageStart(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        $role = $data['role'] ?? '?';
+        $stage = $data['stage_index'] ?? '?';
+        $this->output->writeln("{$indent}<fg=cyan>    ▶ Stage {$stage}: {$role}</>");
+    }
+
+    private function handleLoopStageEnd(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        $role = $data['role'] ?? '?';
+        $success = ($data['success'] ?? false) === true;
+        $icon = $success ? '<fg=green>✓</>' : '<fg=red>✗</>';
+        $this->output->writeln("{$indent}    {$icon} <fg=gray>{$role} complete</>");
+    }
+
+    private function handleLoopIterationEnd(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        $outcome = $data['outcome'] ?? '?';
+        $color = match ($outcome) {
+            'Complete' => 'green',
+            'Continue' => 'yellow',
+            'Failed' => 'red',
+            default => 'gray',
+        };
+        $this->output->writeln("{$indent}  <fg={$color}>  ⟶ Iteration outcome: {$outcome}</>");
+    }
+
+    private function handleLoopComplete(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        $outcome = $data['outcome'] ?? '?';
+        $iterations = $data['iterations_completed'] ?? '?';
+        $icon = $outcome === 'Complete' ? '✅' : ($outcome === 'Failed' ? '❌' : '⊘');
+        $this->output->writeln('');
+        $this->output->writeln("{$indent}<fg=magenta>{$icon} Loop finished:</> {$outcome} after {$iterations} iteration(s)");
     }
 }
