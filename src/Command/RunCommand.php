@@ -211,6 +211,7 @@ final class RunCommand extends Command
                 visibilityRegistry: $this->boot->visibilityRegistry(),
                 mountManager: $this->boot->mountManager(),
                 observer: $this->escObserver,
+                unsafeMode: $this->unsafeMode,
                 shellAllowedCommands: $shellAllowed,
                 shellDeniedCommands: $shellDenied,
             );

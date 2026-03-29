@@ -139,6 +139,7 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?\CoquiBot\Coqui\Storage\ProjectStore $projectStore = null,
         private readonly ?DefaultsLoader $defaultsLoader = null,
         private readonly ?ModelFamilyResolver $familyResolver = null,
+        private readonly bool $unsafeMode = false,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
@@ -235,15 +236,18 @@ final class OrchestratorAgent extends AbstractAgent
             ));
         }
 
-        // Shell toolkit — available for 'full' and 'readonly-shell' access roles
-        $shellAllowed = $this->resolveShellAllowedCommands();
-        $shellDenied = $this->resolveShellDeniedCommands();
+        // Shell toolkit — available for 'full' and 'readonly-shell' access roles.
+        // In unsafe mode, all command restrictions are bypassed (only catastrophic
+        // blacklist at the execution policy layer remains as the safety net).
+        $shellAllowed = $this->unsafeMode ? [] : $this->resolveShellAllowedCommands();
+        $shellDenied = $this->unsafeMode ? [] : $this->resolveShellDeniedCommands();
         if ($effectiveAccessLevel === 'full') {
             $this->addToolkit(new ShellToolkit(
                 workDir: $this->projectRoot,
                 allowedCommands: $shellAllowed,
                 deniedCommands: $shellDenied,
                 timeout: 60,
+                unsafe: $this->unsafeMode,
             ));
         } elseif ($effectiveAccessLevel === 'readonly-shell') {
             $this->addToolkit(new ShellToolkit(
@@ -358,6 +362,7 @@ final class OrchestratorAgent extends AbstractAgent
             sanitizer: $this->sanitizer,
             visibilityRegistry: $this->visibilityRegistry,
             shellDeniedCommands: $shellDenied,
+            unsafeMode: $this->unsafeMode,
         );
 
         // Create credential tool for API key management

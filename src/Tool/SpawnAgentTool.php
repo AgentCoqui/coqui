@@ -79,6 +79,7 @@ final class SpawnAgentTool implements ToolInterface
         private readonly ?ScriptSanitizer $sanitizer = null,
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
         private readonly array $shellDeniedCommands = ['sudo'],
+        private readonly bool $unsafeMode = false,
     ) {}
 
     public function name(): string
@@ -241,6 +242,7 @@ final class SpawnAgentTool implements ToolInterface
                     allowedCommands: $this->shellAllowedCommands,
                     deniedCommands: $this->shellDeniedCommands,
                     timeout: 60,
+                    unsafe: $this->unsafeMode,
                 ),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],

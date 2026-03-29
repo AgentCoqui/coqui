@@ -102,3 +102,59 @@ test('exec blocks command not in allowlist when allowlist is set', function () {
 
     expect($result->status)->toBe(ToolResultStatus::Error);
 });
+
+// ---------------------------------------------------------------
+// unsafe mode
+// ---------------------------------------------------------------
+
+test('unsafe mode allows commands blocked by allowlist', function () {
+    $toolkit = new ShellToolkit(workDir: $this->workDir, allowedCommands: ['echo'], unsafe: true);
+    $tool = shellExecTool($toolkit);
+
+    $result = $tool->execute(['command' => 'ls']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+});
+
+test('unsafe mode allows commands blocked by denylist', function () {
+    $toolkit = new ShellToolkit(workDir: $this->workDir, deniedCommands: ['echo'], unsafe: true);
+    $tool = shellExecTool($toolkit);
+
+    $result = $tool->execute(['command' => 'echo hello']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $output = json_decode($result->content, true);
+    expect(trim($output['stdout']))->toBe('hello');
+});
+
+test('unsafe mode bypasses DENIED_PATTERNS', function () {
+    // 'mkdir -p' would normally work, but 'rm -rf /' is a DENIED_PATTERN.
+    // Test using a pattern that is normally blocked: recursive rm
+    $toolkit = new ShellToolkit(workDir: $this->workDir, unsafe: true);
+    $tool = shellExecTool($toolkit);
+
+    // Create a temp dir, then rm -rf it — the command gets past ShellToolkit
+    $subDir = $this->workDir . '/to-remove';
+    mkdir($subDir, 0755, true);
+    file_put_contents($subDir . '/file.txt', 'content');
+
+    $result = $tool->execute(['command' => 'rm -rf ' . escapeshellarg($subDir)]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect(is_dir($subDir))->toBeFalse();
+});
+
+test('unsafe mode guidelines show unrestricted', function () {
+    $toolkit = new ShellToolkit(workDir: $this->workDir, allowedCommands: ['echo'], unsafe: true);
+
+    expect($toolkit->guidelines())->toContain('unsafe mode');
+});
+
+test('non-unsafe mode still blocks denied commands', function () {
+    $toolkit = new ShellToolkit(workDir: $this->workDir, deniedCommands: ['ls']);
+    $tool = shellExecTool($toolkit);
+
+    $result = $tool->execute(['command' => 'ls']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+});
