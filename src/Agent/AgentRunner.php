@@ -29,6 +29,7 @@ use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
+use CoquiBot\Coqui\Contract\BackgroundTaskSummary;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\DeferredWorkQueue;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
@@ -356,6 +357,20 @@ final class AgentRunner
                 }
             }
 
+            // Build active background tasks snapshot for footer rendering
+            $backgroundTasks = null;
+            try {
+                $showBg = (bool) $this->config->get('agents.defaults.footer.backgroundTasks', true);
+                if ($showBg) {
+                    $rows = $this->storage->getActiveBackgroundSummary();
+                    if ($rows !== []) {
+                        $backgroundTasks = BackgroundTaskSummary::fromRows($rows);
+                    }
+                }
+            } catch (\Throwable) {
+                // Non-fatal — background task summary is optional
+            }
+
             return new AgentTurnResult(
                 content: $output->content,
                 iterations: $output->iterations,
@@ -372,6 +387,7 @@ final class AgentRunner
                 reviewFeedback: $reviewFeedback,
                 reviewApproved: $reviewApproved,
                 deferredWork: $deferredWork,
+                backgroundTasks: $backgroundTasks,
             );
         } catch (\Throwable $e) {
             // Complete turn even on error so duration/state is tracked

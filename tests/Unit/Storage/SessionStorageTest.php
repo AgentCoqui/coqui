@@ -330,3 +330,82 @@ test('summary message is not filtered after soft-delete', function () {
     $conversation = $this->storage->loadConversation($sessionId);
     expect($conversation->count())->toBe(2);
 });
+
+// ─── Background Task Summary ────────────────────────────────────────────────
+
+test('getActiveBackgroundSummary returns running and pending tasks', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+
+    $taskId1 = $this->storage->createTask($sessionId, 'Refactor auth', 'coder', title: 'Refactor auth');
+    $this->storage->updateTaskStatus($taskId1, 'running', ['pid' => 1234]);
+
+    $taskId2 = $this->storage->createTask($sessionId, 'Review code', 'reviewer', title: 'Code review');
+    // Stays pending
+
+    $rows = $this->storage->getActiveBackgroundSummary();
+
+    expect($rows)->toHaveCount(2);
+    expect($rows[0]['status'])->toBeIn(['running', 'pending']);
+    expect($rows[1]['status'])->toBeIn(['running', 'pending']);
+});
+
+test('getActiveBackgroundSummary excludes completed and failed tasks', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+
+    $taskId1 = $this->storage->createTask($sessionId, 'Completed task', 'coder', title: 'Done');
+    $this->storage->updateTaskStatus($taskId1, 'running');
+    $this->storage->updateTaskStatus($taskId1, 'completed', ['result' => 'Done']);
+
+    $taskId2 = $this->storage->createTask($sessionId, 'Failed task', 'coder', title: 'Failed');
+    $this->storage->updateTaskStatus($taskId2, 'running');
+    $this->storage->updateTaskStatus($taskId2, 'failed', ['error' => 'Crashed']);
+
+    $taskId3 = $this->storage->createTask($sessionId, 'Running task', 'coder', title: 'Active');
+    $this->storage->updateTaskStatus($taskId3, 'running');
+
+    $rows = $this->storage->getActiveBackgroundSummary();
+
+    expect($rows)->toHaveCount(1);
+    expect($rows[0]['title'])->toBe('Active');
+    expect($rows[0]['status'])->toBe('running');
+});
+
+test('getActiveBackgroundSummary returns empty array when no active tasks', function () {
+    $rows = $this->storage->getActiveBackgroundSummary();
+
+    expect($rows)->toBe([]);
+});
+
+test('getActiveBackgroundSummary includes tool_name for tool tasks', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+
+    $taskId = $this->storage->createTask(
+        $sessionId,
+        'Scrape website',
+        'orchestrator',
+        title: 'Scrape docs',
+        toolName: 'web_scrape',
+        toolArguments: '{"url": "https://example.com"}',
+    );
+    $this->storage->updateTaskStatus($taskId, 'running');
+
+    $rows = $this->storage->getActiveBackgroundSummary();
+
+    expect($rows)->toHaveCount(1);
+    expect($rows[0]['tool_name'])->toBe('web_scrape');
+    expect($rows[0]['role'])->toBe('orchestrator');
+});
+
+test('getActiveBackgroundSummary orders by creation time ascending', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+
+    $taskId1 = $this->storage->createTask($sessionId, 'First task', 'coder', title: 'First');
+    usleep(10_000); // 10ms gap for timestamp ordering
+    $taskId2 = $this->storage->createTask($sessionId, 'Second task', 'reviewer', title: 'Second');
+
+    $rows = $this->storage->getActiveBackgroundSummary();
+
+    expect($rows)->toHaveCount(2);
+    expect($rows[0]['title'])->toBe('First');
+    expect($rows[1]['title'])->toBe('Second');
+});
