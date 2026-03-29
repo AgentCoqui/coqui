@@ -77,6 +77,12 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/schedules disable <name\|id\|all>` | Disable a schedule (or all enabled schedules) |
 | `/schedules delete <name\|id\|all>` | Delete a schedule (or all schedules) |
 | `/schedules trigger <name\|id\|all>` | Force-trigger a schedule on the next API tick |
+| `/loops` | List all loops with status and progress |
+| `/loops definitions` | Show available loop definitions |
+| `/loops status <id>` | Detailed status of a specific loop |
+| `/loops pause <id\|all>` | Pause running loop(s) |
+| `/loops resume <id\|all>` | Resume paused loop(s) |
+| `/loops stop <id\|all>` | Stop/cancel loop(s) |
 | `/webhooks` | List webhook subscriptions with status and trigger counts |
 | `/evaluations [grade]` | List session evaluation reports, optionally filtered by grade |
 | `/hints` | Toggle command hints in the input area |

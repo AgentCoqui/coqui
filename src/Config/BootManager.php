@@ -14,6 +14,7 @@ use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
@@ -50,6 +51,8 @@ final class BootManager
     private ?TodoStore $todoStore = null;
     private ?ProjectStore $projectStore = null;
     private ?SpaceToolkit $spaceToolkit = null;
+    private ?LoopStore $loopStore = null;
+    private ?LoopDiscovery $loopDiscovery = null;
 
     public function __construct(
         private readonly string $workDir,
@@ -77,6 +80,7 @@ final class BootManager
         $this->initializeCredentials();
         $this->initializeMemory();
         $this->initializeArtifacts();
+        $this->discoverLoops();
         $this->discoverToolkits($io);
         $this->discoverSkills();
         $this->initializeSpace();
@@ -213,6 +217,16 @@ final class BootManager
     public function projectStore(): ?ProjectStore
     {
         return $this->projectStore;
+    }
+
+    public function loopStore(): ?LoopStore
+    {
+        return $this->loopStore;
+    }
+
+    public function loopDiscovery(): ?LoopDiscovery
+    {
+        return $this->loopDiscovery;
     }
 
     private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
@@ -392,6 +406,12 @@ final class BootManager
         $this->credentialResolver->loadIntoProcessEnv();
     }
 
+    private function discoverLoops(): void
+    {
+        $this->loopDiscovery = new LoopDiscovery($this->workspacePath, $this->workDir !== '' ? $this->workDir : null);
+        $this->loopDiscovery->seedBuiltinLoops();
+    }
+
     private function discoverRoles(): void
     {
         $builtinDir = ($this->workDir !== '' ? PathHelper::trimTrailingSlash($this->workDir) : dirname(__DIR__, 2)) . '/config/roles';
@@ -438,6 +458,7 @@ final class BootManager
         $this->todoStore->cleanupStale();
         $this->todoStore->cleanupUnlinked();
         $this->projectStore = new ProjectStore($pdo);
+        $this->loopStore = new LoopStore($pdo);
     }
 
     /**

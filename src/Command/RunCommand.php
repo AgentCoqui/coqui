@@ -19,6 +19,7 @@ use CoquiBot\Coqui\Repl\ExecutionPolicyFactory;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
+use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
@@ -301,6 +302,7 @@ final class RunCommand extends Command
             conversation: new ConversationHandler($this->boot, $this->storage),
             webhook: new WebhookHandler($this->storage),
             evaluation: new EvaluationHandler($this->storage),
+            loop: new LoopHandler($this->storage, $this->boot->loopDiscovery()),
             agentRunner: $this->agentRunner,
             onHintsToggle: function () use ($io): void {
                 $this->hintsEnabled = !$this->hintsEnabled;

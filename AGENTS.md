@@ -368,6 +368,145 @@ Coqui supports running individual tools asynchronously in background processes. 
 | `src/Toolkit/BackgroundTaskToolkit.php` | Agent-facing tools including `start_background_tool`                  |
 | `src/Command/TaskRunCommand.php`        | Branches on `tool_name` presence: agent path vs direct tool execution |
 
+## Loop System Architecture
+
+Coqui supports fully automated, multi-iteration workflows called **Loops**. A loop strings together existing agent roles in sequence — each role processes the output of the previous one — and repeats until a termination condition is met. Loops are completely hands-off: no human approval, no iteration caps (unless declared), 100% automated.
+
+### How It Works
+
+1. **Loop definitions** are JSON files discovered from `workspace/loops/` (user-created) or `config/loops/` (built-in, seeded on first boot). Each definition declares a sequence of roles with prompts and a termination condition.
+2. **`LoopDiscovery`** scans for `.json` files, parses them into `LoopDefinition` value objects, and caches results. Built-in definitions are seeded from `config/loops/` on first boot.
+3. **`LoopStore`** persists loop state to SQLite via three tables: `loops` (lifecycle), `loop_iterations` (iteration tracking), `loop_stages` (per-stage results within each iteration).
+4. **`LoopExecutor`** is the mode-agnostic orchestration engine. It manages the state machine: advancing through stages, composing prompts with previous stage output, evaluating termination conditions, and tracking iteration/stage records.
+5. **`LoopRunner`** drives loops synchronously in the REPL. It spawns `ChildAgent` instances for each stage, attaches observers for live output, and calls `LoopExecutor` to advance through the workflow.
+6. **`LoopManager`** drives loops asynchronously in the API server via a 5-second ReactPHP periodic timer. It picks up running/resumed loops and advances them one stage per tick.
+
+### Loop Definition Schema
+
+```json
+{
+    "name": "harness",
+    "description": "Generator-evaluator pattern",
+    "roles": [
+        {
+            "role": "plan",
+            "prompt": "Analyze the goal and create an implementation plan.",
+            "skills": [],
+            "maxIterations": 30
+        },
+        {
+            "role": "coder",
+            "prompt": "Implement the plan from the previous stage."
+        },
+        {
+            "role": "reviewer",
+            "prompt": "Review the implementation. Respond APPROVED if ready, or provide feedback."
+        }
+    ],
+    "termination": {
+        "type": "evaluation_bound",
+        "value": "APPROVED"
+    }
+}
+```
+
+### Termination Conditions
+
+| Type | Value | Behavior |
+| --- | --- | --- |
+| `evaluation_bound` | String keyword | Loop ends when the last stage's output contains the keyword (e.g. "APPROVED") |
+| `iteration_bound` | Integer | Loop ends after N iterations |
+| `time_bound` | Integer (seconds) | Loop ends after N seconds of wall-clock time |
+| `manual` | — | Loop runs until explicitly stopped by user/agent |
+
+### Loop Lifecycle
+
+| Status | Description |
+| --- | --- |
+| `running` | Active — stages are being executed |
+| `paused` | Suspended — can be resumed |
+| `completed` | Termination condition met |
+| `failed` | Stage error or unrecoverable failure |
+| `cancelled` | Stopped by user/agent |
+
+### Agent-Facing Tools (LoopToolkit)
+
+| Tool | Description |
+| --- | --- |
+| `loop_start` | Start a loop from a definition with a goal prompt |
+| `loop_list` | List all loops with optional status filter |
+| `loop_status` | Get detailed status of a specific loop |
+| `loop_pause` | Pause a running loop |
+| `loop_resume` | Resume a paused loop |
+| `loop_stop` | Stop/cancel a running or paused loop |
+| `loop_definitions` | List available loop definitions |
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/api/v1/loops` | List loops |
+| `POST` | `/api/v1/loops` | Create/start a loop |
+| `GET` | `/api/v1/loops/definitions` | List available definitions |
+| `GET` | `/api/v1/loops/{id}` | Get loop details |
+| `DELETE` | `/api/v1/loops/{id}` | Delete a loop |
+| `POST` | `/api/v1/loops/{id}/pause` | Pause loop |
+| `POST` | `/api/v1/loops/{id}/resume` | Resume loop |
+| `POST` | `/api/v1/loops/{id}/stop` | Stop/cancel loop |
+| `GET` | `/api/v1/loops/{id}/iterations` | List iterations |
+| `GET` | `/api/v1/loops/{id}/iterations/{iterationId}` | Get iteration with stages |
+
+### REPL Command
+
+| Command | Description |
+| --- | --- |
+| `/loops` | List all loops with status and progress |
+| `/loops definitions` | Show available loop definitions |
+| `/loops status <id>` | Detailed status of a specific loop |
+| `/loops pause <id\|all>` | Pause running loop(s) |
+| `/loops resume <id\|all>` | Resume paused loop(s) |
+| `/loops stop <id\|all>` | Stop/cancel loop(s) |
+
+### Observer Events
+
+Loop events are emitted via `SplSubject` from `LoopRunner`:
+
+| Event | Data | When |
+| --- | --- | --- |
+| `loop.start` | `{loop_id, definition, goal}` | Loop begins |
+| `loop.iteration_start` | `{loop_id, iteration}` | New iteration starts |
+| `loop.stage_start` | `{loop_id, iteration, stage, role}` | Stage begins execution |
+| `loop.stage_end` | `{loop_id, iteration, stage, role, status}` | Stage completes |
+| `loop.iteration_end` | `{loop_id, iteration, outcome}` | Iteration finishes |
+| `loop.complete` | `{loop_id, status, iterations}` | Loop terminates |
+
+### Built-in Loop Definitions
+
+| Definition | Roles | Termination | Description |
+| --- | --- | --- | --- |
+| `harness` | plan → coder → reviewer | `evaluation_bound: "APPROVED"` | Generator-evaluator pattern inspired by Anthropic's Harness |
+| `research` | explorer → coder → reviewer | `evaluation_bound: "APPROVED"` | Research-driven implementation with codebase exploration |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Agent/LoopExecutor.php` | Mode-agnostic orchestration engine: state machine, prompt composition, termination evaluation |
+| `src/Agent/LoopRunner.php` | REPL synchronous driver: spawns ChildAgents, emits observer events |
+| `src/Api/LoopManager.php` | API async driver: 5-second ReactPHP timer, picks up running/resumed loops |
+| `src/Storage/LoopStore.php` | SQLite persistence: 3 tables (loops, loop_iterations, loop_stages) |
+| `src/Config/LoopDiscovery.php` | JSON file discovery from workspace/loops/, seeds built-ins from config/loops/ |
+| `src/Toolkit/LoopToolkit.php` | 7 agent-facing tools with dynamic guidelines |
+| `src/Contract/LoopDefinition.php` | Immutable value object: name, description, roles, termination condition |
+| `src/Contract/LoopRoleDefinition.php` | Value object: role, prompt, skills, maxIterations per stage |
+| `src/Contract/TerminationType.php` | Backed enum: EvaluationBound, IterationBound, TimeBound, Manual |
+| `src/Contract/TerminationCondition.php` | Value object: type + threshold value |
+| `src/Contract/LoopStageResult.php` | Value object: next stage preparation (role, prompt, skills, maxIterations) |
+| `src/Contract/IterationOutcome.php` | Enum: Complete, Continue, Failed, LimitReached |
+| `src/Repl/Handler/LoopHandler.php` | REPL /loops command handler |
+| `src/Api/Handler/LoopHandler.php` | REST API endpoints (10 routes, self-registering) |
+| `prompts/tools/loops.md` | Agent prompt injection documentation |
+
 ## Schedule System Architecture
 
 Coqui supports autonomous, timer-driven execution via a cron-style scheduling system. The agent can create, manage, and self-schedule recurring or one-shot tasks that execute as background tasks inside the ReactPHP event loop.

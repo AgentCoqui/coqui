@@ -122,6 +122,19 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 - Monitor: `/tasks` in the REPL, `task_status(id)` from the agent, or SSE streaming via API.
 - See [BACKGROUND-TASKS.md](BACKGROUND-TASKS.md) for details.
 
+## <a id="loops"></a> 🔁 Loops
+
+**What it does:** Fully automated multi-iteration workflows that chain existing agent roles in sequence. Each role processes the output of the previous one, repeating until a termination condition is met (keyword match, iteration count, time limit, or manual stop).
+
+**How it helps:** Run complex generator-evaluator patterns, research-implement-review cycles, or any multi-role pipeline completely hands-off with no iteration caps unless declared.
+
+**How to use it:**
+- Start a loop: `loop_start(definition: "harness", goal: "Implement caching layer")`
+- Built-in definitions: `harness` (plan→coder→reviewer), `research` (explorer→coder→reviewer).
+- Custom definitions: add JSON files to `workspace/loops/`.
+- Monitor: `/loops` in the REPL, `loop_status(id)` from the agent, or `GET /api/v1/loops/{id}` via API.
+- Control: pause, resume, or stop loops at any time.
+
 ## <a id="vision-analysis"></a> 👁️ Vision Analysis
 
 **What it does:** Analyze images from URLs, file paths, or base64 data using vision-capable models. Returns structured descriptions covering subject, details, and context.

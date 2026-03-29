@@ -64,6 +64,37 @@
             ]
         },
         {
+            "path": "src/Agent/LoopExecutor.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
+            "layer": "agent",
+            "description": "Core loop orchestration engine. Mode-agnostic — drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Creates projects per loop, snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound). Does not execute child agents directly — callers (LoopRunner for REPL, LoopManager for API) handle execution.",
+            "methods": [
+                "startLoop(LoopDefinition, string $goal, ?string $sessionId): string — creates loop and first iteration",
+                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, builds context prompt, returns stage result",
+                "completeStage(string $stageId, ?string $result, ?string $sessionId, ?string $taskId): void — records stage result",
+                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition and advances if continuing"
+            ]
+        },
+        {
+            "path": "src/Agent/LoopRunner.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\LoopRunner",
+            "layer": "agent",
+            "description": "REPL synchronous loop execution driver. Spawns child agents for each stage, runs iterations synchronously, emits observer events (loop.start, loop.iteration_start, loop.stage_start, loop.stage_end, loop.iteration_end, loop.complete). Mirrors SpawnAgentTool patterns for toolkit building.",
+            "methods": [
+                "run(LoopDefinition, string $goal, ?string $sessionId): array — runs loop to completion synchronously"
+            ]
+        },
+        {
+            "path": "src/Api/LoopManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\LoopManager",
+            "layer": "agent",
+            "description": "ReactPHP timer-based async loop coordinator. 5-second tick checks running loops, starts pending stages as background tasks, polls for stage task completion, evaluates iterations. Integrates with SessionStorage for background task creation.",
+            "methods": [
+                "tick(): void — process all running loops on timer",
+                "processLoop(array $loop): void — advance a single loop's stages"
+            ]
+        },
+        {
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
@@ -196,6 +227,15 @@
             "description": "Handles /schedules REPL command with subcommands: list, enable, disable, delete, trigger.",
             "methods": [
                 "handle(SymfonyStyle, string): void — dispatches schedule subcommand"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/LoopHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\LoopHandler",
+            "layer": "command",
+            "description": "Handles /loops REPL command with subcommands: list (with optional status filter), definitions/defs, status <id>, pause <id|all>, resume <id|all>, stop <id|all>.",
+            "methods": [
+                "handle(SymfonyStyle, string): void — dispatches loop subcommand"
             ]
         },
         {
@@ -377,6 +417,54 @@
             ]
         },
         {
+            "path": "src/Contract/TerminationType.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\TerminationType",
+            "layer": "contract",
+            "description": "Backed string enum defining loop termination strategies: EvaluationBound (stage output evaluated for done signal), IterationBound (fixed iteration count), TimeBound (wall-clock duration), Manual (user-controlled stop).",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/TerminationCondition.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\TerminationCondition",
+            "layer": "contract",
+            "description": "Value object pairing a TerminationType with its threshold value. Factory method fromArray() parses JSON config format {type, value}.",
+            "methods": [
+                "fromArray(array): self — factory from JSON config"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopRoleDefinition.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopRoleDefinition",
+            "layer": "contract",
+            "description": "Value object for a single stage in a loop definition. Contains role name, prompt template, optional skills array, and optional per-stage maxIterations override.",
+            "methods": [
+                "fromArray(array): self — factory from JSON config"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopDefinition.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopDefinition",
+            "layer": "contract",
+            "description": "Immutable value object representing a complete loop configuration. Contains name (validated against /^[a-z0-9][a-z0-9_-]*$/), description, roles array (LoopRoleDefinition[]), and termination condition.",
+            "methods": [
+                "fromArray(string, array): self — factory from JSON config with name validation"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopStageResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopStageResult",
+            "layer": "contract",
+            "description": "Value object returned by LoopExecutor::prepareNextStage(). Contains the role name, composed prompt (with previous stage output injected), skills, and max iterations for the next stage to execute.",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/IterationOutcome.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\IterationOutcome",
+            "layer": "contract",
+            "description": "Enum representing the result of a single loop iteration: Complete (termination condition met), Continue (loop should proceed), Failed (stage error), LimitReached (iteration/time bound hit).",
+            "methods": []
+        },
+        {
             "path": "src/Config/DefaultsLoader.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\DefaultsLoader",
             "layer": "config",
@@ -476,6 +564,18 @@
                 "loadCredentialRequirements(string $packageName): CredentialRequirement[] — load credential declarations (supports string shorthand and object format with optional flag)",
                 "loadGatedTools(string $packageName): array — load gated tool declarations from extra.php-agents.gated",
                 "collectAllGatedTools(): array — merge gated tool declarations from all registered packages"
+            ]
+        },
+        {
+            "path": "src/Config/LoopDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\LoopDiscovery",
+            "layer": "config",
+            "description": "Discovers loop definitions from JSON files in workspace/loops/. Seeds built-in loop definitions from config/loops/ on first boot. Caches parsed LoopDefinition objects for reuse.",
+            "methods": [
+                "discover(): array — scan workspace/loops/ for .json files, returns map of name → LoopDefinition",
+                "get(string): ?LoopDefinition — get a single definition by name",
+                "names(): string[] — list all available definition names",
+                "seedBuiltins(): void — copy config/loops/*.json to workspace/loops/ if not present"
             ]
         },
         {
@@ -1696,6 +1796,23 @@
             ]
         },
         {
+            "path": "src/Storage/LoopStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\LoopStore",
+            "layer": "storage",
+            "description": "SQLite-backed persistence for loop workflows. Three tables: loops, loop_iterations, loop_stages. Tracks loop lifecycle from running through completion/failure/cancellation with full iteration and stage history.",
+            "methods": [
+                "createLoop(string, string, array, ...): string — create a new loop record",
+                "getLoop(string): ?array — get loop by ID",
+                "listLoops(?string): array — list loops with optional status filter",
+                "updateLoopStatus(string, string): void — update loop status",
+                "createIteration(string, int): string — create iteration record",
+                "createStage(string, int, string, string): string — create stage record",
+                "getCurrentState(string): ?array — get loop with current iteration and stages",
+                "countActive(): int — count running loops",
+                "deleteLoop(string): bool — delete loop and cascading records"
+            ]
+        },
+        {
             "path": "src/Storage/WebhookStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\WebhookStore",
             "layer": "storage",
@@ -1741,6 +1858,25 @@
                 "trigger(ServerRequestInterface, string): Response — POST /api/v1/schedules/{id}/trigger",
                 "enable(ServerRequestInterface, string): Response — POST /api/v1/schedules/{id}/enable",
                 "disable(ServerRequestInterface, string): Response — POST /api/v1/schedules/{id}/disable"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/LoopHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\LoopHandler",
+            "layer": "agent",
+            "description": "REST API endpoints for loop CRUD and control. 10 endpoints: list, create, definitions, get, delete, pause, resume, stop, iterations, iteration. Self-registers routes via register(Router).",
+            "methods": [
+                "register(Router): void — register all loop API routes",
+                "list(ServerRequestInterface): Response — GET /api/v1/loops",
+                "create(ServerRequestInterface): Response — POST /api/v1/loops",
+                "definitions(ServerRequestInterface): Response — GET /api/v1/loops/definitions",
+                "get(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}",
+                "delete(ServerRequestInterface, string): Response — DELETE /api/v1/loops/{id}",
+                "pause(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/pause",
+                "resume(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/resume",
+                "stop(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/stop",
+                "iterations(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}/iterations",
+                "iteration(ServerRequestInterface, string, string): Response — GET /api/v1/loops/{id}/iterations/{iterationId}"
             ]
         },
         {
@@ -1790,6 +1926,16 @@
             "methods": [
                 "tools(): array — return all 8 schedule tools",
                 "guidelines(): string — dynamic stats and cron reference"
+            ]
+        },
+        {
+            "path": "src/Toolkit/LoopToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\LoopToolkit",
+            "layer": "toolkit",
+            "description": "Agent-facing tools for starting and managing loop workflows. 7 tools: loop_start, loop_list, loop_status, loop_pause, loop_resume, loop_stop, loop_definitions. Guidelines inject active loop count, running loop details, and available definition names.",
+            "methods": [
+                "tools(): array — return all 7 loop tools",
+                "guidelines(): string — dynamic active loop status and definition list"
             ]
         },
         {
