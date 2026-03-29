@@ -93,6 +93,12 @@ final class RoleParser
             $preSummarize = $meta['pre_summarize'] === 'true' || $meta['pre_summarize'] === true;
         }
 
+        // Parse auto_review
+        $autoReview = false;
+        if (isset($meta['auto_review'])) {
+            $autoReview = $meta['auto_review'] === 'true' || $meta['auto_review'] === true;
+        }
+
         return new RoleProperties(
             name: $meta['name'],
             displayName: $meta['display_name'],
@@ -110,6 +116,7 @@ final class RoleParser
                 ? $meta['toolkits']
                 : (isset($meta['allowed-tools']) && is_string($meta['allowed-tools']) ? $meta['allowed-tools'] : null),
             maxIterations: isset($meta['max_iterations']) && is_numeric($meta['max_iterations']) ? (int) $meta['max_iterations'] : null,
+            autoReview: $autoReview,
         );
     }
 
@@ -219,6 +226,10 @@ final class RoleParser
 
         if ($properties->maxIterations !== null) {
             $lines[] = "max_iterations: {$properties->maxIterations}";
+        }
+
+        if ($properties->autoReview) {
+            $lines[] = 'auto_review: true';
         }
 
         $lines[] = '---';

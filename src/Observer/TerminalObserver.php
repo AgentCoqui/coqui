@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Observer;
 
 use CarmeloSantana\PHPAgents\Contract\AgentInterface;
+use CarmeloSantana\PHPAgents\Tool\DoneTool;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Renderer\StreamingMarkdownBuffer;
@@ -87,9 +88,15 @@ final class TerminalObserver implements SplObserver
 
             'agent.summary' => $this->handleSummary($data, $indent),
 
+            'agent.memory_extraction' => $this->handleMemoryExtraction($data, $indent),
+
             'child.start' => $this->handleChildStart($data, $indent),
 
             'child.end' => $this->handleChildEnd($indent),
+
+            'child.review_start' => $this->handleReviewStart($data, $indent),
+
+            'child.review_end' => $this->handleReviewEnd($data, $indent),
 
             default => null,
         };
@@ -112,6 +119,22 @@ final class TerminalObserver implements SplObserver
     private function handleToolCall(mixed $data, string $indent): void
     {
         if (!$data instanceof ToolCall) {
+            return;
+        }
+
+        // When the done tool fires, flush any remaining buffered content
+        // immediately so single-line responses appear before the done
+        // confirmation rather than waiting for handleDone().
+        if ($data->name === DoneTool::NAME) {
+            if ($this->hasStreamedReasoning) {
+                $this->output->writeln('');
+                $this->hasStreamedReasoning = false;
+            }
+            if ($this->hasStreamedText) {
+                $this->markdownBuffer->flush();
+                $this->output->writeln('');
+                $this->hasStreamedText = false;
+            }
             return;
         }
 
@@ -209,6 +232,27 @@ final class TerminalObserver implements SplObserver
         $this->output->writeln("{$newIndent}<fg=blue>└─</> <fg=gray>Child agent completed</>");
     }
 
+    private function handleReviewStart(mixed $data, string $indent): void
+    {
+        $round = is_array($data) ? ($data['round'] ?? 1) : 1;
+        $maxRounds = is_array($data) ? ($data['max_rounds'] ?? 1) : 1;
+        $this->output->writeln("{$indent}<fg=magenta>⚖ Code Review</> <fg=gray>Round {$round}/{$maxRounds}</>");
+        $this->indentLevel++;
+    }
+
+    private function handleReviewEnd(mixed $data, string $indent): void
+    {
+        $this->indentLevel = max(0, $this->indentLevel - 1);
+        $newIndent = str_repeat('  ', $this->indentLevel);
+        $approved = is_array($data) && ($data['approved'] ?? false);
+        if ($approved) {
+            $this->output->writeln("{$newIndent}<fg=green>✓ APPROVED</>");
+        } else {
+            $verdict = is_array($data) ? ($data['verdict'] ?? 'needs_changes') : 'needs_changes';
+            $this->output->writeln("{$newIndent}<fg=yellow>⟳ {$verdict}</>");
+        }
+    }
+
     private function handleSummary(mixed $data, string $indent): void
     {
         if (!is_array($data)) {
@@ -221,6 +265,24 @@ final class TerminalObserver implements SplObserver
 
         $this->output->writeln(
             "{$indent}<fg=yellow>📋 Conversation summarized{$auto}: {$count} messages compressed, {$saved} tokens saved</>",
+        );
+    }
+
+    private function handleMemoryExtraction(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $count = (int) ($data['memories_saved'] ?? 0);
+        $source = (string) ($data['source'] ?? 'unknown');
+
+        if ($count === 0) {
+            return;
+        }
+
+        $this->output->writeln(
+            "{$indent}<fg=yellow>🧠 Memory extraction ({$source}): {$count} " . ($count === 1 ? 'memory' : 'memories') . ' saved</>',
         );
     }
 

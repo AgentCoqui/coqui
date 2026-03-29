@@ -73,20 +73,26 @@ final class SetupWizard
         // Step 5: Child background tasks
         $childBackgroundTasks = $this->configureChildBackgroundTasks();
 
-        // Step 6: Configure workspace
+        // Step 6: Memory extraction behavior
+        $memoryAutoExtract = $this->configureMemoryExtraction();
+
+        // Step 7: Summarization behavior
+        $summarizationConfig = $this->configureSummarization();
+
+        // Step 8: Configure workspace
         $workspace = $this->configureWorkspace();
 
-        // Step 7: Update preferences (ENV-based, not in openclaw.json)
+        // Step 9: Update preferences (ENV-based, not in openclaw.json)
         $this->configureUpdatePreferences();
 
-        // Step 8: Generate API key for HTTP API server
+        // Step 10: Generate API key for HTTP API server
         $this->configureApiKey();
 
-        // Step 9: Configure directory mounts
+        // Step 11: Configure directory mounts
         $mounts = $this->configureMounts();
 
         // Build and preview
-        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks);
+        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, $memoryAutoExtract, $summarizationConfig);
 
         $this->io->section('Configuration Preview');
         $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -156,6 +162,7 @@ final class SetupWizard
         $sections = [
             'providers' => 'Providers & Models (providers, model discovery, role assignments, primary model)',
             'child_bg'  => 'Child Background Tasks (allow child agents to spawn background tasks)',
+            'summarization' => 'Summarization (auto-summarization mode and thresholds)',
             'workspace' => 'Workspace Directory',
             'updates'   => 'Update Preferences (check/auto-update on startup)',
             'api_key'   => 'API Server Key',
@@ -216,6 +223,13 @@ final class SetupWizard
             $childBackgroundTasks = !empty($defaults['childBackgroundTasks']);
         }
 
+        // --- Summarization ---
+        if (in_array('summarization', $selectedKeys, true)) {
+            $summarizationConfig = $this->configureSummarization();
+        } else {
+            $summarizationConfig = is_array($defaults['context'] ?? null) ? $defaults['context'] : [];
+        }
+
         // --- Workspace ---
         if (in_array('workspace', $selectedKeys, true)) {
             $workspace = $this->configureWorkspace();
@@ -241,7 +255,7 @@ final class SetupWizard
         }
 
         // Build the new config, merging with existing for non-edited sections
-        $config = $this->buildEditedConfig($existingConfig, $primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, in_array('providers', $selectedKeys, true));
+        $config = $this->buildEditedConfig($existingConfig, $primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, in_array('providers', $selectedKeys, true), $summarizationConfig);
 
         $this->io->section('Configuration Preview');
         $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -265,6 +279,7 @@ final class SetupWizard
      * @param array<string, mixed> $existingConfig
      * @param array<string, string> $roles
      * @param array<int, array{path: string, alias: string, access: string, description?: string}> $mounts
+     * @param array<string, mixed> $summarizationConfig
      * @return array<string, mixed>
      */
     private function buildEditedConfig(
@@ -275,6 +290,7 @@ final class SetupWizard
         array $mounts,
         bool $childBackgroundTasks,
         bool $providersEdited,
+        array $summarizationConfig = [],
     ): array {
         $config = $existingConfig;
 
@@ -287,6 +303,10 @@ final class SetupWizard
             $config['agents']['defaults']['childBackgroundTasks'] = true;
         } else {
             unset($config['agents']['defaults']['childBackgroundTasks']);
+        }
+
+        if ($summarizationConfig !== []) {
+            $config['agents']['defaults']['context'] = $summarizationConfig;
         }
 
         if ($mounts !== []) {
@@ -628,11 +648,86 @@ final class SetupWizard
     }
 
     /**
-     * Step 6: Configure the workspace directory.
+     * Step 6: Configure automatic memory extraction behavior.
+     */
+    private function configureMemoryExtraction(): bool
+    {
+        $this->io->section('Step 6: Memory Extraction');
+
+        $this->io->text([
+            'Coqui can automatically extract and save noteworthy memories (facts, preferences,',
+            'solutions) from each conversation turn. This adds latency to every turn but builds',
+            'a persistent knowledge base over time.',
+            '',
+            'When disabled, memories are still extracted:',
+            '  • During conversation summarization (automatic or manual)',
+            '  • When the agent explicitly calls the <fg=cyan>extract_memories</> tool',
+            '',
+        ]);
+
+        return $this->io->confirm('Enable automatic memory extraction after every turn?', CoquiDefaults::MEMORY_AUTO_EXTRACT);
+    }
+
+    /**
+     * Step 7: Configure auto-summarization behavior.
+     *
+     * @return array<string, mixed> Context config array for openclaw.json
+     */
+    private function configureSummarization(): array
+    {
+        $this->io->section('Step 7: Summarization');
+
+        $this->io->text([
+            'Coqui can automatically summarize older conversation messages to stay within the',
+            'model\'s context window. You can control when auto-summarization triggers.',
+            '',
+            'Modes:',
+            '  • <fg=cyan>token</> (recommended) — Summarize when token usage exceeds a percentage of the context window.',
+            '    Prevents context overflow while preserving as much conversation as possible.',
+            '  • <fg=cyan>turn</> — Summarize after a fixed number of user turns, regardless of token usage.',
+            '  • <fg=cyan>manual</> — Never auto-summarize. Use <fg=cyan>/summarize</> to summarize on demand.',
+            '    A safety net still prevents context window overflow during agent execution.',
+            '',
+        ]);
+
+        $modeLabels = [
+            'Token-based (summarize when nearing context limit)',
+            'Turn-based (summarize after a fixed number of turns)',
+            'Manual only (never auto-summarize)',
+        ];
+        $modeValues = ['token', 'turn', 'manual'];
+
+        $selected = $this->io->choice('Auto-summarization mode', $modeLabels, $modeLabels[0]);
+        $selectedIndex = array_search($selected, $modeLabels, true);
+        $mode = $modeValues[$selectedIndex !== false ? $selectedIndex : 0];
+
+        $config = ['autoSummarizeMode' => $mode];
+
+        if ($mode === 'token') {
+            $threshold = $this->io->ask(
+                'Token usage threshold (percentage of context window)',
+                (string) (int) CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD,
+            );
+            $config['autoSummarizeThreshold'] = max(10, min(95, (int) $threshold));
+        }
+
+        if ($mode === 'turn') {
+            $turns = $this->io->ask(
+                'Summarize after how many user turns?',
+                (string) CoquiDefaults::AUTO_SUMMARIZE_TURN_THRESHOLD,
+            );
+            $config['autoSummarizeTurnThreshold'] = max(5, (int) $turns);
+        }
+
+        return $config;
+    }
+
+    /**
+     * Step 8: Configure the workspace directory.
      */
     private function configureWorkspace(): string
     {
-        $this->io->section('Step 6: Workspace');
+        $this->io->section('Step 8: Workspace');
 
         $default = $this->defaults->defaultWorkspace();
 
@@ -660,11 +755,11 @@ final class SetupWizard
     }
 
     /**
-     * Step 7: Configure update preferences (stored as ENV vars, not in openclaw.json).
+     * Step 9: Configure update preferences (stored as ENV vars, not in openclaw.json).
      */
     private function configureUpdatePreferences(): void
     {
-        $this->io->section('Step 7: Updates');
+        $this->io->section('Step 9: Updates');
 
         $this->io->text('Coqui can check for dependency updates on startup and optionally apply them automatically.');
 
@@ -686,7 +781,7 @@ final class SetupWizard
     }
 
     /**
-     * Step 8: Generate an API key for the HTTP API server.
+     * Step 10: Generate an API key for the HTTP API server.
      *
      * The key is stored in the workspace .env file via CredentialResolver.
      * Required for running `coqui api` — the server refuses to start
@@ -701,7 +796,7 @@ final class SetupWizard
             return;
         }
 
-        $this->io->section('Step 8: API Server Key');
+        $this->io->section('Step 10: API Server Key');
 
         $this->io->text([
             'The HTTP API server requires an API key for authentication.',
@@ -731,7 +826,7 @@ final class SetupWizard
     }
 
     /**
-     * Step 9: Configure directory mounts for agent workspace access.
+     * Step 11: Configure directory mounts for agent workspace access.
      *
      * Guides the user through adding local directories that the agent can
      * access via symlinks under workspace/mnt/. Supports adding multiple
@@ -741,7 +836,7 @@ final class SetupWizard
      */
     private function configureMounts(): array
     {
-        $this->io->section('Step 9: Directory Mounts');
+        $this->io->section('Step 11: Directory Mounts');
 
         $this->io->text([
             'Mounts give the agent access to directories outside the workspace.',
@@ -958,9 +1053,10 @@ final class SetupWizard
      *
      * @param array<string, string> $roles
      * @param array<int, array{path: string, alias: string, access: string, description?: string}> $mounts
+     * @param array<string, mixed> $summarizationConfig
      * @return array<string, mixed>
      */
-    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $childBackgroundTasks = false): array
+    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $childBackgroundTasks = false, bool $memoryAutoExtract = false, array $summarizationConfig = []): array
     {
         $modelDefinitions = [];
 
@@ -1039,6 +1135,14 @@ final class SetupWizard
 
         if ($childBackgroundTasks) {
             $defaults['childBackgroundTasks'] = true;
+        }
+
+        if ($memoryAutoExtract) {
+            $defaults['memory'] = ['autoExtract' => true];
+        }
+
+        if ($summarizationConfig !== []) {
+            $defaults['context'] = $summarizationConfig;
         }
 
         if ($mounts !== []) {

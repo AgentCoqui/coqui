@@ -86,12 +86,16 @@ final readonly class SummarizeHandler
         }
 
         try {
+            $memoriesExtracted = 0;
             $result = $summarizer->summarizeAndPersist(
                 sessionId: $id,
                 provider: $provider,
                 keepRecentTurns: $keepRecent,
                 focus: $focus,
                 workflowContext: $this->buildWorkflowContext($id),
+                onExtraction: function (int $saved) use (&$memoriesExtracted): void {
+                    $memoriesExtracted = $saved;
+                },
             );
         } catch (\Throwable $e) {
             return Router::errorResponse(
@@ -113,6 +117,7 @@ final readonly class SummarizeHandler
             'tokens_before' => $result->tokensBefore,
             'tokens_after' => $result->tokensAfter,
             'tokens_saved' => $result->tokensSaved(),
+            'memories_extracted' => $memoriesExtracted,
             'summary' => $result->summary,
         ]);
     }

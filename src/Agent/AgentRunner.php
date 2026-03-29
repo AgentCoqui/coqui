@@ -19,6 +19,8 @@ use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigManager;
+use CoquiBot\Coqui\Config\DefaultsLoader;
+use CoquiBot\Coqui\Config\ModelFamilyResolver;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -28,6 +30,7 @@ use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Contract\DeferredWorkQueue;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryExtractor;
@@ -35,6 +38,7 @@ use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
+use CoquiBot\Coqui\Storage\EditHistory;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
@@ -75,6 +79,7 @@ final class AgentRunner
         private readonly ?TodoStore $todoStore = null,
         private readonly ?ArtifactStore $artifactStore = null,
         private readonly ?ProjectStore $projectStore = null,
+        private readonly ?DefaultsLoader $defaultsLoader = null,
     ) {}
 
     /**
@@ -167,6 +172,7 @@ final class AgentRunner
         // Create turn record before execution
         $turnId = $this->storage->createTurn($sessionId, $prompt, $modelString);
         $startTime = hrtime(true);
+        $turnStartedAt = (new \DateTimeImmutable())->format('c');
 
         // Save user message to database before running agent
         $this->storage->addMessage($sessionId, 'user', $prompt, turnId: $turnId);
@@ -233,9 +239,46 @@ final class AgentRunner
             $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole);
             $iterationLimitReached = $resolvedMaxIterations > 0 && $output->iterations >= $resolvedMaxIterations;
 
-            // Persist intermediate messages from this turn (tool calls + results)
-            if ($output->conversation !== null) {
-                $this->persistTurnMessages($output->conversation, $history->count(), $sessionId, $turnId);
+            // Batch all post-turn DB writes in a single transaction to reduce fsync overhead
+            $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
+            $toolsUsed = $this->extractToolsUsed($output->conversation, $history->count());
+            $childAgentCount = $agent->getSpawnTool()->getChildRunCount();
+
+            $pdo = $this->storage->getPdo();
+            $pdo->beginTransaction();
+            try {
+                // Persist intermediate messages from this turn (tool calls + results)
+                if ($output->conversation !== null) {
+                    $this->persistTurnMessages($output->conversation, $history->count(), $sessionId, $turnId);
+                }
+
+                // Save final assistant response if not already persisted
+                if ($output->conversation === null) {
+                    $this->storage->addMessage($sessionId, 'assistant', $output->content, turnId: $turnId);
+                }
+
+                // Update session token count
+                $this->storage->updateTokenCount($sessionId, $usage->totalTokens);
+
+                // Complete turn with metadata
+                $this->storage->completeTurn(
+                    turnId: $turnId,
+                    responseText: $output->content,
+                    promptTokens: $usage->promptTokens,
+                    completionTokens: $usage->completionTokens,
+                    totalTokens: $usage->totalTokens,
+                    iterations: $output->iterations,
+                    durationMs: $durationMs,
+                    toolsUsed: json_encode($toolsUsed, JSON_UNESCAPED_SLASHES) ?: '[]',
+                    childAgentCount: $childAgentCount,
+                );
+
+                $pdo->commit();
+            } catch (\Throwable $dbError) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $dbError;
             }
 
             // If the in-loop pruning strategy applied summarization during agent->run(),
@@ -258,6 +301,13 @@ final class AgentRunner
                                 ? CoquiDefaults::KEEP_RECENT_TURNS
                                 : CoquiDefaults::KEEP_RECENT_TURNS,
                             workflowContext: $this->buildWorkflowContext($sessionId),
+                            onExtraction: function (int $saved, string $source) use ($agent): void {
+                                $agent->notify('agent.memory_extraction', [
+                                    'memories_saved' => $saved,
+                                    'source' => $source,
+                                    'auto' => true,
+                                ]);
+                            },
                         );
                     }
                 } catch (\Throwable) {
@@ -266,33 +316,14 @@ final class AgentRunner
                 $pruningStrategy->reset();
             }
 
-            // Save final assistant response if not already persisted
-            if ($output->conversation === null) {
-                $this->storage->addMessage($sessionId, 'assistant', $output->content, turnId: $turnId);
-            }
-
-            // Update session token count
-            $this->storage->updateTokenCount($sessionId, $usage->totalTokens);
-
-            // Complete turn with metadata
-            $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
-            $toolsUsed = $this->extractToolsUsed($output->conversation, $history->count());
-            $childAgentCount = $agent->getSpawnTool()->getChildRunCount();
-
-            $this->storage->completeTurn(
-                turnId: $turnId,
-                responseText: $output->content,
-                promptTokens: $usage->promptTokens,
-                completionTokens: $usage->completionTokens,
-                totalTokens: $usage->totalTokens,
-                iterations: $output->iterations,
-                durationMs: $durationMs,
-                toolsUsed: json_encode($toolsUsed, JSON_UNESCAPED_SLASHES) ?: '[]',
-                childAgentCount: $childAgentCount,
-            );
-
-            // Automatic memory extraction from completed turn
-            $this->autoExtractMemories($output->conversation ?? $history, $sessionId);
+            // Enqueue memory extraction as deferred work — runs after stats are rendered
+            $deferredWork = new DeferredWorkQueue();
+            $conversationForExtraction = $output->conversation ?? $history;
+            $deferredWork->enqueue(fn() => $this->autoExtractMemories(
+                $conversationForExtraction,
+                $sessionId,
+                fn(string $event, mixed $data) => $agent->notify($event, $data),
+            ));
 
             // Build context usage snapshot for progress bar rendering
             $contextUsage = null;
@@ -304,6 +335,25 @@ final class AgentRunner
                 );
             } catch (\Throwable) {
                 // Non-fatal — progress bar is optional
+            }
+
+            // Collect file edits for post-turn summary
+            $fileEdits = $this->collectFileEdits($turnStartedAt);
+
+            // Post-turn automated code review for coder role interactive sessions.
+            // Single pass only — feedback is shown to user, no auto-iterate.
+            $reviewFeedback = null;
+            $reviewApproved = null;
+            if ($this->shouldPostTurnReview($effectiveRole, $fileEdits)) {
+                $reviewResult = $this->runPostTurnReview(
+                    coderOutput: $output->content,
+                    originalTask: $prompt,
+                    observer: $observer,
+                );
+                if ($reviewResult !== null) {
+                    $reviewFeedback = $reviewResult->reviewFeedback;
+                    $reviewApproved = $reviewResult->approved;
+                }
             }
 
             return new AgentTurnResult(
@@ -318,6 +368,10 @@ final class AgentRunner
                 restartRequested: $restartRequested,
                 iterationLimitReached: $iterationLimitReached,
                 contextUsage: $contextUsage,
+                fileEdits: $fileEdits,
+                reviewFeedback: $reviewFeedback,
+                reviewApproved: $reviewApproved,
+                deferredWork: $deferredWork,
             );
         } catch (\Throwable $e) {
             // Complete turn even on error so duration/state is tracked
@@ -403,6 +457,10 @@ final class AgentRunner
             spaceToolkit: $this->spaceToolkit,
             activeRole: $role !== 'orchestrator' ? $role : null,
             projectStore: $this->projectStore,
+            defaultsLoader: $this->defaultsLoader,
+            familyResolver: $this->defaultsLoader !== null
+                ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
+                : null,
         );
     }
 
@@ -443,6 +501,10 @@ final class AgentRunner
             spaceToolkit: $this->spaceToolkit,
             activeRole: $effectiveRole !== 'orchestrator' ? $effectiveRole : null,
             projectStore: $this->projectStore,
+            defaultsLoader: $this->defaultsLoader,
+            familyResolver: $this->defaultsLoader !== null
+                ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
+                : null,
         );
 
         $counter = TokenCounterFactory::forModel($modelString);
@@ -686,7 +748,8 @@ final class AgentRunner
      *   2. User turn count exceeds turn threshold (default: 20 turns)
      *
      * Thresholds are configurable via openclaw.json:
-     *   agents.defaults.context.autoSummarizeThreshold       (default: 50)
+     *   agents.defaults.context.autoSummarizeMode            (default: 'token')
+     *   agents.defaults.context.autoSummarizeThreshold       (default: 70)
      *   agents.defaults.context.autoSummarizeTurnThreshold   (default: 20)
      */
     private function autoSummarizeIfNeeded(
@@ -700,45 +763,59 @@ final class AgentRunner
             return $history;
         }
 
-        // Count user turns for the turn-count trigger
-        $userTurnCount = count($history->filter(Role::User));
+        // Read summarization mode from config (default: 'token')
+        $modeCfg = $this->config->get('agents.defaults.context.autoSummarizeMode');
+        $mode = is_string($modeCfg) && in_array($modeCfg, ['token', 'turn', 'manual'], true)
+            ? $modeCfg
+            : CoquiDefaults::AUTO_SUMMARIZE_MODE;
 
-        // Read turn threshold from config (default: 20)
-        $turnThresholdCfg = $this->config->get('agents.defaults.context.autoSummarizeTurnThreshold');
-        $turnThreshold = is_numeric($turnThresholdCfg) ? (int) $turnThresholdCfg : CoquiDefaults::AUTO_SUMMARIZE_TURN_THRESHOLD;
+        // Manual mode disables pre-turn auto-summarization entirely.
+        // The SummarizePruningStrategy safety net still fires per-iteration
+        // to prevent context window overflow.
+        if ($mode === 'manual') {
+            return $history;
+        }
 
-        // Check token-based trigger — include system prompt + user prompt + history + 15% buffer
-        $tokenTrigger = false;
-        $contextWindow = $agent->getContextWindow();
+        $shouldSummarize = false;
 
-        if ($contextWindow !== null) {
-            $historyTokens = $history->estimateTokens();
-            $systemPromptTokens = (int) (strlen($agent->getSystemPromptText()) / 4);
-            $userPromptTokens = (int) (strlen($prompt) / 4);
-            $estimatedTokens = (int) (($historyTokens + $systemPromptTokens + $userPromptTokens) * 1.15);
+        if ($mode === 'turn') {
+            // Turn-based trigger: summarize when user turn count reaches threshold
+            $userTurnCount = count($history->filter(Role::User));
+            $turnThresholdCfg = $this->config->get('agents.defaults.context.autoSummarizeTurnThreshold');
+            $turnThreshold = is_numeric($turnThresholdCfg) ? (int) $turnThresholdCfg : CoquiDefaults::AUTO_SUMMARIZE_TURN_THRESHOLD;
+            $shouldSummarize = $userTurnCount >= $turnThreshold;
+        } elseif ($mode === 'token') {
+            // Token-based trigger: summarize when estimated token usage exceeds threshold
+            $contextWindow = $agent->getContextWindow();
 
-            $maxTokens = $contextWindow->maxTokens();
-            $reserved = $contextWindow->reservedTokens();
-            $effectiveMax = $maxTokens - $reserved;
+            if ($contextWindow !== null) {
+                $historyTokens = $history->estimateTokens();
+                $systemPromptTokens = (int) (strlen($agent->getSystemPromptText()) / 4);
+                $userPromptTokens = (int) (strlen($prompt) / 4);
+                $estimatedTokens = (int) (($historyTokens + $systemPromptTokens + $userPromptTokens) * 1.15);
 
-            if ($effectiveMax > 0) {
-                $usagePercent = ($estimatedTokens / $effectiveMax) * 100;
+                $maxTokens = $contextWindow->maxTokens();
+                $reserved = $contextWindow->reservedTokens();
+                $effectiveMax = $maxTokens - $reserved;
 
-                // Read threshold from config (default: 70%)
-                $threshold = $this->config->get('agents.defaults.context.autoSummarizeThreshold');
-                $threshold = is_numeric($threshold) ? (float) $threshold : CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD;
+                if ($effectiveMax > 0) {
+                    $usagePercent = ($estimatedTokens / $effectiveMax) * 100;
 
-                // Normalize: accept both ratio (0.0–1.0) and percentage (1–100)
-                if ($threshold > 0.0 && $threshold <= 1.0) {
-                    $threshold *= 100;
+                    // Read threshold from config (default: 70%)
+                    $threshold = $this->config->get('agents.defaults.context.autoSummarizeThreshold');
+                    $threshold = is_numeric($threshold) ? (float) $threshold : CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD;
+
+                    // Normalize: accept both ratio (0.0–1.0) and percentage (1–100)
+                    if ($threshold > 0.0 && $threshold <= 1.0) {
+                        $threshold *= 100;
+                    }
+
+                    $shouldSummarize = $usagePercent >= $threshold;
                 }
-
-                $tokenTrigger = $usagePercent >= $threshold;
             }
         }
 
-        // Neither trigger fired — no summarization needed
-        if (!$tokenTrigger && $userTurnCount < $turnThreshold) {
+        if (!$shouldSummarize) {
             return $history;
         }
 
@@ -780,6 +857,13 @@ final class AgentRunner
             provider: $provider,
             keepRecentTurns: $keepRecent,
             workflowContext: $this->buildWorkflowContext($sessionId),
+            onExtraction: function (int $saved, string $source) use ($agent): void {
+                $agent->notify('agent.memory_extraction', [
+                    'memories_saved' => $saved,
+                    'source' => $source,
+                    'auto' => true,
+                ]);
+            },
         );
 
         if (!$result->wasSummarized()) {
@@ -907,19 +991,132 @@ final class AgentRunner
 
     /**
      * Run automatic memory extraction from a completed conversation turn.
+     *     * Collect file edits that occurred during the current turn.
      *
-     * Uses a cheap LLM call to identify noteworthy facts in recent turns
-     * and saves them as memories. Respects cooldown and config toggle.
+     * @return ?array<int, array{file_path: string, operation: string}>
      */
-    private function autoExtractMemories(Conversation $conversation, string $sessionId): void
+    private function collectFileEdits(string $turnStartedAt): ?array
     {
+        try {
+            $history = new EditHistory($this->workspacePath . '/data/edit-history');
+            $edits = $history->getEditsSince($turnStartedAt);
+
+            if ($edits === []) {
+                return null;
+            }
+
+            return array_map(
+                fn(array $edit) => [
+                    'file_path' => $edit['file_path'],
+                    'operation' => $edit['operation'],
+                ],
+                $edits,
+            );
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * Determine if the current turn should receive a post-turn code review.
+     *
+     * @param ?array<int, array{file_path: string, operation: string}> $fileEdits
+     */
+    private function shouldPostTurnReview(string $role, ?array $fileEdits): bool
+    {
+        // Only review when there are actual file changes
+        if ($fileEdits === null || $fileEdits === []) {
+            return false;
+        }
+
+        // Check global config
+        if ($this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig) {
+            $reviewConfig = $this->config->getCodeReviewConfig();
+            if (!$reviewConfig['enabled']) {
+                return false;
+            }
+        }
+
+        // Check role-level auto_review flag
+        if ($this->roleDiscovery !== null) {
+            try {
+                $properties = $this->roleDiscovery->getRole($role);
+                return $properties->autoReview;
+            } catch (\Throwable) {
+                // Fall through
+            }
+        }
+
+        // Default: only coder role
+        return $role === 'coder';
+    }
+
+    /**
+     * Run a single-pass code review for interactive coder sessions.
+     *
+     * Returns the review result for display, but does not auto-iterate.
+     */
+    private function runPostTurnReview(
+        string $coderOutput,
+        string $originalTask,
+        ?SplObserver $observer,
+    ): ?\CoquiBot\Coqui\Contract\CodeReviewResult {
+        try {
+            $cycle = new CodeReviewCycle(
+                roleResolver: $this->roleResolver,
+                config: $this->config,
+                roleDiscovery: $this->roleDiscovery,
+                observer: $observer,
+            );
+
+            // Build reviewer toolkits: read-only filesystem + shell search
+            $mountPaths = $this->mountManager?->allowedPathsReadOnly() ?? [];
+            $reviewerToolkits = [
+                new \CoquiBot\Coqui\Toolkit\FileSystemToolkit(
+                    workspacePath: $this->workspacePath,
+                    readOnly: true,
+                    allowedPaths: $mountPaths,
+                ),
+                new \CarmeloSantana\PHPAgents\Toolkit\ShellToolkit(
+                    workDir: $this->projectRoot,
+                    allowedCommands: ['grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls', 'sort', 'uniq', 'sed', 'awk', 'diff'],
+                    timeout: 60,
+                ),
+                new \CoquiBot\Coqui\Toolkit\ProjectSourceToolkit(projectRoot: $this->projectRoot),
+            ];
+
+            return $cycle->run(
+                coderOutput: $coderOutput,
+                originalTask: $originalTask,
+                reviewerToolkits: $reviewerToolkits,
+                maxRounds: 1,
+                autoIterate: false,
+            );
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    /**     * Uses a cheap LLM call to identify noteworthy facts in recent turns
+     * and saves them as memories. Respects cooldown and config toggle.
+     *
+     * @param ?\Closure(string, mixed): void $notify  Optional observer callback for transparency events
+     */
+    private function autoExtractMemories(
+        Conversation $conversation,
+        string $sessionId,
+        ?\Closure $notify = null,
+    ): void {
         if ($this->memoryStore === null) {
             return;
         }
 
-        // Check config toggle (default: true)
+        // Check config toggle — defaults to disabled (CoquiDefaults::MEMORY_AUTO_EXTRACT = false)
         $autoExtract = $this->config->get('agents.defaults.memory.autoExtract');
-        if ($autoExtract === false || $autoExtract === 'false') {
+        if ($autoExtract === null) {
+            $autoExtract = CoquiDefaults::MEMORY_AUTO_EXTRACT;
+        }
+        if ($autoExtract === false || $autoExtract === 'false' || $autoExtract === '0') {
             return;
         }
 
@@ -939,7 +1136,15 @@ final class AgentRunner
             }
 
             $extractor = new MemoryExtractor($this->memoryStore);
-            $extractor->extractFromConversation($conversation, $provider);
+            $saved = $extractor->extractFromConversation($conversation, $provider);
+
+            if ($saved > 0 && $notify !== null) {
+                $notify('agent.memory_extraction', [
+                    'memories_saved' => $saved,
+                    'source' => 'auto_turn',
+                    'auto' => true,
+                ]);
+            }
         } catch (\Throwable) {
             // Extraction failure is non-fatal — never interrupt the user flow
         }

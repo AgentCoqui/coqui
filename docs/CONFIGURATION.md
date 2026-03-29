@@ -79,6 +79,7 @@ The simplest valid config only needs a primary model:
             "backgroundTaskMaxIterations": 100,
             "childBackgroundTasks": false,
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
+            "allowSudo": false,
             "blacklist": ["/pattern-to-block/i"],
             "mounts": [
                 {
@@ -92,7 +93,9 @@ The simplest valid config only needs a primary model:
                 "embeddingModel": "openai/text-embedding-3-small"
             },
             "context": {
+                "autoSummarizeMode": "token",
                 "autoSummarizeThreshold": 70,
+                "autoSummarizeTurnThreshold": 20,
                 "autoSummarizeKeepRecent": 15,
                 "keepRecentTurns": 10,
                 "budgetSafetyMarginPercent": 20
@@ -226,16 +229,38 @@ When `true`, child agents spawned via `spawn_agent` with `full` access level can
 
 ### `shellAllowedCommands`
 
-Restricts which shell commands the agent can execute. When set, only commands whose first word matches the allowlist are permitted.
-
-**Default allowlist** (when not configured):
+An opt-in restrictive allowlist for shell commands. When omitted, all commands are permitted (open-by-default mode), subject to built-in deny patterns and the `allowSudo` setting below. When set to a non-empty array, only commands whose first word matches the list are permitted, and shell metacharacters (`;`, `&&`, `|`, `$(...)`, backticks) are also blocked to prevent allowlist bypass.
 
 ```json
-["php", "git", "grep", "find", "cat", "head", "tail", "wc", "ls",
- "curl", "wget", "make", "sort", "uniq", "sed", "awk", "diff"]
+{
+    "agents": {
+        "defaults": {
+            "shellAllowedCommands": [
+                "php", "git", "grep", "find", "cat", "head", "tail", "wc", "ls",
+                "curl", "wget", "make", "sort", "uniq", "sed", "awk", "diff"
+            ]
+        }
+    }
+}
 ```
 
-Shell metacharacters (`;`, `&&`, `|`, `$(...)`, backticks) are blocked when an allowlist is active to prevent bypass.
+Omit the key entirely to keep the default open-by-default behavior.
+
+### `allowSudo`
+
+Controls whether the `sudo` command is permitted. Defaults to `false` (sudo is blocked via the denied-commands list). Set to `true` to allow sudo — it will still be subject to `CatastrophicBlacklist` and `InteractiveApprovalPolicy`.
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "allowSudo": true
+        }
+    }
+}
+```
+
+> **`exec` `cwd` parameter** — the `exec` tool accepts an optional `cwd` argument. Relative paths are resolved from the default working directory (project root). If the path does not exist or is not a directory, the tool returns an error.
 
 ### `blacklist`
 
@@ -310,7 +335,9 @@ Configure automatic conversation summarization behavior.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `autoSummarizeThreshold` | int/float | `70` | Token usage percentage that triggers auto-summarization. Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeMode` | string | `"token"` | Summarization trigger mode: `"token"` (trigger on context window usage), `"turn"` (trigger after N user turns), or `"manual"` (no auto-summarization; use `/summarize` on demand) |
+| `autoSummarizeThreshold` | int/float | `70` | Token usage percentage that triggers auto-summarization (used when mode is `"token"`). Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeTurnThreshold` | int | `20` | Number of user turns that triggers auto-summarization (used when mode is `"turn"`) |
 | `autoSummarizeKeepRecent` | int | `15` | Turns preserved during auto-summarization (clamped 1–20) |
 | `keepRecentTurns` | int | `10` | Default turns preserved during on-demand summarization (`/summarize`) |
 | `budgetSafetyMarginPercent` | int | `20` | Safety margin percentage applied by per-iteration budget pruning to account for token estimation inaccuracy (0–50) |
@@ -318,6 +345,7 @@ Configure automatic conversation summarization behavior.
 ```json
 {
     "context": {
+        "autoSummarizeMode": "token",
         "autoSummarizeThreshold": 70,
         "autoSummarizeKeepRecent": 15,
         "keepRecentTurns": 10
@@ -325,7 +353,13 @@ Configure automatic conversation summarization behavior.
 }
 ```
 
-When the estimated token usage exceeds the threshold before an agent turn, older messages are compressed via LLM while preserving recent turns and workflow state (todos, artifacts).
+**Summarization modes:**
+
+- **`token`** (default) — Summarizes when estimated token usage exceeds `autoSummarizeThreshold` percent of the effective context window. This is the recommended mode: it preserves as much conversation as possible while preventing context overflow.
+- **`turn`** — Summarizes after `autoSummarizeTurnThreshold` user turns, regardless of token usage. Useful for predictable summarization behavior on smaller context models.
+- **`manual`** — Disables all automatic pre-turn summarization. Use the `/summarize` REPL command, the `summarize_conversation` agent tool, or the API endpoint to summarize on demand. The per-iteration `SummarizePruningStrategy` safety net still fires to prevent context window overflow during agent execution.
+
+Regardless of mode, the per-iteration budget pruning strategy always runs as a safety net to prevent the conversation from exceeding the model's context window within a single turn.
 
 ### `evaluation`
 
@@ -475,7 +509,8 @@ Coqui adds the following keys under `agents.defaults` that are specific to Coqui
 |-----|---------|
 | `agents.defaults.workspace` | Workspace directory path |
 | `agents.defaults.mounts` | External directory mounts |
-| `agents.defaults.shellAllowedCommands` | Shell command allowlist |
+| `agents.defaults.shellAllowedCommands` | Opt-in shell command allowlist (empty = open-by-default) |
+| `agents.defaults.allowSudo` | Allow `sudo` commands (default: `false`) |
 | `agents.defaults.maxIterations` | Agent iteration budget |
 | `agents.defaults.backgroundTaskMaxIterations` | Per-task background iteration cap |
 | `agents.defaults.childBackgroundTasks` | Allow child agents to spawn background tasks |

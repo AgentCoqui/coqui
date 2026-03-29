@@ -17,7 +17,7 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FilesystemToolkit, ShellToolkit with configurable allowlist, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation). Shell allowlist is resolved from agents.defaults.shellAllowedCommands in openclaw.json or falls back to DEFAULT_SHELL_COMMANDS (includes curl, wget). Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string \u2014 returns the full system prompt with role descriptions, security rules, and operational guidelines",
                 "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation)",
@@ -57,7 +57,7 @@
             "path": "src/Agent/BackgroundToolExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\BackgroundToolExecutor",
             "layer": "agent",
-            "description": "Lightweight tool resolver and executor for background tool tasks. Builds the same toolkits as OrchestratorAgent (filesystem, shell, memory, project source, PHP execute, discovered packages) but without creating an agent or involving an LLM. Finds a tool by name from the collected toolkit tools and calls execute() directly. Used by TaskRunCommand when a task record has tool_name set.",
+            "description": "Lightweight tool resolver and executor for background tool tasks. Builds the same toolkits as OrchestratorAgent (filesystem, shell, memory, project source, PHP execute, discovered packages) but without creating an agent or involving an LLM. Shell is open by default — resolveShellAllowedCommands() returns an empty array unless agents.defaults.shellAllowedCommands is configured; resolveShellDeniedCommands() returns ['sudo'] unless allowSudo is true. Finds a tool by name from the collected toolkit tools and calls execute() directly. Used by TaskRunCommand when a task record has tool_name set.",
             "methods": [
                 "execute(string $toolName, array $arguments): ToolResult — resolve tool and call execute() directly",
                 "hasTool(string $toolName): bool — check if a tool exists in the index"
@@ -380,7 +380,7 @@
             "path": "src/Config/DefaultsLoader.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\DefaultsLoader",
             "layer": "config",
-            "description": "Loads and provides typed access to config/defaults.json. Centralizes all hardcoded defaults (providers, models, base URLs, roles) into a single editable JSON file shipped with the package.",
+            "description": "Loads and provides typed access to config/defaults.json. Centralizes all hardcoded defaults (providers, models, base URLs, roles, family budget defaults) into a single editable JSON file shipped with the package.",
             "methods": [
                 "providerNames(): string[] — all provider keys (ollama, openai, anthropic, openrouter, xai)",
                 "provider(string $name): array — full provider config block",
@@ -388,9 +388,22 @@
                 "defaultBaseUrl(string $provider): string — default API base URL",
                 "requiresApiKey(string $provider): bool — whether the provider needs an API key",
                 "curatedModels(string $provider): array — list of recommended models",
+                "curatedModel(string $provider, string $modelId): ?array — single curated model lookup",
+                "familyNames(): string[] — all family keys from defaults.json",
+                "family(string $name): array — full family config (name, description, contextWindow, maxTokens)",
+                "familyDefaults(string $name): ?array — budget defaults {contextWindow, maxTokens} or null",
                 "roleDefinitions(): array — all role definitions with descriptions",
                 "defaultModel(): string — default model string (provider/model)",
                 "defaultWorkspace(): string — default workspace directory path"
+            ]
+        },
+        {
+            "path": "src/Config/ModelFamilyResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ModelFamilyResolver",
+            "layer": "config",
+            "description": "Resolves a model ID string to its model family using prefix matching against known family keys from defaults.json. Handles special cases where model name prefixes differ from family keys (e.g. ministral → mistral, devstral → codestral). Strips Ollama tag suffixes and supports OpenRouter sub-provider formats.",
+            "methods": [
+                "resolveFamily(string $modelId): ?string — resolve model ID to family key, or null if no match"
             ]
         },
         {
@@ -644,10 +657,19 @@
             ]
         },
         {
+            "path": "src/Tool/ExtractMemoriesTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ExtractMemoriesTool",
+            "layer": "tool",
+            "description": "Agent-facing tool for explicit memory extraction from conversation history. Exposes an extract_memories tool with an optional recent_turns parameter (default 5, max 20). Loads conversation from SessionStorage, resolves a utility provider, and delegates to MemoryExtractor with bypassCooldown: true. Returns the count of new memories saved after deduplication.",
+            "methods": [
+                "execute(array $arguments): ToolResult — loads conversation, resolves provider, delegates to MemoryExtractor, returns extraction result"
+            ]
+        },
+        {
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",
-            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/minimal) to determine toolkit assignment, falling back to hardcoded defaults. Passes RoleDiscovery to ChildAgent for file-based role instructions. Accepts a configurable shell allowlist from OrchestratorAgent; child agents use DEFAULT_CHILD_SHELL_COMMANDS or the parent-supplied list. Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
+            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/readonly-shell/minimal) to determine toolkit assignment. Full-access children inherit the parent's shellAllowedCommands and shellDeniedCommands. readonly-shell children receive ShellToolkit restricted to READ_ONLY_SHELL_COMMANDS (grep, find, cat, head, tail, wc, ls, sort, uniq, sed, awk, diff). Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
             "methods": [
                 "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
                 "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level with visibility filtering, credential guards in child mode, and optional BackgroundTaskToolkit",
@@ -1812,6 +1834,54 @@
                 "tools(): array — returns 2 learning Tool instances",
                 "guidelines(): string — dynamic stats with poor evaluation count and workflow instructions"
             ]
+        },
+        {
+            "path": "src/Toolkit/FileSystemToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\FileSystemToolkit",
+            "layer": "toolkit",
+            "description": "Unified filesystem toolkit providing 16 tools: 4 read (read_file, list_dir, search_files, file_info), 3 write (write_file, create_dir, delete_file), 8 surgical edit (replace_in_file, insert_before, insert_after, replace_block, remove_lines, write_lines, batch_replace, indent_lines, append_to_file), and 1 history (edit_history). list_dir accepts a max_depth parameter (1–10, default 3) when recursive=true. search_files supports ** for recursive glob (delegated to FileSystemOperations::resolveGlob). Supports readOnly mode, mount-aware path sandboxing, and SQLite-backed edit history with unified diff and undo.",
+            "methods": [
+                "tools(): array — returns 4 read tools always, plus 12 write/edit/history tools when not readOnly",
+                "guidelines(): string — tool selection guide with best practices, mode-aware"
+            ]
+        },
+        {
+            "path": "src/Support/FileSystemOperations.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\FileSystemOperations",
+            "layer": "support",
+            "description": "Shared file I/O helpers with path sandboxing, atomic writes, and line ending detection. Combines path resolution (mount-aware sandbox) with atomic write via temp-file + rename. Used by FileSystemToolkit for all file operations.",
+            "methods": [
+                "resolvePath(string): string — canonicalize and sandbox-check a relative path; throws FileSystemException::pathEscapesSandbox if realpath escapes root and all allowed mounts",
+                "resolveGlob(string): array — glob within sandbox boundaries; supports ** for recursive directory traversal (RecursiveIteratorIterator + fnmatch), capped at MAX_GLOB_RESULTS (500)",
+                "read(string): string — read file contents with sandbox enforcement",
+                "readLines(string): array — read and split by detected EOL",
+                "write(string, string): void — atomic write with permission preservation",
+                "append(string, string): int — append with file creation",
+                "delete(string): void — unlink with mount read-only guard",
+                "isReadOnlyMountPath(string): bool — check if path is under a read-only mount",
+                "detectEol(string): string — detect dominant line ending style"
+            ]
+        },
+        {
+            "path": "src/Support/FileSystemException.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\FileSystemException",
+            "layer": "support",
+            "description": "Domain exception for filesystem operations with static factories for common error types: fileNotFound, readFailed, writeFailed, readOnlyMount, pathEscapesSandbox, invalidRange, invalidRegex.",
+            "methods": []
+        },
+        {
+            "path": "src/Storage/EditHistory.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\EditHistory",
+            "layer": "storage",
+            "description": "SQLite-backed edit history with file backups for undo support. Records each mutating edit with the original file content as a backup. Supports undo by edit ID, unified diff generation, listing recent edits, and pruning old entries. Used by FileSystemToolkit.",
+            "methods": [
+                "record(string, string, string, array): int — record an edit with backup, returns edit ID",
+                "getBackup(int): array — retrieve backup content for a specific edit",
+                "getLastEdits(string, int): array — get last N edits for a file",
+                "getEditsSince(string): array — edits since a timestamp (for REPL summary)",
+                "generateDiff(int): string — unified diff between backup and current file",
+                "prune(int): int — remove old entries and backup files"
+            ]
         }
     ],
     "externalDependencies": [
@@ -1863,7 +1933,7 @@
                 },
                 {
                     "path": "src/Toolkit/FilesystemToolkit.php",
-                    "description": "Read/write filesystem tools (read_file, write_file, list_dir, search_files, file_info, create_dir, delete_file). Supports readOnly mode."
+                    "description": "DEPRECATED — replaced by Coqui's FileSystemToolkit (src/Toolkit/FileSystemToolkit.php). Legacy read/write filesystem tools."
                 },
                 {
                     "path": "src/Toolkit/ShellToolkit.php",

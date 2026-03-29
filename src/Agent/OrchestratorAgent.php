@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Agent;
 
 use CarmeloSantana\PHPAgents\Agent\AbstractAgent;
+use CarmeloSantana\PHPAgents\Config\ModelDefinition;
 use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
@@ -14,8 +15,11 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
-use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Storage\EditHistory;
+use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
+use CoquiBot\Coqui\Config\DefaultsLoader;
+use CoquiBot\Coqui\Config\ModelFamilyResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Provider\FallbackProvider;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
@@ -56,6 +60,7 @@ use CoquiBot\Coqui\Tool\PhpExecuteTool;
 use CoquiBot\Coqui\Tool\RestartTool;
 use CoquiBot\Coqui\Tool\SpawnAgentTool;
 use CoquiBot\Coqui\Tool\StubTool;
+use CoquiBot\Coqui\Tool\ExtractMemoriesTool;
 use CoquiBot\Coqui\Tool\SummarizeConversationTool;
 use CoquiBot\Coqui\Tool\ToolRegistry;
 use CoquiBot\Coqui\Tool\ToolSearchTool;
@@ -87,6 +92,7 @@ final class OrchestratorAgent extends AbstractAgent
     private ?ConfigTool $configTool = null;
     private VisionTool $visionTool;
     private ?SummarizeConversationTool $summarizeTool = null;
+    private ?ExtractMemoriesTool $extractMemoriesTool = null;
     private ToolRegistry $toolRegistry;
     private ToolSearchTool $toolSearchTool;
     private ?ContextWindowInterface $contextWindowInstance = null;
@@ -131,6 +137,8 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?SpaceToolkit $spaceToolkit = null,
         private readonly ?string $activeRole = null,
         private readonly ?\CoquiBot\Coqui\Storage\ProjectStore $projectStore = null,
+        private readonly ?DefaultsLoader $defaultsLoader = null,
+        private readonly ?ModelFamilyResolver $familyResolver = null,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
@@ -212,25 +220,30 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Filesystem toolkit — access level determines read/write vs read-only
         if ($effectiveAccessLevel !== 'minimal') {
-            $this->addToolkit(new FilesystemToolkit(
-                rootPath: $this->workspacePath,
+            $isReadOnly = in_array($effectiveAccessLevel, ['readonly', 'readonly-shell'], true);
+            $editHistory = $isReadOnly ? null : new EditHistory($this->workspacePath . '/data/edit-history');
+            $this->addToolkit(new FileSystemToolkit(
+                workspacePath: $this->workspacePath,
+                readOnly: $isReadOnly,
                 allowedPaths: $this->mountManager?->allowedPaths() ?? [],
-                readOnly: in_array($effectiveAccessLevel, ['readonly', 'readonly-shell'], true),
+                history: $editHistory,
             ));
         }
 
         // Shell toolkit — available for 'full' and 'readonly-shell' access roles
         $shellAllowed = $this->resolveShellAllowedCommands();
+        $shellDenied = $this->resolveShellDeniedCommands();
         if ($effectiveAccessLevel === 'full') {
             $this->addToolkit(new ShellToolkit(
                 workDir: $this->projectRoot,
                 allowedCommands: $shellAllowed,
+                deniedCommands: $shellDenied,
                 timeout: 60,
             ));
         } elseif ($effectiveAccessLevel === 'readonly-shell') {
             $this->addToolkit(new ShellToolkit(
                 workDir: $this->projectRoot,
-                allowedCommands: ['grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls', 'sort', 'uniq', 'sed', 'awk', 'diff'],
+                allowedCommands: self::READ_ONLY_SHELL_COMMANDS,
                 timeout: 60,
             ));
         }
@@ -339,6 +352,7 @@ final class OrchestratorAgent extends AbstractAgent
             skillDiscovery: $this->skillDiscovery,
             sanitizer: $this->sanitizer,
             visibilityRegistry: $this->visibilityRegistry,
+            shellDeniedCommands: $shellDenied,
         );
 
         // Create credential tool for API key management
@@ -404,6 +418,17 @@ final class OrchestratorAgent extends AbstractAgent
             );
         }
 
+        // Extract memories tool — agent can explicitly trigger memory extraction
+        if ($this->memoryStore !== null && $this->storage !== null && $this->sessionId !== null) {
+            $this->extractMemoriesTool = new ExtractMemoriesTool(
+                memoryStore: $this->memoryStore,
+                storage: $this->storage,
+                sessionId: $this->sessionId,
+                roleResolver: $this->roleResolver,
+                config: $this->config,
+            );
+        }
+
         // Background task toolkit — only in API mode
         if ($backgroundTaskToolkit !== null) {
             $this->addToolkit($backgroundTaskToolkit);
@@ -464,6 +489,10 @@ final class OrchestratorAgent extends AbstractAgent
 
         if ($this->summarizeTool !== null) {
             $this->toolRegistry->register($this->summarizeTool);
+        }
+
+        if ($this->extractMemoriesTool !== null) {
+            $this->toolRegistry->register($this->extractMemoriesTool);
         }
 
         // Create the tool search tool — always-loaded, not subject to maxTools cap.
@@ -696,6 +725,10 @@ final class OrchestratorAgent extends AbstractAgent
             $visibilityManaged['summarize_conversation'] = $this->summarizeTool;
         }
 
+        if ($this->extractMemoriesTool !== null) {
+            $visibilityManaged['extract_memories'] = $this->extractMemoriesTool;
+        }
+
         if ($this->restartTool !== null) {
             $visibilityManaged['restart_coqui'] = $this->restartTool;
         }
@@ -829,17 +862,18 @@ final class OrchestratorAgent extends AbstractAgent
         return $counter->countTools($this->tools());
     }
 
-    /** Default shell commands available to the orchestrator. */
-    private const array DEFAULT_SHELL_COMMANDS = [
-        'php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
-        'curl', 'wget', 'make', 'sort', 'uniq', 'sed', 'awk', 'diff',
+    /** Read-only shell commands for readonly-shell access level. */
+    private const array READ_ONLY_SHELL_COMMANDS = [
+        'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
+        'sort', 'uniq', 'sed', 'awk', 'diff',
     ];
 
     /**
-     * Resolve shell allowed commands from config or defaults.
+     * Resolve shell allowed commands from config.
      *
      * Reads `agents.defaults.shellAllowedCommands` from openclaw.json.
-     * If not set, uses DEFAULT_SHELL_COMMANDS.
+     * If not set, returns empty array (all commands allowed — open mode).
+     * Users can opt-in to a restrictive allowlist by explicitly configuring this.
      *
      * @return string[]
      */
@@ -851,32 +885,78 @@ final class OrchestratorAgent extends AbstractAgent
             return array_values(array_filter($configured, 'is_string'));
         }
 
-        return self::DEFAULT_SHELL_COMMANDS;
+        return [];
+    }
+
+    /**
+     * Resolve shell denied commands from config.
+     *
+     * By default, only `sudo` is denied. Users can unlock sudo access
+     * by setting `agents.defaults.allowSudo: true` in openclaw.json.
+     *
+     * @return string[]
+     */
+    private function resolveShellDeniedCommands(): array
+    {
+        $allowSudo = filter_var(
+            $this->config->get('agents.defaults.allowSudo', false),
+            FILTER_VALIDATE_BOOLEAN,
+        );
+
+        return $allowSudo ? [] : ['sudo'];
     }
 
     /**
      * Resolve a ContextWindow from the model definition in config.
      *
-     * Uses the orchestrator model's declared contextWindow and maxTokens
-     * to create an accurate token budget. Falls back to a conservative
-     * 128K window when no model definition is available.
+     * Uses a 4-layer resolution chain:
+     * 1. User-configured model definition (openclaw.json)
+     * 2. Curated model from defaults.json
+     * 3. Family-level defaults from defaults.json
+     * 4. Conservative hardcoded fallback (128K/4K)
      */
     private function resolveContextWindow(ConfigInterface $config, RoleResolver $roleResolver): ContextWindowInterface
     {
         if ($config instanceof OpenClawConfig) {
             $modelString = $roleResolver->resolve('orchestrator');
             $parts = explode('/', $modelString, 2);
+            $provider = $parts[0];
             $modelId = $parts[1] ?? $modelString;
 
+            // Layer 1: User-configured model definition (openclaw.json)
             $modelDef = $config->getModelDefinition($modelId)
                 ?? $config->getModelDefinition($modelString);
 
             if ($modelDef !== null) {
                 return ContextWindow::fromModel($modelDef);
             }
+
+            // Layer 2: Curated model from defaults.json
+            if ($this->defaultsLoader !== null && $provider !== '') {
+                $curated = $this->defaultsLoader->curatedModel($provider, $modelId);
+                if ($curated !== null) {
+                    $def = ModelDefinition::fromOpenClaw($provider, $curated);
+
+                    return ContextWindow::fromModel($def);
+                }
+            }
+
+            // Layer 3: Family-level defaults
+            if ($this->defaultsLoader !== null && $this->familyResolver !== null) {
+                $family = $this->familyResolver->resolveFamily($modelId);
+                if ($family !== null) {
+                    $familyDefaults = $this->defaultsLoader->familyDefaults($family);
+                    if ($familyDefaults !== null) {
+                        return new ContextWindow(
+                            maxTok: $familyDefaults['contextWindow'],
+                            reservedTok: $familyDefaults['maxTokens'],
+                        );
+                    }
+                }
+            }
         }
 
-        // Conservative fallback: 128K context window, 4K reserved for completion
+        // Layer 4: Conservative hardcoded fallback
         return new ContextWindow(maxTok: CoquiDefaults::CONTEXT_WINDOW_FALLBACK, reservedTok: CoquiDefaults::CONTEXT_WINDOW_RESERVED);
     }
 

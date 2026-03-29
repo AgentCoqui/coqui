@@ -32,8 +32,11 @@ final class CoquiDefaults
     /** Token usage percentage threshold that triggers auto-summarization (config: agents.defaults.context.autoSummarizeThreshold). */
     public const float AUTO_SUMMARIZE_THRESHOLD = 70.0;
 
-    /** User turn count that triggers auto-summarization regardless of token usage (config: agents.defaults.context.autoSummarizeTurnThreshold). */
+    /** User turn count that triggers auto-summarization when mode is 'turn' (config: agents.defaults.context.autoSummarizeTurnThreshold). */
     public const int AUTO_SUMMARIZE_TURN_THRESHOLD = 20;
+
+    /** Auto-summarization trigger mode: 'token' (default), 'turn', or 'manual' (config: agents.defaults.context.autoSummarizeMode). */
+    public const string AUTO_SUMMARIZE_MODE = 'token';
 
     /** Fallback context window size in tokens when no model definition is available. */
     public const int CONTEXT_WINDOW_FALLBACK = 128_000;
@@ -43,4 +46,16 @@ final class CoquiDefaults
 
     /** Safety margin percentage applied by fitWithinBudget to account for token estimation inaccuracy (config: agents.defaults.context.budgetSafetyMarginPercent). */
     public const int BUDGET_SAFETY_MARGIN_PERCENT = 20;
+
+    /** Whether automated code review is enabled globally (config: agents.defaults.codeReview.enabled). */
+    public const bool CODE_REVIEW_ENABLED = true;
+
+    /** Maximum review→iterate rounds for spawned coder agents (config: agents.defaults.codeReview.maxRounds). */
+    public const int CODE_REVIEW_MAX_ROUNDS = 2;
+
+    /** Whether spawned coder agents auto-iterate on NEEDS_CHANGES (config: agents.defaults.codeReview.autoIterate). */
+    public const bool CODE_REVIEW_AUTO_ITERATE = true;
+
+    /** Whether automatic memory extraction runs after every turn (config: agents.defaults.memory.autoExtract). */
+    public const bool MEMORY_AUTO_EXTRACT = false;
 }

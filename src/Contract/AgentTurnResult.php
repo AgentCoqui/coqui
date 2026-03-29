@@ -14,7 +14,9 @@ final readonly class AgentTurnResult
 {
     /**
      * @param string[]  $toolsUsed       Unique tool names invoked during the turn.
+     * @param ?array<int, array{file_path: string, operation: string}> $fileEdits  Files edited during the turn.
      * @param ?string   $error           Error message if the turn failed.
+     * @param ?DeferredWorkQueue $deferredWork  Non-critical tasks to run after stats are rendered.
      */
     public function __construct(
         public string $content,
@@ -28,7 +30,11 @@ final readonly class AgentTurnResult
         public bool $restartRequested,
         public bool $iterationLimitReached = false,
         public ?ContextUsageSnapshot $contextUsage = null,
+        public ?array $fileEdits = null,
         public ?string $error = null,
+        public ?string $reviewFeedback = null,
+        public ?bool $reviewApproved = null,
+        public ?DeferredWorkQueue $deferredWork = null,
     ) {}
 
     public function isError(): bool
@@ -81,7 +87,10 @@ final readonly class AgentTurnResult
             'restart_requested' => $this->restartRequested,
             'iteration_limit_reached' => $this->iterationLimitReached,
             'context_usage' => $this->contextUsage?->toArray(),
+            'file_edits' => $this->fileEdits,
             'error' => $this->error,
+            'review_feedback' => $this->reviewFeedback,
+            'review_approved' => $this->reviewApproved,
         ];
     }
 }

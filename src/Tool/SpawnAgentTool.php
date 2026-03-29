@@ -11,9 +11,10 @@ use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CarmeloSantana\PHPAgents\Toolkit\FilesystemToolkit;
 use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
+use CoquiBot\Coqui\Agent\CodeReviewCycle;
 use CoquiBot\Coqui\Agent\PlanTodoGenerator;
 use CoquiBot\Coqui\Agent\VisionAnalyzer;
 use CoquiBot\Coqui\Config\MountManager;
@@ -46,12 +47,6 @@ use SplObserver;
  */
 final class SpawnAgentTool implements ToolInterface
 {
-    /** Default shell commands for child agents (subset of orchestrator's). */
-    private const array DEFAULT_CHILD_SHELL_COMMANDS = [
-        'php', 'git', 'grep', 'find', 'cat', 'head', 'tail', 'wc',
-        'curl', 'wget', 'sort', 'uniq', 'sed', 'awk', 'diff',
-    ];
-
     /** Read-only shell commands for readonly-shell access level. */
     private const array READ_ONLY_SHELL_COMMANDS = [
         'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
@@ -64,6 +59,7 @@ final class SpawnAgentTool implements ToolInterface
 
     /**
      * @param array<string> $shellAllowedCommands
+     * @param array<string> $shellDeniedCommands
      */
     public function __construct(
         private readonly RoleResolver $roleResolver,
@@ -75,13 +71,14 @@ final class SpawnAgentTool implements ToolInterface
         private readonly ?string $sessionId = null,
         private readonly ?SplObserver $observer = null,
         private readonly ?MountManager $mountManager = null,
-        private readonly array $shellAllowedCommands = self::DEFAULT_CHILD_SHELL_COMMANDS,
+        private readonly array $shellAllowedCommands = [],
         private readonly ?ProjectStore $projectStore = null,
         private readonly ?ToolkitDiscovery $discovery = null,
         private readonly ?MemoryStore $memoryStore = null,
         private readonly ?SkillDiscovery $skillDiscovery = null,
         private readonly ?ScriptSanitizer $sanitizer = null,
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
+        private readonly array $shellDeniedCommands = ['sudo'],
     ) {}
 
     public function name(): string
@@ -197,6 +194,21 @@ final class SpawnAgentTool implements ToolInterface
 
             $this->childRunCount++;
 
+            // Run automated code review cycle for coder agents
+            if ($this->shouldAutoReview($role)) {
+                $reviewResult = $this->runCodeReviewCycle(
+                    coderOutput: $output->content,
+                    originalTask: $prompt,
+                    coderRole: $role,
+                );
+
+                if ($reviewResult !== null) {
+                    $summary = $reviewResult->buildSummary();
+
+                    return ToolResult::success($reviewResult->finalContent . "\n\n" . $summary);
+                }
+            }
+
             return ToolResult::success($output->content);
         } catch (\Throwable $e) {
             if ($this->observer !== null && method_exists($this->observer, 'handleEvent')) {
@@ -223,17 +235,18 @@ final class SpawnAgentTool implements ToolInterface
 
         $toolkits = match ($accessLevel) {
             'full' => [
-                new FilesystemToolkit(rootPath: $this->workspacePath, allowedPaths: $mountPaths),
+                new FileSystemToolkit(workspacePath: $this->workspacePath, allowedPaths: $mountPaths),
                 new ShellToolkit(
                     workDir: $this->projectRoot,
                     allowedCommands: $this->shellAllowedCommands,
+                    deniedCommands: $this->shellDeniedCommands,
                     timeout: 60,
                 ),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             'readonly-shell' => [
-                new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
+                new FileSystemToolkit(workspacePath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
                 new ShellToolkit(
                     workDir: $this->projectRoot,
                     allowedCommands: self::READ_ONLY_SHELL_COMMANDS,
@@ -243,7 +256,7 @@ final class SpawnAgentTool implements ToolInterface
             ],
 
             'readonly' => [
-                new FilesystemToolkit(rootPath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
+                new FileSystemToolkit(workspacePath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
@@ -439,6 +452,71 @@ final class SpawnAgentTool implements ToolInterface
         $value = $this->config->get('agents.defaults.childBackgroundTasks', false);
 
         return filter_var($value, FILTER_VALIDATE_BOOLEAN);
+    }
+
+    /**
+     * Determine if the role should receive automated code review.
+     */
+    private function shouldAutoReview(string $role): bool
+    {
+        // Check global config
+        if ($this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig) {
+            $reviewConfig = $this->config->getCodeReviewConfig();
+            if (!$reviewConfig['enabled']) {
+                return false;
+            }
+        }
+
+        // Check role-level auto_review flag
+        if ($this->roleDiscovery !== null) {
+            try {
+                $properties = $this->roleDiscovery->getRole($role);
+                return $properties->autoReview;
+            } catch (\Throwable) {
+                // Fall through
+            }
+        }
+
+        // Default: only coder role
+        return $role === 'coder';
+    }
+
+    /**
+     * Run the code review cycle against a coder's output.
+     */
+    private function runCodeReviewCycle(
+        string $coderOutput,
+        string $originalTask,
+        string $coderRole,
+    ): ?\CoquiBot\Coqui\Contract\CodeReviewResult {
+        try {
+            $reviewConfig = $this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig
+                ? $this->config->getCodeReviewConfig()
+                : ['maxRounds' => CoquiDefaults::CODE_REVIEW_MAX_ROUNDS, 'autoIterate' => CoquiDefaults::CODE_REVIEW_AUTO_ITERATE];
+
+            $cycle = new CodeReviewCycle(
+                roleResolver: $this->roleResolver,
+                config: $this->config,
+                roleDiscovery: $this->roleDiscovery,
+                observer: $this->observer,
+            );
+
+            $reviewerToolkits = $this->buildToolkits('reviewer');
+            $coderToolkits = $reviewConfig['autoIterate'] ? $this->buildToolkits($coderRole) : [];
+
+            return $cycle->run(
+                coderOutput: $coderOutput,
+                originalTask: $originalTask,
+                reviewerToolkits: $reviewerToolkits,
+                maxRounds: $reviewConfig['maxRounds'],
+                coderToolkits: $coderToolkits,
+                autoIterate: $reviewConfig['autoIterate'],
+                coderMaxIterations: $this->roleResolver->resolveMaxIterations($coderRole),
+            );
+        } catch (\Throwable) {
+            // Review cycle failure should not prevent returning the coder's output
+            return null;
+        }
     }
 
     public function toFunctionSchema(): array

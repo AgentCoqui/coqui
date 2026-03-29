@@ -11,6 +11,7 @@ You have a persistent memory system backed by SQLite with importance scoring, co
 - `memory_forget` — Bulk delete memories matching a search query. Use with care.
 - `memory_list` — Browse memories by area or tags. Use `include_archived` to see decayed memories.
 - `memory_restore` — Restore an archived memory by ID.
+- `extract_memories` — Explicitly analyze recent conversation turns and extract noteworthy memories. Bypasses cooldown. Use when important context was just discussed.
 
 ### Importance Scoring
 
@@ -22,7 +23,13 @@ Memories decay over time based on age and access frequency. Inactive, low-import
 
 ### Auto-Extraction
 
-Noteworthy facts are automatically extracted from conversations after each turn. You do not need to manually save obvious preferences or project facts — the system captures them. Focus manual saves on nuanced insights the auto-extractor might miss.
+Memories are automatically extracted from conversations at three controlled trigger points:
+
+1. **During summarization** — when conversations are summarized (automatic or manual), memories are extracted from the content being compressed. This ensures no important context is lost.
+2. **Explicit extraction** — call `extract_memories` to analyze recent turns and save noteworthy facts on demand. Use this when important information was just discussed and you want to ensure it's captured.
+3. **Per-turn extraction** (optional, disabled by default) — when `agents.defaults.memory.autoExtract` is enabled, memories are extracted after every agent turn via deferred work. Users can enable this in the config wizard.
+
+You do not need to manually save obvious preferences or project facts when extraction is active — the system captures them. Focus manual saves on nuanced insights the extractor might miss.
 
 ### Guidelines
 

@@ -145,6 +145,48 @@ final readonly class DefaultsLoader
     }
 
     /**
+     * Get all family keys.
+     *
+     * @return string[]
+     */
+    public function familyNames(): array
+    {
+        /** @var string[] */
+        return array_keys($this->data['families'] ?? []);
+    }
+
+    /**
+     * Get a family's full configuration.
+     *
+     * @return array<string, mixed>
+     */
+    public function family(string $name): array
+    {
+        return $this->data['families'][$name] ?? [];
+    }
+
+    /**
+     * Get budget-relevant defaults for a family (contextWindow, maxTokens).
+     *
+     * Returns null if the family doesn't exist or has no contextWindow defined.
+     *
+     * @return array{contextWindow: int, maxTokens: int}|null
+     */
+    public function familyDefaults(string $name): ?array
+    {
+        $family = $this->data['families'][$name] ?? null;
+
+        if ($family === null || !isset($family['contextWindow'])) {
+            return null;
+        }
+
+        return [
+            'contextWindow' => (int) $family['contextWindow'],
+            'maxTokens' => (int) ($family['maxTokens'] ?? 4096),
+        ];
+    }
+
+    /**
      * Get all role definitions.
      *
      * @return array<string, array<string, mixed>>

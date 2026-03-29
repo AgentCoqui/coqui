@@ -148,6 +148,7 @@ final class TaskRunCommand extends Command
             todoStore: $boot->todoStore(),
             artifactStore: $boot->artifactStore(),
             projectStore: $boot->projectStore(),
+            defaultsLoader: $boot->defaultsLoader(),
         );
 
         // Create execution policy (auto-approve — no human in the loop)
