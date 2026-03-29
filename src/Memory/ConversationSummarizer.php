@@ -111,6 +111,7 @@ final class ConversationSummarizer
         int $keepRecentTurns = CoquiDefaults::KEEP_RECENT_TURNS,
         ?string $focus = null,
         ?string $workflowContext = null,
+        ?\Closure $onExtraction = null,
     ): ConversationSummaryResult {
         // Load raw message rows (with DB IDs) for cleanup after summarization
         $rawMessages = $this->storage->getMessages($sessionId);
@@ -120,7 +121,11 @@ final class ConversationSummarizer
         if ($this->memoryStore !== null) {
             try {
                 $extractor = new MemoryExtractor($this->memoryStore);
-                $extractor->extractFromConversation($conversation, $provider, bypassCooldown: true);
+                $saved = $extractor->extractFromConversation($conversation, $provider, bypassCooldown: true);
+
+                if ($saved > 0 && $onExtraction !== null) {
+                    $onExtraction($saved, 'summarization');
+                }
             } catch (\Throwable) {
                 // Extraction failure should never block summarization
             }

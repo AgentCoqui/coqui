@@ -195,7 +195,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full command reference with exa
 
 ## Providers & OpenClaw Config
 
-Coqui uses an `openclaw.json` config file for centralized model routing. The format is fully compatible with [OpenClaw](https://github.com/openclaw/openclaw) — you can drop in your existing OpenClaw config and it works without any changes. Coqui-specific extensions (workspace, mounts, shell allowlist) live under `agents.defaults` and are safely ignored by other OpenClaw-compatible tools.
+Coqui uses an `openclaw.json` config file for centralized model routing. The format is fully compatible with [OpenClaw](https://github.com/openclaw/openclaw) — you can drop in your existing OpenClaw config and it works without any changes. Coqui-specific extensions (workspace, mounts, shell access control) live under `agents.defaults` and are safely ignored by other OpenClaw-compatible tools.
 
 Config changes are detected automatically — edit the file and your next message uses the new settings. No restart required.
 
@@ -304,8 +304,8 @@ Coqui ships with a rich set of tools organized into toolkits:
 | Category | Key Tools | Description |
 |----------|-----------|-------------|
 | **Agent** | `spawn_agent`, `restart_coqui` | Delegate to child agents, restart Coqui |
-| **Filesystem** | `read_file`, `write_file`, `list_directory` | Sandboxed workspace file I/O |
-| **Shell** | `exec` | Run shell commands with configurable allowlist |
+| **Filesystem** | `read_file`, `write_file`, `replace_in_file`, `edit_history` | Sandboxed file I/O, surgical edits, undo history |
+| **Shell** | `exec` | Run shell commands (open by default; opt-in allowlist via `shellAllowedCommands`, `cwd` support) |
 | **Code** | `php_execute` | Execute PHP in a sandboxed subprocess |
 | **Memory** | `memory_save`, `memory_search` | Persistent cross-session memory |
 | **Background** | `start_background_task`, `start_background_tool` | Isolated processes for long-running work |

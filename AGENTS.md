@@ -879,21 +879,99 @@ Coqui provides image analysis via a dedicated `vision` role. The system uses a s
 
 
 
-## Shell Allowlist Architecture
+## FileSystem Toolkit Architecture
 
-The `ShellToolkit` (from php-agents) restricts which shell commands the agent can execute via a configurable allowlist. This is a separate safety layer from the `CatastrophicBlacklist` and `InteractiveApprovalPolicy`.
+Coqui provides a unified `FileSystemToolkit` that replaces both the deprecated php-agents `FilesystemToolkit` and the external `coqui-toolkit-code-edit` package. It covers reading, writing, surgical editing, and edit history — all in one toolkit with consistent path sandboxing and mount awareness.
+
+### Tool Categories
+
+| Category | Tools | Description |
+| --- | --- | --- |
+| Read | `read_file`, `list_dir`, `search_files`, `file_info` | Non-mutating file inspection |
+| Write | `write_file`, `create_dir`, `delete_file` | Full-file creation and deletion |
+| Surgical Edit | `replace_in_file`, `insert_before`, `insert_after`, `replace_block`, `remove_lines`, `write_lines`, `batch_replace`, `indent_lines`, `append_to_file` | Line/pattern-based mutation with edit history |
+| History | `edit_history` | Undo, diff, list, prune recorded edits |
+
+Read tools are always registered. Write/edit/history tools are omitted when `readOnly: true`.
+
+### Path Sandboxing
+
+All path resolution goes through `FileSystemOperations::resolvePath()`:
+
+1. Expands `~` to workspace root.
+2. Resolves relative paths against the workspace root.
+3. Canonicalizes via `realpath()` (or `dirname()` realpath for new files).
+4. Verifies the resolved path is under the workspace root **or** under an allowed mount path.
+5. Write operations additionally check `isReadOnlyMountPath()` to block writes to `ro` mounts.
+
+Symlinks are followed and verified — the real path must fall within allowed boundaries.
+
+### Edit History
+
+`EditHistory` provides SQLite-backed tracking of every file mutation. Before any write/edit tool modifies a file, the original content is backed up and a record is created.
+
+| Feature | Implementation |
+| --- | --- |
+| Storage | SQLite WAL mode at `workspace/data/edit-history/history.db` |
+| Backups | Full file copies in `workspace/data/edit-history/backups/` |
+| Undo | Restores the backup file to the original path |
+| Diff | Pure PHP Myers LCS algorithm producing unified diff output |
+| Prune | Removes old edits and their backup files by age |
+
+The `edit_history` tool exposes four actions: `list` (recent edits, optionally filtered by file), `undo` (restore a specific edit), `diff` (show unified diff), `prune` (clean up old records).
+
+Edit history is only created for the orchestrator agent. Child agents and background tool executors do not receive an `EditHistory` instance — they are ephemeral and do not need edit tracking.
+
+### REPL File-Change Summary
+
+After each agent turn, the REPL displays a summary of files modified during that turn:
+
+1. `AgentRunner` captures a timestamp before the agent runs.
+2. After the turn completes, `collectFileEdits()` queries `EditHistory::getEditsSince()` for edits since the timestamp.
+3. The edit list is passed to `AgentTurnResult` as `fileEdits`.
+4. `TerminalRenderer` groups edits by filename, shows up to 5 files with edit counts, and truncates with "+N more" for larger sets.
+
+### Atomic Writes
+
+`FileSystemOperations::write()` uses atomic write-via-rename:
+
+1. Write content to a temp file in the same directory.
+2. Copy permissions from the original file (if it exists).
+3. Rename the temp file to the target path.
+
+This prevents partial writes and ensures readers always see either the old or new content.
+
+### EOL Preservation
+
+`FileSystemOperations` detects and preserves the existing line ending style (`\r\n`, `\r`, or `\n`) when performing line-based operations. `readLines()` splits on the detected EOL and `writeLines()` joins with it. New files default to `\n`.
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Toolkit/FileSystemToolkit.php` | 16 agent-facing tools with guidelines and read-only mode support |
+| `src/Support/FileSystemOperations.php` | Shared file I/O: atomic writes, path sandboxing, mount awareness, EOL detection |
+| `src/Support/FileSystemException.php` | Domain exception with static factories for all filesystem error scenarios |
+| `src/Storage/EditHistory.php` | SQLite-backed edit history with backup, undo, and pure PHP unified diff engine |
+
+
+## Shell Execution Architecture
+
+The `ShellToolkit` (from php-agents) provides shell command execution with a layered safety model. By default, **all commands are allowed** — safety is enforced by built-in deny patterns, a configurable denylist, an optional allowlist, and the `CatastrophicBlacklist`/`InteractiveApprovalPolicy` layers above.
 
 ### How It Works
 
-1. **`ShellToolkit`** accepts an `allowedCommands` array at construction. If non-empty, only commands whose first word matches the allowlist can execute.
-2. **`OrchestratorAgent`** reads the allowlist from `agents.defaults.shellAllowedCommands` in `openclaw.json`. If not configured, it uses a built-in default.
-3. **`SpawnAgentTool`** passes the same allowlist to child agents (children cannot exceed parent permissions).
-4. **Shell injection detection** — when an allowlist is active, `ShellToolkit` also blocks metacharacters (`;`, `&&`, `|`, `$(...)`, backticks) that could bypass the allowlist.
-5. **Deny patterns** — regardless of the allowlist, built-in regex patterns block `rm -rf`, pipe-to-shell (`curl | bash`), `php -r`, `mkfifo`, and `netcat` variants.
+1. **Open by default** — when `agents.defaults.shellAllowedCommands` is not configured in `openclaw.json`, the allowlist is empty and all commands pass the allowlist check. Safety is enforced by the deny layers below.
+2. **Optional allowlist** — if `agents.defaults.shellAllowedCommands` is set to a non-empty array, only commands whose first word matches the list can execute. Shell injection detection also activates to prevent metacharacter bypass.
+3. **Configurable denylist** — `agents.defaults.allowSudo` (default `false`) controls whether `sudo` is permitted. When `false`, `sudo` is added to the denied commands list. This is enforced via substring match.
+4. **Built-in deny patterns** — regardless of any configuration, regex patterns always block `rm -rf`, pipe-to-shell (`curl | bash`), `php -r`, `mkfifo`, and `netcat` variants.
+5. **Working directory** — the `exec` tool accepts an optional `cwd` parameter. Relative paths are resolved against the default working directory. The path must exist and be a directory. Omitting `cwd` uses the project root.
 
 ### Configuration
 
-Customize the shell allowlist in `openclaw.json`:
+#### Opt-in Allowlist (Restrictive Mode)
+
+To restrict the agent to specific commands, set an explicit allowlist:
 
 ```json
 {
@@ -909,11 +987,21 @@ Customize the shell allowlist in `openclaw.json`:
 }
 ```
 
-### Default Allowlist
+When omitted, all commands are allowed (subject to deny patterns and denylist).
 
-When `agents.defaults.shellAllowedCommands` is not set, the following commands are allowed:
+#### Sudo Access (Opt-in)
 
-`php`, `git`, `grep`, `find`, `cat`, `head`, `tail`, `wc`, `ls`, `curl`, `wget`, `make`, `sort`, `uniq`, `sed`, `awk`, `diff`
+```json
+{
+    "agents": {
+        "defaults": {
+            "allowSudo": true
+        }
+    }
+}
+```
+
+When `false` (default), `sudo` is blocked via the denied commands list. When `true`, `sudo` is permitted (still subject to `CatastrophicBlacklist` and `InteractiveApprovalPolicy`).
 
 ### Read-Only Shell Access (`readonly-shell`)
 
@@ -925,28 +1013,38 @@ The restricted command list is defined in `SpawnAgentTool::READ_ONLY_SHELL_COMMA
 
 These are all read-only search and inspection commands — no `git`, `php`, `curl`, `wget`, `make`, or any command that can modify state. The `OrchestratorAgent` uses the same restricted list when the active role's access level is `readonly-shell`.
 
+### Safety Layer Summary
+
+| Layer | Scope | Default | Can be disabled? |
+| --- | --- | --- | --- |
+| `CatastrophicBlacklist` | Hardcoded destructive patterns | Always on | **No** — never disabled |
+| Built-in deny patterns | `rm -rf`, `curl\|bash`, `php -r`, `mkfifo`, `netcat` | Always on | No |
+| Sudo denylist | `sudo` substring block | On (deny) | Yes — `allowSudo: true` in config |
+| `InteractiveApprovalPolicy` | Gated tools confirmation prompt | On | Yes — `--auto-approve` flag |
+| Allowlist | First-word command restriction | Off (open) | N/A — opt-in via `shellAllowedCommands` |
+| Shell injection detection | Metacharacter blocking | Only when allowlist is active | N/A — tied to allowlist |
+
 ### Safety Layer Interactions
 
 Each CLI flag affects a specific safety layer. They do **not** interact with each other:
 
 | Flag             | Affects                     | What it changes                            | What it does NOT change                                 |
 | ---------------- | --------------------------- | ------------------------------------------ | ------------------------------------------------------- |
-| `--auto-approve` | `InteractiveApprovalPolicy` | Skips confirmation prompts for gated tools | Shell allowlist, ScriptSanitizer, CatastrophicBlacklist |
-| `--unsafe`       | `ScriptSanitizer`           | Allows all PHP functions in `php_execute`  | Shell allowlist, approval policy, CatastrophicBlacklist |
+| `--auto-approve` | `InteractiveApprovalPolicy` | Skips confirmation prompts for gated tools | Shell denylist, ScriptSanitizer, CatastrophicBlacklist  |
+| `--unsafe`       | `ScriptSanitizer`           | Allows all PHP functions in `php_execute`  | Shell denylist, approval policy, CatastrophicBlacklist  |
 | Neither          | —                           | All safety layers active at defaults       | —                                                       |
 
 The `CatastrophicBlacklist` (hardcoded destructive patterns) **cannot be disabled by any flag**.
 
-The shell allowlist is only configurable via `openclaw.json` — it is not affected by CLI flags. This is by design: the allowlist is a structural configuration choice, not a runtime safety toggle.
-
 ### Key Source Files
 
-| File                                      | Purpose                                                           |
-| ----------------------------------------- | ----------------------------------------------------------------- |
-| `src/Agent/OrchestratorAgent.php`         | Reads `shellAllowedCommands` from config, constructs ShellToolkit |
-| `src/Tool/SpawnAgentTool.php`             | Passes shell allowlist to child agent ShellToolkit                |
-| php-agents `src/Toolkit/ShellToolkit.php` | Enforces allowlist, injection detection, deny patterns            |
-| `src/Config/CatastrophicBlacklist.php`    | Always-on destructive command blocking                            |
+| File                                      | Purpose                                                                |
+| ----------------------------------------- | ---------------------------------------------------------------------- |
+| `src/Agent/OrchestratorAgent.php`         | Reads config, resolves allowed/denied commands, constructs ShellToolkit |
+| `src/Tool/SpawnAgentTool.php`             | Passes allowed/denied commands to child agent ShellToolkit              |
+| `src/Agent/BackgroundToolExecutor.php`    | Resolves allowed/denied commands for background tool execution          |
+| php-agents `src/Toolkit/ShellToolkit.php` | Enforces allowlist, denylist, injection detection, deny patterns, cwd   |
+| `src/Config/CatastrophicBlacklist.php`    | Always-on destructive command blocking                                  |
 
 
 
@@ -1156,6 +1254,63 @@ No explicit configuration is required. The memory system initializes automatical
 ```
 
 
+## Memory Extraction Architecture
+
+Coqui extracts noteworthy facts, preferences, and solutions from conversations into persistent memory entries via `MemoryExtractor`. Extraction is triggered at three controlled points, with transparency events so users always know when memories are being saved.
+
+### Trigger Points
+
+| Trigger | When | Cooldown | Transparency |
+| --- | --- | --- | --- |
+| **Summarization** | During any conversation summarization (auto, manual, API) | Bypassed | `agent.memory_extraction` event with `source: 'summarization'` |
+| **Explicit tool** | Agent calls `extract_memories` | Bypassed | Tool result reports count |
+| **Per-turn** (optional) | After each agent turn via `DeferredWorkQueue` | 300s cooldown | `agent.memory_extraction` event with `source: 'auto_turn'` |
+
+Per-turn extraction is **disabled by default** (`CoquiDefaults::MEMORY_AUTO_EXTRACT = false`). Users can enable it via the setup wizard (Step 6) or by setting `agents.defaults.memory.autoExtract: true` in `openclaw.json`.
+
+### Observer Transparency
+
+All extraction triggers emit an `agent.memory_extraction` event via the agent's observer system:
+
+| Observer | Rendering |
+| --- | --- |
+| `TerminalObserver` | Yellow `🧠 Memory extraction ({source}): N memory/memories saved` |
+| `SseObserver` | `memory_extraction` SSE event with `{memories_saved, source, auto}` data |
+
+Events are suppressed when zero memories are saved to avoid noise.
+
+### Configuration
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "memory": {
+                "autoExtract": false,
+                "embeddingModel": "ollama/nomic-embed-text"
+            }
+        }
+    }
+}
+```
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `autoExtract` | `false` | Enable per-turn automatic extraction via deferred work |
+| `embeddingModel` | *(auto-detect)* | Embedding model for vector similarity deduplication |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Memory/MemoryExtractor.php` | LLM-based extraction with cooldown, deduplication, and area classification |
+| `src/Tool/ExtractMemoriesTool.php` | Agent-facing tool for explicit extraction (bypasses cooldown) |
+| `src/Agent/AgentRunner.php` | `autoExtractMemories()` — per-turn deferred extraction with config check |
+| `src/Memory/ConversationSummarizer.php` | `summarizeAndPersist()` — extraction during summarization with `onExtraction` callback |
+| `src/Observer/TerminalObserver.php` | `handleMemoryExtraction()` — terminal transparency rendering |
+| `src/Observer/SseObserver.php` | `memory_extraction` SSE event emission |
+
+
 ## Context Window & Conversation Summarization
 
 Coqui provides automatic context window management and conversation summarization to prevent token limit overflows. The system uses php-agents' `ContextWindow` for per-iteration pruning, a pluggable `BudgetPruningStrategyInterface` for custom pruning logic, and LLM-powered summarization for intelligent conversation compression.
@@ -1177,14 +1332,23 @@ Coqui provides automatic context window management and conversation summarizatio
 
 ### Automatic Summarization
 
-Before each agent turn, `AgentRunner::autoSummarizeIfNeeded()` checks the conversation's estimated token usage against the context window budget. If usage exceeds a configurable threshold, the conversation is automatically summarized:
+Before each agent turn, `AgentRunner::autoSummarizeIfNeeded()` evaluates whether to summarize based on the configured **summarization mode** (`agents.defaults.context.autoSummarizeMode`). Three modes are available:
 
-1. **Threshold check** — `agents.defaults.context.autoSummarizeThreshold` in `openclaw.json` (default: `70` = 70% of available budget). Accepts both percentage (1–100) and ratio (0.0–1.0) — ratios are automatically converted to percentages.
-2. **Provider resolution** — uses the utility model resolution chain (see Utility Model section below).
-3. **Keep recent** — `agents.defaults.context.autoSummarizeKeepRecent` controls how many recent turns are preserved during auto-summarization (default: `15`, clamped 1–20).
-4. **Workflow context injection** — `AgentRunner::buildWorkflowContext()` queries `TodoStore` (stats, active, pending todos) and `ArtifactStore` (active artifacts) to build a structured context string. This is passed to `ConversationSummarizer` so the LLM preserves plan/todo state in the summary, preventing agents from losing their place after summarization.
-5. **Summarization** — `ConversationSummarizer` splits the conversation, compresses older messages via LLM, rebuilds with a summary `SystemMessage`.
-6. **Observer notification** — emits `agent.summary` event so terminal/SSE observers can alert the user.
+| Mode | Trigger | Config Key | Default |
+| --- | --- | --- | --- |
+| `token` (default) | Estimated token usage exceeds a percentage of the effective context window | `autoSummarizeThreshold` | `70` (70%) |
+| `turn` | User turn count reaches a threshold | `autoSummarizeTurnThreshold` | `20` |
+| `manual` | Never auto-summarizes; user must invoke `/summarize`, the agent tool, or the API endpoint | — | — |
+
+When summarization triggers:
+
+1. **Mode check** — reads `autoSummarizeMode` from config (default: `token`). If `manual`, returns immediately. The `SummarizePruningStrategy` per-iteration safety net still fires to prevent context window overflow.
+2. **Trigger evaluation** — for `token` mode, estimates token usage (history + system prompt + user prompt + 15% buffer) against the context window budget. For `turn` mode, counts user turns against the threshold.
+3. **Provider resolution** — uses the utility model resolution chain (see Utility Model section below).
+4. **Keep recent** — `agents.defaults.context.autoSummarizeKeepRecent` controls how many recent turns are preserved during auto-summarization (default: `15`, clamped 1–20).
+5. **Workflow context injection** — `AgentRunner::buildWorkflowContext()` queries `TodoStore` (stats, active, pending todos) and `ArtifactStore` (active artifacts) to build a structured context string. This is passed to `ConversationSummarizer` so the LLM preserves plan/todo state in the summary, preventing agents from losing their place after summarization.
+6. **Summarization** — `ConversationSummarizer` splits the conversation, compresses older messages via LLM, rebuilds with a summary `SystemMessage`.
+7. **Observer notification** — emits `agent.summary` event so terminal/SSE observers can alert the user.
 
 ### Workflow Context in Summarization
 
@@ -1222,7 +1386,9 @@ Users and agents can trigger summarization manually:
     "agents": {
         "defaults": {
             "context": {
+                "autoSummarizeMode": "token",
                 "autoSummarizeThreshold": 70,
+                "autoSummarizeTurnThreshold": 20,
                 "autoSummarizeKeepRecent": 15,
                 "keepRecentTurns": 10
             }
@@ -1233,7 +1399,9 @@ Users and agents can trigger summarization manually:
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `autoSummarizeThreshold` | `70` | Token usage percentage that triggers auto-summarization. Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeMode` | `"token"` | Summarization trigger mode: `"token"`, `"turn"`, or `"manual"` |
+| `autoSummarizeThreshold` | `70` | Token usage percentage that triggers auto-summarization (mode: `token`). Accepts 1–100 or 0.0–1.0 (auto-converted) |
+| `autoSummarizeTurnThreshold` | `20` | User turn count that triggers auto-summarization (mode: `turn`) |
 | `autoSummarizeKeepRecent` | `15` | Turns preserved during auto-summarization (1–20) |
 | `keepRecentTurns` | `10` | Default turns preserved during on-demand summarization |
 | `budgetSafetyMarginPercent` | `20` | Safety margin percentage applied by per-iteration budget pruning to account for token estimation inaccuracy (0–50) |

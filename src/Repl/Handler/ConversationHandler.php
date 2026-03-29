@@ -72,12 +72,16 @@ final class ConversationHandler
 
         try {
             $workflowContext = $this->buildWorkflowContext($sessionId);
+            $memoriesExtracted = 0;
             $result = $summarizer->summarizeAndPersist(
                 sessionId: $sessionId,
                 provider: $provider,
                 keepRecentTurns: $keepRecent,
                 focus: $focus,
                 workflowContext: $workflowContext,
+                onExtraction: function (int $saved) use (&$memoriesExtracted): void {
+                    $memoriesExtracted = $saved;
+                },
             );
         } catch (\Throwable $e) {
             $io->error('Summarization failed: ' . $e->getMessage());
@@ -87,6 +91,14 @@ final class ConversationHandler
         if (!$result->wasSummarized()) {
             $io->info('Conversation is too short to summarize.');
             return true;
+        }
+
+        if ($memoriesExtracted > 0) {
+            $io->text(sprintf(
+                '<fg=yellow>🧠 Memory extraction (summarization): %d %s saved</>',
+                $memoriesExtracted,
+                $memoriesExtracted === 1 ? 'memory' : 'memories',
+            ));
         }
 
         $io->success(sprintf(
