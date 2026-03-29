@@ -451,6 +451,26 @@ final class OrchestratorAgent extends AbstractAgent
                 $webhookStore = new \CoquiBot\Coqui\Storage\WebhookStore($this->storage->getPdo());
                 $this->addToolkit(new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore));
             }
+
+            // Loop toolkit — manages automated multi-role loop workflows
+            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\LoopToolkit::class)) {
+                $loopStore = new \CoquiBot\Coqui\Storage\LoopStore($this->storage->getPdo());
+                $loopDiscovery = new \CoquiBot\Coqui\Config\LoopDiscovery(
+                    $this->workspacePath,
+                    $this->projectRoot !== '' ? $this->projectRoot : null,
+                );
+                $loopExecutor = ($this->projectStore !== null && isset($artifactStore) && $this->roleDiscovery !== null)
+                    ? new \CoquiBot\Coqui\Agent\LoopExecutor(
+                        loopStore: $loopStore,
+                        projectStore: $this->projectStore,
+                        artifactStore: $artifactStore,
+                        roleResolver: $this->roleResolver,
+                        roleDiscovery: $this->roleDiscovery,
+                        config: $this->config,
+                    )
+                    : null;
+                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor));
+            }
         }
 
         // Session evaluation toolkit — registered when role allows it.

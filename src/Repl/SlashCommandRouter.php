@@ -88,7 +88,7 @@ final class SlashCommandRouter
             '/schedules' => $this->handleSchedules($io, $arg),
             '/webhooks' => $this->handleWebhooks($io, $arg),
             '/evaluations' => $this->handleEvaluations($io, $arg),
-            '/loops' => $this->handleLoops($io, $arg),
+            '/loops' => $this->handleLoops($io, $arg, $sessionId),
             '/hints' => $this->handleHints($io),
             '/help' => $this->handleHelp($io),
             default => $this->handleUnknown($io, $cmd),
@@ -262,9 +262,9 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleLoops(SymfonyStyle $io, string $arg): RouteResult
+    private function handleLoops(SymfonyStyle $io, string $arg, string $sessionId): RouteResult
     {
-        $this->loop->handle($io, $arg);
+        $this->loop->handle($io, $arg, $sessionId);
         return RouteResult::continue();
     }
 
@@ -303,7 +303,7 @@ final class SlashCommandRouter
                 ['/schedules', 'List scheduled tasks with status and next run time'],
                 ['/webhooks', 'List webhook subscriptions with status and trigger counts'],
                 ['/evaluations', 'List session evaluation reports with grades and scores'],
-                ['/loops [status|definitions|status <id>|pause|resume|stop <id|all>]', 'Manage automated loop workflows'],
+                ['/loops [start <def> <goal>|status|definitions|pause|resume|stop <id|all>]', 'Manage automated loop workflows'],
                 ['/summarize [recent N] [focus "topic"]', 'Summarize conversation history to save tokens'],
                 ['/hints', 'Toggle command hints in the input area'],
                 ['/update', 'Check for and apply dependency updates'],

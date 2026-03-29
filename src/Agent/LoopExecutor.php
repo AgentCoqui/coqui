@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Agent;
 
-use CarmeloSantana\PHPAgents\Config\ConfigInterface;
+use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Contract\IterationOutcome;
@@ -37,13 +37,26 @@ final class LoopExecutor
     /**
      * Start a new loop: create the loop instance, auto-create a project, and first iteration.
      *
+     * @param array<string, string> $parameters Template parameter values for {{variable}} substitution
      * @return string Loop ID
      */
     public function startLoop(
         LoopDefinition $definition,
         string $goal,
         ?string $sessionId = null,
+        array $parameters = [],
     ): string {
+        // Validate required parameters
+        $missing = array_diff($definition->requiredParameterNames(), array_keys($parameters));
+        if ($missing !== []) {
+            throw new \InvalidArgumentException(
+                sprintf('Missing required parameters: %s', implode(', ', $missing)),
+            );
+        }
+
+        // Resolve parameters (apply defaults for optional params)
+        $resolvedParameters = $definition->resolveParameters($parameters);
+
         // Auto-create a project for this loop
         $projectSlug = 'loop-' . $definition->name . '-' . substr(bin2hex(random_bytes(4)), 0, 8);
         $projectId = $this->projectStore->createProject(
@@ -54,6 +67,11 @@ final class LoopExecutor
 
         // Snapshot the definition so edits don't affect running loops
         $configuration = $definition->toArray();
+
+        // Store resolved parameters alongside the configuration
+        if ($resolvedParameters !== []) {
+            $configuration['resolved_parameters'] = $resolvedParameters;
+        }
 
         // Determine termination parameters
         $maxIterations = match ($definition->terminationCondition->type) {
@@ -146,6 +164,7 @@ final class LoopExecutor
             completedStages: $this->loopStore->getCompletedStages($iteration['id']),
             previousOutcomes: $this->loopStore->getPreviousOutcomes($loopId, (int) $iteration['iteration_number']),
             terminationCriteria: $loop['termination_criteria'],
+            resolvedParameters: $this->extractResolvedParameters($loop['configuration']),
         );
 
         // Mark stage as running
@@ -441,6 +460,7 @@ final class LoopExecutor
      *
      * @param list<array<string, mixed>> $completedStages
      * @param list<array{iteration_number: int, outcome_summary: string|null, status: string}> $previousOutcomes
+     * @param array<string, string> $resolvedParameters
      */
     private function buildStagePrompt(
         LoopDefinition $definition,
@@ -453,6 +473,7 @@ final class LoopExecutor
         array $completedStages,
         array $previousOutcomes,
         ?string $terminationCriteria,
+        array $resolvedParameters = [],
     ): string {
         $iterationLabel = $maxIterations !== null
             ? "{$iterationNumber}/{$maxIterations}"
@@ -490,10 +511,44 @@ final class LoopExecutor
             $sections[] = "## Acceptance Criteria\n{$terminationCriteria}";
         }
 
-        // Role-specific task
-        $sections[] = "## Your Task\n{$roleDefinition->prompt}";
+        // Role-specific task (with parameter substitution)
+        $rolePrompt = $roleDefinition->prompt;
+        if ($resolvedParameters !== []) {
+            $replacements = [];
+            foreach ($resolvedParameters as $key => $value) {
+                $replacements['{{' . $key . '}}'] = $value;
+            }
+            $rolePrompt = strtr($rolePrompt, $replacements);
+            $goal = strtr($goal, $replacements);
+        }
+
+        // Re-apply substituted goal to the section we already built
+        $sections[1] = "## Goal\n{$goal}";
+
+        // Add parameter context for the agent
+        if ($resolvedParameters !== []) {
+            $paramLines = [];
+            foreach ($resolvedParameters as $key => $value) {
+                $paramLines[] = "- **{$key}**: {$value}";
+            }
+            $sections[] = "## Parameters\n" . implode("\n", $paramLines);
+        }
+
+        $sections[] = "## Your Task\n{$rolePrompt}";
 
         return implode("\n\n", $sections);
+    }
+
+    /**
+     * Extract resolved parameters from the stored loop configuration JSON.
+     *
+     * @return array<string, string>
+     */
+    private function extractResolvedParameters(string $configurationJson): array
+    {
+        $config = json_decode($configurationJson, true, 512, JSON_THROW_ON_ERROR);
+
+        return $config['resolved_parameters'] ?? [];
     }
 
     /**

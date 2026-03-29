@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
+use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\LoopDiscovery;
@@ -30,6 +31,7 @@ final readonly class LoopHandler
     public function __construct(
         private LoopStore $store,
         private LoopDiscovery $discovery,
+        private ?LoopExecutor $executor = null,
     ) {}
 
     /**
@@ -88,14 +90,29 @@ final readonly class LoopHandler
             ? max(0, (int) $body['max_iterations'])
             : $definition->terminationCondition->maxIterations;
 
-        // Create the loop record — LoopManager picks up running loops on tick
-        $loopId = $this->store->createLoop(
-            definitionName: $defName,
-            goal: $goal,
-            configuration: $definition->toArray(),
-            maxIterations: $maxIterations,
-            terminationCriteria: $definition->terminationCondition->criteria,
-        );
+        // Use LoopExecutor to properly initialize the loop with project, iteration, and stages
+        if ($this->executor !== null) {
+            try {
+                $loopId = $this->executor->startLoop(
+                    definition: $definition,
+                    goal: $goal,
+                );
+            } catch (\Throwable $e) {
+                return Router::errorResponse(
+                    ApiErrorCode::VALIDATION_ERROR,
+                    sprintf('Failed to start loop: %s', $e->getMessage()),
+                );
+            }
+        } else {
+            // Fallback: create loop record directly (LoopManager will need to initialize it)
+            $loopId = $this->store->createLoop(
+                definitionName: $defName,
+                goal: $goal,
+                configuration: $definition->toArray(),
+                maxIterations: $maxIterations,
+                terminationCriteria: $definition->terminationCondition->criteria,
+            );
+        }
 
         $loop = $this->store->getLoop($loopId);
 

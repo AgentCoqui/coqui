@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Storage\LoopStore;
 
@@ -24,6 +25,7 @@ final readonly class LoopToolkit implements ToolkitInterface
     public function __construct(
         private LoopStore $loopStore,
         private LoopDiscovery $loopDiscovery,
+        private ?LoopExecutor $executor = null,
     ) {}
 
     public function tools(): array
@@ -79,6 +81,7 @@ final readonly class LoopToolkit implements ToolkitInterface
 
         ### Usage
         - Start a loop: `loop_start(definition: "harness", goal: "Build feature X")`
+        - With parameters: `loop_start(definition: "research", goal: "Investigate auth", parameters: "{\"topic\": \"authentication\"}")`
         - Monitor: `loop_status(id: "...")` or `loop_list()`
         - Pause/resume: `loop_pause(id: "...")` / `loop_resume(id: "...")`
         - Cancel: `loop_stop(id: "...")`
@@ -89,7 +92,7 @@ final readonly class LoopToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'loop_start',
-            description: 'Start a new automated loop workflow from a named definition. The loop runs multiple roles in sequence per iteration, evaluating termination conditions between cycles.',
+            description: 'Start a new automated loop workflow from a named definition. The loop runs multiple roles in sequence per iteration, evaluating termination conditions between cycles. Definitions may declare parameters — pass them as a JSON object to substitute {{variable}} placeholders in role prompts.',
             parameters: [
                 new StringParameter(
                     name: 'definition',
@@ -106,6 +109,11 @@ final readonly class LoopToolkit implements ToolkitInterface
                     description: 'Override the maximum number of iterations (default: from definition)',
                     required: false,
                 ),
+                new StringParameter(
+                    name: 'parameters',
+                    description: 'JSON object of template parameter values (e.g. {"topic": "authentication", "language": "PHP"}). These substitute {{variable}} placeholders in the loop\'s role prompts.',
+                    required: false,
+                ),
             ],
             callback: function (array $input): ToolResult {
                 $defName = (string) ($input['definition'] ?? '');
@@ -120,10 +128,43 @@ final readonly class LoopToolkit implements ToolkitInterface
                     return ToolResult::error("Loop definition \"{$defName}\" not found. Available: {$available}");
                 }
 
-                // Return the definition details — actual execution is handled by the REPL/API layer
                 $definition = $this->loopDiscovery->get($defName);
 
-                return ToolResult::success(json_encode([
+                // Parse template parameters if provided
+                $parameters = [];
+                if (isset($input['parameters']) && $input['parameters'] !== '') {
+                    $decoded = json_decode((string) $input['parameters'], true);
+                    if (!is_array($decoded)) {
+                        return ToolResult::error('The "parameters" field must be a valid JSON object (e.g. {"topic": "auth"})');
+                    }
+                    $parameters = array_map('strval', $decoded);
+                }
+
+                // Use LoopExecutor to actually start the loop when available
+                if ($this->executor !== null) {
+                    try {
+                        $loopId = $this->executor->startLoop(
+                            definition: $definition,
+                            goal: $goal,
+                            parameters: $parameters,
+                        );
+
+                        return ToolResult::success((string) json_encode([
+                            'loop_id' => $loopId,
+                            'definition' => $defName,
+                            'goal' => $goal,
+                            'parameters' => $parameters !== [] ? $parameters : null,
+                            'roles' => array_map(fn($r) => $r->role, $definition->roles),
+                            'termination' => $definition->terminationCondition->type->value,
+                            'message' => "Loop \"{$defName}\" started successfully with ID {$loopId}. It will execute autonomously. Use loop_status(id: \"{$loopId}\") to monitor progress.",
+                        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                    } catch (\Throwable $e) {
+                        return ToolResult::error(sprintf('Failed to start loop: %s', $e->getMessage()));
+                    }
+                }
+
+                // Fallback: return definition details when executor is not available
+                return ToolResult::success((string) json_encode([
                     'action' => 'start_loop',
                     'definition' => $defName,
                     'goal' => $goal,
@@ -220,7 +261,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                     ], $stages);
                 }
 
-                return ToolResult::success(json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                return ToolResult::success((string) json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             },
         );
     }
@@ -320,12 +361,18 @@ final readonly class LoopToolkit implements ToolkitInterface
                 foreach ($definitions as $def) {
                     $roles = implode(' → ', array_map(fn($r) => $r->role, $def->roles));
                     $termination = $def->terminationCondition->type->value;
+                    $paramInfo = '';
+                    if ($def->parameters !== []) {
+                        $paramNames = array_map(fn($p) => $p->required ? $p->name : $p->name . '?', $def->parameters);
+                        $paramInfo = ' | Parameters: ' . implode(', ', $paramNames);
+                    }
                     $lines[] = sprintf(
-                        "**%s** — %s\n  Roles: %s | Termination: %s",
+                        "**%s** — %s\n  Roles: %s | Termination: %s%s",
                         $def->name,
                         $def->description,
                         $roles,
                         $termination,
+                        $paramInfo,
                     );
                 }
 
