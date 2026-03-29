@@ -1397,6 +1397,28 @@ final class SessionStorage
         return $stmt->rowCount();
     }
 
+    /**
+     * Get active (running + pending) background tasks for footer rendering.
+     *
+     * Returns a lightweight result set with only the columns needed by
+     * BackgroundTaskSummary. Ordered by creation time (oldest first).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public function getActiveBackgroundSummary(): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, status, title, role, tool_name, started_at, created_at
+            FROM background_tasks
+            WHERE status IN ('running', 'pending')
+            ORDER BY created_at ASC
+        SQL);
+
+        $stmt->execute();
+
+        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
     // ─── Turn Process Methods ────────────────────────────────────────────────
 
     /**

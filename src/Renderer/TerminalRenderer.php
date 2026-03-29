@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Renderer;
 
 use CoquiBot\Coqui\Contract\AgentTurnResult;
+use CoquiBot\Coqui\Contract\BackgroundTaskSummary;
 use CoquiBot\Coqui\Contract\OutputRendererInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -106,12 +107,52 @@ public function render(AgentTurnResult $result, bool $contentStreamed = false): 
             $this->io->writeln("<fg=gray>  • Review </>{$statusTag}");
         }
 
+        // Active background tasks summary
+        if ($result->backgroundTasks !== null && !$result->backgroundTasks->isEmpty()) {
+            $this->renderBackgroundTasks($result->backgroundTasks);
+        }
+
         // Context usage progress bar
         if ($result->contextUsage !== null) {
             ContextUsageBar::render(
                 io: $this->io,
                 snapshot: $result->contextUsage,
                 showLegend: ($this->showHints)(),
+            );
+        }
+    }
+
+    private function renderBackgroundTasks(BackgroundTaskSummary $summary): void
+    {
+        if ($summary->agentCount() > 0) {
+            $count = $summary->agentCount();
+            $parts = [];
+            foreach ($summary->agents as $agent) {
+                $role = $agent['role'];
+                $title = $agent['title'] ?? '';
+                $duration = BackgroundTaskSummary::formatDuration($agent);
+                $detail = $title !== '' ? "{$title}, {$duration}" : $duration;
+                $parts[] = "<fg=magenta>{$role}</><fg=gray>(</>{$detail}<fg=gray>)</>";
+            }
+            $label = $count === 1 ? 'Background Agent' : 'Background Agents';
+            $this->io->writeln(
+                "<fg=gray>  • {$label} [{$count}x] </>" . implode('<fg=gray> </>', $parts),
+            );
+        }
+
+        if ($summary->toolCount() > 0) {
+            $count = $summary->toolCount();
+            $parts = [];
+            foreach ($summary->tools as $tool) {
+                $toolName = $tool['tool_name'];
+                $title = $tool['title'] ?? '';
+                $duration = BackgroundTaskSummary::formatDuration($tool);
+                $detail = $title !== '' ? "{$title}, {$duration}" : $duration;
+                $parts[] = "<fg=yellow>{$toolName}</><fg=gray>(</>{$detail}<fg=gray>)</>";
+            }
+            $label = $count === 1 ? 'Background Tool' : 'Background Tools';
+            $this->io->writeln(
+                "<fg=gray>  • {$label} [{$count}x] </>" . implode('<fg=gray> </>', $parts),
             );
         }
     }
