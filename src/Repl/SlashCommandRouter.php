@@ -73,7 +73,7 @@ final class SlashCommandRouter
             '/tasks' => $this->handleTasks($io, $arg),
             '/todos' => $this->handleTodos($io, $arg, $sessionId),
             '/projects' => $this->handleProjects($io, $arg),
-            '/sprints' => $this->handleSprints($io, $arg),
+            '/sprints' => $this->handleSprints($io, $arg, $sessionId),
             '/task' => $this->handleTask($io, $arg),
             '/task-cancel' => $this->handleTaskCancel($io, $arg),
             '/update' => $this->handleUpdate($io),
@@ -164,9 +164,9 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleSprints(SymfonyStyle $io, string $arg): RouteResult
+    private function handleSprints(SymfonyStyle $io, string $arg, string $sessionId): RouteResult
     {
-        $this->project->handleSprints($io, $arg);
+        $this->project->handleSprints($io, $arg, $sessionId);
         return RouteResult::continue();
     }
 

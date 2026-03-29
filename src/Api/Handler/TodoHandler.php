@@ -13,15 +13,17 @@ use React\Http\Message\Response;
 /**
  * Todo CRUD API endpoints.
  *
- * GET    /api/v1/sessions/{id}/todos              — list todos
- * POST   /api/v1/sessions/{id}/todos              — create todo
- * POST   /api/v1/sessions/{id}/todos/bulk          — bulk create todos
- * GET    /api/v1/sessions/{id}/todos/stats         — session todo stats
- * GET    /api/v1/sessions/{id}/todos/{todoId}      — get todo
- * PATCH  /api/v1/sessions/{id}/todos/{todoId}      — update todo
- * PATCH  /api/v1/sessions/{id}/todos/bulk           — bulk update todos
- * POST   /api/v1/sessions/{id}/todos/{todoId}/complete — complete todo
- * DELETE /api/v1/sessions/{id}/todos/{todoId}      — delete todo
+ * GET    /api/v1/sessions/{id}/todos                    — list todos
+ * POST   /api/v1/sessions/{id}/todos                    — create todo
+ * POST   /api/v1/sessions/{id}/todos/bulk                — bulk create todos
+ * PATCH  /api/v1/sessions/{id}/todos/bulk                — bulk update todos
+ * POST   /api/v1/sessions/{id}/todos/bulk/complete       — bulk complete todos
+ * DELETE /api/v1/sessions/{id}/todos/bulk                — bulk delete todos
+ * GET    /api/v1/sessions/{id}/todos/stats               — session todo stats
+ * GET    /api/v1/sessions/{id}/todos/{todoId}            — get todo
+ * PATCH  /api/v1/sessions/{id}/todos/{todoId}            — update todo
+ * POST   /api/v1/sessions/{id}/todos/{todoId}/complete   — complete todo
+ * DELETE /api/v1/sessions/{id}/todos/{todoId}            — delete todo
  */
 final readonly class TodoHandler
 {
@@ -61,7 +63,7 @@ final readonly class TodoHandler
 
     /**
      * POST /api/v1/sessions/{id}/todos
-     * { "title": "...", "priority"?: "high", "artifact_id"?: "...", "parent_id"?: "...", "notes"?: "...", "created_by"?: "..." }
+     * { "title": "...", "artifact_id": "...", "priority"?: "high", "parent_id"?: "...", "notes"?: "...", "created_by"?: "..." }
      */
     public function create(ServerRequestInterface $request, string $id): Response
     {
@@ -78,6 +80,11 @@ final readonly class TodoHandler
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Title must be 200 characters or less');
         }
 
+        $artifactId = isset($body['artifact_id']) ? trim((string) $body['artifact_id']) : '';
+        if ($artifactId === '') {
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'artifact_id is required — every todo must be linked to an artifact');
+        }
+
         $priority = isset($body['priority']) ? trim((string) $body['priority']) : 'medium';
         if (!in_array($priority, ['high', 'medium', 'low'], true)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid priority: must be high, medium, or low');
@@ -87,7 +94,7 @@ final readonly class TodoHandler
             sessionId: $id,
             title: $title,
             priority: $priority,
-            artifactId: isset($body['artifact_id']) ? trim((string) $body['artifact_id']) : null,
+            artifactId: $artifactId,
             parentId: isset($body['parent_id']) ? trim((string) $body['parent_id']) : null,
             createdBy: isset($body['created_by']) ? trim((string) $body['created_by']) : null,
             notes: isset($body['notes']) ? trim((string) $body['notes']) : null,
@@ -262,14 +269,17 @@ final readonly class TodoHandler
             return $result;
         }, $items));
 
-        $artifactId = isset($body['artifact_id']) ? trim((string) $body['artifact_id']) : null;
+        $artifactId = isset($body['artifact_id']) ? trim((string) $body['artifact_id']) : '';
+        if ($artifactId === '') {
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'artifact_id is required — every todo must be linked to an artifact');
+        }
         $createdBy = isset($body['created_by']) ? trim((string) $body['created_by']) : null;
 
         $ids = $this->store->bulkCreate(
             sessionId: $id,
             items: $normalized,
             createdBy: $createdBy !== '' ? $createdBy : null,
-            artifactId: $artifactId !== '' ? $artifactId : null,
+            artifactId: $artifactId,
         );
 
         return Router::jsonResponse([
@@ -343,5 +353,112 @@ final readonly class TodoHandler
             'total_requested' => count($updates),
             'stats' => $stats,
         ]);
+    }
+
+    /**
+     * POST /api/v1/sessions/{id}/todos/bulk/complete
+     * { "ids": ["id1", "id2", ...], "completed_by"?: "...", "notes"?: "..." }
+     */
+    public function bulkComplete(ServerRequestInterface $request, string $id): Response
+    {
+        $body = json_decode((string) $request->getBody(), true);
+        if (!is_array($body)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+        }
+
+        $ids = $body['ids'] ?? null;
+        if (!is_array($ids) || $ids === []) {
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'ids array is required and must be non-empty');
+        }
+        if (count($ids) > 25) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Maximum 25 items per bulk complete');
+        }
+
+        $completedBy = isset($body['completed_by']) ? trim((string) $body['completed_by']) : null;
+        $notes = isset($body['notes']) ? trim((string) $body['notes']) : null;
+
+        $completed = 0;
+        $failed = [];
+
+        foreach ($ids as $rawId) {
+            $todoId = trim((string) $rawId);
+            if ($todoId === '') {
+                continue;
+            }
+
+            $result = $this->store->complete(
+                id: $todoId,
+                completedBy: $completedBy !== '' ? $completedBy : null,
+                notes: $notes !== '' ? $notes : null,
+                sessionId: $id,
+            );
+
+            if ($result) {
+                $completed++;
+            } else {
+                $failed[] = $todoId;
+            }
+        }
+
+        $stats = $this->store->getStats($id);
+
+        $response = [
+            'completed' => $completed,
+            'total_requested' => count($ids),
+            'stats' => $stats,
+        ];
+        if ($failed !== []) {
+            $response['failed_ids'] = $failed;
+        }
+
+        return Router::jsonResponse($response);
+    }
+
+    /**
+     * DELETE /api/v1/sessions/{id}/todos/bulk
+     * { "ids": ["id1", "id2", ...] }
+     */
+    public function bulkDelete(ServerRequestInterface $request, string $id): Response
+    {
+        $body = json_decode((string) $request->getBody(), true);
+        if (!is_array($body)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+        }
+
+        $ids = $body['ids'] ?? null;
+        if (!is_array($ids) || $ids === []) {
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'ids array is required and must be non-empty');
+        }
+        if (count($ids) > 25) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Maximum 25 items per bulk delete');
+        }
+
+        $deleted = 0;
+        $failed = [];
+
+        foreach ($ids as $rawId) {
+            $todoId = trim((string) $rawId);
+            if ($todoId === '') {
+                continue;
+            }
+
+            $result = $this->store->delete($todoId, sessionId: $id);
+
+            if ($result) {
+                $deleted++;
+            } else {
+                $failed[] = $todoId;
+            }
+        }
+
+        $response = [
+            'deleted' => $deleted,
+            'total_requested' => count($ids),
+        ];
+        if ($failed !== []) {
+            $response['failed_ids'] = $failed;
+        }
+
+        return Router::jsonResponse($response);
     }
 }

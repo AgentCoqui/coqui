@@ -994,7 +994,7 @@ final class AgentRunner
                 $maxRounds = $sprint['max_review_rounds'] ?? 3;
                 $progress = '';
                 if ($this->todoStore !== null) {
-                    $stats = $this->projectStore->getSprintProgress($sprint['id'], $this->todoStore);
+                    $stats = $this->projectStore->getSprintProgress($sprint['id'], $this->todoStore, $sessionId);
                     $progress = " — {$stats['percent']}% complete";
                 }
                 $lines[] = "  - Sprint #{$number} '{$title}' ({$status}{$progress}, round {$round}/{$maxRounds})";
