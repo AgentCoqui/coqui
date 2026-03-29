@@ -643,6 +643,33 @@ final class TodoStore
     }
 
     /**
+     * Delete todos with no artifact link from inactive sessions.
+     *
+     * Now that artifact_id is required for all new todos, any existing
+     * todo with NULL artifact_id is effectively orphaned. This cleans
+     * them up without disrupting active sessions (which might have
+     * in-flight todos during plan generation).
+     *
+     * @return int Number of unlinked todos deleted
+     */
+    public function cleanupUnlinked(int $inactiveDays = 7): int
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            DELETE FROM todos
+            WHERE artifact_id IS NULL
+              AND session_id NOT IN (
+                  SELECT id FROM sessions
+                  WHERE updated_at > datetime('now', :inactive_offset)
+              )
+        SQL);
+        $stmt->execute([
+            ':inactive_offset' => "-{$inactiveDays} days",
+        ]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * Delete all todos for a session.
      *
      * @return int Number of todos deleted

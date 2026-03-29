@@ -478,6 +478,8 @@ final class ApiCommand extends Command
         $router->post($v1 . '/sessions/{id}/todos', [$todo, 'create']);
         $router->post($v1 . '/sessions/{id}/todos/bulk', [$todo, 'bulkCreate']);
         $router->patch($v1 . '/sessions/{id}/todos/bulk', [$todo, 'bulkUpdate']);
+        $router->post($v1 . '/sessions/{id}/todos/bulk/complete', [$todo, 'bulkComplete']);
+        $router->delete($v1 . '/sessions/{id}/todos/bulk', [$todo, 'bulkDelete']);
         $router->get($v1 . '/sessions/{id}/todos/stats', [$todo, 'stats']);
         $router->get($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'get']);
         $router->patch($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'update']);

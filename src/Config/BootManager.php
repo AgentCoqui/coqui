@@ -436,6 +436,7 @@ final class BootManager
         $this->todoStore = new TodoStore($pdo);
         $this->todoStore->cleanupOrphaned();
         $this->todoStore->cleanupStale();
+        $this->todoStore->cleanupUnlinked();
         $this->projectStore = new ProjectStore($pdo);
     }
 

@@ -118,7 +118,7 @@ final class AgentTurnExecutor
                 $sprint = $sprints[0];
                 $todoStore = $this->boot->todoStore();
                 $progress = $todoStore !== null
-                    ? $this->boot->projectStore()->getSprintProgress($sprint['id'], $todoStore)
+                    ? $this->boot->projectStore()->getSprintProgress($sprint['id'], $todoStore, $sessionId)
                     : ['percent' => 0, 'completed' => 0, 'total' => 0];
                 $title = $sprint['title'];
                 $pct = $progress['percent'];

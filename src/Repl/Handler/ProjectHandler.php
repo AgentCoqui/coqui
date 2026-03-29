@@ -47,7 +47,7 @@ final class ProjectHandler
         $io->table(['Title', 'Slug', 'Status', 'Sprints', 'Created'], $rows);
     }
 
-    public function handleSprints(SymfonyStyle $io, string $arg = ''): void
+    public function handleSprints(SymfonyStyle $io, string $arg = '', ?string $sessionId = null): void
     {
         $projectStore = $this->boot->projectStore();
         if ($projectStore === null) {
@@ -85,8 +85,8 @@ final class ProjectHandler
         foreach ($sprints as $sprint) {
             $progress = '';
             if ($todoStore !== null) {
-                $stats = $projectStore->getSprintProgress($sprint['id'], $todoStore);
-                $progress = "{$stats['percent']}% ({$stats['completed']}/{$stats['total']})";
+                $stats = $projectStore->getSprintProgress($sprint['id'], $todoStore, $sessionId);
+                $progress = "{$stats['percent']}% ({$stats['completed']}/{$stats['total']})";  
             }
             $projectLabel = $sprint['_project_title'] ?? '';
             $rows[] = [
