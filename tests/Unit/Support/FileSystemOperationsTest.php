@@ -182,7 +182,7 @@ test('resolvePath resolves relative segments', function () {
     $resolved = $this->fs->resolvePath('sub/./file.txt');
 
     expect($resolved)->toEndWith('/sub/file.txt');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'realpath() returns backslash paths on Windows');
 
 test('makeRelative strips root prefix', function () {
     $abs = $this->root . '/sub/file.txt';
@@ -213,7 +213,7 @@ test('resolvePath allows mount paths', function () {
     unlink($this->root . '/mnt');
     unlink($mountDir . '/data.csv');
     rmdir($mountDir);
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'symlink() requires Developer Mode on Windows');
 
 test('write throws for read-only mount path', function () {
     $mountDir = sys_get_temp_dir() . '/coqui-romount-' . bin2hex(random_bytes(8));
@@ -240,7 +240,7 @@ test('write throws for read-only mount path', function () {
     }
 
     expect($threw)->toBeTrue();
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'symlink() requires Developer Mode on Windows');
 
 // ---------------------------------------------------------------
 // EOL detection
@@ -296,7 +296,7 @@ test('resolveGlob with ** matches files in subdirectories', function () {
     // **/*.php requires at least one parent directory component (fnmatch FNM_PATHNAME)
     // so root-level files are not matched; use *.php for those
     expect($relatives)->toBe(['sub/nested.php']);
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'RecursiveDirectoryIterator returns backslash paths on Windows');
 
 test('resolveGlob with ** does not return files outside sandbox', function () {
     $external = sys_get_temp_dir() . '/coqui-ext-' . bin2hex(random_bytes(4)) . '.php';
@@ -337,4 +337,4 @@ test('resolvePath throws when symlink escapes sandbox', function () {
     }
 
     expect($threw)->toBeTrue();
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'symlink() requires Developer Mode on Windows');

@@ -160,7 +160,7 @@ test('generateDiff shows deleted file marker when file is missing', function () 
 
     expect($diff)->toContain('/dev/null');
     expect($diff)->toContain('File deleted');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', '/dev/null does not exist on Windows');
 
 test('generateDiff produces diff for real file', function () {
     $path = $this->workDir . '/real.php';
