@@ -222,11 +222,16 @@ final class OrchestratorAgent extends AbstractAgent
         if ($effectiveAccessLevel !== 'minimal') {
             $isReadOnly = in_array($effectiveAccessLevel, ['readonly', 'readonly-shell'], true);
             $editHistory = $isReadOnly ? null : new EditHistory($this->workspacePath . '/data/edit-history');
+            $retentionDaysCfg = $this->config->get('agents.defaults.editHistory.retentionDays');
+            $retentionDays = is_int($retentionDaysCfg) && $retentionDaysCfg >= 1
+                ? $retentionDaysCfg
+                : CoquiDefaults::EDIT_HISTORY_RETENTION_DAYS;
             $this->addToolkit(new FileSystemToolkit(
                 workspacePath: $this->workspacePath,
                 readOnly: $isReadOnly,
                 allowedPaths: $this->mountManager?->allowedPaths() ?? [],
                 history: $editHistory,
+                retentionDays: $retentionDays,
             ));
         }
 

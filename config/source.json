@@ -545,7 +545,7 @@
             "path": "src/Contract/CoquiDefaults.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\CoquiDefaults",
             "layer": "contract",
-            "description": "Centralized default values for Coqui configuration. Single source of truth for all default limits and thresholds (maxIterations, maxConcurrent, keepRecentTurns, autoSummarizeKeepRecent, autoSummarizeThreshold, context window fallbacks). All config fallbacks reference these constants instead of hardcoding values.",
+            "description": "Centralized default values for Coqui configuration. Single source of truth for all default limits and thresholds (maxIterations, maxConcurrent, keepRecentTurns, autoSummarizeKeepRecent, autoSummarizeThreshold, context window fallbacks, editHistoryRetentionDays, maxRecursiveItems). All config fallbacks reference these constants instead of hardcoding values.",
             "methods": []
         },
         {
@@ -1839,9 +1839,9 @@
             "path": "src/Toolkit/FileSystemToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\FileSystemToolkit",
             "layer": "toolkit",
-            "description": "Unified filesystem toolkit providing 16 tools: 4 read (read_file, list_dir, search_files, file_info), 3 write (write_file, create_dir, delete_file), 8 surgical edit (replace_in_file, insert_before, insert_after, replace_block, remove_lines, write_lines, batch_replace, indent_lines, append_to_file), and 1 history (edit_history). list_dir accepts a max_depth parameter (1–10, default 3) when recursive=true. search_files supports ** for recursive glob (delegated to FileSystemOperations::resolveGlob). Supports readOnly mode, mount-aware path sandboxing, and SQLite-backed edit history with unified diff and undo.",
+            "description": "Unified filesystem toolkit providing 18 tools: 4 read (read_file, list_dir, search_files, file_info), 5 write (write_file, create_dir, delete_file, copy_file, move), 8 surgical edit (replace_in_file, insert_before, insert_after, replace_block, remove_lines, write_lines, batch_replace, indent_lines, append_to_file), and 1 history (edit_history). copy_file and move auto-detect files vs directories for recursive operations. list_dir accepts a max_depth parameter (1–10, default 3) when recursive=true. search_files supports ** for recursive glob (delegated to FileSystemOperations::resolveGlob). Supports readOnly mode, mount-aware path sandboxing, configurable edit history retention, and SQLite-backed edit history with unified diff and undo.",
             "methods": [
-                "tools(): array — returns 4 read tools always, plus 12 write/edit/history tools when not readOnly",
+                "tools(): array — returns 4 read tools always, plus 14 write/edit/history tools when not readOnly",
                 "guidelines(): string — tool selection guide with best practices, mode-aware"
             ]
         },
@@ -1866,7 +1866,7 @@
             "path": "src/Support/FileSystemException.php",
             "fqcn": "CoquiBot\\Coqui\\Support\\FileSystemException",
             "layer": "support",
-            "description": "Domain exception for filesystem operations with static factories for common error types: fileNotFound, readFailed, writeFailed, readOnlyMount, pathEscapesSandbox, invalidRange, invalidRegex.",
+            "description": "Domain exception for filesystem operations with static factories for common error types: fileNotFound, readFailed, writeFailed, readOnlyMount, pathEscapesSandbox, invalidRange, invalidRegex, copyFailed, moveFailed, cannotCopyToSelf, maxRecursiveItemsExceeded, deletionFailed.",
             "methods": []
         },
         {

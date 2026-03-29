@@ -236,3 +236,82 @@ test('minimal valid config', function () {
 
     expect($errors)->toBeEmpty();
 });
+
+// ---------------------------------------------------------------
+// Edit history validation
+// ---------------------------------------------------------------
+
+test('valid editHistory config passes', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'editHistory' => ['retentionDays' => 14],
+            ],
+        ],
+    ];
+
+    $errors = $this->validator->validate($data);
+
+    expect($errors)->toBeEmpty();
+});
+
+test('editHistory.retentionDays must be positive integer', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'editHistory' => ['retentionDays' => 0],
+            ],
+        ],
+    ];
+
+    $errors = $this->validator->validate($data);
+
+    expect($errors)->not->toBeEmpty();
+    expect($errors)->toContain('agents.defaults.editHistory.retentionDays must be a positive integer');
+});
+
+test('editHistory.retentionDays rejects negative values', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'editHistory' => ['retentionDays' => -5],
+            ],
+        ],
+    ];
+
+    $errors = $this->validator->validate($data);
+
+    expect($errors)->not->toBeEmpty();
+});
+
+test('editHistory must be an object', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'editHistory' => 'invalid',
+            ],
+        ],
+    ];
+
+    $errors = $this->validator->validate($data);
+
+    expect($errors)->toContain('agents.defaults.editHistory must be an object');
+});
+
+test('missing editHistory is valid', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+            ],
+        ],
+    ];
+
+    $errors = $this->validator->validate($data);
+
+    expect($errors)->toBeEmpty();
+});

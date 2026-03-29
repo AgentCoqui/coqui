@@ -58,4 +58,10 @@ final class CoquiDefaults
 
     /** Whether automatic memory extraction runs after every turn (config: agents.defaults.memory.autoExtract). */
     public const bool MEMORY_AUTO_EXTRACT = false;
+
+    /** Default edit history retention in days for prune operations (config: agents.defaults.editHistory.retentionDays). */
+    public const int EDIT_HISTORY_RETENTION_DAYS = 7;
+
+    /** Safety cap on recursive copy/move operations to prevent runaway traversals. */
+    public const int MAX_RECURSIVE_ITEMS = 10_000;
 }

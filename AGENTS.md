@@ -888,7 +888,7 @@ Coqui provides a unified `FileSystemToolkit` that replaces both the deprecated p
 | Category | Tools | Description |
 | --- | --- | --- |
 | Read | `read_file`, `list_dir`, `search_files`, `file_info` | Non-mutating file inspection |
-| Write | `write_file`, `create_dir`, `delete_file` | Full-file creation and deletion |
+| Write | `write_file`, `create_dir`, `delete_file`, `copy_file`, `move` | Full-file creation, deletion, copy, and move |
 | Surgical Edit | `replace_in_file`, `insert_before`, `insert_after`, `replace_block`, `remove_lines`, `write_lines`, `batch_replace`, `indent_lines`, `append_to_file` | Line/pattern-based mutation with edit history |
 | History | `edit_history` | Undo, diff, list, prune recorded edits |
 
@@ -918,7 +918,7 @@ Symlinks are followed and verified — the real path must fall within allowed bo
 | Diff | Pure PHP Myers LCS algorithm producing unified diff output |
 | Prune | Removes old edits and their backup files by age |
 
-The `edit_history` tool exposes four actions: `list` (recent edits, optionally filtered by file), `undo` (restore a specific edit), `diff` (show unified diff), `prune` (clean up old records).
+The `edit_history` tool exposes four actions: `list` (recent edits, optionally filtered by file), `undo` (restore a specific edit), `diff` (show unified diff), `prune` (clean up old records). The default retention days for pruning is configurable via `agents.defaults.editHistory.retentionDays` in `openclaw.json` (default: 7).
 
 Edit history is only created for the orchestrator agent. Child agents and background tool executors do not receive an `EditHistory` instance — they are ephemeral and do not need edit tracking.
 
