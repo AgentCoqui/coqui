@@ -91,14 +91,16 @@ final class BackgroundToolExecutor
             allowedPaths: $this->boot->mountManager()->allowedPaths(),
         ));
 
-        // Shell toolkit — runs in project root
-        $shellAllowed = $this->resolveShellAllowedCommands($config);
-        $shellDenied = $this->resolveShellDeniedCommands($config);
+        // Shell toolkit — runs in project root.
+        // In unsafe mode, bypass all command restrictions.
+        $shellAllowed = $this->unsafeMode ? [] : $this->resolveShellAllowedCommands($config);
+        $shellDenied = $this->unsafeMode ? [] : $this->resolveShellDeniedCommands($config);
         $this->registerToolkit(new ShellToolkit(
             workDir: $this->projectRoot,
             allowedCommands: $shellAllowed,
             deniedCommands: $shellDenied,
             timeout: 60,
+            unsafe: $this->unsafeMode,
         ));
 
         // Memory toolkit

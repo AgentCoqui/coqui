@@ -477,8 +477,8 @@ final class AgentRunner
             familyResolver: $this->defaultsLoader !== null
                 ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
                 : null,
+            unsafeMode: $this->unsafeMode,
         );
-    }
 
     /**
      * Build a preview agent (no session, no storage side-effects) and return

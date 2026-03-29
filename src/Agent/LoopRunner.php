@@ -63,6 +63,7 @@ final class LoopRunner
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
         private readonly ?MountManager $mountManager = null,
         private readonly ?SplObserver $observer = null,
+        private readonly bool $unsafeMode = false,
         /** @var list<string> */
         private readonly array $shellAllowedCommands = [],
         /** @var list<string> */
@@ -263,9 +264,10 @@ final class LoopRunner
                 new FileSystemToolkit(workspacePath: $this->workspacePath, allowedPaths: $mountPaths),
                 new ShellToolkit(
                     workDir: $this->projectRoot,
-                    allowedCommands: $this->shellAllowedCommands,
-                    deniedCommands: $this->shellDeniedCommands,
+                    allowedCommands: $this->unsafeMode ? [] : $this->shellAllowedCommands,
+                    deniedCommands: $this->unsafeMode ? [] : $this->shellDeniedCommands,
                     timeout: 60,
+                    unsafe: $this->unsafeMode,
                 ),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
