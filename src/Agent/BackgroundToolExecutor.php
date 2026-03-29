@@ -7,8 +7,9 @@ namespace CoquiBot\Coqui\Agent;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
+use CoquiBot\Coqui\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
@@ -102,6 +103,9 @@ final class BackgroundToolExecutor
             timeout: 60,
             unsafe: $this->unsafeMode,
         ));
+
+        // Web toolkit — HTTP requests with SSRF protection
+        $this->registerToolkit(new WebToolkit());
 
         // Memory toolkit
         $memoryStore = $this->boot->memoryStore();

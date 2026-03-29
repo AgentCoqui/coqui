@@ -11,8 +11,9 @@ use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
+use CoquiBot\Coqui\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
 use CoquiBot\Coqui\Agent\CodeReviewCycle;
 use CoquiBot\Coqui\Agent\PlanTodoGenerator;
@@ -244,6 +245,7 @@ final class SpawnAgentTool implements ToolInterface
                     timeout: 60,
                     unsafe: $this->unsafeMode,
                 ),
+                new WebToolkit(),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 

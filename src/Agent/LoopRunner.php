@@ -33,7 +33,8 @@ use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\SprintToolkit;
 use CoquiBot\Coqui\Toolkit\TodoToolkit;
-use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Toolkit\WebToolkit;
 use SplObserver;
 
 /**
@@ -269,6 +270,7 @@ final class LoopRunner
                     timeout: 60,
                     unsafe: $this->unsafeMode,
                 ),
+                new WebToolkit(),
                 new ProjectSourceToolkit(projectRoot: $this->projectRoot),
             ],
 

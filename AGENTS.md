@@ -59,13 +59,18 @@ Agents implement `SplSubject`. Coqui attaches `TerminalObserver` (REPL) and `Sse
 | `ContextWindowInterface` | `ContextWindow` — optionally enabled; prunes conversation on token pressure |
 | `BudgetPruningStrategyInterface` | `SummarizePruningStrategy` — summarize-then-drop; falls back to `DefaultBudgetPruningStrategy` |
 
-### Deprecated in php-agents — Do Not Use in Coqui
+### Removed from php-agents (Now in Coqui)
 
-| Item | Replacement |
+| Class | Coqui Location |
 | ----------------------------------- | ------------------------------------- |
+| `FilesystemToolkit` | `src/Toolkit/FileSystemToolkit.php` (expanded to 16 tools + edit history) |
+| `ShellToolkit` | `src/Toolkit/ShellToolkit.php` |
+| `WebToolkit` | `src/Toolkit/WebToolkit.php` |
+| `MemoryToolkit` | `src/Toolkit/MemoryToolkit.php` |
+| `MemoryEntry` | `src/Memory/MemoryEntry.php` |
 | `FileMemory` | `src/Memory/MemoryStore.php` (SQLite + FTS5) |
-| `MemoryToolkit` (php-agents) | `src/Toolkit/MemoryToolkit.php` (Coqui's own) |
-| `FileAgent`, `WebAgent`, `CodeAgent` | `AbstractAgent` + explicit toolkits |
+| `MemoryInterface` | Removed — `MemoryStore` is standalone |
+| `FileAgent`, `WebAgent`, `CodeAgent` | Removed — use `AbstractAgent` + explicit toolkits |
 
 
 
