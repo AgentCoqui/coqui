@@ -15,9 +15,10 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
-use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Storage\EditHistory;
 use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
+use CoquiBot\Coqui\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\ModelFamilyResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
@@ -40,7 +41,7 @@ use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
-use CarmeloSantana\PHPAgents\Memory\MemoryEntry;
+use CoquiBot\Coqui\Memory\MemoryEntry;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
@@ -255,6 +256,11 @@ final class OrchestratorAgent extends AbstractAgent
                 allowedCommands: self::READ_ONLY_SHELL_COMMANDS,
                 timeout: 60,
             ));
+        }
+
+        // Web toolkit — HTTP requests with SSRF protection
+        if ($effectiveAccessLevel === 'full') {
+            $this->addToolkit(new WebToolkit());
         }
 
         // Memory toolkit — SQLite-backed with optional vector search

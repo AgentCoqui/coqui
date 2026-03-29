@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
-use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Toolkit\ShellToolkit;
 
 function shellExecTool(ShellToolkit $toolkit): ToolInterface
 {

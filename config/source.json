@@ -1992,6 +1992,36 @@
             ]
         },
         {
+            "path": "src/Toolkit/ShellToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ShellToolkit",
+            "layer": "toolkit",
+            "description": "Shell command execution with configurable safety layers. Provides the exec tool. Supports allowlist (empty = all commands permitted), denylist, built-in DENIED_PATTERNS regex (rm -rf, curl|bash, php -r, mkfifo, netcat), shell injection detection, and configurable working directory. Ported from php-agents.",
+            "methods": [
+                "tools(): array — returns [exec] tool",
+                "guidelines(): string — shell usage guidelines"
+            ]
+        },
+        {
+            "path": "src/Toolkit/WebToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\WebToolkit",
+            "layer": "toolkit",
+            "description": "HTTP requests and optional web search. Provides http_request tool (GET/POST/PUT/DELETE with SSRF protection) and optional web_search tool (when searchEndpoint is configured). Blocks private/internal network addresses by default. Truncates responses to 10K chars. Ported from php-agents.",
+            "methods": [
+                "tools(): array — returns [http_request] always, plus [web_search] when search endpoint configured",
+                "guidelines(): string — web usage guidelines"
+            ]
+        },
+        {
+            "path": "src/Memory/MemoryEntry.php",
+            "fqcn": "CoquiBot\\Coqui\\Memory\\MemoryEntry",
+            "layer": "storage",
+            "description": "Immutable value object for memory entries. Contains content, area, metadata, optional id/score/createdAt. Provides withId() and withScore() for immutable updates. Used by MemoryStore, MemoryToolkit, MemoryExtractor, ConversationSummarizer. Moved from php-agents.",
+            "methods": [
+                "withId(string): self — returns new instance with the given ID",
+                "withScore(float): self — returns new instance with the given score"
+            ]
+        },
+        {
             "path": "src/Support/FileSystemOperations.php",
             "fqcn": "CoquiBot\\Coqui\\Support\\FileSystemOperations",
             "layer": "support",
@@ -2083,11 +2113,11 @@
                 },
                 {
                     "path": "src/Toolkit/ShellToolkit.php",
-                    "description": "Shell command execution with allowedCommands whitelist and built-in safety patterns"
+                    "description": "REMOVED — now lives in Coqui (src/Toolkit/ShellToolkit.php)"
                 },
                 {
                     "path": "src/Toolkit/MemoryToolkit.php",
-                    "description": "Persistent key-value memory (memory_save, memory_load, memory_forget) backed by FileMemory — superseded by Coqui's SQLite-backed MemoryToolkit"
+                    "description": "REMOVED — now lives in Coqui (src/Toolkit/MemoryToolkit.php)"
                 },
                 {
                     "path": "src/Provider/ProviderFactory.php",
