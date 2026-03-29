@@ -88,7 +88,7 @@ final readonly class SprintToolkit implements ToolkitInterface
             if ($activeSprints !== []) {
                 $sprintParts = [];
                 foreach ($activeSprints as $s) {
-                    $progress = $this->projectStore->getSprintProgress($s['id'], $this->todoStore);
+                    $progress = $this->projectStore->getSprintProgress($s['id'], $this->todoStore, $this->sessionId);
                     $sprintParts[] = sprintf(
                         '- Sprint #%d: **%s** [%s] %d%% (%d/%d todos) — project: %s',
                         $s['sprint_number'],
@@ -181,7 +181,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                         '- **%s** (slug: `%s`, id: %s) [%s] — %d sprints (%d completed)',
                         $p['title'],
                         $p['slug'],
-                        substr($p['id'], 0, 8) . '...',
+                        $p['id'],
                         $p['status'],
                         (int) $p['sprint_count'],
                         (int) $p['sprints_completed'],
@@ -216,7 +216,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                 $sprints = $this->projectStore->listSprints($project['id']);
                 $sprintLines = [];
                 foreach ($sprints as $s) {
-                    $progress = $this->projectStore->getSprintProgress($s['id'], $this->todoStore);
+                    $progress = $this->projectStore->getSprintProgress($s['id'], $this->todoStore, $this->sessionId);
                     $sprintLines[] = sprintf(
                         '  #%d: %s [%s] %d%% (%d/%d todos)%s',
                         $s['sprint_number'],
@@ -368,7 +368,7 @@ final readonly class SprintToolkit implements ToolkitInterface
 
                 $lines = [];
                 foreach ($sprints as $s) {
-                    $progress = $this->projectStore->getSprintProgress($s['id'], $this->todoStore);
+                    $progress = $this->projectStore->getSprintProgress($s['id'], $this->todoStore, $this->sessionId);
                     $reviewInfo = (int) $s['review_round'] > 0
                         ? sprintf(' (review round %d/%d)', $s['review_round'], $s['max_review_rounds'])
                         : '';
@@ -382,7 +382,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                         $progress['completed'],
                         $progress['total'],
                         $reviewInfo,
-                        substr($s['id'], 0, 8) . '...',
+                        $s['id'],
                     );
                 }
 
@@ -411,7 +411,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                     return ToolResult::error("Sprint not found: {$id}");
                 }
 
-                $progress = $this->projectStore->getSprintProgress($id, $this->todoStore);
+                $progress = $this->projectStore->getSprintProgress($id, $this->todoStore, $this->sessionId);
 
                 $result = [
                     'id' => $sprint['id'],
@@ -471,7 +471,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                     }
 
                     $sprint = $this->projectStore->getSprint($id);
-                    $progress = $this->projectStore->getSprintProgress($id, $this->todoStore);
+                    $progress = $this->projectStore->getSprintProgress($id, $this->todoStore, $this->sessionId);
 
                     return ToolResult::success(json_encode([
                         'id' => $id,

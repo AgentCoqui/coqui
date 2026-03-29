@@ -63,7 +63,9 @@ final class TodoToolkit implements ToolkitInterface
         // Complete tool — only full access (coder implements and completes)
         if ($this->accessLevel === 'full') {
             $tools[] = $this->completeTool();
+            $tools[] = $this->bulkCompleteTool();
             $tools[] = $this->deleteTool();
+            $tools[] = $this->bulkDeleteTool();
         }
 
         return $tools;
@@ -78,7 +80,8 @@ final class TodoToolkit implements ToolkitInterface
             return <<<'GUIDELINES'
             <TODO-GUIDELINES>
             You can create **todos** to track tasks and progress within this session.
-            Use `todo_add` to create checklist items — optionally linked to an artifact for plan→execution traceability.
+            Use `todo_add` to create checklist items — each todo **must** be linked to an artifact via `artifact_id`.
+            Create or find a plan artifact first (`artifact_create` or `artifact_list`), then link todos to it.
             Todos support statuses: pending → in_progress → completed. Use `todo_complete` when finishing a task.
             For multi-step plans, create todos for each step so progress is visible and trackable.
             </TODO-GUIDELINES>
@@ -126,11 +129,11 @@ final class TodoToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'todo_add',
-            description: 'Add a new todo item to track a task. Optionally link to an artifact for plan→execution traceability. Use for each step in a multi-step plan.',
+            description: 'Add a new todo item linked to a plan artifact. Every todo must be associated with an artifact for plan→execution traceability. Use for each step in a multi-step plan.',
             parameters: [
                 new StringParameter('title', 'Short description of the task (max 200 chars)', required: true),
+                new StringParameter('artifact_id', 'Artifact ID this todo belongs to (required — use artifact_list to find IDs)', required: true),
                 new EnumParameter('priority', 'Task priority', ['high', 'medium', 'low'], required: false),
-                new StringParameter('artifact_id', 'Link to an artifact ID (e.g. a plan artifact)', required: false),
                 new StringParameter('parent_id', 'Parent todo ID for creating a subtask', required: false),
                 new StringParameter('notes', 'Additional context, requirements, or implementation details', required: false),
                 new StringParameter('sprint_id', 'Link to a sprint for project tracking', required: false),
@@ -144,8 +147,11 @@ final class TodoToolkit implements ToolkitInterface
                     return ToolResult::error('Title must be 200 characters or less.');
                 }
 
-                $priority = $args['priority'] ?? 'medium';
                 $artifactId = isset($args['artifact_id']) && trim($args['artifact_id']) !== '' ? trim($args['artifact_id']) : null;
+                if ($artifactId === null) {
+                    return ToolResult::error('artifact_id is required. Every todo must be linked to a plan artifact. Use artifact_list to find available artifact IDs.');
+                }
+                $priority = $args['priority'] ?? 'medium';
                 $parentId = isset($args['parent_id']) && trim($args['parent_id']) !== '' ? trim($args['parent_id']) : null;
                 $notes = isset($args['notes']) && trim($args['notes']) !== '' ? trim($args['notes']) : null;
 
@@ -178,10 +184,10 @@ final class TodoToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'todo_bulk_add',
-            description: 'Create multiple todos in one call. More efficient than repeated todo_add calls — use when creating 3+ todos (e.g. from a plan). Max 25 items per call.',
+            description: 'Create multiple todos linked to a plan artifact in one call. More efficient than repeated todo_add calls — use when creating 3+ todos (e.g. from a plan). Max 25 items per call.',
             parameters: [
                 new StringParameter('items', 'JSON array of items: [{"title": "...", "priority"?: "high|medium|low", "notes"?: "..."}]. Max 25 items.', required: true),
-                new StringParameter('artifact_id', 'Link all todos to this artifact ID (e.g. a plan artifact)', required: false),
+                new StringParameter('artifact_id', 'Artifact ID to link all todos to (required — use artifact_list to find IDs)', required: true),
                 new StringParameter('sprint_id', 'Link all todos to this sprint for project tracking', required: false),
             ],
             callback: function (array $args): ToolResult {
@@ -192,6 +198,11 @@ final class TodoToolkit implements ToolkitInterface
                 }
                 if (count($items) > 25) {
                     return ToolResult::error('Maximum 25 items per bulk add call.');
+                }
+
+                $artifactId = isset($args['artifact_id']) && trim($args['artifact_id']) !== '' ? trim($args['artifact_id']) : null;
+                if ($artifactId === null) {
+                    return ToolResult::error('artifact_id is required. Every todo must be linked to a plan artifact. Use artifact_list to find available artifact IDs.');
                 }
 
                 $validPriorities = ['high', 'medium', 'low'];
@@ -206,8 +217,6 @@ final class TodoToolkit implements ToolkitInterface
                         return ToolResult::error(sprintf('Item %d: invalid priority "%s".', $i + 1, $item['priority']));
                     }
                 }
-
-                $artifactId = isset($args['artifact_id']) && trim($args['artifact_id']) !== '' ? trim($args['artifact_id']) : null;
 
                 // Normalize items
                 $normalized = array_values(array_map(function (array $item): array {
@@ -274,13 +283,14 @@ final class TodoToolkit implements ToolkitInterface
                     priority: $priority,
                     notes: $notes !== '' ? $notes : null,
                     status: $status,
+                    sessionId: $this->sessionId,
                 );
 
                 if (!$updated) {
                     return ToolResult::error("Todo not found: {$id}");
                 }
 
-                $todo = $this->store->get($id);
+                $todo = $this->store->get($id, sessionId: $this->sessionId);
 
                 return ToolResult::success(json_encode([
                     'id' => $id,
@@ -345,7 +355,7 @@ final class TodoToolkit implements ToolkitInterface
                     $typedUpdates[] = $typed;
                 }
 
-                $count = $this->store->bulkUpdate($typedUpdates);
+                $count = $this->store->bulkUpdate($typedUpdates, sessionId: $this->sessionId);
                 $stats = $this->store->getStats($this->sessionId);
 
                 return ToolResult::success(json_encode([
@@ -378,13 +388,14 @@ final class TodoToolkit implements ToolkitInterface
                     id: $id,
                     completedBy: $this->currentRole,
                     notes: $notes,
+                    sessionId: $this->sessionId,
                 );
 
                 if (!$completed) {
                     return ToolResult::error("Todo not found: {$id}");
                 }
 
-                $todo = $this->store->get($id);
+                $todo = $this->store->get($id, sessionId: $this->sessionId);
                 $stats = $this->store->getStats($this->sessionId);
 
                 return ToolResult::success(json_encode([
@@ -446,7 +457,7 @@ final class TodoToolkit implements ToolkitInterface
                     );
 
                     // Include subtasks
-                    $subtasks = $this->store->getSubtasks($todo['id']);
+                    $subtasks = $this->store->getSubtasks($todo['id'], sessionId: $this->sessionId);
                     foreach ($subtasks as $sub) {
                         $subIcon = match ($sub['status']) {
                             'completed' => '✅',
@@ -488,13 +499,13 @@ final class TodoToolkit implements ToolkitInterface
                     return ToolResult::error('Todo ID is required.');
                 }
 
-                $todo = $this->store->get($id);
+                $todo = $this->store->get($id, sessionId: $this->sessionId);
                 if ($todo === null) {
                     return ToolResult::error("Todo not found: {$id}");
                 }
 
                 // Include subtasks if any
-                $subtasks = $this->store->getSubtasks($id);
+                $subtasks = $this->store->getSubtasks($id, sessionId: $this->sessionId);
                 if ($subtasks !== []) {
                     $todo['subtasks'] = $subtasks;
                 }
@@ -518,12 +529,12 @@ final class TodoToolkit implements ToolkitInterface
                     return ToolResult::error('Todo ID is required.');
                 }
 
-                $todo = $this->store->get($id);
+                $todo = $this->store->get($id, sessionId: $this->sessionId);
                 if ($todo === null) {
                     return ToolResult::error("Todo not found: {$id}");
                 }
 
-                $deleted = $this->store->delete($id);
+                $deleted = $this->store->delete($id, sessionId: $this->sessionId);
                 if (!$deleted) {
                     return ToolResult::error("Failed to delete todo {$id}");
                 }
@@ -533,6 +544,114 @@ final class TodoToolkit implements ToolkitInterface
                     'title' => $todo['title'],
                     'deleted' => true,
                 ], JSON_UNESCAPED_SLASHES) ?: '{}');
+            },
+        );
+    }
+
+    private function bulkCompleteTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'todo_bulk_complete',
+            description: 'Mark multiple todos as completed in one call. More efficient than repeated todo_complete calls. Max 25 items.',
+            parameters: [
+                new StringParameter('ids', 'JSON array of todo IDs to mark as completed: ["id1", "id2", ...]. Max 25.', required: true),
+                new StringParameter('notes', 'Completion notes applied to all todos', required: false),
+            ],
+            callback: function (array $args): ToolResult {
+                $idsRaw = $args['ids'] ?? '';
+                $ids = json_decode($idsRaw, true);
+                if (!is_array($ids) || $ids === []) {
+                    return ToolResult::error('ids must be a non-empty JSON array of todo IDs.');
+                }
+                if (count($ids) > 25) {
+                    return ToolResult::error('Maximum 25 items per bulk complete call.');
+                }
+
+                $notes = isset($args['notes']) && trim($args['notes']) !== '' ? trim($args['notes']) : null;
+                $completed = 0;
+                $failed = [];
+
+                foreach ($ids as $id) {
+                    $id = trim((string) $id);
+                    if ($id === '') {
+                        continue;
+                    }
+
+                    $result = $this->store->complete(
+                        id: $id,
+                        completedBy: $this->currentRole,
+                        notes: $notes,
+                        sessionId: $this->sessionId,
+                    );
+
+                    if ($result) {
+                        $completed++;
+                    } else {
+                        $failed[] = $id;
+                    }
+                }
+
+                $stats = $this->store->getStats($this->sessionId);
+
+                $response = [
+                    'completed' => $completed,
+                    'total_requested' => count($ids),
+                    'progress' => "{$stats['completed']}/{$stats['total']} completed",
+                ];
+                if ($failed !== []) {
+                    $response['failed_ids'] = $failed;
+                }
+
+                return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
+            },
+        );
+    }
+
+    private function bulkDeleteTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'todo_bulk_delete',
+            description: 'Delete multiple todos and their subtasks in one call. Use sparingly — prefer cancelling instead. Max 25 items.',
+            parameters: [
+                new StringParameter('ids', 'JSON array of todo IDs to delete: ["id1", "id2", ...]. Max 25.', required: true),
+            ],
+            callback: function (array $args): ToolResult {
+                $idsRaw = $args['ids'] ?? '';
+                $ids = json_decode($idsRaw, true);
+                if (!is_array($ids) || $ids === []) {
+                    return ToolResult::error('ids must be a non-empty JSON array of todo IDs.');
+                }
+                if (count($ids) > 25) {
+                    return ToolResult::error('Maximum 25 items per bulk delete call.');
+                }
+
+                $deleted = 0;
+                $failed = [];
+
+                foreach ($ids as $id) {
+                    $id = trim((string) $id);
+                    if ($id === '') {
+                        continue;
+                    }
+
+                    $result = $this->store->delete($id, sessionId: $this->sessionId);
+
+                    if ($result) {
+                        $deleted++;
+                    } else {
+                        $failed[] = $id;
+                    }
+                }
+
+                $response = [
+                    'deleted' => $deleted,
+                    'total_requested' => count($ids),
+                ];
+                if ($failed !== []) {
+                    $response['failed_ids'] = $failed;
+                }
+
+                return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
             },
         );
     }
@@ -547,10 +666,10 @@ final class TodoToolkit implements ToolkitInterface
         }
 
         try {
-            $artifact = $this->artifactStore->get($artifactId);
+            $artifact = $this->artifactStore->get($artifactId, sessionId: $this->sessionId);
             if ($artifact !== null) {
                 $title = $artifact['title'] ?? 'Untitled';
-                return " → artifact: {$title}";
+                return " → artifact: {$title} (id: {$artifactId})";
             }
         } catch (\Throwable) {
             // Non-critical

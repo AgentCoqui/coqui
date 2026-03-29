@@ -87,7 +87,7 @@ final readonly class ArtifactHandler
      */
     public function get(ServerRequestInterface $request, string $id, string $artifactId): Response
     {
-        $artifact = $this->store->get($artifactId);
+        $artifact = $this->store->get($artifactId, sessionId: $id);
 
         if ($artifact === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
@@ -102,7 +102,7 @@ final readonly class ArtifactHandler
      */
     public function update(ServerRequestInterface $request, string $id, string $artifactId): Response
     {
-        $artifact = $this->store->get($artifactId);
+        $artifact = $this->store->get($artifactId, sessionId: $id);
         if ($artifact === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
         }
@@ -114,8 +114,8 @@ final readonly class ArtifactHandler
 
         // Stage-only update
         if (isset($body['stage']) && !isset($body['content'])) {
-            $this->store->updateStage($artifactId, trim((string) $body['stage']));
-            $updated = $this->store->get($artifactId);
+            $this->store->updateStage($artifactId, trim((string) $body['stage']), sessionId: $id);
+            $updated = $this->store->get($artifactId, sessionId: $id);
             return Router::jsonResponse($updated ?? $artifact);
         }
 
@@ -127,10 +127,11 @@ final readonly class ArtifactHandler
                 changeSummary: isset($body['change_summary']) ? trim((string) $body['change_summary']) : null,
                 title: isset($body['title']) ? trim((string) $body['title']) : null,
                 stage: isset($body['stage']) ? trim((string) $body['stage']) : null,
+                sessionId: $id,
             );
         }
 
-        $updated = $this->store->get($artifactId);
+        $updated = $this->store->get($artifactId, sessionId: $id);
 
         return Router::jsonResponse($updated ?? $artifact);
     }
@@ -140,7 +141,7 @@ final readonly class ArtifactHandler
      */
     public function delete(ServerRequestInterface $request, string $id, string $artifactId): Response
     {
-        $deleted = $this->store->delete($artifactId);
+        $deleted = $this->store->delete($artifactId, sessionId: $id);
 
         if (!$deleted) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
@@ -154,12 +155,12 @@ final readonly class ArtifactHandler
      */
     public function versions(ServerRequestInterface $request, string $id, string $artifactId): Response
     {
-        $artifact = $this->store->get($artifactId);
+        $artifact = $this->store->get($artifactId, sessionId: $id);
         if ($artifact === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
         }
 
-        $versions = $this->store->getVersions($artifactId);
+        $versions = $this->store->getVersions($artifactId, sessionId: $id);
 
         return Router::jsonResponse([
             'artifact_id' => $artifactId,
