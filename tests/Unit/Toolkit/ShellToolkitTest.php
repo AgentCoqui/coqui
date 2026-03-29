@@ -46,7 +46,7 @@ test('exec uses default workDir when no cwd given', function () {
     expect($result->status)->toBe(ToolResultStatus::Success);
     $output = json_decode($result->content, true);
     expect(trim($output['stdout']))->toBe(realpath($this->workDir));
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'pwd output format differs on Windows (MSYS vs realpath)');
 
 test('exec resolves relative cwd from workDir', function () {
     mkdir($this->workDir . '/sub');
@@ -58,7 +58,7 @@ test('exec resolves relative cwd from workDir', function () {
     expect($result->status)->toBe(ToolResultStatus::Success);
     $output = json_decode($result->content, true);
     expect(trim($output['stdout']))->toBe(realpath($this->workDir . '/sub'));
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'pwd output format differs on Windows (MSYS vs realpath)');
 
 test('exec returns error for non-existent cwd', function () {
     $toolkit = new ShellToolkit(workDir: $this->workDir);
