@@ -34,6 +34,7 @@ final class ConfigValidator
         $errors = [...$errors, ...$this->validateWorkspace($data)];
         $errors = [...$errors, ...$this->validateMemory($data)];
         $errors = [...$errors, ...$this->validateApi($data)];
+        $errors = [...$errors, ...$this->validateEditHistory($data)];
 
         return $errors;
     }
@@ -406,6 +407,32 @@ final class ConfigValidator
                         $errors[] = 'api.rateLimit.windowSeconds must be a positive integer';
                     }
                 }
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @return string[]
+     */
+    private function validateEditHistory(array $data): array
+    {
+        $editHistory = $data['agents']['defaults']['editHistory'] ?? null;
+
+        if ($editHistory === null) {
+            return [];
+        }
+
+        if (!is_array($editHistory)) {
+            return ['agents.defaults.editHistory must be an object'];
+        }
+
+        $errors = [];
+
+        if (isset($editHistory['retentionDays'])) {
+            if (!is_int($editHistory['retentionDays']) || $editHistory['retentionDays'] < 1) {
+                $errors[] = 'agents.defaults.editHistory.retentionDays must be a positive integer';
             }
         }
 

@@ -12,6 +12,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\EditHistory;
 use CoquiBot\Coqui\Support\FileSystemException;
 use CoquiBot\Coqui\Support\FileSystemOperations;
@@ -32,12 +33,14 @@ final class FileSystemToolkit implements ToolkitInterface
      * @param bool   $readOnly       When true, only read tools are exposed.
      * @param array<int, array{realPath: string, readOnly: bool}> $allowedPaths  Mount definitions.
      * @param ?EditHistory $history   Edit history store. Pass null to disable history.
+     * @param int $retentionDays      Default retention days for edit history pruning.
      */
     public function __construct(
         string $workspacePath,
         private readonly bool $readOnly = false,
         array $allowedPaths = [],
         private readonly ?EditHistory $history = null,
+        private readonly int $retentionDays = CoquiDefaults::EDIT_HISTORY_RETENTION_DAYS,
     ) {
         $this->fs = new FileSystemOperations($workspacePath, $allowedPaths);
     }
@@ -61,6 +64,8 @@ final class FileSystemToolkit implements ToolkitInterface
         $tools[] = $this->writeFileTool();
         $tools[] = $this->createDirTool();
         $tools[] = $this->deleteFileTool();
+        $tools[] = $this->copyTool();
+        $tools[] = $this->moveTool();
 
         // Surgical edit tools
         $tools[] = $this->replaceInFileTool();
@@ -105,6 +110,8 @@ final class FileSystemToolkit implements ToolkitInterface
             | Append content to end of file | `append_to_file` |
             | Create directory | `create_dir` |
             | Delete file | `delete_file` |
+            | Copy file or directory | `copy_file` |
+            | Move/rename file or directory | `move` |
             | Replace specific text or regex | `replace_in_file` |
             | Insert line(s) before a match | `insert_before` |
             | Insert line(s) after a match | `insert_after` |
@@ -466,6 +473,77 @@ final class FileSystemToolkit implements ToolkitInterface
         }
 
         return ToolResult::success("Deleted: {$path}");
+    }
+
+    private function copyTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'copy_file',
+            description: 'Copy a file or directory to a new location. Automatically handles recursive directory copies. Creates destination parent directories. Returns the count of items copied.',
+            parameters: [
+                new StringParameter('source', 'Source path relative to workspace (file or directory).'),
+                new StringParameter('destination', 'Destination path relative to workspace.'),
+            ],
+            callback: fn(array $args): ToolResult => $this->executeCopy($args),
+        );
+    }
+
+    /** @param array<string, mixed> $args */
+    private function executeCopy(array $args): ToolResult
+    {
+        $source = $args['source'] ?? '';
+        $destination = $args['destination'] ?? '';
+
+        try {
+            $count = $this->fs->copyPath($source, $destination);
+        } catch (FileSystemException $e) {
+            return ToolResult::error($e->getMessage());
+        }
+
+        $type = $this->fs->isDir($destination) ? 'directory' : 'file';
+
+        return ToolResult::success("Copied {$type}: {$source} → {$destination} ({$count} item" . ($count !== 1 ? 's' : '') . ')');
+    }
+
+    private function moveTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'move',
+            description: 'Move (rename) a file or directory to a new location. Automatically handles recursive directory moves. Gated: requires user confirmation.',
+            parameters: [
+                new StringParameter('source', 'Source path relative to workspace (file or directory).'),
+                new StringParameter('destination', 'Destination path relative to workspace.'),
+            ],
+            callback: fn(array $args): ToolResult => $this->executeMove($args),
+        );
+    }
+
+    /** @param array<string, mixed> $args */
+    private function executeMove(array $args): ToolResult
+    {
+        $source = $args['source'] ?? '';
+        $destination = $args['destination'] ?? '';
+
+        try {
+            // Record history for single-file moves before moving
+            if ($this->history !== null && $this->fs->isFile($source)) {
+                $original = $this->fs->read($source);
+                $this->history->record(
+                    $this->fs->resolvePath($source),
+                    'move',
+                    $original,
+                    ['destination' => $destination],
+                );
+            }
+
+            $count = $this->fs->movePath($source, $destination);
+        } catch (FileSystemException $e) {
+            return ToolResult::error($e->getMessage());
+        }
+
+        $type = $this->fs->isDir($destination) ? 'directory' : 'file';
+
+        return ToolResult::success("Moved {$type}: {$source} → {$destination} ({$count} item" . ($count !== 1 ? 's' : '') . ')');
     }
 
     // =======================================================================
@@ -1177,7 +1255,7 @@ final class FileSystemToolkit implements ToolkitInterface
     private function historyPrune(array $args): ToolResult
     {
         assert($this->history !== null);
-        $days = (int) ($args['prune_days'] ?? 7);
+        $days = (int) ($args['prune_days'] ?? $this->retentionDays);
 
         $pruned = $this->history->prune($days);
 
