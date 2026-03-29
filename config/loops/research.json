@@ -1,23 +1,36 @@
 {
     "name": "research",
     "description": "Research-and-synthesize loop for deep investigation. An explorer gathers information from the codebase and documentation, a coder synthesizes findings into a structured deliverable, and a reviewer evaluates completeness. Ideal for documentation, architecture analysis, and knowledge extraction.",
+    "parameters": [
+        {
+            "name": "topic",
+            "description": "The subject or area to investigate (e.g. 'authentication', 'database schema', 'API design')",
+            "required": true
+        },
+        {
+            "name": "output_format",
+            "description": "The type of deliverable to produce",
+            "required": false,
+            "default": "markdown document"
+        }
+    ],
     "roles": [
         {
             "name": "investigate",
             "role": "explorer",
-            "prompt": "Investigate the topic thoroughly. Search the codebase, read relevant files, and gather all pertinent information. If this is a rework iteration, focus on the gaps identified by the reviewer. Produce a comprehensive research summary with specific file references and code excerpts.",
+            "prompt": "Investigate {{topic}} thoroughly. Search the codebase, read relevant files, and gather all pertinent information about {{topic}}. If this is a rework iteration, focus on the gaps identified by the reviewer. Produce a comprehensive research summary with specific file references and code excerpts.",
             "order": 0
         },
         {
             "name": "synthesize",
             "role": "coder",
-            "prompt": "Synthesize the research findings from the previous stage into a structured, polished deliverable. This could be documentation, an architecture document, a migration guide, or whatever the goal requires. Ensure all claims are backed by the research findings.",
+            "prompt": "Synthesize the research findings about {{topic}} from the previous stage into a structured, polished {{output_format}}. Ensure all claims are backed by the research findings.",
             "order": 1
         },
         {
             "name": "evaluate",
             "role": "reviewer",
-            "prompt": "Evaluate the deliverable for completeness, accuracy, and clarity. Verify that all claims match the research findings. Check for missing topics, inaccurate references, or unclear sections. Approve if the deliverable meets the goal, or provide specific feedback on what needs more investigation or better synthesis.",
+            "prompt": "Evaluate the {{output_format}} about {{topic}} for completeness, accuracy, and clarity. Verify that all claims match the research findings. Check for missing topics, inaccurate references, or unclear sections. Approve if the deliverable meets the goal, or provide specific feedback on what needs more investigation or better synthesis.",
             "order": 2
         }
     ],

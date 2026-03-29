@@ -20,12 +20,14 @@ final readonly class LoopDefinition
      * @param string                  $description          Human-readable description of the loop's purpose
      * @param list<LoopRoleDefinition> $roles               Ordered role stages executed per iteration cycle
      * @param TerminationCondition    $terminationCondition How the loop determines when to stop
+     * @param list<LoopParameterDefinition> $parameters     Declared template parameters for {{variable}} substitution
      */
     public function __construct(
         public string $name,
         public string $description,
         public array $roles,
         public TerminationCondition $terminationCondition,
+        public array $parameters = [],
     ) {
         if ($name === '' || !preg_match('/^[a-z0-9][a-z0-9_-]*$/', $name)) {
             throw new \InvalidArgumentException(
@@ -62,11 +64,20 @@ final readonly class LoopDefinition
             throw new \InvalidArgumentException('Loop must define a "termination_condition" object');
         }
 
+        $parameters = [];
+        foreach ($data['parameters'] ?? [] as $paramData) {
+            if (!is_array($paramData)) {
+                throw new \InvalidArgumentException('Each entry in "parameters" must be an object');
+            }
+            $parameters[] = LoopParameterDefinition::fromArray($paramData);
+        }
+
         return new self(
             name: $data['name'] ?? '',
             description: $data['description'] ?? '',
             roles: $roles,
             terminationCondition: TerminationCondition::fromArray($terminationData),
+            parameters: $parameters,
         );
     }
 
@@ -93,12 +104,21 @@ final readonly class LoopDefinition
      */
     public function toArray(): array
     {
-        return [
+        $result = [
             'name' => $this->name,
             'description' => $this->description,
             'roles' => array_map(static fn(LoopRoleDefinition $r) => $r->toArray(), $this->roles),
             'termination_condition' => $this->terminationCondition->toArray(),
         ];
+
+        if ($this->parameters !== []) {
+            $result['parameters'] = array_map(
+                static fn(LoopParameterDefinition $p) => $p->toArray(),
+                $this->parameters,
+            );
+        }
+
+        return $result;
     }
 
     /**
@@ -125,5 +145,38 @@ final readonly class LoopDefinition
     public function stageCount(): int
     {
         return count($this->roles);
+    }
+
+    /**
+     * Get parameter names that are required (no default value).
+     *
+     * @return list<string>
+     */
+    public function requiredParameterNames(): array
+    {
+        return array_values(array_map(
+            static fn(LoopParameterDefinition $p) => $p->name,
+            array_filter($this->parameters, static fn(LoopParameterDefinition $p) => $p->required),
+        ));
+    }
+
+    /**
+     * Build the full parameter map with defaults applied.
+     *
+     * @param array<string, string> $provided User-supplied parameter values
+     * @return array<string, string> Merged map (provided values override defaults)
+     */
+    public function resolveParameters(array $provided): array
+    {
+        $resolved = [];
+        foreach ($this->parameters as $param) {
+            if (isset($provided[$param->name])) {
+                $resolved[$param->name] = $provided[$param->name];
+            } elseif ($param->default !== null) {
+                $resolved[$param->name] = $param->default;
+            }
+        }
+
+        return $resolved;
     }
 }

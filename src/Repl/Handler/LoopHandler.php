@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Repl\Handler;
 
+use CoquiBot\Coqui\Agent\LoopRunner;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Repl\TimeFormatter;
 use CoquiBot\Coqui\Storage\LoopStore;
@@ -17,10 +18,11 @@ final class LoopHandler
 {
     public function __construct(
         private readonly SessionStorage $storage,
-        private readonly LoopDiscovery $loopDiscovery,
+        private readonly ?LoopDiscovery $loopDiscovery,
+        private readonly ?LoopRunner $loopRunner = null,
     ) {}
 
-    public function handle(SymfonyStyle $io, string $arg): void
+    public function handle(SymfonyStyle $io, string $arg, string $sessionId = ''): void
     {
         $loopStore = new LoopStore($this->storage->getPdo());
 
@@ -30,6 +32,7 @@ final class LoopHandler
         $target = trim($argParts[1] ?? '');
 
         match ($action) {
+            'start' => $this->handleStart($io, $target, $sessionId),
             'definitions', 'defs' => $this->handleDefinitions($io),
             'status' => $this->handleStatus($io, $loopStore, $target),
             'pause' => $this->handlePause($io, $loopStore, $target),
@@ -37,6 +40,73 @@ final class LoopHandler
             'stop' => $this->handleStop($io, $loopStore, $target),
             default => $this->handleList($io, $loopStore, $action),
         };
+    }
+
+    private function handleStart(SymfonyStyle $io, string $target, string $sessionId): void
+    {
+        if ($this->loopRunner === null || $this->loopDiscovery === null) {
+            $io->error('Loop execution is not available — required stores were not initialized.');
+            return;
+        }
+
+        if ($target === '') {
+            $io->error('Usage: /loops start <definition> <goal>');
+            $io->text('<fg=gray>Example: /loops start harness "Build a REST API for user management"</>');
+            return;
+        }
+
+        // Parse: first word is definition name, rest is goal
+        $parts = explode(' ', $target, 2);
+        $defName = $parts[0];
+        $goal = trim($parts[1] ?? '');
+
+        if ($goal === '') {
+            $io->error('A goal is required. Usage: /loops start <definition> <goal>');
+            return;
+        }
+
+        // Strip surrounding quotes from goal if present
+        if (
+            (str_starts_with($goal, '"') && str_ends_with($goal, '"'))
+            || (str_starts_with($goal, "'") && str_ends_with($goal, "'"))
+        ) {
+            $goal = substr($goal, 1, -1);
+        }
+
+        if (!$this->loopDiscovery->exists($defName)) {
+            $available = implode(', ', $this->loopDiscovery->availableLoops());
+            $io->error(sprintf('Loop definition "%s" not found. Available: %s', $defName, $available));
+            return;
+        }
+
+        $definition = $this->loopDiscovery->get($defName);
+
+        $io->section(sprintf('Starting loop: %s', $defName));
+        $io->text([
+            sprintf('<fg=gray>Definition:</> %s', $definition->name),
+            sprintf('<fg=gray>Roles:</> %s', implode(' → ', array_map(fn($r) => $r->role, $definition->roles))),
+            sprintf('<fg=gray>Termination:</> %s', $definition->terminationCondition->type->value),
+            sprintf('<fg=gray>Goal:</> %s', $goal),
+        ]);
+        $io->newLine();
+
+        try {
+            $result = $this->loopRunner->run(
+                definition: $definition,
+                goal: $goal,
+                sessionId: $sessionId !== '' ? $sessionId : null,
+            );
+
+            $io->newLine();
+            $io->success(sprintf(
+                'Loop completed — %d iteration(s), %d total stage(s), outcome: %s',
+                $result['iterations_completed'],
+                $result['total_stages_run'],
+                $result['outcome']->value,
+            ));
+        } catch (\Throwable $e) {
+            $io->error(sprintf('Loop execution failed: %s', $e->getMessage()));
+        }
     }
 
     private function handleList(SymfonyStyle $io, LoopStore $store, string $statusFilter): void
@@ -86,6 +156,11 @@ final class LoopHandler
 
     private function handleDefinitions(SymfonyStyle $io): void
     {
+        if ($this->loopDiscovery === null) {
+            $io->error('Loop discovery not available.');
+            return;
+        }
+
         $definitions = $this->loopDiscovery->discoverAll();
 
         if ($definitions === []) {

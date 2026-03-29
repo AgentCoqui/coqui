@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\LoopExecutor;
+use CoquiBot\Coqui\Agent\LoopRunner;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigGuard;
@@ -55,6 +57,7 @@ final class RunCommand extends Command
 
     private BootManager $boot;
     private AgentRunner $agentRunner;
+    private ?LoopRunner $loopRunner = null;
     private EscCancellationObserver $escObserver;
     private SessionStorage $storage;
     private string $sessionId;
@@ -170,6 +173,48 @@ final class RunCommand extends Command
             projectStore: $this->boot->projectStore(),
             defaultsLoader: $this->boot->defaultsLoader(),
         );
+
+        // Initialize loop execution pipeline (requires stores from boot)
+        $loopStore = $this->boot->loopStore();
+        $projectStore = $this->boot->projectStore();
+        $artifactStore = $this->boot->artifactStore();
+        $loopDiscovery = $this->boot->loopDiscovery();
+
+        if ($loopStore !== null && $projectStore !== null && $artifactStore !== null && $loopDiscovery !== null) {
+            $loopExecutor = new LoopExecutor(
+                loopStore: $loopStore,
+                projectStore: $projectStore,
+                artifactStore: $artifactStore,
+                roleResolver: $this->boot->roleResolver(),
+                roleDiscovery: $this->boot->roleDiscovery(),
+                config: $this->boot->config(),
+            );
+
+            $shellAllowed = $this->resolveShellAllowedCommands();
+            $shellDenied = $this->resolveShellDeniedCommands();
+
+            $this->loopRunner = new LoopRunner(
+                executor: $loopExecutor,
+                loopStore: $loopStore,
+                roleResolver: $this->boot->roleResolver(),
+                roleDiscovery: $this->boot->roleDiscovery(),
+                config: $this->boot->config(),
+                projectRoot: $this->workDir,
+                workspacePath: $this->boot->workspacePath(),
+                storage: $this->storage,
+                artifactStore: $artifactStore,
+                todoStore: $this->boot->todoStore(),
+                projectStore: $projectStore,
+                memoryStore: $this->boot->memoryStore(),
+                skillDiscovery: $this->boot->skillDiscovery(),
+                discovery: $this->boot->discovery(),
+                visibilityRegistry: $this->boot->visibilityRegistry(),
+                mountManager: $this->boot->mountManager(),
+                observer: $this->escObserver,
+                shellAllowedCommands: $shellAllowed,
+                shellDeniedCommands: $shellDenied,
+            );
+        }
 
         // Handle session
         $sessionHandler = new SessionHandler($this->boot, $this->storage);
@@ -302,7 +347,7 @@ final class RunCommand extends Command
             conversation: new ConversationHandler($this->boot, $this->storage),
             webhook: new WebhookHandler($this->storage),
             evaluation: new EvaluationHandler($this->storage),
-            loop: new LoopHandler($this->storage, $this->boot->loopDiscovery()),
+            loop: new LoopHandler($this->storage, $this->boot->loopDiscovery(), $this->loopRunner),
             agentRunner: $this->agentRunner,
             onHintsToggle: function () use ($io): void {
                 $this->hintsEnabled = !$this->hintsEnabled;
@@ -557,5 +602,32 @@ final class RunCommand extends Command
         }
 
         return null;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function resolveShellAllowedCommands(): array
+    {
+        $configured = $this->boot->config()->get('agents.defaults.shellAllowedCommands');
+
+        if (is_array($configured) && $configured !== []) {
+            return array_values(array_filter($configured, 'is_string'));
+        }
+
+        return [];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function resolveShellDeniedCommands(): array
+    {
+        $allowSudo = filter_var(
+            $this->boot->config()->get('agents.defaults.allowSudo', false),
+            FILTER_VALIDATE_BOOLEAN,
+        );
+
+        return $allowSudo ? [] : ['sudo'];
     }
 }

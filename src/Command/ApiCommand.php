@@ -7,12 +7,14 @@ namespace CoquiBot\Coqui\Command;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler as ApiLoopHandler;
+use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
 use CoquiBot\Coqui\Api\Handler\PromptHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
@@ -259,7 +261,41 @@ final class ApiCommand extends Command
         $scheduleHandler = new ScheduleHandler($scheduleStore, $scheduleManager);
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
         $webhookMgmtHandler = new WebhookManagementHandler($webhookStore);
-        $loopApiHandler = new ApiLoopHandler($boot->loopStore(), $boot->loopDiscovery());
+
+        // Loop execution pipeline
+        $loopStore = $boot->loopStore();
+        $loopDiscovery = $boot->loopDiscovery();
+        $loopExecutor = null;
+        $loopManager = null;
+
+        if ($loopStore !== null && $boot->projectStore() !== null && $boot->artifactStore() !== null) {
+            $loopExecutor = new LoopExecutor(
+                loopStore: $loopStore,
+                projectStore: $boot->projectStore(),
+                artifactStore: $boot->artifactStore(),
+                roleResolver: $boot->roleResolver(),
+                roleDiscovery: $boot->roleDiscovery(),
+                config: $boot->config(),
+            );
+
+            $loopManager = new LoopManager(
+                loopStore: $loopStore,
+                executor: $loopExecutor,
+                storage: $storage,
+            );
+            $loopManager->setOnNotify(static function (string $event, array $data) use ($output): void {
+                $output->writeln(sprintf(
+                    '<fg=gray>[%s]</> <info>%s</info>: %s',
+                    date('H:i:s'),
+                    $event,
+                    json_encode($data, JSON_UNESCAPED_SLASHES) ?: '{}',
+                ), OutputInterface::VERBOSITY_VERBOSE);
+            });
+        }
+
+        $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
+            ? new ApiLoopHandler($loopStore, $loopDiscovery, $loopExecutor)
+            : null;
 
         // Build router
         $router = new Router();
@@ -375,6 +411,13 @@ final class ApiCommand extends Command
             $webhookStore->purgeOldDeliveries();
         });
 
+        // Periodic timer: advance running loops every 5 seconds
+        if ($loopManager !== null) {
+            Loop::addPeriodicTimer(LoopManager::TICK_INTERVAL, static function () use ($loopManager): void {
+                $loopManager->tick();
+            });
+        }
+
         return $restartRequested ? RunCommand::RESTART_EXIT_CODE : Command::SUCCESS;
     }
 
@@ -401,7 +444,7 @@ final class ApiCommand extends Command
         ScheduleHandler $schedule,
         WebhookHandler $webhook,
         WebhookManagementHandler $webhookMgmt,
-        ApiLoopHandler $loop,
+        ?ApiLoopHandler $loop,
     ): void {
         $v1 = '/api/v1';
 
@@ -508,7 +551,7 @@ final class ApiCommand extends Command
         $webhookMgmt->register($router);
 
         // Loops
-        $loop->register($router);
+        $loop?->register($router);
     }
 
     /**
