@@ -134,12 +134,18 @@ final class TodoStore
     /**
      * Get a single todo by ID.
      *
+     * @param string|null $sessionId When provided, validates the todo belongs to this session.
      * @return array<string, mixed>|null
      */
-    public function get(string $id): ?array
+    public function get(string $id, ?string $sessionId = null): ?array
     {
-        $stmt = $this->db->prepare('SELECT * FROM todos WHERE id = ?');
-        $stmt->execute([$id]);
+        if ($sessionId !== null) {
+            $stmt = $this->db->prepare('SELECT * FROM todos WHERE id = ? AND session_id = ?');
+            $stmt->execute([$id, $sessionId]);
+        } else {
+            $stmt = $this->db->prepare('SELECT * FROM todos WHERE id = ?');
+            $stmt->execute([$id]);
+        }
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $row !== false ? $row : null;
@@ -147,6 +153,8 @@ final class TodoStore
 
     /**
      * Update a todo's fields. Only non-null parameters are applied.
+     *
+     * @param string|null $sessionId When provided, validates the todo belongs to this session.
      */
     public function update(
         string $id,
@@ -154,8 +162,9 @@ final class TodoStore
         ?string $priority = null,
         ?string $notes = null,
         ?string $status = null,
+        ?string $sessionId = null,
     ): bool {
-        $todo = $this->get($id);
+        $todo = $this->get($id, $sessionId);
         if ($todo === null) {
             return false;
         }
@@ -202,10 +211,12 @@ final class TodoStore
 
     /**
      * Mark a todo as completed.
+     *
+     * @param string|null $sessionId When provided, validates the todo belongs to this session.
      */
-    public function complete(string $id, ?string $completedBy = null, ?string $notes = null): bool
+    public function complete(string $id, ?string $completedBy = null, ?string $notes = null, ?string $sessionId = null): bool
     {
-        $todo = $this->get($id);
+        $todo = $this->get($id, $sessionId);
         if ($todo === null) {
             return false;
         }
@@ -234,11 +245,18 @@ final class TodoStore
 
     /**
      * Delete a todo and its subtasks (via CASCADE).
+     *
+     * @param string|null $sessionId When provided, validates the todo belongs to this session.
      */
-    public function delete(string $id): bool
+    public function delete(string $id, ?string $sessionId = null): bool
     {
-        $stmt = $this->db->prepare('DELETE FROM todos WHERE id = ?');
-        $stmt->execute([$id]);
+        if ($sessionId !== null) {
+            $stmt = $this->db->prepare('DELETE FROM todos WHERE id = ? AND session_id = ?');
+            $stmt->execute([$id, $sessionId]);
+        } else {
+            $stmt = $this->db->prepare('DELETE FROM todos WHERE id = ?');
+            $stmt->execute([$id]);
+        }
 
         return $stmt->rowCount() > 0;
     }
@@ -301,21 +319,26 @@ final class TodoStore
     /**
      * List all todos linked to a specific artifact.
      *
+     * @param string|null $sessionId When provided, scopes results to this session.
      * @return list<array<string, mixed>>
      */
-    public function listByArtifact(string $artifactId, bool $includeSubtasks = true): array
+    public function listByArtifact(string $artifactId, bool $includeSubtasks = true, ?string $sessionId = null): array
     {
-        if ($includeSubtasks) {
-            $stmt = $this->db->prepare(
-                'SELECT * FROM todos WHERE artifact_id = ? ORDER BY sort_order ASC, created_at ASC',
-            );
-        } else {
-            $stmt = $this->db->prepare(
-                'SELECT * FROM todos WHERE artifact_id = ? AND parent_id IS NULL ORDER BY sort_order ASC, created_at ASC',
-            );
+        $where = ['artifact_id = ?'];
+        $params = [$artifactId];
+
+        if ($sessionId !== null) {
+            $where[] = 'session_id = ?';
+            $params[] = $sessionId;
         }
 
-        $stmt->execute([$artifactId]);
+        if (!$includeSubtasks) {
+            $where[] = 'parent_id IS NULL';
+        }
+
+        $sql = 'SELECT * FROM todos WHERE ' . implode(' AND ', $where) . ' ORDER BY sort_order ASC, created_at ASC';
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
 
         /** @var list<array<string, mixed>> */
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -324,21 +347,26 @@ final class TodoStore
     /**
      * List all todos linked to a specific sprint.
      *
+     * @param string|null $sessionId When provided, scopes results to this session.
      * @return list<array<string, mixed>>
      */
-    public function listBySprint(string $sprintId, bool $includeSubtasks = true): array
+    public function listBySprint(string $sprintId, bool $includeSubtasks = true, ?string $sessionId = null): array
     {
-        if ($includeSubtasks) {
-            $stmt = $this->db->prepare(
-                'SELECT * FROM todos WHERE sprint_id = ? ORDER BY sort_order ASC, created_at ASC',
-            );
-        } else {
-            $stmt = $this->db->prepare(
-                'SELECT * FROM todos WHERE sprint_id = ? AND parent_id IS NULL ORDER BY sort_order ASC, created_at ASC',
-            );
+        $where = ['sprint_id = ?'];
+        $params = [$sprintId];
+
+        if ($sessionId !== null) {
+            $where[] = 'session_id = ?';
+            $params[] = $sessionId;
         }
 
-        $stmt->execute([$sprintId]);
+        if (!$includeSubtasks) {
+            $where[] = 'parent_id IS NULL';
+        }
+
+        $sql = 'SELECT * FROM todos WHERE ' . implode(' AND ', $where) . ' ORDER BY sort_order ASC, created_at ASC';
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
 
         /** @var list<array<string, mixed>> */
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -347,20 +375,30 @@ final class TodoStore
     /**
      * Get progress stats for a sprint's todos.
      *
+     * @param string|null $sessionId When provided, scopes stats to this session.
      * @return array{total: int, pending: int, in_progress: int, completed: int, cancelled: int}
      */
-    public function getSprintStats(string $sprintId): array
+    public function getSprintStats(string $sprintId, ?string $sessionId = null): array
     {
-        $stmt = $this->db->prepare(<<<'SQL'
+        $where = ['sprint_id = ?'];
+        $params = [$sprintId];
+
+        if ($sessionId !== null) {
+            $where[] = 'session_id = ?';
+            $params[] = $sessionId;
+        }
+
+        $whereClause = implode(' AND ', $where);
+        $stmt = $this->db->prepare(<<<SQL
             SELECT
                 COUNT(*) as total,
                 SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
                 SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
                 SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
                 SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
-            FROM todos WHERE sprint_id = ?
+            FROM todos WHERE {$whereClause}
         SQL);
-        $stmt->execute([$sprintId]);
+        $stmt->execute($params);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return [
@@ -375,14 +413,22 @@ final class TodoStore
     /**
      * Get subtasks for a parent todo.
      *
+     * @param string|null $sessionId When provided, scopes results to this session.
      * @return list<array<string, mixed>>
      */
-    public function getSubtasks(string $parentId): array
+    public function getSubtasks(string $parentId, ?string $sessionId = null): array
     {
-        $stmt = $this->db->prepare(
-            'SELECT * FROM todos WHERE parent_id = ? ORDER BY sort_order ASC, created_at ASC',
-        );
-        $stmt->execute([$parentId]);
+        if ($sessionId !== null) {
+            $stmt = $this->db->prepare(
+                'SELECT * FROM todos WHERE parent_id = ? AND session_id = ? ORDER BY sort_order ASC, created_at ASC',
+            );
+            $stmt->execute([$parentId, $sessionId]);
+        } else {
+            $stmt = $this->db->prepare(
+                'SELECT * FROM todos WHERE parent_id = ? ORDER BY sort_order ASC, created_at ASC',
+            );
+            $stmt->execute([$parentId]);
+        }
 
         /** @var list<array<string, mixed>> */
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -429,14 +475,22 @@ final class TodoStore
      * Reorder todos within a session/artifact scope.
      *
      * @param array<string, int> $ordering Map of todo ID → new sort_order
+     * @param string|null $sessionId When provided, only reorders todos belonging to this session.
      */
-    public function reorder(array $ordering): void
+    public function reorder(array $ordering, ?string $sessionId = null): void
     {
-        $stmt = $this->db->prepare('UPDATE todos SET sort_order = ?, updated_at = ? WHERE id = ?');
         $now = gmdate('Y-m-d\TH:i:s\Z');
 
-        foreach ($ordering as $id => $order) {
-            $stmt->execute([$order, $now, $id]);
+        if ($sessionId !== null) {
+            $stmt = $this->db->prepare('UPDATE todos SET sort_order = ?, updated_at = ? WHERE id = ? AND session_id = ?');
+            foreach ($ordering as $id => $order) {
+                $stmt->execute([$order, $now, $id, $sessionId]);
+            }
+        } else {
+            $stmt = $this->db->prepare('UPDATE todos SET sort_order = ?, updated_at = ? WHERE id = ?');
+            foreach ($ordering as $id => $order) {
+                $stmt->execute([$order, $now, $id]);
+            }
         }
     }
 
@@ -498,9 +552,10 @@ final class TodoStore
      * Bulk-update multiple todos in a single transaction.
      *
      * @param list<array{id: string, title?: string, status?: string, priority?: string, notes?: string}> $updates
+     * @param string|null $sessionId When provided, only updates todos belonging to this session.
      * @return int Number of successfully updated todos
      */
-    public function bulkUpdate(array $updates): int
+    public function bulkUpdate(array $updates, ?string $sessionId = null): int
     {
         $count = 0;
         $this->db->beginTransaction();
@@ -518,6 +573,7 @@ final class TodoStore
                     priority: $update['priority'] ?? null,
                     notes: $update['notes'] ?? null,
                     status: $update['status'] ?? null,
+                    sessionId: $sessionId,
                 );
 
                 if ($updated) {

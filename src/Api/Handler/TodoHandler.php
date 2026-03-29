@@ -116,13 +116,13 @@ final readonly class TodoHandler
      */
     public function get(ServerRequestInterface $request, string $id, string $todoId): Response
     {
-        $todo = $this->store->get($todoId);
+        $todo = $this->store->get($todoId, sessionId: $id);
 
         if ($todo === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Todo not found');
         }
 
-        $subtasks = $this->store->getSubtasks($todoId);
+        $subtasks = $this->store->getSubtasks($todoId, sessionId: $id);
 
         return Router::jsonResponse([
             ...$todo,
@@ -136,7 +136,7 @@ final readonly class TodoHandler
      */
     public function update(ServerRequestInterface $request, string $id, string $todoId): Response
     {
-        $todo = $this->store->get($todoId);
+        $todo = $this->store->get($todoId, sessionId: $id);
         if ($todo === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Todo not found');
         }
@@ -167,9 +167,10 @@ final readonly class TodoHandler
             status: $status,
             priority: $priority,
             notes: isset($body['notes']) ? trim((string) $body['notes']) : null,
+            sessionId: $id,
         );
 
-        $updated = $this->store->get($todoId);
+        $updated = $this->store->get($todoId, sessionId: $id);
 
         return Router::jsonResponse($updated ?? $todo);
     }
@@ -180,7 +181,7 @@ final readonly class TodoHandler
      */
     public function complete(ServerRequestInterface $request, string $id, string $todoId): Response
     {
-        $todo = $this->store->get($todoId);
+        $todo = $this->store->get($todoId, sessionId: $id);
         if ($todo === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Todo not found');
         }
@@ -191,9 +192,10 @@ final readonly class TodoHandler
             id: $todoId,
             completedBy: is_array($body) && isset($body['completed_by']) ? trim((string) $body['completed_by']) : null,
             notes: is_array($body) && isset($body['notes']) ? trim((string) $body['notes']) : null,
+            sessionId: $id,
         );
 
-        $updated = $this->store->get($todoId);
+        $updated = $this->store->get($todoId, sessionId: $id);
 
         return Router::jsonResponse($updated ?? $todo);
     }
@@ -203,7 +205,7 @@ final readonly class TodoHandler
      */
     public function delete(ServerRequestInterface $request, string $id, string $todoId): Response
     {
-        $deleted = $this->store->delete($todoId);
+        $deleted = $this->store->delete($todoId, sessionId: $id);
 
         if (!$deleted) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Todo not found');
@@ -332,7 +334,7 @@ final readonly class TodoHandler
             $typedUpdates[] = $typed;
         }
 
-        $count = $this->store->bulkUpdate($typedUpdates);
+        $count = $this->store->bulkUpdate($typedUpdates, sessionId: $id);
 
         $stats = $this->store->getStats($id);
 

@@ -77,7 +77,7 @@ final class ArtifactToolkit implements ToolkitInterface
             $lines[] = sprintf(
                 '- **%s** (id: %s) [%s, %s] v%d%s',
                 $a['title'],
-                substr($a['id'], 0, 8) . '...',
+                $a['id'],
                 $a['type'],
                 $a['stage'],
                 $a['version'],
@@ -170,13 +170,14 @@ final class ArtifactToolkit implements ToolkitInterface
                     content: $content,
                     changeSummary: isset($args['change_summary']) ? trim($args['change_summary']) : null,
                     title: isset($args['title']) ? trim($args['title']) : null,
+                    sessionId: $this->sessionId,
                 );
 
                 if (!$updated) {
                     return ToolResult::error("Artifact not found: {$id}");
                 }
 
-                $artifact = $this->store->get($id);
+                $artifact = $this->store->get($id, sessionId: $this->sessionId);
 
                 return ToolResult::success(json_encode([
                     'id' => $id,
@@ -213,7 +214,7 @@ final class ArtifactToolkit implements ToolkitInterface
                         return ToolResult::error("Version {$version} not found for artifact {$id}");
                     }
 
-                    $artifact = $this->store->get($id);
+                    $artifact = $this->store->get($id, sessionId: $this->sessionId);
                     return ToolResult::success(json_encode([
                         'id' => $id,
                         'title' => $artifact['title'] ?? '',
@@ -224,7 +225,7 @@ final class ArtifactToolkit implements ToolkitInterface
                     ], JSON_UNESCAPED_SLASHES) ?: '{}');
                 }
 
-                $artifact = $this->store->get($id);
+                $artifact = $this->store->get($id, sessionId: $this->sessionId);
                 if ($artifact === null) {
                     return ToolResult::error("Artifact not found: {$id}");
                 }
@@ -293,12 +294,12 @@ final class ArtifactToolkit implements ToolkitInterface
                     return ToolResult::error('Both id and stage are required.');
                 }
 
-                $artifact = $this->store->get($id);
+                $artifact = $this->store->get($id, sessionId: $this->sessionId);
                 if ($artifact === null) {
                     return ToolResult::error("Artifact not found: {$id}");
                 }
 
-                $updated = $this->store->updateStage($id, $stage);
+                $updated = $this->store->updateStage($id, $stage, sessionId: $this->sessionId);
                 if (!$updated) {
                     return ToolResult::error("Failed to update stage for artifact {$id}");
                 }
@@ -343,12 +344,12 @@ final class ArtifactToolkit implements ToolkitInterface
                     return ToolResult::error('Artifact ID is required.');
                 }
 
-                $artifact = $this->store->get($id);
+                $artifact = $this->store->get($id, sessionId: $this->sessionId);
                 if ($artifact === null) {
                     return ToolResult::error("Artifact not found: {$id}");
                 }
 
-                $deleted = $this->store->delete($id);
+                $deleted = $this->store->delete($id, sessionId: $this->sessionId);
                 if (!$deleted) {
                     return ToolResult::error("Failed to delete artifact {$id}");
                 }

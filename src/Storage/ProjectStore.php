@@ -479,11 +479,12 @@ final class ProjectStore
     /**
      * Get sprint progress by aggregating linked todo stats.
      *
+     * @param string|null $sessionId When provided, scopes stats to this session.
      * @return array{total: int, completed: int, in_progress: int, pending: int, percent: int}
      */
-    public function getSprintProgress(string $sprintId, TodoStore $todoStore): array
+    public function getSprintProgress(string $sprintId, TodoStore $todoStore, ?string $sessionId = null): array
     {
-        $stats = $todoStore->getSprintStats($sprintId);
+        $stats = $todoStore->getSprintStats($sprintId, $sessionId);
 
         $total = $stats['total'];
         $percent = $total > 0 ? (int) round(($stats['completed'] / $total) * 100) : 0;
