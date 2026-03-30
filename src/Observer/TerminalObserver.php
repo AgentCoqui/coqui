@@ -24,6 +24,7 @@ final class TerminalObserver implements SplObserver
     private int $indentLevel = 0;
     private bool $hasStreamedText = false;
     private bool $hasStreamedReasoning = false;
+    private bool $statusLineVisible = false;
     private readonly StreamingMarkdownBuffer $markdownBuffer;
 
     public function __construct(
@@ -62,12 +63,20 @@ final class TerminalObserver implements SplObserver
     {
         $indent = str_repeat('  ', $this->indentLevel);
 
+        // Clear the in-place status line before writing any new output.
+        // Text streaming and reasoning are excluded — they write inline
+        // and the status line is already cleared before their first chunk.
+        if (!in_array($event, ['agent.text_delta', 'agent.reasoning'], true)) {
+            $this->clearStatusLine();
+        }
+
         match ($event) {
             'agent.start' => (function () use ($indent): void {
                 $this->hasStreamedText = false;
                 $this->hasStreamedReasoning = false;
                 $this->markdownBuffer->reset();
                 $this->output->writeln("{$indent}<fg=cyan>▶ Agent started</>");
+                $this->showStatusLine();
             })(),
 
             'agent.iteration' => (function () use ($indent, $data): void {
@@ -76,6 +85,7 @@ final class TerminalObserver implements SplObserver
                     $this->hasStreamedReasoning = false;
                 }
                 $this->output->writeln("{$indent}<fg=gray>  ⟳ Iteration {$data}</>");
+                $this->showStatusLine();
             })(),
 
             'agent.reasoning' => $this->handleReasoningDelta($data),
@@ -122,6 +132,7 @@ final class TerminalObserver implements SplObserver
         }
 
         if (!$this->hasStreamedReasoning) {
+            $this->clearStatusLine();
             $this->hasStreamedReasoning = true;
             $this->output->write('<fg=gray>  ⛭ </>');
         }
@@ -167,6 +178,7 @@ final class TerminalObserver implements SplObserver
 
         $args = $this->formatArguments($data->arguments);
         $this->output->writeln("{$indent}<fg=gray>  ▸ Using:</> <fg=yellow>{$data->name}</><fg=gray>({$args})</>");
+        $this->showStatusLine($data->name);
     }
 
     private function handleToolResult(mixed $data, string $indent): void
@@ -187,6 +199,7 @@ final class TerminalObserver implements SplObserver
         $content = str_replace(["\n", "\r"], ' ', $content);
 
         $this->output->writeln("{$indent}    <fg={$color}>{$icon}</> <fg=gray>{$content}</>");
+        $this->showStatusLine();
     }
 
     private function handleTextDelta(mixed $data): void
@@ -195,11 +208,16 @@ final class TerminalObserver implements SplObserver
             return;
         }
 
-        // Close the reasoning line before the first text chunk so the
+        // Clear the reasoning line before the first text chunk so the
         // response starts on a new line, visually separated from the thinking.
         if ($this->hasStreamedReasoning) {
             $this->output->writeln('');
             $this->hasStreamedReasoning = false;
+        }
+
+        // Clear the status line before the first text chunk.
+        if (!$this->hasStreamedText) {
+            $this->clearStatusLine();
         }
 
         $this->hasStreamedText = true;
@@ -401,5 +419,30 @@ final class TerminalObserver implements SplObserver
         $icon = $outcome === 'Complete' ? '✅' : ($outcome === 'Failed' ? '❌' : '⊘');
         $this->output->writeln('');
         $this->output->writeln("{$indent}<fg=magenta>{$icon} Loop finished:</> {$outcome} after {$iterations} iteration(s)");
+    }
+
+    /**
+     * Show the status line at the bottom of the terminal output.
+     *
+     * Uses carriage return + clear to maintain a single in-place line.
+     */
+    private function showStatusLine(string $context = ''): void
+    {
+        $label = $context !== '' ? "Working on {$context}" : 'Working';
+        // \r moves to column 0, \033[K clears to end of line
+        $this->output->write("\r\033[K  <fg=gray>{$label}...</> <fg=#666666>(press ESC to cancel)</>");
+        $this->statusLineVisible = true;
+    }
+
+    /**
+     * Clear the status line if it is currently visible.
+     */
+    private function clearStatusLine(): void
+    {
+        if (!$this->statusLineVisible) {
+            return;
+        }
+        $this->output->write("\r\033[K");
+        $this->statusLineVisible = false;
     }
 }

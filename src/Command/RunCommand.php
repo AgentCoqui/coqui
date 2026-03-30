@@ -363,9 +363,6 @@ final class RunCommand extends Command
             },
         );
 
-        // Track consecutive Ctrl+C presses at the readline prompt.
-        $quitAttempts = 0;
-
         while (true) {
             $io->writeln('');
             if ($this->hintsEnabled) {
@@ -428,18 +425,13 @@ final class RunCommand extends Command
                 }
             }
 
-            // Ctrl+C — count attempts; exit only on the second consecutive press.
+            // Ctrl+C at the prompt → graceful shutdown
             if ($ctrlCPressed) {
-                $quitAttempts++;
-                if ($quitAttempts >= 2) {
-                    if (getenv('COQUI_LAUNCHER') !== '1') {
-                        $io->newLine();
-                        $io->info('Shutting down Coqui.');
-                    }
-                    return 0;
+                if (getenv('COQUI_LAUNCHER') !== '1') {
+                    $io->newLine();
+                    $io->info('Shutting down Coqui.');
                 }
-                $io->writeln('<fg=yellow>(Press Ctrl+C again to quit.)</>');
-                continue;
+                return 0;
             }
 
             // Ctrl+D (EOF) with STDIN closed — exit cleanly
@@ -455,7 +447,6 @@ final class RunCommand extends Command
             if (function_exists('readline_add_history')) {
                 readline_add_history($prompt);
             }
-            $quitAttempts = 0;
 
             // Handle slash commands
             if (str_starts_with($prompt, '/')) {
