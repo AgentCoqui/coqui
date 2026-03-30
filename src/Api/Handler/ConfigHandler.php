@@ -6,29 +6,26 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
-use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
 /**
- * Configuration endpoints.
+ * Configuration read-only endpoints.
  *
  * GET  /api/config           — get full config (sanitized)
- * PUT  /api/config           — write openclaw.json
  * POST /api/config/validate  — dry-run validation
  * GET  /api/config/models    — list available models
  *
+ * Config updates (PUT /api/config) are REPL-only.
  * Role management moved to RoleHandler (/api/config/roles/*).
  */
-final class ConfigHandler
+final readonly class ConfigHandler
 {
     public function __construct(
-        private readonly OpenClawConfig $config,
-        private readonly ConfigManager $configManager,
-        private readonly ConfigValidator $validator,
-        private readonly ?\Closure $onRestart = null,
+        private OpenClawConfig $config,
+        private ConfigValidator $validator,
     ) {}
 
     /**
@@ -44,56 +41,6 @@ final class ConfigHandler
         ];
 
         return Router::jsonResponse($data);
-    }
-
-    /**
-     * PUT /api/config — write openclaw.json and schedule restart.
-     */
-    public function update(ServerRequestInterface $request): Response
-    {
-        $body = (string) $request->getBody();
-
-        if ($body === '') {
-            return Router::jsonResponse(['error' => 'Empty request body'], 400);
-        }
-
-        $decoded = json_decode($body, true);
-
-        if (json_last_error() !== JSON_ERROR_NONE) {
-            return Router::jsonResponse(
-                ['error' => 'Invalid JSON', 'details' => json_last_error_msg()],
-                400,
-            );
-        }
-
-        if (!is_array($decoded)) {
-            return Router::jsonResponse(['error' => 'Config must be a JSON object'], 400);
-        }
-
-        try {
-            $errors = $this->configManager->save($decoded);
-        } catch (\RuntimeException $e) {
-            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, $e->getMessage());
-        }
-
-        if (!empty($errors)) {
-            return Router::errorResponse(
-                ApiErrorCode::VALIDATION_ERROR,
-                'Config validation failed',
-                $errors,
-            );
-        }
-
-        // Schedule restart so new config is loaded on next boot
-        if ($this->onRestart !== null) {
-            ($this->onRestart)();
-        }
-
-        return Router::jsonResponse([
-            'success' => true,
-            'path' => $this->configManager->path(),
-            'restart' => $this->onRestart !== null,
-        ]);
     }
 
     /**

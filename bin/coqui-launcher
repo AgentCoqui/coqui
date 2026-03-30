@@ -221,7 +221,10 @@ stop_service() {
     fi
     if is_running "$pid"; then
         [[ "$quiet" != true ]] && log_dim "Stopping ${name} (PID ${pid})"
-        kill "$pid" 2>/dev/null || true
+
+        # Kill the entire process group (catches child task processes)
+        kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
+
         # Wait up to 5 seconds for graceful shutdown
         local waited=0
         while is_running "$pid" && [[ $waited -lt 50 ]]; do
@@ -229,8 +232,8 @@ stop_service() {
             waited=$((waited + 1))
         done
         if is_running "$pid"; then
-            log_dim "${name}: force-killing (PID ${pid})"
-            kill -9 "$pid" 2>/dev/null || true
+            log_dim "${name}: force-killing process group (PID ${pid})"
+            kill -9 -- -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
         fi
     fi
     rm -f "${PID_DIR}/${name}.pid" 2>/dev/null || true
@@ -280,6 +283,21 @@ if [[ -n "$subcommand" ]]; then
             exit 0 ;;
         stop-api)
             stop_service "api"
+            exit 0 ;;
+        cleanup)
+            log "Cleaning up orphaned task processes..."
+            # Kill any lingering task:run or turn:run child processes
+            local count=0
+            while IFS= read -r pid; do
+                if [[ -n "$pid" ]]; then
+                    kill "$pid" 2>/dev/null && log_dim "  Killed PID $pid" && count=$((count + 1))
+                fi
+            done < <(pgrep -f 'task:run|turn:run' 2>/dev/null || true)
+            if [[ $count -eq 0 ]]; then
+                log "  No orphaned processes found"
+            else
+                log "  Killed $count orphaned process(es)"
+            fi
             exit 0 ;;
         status)
             echo ""

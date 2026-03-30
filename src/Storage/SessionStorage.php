@@ -184,6 +184,12 @@ final class SessionStorage
         // Migration: add schedule_id for scheduled task tracking
         $this->migrateAddColumn('background_tasks', 'schedule_id', 'TEXT DEFAULT NULL');
 
+        // Migration: heartbeat tracking for stale process detection
+        $this->migrateAddColumn('background_tasks', 'last_heartbeat_at', 'TEXT DEFAULT NULL');
+
+        // Migration: per-task max execution time (seconds, 0 = no limit)
+        $this->migrateAddColumn('background_tasks', 'max_execution_seconds', 'INTEGER DEFAULT 3600');
+
         // Migration: soft-delete flag for summarized messages
         $this->migrateAddColumn('messages', 'is_summarized', 'INTEGER NOT NULL DEFAULT 0');
 
@@ -1079,13 +1085,14 @@ final class SessionStorage
         ?string $toolName = null,
         ?string $toolArguments = null,
         ?string $scheduleId = null,
+        int $maxExecutionSeconds = 3600,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, max_iterations, tool_name, tool_arguments, schedule_id, created_at)
-            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :max_iterations, :tool_name, :tool_arguments, :schedule_id, :created_at)
+            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, max_iterations, tool_name, tool_arguments, schedule_id, max_execution_seconds, created_at)
+            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :max_iterations, :tool_name, :tool_arguments, :schedule_id, :max_execution_seconds, :created_at)
         SQL);
 
         $stmt->execute([
@@ -1099,6 +1106,7 @@ final class SessionStorage
             'tool_name' => $toolName,
             'tool_arguments' => $toolArguments,
             'schedule_id' => $scheduleId,
+            'max_execution_seconds' => $maxExecutionSeconds,
             'created_at' => $now,
         ]);
 
@@ -1144,6 +1152,116 @@ final class SessionStorage
 
         $stmt = $this->db->prepare("UPDATE background_tasks SET {$setClause} WHERE id = :id");
         $stmt->execute($params);
+    }
+
+    /**
+     * Conditionally update task status — only if current status matches expected.
+     *
+     * Prevents race condition where parent overwrites a status the child already committed.
+     *
+     * @param array<string, mixed> $extra Additional columns to update (result, error, pid)
+     * @return bool True if a row was updated
+     */
+    public function updateTaskStatusConditional(string $taskId, string $newStatus, string $expectedCurrentStatus, array $extra = []): bool
+    {
+        $sets = ['status = :new_status'];
+        $params = ['new_status' => $newStatus, 'expected_status' => $expectedCurrentStatus, 'id' => $taskId];
+
+        $now = date('c');
+
+        match ($newStatus) {
+            'running' => $sets[] = 'started_at = :started_at',
+            'completed', 'failed' => $sets[] = 'completed_at = :completed_at',
+            'cancelled' => $sets[] = 'cancelled_at = :cancelled_at',
+            default => null,
+        };
+
+        if ($newStatus === 'running') {
+            $params['started_at'] = $now;
+        } elseif ($newStatus === 'completed' || $newStatus === 'failed') {
+            $params['completed_at'] = $now;
+        } elseif ($newStatus === 'cancelled') {
+            $params['cancelled_at'] = $now;
+        }
+
+        foreach ($extra as $col => $val) {
+            if (in_array($col, ['result', 'error', 'pid'], true)) {
+                $sets[] = "{$col} = :{$col}";
+                $params[$col] = $val;
+            }
+        }
+
+        $setClause = implode(', ', $sets);
+
+        $stmt = $this->db->prepare("UPDATE background_tasks SET {$setClause} WHERE id = :id AND status = :expected_status");
+        $stmt->execute($params);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Update the heartbeat timestamp for a running task.
+     */
+    public function updateTaskHeartbeat(string $taskId): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE background_tasks SET last_heartbeat_at = :now WHERE id = :id AND status = 'running'
+        SQL);
+        $stmt->execute(['now' => date('c'), 'id' => $taskId]);
+    }
+
+    /**
+     * Get running tasks whose heartbeat has gone stale (>5 minutes since last heartbeat).
+     *
+     * Only returns tasks that have a heartbeat set (excludes tasks that never started heartbeating).
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getStaleRunningTasks(int $staleThresholdSeconds = 300): array
+    {
+        $cutoff = date('c', time() - $staleThresholdSeconds);
+
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, pid, started_at, last_heartbeat_at
+            FROM background_tasks
+            WHERE status = 'running'
+              AND last_heartbeat_at IS NOT NULL
+              AND last_heartbeat_at < :cutoff
+        SQL);
+        $stmt->execute(['cutoff' => $cutoff]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Get running tasks that have exceeded their max execution time.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getTimedOutRunningTasks(): array
+    {
+        $now = time();
+
+        $stmt = $this->db->query(<<<SQL
+            SELECT id, pid, started_at, max_execution_seconds
+            FROM background_tasks
+            WHERE status = 'running'
+              AND started_at IS NOT NULL
+              AND max_execution_seconds > 0
+        SQL);
+
+        if ($stmt === false) {
+            return [];
+        }
+
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Filter in PHP since SQLite date arithmetic is limited
+        return array_values(array_filter($rows, function (array $row) use ($now): bool {
+            $started = strtotime($row['started_at']);
+
+            return $started !== false && ($now - $started) > (int) $row['max_execution_seconds'];
+        }));
     }
 
     /**
@@ -1339,19 +1457,42 @@ final class SessionStorage
     }
 
     /**
-     * Mark all 'running' or 'cancelling' tasks as 'failed' during crash recovery.
+     * Mark orphaned tasks as failed — only those whose process is actually dead.
+     *
+     * Checks each running/cancelling task's PID with posix_kill($pid, 0) before
+     * marking it failed. Tasks with no PID or a dead PID are considered orphaned.
      */
     public function markOrphanedTasksFailed(string $error = 'Server restarted — task process was lost'): int
     {
-        $stmt = $this->db->prepare(<<<SQL
-            UPDATE background_tasks
-            SET status = 'failed', error = :error, completed_at = :now
-            WHERE status IN ('running', 'cancelling')
+        $stmt = $this->db->query(<<<SQL
+            SELECT id, pid FROM background_tasks WHERE status IN ('running', 'cancelling')
         SQL);
 
-        $stmt->execute(['error' => $error, 'now' => date('c')]);
+        if ($stmt === false) {
+            return 0;
+        }
 
-        return $stmt->rowCount();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $count = 0;
+        $now = date('c');
+
+        $update = $this->db->prepare(<<<SQL
+            UPDATE background_tasks SET status = 'failed', error = :error, completed_at = :now WHERE id = :id
+        SQL);
+
+        foreach ($rows as $row) {
+            $pid = (int) ($row['pid'] ?? 0);
+
+            // If the PID is alive, skip — the process is still running
+            if ($pid > 0 && function_exists('posix_kill') && posix_kill($pid, 0)) {
+                continue;
+            }
+
+            $update->execute(['error' => $error, 'now' => $now, 'id' => $row['id']]);
+            $count++;
+        }
+
+        return $count;
     }
 
     /**
@@ -1525,6 +1666,46 @@ final class SessionStorage
     }
 
     /**
+     * Conditionally update turn process status — only if current status matches expected.
+     *
+     * @param array<string, mixed> $extra Additional columns to update (result, error, pid)
+     * @return bool True if a row was updated
+     */
+    public function updateTurnProcessStatusConditional(string $turnProcessId, string $newStatus, string $expectedCurrentStatus, array $extra = []): bool
+    {
+        $sets = ['status = :new_status'];
+        $params = ['new_status' => $newStatus, 'expected_status' => $expectedCurrentStatus, 'id' => $turnProcessId];
+
+        $now = date('c');
+
+        match ($newStatus) {
+            'running' => $sets[] = 'started_at = :started_at',
+            'completed', 'failed' => $sets[] = 'completed_at = :completed_at',
+            default => null,
+        };
+
+        if ($newStatus === 'running') {
+            $params['started_at'] = $now;
+        } elseif ($newStatus === 'completed' || $newStatus === 'failed') {
+            $params['completed_at'] = $now;
+        }
+
+        foreach ($extra as $col => $val) {
+            if (in_array($col, ['result', 'error', 'pid'], true)) {
+                $sets[] = "{$col} = :{$col}";
+                $params[$col] = $val;
+            }
+        }
+
+        $setClause = implode(', ', $sets);
+
+        $stmt = $this->db->prepare("UPDATE turn_processes SET {$setClause} WHERE id = :id AND status = :expected_status");
+        $stmt->execute($params);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
      * @return array<string, mixed>|null
      */
     public function getTurnProcess(string $id): ?array
@@ -1556,23 +1737,40 @@ final class SessionStorage
     }
 
     /**
-     * Mark orphaned turn processes (stuck in pending/running) as failed.
+     * Mark orphaned turn processes as failed — only those whose process is actually dead.
      *
      * Called on API server startup to clean up from previous crashes.
      */
     public function markOrphanedTurnProcessesFailed(string $error = 'Server restarted — turn process was lost'): int
     {
-        $stmt = $this->db->prepare(<<<SQL
-            UPDATE turn_processes
-            SET status = 'failed', error = :error, completed_at = :now
-            WHERE status IN ('pending', 'running')
+        $stmt = $this->db->query(<<<SQL
+            SELECT id, pid FROM turn_processes WHERE status IN ('pending', 'running')
         SQL);
 
-        $stmt->execute([
-            'error' => $error,
-            'now' => date('c'),
-        ]);
+        if ($stmt === false) {
+            return 0;
+        }
 
-        return $stmt->rowCount();
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $count = 0;
+        $now = date('c');
+
+        $update = $this->db->prepare(<<<SQL
+            UPDATE turn_processes SET status = 'failed', error = :error, completed_at = :now WHERE id = :id
+        SQL);
+
+        foreach ($rows as $row) {
+            $pid = (int) ($row['pid'] ?? 0);
+
+            // If the PID is alive, skip — the process is still running
+            if ($pid > 0 && function_exists('posix_kill') && posix_kill($pid, 0)) {
+                continue;
+            }
+
+            $update->execute(['error' => $error, 'now' => $now, 'id' => $row['id']]);
+            $count++;
+        }
+
+        return $count;
     }
 }

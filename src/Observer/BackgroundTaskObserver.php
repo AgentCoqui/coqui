@@ -19,6 +19,11 @@ use SplSubject;
  */
 final class BackgroundTaskObserver implements SplObserver
 {
+    private int $lastHeartbeatTime = 0;
+
+    /** Minimum seconds between heartbeat writes to avoid SQLite contention. */
+    private const int HEARTBEAT_INTERVAL_SECONDS = 30;
+
     public function __construct(
         private readonly SessionStorage $storage,
         private readonly string $taskId,
@@ -42,6 +47,11 @@ final class BackgroundTaskObserver implements SplObserver
 
     private function handleEvent(string $event, mixed $data): void
     {
+        // Emit heartbeat on each iteration (throttled)
+        if ($event === 'agent.iteration') {
+            $this->emitHeartbeat();
+        }
+
         $eventData = match ($event) {
             'agent.start' => [],
             'agent.iteration' => ['number' => $data],
@@ -126,5 +136,25 @@ final class BackgroundTaskObserver implements SplObserver
         }
 
         return ['content' => mb_substr($content, 0, 2000)];
+    }
+
+    /**
+     * Throttled heartbeat — writes at most once per HEARTBEAT_INTERVAL_SECONDS.
+     */
+    private function emitHeartbeat(): void
+    {
+        $now = time();
+
+        if (($now - $this->lastHeartbeatTime) < self::HEARTBEAT_INTERVAL_SECONDS) {
+            return;
+        }
+
+        $this->lastHeartbeatTime = $now;
+
+        try {
+            $this->storage->updateTaskHeartbeat($this->taskId);
+        } catch (\Throwable) {
+            // Best-effort — do not let heartbeat failures kill the agent
+        }
     }
 }

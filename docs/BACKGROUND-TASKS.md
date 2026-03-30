@@ -2,6 +2,8 @@
 
 Background tasks let Coqui run long-running agent work in a separate process while the main conversation continues. Instead of blocking the chat while the agent researches, codes, or processes data, you can kick off a background task and check in on its progress whenever you want.
 
+> **Requires the API server**: Task execution is handled by the API server's `BackgroundTaskManager`. The REPL can create and monitor tasks, but only the API server spawns the child processes that execute them. Start the API with `php bin/coqui api` or use the launcher's default mode which starts both. See [REPL-API-DIVERGENCES.md](REPL-API-DIVERGENCES.md) for the full execution model.
+
 ## How It Works
 
 When a background task is started, Coqui:
