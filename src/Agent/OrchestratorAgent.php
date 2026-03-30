@@ -106,6 +106,7 @@ final class OrchestratorAgent extends AbstractAgent
     private ?string $cachedInstructions = null;
     private ?string $cachedInstructionsRole = null;
     private ?string $cachedMemoryHash = null;
+    private ?string $cachedProjectId = null;
 
     private readonly RoleToolkitResolver $roleToolkitResolver;
 
@@ -311,6 +312,9 @@ final class OrchestratorAgent extends AbstractAgent
                     $this->projectStore,
                     $todoStore,
                     $this->sessionId,
+                    $this->workspacePath,
+                    $this->resolveActiveProjectId(),
+                    $this->storage,
                 ));
             }
         }
@@ -593,17 +597,19 @@ final class OrchestratorAgent extends AbstractAgent
 
     public function instructions(): string
     {
-        // Cache key: active role + memory summary hash.
+        // Cache key: active role + memory summary hash + active project ID.
         // The prompt is rebuilt from disk (glob + file reads) each time, which
         // is expensive in a loop-heavy agent. Cache it and invalidate only when
-        // the role changes or memory content is updated.
+        // the role changes, memory content is updated, or active project changes.
         $currentRole = $this->activeRole ?? 'orchestrator';
         $currentMemoryHash = $this->computeMemoryHash();
+        $currentProjectId = $this->resolveActiveProjectId();
 
         if (
             $this->cachedInstructions !== null
             && $this->cachedInstructionsRole === $currentRole
             && $this->cachedMemoryHash === $currentMemoryHash
+            && $this->cachedProjectId === $currentProjectId
         ) {
             return $this->cachedInstructions;
         }
@@ -627,9 +633,13 @@ final class OrchestratorAgent extends AbstractAgent
         // and recapitulation at END (recency attention) of the instructions block.
         $rendered = $this->injectMemoryContext($rendered);
 
+        // Inject active project context after memory context
+        $rendered = $this->injectProjectContext($rendered);
+
         $this->cachedInstructions = $rendered;
         $this->cachedInstructionsRole = $currentRole;
         $this->cachedMemoryHash = $currentMemoryHash;
+        $this->cachedProjectId = $currentProjectId;
 
         return $rendered;
     }
@@ -724,6 +734,91 @@ final class OrchestratorAgent extends AbstractAgent
                 }
             }
         }
+
+        return $rendered;
+    }
+
+    /**
+     * Resolve the active project ID from the current session.
+     */
+    private function resolveActiveProjectId(): ?string
+    {
+        if ($this->storage === null || $this->sessionId === null) {
+            return null;
+        }
+
+        return $this->storage->getActiveProjectId($this->sessionId);
+    }
+
+    /**
+     * Inject active project context into the system prompt.
+     *
+     * Appends a # ACTIVE PROJECT section with project metadata, sprint roster,
+     * and project directory path. Placed after memory context for high visibility.
+     */
+    private function injectProjectContext(string $rendered): string
+    {
+        $projectId = $this->resolveActiveProjectId();
+        if ($projectId === null || $this->projectStore === null) {
+            return $rendered;
+        }
+
+        try {
+            $todoStore = null;
+            if ($this->storage !== null) {
+                $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
+            }
+
+            $context = $this->projectStore->getProjectContext(
+                $projectId,
+                $todoStore,
+                $this->sessionId,
+            );
+        } catch (\Throwable) {
+            return $rendered;
+        }
+
+        $project = $context['project'];
+        $lines = [
+            '# ACTIVE PROJECT',
+            '',
+            sprintf('**%s** (`%s`) — %s', $project['title'], $project['slug'], $project['status']),
+        ];
+
+        if (!empty($project['description'])) {
+            $lines[] = $project['description'];
+        }
+
+        $lines[] = sprintf('Project directory: `projects/%s/`', $context['directory']);
+
+        // Sprint roster
+        if ($context['sprints'] !== []) {
+            $lines[] = '';
+            $lines[] = '**Sprints:**';
+            foreach ($context['sprints'] as $sprint) {
+                $progress = '';
+                if (isset($sprint['progress']['percent'])) {
+                    $progress = sprintf(
+                        ' %d%% (%d/%d)',
+                        $sprint['progress']['percent'],
+                        $sprint['progress']['completed'],
+                        $sprint['progress']['total'],
+                    );
+                }
+                $lines[] = sprintf(
+                    '- #%d %s [%s]%s',
+                    $sprint['sprint_number'],
+                    $sprint['title'],
+                    $sprint['status'],
+                    $progress,
+                );
+            }
+        }
+
+        $lines[] = '';
+        $lines[] = 'All work in this session is scoped to this project. Use `project_switch` or `/projects clear` to change.';
+
+        $rendered .= "\n\n" . implode("\n", $lines);
 
         return $rendered;
     }

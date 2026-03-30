@@ -54,10 +54,11 @@ final class SlashCommandRouter
      * @param string $command Full command string (e.g. "/role coder")
      * @param string $activeRole Current active role (may be updated by returned RouteResult)
      * @param string $sessionId Current session ID (may be updated by returned RouteResult)
+     * @param ?string $activeProjectId Current active project ID (may be updated by returned RouteResult)
      *
      * @return RouteResult Result containing exit code or state changes.
      */
-    public function route(string $command, string $activeRole, string $sessionId, SymfonyStyle $io): RouteResult
+    public function route(string $command, string $activeRole, string $sessionId, SymfonyStyle $io, ?string $activeProjectId = null): RouteResult
     {
         $parts = explode(' ', $command, 2);
         $cmd = $parts[0];
@@ -74,7 +75,7 @@ final class SlashCommandRouter
             '/config' => $this->handleConfig($io, $arg),
             '/tasks' => $this->handleTasks($io, $arg),
             '/todos' => $this->handleTodos($io, $arg, $sessionId),
-            '/projects' => $this->handleProjects($io, $arg),
+            '/projects' => $this->handleProjects($io, $arg, $sessionId, $activeProjectId),
             '/sprints' => $this->handleSprints($io, $arg, $sessionId),
             '/task' => $this->handleTask($io, $arg),
             '/task-cancel' => $this->handleTaskCancel($io, $arg),
@@ -161,9 +162,18 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleProjects(SymfonyStyle $io, string $arg): RouteResult
+    private function handleProjects(SymfonyStyle $io, string $arg, string $sessionId, ?string $activeProjectId): RouteResult
     {
-        $this->project->handleProjects($io, $arg);
+        [$projectId, $projectSlug] = $this->project->handleProjects($io, $arg, $sessionId, $activeProjectId);
+
+        if ($projectId === '__clear__') {
+            return RouteResult::stateChange(newActiveProjectId: '');
+        }
+
+        if ($projectId !== null) {
+            return RouteResult::stateChange(newActiveProjectId: $projectId);
+        }
+
         return RouteResult::continue();
     }
 

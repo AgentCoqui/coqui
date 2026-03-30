@@ -314,6 +314,7 @@ final class SpawnAgentTool implements ToolInterface
                 $this->projectStore,
                 $todoStore,
                 $this->sessionId,
+                $this->workspacePath,
             );
         }
 

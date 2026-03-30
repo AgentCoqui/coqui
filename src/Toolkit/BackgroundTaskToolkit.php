@@ -225,6 +225,12 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         $model = 'background-task'; // Resolved at runtime by TaskRunCommand
         $sessionId = $this->storage->createSession($role, $model);
 
+        // Propagate active project context from parent session
+        $parentProjectId = $this->storage->getActiveProjectId($this->parentSessionId);
+        if ($parentProjectId !== null) {
+            $this->storage->setActiveProject($sessionId, $parentProjectId);
+        }
+
         // Create the task record — status starts as 'pending'
         $taskId = $this->storage->createTask(
             sessionId: $sessionId,

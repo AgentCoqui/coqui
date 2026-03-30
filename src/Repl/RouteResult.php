@@ -17,6 +17,7 @@ final readonly class RouteResult
         public ?int $exitCode = null,
         public ?string $newActiveRole = null,
         public ?string $newSessionId = null,
+        public ?string $newActiveProjectId = null,
     ) {}
 
     public static function continue(): self
@@ -29,12 +30,16 @@ final readonly class RouteResult
         return new self(shouldContinue: false, exitCode: $code);
     }
 
-    public static function stateChange(?string $newActiveRole = null, ?string $newSessionId = null): self
-    {
+    public static function stateChange(
+        ?string $newActiveRole = null,
+        ?string $newSessionId = null,
+        ?string $newActiveProjectId = null,
+    ): self {
         return new self(
             shouldContinue: true,
             newActiveRole: $newActiveRole,
             newSessionId: $newSessionId,
+            newActiveProjectId: $newActiveProjectId,
         );
     }
 }

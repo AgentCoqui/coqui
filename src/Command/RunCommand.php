@@ -68,6 +68,8 @@ final class RunCommand extends Command
     private bool $restartRequested = false;
     private bool $hintsEnabled = true;
     private string $activeRole = 'orchestrator';
+    private ?string $activeProjectId = null;
+    private ?string $activeProjectSlug = null;
 
     protected function configure(): void
     {
@@ -245,6 +247,9 @@ final class RunCommand extends Command
         $hintsConfig = $this->boot->config()->get('agents.defaults.hints', true);
         $this->hintsEnabled = (bool) $hintsConfig;
 
+        // Restore active project from session
+        $this->restoreActiveProject();
+
         // Display safety mode warnings
         if ($this->unsafeMode) {
             $io->warning('UNSAFE MODE — all PHP functions allowed, catastrophic commands still blocked.');
@@ -341,7 +346,7 @@ final class RunCommand extends Command
             task: new TaskHandler($this->storage),
             todo: new TodoHandler($this->boot->todoStore()),
             schedule: new ScheduleHandler($this->storage),
-            project: new ProjectHandler($this->boot),
+            project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             space: new SpaceHandler($this->boot),
@@ -364,12 +369,20 @@ final class RunCommand extends Command
         while (true) {
             $io->writeln('');
             if ($this->hintsEnabled) {
+                $projectTag = $this->activeProjectSlug !== null
+                    ? sprintf(' <fg=magenta>[%s]</>', $this->activeProjectSlug)
+                    : '';
                 if ($this->activeRole !== 'orchestrator') {
-                    $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>:', $this->activeRole));
+                    $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>%s:', $this->activeRole, $projectTag));
                 } else {
-                    $io->writeln(' <fg=cyan>You:</>');
+                    $io->writeln(sprintf(' <fg=cyan>You</>%s:', $projectTag));
                 }
             }
+
+            // Build readline prompt with optional project slug
+            $readlinePrompt = $this->activeProjectSlug !== null
+                ? sprintf(' [%s] › ', $this->activeProjectSlug)
+                : ' › ';
 
             // Read input using readline's callback API for non-blocking signal handling.
             $line = null;
@@ -379,7 +392,7 @@ final class RunCommand extends Command
             $hasReadline = function_exists('readline_callback_handler_install');
 
             if ($hasReadline) {
-                readline_callback_handler_install(' › ', static function (?string $input) use (&$line, &$lineReady): void {
+                readline_callback_handler_install($readlinePrompt, static function (?string $input) use (&$line, &$lineReady): void {
                     $line = $input;
                     $lineReady = true;
                 });
@@ -404,7 +417,7 @@ final class RunCommand extends Command
 
                 readline_callback_handler_remove();
             } else {
-                $io->write(' › ');
+                $io->write($readlinePrompt);
                 $raw = fgets(STDIN);
                 if ($raw === false) {
                     $line = null;
@@ -446,7 +459,7 @@ final class RunCommand extends Command
 
             // Handle slash commands
             if (str_starts_with($prompt, '/')) {
-                $routeResult = $router->route($prompt, $this->activeRole, $this->sessionId, $io);
+                $routeResult = $router->route($prompt, $this->activeRole, $this->sessionId, $io, $this->activeProjectId);
 
                 if (!$routeResult->shouldContinue) {
                     return $routeResult->exitCode ?? Command::SUCCESS;
@@ -460,6 +473,11 @@ final class RunCommand extends Command
                     $this->sessionId = $routeResult->newSessionId;
                     $sessionHandler->saveSessionFile($this->sessionId);
                     $tabCompletion->setSessionId($this->sessionId);
+                    // Restore project context for resumed session
+                    $this->restoreActiveProject();
+                }
+                if ($routeResult->newActiveProjectId !== null) {
+                    $this->applyProjectChange($routeResult->newActiveProjectId);
                 }
 
                 continue;
@@ -606,4 +624,58 @@ final class RunCommand extends Command
         return null;
     }
 
+    /**
+     * Restore active project state from the current session's database record.
+     */
+    private function restoreActiveProject(): void
+    {
+        $projectId = $this->storage->getActiveProjectId($this->sessionId);
+        if ($projectId === null) {
+            $this->activeProjectId = null;
+            $this->activeProjectSlug = null;
+            return;
+        }
+
+        $projectStore = $this->boot->projectStore();
+        if ($projectStore === null) {
+            return;
+        }
+
+        $project = $projectStore->getProject($projectId);
+        if ($project === null) {
+            // Project was deleted — clear stale reference
+            $this->storage->setActiveProject($this->sessionId, null);
+            $this->activeProjectId = null;
+            $this->activeProjectSlug = null;
+            return;
+        }
+
+        $this->activeProjectId = $project['id'];
+        $this->activeProjectSlug = $project['slug'];
+    }
+
+    /**
+     * Apply a project state change from a RouteResult.
+     *
+     * @param string $projectId Project ID, or empty string to clear.
+     */
+    private function applyProjectChange(string $projectId): void
+    {
+        if ($projectId === '') {
+            $this->activeProjectId = null;
+            $this->activeProjectSlug = null;
+            return;
+        }
+
+        $projectStore = $this->boot->projectStore();
+        if ($projectStore === null) {
+            return;
+        }
+
+        $project = $projectStore->getProject($projectId);
+        if ($project !== null) {
+            $this->activeProjectId = $project['id'];
+            $this->activeProjectSlug = $project['slug'];
+        }
+    }
 }
