@@ -2,6 +2,8 @@
 
 Fully automated, multi-role iteration cycles that run hands-off until a termination condition is met.
 
+> **REPL-only execution**: Loop orchestration runs synchronously in the REPL via `LoopRunner`. The API provides read-only inspection of loop status and definitions but does not drive loop execution. See [REPL-API-DIVERGENCES.md](REPL-API-DIVERGENCES.md) for details on session model differences.
+
 ## Overview
 
 A loop strings together existing agent roles in sequence — each role processes the output of the previous one — and repeats until the work is approved, a limit is reached, or time runs out. Loops are completely autonomous: no human approval, no manual iteration.

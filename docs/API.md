@@ -1,5 +1,7 @@
 # Coqui HTTP API
 
+> **REPL-first**: The terminal REPL is Coqui's primary interface. The API exists as a background-task executor and monitoring surface. Mutating operations (loops, schedules, roles, config) should be performed through the REPL or agent tools. The API provides read-only inspection of most resources plus core session/message/task operations. See [REPL-API-DIVERGENCES.md](REPL-API-DIVERGENCES.md) for details.
+
 The Coqui HTTP API provides programmatic access to Coqui's AI agent capabilities. It enables headless operation, remote session management, and real-time streaming of agent responses via Server-Sent Events (SSE).
 
 The API is built on ReactPHP and runs as a long-lived PHP process. It shares the same core engine as the terminal REPL but without any terminal I/O dependency.

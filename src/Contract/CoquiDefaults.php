@@ -64,4 +64,7 @@ final class CoquiDefaults
 
     /** Safety cap on recursive copy/move operations to prevent runaway traversals. */
     public const int MAX_RECURSIVE_ITEMS = 10_000;
+
+    /** Default max execution time in seconds for background tasks (config: agents.defaults.backgroundTaskMaxExecutionSeconds). */
+    public const int BACKGROUND_TASK_MAX_EXECUTION_SECONDS = 3600;
 }

@@ -113,6 +113,7 @@ final class TaskRunCommand extends Command
 
         // Update status to running
         $storage->updateTaskStatus($taskId, 'running', ['pid' => getmypid()]);
+        $storage->updateTaskHeartbeat($taskId);
 
         // Set up cancellation token + SIGTERM handler
         $cancellationToken = new ProcessCancellationToken();
@@ -253,6 +254,7 @@ final class TaskRunCommand extends Command
 
         // Update status to running
         $storage->updateTaskStatus($taskId, 'running', ['pid' => getmypid()]);
+        $storage->updateTaskHeartbeat($taskId);
 
         // Set up cancellation token + SIGTERM handler
         $cancellationToken = new ProcessCancellationToken();

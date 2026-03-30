@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api;
 
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Support\ProcessSpawner;
 
 /**
  * Manages background task child processes.
@@ -15,13 +16,17 @@ use CoquiBot\Coqui\Contract\CoquiDefaults;
  * long-running agent executions.
  *
  * The manager is ticked periodically by a ReactPHP timer. On each tick it:
- * 1. Checks running processes for termination
- * 2. Starts pending tasks up to the concurrency limit
+ * 1. Checks running processes for termination (reap)
+ * 2. Handles cancel requests
+ * 3. Detects stale/timed-out processes
+ * 4. Starts pending tasks up to the concurrency limit
  */
 final class BackgroundTaskManager
 {
     private const EVENT_RETENTION_DAYS = 7;
     private const CLEANUP_INTERVAL_TICKS = 300;
+    private const STALE_CHECK_INTERVAL_TICKS = 60;
+    private const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 3000;
 
     /** @var array<string, resource> Process handles keyed by task ID */
     private array $processes = [];
@@ -29,7 +34,12 @@ final class BackgroundTaskManager
     /** @var array<string, array<int, resource>> Pipe handles per task */
     private array $pipes = [];
 
+    /** @var array<string, int> PID keyed by task ID (for process group kills) */
+    private array $pids = [];
+
     private int $tickCount = 0;
+
+    private int $staleCheckTickCount = 0;
 
     public function __construct(
         private readonly SessionStorage $storage,
@@ -51,6 +61,14 @@ final class BackgroundTaskManager
         $this->reapFinishedProcesses();
         $this->processCancelRequests();
         $this->startPendingTasks();
+
+        // Stale heartbeat + max execution time checks (~every 60 seconds)
+        $this->staleCheckTickCount++;
+        if ($this->staleCheckTickCount >= self::STALE_CHECK_INTERVAL_TICKS) {
+            $this->staleCheckTickCount = 0;
+            $this->killStaleTasks();
+            $this->killTimedOutTasks();
+        }
 
         // Lazy cleanup of old task events (~every 5 minutes)
         $this->tickCount++;
@@ -95,16 +113,12 @@ final class BackgroundTaskManager
         }
 
         if ($task['status'] === 'running' && isset($this->processes[$taskId])) {
-            $process = $this->processes[$taskId];
-            $status = proc_get_status($process);
+            $pid = $this->pids[$taskId] ?? 0;
 
-            if ($status['running'] && $status['pid'] > 0) {
-                // Send SIGTERM to the process group (Unix) or TerminateProcess (Windows)
-                if (function_exists('posix_kill') && defined('SIGTERM')) {
-                    posix_kill($status['pid'], SIGTERM);
-                } else {
-                    proc_terminate($process);
-                }
+            if ($pid > 0) {
+                ProcessSpawner::killProcessGroup($pid, SIGTERM);
+            } else {
+                proc_terminate($this->processes[$taskId]);
             }
 
             return true;
@@ -116,19 +130,16 @@ final class BackgroundTaskManager
     /**
      * Gracefully shut down all running task processes.
      *
-     * Sends SIGTERM to each running task and closes all process handles.
-     * Called during API server shutdown.
+     * Sends SIGTERM to each process group, waits up to 3s, then escalates
+     * to SIGKILL for any that refuse to exit. Called during API server shutdown.
      */
     public function shutdown(): void
     {
         foreach (array_keys($this->processes) as $taskId) {
             $process = $this->processes[$taskId];
-            $status = proc_get_status($process);
+            $pid = $this->pids[$taskId] ?? 0;
 
-            if ($status['running'] && $status['pid'] > 0 && function_exists('posix_kill')) {
-                posix_kill($status['pid'], SIGTERM);
-            }
-
+            ProcessSpawner::terminateGracefully($process, $pid, self::GRACEFUL_SHUTDOWN_TIMEOUT_MS);
             $this->closeProcess($taskId);
         }
     }
@@ -159,6 +170,9 @@ final class BackgroundTaskManager
 
     /**
      * Check for finished processes and update their task status.
+     *
+     * Uses conditional UPDATE (WHERE status = 'running') to avoid a race condition
+     * where the child process has already committed its final status.
      */
     private function reapFinishedProcesses(): void
     {
@@ -181,15 +195,16 @@ final class BackgroundTaskManager
             $this->closeProcess($taskId);
 
             // The TaskRunCommand updates the task status itself via SQLite.
-            // Only handle cases where it crashed before updating (abnormal exit).
-            $task = $this->storage->getTask($taskId);
+            // Use conditional update to avoid overwriting a status the child already committed.
+            $error = $stderr !== '' ? mb_substr($stderr, 0, 1000) : 'Process exited unexpectedly';
+            $updated = $this->storage->updateTaskStatusConditional(
+                $taskId,
+                'failed',
+                'running',
+                ['error' => sprintf('Exit code %d: %s', $exitCode, $error)],
+            );
 
-            if ($task !== null && $task['status'] === 'running') {
-                // Process died without updating status — mark as failed
-                $error = $stderr !== '' ? mb_substr($stderr, 0, 1000) : 'Process exited unexpectedly';
-                $this->storage->updateTaskStatus($taskId, 'failed', [
-                    'error' => sprintf('Exit code %d: %s', $exitCode, $error),
-                ]);
+            if ($updated) {
                 $this->storage->appendTaskEvent($taskId, 'failed', [
                     'error' => sprintf('Process exited with code %d', $exitCode),
                     'stderr' => mb_substr($stderr, 0, 500),
@@ -217,7 +232,7 @@ final class BackgroundTaskManager
     }
 
     /**
-     * Spawn a child process for a task.
+     * Spawn a child process for a task using process group isolation.
      */
     private function spawnProcess(string $taskId): bool
     {
@@ -243,21 +258,9 @@ final class BackgroundTaskManager
             $cmd[] = '--unsafe';
         }
 
-        $descriptors = [
-            0 => ['pipe', 'r'],  // stdin
-            1 => ['pipe', 'w'],  // stdout
-            2 => ['pipe', 'w'],  // stderr
-        ];
+        $result = ProcessSpawner::spawn($cmd, $this->workDir);
 
-        $process = proc_open(
-            $cmd,
-            $descriptors,
-            $pipes,
-            $this->workDir,
-            null, // inherit environment
-        );
-
-        if (!is_resource($process)) {
+        if ($result === null) {
             $this->storage->updateTaskStatus($taskId, 'failed', [
                 'error' => 'Failed to spawn task process',
             ]);
@@ -265,20 +268,14 @@ final class BackgroundTaskManager
             return false;
         }
 
-        // Close stdin — the task process doesn't read from it
-        fclose($pipes[0]);
+        $this->processes[$taskId] = $result['process'];
+        $this->pipes[$taskId] = $result['pipes'];
 
-        // Set stdout and stderr to non-blocking so tick() doesn't hang
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-
-        $this->processes[$taskId] = $process;
-        $this->pipes[$taskId] = $pipes;
-
-        // Update task with the PID
-        $status = proc_get_status($process);
-        if ($status['pid'] > 0) {
-            $this->storage->updateTaskStatus($taskId, 'running', ['pid' => $status['pid']]);
+        // Track PID for process group kills
+        $pid = ProcessSpawner::getPid($result['process']);
+        if ($pid > 0) {
+            $this->pids[$taskId] = $pid;
+            $this->storage->updateTaskStatus($taskId, 'running', ['pid' => $pid]);
         }
 
         return true;
@@ -302,6 +299,8 @@ final class BackgroundTaskManager
             proc_close($this->processes[$taskId]);
             unset($this->processes[$taskId]);
         }
+
+        unset($this->pids[$taskId]);
     }
 
     /**
@@ -318,15 +317,12 @@ final class BackgroundTaskManager
             $taskId = $task['id'];
 
             if (isset($this->processes[$taskId])) {
-                $process = $this->processes[$taskId];
-                $status = proc_get_status($process);
+                $pid = $this->pids[$taskId] ?? 0;
 
-                if ($status['running'] && $status['pid'] > 0) {
-                    if (function_exists('posix_kill') && defined('SIGTERM')) {
-                        posix_kill($status['pid'], SIGTERM);
-                    } else {
-                        proc_terminate($process);
-                    }
+                if ($pid > 0) {
+                    ProcessSpawner::killProcessGroup($pid, SIGTERM);
+                } else {
+                    proc_terminate($this->processes[$taskId]);
                 }
                 // Process will be reaped on next tick — TaskRunCommand sets final status
             } else {
@@ -336,6 +332,63 @@ final class BackgroundTaskManager
                     'message' => 'Cancelled (no active process found)',
                 ]);
             }
+        }
+    }
+
+    /**
+     * Kill tasks whose heartbeat has gone stale (no heartbeat for 5+ minutes).
+     */
+    private function killStaleTasks(): void
+    {
+        $staleTasks = $this->storage->getStaleRunningTasks();
+
+        foreach ($staleTasks as $task) {
+            $taskId = $task['id'];
+            $pid = $this->pids[$taskId] ?? ((int) ($task['pid'] ?? 0));
+
+            if ($pid > 0) {
+                ProcessSpawner::killProcessGroup($pid, SIGTERM);
+            }
+
+            if (isset($this->processes[$taskId])) {
+                $this->closeProcess($taskId);
+            }
+
+            $this->storage->updateTaskStatusConditional($taskId, 'failed', 'running', [
+                'error' => 'Process stale — no heartbeat for 5 minutes',
+            ]);
+            $this->storage->appendTaskEvent($taskId, 'failed', [
+                'error' => 'Killed: no heartbeat for 5 minutes',
+            ]);
+        }
+    }
+
+    /**
+     * Kill tasks that have exceeded their max execution time.
+     */
+    private function killTimedOutTasks(): void
+    {
+        $timedOutTasks = $this->storage->getTimedOutRunningTasks();
+
+        foreach ($timedOutTasks as $task) {
+            $taskId = $task['id'];
+            $maxSeconds = (int) ($task['max_execution_seconds'] ?? CoquiDefaults::BACKGROUND_TASK_MAX_EXECUTION_SECONDS);
+            $pid = $this->pids[$taskId] ?? ((int) ($task['pid'] ?? 0));
+
+            if ($pid > 0) {
+                ProcessSpawner::killProcessGroup($pid, SIGTERM);
+            }
+
+            if (isset($this->processes[$taskId])) {
+                $this->closeProcess($taskId);
+            }
+
+            $this->storage->updateTaskStatusConditional($taskId, 'failed', 'running', [
+                'error' => sprintf('Exceeded maximum execution time (%d seconds)', $maxSeconds),
+            ]);
+            $this->storage->appendTaskEvent($taskId, 'failed', [
+                'error' => sprintf('Killed: exceeded max execution time (%ds)', $maxSeconds),
+            ]);
         }
     }
 }
