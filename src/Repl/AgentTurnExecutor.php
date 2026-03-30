@@ -53,18 +53,14 @@ final class AgentTurnExecutor
         $cancellationToken = new ProcessCancellationToken();
         $this->escObserver->setToken($cancellationToken);
         $sigintCount = 0;
-
-        // Two-stage Ctrl+C:
-        //   First  → cooperative cancel (sets token; agent stops after current response)
-        //   Second → restore SIG_DFL and re-raise to kill immediately (exit 130)
+        $shutdownRequested = false;
         if ($hasSignals) {
-            pcntl_signal(SIGINT, static function () use ($cancellationToken, &$sigintCount, $io): void {
+            pcntl_signal(SIGINT, static function () use ($cancellationToken, &$sigintCount, &$shutdownRequested, $io): void {
                 $sigintCount++;
                 if ($sigintCount === 1) {
+                    $shutdownRequested = true;
                     $cancellationToken->cancel();
-                    $io->writeln(
-                        "\n<fg=yellow>⚑ Stopping — completing current LLM response, then returning to prompt. Press Ctrl+C again to force quit.</>",
-                    );
+                    $io->writeln("\n<fg=yellow>⚑ Shutting down — completing current response. Press Ctrl+C again to force quit.</>");
                 } else {
                     pcntl_signal(SIGINT, SIG_DFL);
                     posix_kill(posix_getpid(), SIGINT);
@@ -96,6 +92,11 @@ final class AgentTurnExecutor
         // Render output — user sees stats immediately
         $renderer = new TerminalRenderer($io, showHints: fn(): bool => (bool) $this->boot->config()->get('agents.defaults.hints', true));
         $renderer->render($result, contentStreamed: true);
+
+        // Ctrl+C during execution → graceful shutdown (skip deferred work, exit REPL)
+        if ($shutdownRequested) {
+            return new AgentTurnResult(exitCode: 0);
+        }
 
         // Enqueue title generation as deferred work (first-turn LLM call)
         $result->deferredWork?->enqueue(fn() => $this->maybeGenerateTitle($sessionId, $prompt));

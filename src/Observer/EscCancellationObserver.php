@@ -92,6 +92,8 @@ final class EscCancellationObserver implements SplObserver
 
                 if (!$this->messageShown) {
                     $this->messageShown = true;
+                    // Clear any in-place status line before writing the cancellation message.
+                    $this->output->write("\r\033[K");
                     $this->output->writeln(
                         "\n<fg=yellow>⚑ Cancellation requested — finishing current response...</>",
                     );
