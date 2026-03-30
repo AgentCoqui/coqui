@@ -492,6 +492,27 @@ Loop events are emitted via `SplSubject` from `LoopRunner`:
 | `harness` | plan → coder → reviewer | `evaluation_bound: "APPROVED"` | Generator-evaluator pattern inspired by Anthropic's Harness |
 | `research` | explorer → coder → reviewer | `evaluation_bound: "APPROVED"` | Research-driven implementation with codebase exploration |
 
+### Session Propagation
+
+Loop stage agents share the parent session's artifacts, todos, and sprint context:
+
+1. **`LoopToolkit`** receives the orchestrator's `sessionId` at construction and passes it to `LoopExecutor::startLoop()` when the agent calls `loop_start`.
+2. **`LoopExecutor`** stores `session_id` in the `loops` table and propagates it through `LoopStageResult::sessionId` when preparing stages.
+3. **`LoopRunner::buildToolkits()`** passes `stageResult->sessionId` to `ArtifactToolkit`, `TodoToolkit`, and `SprintToolkit` — so stage agents can read parent artifacts, track todos, and coordinate sprints.
+4. **`LoopRunner` artifacts** — after each successful stage, the runner creates a `loop_output` artifact in the parent session, linked to the stage's sprint.
+
+This mirrors the `SpawnAgentTool` pattern where child agents receive the parent's session ID for toolkit scoping.
+
+### Nested Loop Protection
+
+Loop stage agents intentionally do **not** receive `LoopToolkit`, `BackgroundTaskToolkit`, `ScheduleToolkit`, or `WebhookToolkit`. These toolkits are only constructed inline by `OrchestratorAgent` — they are never part of auto-discovered packages. This prevents:
+
+- **Infinite recursion** — a stage agent starting another loop inside its own loop
+- **Uncontrolled spawning** — stage agents creating background tasks or schedules
+- **Resource exhaustion** — unbounded process/session creation
+
+Stage agents receive: `FileSystemToolkit`, `ShellToolkit` (access-level dependent), `WebToolkit`, `CoquiSourceToolkit`, `MemoryToolkit`, `SkillToolkit`, `ArtifactToolkit`, `TodoToolkit`, `SprintToolkit`, and auto-discovered package toolkits.
+
 ### Key Source Files
 
 | File | Purpose |
@@ -501,12 +522,12 @@ Loop events are emitted via `SplSubject` from `LoopRunner`:
 | `src/Api/LoopManager.php` | API async driver: 5-second ReactPHP timer, picks up running/resumed loops |
 | `src/Storage/LoopStore.php` | SQLite persistence: 3 tables (loops, loop_iterations, loop_stages) |
 | `src/Config/LoopDiscovery.php` | JSON file discovery from workspace/loops/, seeds built-ins from config/loops/ |
-| `src/Toolkit/LoopToolkit.php` | 7 agent-facing tools with dynamic guidelines |
+| `src/Toolkit/LoopToolkit.php` | 7 agent-facing tools with dynamic guidelines; receives `sessionId` for executor propagation |
 | `src/Contract/LoopDefinition.php` | Immutable value object: name, description, roles, termination condition |
 | `src/Contract/LoopRoleDefinition.php` | Value object: role, prompt, skills, maxIterations per stage |
 | `src/Contract/TerminationType.php` | Backed enum: EvaluationBound, IterationBound, TimeBound, Manual |
 | `src/Contract/TerminationCondition.php` | Value object: type + threshold value |
-| `src/Contract/LoopStageResult.php` | Value object: next stage preparation (role, prompt, skills, maxIterations) |
+| `src/Contract/LoopStageResult.php` | Value object: next stage preparation (role, prompt, sessionId, sprintId) |
 | `src/Contract/IterationOutcome.php` | Enum: Complete, Continue, Failed, LimitReached |
 | `src/Repl/Handler/LoopHandler.php` | REPL /loops command handler |
 | `src/Api/Handler/LoopHandler.php` | REST API endpoints (10 routes, self-registering) |
@@ -763,6 +784,7 @@ Coqui provides session-scoped task tracking via the todo system. Agents use todo
 | `created_by` | TEXT | Role that created the todo |
 | `completed_by` | TEXT | Role that completed it |
 | `notes` | TEXT | Additional context |
+| `sprint_id` | TEXT FK | Optional link to sprint for project tracking |
 | `sort_order` | INTEGER | Display ordering |
 
 ### Role-Based Permissions
