@@ -17,7 +17,7 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string \u2014 returns the full system prompt with role descriptions, security rules, and operational guidelines",
                 "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation)",
@@ -780,13 +780,13 @@
             ]
         },
         {
-            "path": "src/Toolkit/ProjectSourceToolkit.php",
-            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ProjectSourceToolkit",
+            "path": "src/Toolkit/CoquiSourceToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\CoquiSourceToolkit",
             "layer": "toolkit",
-            "description": "Read-only toolkit providing structured access to the Coqui project source code. Tools: project_source_map (returns config/source.json), project_read (reads a file from project root), project_list (lists a directory), project_search (glob search). Enables the agent to understand and navigate its own codebase.",
+            "description": "Read-only toolkit providing structured access to the Coqui project source code and documentation. Tools: coqui_source_map (returns config/source.json), coqui_read (reads a file from project root), coqui_list (lists a directory), coqui_search (glob search with ** recursive support), coqui_doc_map (returns config/documentation.json section index), coqui_doc_read (reads specific documentation sections by heading). Enables the agent to understand and navigate its own codebase and configuration docs.",
             "methods": [
-                "tools(): ToolInterface[] — returns project_source_map, project_read, project_list, project_search",
-                "guidelines(): string — usage instructions for project source access"
+                "tools(): ToolInterface[] — returns coqui_source_map, coqui_read, coqui_list, coqui_search, coqui_doc_map, coqui_doc_read",
+                "guidelines(): string — usage instructions for project source and documentation access"
             ]
         },
         {

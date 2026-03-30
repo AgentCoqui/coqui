@@ -1098,7 +1098,7 @@ final class AgentRunner
                     allowedCommands: ['grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls', 'sort', 'uniq', 'sed', 'awk', 'diff'],
                     timeout: 60,
                 ),
-                new \CoquiBot\Coqui\Toolkit\ProjectSourceToolkit(projectRoot: $this->projectRoot),
+                new \CoquiBot\Coqui\Toolkit\CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ];
 
             return $cycle->run(

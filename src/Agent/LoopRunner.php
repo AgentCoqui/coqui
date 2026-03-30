@@ -29,7 +29,7 @@ use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
-use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
+use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\SprintToolkit;
 use CoquiBot\Coqui\Toolkit\TodoToolkit;
@@ -271,7 +271,7 @@ final class LoopRunner
                     unsafe: $this->unsafeMode,
                 ),
                 new WebToolkit(),
-                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
+                new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             'readonly-shell' => [
@@ -281,12 +281,12 @@ final class LoopRunner
                     allowedCommands: ['grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls', 'sort', 'uniq', 'sed', 'awk', 'diff'],
                     timeout: 60,
                 ),
-                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
+                new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             'readonly' => [
                 new FileSystemToolkit(workspacePath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
-                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
+                new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             default => [],

@@ -33,7 +33,7 @@ use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
-use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
+use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\TodoToolkit;
 use CoquiBot\Coqui\Storage\TodoStore;
@@ -246,7 +246,7 @@ final class SpawnAgentTool implements ToolInterface
                     unsafe: $this->unsafeMode,
                 ),
                 new WebToolkit(),
-                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
+                new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             'readonly-shell' => [
@@ -256,12 +256,12 @@ final class SpawnAgentTool implements ToolInterface
                     allowedCommands: self::READ_ONLY_SHELL_COMMANDS,
                     timeout: 60,
                 ),
-                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
+                new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             'readonly' => [
                 new FileSystemToolkit(workspacePath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
-                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
+                new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             // 'minimal' — no toolkits

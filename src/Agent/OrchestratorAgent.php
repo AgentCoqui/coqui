@@ -48,7 +48,7 @@ use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\LearningToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
-use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
+use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\StubToolkit;
 use CoquiBot\Coqui\Toolkit\TodoToolkit;
@@ -316,7 +316,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         // Project source toolkit — read-only access to the Coqui project codebase
-        $this->addToolkit(new ProjectSourceToolkit(projectRoot: $this->projectRoot));
+        $this->addToolkit(new CoquiSourceToolkit(projectRoot: $this->projectRoot));
 
         // Toolkit generator — scaffold new toolkit packages
         if ($this->roleToolkitResolver->isToolkitAllowed(ToolkitGeneratorToolkit::class)) {
