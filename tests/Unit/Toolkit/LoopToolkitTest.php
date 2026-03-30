@@ -539,3 +539,152 @@ test('loop_definitions shows parameter info', function () {
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('Parameters: topic, format?');
 });
+
+// ──────────────────────────────────────────────
+//  Session ID Propagation
+// ──────────────────────────────────────────────
+
+test('loop_start passes sessionId from toolkit to executor', function () {
+    $pdo = $this->storage->getPdo();
+    $projectStore = new \CoquiBot\Coqui\Storage\ProjectStore($pdo);
+    $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($pdo);
+    $config = \CoquiBot\Coqui\Config\OpenClawConfig::fromArray([
+        'agents' => ['defaults' => ['model' => ['primary' => 'test/model']]],
+    ]);
+    $roleResolver = new \CoquiBot\Coqui\Config\RoleResolver($config);
+    $wsPath = sys_get_temp_dir() . '/coqui-session-ws-' . bin2hex(random_bytes(4));
+    mkdir($wsPath . '/roles', 0755, true);
+    $roleDiscovery = new \CoquiBot\Coqui\Config\RoleDiscovery($wsPath);
+
+    $executor = new \CoquiBot\Coqui\Agent\LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $projectStore,
+        artifactStore: $artifactStore,
+        roleResolver: $roleResolver,
+        roleDiscovery: $roleDiscovery,
+        config: $config,
+    );
+
+    // Create toolkit WITH sessionId
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, $this->sessionId);
+    $startTool = $toolkit->tools()[0];
+
+    $result = $startTool->execute([
+        'definition' => 'harness',
+        'goal' => 'Test session propagation',
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $data = json_decode($result->content, true);
+
+    // Verify loop was created with sessionId stored
+    $loop = $this->loopStore->getLoop($data['loop_id']);
+    expect($loop)->not->toBeNull();
+    expect($loop['session_id'])->toBe($this->sessionId);
+
+    // Clean up
+    $it = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($wsPath, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST,
+    );
+    foreach ($it as $file) {
+        $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
+    }
+    rmdir($wsPath);
+});
+
+test('loop_start without sessionId stores null in loop record', function () {
+    $pdo = $this->storage->getPdo();
+    $projectStore = new \CoquiBot\Coqui\Storage\ProjectStore($pdo);
+    $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($pdo);
+    $config = \CoquiBot\Coqui\Config\OpenClawConfig::fromArray([
+        'agents' => ['defaults' => ['model' => ['primary' => 'test/model']]],
+    ]);
+    $roleResolver = new \CoquiBot\Coqui\Config\RoleResolver($config);
+    $wsPath = sys_get_temp_dir() . '/coqui-nosession-ws-' . bin2hex(random_bytes(4));
+    mkdir($wsPath . '/roles', 0755, true);
+    $roleDiscovery = new \CoquiBot\Coqui\Config\RoleDiscovery($wsPath);
+
+    $executor = new \CoquiBot\Coqui\Agent\LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $projectStore,
+        artifactStore: $artifactStore,
+        roleResolver: $roleResolver,
+        roleDiscovery: $roleDiscovery,
+        config: $config,
+    );
+
+    // Create toolkit WITHOUT sessionId (null)
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor);
+    $startTool = $toolkit->tools()[0];
+
+    $result = $startTool->execute([
+        'definition' => 'harness',
+        'goal' => 'Test no session',
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $data = json_decode($result->content, true);
+
+    $loop = $this->loopStore->getLoop($data['loop_id']);
+    expect($loop)->not->toBeNull();
+    expect($loop['session_id'])->toBeNull();
+
+    // Clean up
+    $it = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($wsPath, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST,
+    );
+    foreach ($it as $file) {
+        $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
+    }
+    rmdir($wsPath);
+});
+
+test('prepareNextStage propagates sessionId into LoopStageResult', function () {
+    $pdo = $this->storage->getPdo();
+    $projectStore = new \CoquiBot\Coqui\Storage\ProjectStore($pdo);
+    $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($pdo);
+    $config = \CoquiBot\Coqui\Config\OpenClawConfig::fromArray([
+        'agents' => ['defaults' => ['model' => ['primary' => 'test/model']]],
+    ]);
+    $roleResolver = new \CoquiBot\Coqui\Config\RoleResolver($config);
+    $wsPath = sys_get_temp_dir() . '/coqui-stage-ws-' . bin2hex(random_bytes(4));
+    mkdir($wsPath . '/roles', 0755, true);
+    $roleDiscovery = new \CoquiBot\Coqui\Config\RoleDiscovery($wsPath);
+
+    $executor = new \CoquiBot\Coqui\Agent\LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $projectStore,
+        artifactStore: $artifactStore,
+        roleResolver: $roleResolver,
+        roleDiscovery: $roleDiscovery,
+        config: $config,
+    );
+
+    // Start loop with sessionId
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, $this->sessionId);
+    $startTool = $toolkit->tools()[0];
+    $result = $startTool->execute([
+        'definition' => 'harness',
+        'goal' => 'Test stage session propagation',
+    ]);
+    $data = json_decode($result->content, true);
+    $loopId = $data['loop_id'];
+
+    // Prepare the first stage and check sessionId
+    $stageResult = $executor->prepareNextStage($loopId);
+    expect($stageResult)->not->toBeNull();
+    expect($stageResult->sessionId)->toBe($this->sessionId);
+    expect($stageResult->role)->toBe('plan');
+
+    // Clean up
+    $it = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($wsPath, RecursiveDirectoryIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST,
+    );
+    foreach ($it as $file) {
+        $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
+    }
+    rmdir($wsPath);
+});

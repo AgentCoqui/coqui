@@ -484,7 +484,7 @@ final class OrchestratorAgent extends AbstractAgent
                         config: $this->config,
                     )
                     : null;
-                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor));
+                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId));
             }
         }
 

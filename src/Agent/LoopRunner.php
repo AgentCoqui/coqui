@@ -219,7 +219,7 @@ final class LoopRunner
             return ['success' => false, 'output' => "Error creating provider for {$role}: {$e->getMessage()}"];
         }
 
-        $toolkits = $this->buildToolkits($role);
+        $toolkits = $this->buildToolkits($role, $stageResult->sessionId);
         $maxIterations = $stageResult->maxIterations ?? $this->resolveMaxIterations($role);
 
         $child = new ChildAgent(
@@ -248,10 +248,12 @@ final class LoopRunner
      * Build toolkits for a child agent based on its role's access level.
      *
      * Mirrors the pattern from SpawnAgentTool::buildToolkits().
+     * Intentionally excludes LoopToolkit, BackgroundTaskToolkit, ScheduleToolkit,
+     * and WebhookToolkit to prevent nested loops and uncontrolled spawning.
      *
      * @return ToolkitInterface[]
      */
-    private function buildToolkits(string $role): array
+    private function buildToolkits(string $role, ?string $sessionId = null): array
     {
         $accessLevel = $this->resolveAccessLevel($role);
 
@@ -302,31 +304,31 @@ final class LoopRunner
             $toolkits[] = new SkillToolkit($this->skillDiscovery);
         }
 
-        // Artifact toolkit
+        // Artifact toolkit — bind to parent session so stage agents can see parent artifacts
         if ($this->artifactStore !== null && $this->storage !== null) {
             $toolkits[] = new ArtifactToolkit(
                 $this->artifactStore,
-                null, // session-scoped; stages operate without session binding
+                $sessionId,
                 readOnly: $accessLevel !== 'full',
             );
         }
 
-        // Todo toolkit
+        // Todo toolkit — bind to parent session for shared task tracking
         if ($this->todoStore !== null && $this->storage !== null) {
             $toolkits[] = new TodoToolkit(
                 $this->todoStore,
-                null,
+                $sessionId,
                 $role,
                 $accessLevel,
             );
         }
 
-        // Sprint toolkit
+        // Sprint toolkit — bind to parent session for project coordination
         if ($this->projectStore !== null && $this->storage !== null) {
             $toolkits[] = new SprintToolkit(
                 $this->projectStore,
                 $this->todoStore,
-                sessionId: null,
+                sessionId: $sessionId,
                 workspacePath: $this->workspacePath,
             );
         }

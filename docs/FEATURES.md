@@ -134,6 +134,7 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 - Custom definitions: add JSON files to `workspace/loops/`.
 - Monitor: `/loops` in the REPL, `loop_status(id)` from the agent, or `GET /api/v1/loops/{id}` via API.
 - Control: pause, resume, or stop loops at any time.
+- See [LOOPS.md](LOOPS.md) for full details, custom definitions, and session context propagation.
 
 ## <a id="vision-analysis"></a> 👁️ Vision Analysis
 
@@ -175,6 +176,7 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 - The plan agent creates an artifact, iterates on it, and stages it to `final`.
 - When a plan artifact reaches `final`, todos are automatically extracted.
 - The coder reads the plan via `artifact_get` and follows it step by step.
+- See [ARTIFACTS.md](ARTIFACTS.md) for versioning, persistence, and cross-agent sharing.
 
 ## <a id="todo-system"></a> ✅ Todo System
 
@@ -186,6 +188,8 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 - View todos: `/todos` in the REPL.
 - The agent manages todos via `todo_add`, `todo_complete`, `todo_bulk_add`, etc.
 - Auto-generated from plans: when `artifact_stage(stage: "final")` is called, `PlanTodoGenerator` extracts implementation steps automatically.
+- See [TODOS.md](TODOS.md) for bulk operations, role permissions, and progress tracking.
+- See [DATA_FLOW.md](DATA_FLOW.md) for how Projects, Sprints, Artifacts, Todos, and Loops interconnect.
 
 ## <a id="toolkit-visibility"></a> 🔧 Toolkit Visibility
 

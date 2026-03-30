@@ -26,6 +26,7 @@ final readonly class LoopToolkit implements ToolkitInterface
         private LoopStore $loopStore,
         private LoopDiscovery $loopDiscovery,
         private ?LoopExecutor $executor = null,
+        private ?string $sessionId = null,
     ) {}
 
     public function tools(): array
@@ -146,6 +147,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                         $loopId = $this->executor->startLoop(
                             definition: $definition,
                             goal: $goal,
+                            sessionId: $this->sessionId,
                             parameters: $parameters,
                         );
 
