@@ -33,6 +33,7 @@ use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Config\ShellConfigResolver;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\SummarizePruningStrategy;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
@@ -42,7 +43,6 @@ use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Memory\MemoryEntry;
-use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
@@ -240,8 +240,8 @@ final class OrchestratorAgent extends AbstractAgent
         // Shell toolkit — available for 'full' and 'readonly-shell' access roles.
         // In unsafe mode, all command restrictions are bypassed (only catastrophic
         // blacklist at the execution policy layer remains as the safety net).
-        $shellAllowed = $this->unsafeMode ? [] : $this->resolveShellAllowedCommands();
-        $shellDenied = $this->unsafeMode ? [] : $this->resolveShellDeniedCommands();
+        $shellAllowed = $this->unsafeMode ? [] : ShellConfigResolver::resolveAllowed($this->config);
+        $shellDenied = $this->unsafeMode ? [] : ShellConfigResolver::resolveDenied($this->config);
         if ($effectiveAccessLevel === 'full') {
             $this->addToolkit(new ShellToolkit(
                 workDir: $this->projectRoot,
@@ -253,7 +253,7 @@ final class OrchestratorAgent extends AbstractAgent
         } elseif ($effectiveAccessLevel === 'readonly-shell') {
             $this->addToolkit(new ShellToolkit(
                 workDir: $this->projectRoot,
-                allowedCommands: self::READ_ONLY_SHELL_COMMANDS,
+                allowedCommands: ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
                 timeout: 60,
             ));
         }
@@ -898,49 +898,7 @@ final class OrchestratorAgent extends AbstractAgent
         return $counter->countTools($this->tools());
     }
 
-    /** Read-only shell commands for readonly-shell access level. */
-    private const array READ_ONLY_SHELL_COMMANDS = [
-        'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
-        'sort', 'uniq', 'sed', 'awk', 'diff',
-    ];
 
-    /**
-     * Resolve shell allowed commands from config.
-     *
-     * Reads `agents.defaults.shellAllowedCommands` from openclaw.json.
-     * If not set, returns empty array (all commands allowed — open mode).
-     * Users can opt-in to a restrictive allowlist by explicitly configuring this.
-     *
-     * @return string[]
-     */
-    private function resolveShellAllowedCommands(): array
-    {
-        $configured = $this->config->get('agents.defaults.shellAllowedCommands');
-
-        if (is_array($configured) && !empty($configured)) {
-            return array_values(array_filter($configured, 'is_string'));
-        }
-
-        return [];
-    }
-
-    /**
-     * Resolve shell denied commands from config.
-     *
-     * By default, only `sudo` is denied. Users can unlock sudo access
-     * by setting `agents.defaults.allowSudo: true` in openclaw.json.
-     *
-     * @return string[]
-     */
-    private function resolveShellDeniedCommands(): array
-    {
-        $allowSudo = filter_var(
-            $this->config->get('agents.defaults.allowSudo', false),
-            FILTER_VALIDATE_BOOLEAN,
-        );
-
-        return $allowSudo ? [] : ['sudo'];
-    }
 
     /**
      * Resolve a ContextWindow from the model definition in config.

@@ -22,6 +22,7 @@ use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleToolkitResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Config\ShellConfigResolver;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
@@ -48,12 +49,6 @@ use SplObserver;
  */
 final class SpawnAgentTool implements ToolInterface
 {
-    /** Read-only shell commands for readonly-shell access level. */
-    private const array READ_ONLY_SHELL_COMMANDS = [
-        'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
-        'sort', 'uniq', 'sed', 'awk', 'diff',
-    ];
-
     private int $currentIteration = 0;
     private int $childRunCount = 0;
     private ?VisionAnalyzer $visionAnalyzer = null;
@@ -253,7 +248,7 @@ final class SpawnAgentTool implements ToolInterface
                 new FileSystemToolkit(workspacePath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
                 new ShellToolkit(
                     workDir: $this->projectRoot,
-                    allowedCommands: self::READ_ONLY_SHELL_COMMANDS,
+                    allowedCommands: ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
                     timeout: 60,
                 ),
                 new CoquiSourceToolkit(projectRoot: $this->projectRoot),

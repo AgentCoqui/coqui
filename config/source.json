@@ -530,6 +530,16 @@
             ]
         },
         {
+            "path": "src/Config/ShellConfigResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ShellConfigResolver",
+            "layer": "config",
+            "description": "Shared shell command resolution logic. Centralizes the shell allowed/denied command resolution and the READ_ONLY_SHELL_COMMANDS constant that were previously duplicated across OrchestratorAgent, RunCommand, BackgroundToolExecutor, and SpawnAgentTool.",
+            "methods": [
+                "resolveAllowed(ConfigInterface $config): array — reads agents.defaults.shellAllowedCommands; empty array means all allowed",
+                "resolveDenied(ConfigInterface $config): array — reads agents.defaults.allowSudo; returns ['sudo'] when false"
+            ]
+        },
+        {
             "path": "src/Config/SummarizePruningStrategy.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\SummarizePruningStrategy",
             "layer": "config",

@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\RoleUpdateInfo;
+use CoquiBot\Coqui\Config\ShellConfigResolver;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Observer\TerminalObserver;
@@ -190,8 +191,8 @@ final class RunCommand extends Command
                 config: $this->boot->config(),
             );
 
-            $shellAllowed = $this->resolveShellAllowedCommands();
-            $shellDenied = $this->resolveShellDeniedCommands();
+            $shellAllowed = ShellConfigResolver::resolveAllowed($this->boot->config());
+            $shellDenied = ShellConfigResolver::resolveDenied($this->boot->config());
 
             $this->loopRunner = new LoopRunner(
                 executor: $loopExecutor,
@@ -605,30 +606,4 @@ final class RunCommand extends Command
         return null;
     }
 
-    /**
-     * @return list<string>
-     */
-    private function resolveShellAllowedCommands(): array
-    {
-        $configured = $this->boot->config()->get('agents.defaults.shellAllowedCommands');
-
-        if (is_array($configured) && $configured !== []) {
-            return array_values(array_filter($configured, 'is_string'));
-        }
-
-        return [];
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function resolveShellDeniedCommands(): array
-    {
-        $allowSudo = filter_var(
-            $this->boot->config()->get('agents.defaults.allowSudo', false),
-            FILTER_VALIDATE_BOOLEAN,
-        );
-
-        return $allowSudo ? [] : ['sudo'];
-    }
 }
