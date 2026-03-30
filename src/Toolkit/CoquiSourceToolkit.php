@@ -377,12 +377,19 @@ final class CoquiSourceToolkit implements ToolkitInterface
                     return ToolResult::success($sectionContent);
                 }
 
-                // Section not found — suggest available sections
+                // Section not found — suggest closest match or list available sections
                 $headings = $this->extractHeadings($filePath);
                 if ($headings !== []) {
-                    return ToolResult::error(
-                        "Section '{$section}' not found in {$file}. Available sections: " . implode(', ', $headings),
-                    );
+                    $closest = $this->findClosestHeading($section, $headings);
+                    $msg = "Section '{$section}' not found in {$file}.";
+
+                    if ($closest !== null) {
+                        $msg .= " Did you mean: \"{$closest}\"?";
+                    }
+
+                    $msg .= ' Available sections: ' . implode(', ', $headings);
+
+                    return ToolResult::error($msg);
                 }
 
                 return ToolResult::error("Section '{$section}' not found in {$file}");
@@ -396,6 +403,8 @@ final class CoquiSourceToolkit implements ToolkitInterface
 
     /**
      * Extract a section using line ranges from the documentation index.
+     *
+     * Matching priority: exact heading (case-insensitive) → substring match.
      */
     private function extractSectionFromIndex(string $file, string $section, string $filePath): ?string
     {
@@ -414,29 +423,55 @@ final class CoquiSourceToolkit implements ToolkitInterface
         }
 
         $sectionLower = strtolower($section);
+        $fileSections = null;
 
         foreach ($map['files'] as $entry) {
-            if (($entry['path'] ?? '') !== $file) {
-                continue;
+            if (($entry['path'] ?? '') === $file) {
+                $fileSections = $entry['sections'] ?? [];
+                break;
             }
+        }
 
-            foreach ($entry['sections'] ?? [] as $sec) {
-                $heading = $sec['heading'] ?? '';
-                // Match by exact heading (case-insensitive) or by backtick-stripped content
-                $headingLower = strtolower($heading);
-                $headingStripped = strtolower(trim($heading, '`'));
+        if ($fileSections === null) {
+            return null;
+        }
 
-                if ($headingLower === $sectionLower || $headingStripped === $sectionLower) {
-                    $lineStart = $sec['line_start'] ?? null;
-                    $lineEnd = $sec['line_end'] ?? null;
+        // Pass 1: exact match (case-insensitive, backtick-stripped)
+        foreach ($fileSections as $sec) {
+            $heading = $sec['heading'] ?? '';
+            $headingLower = strtolower($heading);
+            $headingStripped = strtolower(trim($heading, '`'));
 
-                    if ($lineStart !== null && $lineEnd !== null) {
-                        return $this->readLineRange($filePath, (int) $lineStart, (int) $lineEnd);
-                    }
-                }
+            if ($headingLower === $sectionLower || $headingStripped === $sectionLower) {
+                return $this->readSectionLines($sec, $filePath);
             }
+        }
 
-            break;
+        // Pass 2: substring match (first heading containing the search term)
+        foreach ($fileSections as $sec) {
+            $heading = $sec['heading'] ?? '';
+            $headingStripped = strtolower(trim($heading, '`'));
+
+            if (str_contains($headingStripped, $sectionLower)) {
+                return $this->readSectionLines($sec, $filePath);
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Read the line range for a section entry from the index.
+     *
+     * @param array{heading: string, level: int, line_start: int, line_end: int} $sec
+     */
+    private function readSectionLines(array $sec, string $filePath): ?string
+    {
+        $lineStart = $sec['line_start'] ?? null;
+        $lineEnd = $sec['line_end'] ?? null;
+
+        if ($lineStart !== null && $lineEnd !== null) {
+            return $this->readLineRange($filePath, (int) $lineStart, (int) $lineEnd);
         }
 
         return null;
@@ -444,6 +479,8 @@ final class CoquiSourceToolkit implements ToolkitInterface
 
     /**
      * Extract a section by scanning the file for matching headings.
+     *
+     * Tracks fenced code blocks to avoid matching headings inside code examples.
      */
     private function extractSectionFromFile(string $filePath, string $section): ?string
     {
@@ -455,9 +492,15 @@ final class CoquiSourceToolkit implements ToolkitInterface
         $sectionLower = strtolower($section);
         $startLine = null;
         $startLevel = 0;
+        $inCodeBlock = false;
 
         foreach ($lines as $i => $line) {
-            if (!str_starts_with($line, '#')) {
+            if (str_starts_with($line, '```')) {
+                $inCodeBlock = !$inCodeBlock;
+                continue;
+            }
+
+            if ($inCodeBlock || !str_starts_with($line, '#')) {
                 continue;
             }
 
@@ -532,6 +575,8 @@ final class CoquiSourceToolkit implements ToolkitInterface
 
     /**
      * Extract all headings from a markdown file for error suggestions.
+     *
+     * Extracts H1–H4 to match the documentation index scope. Skips code-fenced blocks.
      */
     private function extractHeadings(string $filePath): array
     {
@@ -541,13 +586,44 @@ final class CoquiSourceToolkit implements ToolkitInterface
         }
 
         $headings = [];
+        $inCodeBlock = false;
+
         foreach ($lines as $line) {
-            if (preg_match('/^#{1,3}\s+(.+)$/', $line, $matches)) {
+            if (str_starts_with($line, '```')) {
+                $inCodeBlock = !$inCodeBlock;
+                continue;
+            }
+
+            if (!$inCodeBlock && preg_match('/^#{1,4}\s+(.+)$/', $line, $matches)) {
                 $headings[] = trim($matches[1], '`');
             }
         }
 
         return $headings;
+    }
+
+    /**
+     * Find the closest matching heading using similarity scoring.
+     *
+     * @param string[] $headings
+     */
+    private function findClosestHeading(string $input, array $headings): ?string
+    {
+        $inputLower = strtolower($input);
+        $best = null;
+        $bestScore = 0;
+
+        foreach ($headings as $heading) {
+            $headingLower = strtolower($heading);
+            similar_text($inputLower, $headingLower, $percent);
+
+            if ($percent > $bestScore && $percent >= 50.0) {
+                $best = $heading;
+                $bestScore = $percent;
+            }
+        }
+
+        return $best;
     }
 
     // ──────────────────────────────────────────────

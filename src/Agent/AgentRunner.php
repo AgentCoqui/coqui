@@ -479,6 +479,7 @@ final class AgentRunner
                 : null,
             unsafeMode: $this->unsafeMode,
         );
+    }
 
     /**
      * Build a preview agent (no session, no storage side-effects) and return
@@ -1006,8 +1007,7 @@ final class AgentRunner
     }
 
     /**
-     * Run automatic memory extraction from a completed conversation turn.
-     *     * Collect file edits that occurred during the current turn.
+     * Collect file edits that occurred during the current turn.
      *
      * @return ?array<int, array{file_path: string, operation: string}>
      */
@@ -1093,9 +1093,9 @@ final class AgentRunner
                     readOnly: true,
                     allowedPaths: $mountPaths,
                 ),
-                new \CarmeloSantana\PHPAgents\Toolkit\ShellToolkit(
+                new \CoquiBot\Coqui\Toolkit\ShellToolkit(
                     workDir: $this->projectRoot,
-                    allowedCommands: ['grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls', 'sort', 'uniq', 'sed', 'awk', 'diff'],
+                    allowedCommands: \CoquiBot\Coqui\Config\ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
                     timeout: 60,
                 ),
                 new \CoquiBot\Coqui\Toolkit\CoquiSourceToolkit(projectRoot: $this->projectRoot),
@@ -1113,7 +1113,8 @@ final class AgentRunner
         }
     }
 
-    /**     * Uses a cheap LLM call to identify noteworthy facts in recent turns
+    /**
+     * Uses a cheap LLM call to identify noteworthy facts in recent turns
      * and saves them as memories. Respects cooldown and config toggle.
      *
      * @param ?\Closure(string, mixed): void $notify  Optional observer callback for transparency events
