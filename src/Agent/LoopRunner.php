@@ -326,6 +326,8 @@ final class LoopRunner
             $toolkits[] = new SprintToolkit(
                 $this->projectStore,
                 $this->todoStore,
+                sessionId: null,
+                workspacePath: $this->workspacePath,
             );
         }
 

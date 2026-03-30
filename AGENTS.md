@@ -820,6 +820,67 @@ This is best-effort — the stage transition always succeeds even if todo genera
 | `src/Agent/PlanTodoGenerator.php` | Auto-generates todos from finalized plan artifacts via utility model |
 | `prompts/tools/todos.md` | Agent usage guidelines for todo workflow |
 
+## Project Context Architecture
+
+Coqui supports setting an **active project** per session. When a project is active, its metadata, sprint roster, and dedicated directory are injected into the agent's system prompt as an `# ACTIVE PROJECT` section. This gives all agents (orchestrator, children, background tasks) ambient awareness of what project they're working on.
+
+### How It Works
+
+1. **`SessionStorage`** stores the active project ID per session via `active_project_id` column. `setActiveProject()` persists the association; `getActiveProjectId()` retrieves it.
+2. **`/projects <slug>`** REPL command switches the active project. `/projects clear` unsets it. The project listing marks the active project with `●`.
+3. **`project_switch`** tool in `SprintToolkit` allows the agent to switch or clear the active project programmatically. Only available when `SessionStorage` and `sessionId` are provided.
+4. **`OrchestratorAgent::injectProjectContext()`** appends the `# ACTIVE PROJECT` section to the system prompt. Content includes: name, slug, status, description, directory path, and sprint roster with progress bars.
+5. **Project directories** are auto-created at `workspace/projects/{slug}-{hash(8)}/` when a project is created via `project_create`. The directory name is stored in the `directory` column of the `projects` table.
+
+### Session Persistence & Propagation
+
+- **Session restore**: On session load/switch, `RunCommand::restoreActiveProject()` reads the active project from storage. Stale references (deleted projects) are cleared automatically.
+- **Background tasks**: `BackgroundTaskToolkit` propagates the parent session's active project to newly created child task sessions.
+- **Child agents**: Spawned via `spawn_agent` — children are session-less and do not receive active project context directly. Context flows through the task prompt.
+- **Loop agents**: Same as child agents — no project propagation. Context flows through loop goal/prompts.
+
+### REPL Integration
+
+| Feature | Behavior |
+| --- | --- |
+| Readline prompt | ` [slug] › ` when active, ` › ` otherwise |
+| User display | `You [slug]:` with magenta color |
+| Tab completion | `/projects` autocompletes project slugs + `clear`, `active`, `completed`, `archived` |
+| Project listing | `●` marker next to active project |
+
+### System Prompt Injection
+
+When `resolveActiveProjectId()` returns a non-null project ID, `injectProjectContext()` calls `ProjectStore::getProjectContext()` and appends:
+
+```
+# ACTIVE PROJECT
+**My App** (my-app) — active
+Description text here.
+
+**Directory:** workspace/projects/my-app-a1b2c3d4/
+
+## Sprints
+| # | Sprint | Status | Progress |
+| 1 | MVP | in_progress | ████░░░░ 50% (3/6 todos) |
+```
+
+The prompt cache key includes the project ID, so prompt recomputation is triggered on project switch.
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Storage/SessionStorage.php` | `active_project_id` column, `setActiveProject()`, `getActiveProjectId()` |
+| `src/Storage/ProjectStore.php` | `directory` column, `getProjectDirectory()`, `getProjectContext()` |
+| `src/Agent/OrchestratorAgent.php` | `resolveActiveProjectId()`, `injectProjectContext()` — system prompt injection |
+| `src/Toolkit/SprintToolkit.php` | `project_switch` tool, `●` active marker in guidelines |
+| `src/Command/RunCommand.php` | `restoreActiveProject()`, `applyProjectChange()`, REPL prompt formatting |
+| `src/Repl/Handler/ProjectHandler.php` | `/projects <slug>` switching, `/projects clear`, active marker in listing |
+| `src/Repl/SlashCommandRouter.php` | Routes project state changes via `RouteResult::stateChange()` |
+| `src/Repl/RouteResult.php` | `newActiveProjectId` field for project state changes |
+| `src/Repl/TabCompletion.php` | Project slug + status filter autocomplete |
+| `src/Toolkit/BackgroundTaskToolkit.php` | Propagates active project from parent to child task sessions |
+
 ## Evaluation System Architecture
 
 Coqui provides an asynchronous post-run evaluation pipeline where a utility/cheap model grades completed sessions on performance, hallucinations, and tool efficiency. The system leverages the existing Schedule System and Background Tasks infrastructure for autonomous operation.

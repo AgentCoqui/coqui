@@ -187,6 +187,9 @@ final class SessionStorage
         // Migration: soft-delete flag for summarized messages
         $this->migrateAddColumn('messages', 'is_summarized', 'INTEGER NOT NULL DEFAULT 0');
 
+        // Migration: active project tracking per session
+        $this->migrateAddColumn('sessions', 'active_project_id', 'TEXT DEFAULT NULL');
+
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON background_tasks(status)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_session ON background_tasks(session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_schedule ON background_tasks(schedule_id)');
@@ -332,6 +335,43 @@ final class SessionStorage
             'updated_at' => date('c'),
             'id' => $sessionId,
         ]);
+    }
+
+    /**
+     * Set or clear the active project for a session.
+     */
+    public function setActiveProject(string $sessionId, ?string $projectId): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions SET active_project_id = :project_id, updated_at = :updated_at WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'project_id' => $projectId,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * Get the active project ID for a session, or null if none is set.
+     */
+    public function getActiveProjectId(string $sessionId): ?string
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT active_project_id FROM sessions WHERE id = :id
+        SQL);
+
+        $stmt->execute(['id' => $sessionId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($row === false) {
+            return null;
+        }
+
+        $value = $row['active_project_id'];
+
+        return is_string($value) && $value !== '' ? $value : null;
     }
 
     /**

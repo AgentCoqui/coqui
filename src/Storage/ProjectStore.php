@@ -78,6 +78,25 @@ final class ProjectStore
         $this->db->exec(<<<'SQL'
             CREATE UNIQUE INDEX IF NOT EXISTS idx_projects_slug ON projects(slug)
         SQL);
+
+        // Migration: add directory column for project workspace directories
+        $this->migrateAddColumn('projects', 'directory', 'TEXT DEFAULT NULL');
+    }
+
+    private function migrateAddColumn(string $table, string $column, string $definition): void
+    {
+        $stmt = $this->db->query("PRAGMA table_info({$table})");
+
+        if ($stmt === false) {
+            return;
+        }
+
+        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $exists = array_any($columns, fn(array $col): bool => $col['name'] === $column);
+
+        if (!$exists) {
+            $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
+        }
     }
 
     // =========================================================================
@@ -108,11 +127,14 @@ final class ProjectStore
         $id = bin2hex(random_bytes(16));
         $now = gmdate('Y-m-d\TH:i:s\Z');
 
+        // Compute project directory name: {slug}-{first 8 chars of id}
+        $directory = $slug . '-' . substr($id, 0, 8);
+
         $stmt = $this->db->prepare(<<<'SQL'
-            INSERT INTO projects (id, title, slug, description, status, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 'active', ?, ?)
+            INSERT INTO projects (id, title, slug, description, directory, status, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
         SQL);
-        $stmt->execute([$id, $title, $slug, $description, $now, $now]);
+        $stmt->execute([$id, $title, $slug, $description, $directory, $now, $now]);
 
         return $id;
     }
@@ -547,5 +569,69 @@ final class ProjectStore
         }
 
         return true;
+    }
+
+    /**
+     * Get the workspace-relative directory path for a project.
+     *
+     * Returns the directory name from the database, or computes a fallback
+     * for projects created before the directory column was added.
+     */
+    public function getProjectDirectory(string $projectId): string
+    {
+        $project = $this->getProject($projectId);
+        if ($project === null) {
+            throw new \InvalidArgumentException(sprintf('Project "%s" not found.', $projectId));
+        }
+
+        $dir = $project['directory'] ?? null;
+        if (is_string($dir) && $dir !== '') {
+            return $dir;
+        }
+
+        // Fallback for pre-migration projects: {slug}-{first 8 chars of id}
+        return $project['slug'] . '-' . substr($project['id'], 0, 8);
+    }
+
+    /**
+     * Get aggregated project context for system prompt injection.
+     *
+     * Returns project metadata, sprint roster with progress, and directory path.
+     * Todos and artifacts are handled by their own toolkits — this focuses on
+     * project-level context the agent needs for orientation.
+     *
+     * @return array{project: array<string, mixed>, sprints: list<array<string, mixed>>, directory: string}
+     */
+    public function getProjectContext(
+        string $projectId,
+        ?TodoStore $todoStore = null,
+        ?string $sessionId = null,
+    ): array {
+        $project = $this->getProject($projectId);
+        if ($project === null) {
+            throw new \InvalidArgumentException(sprintf('Project "%s" not found.', $projectId));
+        }
+
+        // Sprint roster with progress
+        $sprints = $this->listSprints($projectId);
+        $sprintData = [];
+        foreach ($sprints as $sprint) {
+            $progress = null;
+            if ($todoStore !== null) {
+                $progress = $this->getSprintProgress($sprint['id'], $todoStore, $sessionId);
+            }
+            $sprintData[] = [
+                ...$sprint,
+                'progress' => $progress,
+            ];
+        }
+
+        $directory = $this->getProjectDirectory($projectId);
+
+        return [
+            'project' => $project,
+            'sprints' => $sprintData,
+            'directory' => $directory,
+        ];
     }
 }

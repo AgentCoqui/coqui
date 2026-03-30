@@ -24,7 +24,9 @@
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
                 "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking",
                 "resolveContextWindow(): ?ContextWindowInterface — resolves ContextWindow from ModelDefinition with 128K/4K fallback",
-                "getContextWindow(): ?ContextWindowInterface — accessor for the resolved context window"
+                "getContextWindow(): ?ContextWindowInterface — accessor for the resolved context window",
+                "resolveActiveProjectId(): ?string — reads active project from SessionStorage",
+                "injectProjectContext(string): string — appends # ACTIVE PROJECT section with metadata, sprints, and directory to system prompt"
             ]
         },
         {
@@ -137,11 +139,11 @@
             "path": "src/Repl/RouteResult.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\RouteResult",
             "layer": "command",
-            "description": "Value object returned by SlashCommandRouter. Carries shouldContinue flag, optional exit code, and optional state changes (newActiveRole, newSessionId).",
+            "description": "Value object returned by SlashCommandRouter. Carries shouldContinue flag, optional exit code, and optional state changes (newActiveRole, newSessionId, newActiveProjectId).",
             "methods": [
                 "static continue(): self — continue the REPL loop",
                 "static exit(int): self — exit with code",
-                "static stateChange(?string, ?string): self — continue with role/session update"
+                "static stateChange(?string, ?string, ?string): self — continue with role/session/project update"
             ]
         },
         {
@@ -242,9 +244,9 @@
             "path": "src/Repl/Handler/ProjectHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ProjectHandler",
             "layer": "command",
-            "description": "Handles /projects and /sprints REPL commands for project and sprint management.",
+            "description": "Handles /projects and /sprints REPL commands. Supports project listing with active marker (●), switching via /projects <slug>, clearing via /projects clear, and status filtering.",
             "methods": [
-                "handleProjects(SymfonyStyle, string): void — lists or manages projects",
+                "handleProjects(SymfonyStyle, string, string, ?string): array — lists/switches/clears project context; returns [projectId, projectSlug] or [null, null]",
                 "handleSprints(SymfonyStyle, string): void — lists or manages sprints"
             ]
         },
@@ -1292,6 +1294,8 @@
                 "listSessions(int $limit): array — lists recent sessions (includes title)",
                 "getSession(string $id): ?array — retrieves session details (includes title)",
                 "updateSessionTitle(string $sessionId, string $title): void — updates session title",
+            "setActiveProject(string $sessionId, ?string $projectId): void — sets or clears the active project for a session",
+            "getActiveProjectId(string $sessionId): ?string — returns the active project ID for a session, or null",
                 "addMessage(string $sessionId, ..., ?string $turnId): string — persists a message with optional turn linkage",
                 "loadConversation(string $sessionId): Conversation — rebuilds full conversation history",
                 "logChildRun(...): string — logs a child agent execution",
@@ -1345,7 +1349,7 @@
             "path": "src/Storage/ProjectStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ProjectStore",
             "layer": "storage",
-            "description": "SQLite-backed session-independent project and sprint persistence. Tables: projects (id, title, slug UNIQUE, description, status, timestamps) and sprints (id, project_id FK CASCADE, title, sprint_number, status, contract_artifact_id, acceptance_criteria, reviewer_notes, review_round, max_review_rounds, last_session_id, timestamps, completed_at). Enforces a 4-state sprint lifecycle (planned→in_progress→review→complete/rejected) via transitionSprint() with validation and review round tracking.",
+            "description": "SQLite-backed session-independent project and sprint persistence. Tables: projects (id, title, slug UNIQUE, description, status, directory, timestamps) and sprints (id, project_id FK CASCADE, title, sprint_number, status, contract_artifact_id, acceptance_criteria, reviewer_notes, review_round, max_review_rounds, last_session_id, timestamps, completed_at). Enforces a 4-state sprint lifecycle (planned→in_progress→review→complete/rejected) via transitionSprint() with validation and review round tracking. Supports project directories at workspace/projects/{slug}-{hash(8)} and project context retrieval for system prompt injection.",
             "methods": [
                 "createProject(title, slug, description): string — creates project, returns ID",
                 "getProject(idOrSlug): ?array — retrieves project by ID or slug",
@@ -1360,7 +1364,9 @@
                 "getActiveSprintForProject(projectId): ?array — first in_progress or review sprint",
                 "getActiveSprintsForSession(sessionId): array — sprints linked to a session via last_session_id",
                 "getSprintProgress(sprintId, TodoStore): array — aggregates todo stats for a sprint",
-                "deleteSprint(id): bool — deletes a sprint"
+                "deleteSprint(id): bool — deletes a sprint",
+            "getProjectDirectory(projectId): string — returns the project directory name from DB or computes fallback",
+            "getProjectContext(projectId, ?TodoStore, ?sessionId): array — returns project metadata, sprint roster with progress, and directory for system prompt injection"
             ]
         },
         {
@@ -1488,7 +1494,7 @@
             "path": "src/Toolkit/SprintToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\SprintToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing project and sprint management toolkit providing 9 tools: project_create, project_list, project_get, project_update, sprint_create, sprint_list, sprint_get, sprint_transition, sprint_update. Projects persist across sessions. Sprints follow a 4-state lifecycle (planned→in_progress→review→complete/rejected). Dynamic guidelines show active project and sprint progress when a sprint is linked to the current session.",
+            "description": "Agent-facing project and sprint management toolkit providing 10 tools: project_create, project_list, project_get, project_update, project_switch, sprint_create, sprint_list, sprint_get, sprint_transition, sprint_update. Projects persist across sessions with dedicated directories at workspace/projects/{slug}-{hash}. Sprints follow a 4-state lifecycle (planned→in_progress→review→complete/rejected). Dynamic guidelines show active project marker (●) and sprint progress. project_switch tool allows agent to change active project context.",
             "methods": [
                 "tools(): array — returns 9 project and sprint management Tool instances",
                 "guidelines(): string — dynamic active project/sprint summary with progress bar, empty when no active sprint"

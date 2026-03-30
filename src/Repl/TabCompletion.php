@@ -75,6 +75,11 @@ final class TabCompletion
                 return $this->completeLoops($parts, $input);
             }
 
+            // Complete /projects subcommands and project slugs
+            if (count($parts) >= 2 && $cmd === '/projects') {
+                return $this->completeProjects($parts, $input);
+            }
+
             // Complete top-level slash commands
             if (str_starts_with($input, '/') || $line === '' || $line === '/') {
                 return $this->completeTopLevel($input);
@@ -276,6 +281,31 @@ final class TabCompletion
         }
 
         return [];
+    }
+
+    /**
+     * @param array<string> $parts
+     * @return list<string>
+     */
+    private function completeProjects(array $parts, string $input): array
+    {
+        if (count($parts) !== 2) {
+            return [];
+        }
+
+        $prefix = $parts[1];
+        $candidates = ['clear', 'active', 'completed', 'archived'];
+        $projectStore = $this->boot->projectStore();
+        if ($projectStore !== null) {
+            $projects = $projectStore->listProjects(limit: 50);
+            foreach ($projects as $p) {
+                $candidates[] = $p['slug'];
+            }
+        }
+        return array_values(array_filter(
+            $candidates,
+            fn(string $c) => str_starts_with($c, $prefix),
+        ));
     }
 
     /**
