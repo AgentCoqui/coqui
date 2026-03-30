@@ -4,15 +4,21 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "4a33320ab8340ba9930e52fddb9fa5e6",
+    "content-hash": "fc6e8777aef594b638fdb8877f4eb188",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "dev-chore_remove-toolkits",
+            "version": "v0.11.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/php-agents.git",
+                "reference": "da16dd256f7535f5592693426225d6f773d0a867"
+            },
             "dist": {
-                "type": "path",
-                "url": "../php-agents",
-                "reference": "610fc02065d34c890a03b78241c832fe6c971ea4"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/da16dd256f7535f5592693426225d6f773d0a867",
+                "reference": "da16dd256f7535f5592693426225d6f773d0a867",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4",
@@ -36,19 +42,7 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=512M"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -65,10 +59,11 @@
                 "php-agents",
                 "tools"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/php-agents/issues",
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.11.0"
+            },
+            "time": "2026-03-30T12:18:50+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-composer",
@@ -3975,11 +3970,11 @@
         },
         {
             "name": "phpstan/phpstan",
-            "version": "2.1.44",
+            "version": "2.1.45",
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/4a88c083c668b2c364a425c9b3171b2d9ea5d218",
-                "reference": "4a88c083c668b2c364a425c9b3171b2d9ea5d218",
+                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/f8cdfd9421b7edb7686a2d150a234870464eac70",
+                "reference": "f8cdfd9421b7edb7686a2d150a234870464eac70",
                 "shasum": ""
             },
             "require": {
@@ -4024,7 +4019,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-03-25T17:34:21+00:00"
+            "time": "2026-03-30T13:22:02+00:00"
         },
         {
             "name": "phpunit/php-code-coverage",
@@ -5785,9 +5780,7 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {
-        "carmelosantana/php-agents": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
