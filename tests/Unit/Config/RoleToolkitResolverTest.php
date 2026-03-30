@@ -62,11 +62,11 @@ test('deny-all with explicit toolkit allow', function () {
 });
 
 test('deny-all with multiple explicit allows', function () {
-    $resolver = new RoleToolkitResolver('-*, +LearningToolkit, +SkillToolkit, +ProjectSourceToolkit');
+    $resolver = new RoleToolkitResolver('-*, +LearningToolkit, +SkillToolkit, +CoquiSourceToolkit');
 
     expect($resolver->isToolkitAllowed('LearningToolkit'))->toBeTrue();
     expect($resolver->isToolkitAllowed('SkillToolkit'))->toBeTrue();
-    expect($resolver->isToolkitAllowed('ProjectSourceToolkit'))->toBeTrue();
+    expect($resolver->isToolkitAllowed('CoquiSourceToolkit'))->toBeTrue();
     expect($resolver->isToolkitAllowed('FilesystemToolkit'))->toBeFalse();
 });
 

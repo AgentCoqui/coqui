@@ -13,7 +13,7 @@ use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
-use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
+use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
 
 /**
@@ -112,7 +112,7 @@ final class BackgroundToolExecutor
         $this->registerToolkit(new MemoryToolkit($memoryStore));
 
         // Project source toolkit
-        $this->registerToolkit(new ProjectSourceToolkit(projectRoot: $this->projectRoot));
+        $this->registerToolkit(new CoquiSourceToolkit(projectRoot: $this->projectRoot));
 
         // PHP execution tool
         $sanitizer = new ScriptSanitizer(

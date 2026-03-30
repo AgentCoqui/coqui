@@ -3,8 +3,8 @@
 All writes (file creation, code execution, package management) are restricted to:
 **Workspace:** {{workspace_path}}
 
-The project root is **read-only** — accessible via `project_read`, `project_list`,
-`project_search`, and shell commands (`cat`, `grep`, `find`, `head`, `tail`) which
+The project root is **read-only** — accessible via `coqui_read`, `coqui_list`,
+`coqui_search`, and shell commands (`cat`, `grep`, `find`, `head`, `tail`) which
 run from:
 **Project root:** {{project_root}}
 

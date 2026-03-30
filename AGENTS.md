@@ -923,8 +923,8 @@ Rules are case-insensitive. Multiple rules separated by commas. Last match wins.
 | explorer | `+*, -MemoryToolkit, -spawn_agent, -php_execute` | Allow-all minus dangerous tools |
 | plan | `+*, -ShellToolkit, -MemoryToolkit, -php_execute, -LearningToolkit, -SessionEvaluationToolkit` | Allow-all minus write-capable and role-specific |
 | reviewer | `+*, -MemoryToolkit, -LearningToolkit, -SessionEvaluationToolkit, -php_execute` | Allow-all minus write-capable and role-specific |
-| evaluator | `-*, +SessionEvaluationToolkit, +ProjectSourceToolkit` | Deny-all, only evaluation tools |
-| learner | `-*, +LearningToolkit, +SkillToolkit, +ProjectSourceToolkit` | Deny-all, only learning tools |
+| evaluator | `-*, +SessionEvaluationToolkit, +CoquiSourceToolkit` | Deny-all, only evaluation tools |
+| learner | `-*, +LearningToolkit, +SkillToolkit, +CoquiSourceToolkit` | Deny-all, only learning tools |
 | vision | `-*` | Deny all (single-shot image analysis, no tools) |
 | title-generator | `-*` | Deny all (single-shot title generation) |
 | plan-todo-generator | `-*` | Deny all (single-shot todo extraction) |
@@ -949,7 +949,7 @@ Coqui provides an autonomous learning loop where a `learner` role analyzes poor 
 ### How It Works
 
 1. **`EvaluationStore::getPoorEvaluations()`** queries the evaluations table for sessions scoring below a threshold (default 0.5) within a rolling time window (default 7 days).
-2. **`LearningToolkit`** provides 2 agent-facing tools: `learning_list_poor_evaluations` and `learning_read_evaluation`. The toolkit's visibility is controlled by the `learner` role's `toolkits` frontmatter field (`-*, +LearningToolkit, +SkillToolkit, +ProjectSourceToolkit`), so these tools are only available when the active role is `learner`.
+2. **`LearningToolkit`** provides 2 agent-facing tools: `learning_list_poor_evaluations` and `learning_read_evaluation`. The toolkit's visibility is controlled by the `learner` role's `toolkits` frontmatter field (`-*, +LearningToolkit, +SkillToolkit, +CoquiSourceToolkit`), so these tools are only available when the active role is `learner`.
 3. **The `learner` role** (`config/roles/learner.md`) defines the autonomous workflow: list poor evaluations → read each report → identify failure patterns → check existing skills → create or update Skills with corrective procedures.
 4. **Skill creation and updates** — the learner uses the standard `SkillToolkit` (available to all roles) to create new skills via `skill_create` or append lessons to existing skills via `skill_update`.
 5. **Autonomous scheduling** — the user creates a schedule via the Schedule System to run the learner periodically (e.g., daily). The schedule spawns a background task with `role: learner`.
@@ -2001,7 +2001,7 @@ $db->exec('PRAGMA foreign_keys=ON');
 
 ## Source Map Maintenance
 
-The file `config/source.json` is the structured codebase map that Coqui uses to understand its own source code. It is loaded by the `project_source_map` tool and injected into agent context.
+The file `config/source.json` is the structured codebase map that Coqui uses to understand its own source code. It is loaded by the `coqui_source_map` tool and injected into agent context.
 
 ### When to Update
 
@@ -2029,7 +2029,7 @@ Each entry in the `files` array must include:
 
 ### Validation
 
-Run `project_source_map` after editing to verify the JSON is valid and the structure is correct. Every source file under `src/` should have a corresponding entry.
+Run `coqui_source_map` after editing to verify the JSON is valid and the structure is correct. Every source file under `src/` should have a corresponding entry.
 
 ## Docker
 
