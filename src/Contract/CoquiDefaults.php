@@ -15,25 +15,25 @@ namespace CoquiBot\Coqui\Contract;
 final class CoquiDefaults
 {
     /** Default maximum agent loop iterations (config: agents.defaults.maxIterations). */
-    public const int MAX_ITERATIONS = 48;
+    public const int MAX_ITERATIONS = 256;
 
     /** Maximum iterations for background tasks (unattended, capped for safety). */
-    public const int BACKGROUND_TASK_MAX_ITERATIONS = 100;
+    public const int BACKGROUND_TASK_MAX_ITERATIONS = 512;
 
     /** Default concurrent background tasks (config: api.tasks.maxConcurrent). */
-    public const int MAX_CONCURRENT_TASKS = 6;
+    public const int MAX_CONCURRENT_TASKS = 32;
 
     /** Default recent turns preserved during on-demand summarization (config: agents.defaults.context.keepRecentTurns). */
-    public const int KEEP_RECENT_TURNS = 10;
+    public const int KEEP_RECENT_TURNS = 24;
 
     /** Default recent turns preserved during auto-summarization (config: agents.defaults.context.autoSummarizeKeepRecent). */
-    public const int AUTO_SUMMARIZE_KEEP_RECENT = 15;
+    public const int AUTO_SUMMARIZE_KEEP_RECENT = 32;
 
     /** Token usage percentage threshold that triggers auto-summarization (config: agents.defaults.context.autoSummarizeThreshold). */
-    public const float AUTO_SUMMARIZE_THRESHOLD = 70.0;
+    public const float AUTO_SUMMARIZE_THRESHOLD = 64.0;
 
     /** User turn count that triggers auto-summarization when mode is 'turn' (config: agents.defaults.context.autoSummarizeTurnThreshold). */
-    public const int AUTO_SUMMARIZE_TURN_THRESHOLD = 20;
+    public const int AUTO_SUMMARIZE_TURN_THRESHOLD = 32;
 
     /** Auto-summarization trigger mode: 'token' (default), 'turn', or 'manual' (config: agents.defaults.context.autoSummarizeMode). */
     public const string AUTO_SUMMARIZE_MODE = 'token';
