@@ -1016,7 +1016,10 @@ final class OrchestratorAgent extends AbstractAgent
             $modelDef = $config->getModelDefinition($modelId)
                 ?? $config->getModelDefinition($modelString);
 
-            if ($modelDef !== null) {
+            // Only use the model definition if it carries a meaningful context window.
+            // A value at or below CONTEXT_WINDOW_RESERVED indicates a placeholder default
+            // written by an older setup wizard run — fall through to Layer 2/3/4 instead.
+            if ($modelDef !== null && $modelDef->contextWindow > CoquiDefaults::CONTEXT_WINDOW_RESERVED) {
                 return ContextWindow::fromModel($modelDef);
             }
 
