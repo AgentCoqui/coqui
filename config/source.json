@@ -69,7 +69,7 @@
             "path": "src/Agent/ConcurrentToolExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\ConcurrentToolExecutor",
             "layer": "agent",
-            "description": "ReactPHP Fiber-based concurrent tool executor. Implements BatchToolExecutorInterface to enable parallel tool execution when multiple tool calls are returned by the LLM. Uses React\\Async\\parallel() to run each tool in its own Fiber — concurrency occurs during I/O suspension. Single tool calls bypass Fiber overhead. TerminationException propagates correctly via parallel() rejection. Result ordering is preserved via ksort().",
+            "description": "ReactPHP Fiber-based concurrent tool executor. Implements BatchToolExecutorInterface to enable parallel tool execution when multiple tool calls are returned by the LLM. Uses React\\Async\\parallel() to run each tool in its own Fiber — concurrency occurs during I/O suspension (HTTP requests, async network calls). Shell tools use blocking calls and do not benefit from Fiber concurrency. Single tool calls bypass Fiber overhead. TerminationException propagates correctly via parallel() rejection. Result ordering is preserved via ksort().",
             "methods": [
                 "execute(ToolInterface $tool, array $arguments): ToolResult — single tool pass-through execution",
                 "executeBatch(array $batch): array — concurrent execution via React\\Async\\parallel(), returns ToolResult[] in original order"
