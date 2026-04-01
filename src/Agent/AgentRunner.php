@@ -580,11 +580,17 @@ final class AgentRunner
             $role = $msg->role();
 
             try {
+                $sanitizedContent = $this->sanitizeContent($msg->content());
+
+                if ($role === Role::Assistant && trim($sanitizedContent) === '' && $msg->toolCalls() === []) {
+                    continue;
+                }
+
                 match ($role) {
                     Role::Assistant => $this->storage->addMessage(
                         $sessionId,
                         'assistant',
-                        $this->sanitizeContent($msg->content()),
+                        $sanitizedContent,
                         !empty($msg->toolCalls()) ? json_encode(
                             array_map(fn(ToolCall $tc) => [
                                 'id' => $tc->id,
@@ -600,7 +606,7 @@ final class AgentRunner
                     Role::Tool => $this->storage->addMessage(
                         $sessionId,
                         'tool',
-                        $this->sanitizeContent($msg->content()),
+                        $sanitizedContent,
                         null,
                         $msg->toolCallId(),
                         turnId: $turnId,
