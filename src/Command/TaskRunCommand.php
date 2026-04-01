@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
 use CoquiBot\Coqui\Api\DatabasePendingInputProvider;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
@@ -151,6 +152,7 @@ final class TaskRunCommand extends Command
             artifactStore: $boot->artifactStore(),
             projectStore: $boot->projectStore(),
             defaultsLoader: $boot->defaultsLoader(),
+            toolExecutor: new ConcurrentToolExecutor(),
             httpClient: new ReactHttpClientAdapter(),
         );
 

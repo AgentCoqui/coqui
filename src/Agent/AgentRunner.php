@@ -9,6 +9,7 @@ use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\TickCallbackInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
+use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Enum\Role;
 use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Agent\Output;
@@ -84,6 +85,7 @@ final class AgentRunner
         private readonly ?ProjectStore $projectStore = null,
         private readonly ?DefaultsLoader $defaultsLoader = null,
         private readonly ?TickCallbackInterface $tickCallback = null,
+        private readonly ?ToolExecutorInterface $toolExecutor = null,
         private readonly ?HttpClientInterface $httpClient = null,
     ) {}
 
@@ -482,6 +484,7 @@ final class AgentRunner
                 ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
                 : null,
             unsafeMode: $this->unsafeMode,
+            toolExecutor: $this->toolExecutor,
             tickCallback: $this->tickCallback,
             httpClient: $this->httpClient,
         );

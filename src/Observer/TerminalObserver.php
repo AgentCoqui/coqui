@@ -106,6 +106,10 @@ final class TerminalObserver implements SplObserver
 
             'agent.tool_call' => $this->handleToolCall($data, $indent),
 
+            'agent.batch_start' => $this->handleBatchStart($data, $indent),
+
+            'agent.batch_end' => null,
+
             'agent.tool_result' => $this->handleToolResult($data, $indent),
 
             'agent.done' => $this->handleDone($data, $indent),
@@ -154,6 +158,19 @@ final class TerminalObserver implements SplObserver
         }
 
         $this->output->write('<fg=gray>' . $data . '</>');
+    }
+
+    private function handleBatchStart(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $count = $data['count'] ?? 0;
+        $tools = $data['tools'] ?? [];
+        $toolList = implode(', ', $tools);
+        $this->output->writeln("{$indent}<fg=magenta>⚡ Running {$count} tools concurrently: {$toolList}</>");
+        $this->showStatusLine("{$count} tools concurrently");
     }
 
     private function handleToolCall(mixed $data, string $indent): void

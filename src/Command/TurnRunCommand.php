@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
@@ -156,6 +157,7 @@ final class TurnRunCommand extends Command
             artifactStore: $boot->artifactStore(),
             projectStore: $boot->projectStore(),
             defaultsLoader: $boot->defaultsLoader(),
+            toolExecutor: new ConcurrentToolExecutor(),
             httpClient: new ReactHttpClientAdapter(),
         );
 
