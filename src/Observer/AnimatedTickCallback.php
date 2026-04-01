@@ -59,6 +59,30 @@ final class AnimatedTickCallback implements TickCallbackInterface
     }
 
     /**
+     * Temporarily suspend the animation without resetting state.
+     *
+     * Used by TerminalObserver when streaming text begins — all tick()
+     * calls from the periodic timer and AbstractAgent become no-ops
+     * until resume() is called.
+     */
+    public function suspend(): void
+    {
+        $this->active = false;
+        $this->clearStatusLine();
+    }
+
+    /**
+     * Resume a suspended animation.
+     *
+     * Re-enables tick() so the next call (from the periodic timer or
+     * an explicit showStatusLine) will redraw the spinner.
+     */
+    public function resume(): void
+    {
+        $this->active = true;
+    }
+
+    /**
      * Update the context text (e.g. "Working on exec...").
      */
     public function setContext(string $context): void

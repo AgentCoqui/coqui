@@ -144,7 +144,11 @@ final class TerminalObserver implements SplObserver
         }
 
         if (!$this->hasStreamedReasoning) {
-            $this->clearStatusLine();
+            if ($this->tickCallback !== null) {
+                $this->tickCallback->suspend();
+            } else {
+                $this->clearStatusLine();
+            }
             $this->hasStreamedReasoning = true;
             $this->output->write('<fg=gray>  ⛭ </>');
         }
@@ -227,9 +231,14 @@ final class TerminalObserver implements SplObserver
             $this->hasStreamedReasoning = false;
         }
 
-        // Clear the status line before the first text chunk.
+        // Suspend the spinner before the first text chunk so the periodic
+        // timer stops redrawing it while text is streaming.
         if (!$this->hasStreamedText) {
-            $this->clearStatusLine();
+            if ($this->tickCallback !== null) {
+                $this->tickCallback->suspend();
+            } else {
+                $this->clearStatusLine();
+            }
         }
 
         $this->hasStreamedText = true;
@@ -441,7 +450,10 @@ final class TerminalObserver implements SplObserver
     private function showStatusLine(string $context = ''): void
     {
         if ($this->tickCallback !== null) {
+            $this->tickCallback->resume();
             $this->tickCallback->setContext($context);
+            // Force immediate redraw to eliminate gap between clearStatusLine and next timer tick
+            $this->tickCallback->tick();
             return;
         }
         $label = $context !== '' ? "Working on {$context}" : 'Working';
