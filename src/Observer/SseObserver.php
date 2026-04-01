@@ -61,6 +61,10 @@ final class SseObserver implements SplObserver
 
             'agent.tool_call' => $this->handleToolCall($data),
 
+            'agent.batch_start' => $this->writeEvent('batch_start', is_array($data) ? $data : []),
+
+            'agent.batch_end' => $this->writeEvent('batch_end', is_array($data) ? $data : []),
+
             'agent.tool_result' => $this->handleToolResult($data),
 
             'agent.reasoning' => $this->writeEvent('reasoning', [

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Agent\LoopRunner;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
@@ -184,6 +185,7 @@ final class RunCommand extends Command
             projectStore: $this->boot->projectStore(),
             defaultsLoader: $this->boot->defaultsLoader(),
             tickCallback: $this->animatedTickCallback,
+            toolExecutor: new ConcurrentToolExecutor(),
             httpClient: new ReactHttpClientAdapter(),
         );
 
