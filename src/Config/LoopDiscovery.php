@@ -176,6 +176,45 @@ final class LoopDiscovery
     }
 
     /**
+     * Seed loop definitions from toolkit package directories into the workspace.
+     *
+     * Copies .json loop files from each package path to workspace/loops/.
+     * Never overwrites existing files — workspace always wins.
+     *
+     * @param string[] $packageLoopPaths Absolute paths to package loop directories.
+     */
+    public function seedPackageLoops(array $packageLoopPaths): void
+    {
+        $this->ensureLoopsDir();
+
+        foreach ($packageLoopPaths as $dir) {
+            if (!is_dir($dir)) {
+                continue;
+            }
+
+            $entries = scandir($dir);
+            if ($entries === false) {
+                continue;
+            }
+
+            foreach ($entries as $entry) {
+                if ($entry === '.' || $entry === '..' || !str_ends_with($entry, '.json')) {
+                    continue;
+                }
+
+                $source = $dir . '/' . $entry;
+                $target = $this->loopsDir . '/' . $entry;
+
+                if (!file_exists($target)) {
+                    copy($source, $target);
+                }
+            }
+        }
+
+        $this->invalidateCache();
+    }
+
+    /**
      * Invalidate the in-memory cache, forcing a re-scan on next access.
      */
     public function invalidateCache(): void

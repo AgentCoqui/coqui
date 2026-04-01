@@ -575,19 +575,23 @@
                 "unregister(string $packageName): void — remove from registry",
                 "loadCredentialRequirements(string $packageName): CredentialRequirement[] — load credential declarations (supports string shorthand and object format with optional flag)",
                 "loadGatedTools(string $packageName): array — load gated tool declarations from extra.php-agents.gated",
-                "collectAllGatedTools(): array — merge gated tool declarations from all registered packages"
+                "collectAllGatedTools(): array — merge gated tool declarations from all registered packages",
+                "discoverPackageSkillPaths(): string[] — discover skill directory paths declared by registered packages via extra.php-agents.skills",
+                "discoverPackageRolePaths(): string[] — discover role directory paths declared by registered packages via extra.php-agents.roles",
+                "discoverPackageLoopPaths(): string[] — discover loop definition directory paths declared by registered packages via extra.php-agents.loops"
             ]
         },
         {
             "path": "src/Config/LoopDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\LoopDiscovery",
             "layer": "config",
-            "description": "Discovers loop definitions from JSON files in workspace/loops/. Seeds built-in loop definitions from config/loops/ on first boot. Caches parsed LoopDefinition objects for reuse.",
+            "description": "Discovers loop definitions from JSON files in workspace/loops/. Seeds built-in loop definitions from config/loops/ on first boot. Seeds package-distributed loop definitions from toolkit vendor directories. Caches parsed LoopDefinition objects for reuse.",
             "methods": [
                 "discover(): array — scan workspace/loops/ for .json files, returns map of name → LoopDefinition",
                 "get(string): ?LoopDefinition — get a single definition by name",
                 "names(): string[] — list all available definition names",
-                "seedBuiltins(): void — copy config/loops/*.json to workspace/loops/ if not present"
+                "seedBuiltins(): void — copy config/loops/*.json to workspace/loops/ if not present",
+                "seedPackageLoops(string[] $packageLoopPaths): void — copy .json loop files from package directories to workspace/loops/ (never overwrites)"
             ]
         },
         {
@@ -1570,12 +1574,13 @@
             "path": "src/Config/RoleDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleDiscovery",
             "layer": "config",
-            "description": "Boot-time role discovery. Scans workspace/roles/ for .md files, parses metadata only (progressive disclosure). Seeds built-in roles from config/roles/ on first boot with optional RoleUpdateTracker for hash recording. Provides CRUD operations with backup support for updates.",
+            "description": "Boot-time role discovery. Scans workspace/roles/ for .md files, parses metadata only (progressive disclosure). Seeds built-in roles from config/roles/ on first boot with optional RoleUpdateTracker for hash recording. Seeds package-distributed roles via seedPackageRoles(). Provides CRUD operations with backup support for updates.",
             "methods": [
                 "discoverAll(): array<string, RoleProperties> — scan and cache all roles",
                 "getRole(string $name): RoleProperties — get role or throw RoleNotFoundException",
                 "readInstructions(string $name): string — load role body for activation",
                 "seedBuiltinRoles(?RoleUpdateTracker): void — copy config/roles/ to workspace/roles/, optionally recording hashes",
+                "seedPackageRoles(array $packageRolePaths): void — copy package-distributed .md role files to workspace/roles/ if not already present, invalidates cache",
                 "createRole(array, string): RoleProperties — create new role file",
                 "updateRole(string, array|RoleProperties, string): RoleProperties — update with backup",
                 "deleteRole(string): void — delete non-builtin role"

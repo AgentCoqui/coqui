@@ -902,4 +902,118 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
 
         return is_dir($fullPath) ? realpath($fullPath) ?: $fullPath : null;
     }
+
+    /**
+     * Discover role directory paths declared by registered toolkit packages.
+     *
+     * Reads extra.php-agents.roles from each registered package's composer.json.
+     *
+     * @return string[] Absolute paths to role directories.
+     */
+    public function discoverPackageRolePaths(): array
+    {
+        $registry = $this->loadRegistry();
+        $paths = [];
+
+        foreach (array_keys($registry) as $packageName) {
+            $rolePath = $this->loadRolePath($packageName);
+            if ($rolePath !== null) {
+                $paths[] = $rolePath;
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
+     * Discover loop definition directory paths declared by registered toolkit packages.
+     *
+     * Reads extra.php-agents.loops from each registered package's composer.json.
+     *
+     * @return string[] Absolute paths to loop definition directories.
+     */
+    public function discoverPackageLoopPaths(): array
+    {
+        $registry = $this->loadRegistry();
+        $paths = [];
+
+        foreach (array_keys($registry) as $packageName) {
+            $loopPath = $this->loadLoopPath($packageName);
+            if ($loopPath !== null) {
+                $paths[] = $loopPath;
+            }
+        }
+
+        return $paths;
+    }
+
+    /**
+     * Load the role directory path declared in a package's composer.json.
+     *
+     * Reads extra.php-agents.roles — a string relative path to the directory
+     * containing role .md files within the package.
+     */
+    private function loadRolePath(string $packageName): ?string
+    {
+        $composerJson = $this->projectRoot . '/vendor/' . $packageName . '/composer.json';
+        $vendorRoot = $this->projectRoot . '/vendor/' . $packageName;
+
+        if (!file_exists($composerJson)) {
+            $composerJson = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/' . $packageName . '/composer.json';
+            $vendorRoot = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/' . $packageName;
+        }
+
+        if (!file_exists($composerJson)) {
+            return null;
+        }
+
+        $data = json_decode((string) file_get_contents($composerJson), true);
+        if (!is_array($data)) {
+            return null;
+        }
+
+        $rolesDir = $data['extra']['php-agents']['roles'] ?? null;
+        if (!is_string($rolesDir) || $rolesDir === '') {
+            return null;
+        }
+
+        $fullPath = $vendorRoot . '/' . ltrim($rolesDir, '/');
+
+        return is_dir($fullPath) ? realpath($fullPath) ?: $fullPath : null;
+    }
+
+    /**
+     * Load the loop definition directory path declared in a package's composer.json.
+     *
+     * Reads extra.php-agents.loops — a string relative path to the directory
+     * containing loop .json files within the package.
+     */
+    private function loadLoopPath(string $packageName): ?string
+    {
+        $composerJson = $this->projectRoot . '/vendor/' . $packageName . '/composer.json';
+        $vendorRoot = $this->projectRoot . '/vendor/' . $packageName;
+
+        if (!file_exists($composerJson)) {
+            $composerJson = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/' . $packageName . '/composer.json';
+            $vendorRoot = PathHelper::trimTrailingSlash($this->workspacePath) . '/vendor/' . $packageName;
+        }
+
+        if (!file_exists($composerJson)) {
+            return null;
+        }
+
+        $data = json_decode((string) file_get_contents($composerJson), true);
+        if (!is_array($data)) {
+            return null;
+        }
+
+        $loopsDir = $data['extra']['php-agents']['loops'] ?? null;
+        if (!is_string($loopsDir) || $loopsDir === '') {
+            return null;
+        }
+
+        $fullPath = $vendorRoot . '/' . ltrim($loopsDir, '/');
+
+        return is_dir($fullPath) ? realpath($fullPath) ?: $fullPath : null;
+    }
 }
