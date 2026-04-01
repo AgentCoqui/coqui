@@ -11,6 +11,10 @@ use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
+use React\ChildProcess\Process as ReactProcess;
+use React\EventLoop\Loop;
+use React\Promise\Deferred;
+use function React\Async\await;
 
 final class ShellToolkit implements ToolkitInterface
 {
@@ -120,55 +124,43 @@ final class ShellToolkit implements ToolkitInterface
                     return ToolResult::error("Invalid working directory: {$cwd}");
                 }
 
-                $descriptorSpec = [
-                    0 => ['pipe', 'r'],
-                    1 => ['pipe', 'w'],
-                    2 => ['pipe', 'w'],
-                ];
-
-                $process = proc_open(
-                    $command,
-                    $descriptorSpec,
-                    $pipes,
-                    $effectiveCwd,
-                );
-
-                if (!is_resource($process)) {
-                    return ToolResult::error("Failed to execute command: {$command}");
-                }
-
-                fclose($pipes[0]);
-
-                stream_set_blocking($pipes[1], false);
-                stream_set_blocking($pipes[2], false);
-
+                // Use ReactPHP child-process for non-blocking execution.
+                // During await(), the event loop runs — spinner timer fires.
+                $reactProcess = new ReactProcess($command, $effectiveCwd);
+                $deferred = new Deferred();
                 $stdout = '';
                 $stderr = '';
-                $startTime = time();
+                $timedOut = false;
 
-                while (proc_get_status($process)['running']) {
-                    $stdout .= stream_get_contents($pipes[1]) ?: '';
-                    $stderr .= stream_get_contents($pipes[2]) ?: '';
-
-                    if (time() - $startTime > $timeout) {
-                        proc_terminate($process);
-                        fclose($pipes[1]);
-                        fclose($pipes[2]);
-                        proc_close($process);
-
-                        return ToolResult::error("Command timed out after {$timeout}s");
-                    }
-
-                    usleep(10000);
+                try {
+                    $reactProcess->start();
+                } catch (\Throwable $e) {
+                    return ToolResult::error("Failed to execute command: {$e->getMessage()}");
                 }
 
-                $stdout .= stream_get_contents($pipes[1]) ?: '';
-                $stderr .= stream_get_contents($pipes[2]) ?: '';
+                $reactProcess->stdout?->on('data', static function (string $chunk) use (&$stdout): void {
+                    $stdout .= $chunk;
+                });
 
-                fclose($pipes[1]);
-                fclose($pipes[2]);
+                $reactProcess->stderr?->on('data', static function (string $chunk) use (&$stderr): void {
+                    $stderr .= $chunk;
+                });
 
-                $exitCode = proc_close($process);
+                $timeoutTimer = Loop::addTimer($timeout, static function () use ($reactProcess, &$timedOut): void {
+                    $timedOut = true;
+                    $reactProcess->terminate();
+                });
+
+                $reactProcess->on('exit', static function (?int $code) use ($deferred, $timeoutTimer): void {
+                    Loop::cancelTimer($timeoutTimer);
+                    $deferred->resolve($code ?? 1);
+                });
+
+                $exitCode = (int) await($deferred->promise());
+
+                if ($timedOut) {
+                    return ToolResult::error("Command timed out after {$timeout}s");
+                }
 
                 $result = [
                     'exit_code' => $exitCode,

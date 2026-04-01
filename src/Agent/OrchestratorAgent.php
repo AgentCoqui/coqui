@@ -17,6 +17,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 use CoquiBot\Coqui\Storage\EditHistory;
 use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
 use CoquiBot\Coqui\Toolkit\ShellToolkit;
@@ -146,6 +147,7 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly bool $unsafeMode = false,
         ?ToolExecutorInterface $toolExecutor = null,
         ?TickCallbackInterface $tickCallback = null,
+        private readonly ?HttpClientInterface $httpClient = null,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
@@ -159,7 +161,7 @@ final class OrchestratorAgent extends AbstractAgent
         if ($config instanceof OpenClawConfig) {
             $fallbacks = $config->getFallbacks();
             if (!empty($fallbacks)) {
-                $factory = new ProviderFactory($config);
+                $factory = new ProviderFactory($config, $this->httpClient);
                 $fallbackProviders = array_map(
                     fn(string $model) => $factory->create($model),
                     $fallbacks,
@@ -177,7 +179,7 @@ final class OrchestratorAgent extends AbstractAgent
         $pruningStrategy = null;
         if ($this->storage !== null) {
             try {
-                $utilityFactory = new ProviderFactory($config);
+                $utilityFactory = new ProviderFactory($config, $this->httpClient);
                 $utilityModel = $this->roleResolver->resolveUtility();
                 if ($utilityModel !== '') {
                     $utilityProvider = $utilityFactory->create($utilityModel);
@@ -407,7 +409,7 @@ final class OrchestratorAgent extends AbstractAgent
             roleResolver: $this->roleResolver,
             config: $this->config,
             roleDiscovery: $this->roleDiscovery,
-            providerFactory: new ProviderFactory($this->config),
+            providerFactory: new ProviderFactory($this->config, $this->httpClient),
         );
 
         // Create vision tool for image analysis
@@ -1099,7 +1101,7 @@ final class OrchestratorAgent extends AbstractAgent
     private function resolveUtilityProvider(): ?\CarmeloSantana\PHPAgents\Contract\ProviderInterface
     {
         try {
-            $factory = new ProviderFactory($this->config);
+            $factory = new ProviderFactory($this->config, $this->httpClient);
             $utilityModel = $this->roleResolver->resolveUtility();
 
             if ($utilityModel !== '') {

@@ -15,6 +15,7 @@ use CarmeloSantana\PHPAgents\Agent\Output;
 use CarmeloSantana\PHPAgents\Context\TokenCounterFactory;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 use CarmeloSantana\PHPAgents\Provider\Usage;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
@@ -83,6 +84,7 @@ final class AgentRunner
         private readonly ?ProjectStore $projectStore = null,
         private readonly ?DefaultsLoader $defaultsLoader = null,
         private readonly ?TickCallbackInterface $tickCallback = null,
+        private readonly ?HttpClientInterface $httpClient = null,
     ) {}
 
     /**
@@ -293,7 +295,7 @@ final class AgentRunner
                         storage: $this->storage,
                         memoryStore: $this->memoryStore,
                     );
-                    $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+                    $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
                     $utilityModel = $this->roleResolver->resolveUtility();
                     if ($utilityModel !== '') {
                         $utilityProvider = $factory->create($utilityModel);
@@ -434,7 +436,7 @@ final class AgentRunner
         ?int $maxIterations = null,
     ): OrchestratorAgent {
         $modelString = $this->roleResolver->resolve($role);
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
         $provider = $factory->create($modelString);
 
         return new OrchestratorAgent(
@@ -481,6 +483,7 @@ final class AgentRunner
                 : null,
             unsafeMode: $this->unsafeMode,
             tickCallback: $this->tickCallback,
+            httpClient: $this->httpClient,
         );
     }
 
@@ -496,7 +499,7 @@ final class AgentRunner
     {
         $effectiveRole = $role ?? 'orchestrator';
         $modelString = $this->roleResolver->resolve($effectiveRole);
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
         $provider = $factory->create($modelString);
 
         $sanitizer = new ScriptSanitizer(unsafe: false, blacklist: $this->blacklist);
@@ -846,7 +849,7 @@ final class AgentRunner
         );
 
         // Resolve a cheap provider for summarization via utility model chain
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
         $provider = null;
 
         try {
@@ -1141,7 +1144,7 @@ final class AgentRunner
         }
 
         try {
-            $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+            $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
             $provider = null;
 
             // Resolve a cheap utility provider

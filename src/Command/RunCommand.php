@@ -15,6 +15,7 @@ use CoquiBot\Coqui\Config\ShellConfigResolver;
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
+use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Renderer\JsonRenderer;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
@@ -183,6 +184,7 @@ final class RunCommand extends Command
             projectStore: $this->boot->projectStore(),
             defaultsLoader: $this->boot->defaultsLoader(),
             tickCallback: $this->animatedTickCallback,
+            httpClient: new ReactHttpClientAdapter(),
         );
 
         // Initialize loop execution pipeline (requires stores from boot)

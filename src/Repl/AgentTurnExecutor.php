@@ -12,6 +12,8 @@ use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use React\EventLoop\Loop;
+use React\EventLoop\TimerInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -80,6 +82,17 @@ final class AgentTurnExecutor
         $this->tickCallback?->setCancellationToken($cancellationToken);
         $this->tickCallback?->start();
 
+        // Periodic event-loop timer drives the spinner DURING blocking ReactPHP I/O.
+        // When the provider calls React\Async\await() inside ReactResponseStream,
+        // the event loop runs and this timer fires, keeping the spinner animated.
+        $timer = null;
+        if ($this->tickCallback !== null) {
+            $cb = $this->tickCallback;
+            $timer = Loop::addPeriodicTimer(0.05, static function () use ($cb): void {
+                $cb->tick();
+            });
+        }
+
         try {
             $result = $this->agentRunner->run(
                 $prompt,
@@ -89,6 +102,9 @@ final class AgentTurnExecutor
                 role: $activeRole !== 'orchestrator' ? $activeRole : null,
             );
         } finally {
+            if ($timer !== null) {
+                Loop::cancelTimer($timer);
+            }
             $this->tickCallback?->stop();
             $this->escObserver->active = false;
             $this->terminalState->drainStdin();
