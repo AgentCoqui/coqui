@@ -208,6 +208,46 @@ final class RoleDiscovery
     }
 
     /**
+     * Seed roles from toolkit package directories into the workspace.
+     *
+     * Copies .md role files from each package path to workspace/roles/.
+     * Never overwrites existing files — workspace always wins.
+     * Package roles are not tracked by RoleUpdateTracker (no auto-update).
+     *
+     * @param string[] $packageRolePaths Absolute paths to package role directories.
+     */
+    public function seedPackageRoles(array $packageRolePaths): void
+    {
+        $this->ensureRolesDir();
+
+        foreach ($packageRolePaths as $dir) {
+            if (!is_dir($dir)) {
+                continue;
+            }
+
+            $entries = scandir($dir);
+            if ($entries === false) {
+                continue;
+            }
+
+            foreach ($entries as $entry) {
+                if ($entry === '.' || $entry === '..' || !str_ends_with($entry, '.md')) {
+                    continue;
+                }
+
+                $source = $dir . '/' . $entry;
+                $target = $this->rolesDir . '/' . $entry;
+
+                if (!file_exists($target)) {
+                    copy($source, $target);
+                }
+            }
+        }
+
+        $this->invalidateCache();
+    }
+
+    /**
      * Reserved role names that cannot be created via CRUD.
      * These are system-managed roles synthesized by RoleResolver.
      */

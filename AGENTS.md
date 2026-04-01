@@ -1923,6 +1923,29 @@ We encourage contributions of new agents, tools, and toolkits. Coqui's power gro
 
 See README "Extending Coqui" for a full walkthrough with `ToolkitInterface`, `composer.json` registration, and credential declarations. Key contracts: `ToolkitInterface::tools()` returns `Tool[]`, `guidelines()` returns a prompt string. Use `StringParameter`, `NumberParameter`, `BooleanParameter`, `EnumParameter` from php-agents for typed parameters.
 
+#### Distributing Roles, Loops, and Skills
+
+Toolkit packages can bundle roles, loop definitions, and skills that are automatically discovered and seeded on boot. Declare their paths in `composer.json`:
+
+```json
+{
+    "extra": {
+        "php-agents": {
+            "toolkits": ["Vendor\\Package\\MyToolkit"],
+            "skills": "skills",
+            "roles": "config/roles",
+            "loops": "config/loops"
+        }
+    }
+}
+```
+
+- **Skills** (`extra.php-agents.skills`) — referenced in-place from the vendor directory. Workspace skills shadow package skills with the same name.
+- **Roles** (`extra.php-agents.roles`) — `.md` files are copied to `workspace/roles/` on boot. Existing workspace files are never overwritten.
+- **Loops** (`extra.php-agents.loops`) — `.json` files are copied to `workspace/loops/` on boot. Existing workspace files are never overwritten.
+
+Package role/loop seeding runs after `discoverToolkits()` via `BootManager::seedPackageContent()`. The methods `ToolkitDiscovery::discoverPackageRolePaths()` and `discoverPackageLoopPaths()` read the paths from each registered package's `composer.json`, and `RoleDiscovery::seedPackageRoles()` / `LoopDiscovery::seedPackageLoops()` handle the copy-if-not-exists logic.
+
 ### Adding a New Tool to Coqui
 
 Follow the patterns in `src/Tool/`. Each tool:

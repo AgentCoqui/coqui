@@ -82,6 +82,7 @@ final class BootManager
         $this->initializeArtifacts();
         $this->discoverLoops();
         $this->discoverToolkits($io);
+        $this->seedPackageContent();
         $this->discoverSkills();
         $this->initializeSpace();
 
@@ -528,6 +529,25 @@ final class BootManager
 
         if (!empty($newToolkits) && $io !== null && $io->isVerbose()) {
             $io->writeln('Discovered new toolkits: ' . implode(', ', $newToolkits));
+        }
+    }
+
+    /**
+     * Seed roles and loop definitions from discovered toolkit packages.
+     *
+     * Runs after discoverToolkits() so ToolkitDiscovery is available.
+     * Package roles/loops use copy-if-not-exists semantics — workspace files always win.
+     */
+    private function seedPackageContent(): void
+    {
+        $packageRolePaths = $this->discovery->discoverPackageRolePaths();
+        if (!empty($packageRolePaths)) {
+            $this->roleDiscovery->seedPackageRoles($packageRolePaths);
+        }
+
+        $packageLoopPaths = $this->discovery->discoverPackageLoopPaths();
+        if (!empty($packageLoopPaths)) {
+            $this->loopDiscovery->seedPackageLoops($packageLoopPaths);
         }
     }
 
