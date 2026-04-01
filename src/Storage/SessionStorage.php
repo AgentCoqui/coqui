@@ -466,6 +466,14 @@ final class SessionStorage
                 $toolCalls = $msg['tool_calls'] !== null
                     ? $this->decodeToolCalls($msg['tool_calls'])
                     : [];
+
+                // Skip legacy no-op assistant messages. Some providers can reject
+                // replayed histories containing empty assistant messages that have
+                // neither text content nor tool calls.
+                if ($role === Role::Assistant && trim($content) === '' && $toolCalls === []) {
+                    continue;
+                }
+
                 $toolCallId = $msg['tool_call_id'] ?? ('unknown_' . $msg['id']);
 
                 $message = match ($role) {
