@@ -59,7 +59,7 @@ Agents implement `SplSubject`. Coqui attaches `TerminalObserver` (REPL) and `Sse
 | `ToolkitInterface` | `src/Toolkit/`, plus auto-discovered workspace packages |
 | `ToolExecutionPolicyInterface` | `InteractiveApprovalPolicy`, `AutoApprovalPolicy` |
 | `ToolExecutorInterface` | `SynchronousToolExecutor` (php-agents), `ConcurrentToolExecutor` (Coqui) |
-| `BatchToolExecutorInterface` | `SynchronousToolExecutor` (serial), `ConcurrentToolExecutor` (Fiber-parallel) |
+| `BatchToolExecutorInterface` | `ConcurrentToolExecutor` (Coqui — Fiber-parallel via ReactPHP) |
 | `CancellationTokenInterface` | `CancellationToken` — driven by SIGINT handler and `EscCancellationObserver` |
 | `ContextWindowInterface` | `ContextWindow` — optionally enabled; prunes conversation on token pressure |
 | `BudgetPruningStrategyInterface` | `SummarizePruningStrategy` — summarize-then-drop; falls back to `DefaultBudgetPruningStrategy` |
@@ -403,10 +403,10 @@ Single tool calls always use the regular `execute()` path to avoid unnecessary F
 
 ### Executor Implementations
 
-| Executor | Package | `executeBatch()` Behavior |
-| --- | --- | --- |
-| `SynchronousToolExecutor` | php-agents | Serial loop — executes tools one at a time (default fallback) |
-| `ConcurrentToolExecutor` | Coqui | Fiber-parallel via `React\Async\parallel()` — true concurrency during I/O |
+| Executor | Package | Interface | Behavior |
+| --- | --- | --- | --- |
+| `SynchronousToolExecutor` | php-agents | `ToolExecutorInterface` | Serial per-tool execution with cancellation checks between calls (default) |
+| `ConcurrentToolExecutor` | Coqui | `BatchToolExecutorInterface` | Fiber-parallel via `React\Async\parallel()` — true concurrency during I/O |
 
 ### Injection Points
 
@@ -427,7 +427,7 @@ Single tool calls always use the regular `execute()` path to avoid unnecessary F
 | File | Purpose |
 | --- | --- |
 | `php-agents: src/Contract/BatchToolExecutorInterface.php` | Interface extending `ToolExecutorInterface` with `executeBatch()` |
-| `php-agents: src/Agent/SynchronousToolExecutor.php` | Serial implementation of `BatchToolExecutorInterface` |
+| `php-agents: src/Agent/SynchronousToolExecutor.php` | Default serial executor (`ToolExecutorInterface` only — does not support batch) |
 | `php-agents: src/Agent/AbstractAgent.php` | `executeToolCalls()` — 3-phase architecture with batch detection |
 | `src/Agent/ConcurrentToolExecutor.php` | ReactPHP Fiber-based concurrent executor |
 | `src/Agent/AgentRunner.php` | Accepts `?ToolExecutorInterface` and passes to `OrchestratorAgent` |

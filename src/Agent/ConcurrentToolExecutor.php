@@ -8,7 +8,6 @@ use CarmeloSantana\PHPAgents\Contract\BatchToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Exception\TerminationException;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use React\Promise\PromiseInterface;
 
 use function React\Async\async;
 use function React\Async\await;
@@ -25,8 +24,10 @@ use function React\Async\parallel;
  * Purely synchronous tools (read_file, list_dir) execute serially
  * with negligible Fiber overhead (~microseconds). The big wins are:
  * - Concurrent spawn_agent calls (multiple child LLM HTTP requests)
- * - Concurrent exec commands (parallel subprocesses)
  * - Concurrent web_fetch calls (parallel HTTP downloads)
+ *
+ * Note: Shell tools (exec) use blocking proc_open()/exec() calls that
+ * do not suspend Fibers — they run serially even inside parallel().
  */
 final class ConcurrentToolExecutor implements BatchToolExecutorInterface
 {
