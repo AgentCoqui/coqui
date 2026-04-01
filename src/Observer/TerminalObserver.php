@@ -26,6 +26,7 @@ final class TerminalObserver implements SplObserver
     private bool $hasStreamedReasoning = false;
     private bool $statusLineVisible = false;
     private readonly StreamingMarkdownBuffer $markdownBuffer;
+    private ?AnimatedTickCallback $tickCallback = null;
 
     public function __construct(
         private readonly OutputInterface $output,
@@ -33,6 +34,17 @@ final class TerminalObserver implements SplObserver
         $this->markdownBuffer = new StreamingMarkdownBuffer(
             fn(string $rendered) => $this->output->write($rendered),
         );
+    }
+
+    /**
+     * Set the animated tick callback to delegate status line rendering.
+     *
+     * When set, showStatusLine() updates the callback's context instead of
+     * rendering its own static line, and clearStatusLine() delegates to it.
+     */
+    public function setTickCallback(AnimatedTickCallback $callback): void
+    {
+        $this->tickCallback = $callback;
     }
 
     public function update(SplSubject $subject): void
@@ -428,6 +440,10 @@ final class TerminalObserver implements SplObserver
      */
     private function showStatusLine(string $context = ''): void
     {
+        if ($this->tickCallback !== null) {
+            $this->tickCallback->setContext($context);
+            return;
+        }
         $label = $context !== '' ? "Working on {$context}" : 'Working';
         // \r moves to column 0, \033[K clears to end of line
         $this->output->write("\r\033[K  <fg=gray>{$label}...</> <fg=#666666>(press ESC to cancel)</>");
@@ -439,6 +455,10 @@ final class TerminalObserver implements SplObserver
      */
     private function clearStatusLine(): void
     {
+        if ($this->tickCallback !== null) {
+            $this->tickCallback->clearStatusLine();
+            return;
+        }
         if (!$this->statusLineVisible) {
             return;
         }

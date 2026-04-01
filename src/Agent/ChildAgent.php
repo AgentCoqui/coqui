@@ -6,6 +6,8 @@ namespace CoquiBot\Coqui\Agent;
 
 use CarmeloSantana\PHPAgents\Agent\AbstractAgent;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
+use CarmeloSantana\PHPAgents\Contract\TickCallbackInterface;
+use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CoquiBot\Coqui\Config\RoleDiscovery;
@@ -28,8 +30,15 @@ final class ChildAgent extends AbstractAgent
         array $toolkits = [],
         int $maxIterations = AbstractAgent::DEFAULT_MAX_ITERATIONS,
         private readonly ?RoleDiscovery $roleDiscovery = null,
+        ?ToolExecutorInterface $toolExecutor = null,
+        ?TickCallbackInterface $tickCallback = null,
     ) {
-        parent::__construct($provider, $maxIterations);
+        parent::__construct(
+            $provider,
+            $maxIterations,
+            toolExecutor: $toolExecutor,
+            tickCallback: $tickCallback,
+        );
 
         foreach ($toolkits as $toolkit) {
             $this->addToolkit($toolkit);

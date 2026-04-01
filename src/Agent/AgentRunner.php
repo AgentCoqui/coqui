@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Agent;
 use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
+use CarmeloSantana\PHPAgents\Contract\TickCallbackInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Enum\Role;
 use CarmeloSantana\PHPAgents\Message\Conversation;
@@ -81,6 +82,7 @@ final class AgentRunner
         private readonly ?ArtifactStore $artifactStore = null,
         private readonly ?ProjectStore $projectStore = null,
         private readonly ?DefaultsLoader $defaultsLoader = null,
+        private readonly ?TickCallbackInterface $tickCallback = null,
     ) {}
 
     /**
@@ -478,6 +480,7 @@ final class AgentRunner
                 ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
                 : null,
             unsafeMode: $this->unsafeMode,
+            tickCallback: $this->tickCallback,
         );
     }
 
