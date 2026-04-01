@@ -33,6 +33,7 @@ use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
+use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -213,6 +214,7 @@ final class ApiCommand extends Command
             spaceToolkit: $boot->spaceToolkit(),
             projectStore: $boot->projectStore(),
             defaultsLoader: $boot->defaultsLoader(),
+            httpClient: new ReactHttpClientAdapter(),
         );
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($previewRunner);
