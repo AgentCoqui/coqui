@@ -105,6 +105,35 @@ test('request() does not override existing Content-Type for json', function () {
     expect($captured['headers']['Content-Type'])->toBe('application/vnd.custom+json');
 });
 
+test('request() treats header names case-insensitively when checking Content-Type', function () {
+    [$browser, $captured] = makeSpyBrowser();
+    $adapter = new ReactHttpClientAdapter($browser);
+
+    $adapter->request('POST', 'http://api.example.com', [
+        'json' => ['data' => true],
+        'headers' => ['content-type' => 'application/problem+json'],
+    ]);
+
+    expect($captured['headers'])->toHaveCount(1)
+        ->and($captured['headers']['content-type'])->toBe('application/problem+json');
+});
+
+test('request() collapses duplicate headers that differ only by case', function () {
+    [$browser, $captured] = makeSpyBrowser();
+    $adapter = new ReactHttpClientAdapter($browser);
+
+    $adapter->request('GET', 'http://api.example.com', [
+        'headers' => [
+            'authorization' => 'Bearer old-token',
+            'Authorization' => 'Bearer new-token',
+        ],
+    ]);
+
+    expect($captured['headers'])->toHaveCount(1)
+        ->and($captured['headers'])->toHaveKey('Authorization')
+        ->and($captured['headers']['Authorization'])->toBe('Bearer new-token');
+});
+
 test('request() passes body option as string', function () {
     [$browser, $captured] = makeSpyBrowser();
     $adapter = new ReactHttpClientAdapter($browser);

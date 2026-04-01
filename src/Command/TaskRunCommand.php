@@ -13,6 +13,7 @@ use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Observer\BackgroundTaskObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
+use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -150,6 +151,7 @@ final class TaskRunCommand extends Command
             artifactStore: $boot->artifactStore(),
             projectStore: $boot->projectStore(),
             defaultsLoader: $boot->defaultsLoader(),
+            httpClient: new ReactHttpClientAdapter(),
         );
 
         // Create execution policy (auto-approve — no human in the loop)

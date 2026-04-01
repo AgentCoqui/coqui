@@ -43,19 +43,19 @@ final class ReactHttpClientAdapter implements HttpClientInterface
     {
         $options = array_merge($this->defaultOptions, $options);
 
-        $headers = $options['headers'] ?? [];
+        $headers = $this->normalizeHeaders(is_array($options['headers'] ?? null) ? $options['headers'] : []);
         $body = '';
 
         // Handle auth_bearer → Authorization header
         if (isset($options['auth_bearer']) && is_string($options['auth_bearer']) && $options['auth_bearer'] !== '') {
-            $headers['Authorization'] = 'Bearer ' . $options['auth_bearer'];
+            $this->setHeader($headers, 'Authorization', 'Bearer ' . $options['auth_bearer']);
         }
 
         // Handle json option → serialize body + set Content-Type
         if (isset($options['json'])) {
             $body = json_encode($options['json'], JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
-            if (!isset($headers['Content-Type']) && !isset($headers['content-type'])) {
-                $headers['Content-Type'] = 'application/json';
+            if (!$this->hasHeader($headers, 'Content-Type')) {
+                $this->setHeader($headers, 'Content-Type', 'application/json');
             }
         } elseif (isset($options['body'])) {
             $body = is_string($options['body']) ? $options['body'] : '';
@@ -119,5 +119,52 @@ final class ReactHttpClientAdapter implements HttpClientInterface
         }
 
         return $clone;
+    }
+
+    /**
+     * @param array<string, mixed> $headers
+     * @return array<string, mixed>
+     */
+    private function normalizeHeaders(array $headers): array
+    {
+        $normalized = [];
+
+        foreach ($headers as $name => $value) {
+            if (!is_string($name) || $name === '') {
+                continue;
+            }
+
+            $this->setHeader($normalized, $name, $value);
+        }
+
+        return $normalized;
+    }
+
+    /**
+     * @param array<string, mixed> $headers
+     */
+    private function hasHeader(array $headers, string $name): bool
+    {
+        foreach (array_keys($headers) as $existingName) {
+            if (strcasecmp($existingName, $name) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string, mixed> $headers
+     */
+    private function setHeader(array &$headers, string $name, mixed $value): void
+    {
+        foreach (array_keys($headers) as $existingName) {
+            if (strcasecmp($existingName, $name) === 0) {
+                unset($headers[$existingName]);
+            }
+        }
+
+        $headers[$name] = $value;
     }
 }
