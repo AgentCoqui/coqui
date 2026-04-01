@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -29,6 +30,7 @@ final class AgentTurnExecutor
         private readonly EscCancellationObserver $escObserver,
         private readonly TerminalStateManager $terminalState,
         private readonly ExecutionPolicyFactory $policyFactory,
+        private readonly ?AnimatedTickCallback $tickCallback = null,
     ) {}
 
     /**
@@ -74,6 +76,10 @@ final class AgentTurnExecutor
         $this->terminalState->enterRawMode();
         $this->escObserver->active = true;
 
+        // Start animated spinner (tick callback drives animation between blocking calls)
+        $this->tickCallback?->setCancellationToken($cancellationToken);
+        $this->tickCallback?->start();
+
         try {
             $result = $this->agentRunner->run(
                 $prompt,
@@ -83,6 +89,7 @@ final class AgentTurnExecutor
                 role: $activeRole !== 'orchestrator' ? $activeRole : null,
             );
         } finally {
+            $this->tickCallback?->stop();
             $this->escObserver->active = false;
             $this->terminalState->drainStdin();
             $this->terminalState->restoreState($stty);

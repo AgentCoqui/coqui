@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\RoleUpdateInfo;
 use CoquiBot\Coqui\Config\ShellConfigResolver;
+use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Observer\TerminalObserver;
@@ -60,6 +61,7 @@ final class RunCommand extends Command
     private AgentRunner $agentRunner;
     private ?LoopRunner $loopRunner = null;
     private EscCancellationObserver $escObserver;
+    private ?AnimatedTickCallback $animatedTickCallback = null;
     private SessionStorage $storage;
     private string $sessionId;
     private string $workDir;
@@ -143,6 +145,11 @@ final class RunCommand extends Command
 
         // Choose observer for terminal mode
         $terminalObserver = new TerminalObserver($output);
+
+        // Animated tick callback for spinner during tool execution
+        $this->animatedTickCallback = new AnimatedTickCallback($output);
+        $terminalObserver->setTickCallback($this->animatedTickCallback);
+
         $this->escObserver = new EscCancellationObserver(
             $terminalObserver,
             new ProcessCancellationToken(),
@@ -175,6 +182,7 @@ final class RunCommand extends Command
             artifactStore: $this->boot->artifactStore(),
             projectStore: $this->boot->projectStore(),
             defaultsLoader: $this->boot->defaultsLoader(),
+            tickCallback: $this->animatedTickCallback,
         );
 
         // Initialize loop execution pipeline (requires stores from boot)
@@ -339,6 +347,7 @@ final class RunCommand extends Command
             $this->escObserver,
             $terminalState,
             $policyFactory,
+            $this->animatedTickCallback,
         );
 
         $router = new SlashCommandRouter(
