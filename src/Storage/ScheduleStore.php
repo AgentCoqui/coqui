@@ -281,6 +281,28 @@ final class ScheduleStore
     }
 
     /**
+     * Get schedules that have a last_task_id but no resolved last_status yet.
+     *
+     * Used by ScheduleManager to reconcile completed task statuses
+     * back onto their parent schedule records.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function getSchedulesPendingReconciliation(): array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT * FROM scheduled_tasks
+            WHERE last_task_id IS NOT NULL
+              AND last_status IS NULL
+            ORDER BY last_run_at ASC
+        SQL);
+
+        $stmt->execute();
+
+        return array_values($stmt->fetchAll(\PDO::FETCH_ASSOC));
+    }
+
+    /**
      * Get all enabled schedules that are due for execution.
      *
      * @return list<array<string, mixed>>

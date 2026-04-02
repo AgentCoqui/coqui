@@ -7,12 +7,10 @@ namespace CoquiBot\Coqui\Command;
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\LoopExecutor;
-use CoquiBot\Coqui\Agent\LoopRunner;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\RoleUpdateInfo;
-use CoquiBot\Coqui\Config\ShellConfigResolver;
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
@@ -61,7 +59,7 @@ final class RunCommand extends Command
 
     private BootManager $boot;
     private AgentRunner $agentRunner;
-    private ?LoopRunner $loopRunner = null;
+    private ?LoopExecutor $loopExecutor = null;
     private EscCancellationObserver $escObserver;
     private ?AnimatedTickCallback $animatedTickCallback = null;
     private SessionStorage $storage;
@@ -207,35 +205,9 @@ final class RunCommand extends Command
         $loopDiscovery = $this->boot->loopDiscovery();
 
         if ($loopStore !== null && $projectStore !== null && $artifactStore !== null && $loopDiscovery !== null) {
-            $loopExecutor = new LoopExecutor(
+            $this->loopExecutor = new LoopExecutor(
                 loopStore: $loopStore,
                 projectStore: $projectStore,
-            );
-
-            $shellAllowed = ShellConfigResolver::resolveAllowed($this->boot->config());
-            $shellDenied = ShellConfigResolver::resolveDenied($this->boot->config());
-
-            $this->loopRunner = new LoopRunner(
-                executor: $loopExecutor,
-                loopStore: $loopStore,
-                roleResolver: $this->boot->roleResolver(),
-                roleDiscovery: $this->boot->roleDiscovery(),
-                config: $this->boot->config(),
-                projectRoot: $this->workDir,
-                workspacePath: $this->boot->workspacePath(),
-                storage: $this->storage,
-                artifactStore: $artifactStore,
-                todoStore: $this->boot->todoStore(),
-                projectStore: $projectStore,
-                memoryStore: $this->boot->memoryStore(),
-                skillDiscovery: $this->boot->skillDiscovery(),
-                discovery: $this->boot->discovery(),
-                visibilityRegistry: $this->boot->visibilityRegistry(),
-                mountManager: $this->boot->mountManager(),
-                observer: $this->escObserver,
-                unsafeMode: $this->unsafeMode,
-                shellAllowedCommands: $shellAllowed,
-                shellDeniedCommands: $shellDenied,
             );
         }
 
@@ -381,7 +353,7 @@ final class RunCommand extends Command
             conversation: new ConversationHandler($this->boot, $this->storage),
             webhook: new WebhookHandler($this->storage),
             evaluation: new EvaluationHandler($this->storage),
-            loop: new LoopHandler($this->storage, $this->boot->loopDiscovery(), $this->loopRunner),
+            loop: new LoopHandler($this->storage, $this->boot->loopDiscovery(), $this->loopExecutor),
             agentRunner: $this->agentRunner,
             onHintsToggle: function () use ($io): void {
                 $this->hintsEnabled = !$this->hintsEnabled;

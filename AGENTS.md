@@ -511,7 +511,7 @@ Single tool calls always use the regular `execute()` path to avoid unnecessary F
 | Headless mode | `RunCommand.php` (headless) | No — defaults to `SynchronousToolExecutor` |
 | Preview runner | `ApiCommand.php` | No — read-only, no tool execution |
 | Child agents | `SpawnAgentTool.php` | No — defaults to `SynchronousToolExecutor` |
-| Loop stage agents | `LoopRunner.php` | No — defaults to `SynchronousToolExecutor` |
+| Loop stage agents | `LoopManager.php` → `BackgroundTaskManager` | No — each stage runs as a background task process |
 
 ### Key Source Files
 
@@ -533,8 +533,8 @@ Coqui supports fully automated, multi-iteration workflows called **Loops**. A lo
 2. **`LoopDiscovery`** scans for `.json` files, parses them into `LoopDefinition` value objects, and caches results. Built-in definitions are seeded from `config/loops/` on first boot.
 3. **`LoopStore`** persists loop state to SQLite via three tables: `loops` (lifecycle), `loop_iterations` (iteration tracking), `loop_stages` (per-stage results within each iteration).
 4. **`LoopExecutor`** is the mode-agnostic orchestration engine. It manages the state machine: advancing through stages, composing prompts with previous stage output, evaluating termination conditions, and tracking iteration/stage records.
-5. **`LoopRunner`** drives loops synchronously in the REPL. It spawns `ChildAgent` instances for each stage, attaches observers for live output, and calls `LoopExecutor` to advance through the workflow.
-6. **`LoopManager`** drives loops asynchronously in the API server via a 5-second ReactPHP periodic timer. It picks up running/resumed loops and advances them one stage per tick.
+5. **`LoopManager`** drives loops asynchronously in the API server via a 5-second ReactPHP periodic timer. It picks up running loops, prepares the next stage via `LoopExecutor::prepareNextStage()`, creates a background task for execution, and links the task to the stage record. A 3-second reconciliation timer checks completed tasks and advances the loop state.
+6. **`LoopRunner`** (deprecated) was the synchronous REPL driver. Loop execution is now fully async via `LoopManager` + `BackgroundTaskManager`. The REPL `/loops start` command uses `LoopExecutor::startLoop()` directly and returns immediately.
 
 ### Loop Definition Schema
 
@@ -624,16 +624,7 @@ Coqui supports fully automated, multi-iteration workflows called **Loops**. A lo
 
 ### Observer Events
 
-Loop events are emitted via `SplSubject` from `LoopRunner`:
-
-| Event | Data | When |
-| --- | --- | --- |
-| `loop.start` | `{loop_id, definition, goal}` | Loop begins |
-| `loop.iteration_start` | `{loop_id, iteration}` | New iteration starts |
-| `loop.stage_start` | `{loop_id, iteration, stage, role}` | Stage begins execution |
-| `loop.stage_end` | `{loop_id, iteration, stage, role, status}` | Stage completes |
-| `loop.iteration_end` | `{loop_id, iteration, outcome}` | Iteration finishes |
-| `loop.complete` | `{loop_id, status, iterations}` | Loop terminates |
+Loop events are no longer emitted via `LoopRunner` observer events (deprecated). Loop progress is now tracked via the standard background task events (`BackgroundTaskManager`) and the `loop_status` / `loop_list` tools. The REPL `/loops` command shows loop progress by querying the database directly.
 
 ### Built-in Loop Definitions
 
@@ -648,8 +639,7 @@ Loop stage agents share the parent session's artifacts, todos, and sprint contex
 
 1. **`LoopToolkit`** receives the orchestrator's `sessionId` at construction and passes it to `LoopExecutor::startLoop()` when the agent calls `loop_start`.
 2. **`LoopExecutor`** stores `session_id` in the `loops` table and propagates it through `LoopStageResult::sessionId` when preparing stages.
-3. **`LoopRunner::buildToolkits()`** passes `stageResult->sessionId` to `ArtifactToolkit`, `TodoToolkit`, and `SprintToolkit` — so stage agents can read parent artifacts, track todos, and coordinate sprints.
-4. **`LoopRunner` artifacts** — after each successful stage, the runner creates a `loop_output` artifact in the parent session, linked to the stage's sprint.
+3. **`LoopManager`** creates a background task session for each stage. Toolkit scoping (artifacts, todos, sprints) is handled by `TaskRunCommand` which reads the parent session from the task record.
 
 This mirrors the `SpawnAgentTool` pattern where child agents receive the parent's session ID for toolkit scoping.
 
@@ -668,8 +658,8 @@ Stage agents receive: `FileSystemToolkit`, `ShellToolkit` (access-level dependen
 | File | Purpose |
 | --- | --- |
 | `src/Agent/LoopExecutor.php` | Mode-agnostic orchestration engine: state machine, prompt composition, termination evaluation |
-| `src/Agent/LoopRunner.php` | REPL synchronous driver: spawns ChildAgents, emits observer events |
-| `src/Api/LoopManager.php` | API async driver: 5-second ReactPHP timer, picks up running/resumed loops |
+| `src/Agent/LoopRunner.php` | Deprecated synchronous driver — retained for reference only |
+| `src/Api/LoopManager.php` | API async driver: 5-second tick + 3-second reconciliation via background tasks |
 | `src/Storage/LoopStore.php` | SQLite persistence: 3 tables (loops, loop_iterations, loop_stages) |
 | `src/Config/LoopDiscovery.php` | JSON file discovery from workspace/loops/, seeds built-ins from config/loops/ |
 | `src/Toolkit/LoopToolkit.php` | 7 agent-facing tools with dynamic guidelines; receives `sessionId` for executor propagation |

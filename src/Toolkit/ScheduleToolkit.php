@@ -333,7 +333,7 @@ final readonly class ScheduleToolkit implements ToolkitInterface
             'one_shot' => $isOneShot,
             'next_run' => $schedule['next_run_at'] ?? null,
             'message' => $isOneShot
-                ? "One-shot schedule '{$name}' created. Will execute on next scheduler tick."
+                ? "One-shot schedule '{$name}' created. Will execute within 60 seconds on the next scheduler tick."
                 : "Schedule '{$name}' created. Next run: " . ($schedule['next_run_at'] ?? 'pending'),
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }

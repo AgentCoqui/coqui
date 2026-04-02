@@ -1753,6 +1753,26 @@
             ]
         },
         {
+            "path": "src/Api/ScheduleManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\ScheduleManager",
+            "layer": "api",
+            "description": "Evaluates due schedules and creates background tasks for execution. Ticked every 60 seconds by a ReactPHP periodic timer. Queries ScheduleStore for enabled schedules past their next_run_at, creates sessions and background tasks, and reconciles completed tasks to update schedule success/failure counters. Includes duplicate enqueue protection and minimum interval enforcement.",
+            "methods": [
+                "tick(): void — evaluate due schedules and create background tasks",
+                "reconcile(): void — check schedule-linked tasks for completion and update counters"
+            ]
+        },
+        {
+            "path": "src/Api/LoopManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\LoopManager",
+            "layer": "api",
+            "description": "Advances running loops by creating background tasks for each stage. Ticked every 5 seconds by a ReactPHP periodic timer. For each running loop, checks if the current stage needs a background task, creates one via SessionStorage, and links it to the stage record. A 3-second reconciliation timer checks running stages whose linked tasks have completed, calls LoopExecutor::completeStage() or failStage(), and evaluates the iteration to decide whether to continue or stop.",
+            "methods": [
+                "tick(): void — advance running loops by preparing next stages and spawning background tasks",
+                "reconcile(): void — check running stages for completed tasks and advance loop state"
+            ]
+        },
+        {
             "path": "src/Api/Handler/TaskHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\TaskHandler",
             "layer": "command",

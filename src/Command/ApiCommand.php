@@ -6,7 +6,10 @@ namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
+use CoquiBot\Coqui\Api\LoopManager;
+use CoquiBot\Coqui\Api\ScheduleManager;
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
@@ -228,9 +231,18 @@ final class ApiCommand extends Command
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
         $webhookMgmtHandler = new WebhookManagementHandler($webhookStore);
 
-        // Loop read-only handler (no LoopManager — loops are REPL-only)
+        // Loop + Schedule managers (autonomous execution engines)
         $loopStore = $boot->loopStore();
         $loopDiscovery = $boot->loopDiscovery();
+        $projectStore = $boot->projectStore();
+
+        $scheduleManager = new ScheduleManager($storage, $scheduleStore);
+
+        $loopManager = null;
+        if ($loopStore !== null && $projectStore !== null) {
+            $loopExecutor = new LoopExecutor($loopStore, $projectStore);
+            $loopManager = new LoopManager($storage, $loopStore, $loopExecutor);
+        }
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
             ? new ApiLoopHandler($loopStore, $loopDiscovery)
@@ -344,6 +356,28 @@ final class ApiCommand extends Command
         Loop::addPeriodicTimer(3600.0, static function () use ($webhookStore): void {
             $webhookStore->purgeOldDeliveries();
         });
+
+        // Periodic timer: evaluate due schedules every 60 seconds
+        Loop::addPeriodicTimer(60.0, static function () use ($scheduleManager): void {
+            $scheduleManager->tick();
+        });
+
+        // Periodic timer: reconcile completed schedule tasks every 10 seconds
+        Loop::addPeriodicTimer(10.0, static function () use ($scheduleManager): void {
+            $scheduleManager->reconcile();
+        });
+
+        // Periodic timer: advance running loops every 5 seconds
+        if ($loopManager !== null) {
+            Loop::addPeriodicTimer(5.0, static function () use ($loopManager): void {
+                $loopManager->tick();
+            });
+
+            // Periodic timer: reconcile completed loop stage tasks every 3 seconds
+            Loop::addPeriodicTimer(3.0, static function () use ($loopManager): void {
+                $loopManager->reconcile();
+            });
+        }
 
         return Command::SUCCESS;
     }

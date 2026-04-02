@@ -158,7 +158,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                             'parameters' => $parameters !== [] ? $parameters : null,
                             'roles' => array_map(fn($r) => $r->role, $definition->roles),
                             'termination' => $definition->terminationCondition->type->value,
-                            'message' => "Loop \"{$defName}\" started successfully with ID {$loopId}. It will execute autonomously. Use loop_status(id: \"{$loopId}\") to monitor progress.",
+                            'message' => "Loop \"{$defName}\" started successfully with ID {$loopId}. Stages will execute as background tasks via the API server. Use loop_status(id: \"{$loopId}\") to monitor progress.",
                         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
                     } catch (\Throwable $e) {
                         return ToolResult::error(sprintf('Failed to start loop: %s', $e->getMessage()));
@@ -173,7 +173,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                     'max_iterations' => $input['max_iterations'] ?? null,
                     'roles' => array_map(fn($r) => $r->role, $definition->roles),
                     'termination' => $definition->terminationCondition->type->value,
-                    'message' => "Loop \"{$defName}\" is ready to start. The loop orchestrator will execute this autonomously.",
+                    'message' => "Loop \"{$defName}\" is ready to start. Stages will execute as background tasks via the API server.",
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             },
         );
