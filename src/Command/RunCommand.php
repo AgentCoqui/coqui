@@ -70,6 +70,7 @@ final class RunCommand extends Command
     private bool $unsafeMode = false;
     private bool $autoApprove = false;
     private bool $restartRequested = false;
+    private bool $continueMode = false;
     private bool $hintsEnabled = true;
     private string $activeRole = 'orchestrator';
     private ?string $activeProjectId = null;
@@ -89,7 +90,8 @@ final class RunCommand extends Command
             ->addOption('update', null, InputOption::VALUE_NONE, 'Check for and apply dependency updates, then restart')
             ->addOption('no-terminal', null, InputOption::VALUE_NONE, 'Headless mode: run a single prompt without the REPL')
             ->addOption('prompt', 'p', InputOption::VALUE_REQUIRED, 'Prompt to send in --no-terminal mode')
-            ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'Output format for --no-terminal mode (text or json)', 'text');
+            ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'Output format for --no-terminal mode (text or json)', 'text')
+            ->addOption('continue', null, InputOption::VALUE_NONE, 'Resume the last session and automatically send "Continue." as the first prompt');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -102,6 +104,13 @@ final class RunCommand extends Command
         $this->autoApprove = (bool) $input->getOption('auto-approve')
             || filter_var(getenv('COQUI_AUTO_APPROVE'), FILTER_VALIDATE_BOOLEAN);
         $noTerminal = (bool) $input->getOption('no-terminal');
+        $this->continueMode = (bool) $input->getOption('continue');
+
+        // Validate --continue + --no-terminal combination
+        if ($this->continueMode && $noTerminal) {
+            $io->error('Cannot combine --continue with --no-terminal. The --continue flag starts the REPL.');
+            return Command::FAILURE;
+        }
 
         // Boot sequence: config, workspace, credentials, toolkit discovery
         $configOption = $input->getOption('config');
@@ -234,7 +243,14 @@ final class RunCommand extends Command
 
         // Handle session
         $sessionHandler = new SessionHandler($this->boot, $this->storage);
-        if ($input->getOption('new')) {
+        if ($this->continueMode) {
+            // --continue: always resume the last session (from .coqui-session or most recent in DB)
+            $this->sessionId = $sessionHandler->loadOrCreateSession($io);
+            $restored = $sessionHandler->restoreActiveRoleFromSession($this->sessionId);
+            if ($restored !== null) {
+                $this->activeRole = $restored;
+            }
+        } elseif ($input->getOption('new')) {
             $this->sessionId = $sessionHandler->createNewSession();
         } elseif ($input->getOption('session')) {
             $this->sessionId = $input->getOption('session');
@@ -376,7 +392,15 @@ final class RunCommand extends Command
             },
         );
 
+        // --continue: auto-send "Continue." as the first prompt without displaying it
+        $pendingPrompt = $this->continueMode ? 'Continue.' : null;
+
         while (true) {
+            // If there's a pending prompt (from --continue), skip user input
+            if ($pendingPrompt !== null) {
+                $prompt = $pendingPrompt;
+                $pendingPrompt = null;
+            } else {
             $io->writeln('');
             if ($this->hintsEnabled) {
                 $projectTag = $this->activeProjectSlug !== null
@@ -460,6 +484,7 @@ final class RunCommand extends Command
             if (function_exists('readline_add_history')) {
                 readline_add_history($prompt);
             }
+            } // end else (user input)
 
             // Handle slash commands
             if (str_starts_with($prompt, '/')) {
