@@ -123,6 +123,7 @@ coqui                          # Start the REPL (default)
 coqui run --new                # Start a fresh session
 coqui run --session abc123     # Resume a specific session
 coqui run --auto-approve       # Skip tool confirmation prompts
+coqui run --continue           # Resume last session and auto-send "Continue."
 ```
 
 | Option | Short | Description |
@@ -130,6 +131,7 @@ coqui run --auto-approve       # Skip tool confirmation prompts
 | `--config <path>` | `-c` | Path to `openclaw.json` |
 | `--new` | | Start a new session |
 | `--session <id>` | `-s` | Resume a specific session |
+| `--continue` | | Resume the last session and automatically send "Continue." as the first prompt |
 | `--workdir <path>` | | Working directory (project root). Default: current directory |
 | `--workspace <path>` | | Workspace directory (overrides config and default) |
 | `--wizard` | `-w` | Run the setup wizard (no REPL, no session) |
@@ -227,6 +229,7 @@ coqui-launcher status            # Show which services are running
 | `--host <host>` | API bind address (default `127.0.0.1`, use `0.0.0.0` for network access) |
 | `--port <port>` | API port (default `3300`) |
 | `--auto-approve` | Forwarded to `coqui run` |
+| `--continue` | Forwarded to `coqui run` |
 | `--unsafe` | Forwarded to both `coqui run` and `coqui api` |
 | `--config <path>` | Forwarded to both `coqui run` and `coqui api` |
 | `--workdir <path>` | Forwarded to both `coqui run` and `coqui api` |

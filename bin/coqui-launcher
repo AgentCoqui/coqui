@@ -15,6 +15,7 @@
 #   --host HOST          API bind address (default 127.0.0.1, use 0.0.0.0 for network)
 #   --port PORT          API port (default 3300)
 #   --auto-approve       Forwarded to bin/coqui run
+#   --continue           Resume last session, auto-send "Continue." (forwarded to bin/coqui run)
 #   --unsafe             Forwarded to bin/coqui run and api
 #   --config PATH        Forwarded to bin/coqui run and api
 #   --workdir PATH       Forwarded to bin/coqui run and api
@@ -67,6 +68,8 @@ while [[ $# -gt 0 ]]; do
             verbose=true; export COQUI_VERBOSE=1; shift ;;
         --auto-approve)
             coqui_args+=("--auto-approve"); shift ;;
+        --continue)
+            coqui_args+=("--continue"); shift ;;
         --unsafe)
             coqui_args+=("--unsafe"); api_args+=("--unsafe"); shift ;;
         --config|-c)
