@@ -80,6 +80,14 @@ final class TabCompletion
                 return $this->completeProjects($parts, $input);
             }
 
+            // Complete /prompt subcommands
+            if (count($parts) >= 2 && $cmd === '/prompt') {
+                return array_values(array_filter(
+                    ['export'],
+                    fn(string $s) => str_starts_with($s, $input),
+                ));
+            }
+
             // Complete top-level slash commands
             if (str_starts_with($input, '/') || $line === '' || $line === '/') {
                 return $this->completeTopLevel($input);

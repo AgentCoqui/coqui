@@ -81,7 +81,7 @@ final class SlashCommandRouter
             '/task-cancel' => $this->handleTaskCancel($io, $arg),
             '/update' => $this->handleUpdate($io),
             '/toolkits' => $this->handleToolkits($io, $arg),
-            '/prompt' => $this->handlePrompt($io, $activeRole),
+            '/prompt' => $this->handlePrompt($io, $arg, $activeRole),
             '/summarize' => $this->handleSummarize($io, $arg, $sessionId),
             '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId),
             '/roles' => $this->handleRoles($io, $arg, $activeRole),
@@ -210,9 +210,16 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handlePrompt(SymfonyStyle $io, string $activeRole): RouteResult
+    private function handlePrompt(SymfonyStyle $io, string $arg, string $activeRole): RouteResult
     {
         $role = $activeRole !== 'orchestrator' ? $activeRole : null;
+
+        if (trim($arg) === 'export') {
+            $filePath = $this->agentRunner->exportPromptToFile($role);
+            $io->success('Prompt exported to: ' . $filePath);
+            return RouteResult::continue();
+        }
+
         $preview = $this->agentRunner->buildPromptPreview($role);
         $io->section('System Prompt');
         $io->write(MarkdownRenderer::render($preview['prompt']));
@@ -303,6 +310,7 @@ final class SlashCommandRouter
                 ['/sprints [project_slug]', 'List sprints for a project (all projects if no slug given)'],
                 ['/toolkits [enable|stub|disable <pkg|tool:name>]', 'Manage toolkit visibility'],
                 ['/prompt', 'Show the full system prompt sent to the LLM'],
+                ['/prompt export', 'Export system prompt and tool schemas to a file in the workspace'],
                 ['/role [name]', 'Switch active role (e.g. /role coder). No argument shows current role'],
                 ['/role edit <name>', 'Open a role file in your editor'],
                 ['/roles', 'List all roles with visibility and update status'],
