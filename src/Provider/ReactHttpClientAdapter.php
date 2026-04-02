@@ -39,6 +39,9 @@ final class ReactHttpClientAdapter implements HttpClientInterface
         $this->defaultOptions = $defaultOptions;
     }
 
+    /**
+     * @param array<string, mixed> $options
+     */
     public function request(string $method, string $url, array $options = []): ResponseInterface
     {
         $options = array_merge($this->defaultOptions, $options);
@@ -109,6 +112,9 @@ final class ReactHttpClientAdapter implements HttpClientInterface
         throw new \InvalidArgumentException('No responses provided to stream()');
     }
 
+    /**
+     * @param array<string, mixed> $options
+     */
     public function withOptions(array $options): static
     {
         $clone = clone $this;
@@ -130,7 +136,7 @@ final class ReactHttpClientAdapter implements HttpClientInterface
         $normalized = [];
 
         foreach ($headers as $name => $value) {
-            if (!is_string($name) || $name === '') {
+            if ($name === '') {
                 continue;
             }
 

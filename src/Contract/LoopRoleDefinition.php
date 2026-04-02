@@ -36,7 +36,7 @@ final readonly class LoopRoleDefinition
     }
 
     /**
-     * @param array{role?: string, name?: string, prompt: string, skills?: list<string>, max_iterations?: int} $data
+     * @param array<string, mixed> $data
      */
     public static function fromArray(array $data): self
     {

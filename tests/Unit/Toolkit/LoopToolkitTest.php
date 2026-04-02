@@ -476,10 +476,6 @@ test('loop_start passes parameters to executor', function () {
     $executor = new \CoquiBot\Coqui\Agent\LoopExecutor(
         loopStore: $this->loopStore,
         projectStore: $projectStore,
-        artifactStore: $artifactStore,
-        roleResolver: $roleResolver,
-        roleDiscovery: $roleDiscovery,
-        config: $config,
     );
 
     $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor);
@@ -559,10 +555,6 @@ test('loop_start passes sessionId from toolkit to executor', function () {
     $executor = new \CoquiBot\Coqui\Agent\LoopExecutor(
         loopStore: $this->loopStore,
         projectStore: $projectStore,
-        artifactStore: $artifactStore,
-        roleResolver: $roleResolver,
-        roleDiscovery: $roleDiscovery,
-        config: $config,
     );
 
     // Create toolkit WITH sessionId
@@ -608,10 +600,6 @@ test('loop_start without sessionId stores null in loop record', function () {
     $executor = new \CoquiBot\Coqui\Agent\LoopExecutor(
         loopStore: $this->loopStore,
         projectStore: $projectStore,
-        artifactStore: $artifactStore,
-        roleResolver: $roleResolver,
-        roleDiscovery: $roleDiscovery,
-        config: $config,
     );
 
     // Create toolkit WITHOUT sessionId (null)
@@ -656,10 +644,6 @@ test('prepareNextStage propagates sessionId into LoopStageResult', function () {
     $executor = new \CoquiBot\Coqui\Agent\LoopExecutor(
         loopStore: $this->loopStore,
         projectStore: $projectStore,
-        artifactStore: $artifactStore,
-        roleResolver: $roleResolver,
-        roleDiscovery: $roleDiscovery,
-        config: $config,
     );
 
     // Start loop with sessionId

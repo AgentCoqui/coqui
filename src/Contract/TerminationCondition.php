@@ -47,7 +47,7 @@ final readonly class TerminationCondition
     /**
      * Build from the "termination_condition" section of a loop definition JSON.
      *
-     * @param array{type: string, value?: mixed} $data
+     * @param array<string, mixed> $data
      */
     public static function fromArray(array $data): self
     {

@@ -414,6 +414,8 @@ final class ConfigValidator
     }
 
     /**
+    /**
+     * @param array<string, mixed> $data
      * @return string[]
      */
     private function validateEditHistory(array $data): array

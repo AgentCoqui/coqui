@@ -15,7 +15,7 @@ use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\RoleToolkitResolver;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
-use CoquiBot\Coqui\Config\ToolkitVisibility;
+use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\IterationOutcome;
 use CoquiBot\Coqui\Contract\LoopDefinition;
@@ -308,7 +308,7 @@ final class LoopRunner
         if ($this->artifactStore !== null && $this->storage !== null) {
             $toolkits[] = new ArtifactToolkit(
                 $this->artifactStore,
-                $sessionId,
+                $sessionId ?? '',
                 readOnly: $accessLevel !== 'full',
             );
         }
@@ -317,14 +317,14 @@ final class LoopRunner
         if ($this->todoStore !== null && $this->storage !== null) {
             $toolkits[] = new TodoToolkit(
                 $this->todoStore,
-                $sessionId,
+                $sessionId ?? '',
                 $role,
                 $accessLevel,
             );
         }
 
         // Sprint toolkit — bind to parent session for project coordination
-        if ($this->projectStore !== null && $this->storage !== null) {
+        if ($this->projectStore !== null && $this->todoStore !== null && $this->storage !== null) {
             $toolkits[] = new SprintToolkit(
                 $this->projectStore,
                 $this->todoStore,
@@ -418,7 +418,7 @@ final class LoopRunner
 
             public function detach(\SplObserver $observer): void
             {
-                $this->observers = array_filter($this->observers, fn(\SplObserver $o) => $o !== $observer);
+                $this->observers = array_values(array_filter($this->observers, fn(\SplObserver $o) => $o !== $observer));
             }
 
             public function notify(): void

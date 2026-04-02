@@ -11,7 +11,6 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CoquiBot\Coqui\Api\ScheduleManager;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Utility\ScheduleValidator;
@@ -31,7 +30,6 @@ final readonly class ScheduleToolkit implements ToolkitInterface
 {
     public function __construct(
         private ScheduleStore $scheduleStore,
-        private ?ScheduleManager $scheduleManager = null,
     ) {}
 
     public function tools(): array
@@ -486,20 +484,6 @@ final readonly class ScheduleToolkit implements ToolkitInterface
         $scheduleId = (string) $schedule['id'];
         $name = (string) $schedule['name'];
 
-        // If ScheduleManager is available (API server context), trigger immediately
-        if ($this->scheduleManager !== null) {
-            $taskId = $this->scheduleManager->trigger($scheduleId);
-            if ($taskId === null) {
-                return ToolResult::error('Failed to trigger schedule');
-            }
-
-            return ToolResult::success((string) json_encode([
-                'message' => "Schedule '{$name}' triggered immediately",
-                'schedule_id' => $scheduleId,
-                'task_id' => $taskId,
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-        }
-
         // Fallback: force next_run_at to now so the scheduler picks it up on next tick
         $now = gmdate('Y-m-d\TH:i:s\Z');
         $this->scheduleStore->update($scheduleId, enabled: true);
@@ -519,21 +503,6 @@ final readonly class ScheduleToolkit implements ToolkitInterface
         $enabled = $this->scheduleStore->list(enabled: true);
         if ($enabled === []) {
             return ToolResult::success('No enabled schedules to trigger.');
-        }
-
-        // If ScheduleManager is available, trigger immediately per-schedule
-        if ($this->scheduleManager !== null) {
-            $triggered = [];
-            foreach ($enabled as $s) {
-                $taskId = $this->scheduleManager->trigger((string) $s['id']);
-                if ($taskId !== null) {
-                    $triggered[] = ['name' => $s['name'], 'task_id' => $taskId];
-                }
-            }
-            return ToolResult::success((string) json_encode([
-                'message' => sprintf('Triggered %d schedule(s) immediately', count($triggered)),
-                'triggered' => $triggered,
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
         }
 
         // Fallback: force next_run_at to now
