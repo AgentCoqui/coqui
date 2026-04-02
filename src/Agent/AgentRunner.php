@@ -561,14 +561,15 @@ final class AgentRunner
         );
 
         return [
-            'prompt'            => $promptText,
-            'tool_count'        => $agent->getToolCount(),
-            'toolkit_count'     => $agent->getOwnToolkitCount(),
-            'prompt_tokens'     => $promptTokens,
-            'tool_tokens'       => $toolTokens,
-            'total_tokens'      => $promptTokens + $toolTokens,
-            'toolkit_breakdown' => $toolkitBreakdown,
-            'tool_schemas'      => $toolSchemas,
+            'prompt'                => $promptText,
+            'tool_count'            => $agent->getToolCount(),
+            'toolkit_count'         => $agent->getOwnToolkitCount(),
+            'prompt_tokens'         => $promptTokens,
+            'tool_tokens'           => $toolTokens,
+            'total_tokens'          => $promptTokens + $toolTokens,
+            'toolkit_breakdown'     => $toolkitBreakdown,
+            'tool_schemas'          => $toolSchemas,
+            'applied_loading_modes' => $agent->getAppliedLoadingModes(),
         ];
     }
 

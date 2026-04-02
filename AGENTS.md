@@ -308,16 +308,19 @@ new OrchestratorAgent(visibilityRegistry)
 
 ### REPL Commands
 
-| Command                         | Description                                         |
-| ------------------------------- | --------------------------------------------------- |
-| `/toolkits`                     | List all packages and tools with current visibility |
-| `/toolkits enable <pkg>`        | Set package to `enabled`                            |
-| `/toolkits stub <pkg>`          | Set package to `stub`                               |
-| `/toolkits disable <pkg>`       | Set package to `disabled`                           |
-| `/toolkits enable tool:<name>`  | Set individual tool to `enabled`                    |
-| `/toolkits stub tool:<name>`    | Set individual tool to `stub`                       |
-| `/toolkits disable tool:<name>` | Set individual tool to `disabled`                   |
-| `/prompt`                       | Print the fully rendered system prompt              |
+| Command                         | Description                                          |
+| ------------------------------- | ---------------------------------------------------- |
+| `/toolkits`                     | List all packages and tools with current visibility  |
+| `/toolkits enable <pkg>`        | Set package to `enabled`                             |
+| `/toolkits stub <pkg>`          | Set package to `stub`                                |
+| `/toolkits disable <pkg>`       | Set package to `disabled`                            |
+| `/toolkits enable tool:<name>`  | Set individual tool to `enabled`                     |
+| `/toolkits stub tool:<name>`    | Set individual tool to `stub`                        |
+| `/toolkits disable tool:<name>` | Set individual tool to `disabled`                    |
+| `/toolkits promote <pkg>`       | Force toolkit to `eager` loading (always loaded)     |
+| `/toolkits demote <pkg>`        | Force toolkit to `deferred` loading (always stubbed) |
+| `/toolkits auto <pkg>`          | Reset toolkit to `auto` loading (budget gate decides)|
+| `/prompt`                       | Print the fully rendered system prompt               |
 
 Tab autocomplete is provided for all subcommands, package names, and tool names via `readline_completion_function()`.
 
@@ -380,24 +383,39 @@ Coqui supports running individual tools asynchronously in background processes. 
 
 ## Toolkit Loading & Budget Gate Architecture
 
-Coqui uses a token-budget-aware loading system to control which toolkits are fully loaded into LLM context versus deferred for on-demand discovery. This follows Anthropic's tool search pattern: system toolkits are always loaded, while non-system toolkits are deferred when context is constrained and promoted based on usage frequency.
+Coqui uses a token-budget-aware loading system to control which toolkits are fully loaded into LLM context versus deferred for on-demand discovery. This follows Anthropic's tool search pattern: system toolkits are always loaded, while non-system toolkits are deferred when context is constrained and promoted based on usage frequency. Deferred toolkits have **zero prompt footprint** — no guidelines, no schema details — and are discoverable only via `tool_search`.
 
-### Three-Tier Loading Model
+### Loading Modes
 
-| Mode     | Behavior |
-| -------- | -------- |
-| `system` | Always loaded with full schema. Hardcoded in `CoquiDefaults::SYSTEM_TOOLKITS`. Immutable. |
-| `eager`  | Loaded with full schema when budget allows. User override via `ToolkitLoadingRegistry`. |
-| `deferred` | Wrapped as `StubToolkit` with minimal schema. Discoverable via `tool_search`. Default for non-system toolkits. |
+The `ToolkitLoadingMode` backed string enum defines four modes:
 
-### How It Works
+| Mode       | Value        | Behavior |
+| ---------- | ------------ | -------- |
+| `System`   | `"system"`   | Always loaded with full schema. Hardcoded in `CoquiDefaults::SYSTEM_TOOLKITS`. Immutable — cannot be changed via registry or REPL. |
+| `Eager`    | `"eager"`    | Always loaded with full schema, bypasses token budget. User override via `/toolkits promote` or `ToolkitLoadingRegistry`. |
+| `Deferred` | `"deferred"` | Always wrapped as `StubToolkit` with zero prompt footprint. User override via `/toolkits demote` or `ToolkitLoadingRegistry`. Discoverable via `tool_search`. |
+| `Auto`     | `"auto"`     | Default for non-system toolkits. Budget gate decides at runtime whether to load eagerly or defer based on usage frequency and token budget. |
 
-1. **System toolkits** (FileSystemToolkit, ShellToolkit, WebToolkit, MemoryToolkit, ArtifactToolkit, TodoToolkit, SprintToolkit, CoquiSourceToolkit, SkillToolkit) are added directly — they always enter LLM context.
+Only `Eager` and `Deferred` are persistable to `workspace/toolkit-loading.json`. `System` is immutable and `Auto` is the implicit default (absence of an override).
+
+### How It Works — 3-Phase Budget Gate
+
+1. **System toolkits** (FileSystemToolkit, ShellToolkit, WebToolkit, MemoryToolkit, ArtifactToolkit, TodoToolkit, SprintToolkit, CoquiSourceToolkit, SkillToolkit) are added directly — they always enter LLM context with full schema and guidelines.
 2. **Candidate toolkits** (discovered packages, ToolkitGeneratorToolkit, BackgroundTaskToolkit, ScheduleToolkit, etc.) are collected into an array during constructor execution.
-3. **`applyToolkitBudgetGate()`** estimates the total token cost of all candidates using `HeuristicCounter`. If the total is under the configured budget (`agents.defaults.toolkitTokenBudget`, default 10,000), all candidates load eagerly.
-4. **Over budget**: candidates are ranked by `rankCandidatesByFrequency()` using `ToolUsageTracker` data. The most-used toolkits are loaded eagerly until the budget is exhausted. Remaining candidates are wrapped as `StubToolkit`.
+3. **`applyToolkitBudgetGate()`** processes candidates in three phases:
+
+   **Phase 1 — Explicit Eager:** Candidates with `ToolkitLoadingMode::Eager` in the registry are loaded with full schema immediately, bypassing the token budget entirely.
+
+   **Phase 2 — Explicit Deferred:** Candidates with `ToolkitLoadingMode::Deferred` in the registry are wrapped as `StubToolkit` immediately, bypassing any budget consideration.
+
+   **Phase 3 — Auto Candidates:** Remaining candidates (mode `Auto`) are ranked by `rankCandidatesByFrequency()` using `ToolUsageTracker` data. A **promotion budget** (`toolkitTokenBudget × TOOLKIT_PROMOTION_BUDGET_PERCENT / 100`) controls how many Auto candidates can be promoted to eager loading. The most-used toolkits are promoted until the promotion budget is exhausted. Remaining Auto candidates are wrapped as `StubToolkit`.
+
+4. **Runtime mode tracking** — `$appliedLoadingModes` records the actual loading mode applied to each toolkit (keyed by class basename). This is surfaced via `getAppliedLoadingModes()` for the REPL `/toolkits` display and prompt preview.
 5. **Deferred toolkits** are recorded in `$deferredToolkitInfo` and a `# DEFERRED TOOLKITS` section is injected into the system prompt, telling the LLM to use `tool_search` to discover them.
-6. **`ToolkitLoadingRegistry`** allows users to force a toolkit to `eager` mode (always loaded regardless of budget) or `deferred` (always stubbed). System toolkits cannot be changed.
+
+### Zero Prompt Footprint for Deferred Toolkits
+
+`StubToolkit::guidelines()` returns an empty string. This means deferred toolkits contribute zero tokens to the system prompt — no guidelines, no tool descriptions beyond the minimal stub schema. The BM25 `ToolRegistry` always indexes the **real** tool (via `StubToolkit::realTools()`), so `tool_search` returns full schemas when the LLM needs them.
 
 ### Usage Frequency Tracking
 
@@ -415,16 +433,26 @@ Coqui uses a token-budget-aware loading system to control which toolkits are ful
 }
 ```
 
+The promotion budget percentage is defined by `CoquiDefaults::TOOLKIT_PROMOTION_BUDGET_PERCENT` (default: 60). This means up to 60% of the configured `toolkitTokenBudget` is available for promoting Auto candidates based on usage frequency.
+
 ### REPL Integration
 
-The `/toolkits` command displays a Loading column alongside Visibility and Tokens, showing `system`, `eager`, or `deferred` for each registered package. A deferred count is shown in the summary line.
+The `/toolkits` command displays a Loading column alongside Visibility and Tokens. The Loading column shows the **applied** runtime mode (from `$appliedLoadingModes`) rather than just the configured registry mode, so users see the actual loading behavior.
+
+| Command                         | Description                                         |
+| ------------------------------- | --------------------------------------------------- |
+| `/toolkits promote <pkg>`       | Force a toolkit to `eager` mode (always loaded)     |
+| `/toolkits demote <pkg>`        | Force a toolkit to `deferred` mode (always stubbed) |
+| `/toolkits auto <pkg>`          | Reset a toolkit to `auto` mode (budget gate decides)|
+
+Tab autocomplete is provided for promote/demote/auto subcommands with toolkit class basenames.
 
 ### Relationship to Visibility
 
 Loading mode is orthogonal to toolkit visibility:
 - **Visibility** (Enabled/Stub/Disabled) controls whether the LLM sees a tool at all.
-- **Loading mode** (system/eager/deferred) controls *when* a visible tool enters context.
-- A toolkit can be `Enabled` visibility but `deferred` loading — it's visible when discovered via `tool_search`.
+- **Loading mode** (System/Eager/Deferred/Auto) controls *when and how* a visible tool enters context.
+- A toolkit can be `Enabled` visibility but `Deferred` loading — it's visible when discovered via `tool_search`.
 - A `Disabled` toolkit is never loaded regardless of loading mode.
 - A user-explicit `Stub` visibility bypasses the budget gate entirely (always deferred).
 
@@ -432,12 +460,14 @@ Loading mode is orthogonal to toolkit visibility:
 
 | File | Purpose |
 | --- | --- |
-| `src/Config/ToolkitLoadingRegistry.php` | Persists loading mode overrides; guards system toolkits |
+| `src/Contract/ToolkitLoadingMode.php` | Backed string enum: System, Eager, Deferred, Auto with `isPersistable()` and `isLoaded()` helpers |
+| `src/Config/ToolkitLoadingRegistry.php` | Persists Eager/Deferred overrides; guards system toolkits; `resetMode()` returns to Auto |
 | `src/Storage/ToolUsageTracker.php` | SQLite json_each() frequency aggregation with 5-min cache |
 | `src/Tool/ToolRegistry.php` | BM25 index with package name tracking for tool discovery |
 | `src/Tool/ToolSearchTool.php` | Agent-facing tool_search with package labels in results |
-| `src/Agent/OrchestratorAgent.php` | `applyToolkitBudgetGate()`, `rankCandidatesByFrequency()`, `injectDeferredToolkitHint()` |
-| `src/Contract/CoquiDefaults.php` | `TOOLKIT_TOKEN_BUDGET`, `SYSTEM_TOOLKITS`, `SYSTEM_TOOLS` constants |
+| `src/Tool/ToolkitListTool.php` | Standalone system tool listing workspace packages (promoted from ToolkitGeneratorToolkit) |
+| `src/Agent/OrchestratorAgent.php` | `applyToolkitBudgetGate()` (3-phase), `rankCandidatesByFrequency()`, `getAppliedLoadingModes()`, `injectDeferredToolkitHint()` |
+| `src/Contract/CoquiDefaults.php` | `TOOLKIT_TOKEN_BUDGET`, `TOOLKIT_PROMOTION_BUDGET_PERCENT`, `SYSTEM_TOOLKITS`, `SYSTEM_TOOLS` constants |
 
 ## Concurrent Tool Execution Architecture
 

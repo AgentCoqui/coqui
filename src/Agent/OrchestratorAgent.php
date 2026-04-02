@@ -42,6 +42,7 @@ use CoquiBot\Coqui\Config\SummarizePruningStrategy;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
+use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
@@ -68,6 +69,7 @@ use CoquiBot\Coqui\Tool\SpawnAgentTool;
 use CoquiBot\Coqui\Tool\StubTool;
 use CoquiBot\Coqui\Tool\ExtractMemoriesTool;
 use CoquiBot\Coqui\Tool\SummarizeConversationTool;
+use CoquiBot\Coqui\Tool\ToolkitListTool;
 use CoquiBot\Coqui\Tool\ToolRegistry;
 use CoquiBot\Coqui\Tool\ToolSearchTool;
 use CoquiBot\Coqui\Tool\VisionTool;
@@ -100,6 +102,7 @@ final class OrchestratorAgent extends AbstractAgent
     private VisionTool $visionTool;
     private ?SummarizeConversationTool $summarizeTool = null;
     private ?ExtractMemoriesTool $extractMemoriesTool = null;
+    private ToolkitListTool $toolkitListTool;
     private ToolRegistry $toolRegistry;
     private ToolSearchTool $toolSearchTool;
     private ?ContextWindowInterface $contextWindowInstance = null;
@@ -110,6 +113,9 @@ final class OrchestratorAgent extends AbstractAgent
 
     /** @var array<int, array{name: string, description: string, package: string}> Deferred toolkit info for prompt injection */
     private array $deferredToolkitInfo = [];
+
+    /** @var array<string, ToolkitLoadingMode> Applied loading modes for REPL display (toolkit basename => mode) */
+    private array $appliedLoadingModes = [];
 
     // Prompt cache — avoids rebuilding from disk (glob + file reads) on every iteration
     private ?string $cachedInstructions = null;
@@ -572,11 +578,16 @@ final class OrchestratorAgent extends AbstractAgent
             );
         }
 
+        // Toolkit list tool — always available system tool for package discovery
+        $this->toolkitListTool = new ToolkitListTool(workspacePath: $this->workspacePath);
+
         // Register standalone tools in the registry now that they're all created.
         // Toolkit tools are already registered via addToolkit() override above.
         foreach ([$this->spawnTool, $this->credentialTool, $this->packageInfoTool, $this->phpExecuteTool] as $tool) {
             $this->toolRegistry->register($tool);
         }
+
+        $this->toolRegistry->register($this->toolkitListTool->tool());
 
         $this->toolRegistry->register($this->visionTool);
 
@@ -962,6 +973,8 @@ final class OrchestratorAgent extends AbstractAgent
             $visibilityManaged['config'] = $this->configTool;
         }
 
+        $visibilityManaged['toolkit_list'] = $this->toolkitListTool->tool();
+
         $tools = $alwaysEnabled;
 
         foreach ($visibilityManaged as $name => $tool) {
@@ -1205,11 +1218,15 @@ final class OrchestratorAgent extends AbstractAgent
     /**
      * Apply the token budget gate to candidate toolkits.
      *
-     * When the total tool schema tokens for all candidates exceed the configured
-     * budget, non-system toolkits are sorted by usage frequency and the most-used
-     * are loaded eagerly while the rest are deferred (wrapped as StubToolkit).
+     * Three-phase algorithm respecting explicit user overrides:
      *
-     * When under budget, all candidates load eagerly.
+     * 1. Explicit Eager  → always loaded with full schema, bypasses budget
+     * 2. Explicit Deferred → always wrapped as StubToolkit, bypasses budget
+     * 3. Auto candidates  → ranked by usage frequency, promoted until the
+     *    promotion budget (percentage of total budget) is exhausted, rest deferred
+     *
+     * When ALL candidates are Auto and total tokens fit within the full budget,
+     * everything loads eagerly (no deferral).
      *
      * @param array<int, array{toolkit: ToolkitInterface, package: string, description: string}> $candidates
      */
@@ -1223,60 +1240,105 @@ final class OrchestratorAgent extends AbstractAgent
         $budgetCfg = $this->config->get('agents.defaults.toolkitTokenBudget');
         $budget = is_numeric($budgetCfg) ? (int) $budgetCfg : CoquiDefaults::TOOLKIT_TOKEN_BUDGET;
 
-        // Use a lightweight heuristic counter for budget estimation
+        // Resolve promotion budget percentage (what fraction of budget Auto candidates can fill)
+        $promotionPercentCfg = $this->config->get('agents.defaults.toolkitPromotionBudgetPercent');
+        $promotionPercent = is_numeric($promotionPercentCfg)
+            ? max(0, min(100, (int) $promotionPercentCfg))
+            : CoquiDefaults::TOOLKIT_PROMOTION_BUDGET_PERCENT;
+
         $counter = new HeuristicCounter();
 
-        // Estimate tokens for each candidate toolkit
+        // Estimate tokens and resolve loading mode for each candidate
         $candidateTokens = [];
+        $candidateModes = [];
+        $autoCandidateIndices = [];
+
         foreach ($candidates as $idx => $entry) {
             $toolkit = $entry['toolkit'];
+            $basename = self::toolkitBasename($toolkit);
             $tokens = $counter->count($toolkit->guidelines()) + $counter->countTools($toolkit->tools());
             $candidateTokens[$idx] = $tokens;
+
+            $mode = $this->loadingRegistry?->getMode($basename) ?? ToolkitLoadingMode::Auto;
+            $candidateModes[$idx] = $mode;
+
+            if ($mode === ToolkitLoadingMode::Auto) {
+                $autoCandidateIndices[] = $idx;
+            }
         }
 
-        $totalCandidateTokens = array_sum($candidateTokens);
+        // Phase 1 & 2: Handle explicit overrides (bypass budget entirely)
+        foreach ($candidates as $idx => $entry) {
+            $mode = $candidateModes[$idx];
+            $toolkit = $entry['toolkit'];
+            $package = $entry['package'];
+            $basename = self::toolkitBasename($toolkit);
 
-        // Under budget: load all candidates eagerly
-        if ($totalCandidateTokens <= $budget) {
-            foreach ($candidates as $entry) {
+            if ($mode === ToolkitLoadingMode::Eager) {
+                $this->addToolkit($toolkit, $package);
+                $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Eager;
+            } elseif ($mode === ToolkitLoadingMode::Deferred) {
+                $this->addToolkit(new StubToolkit($toolkit), $package);
+                $this->deferredToolkitInfo[] = [
+                    'name' => $basename,
+                    'description' => $entry['description'],
+                    'package' => $package,
+                ];
+                $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Deferred;
+            }
+        }
+
+        // Phase 3: Auto candidates — budget-gated with frequency ranking
+        if (empty($autoCandidateIndices)) {
+            return;
+        }
+
+        // Collect Auto candidates
+        $autoCandidates = [];
+        foreach ($autoCandidateIndices as $idx) {
+            $autoCandidates[] = $candidates[$idx] + ['_budget_idx' => $idx];
+        }
+
+        $totalAutoTokens = 0;
+        foreach ($autoCandidateIndices as $idx) {
+            $totalAutoTokens += $candidateTokens[$idx];
+        }
+
+        // Under budget: load all Auto candidates eagerly
+        if ($totalAutoTokens <= $budget) {
+            foreach ($autoCandidates as $entry) {
+                $basename = self::toolkitBasename($entry['toolkit']);
                 $this->addToolkit($entry['toolkit'], $entry['package']);
+                $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Eager;
             }
             return;
         }
 
-        // Over budget: sort candidates by usage frequency, load highest-frequency
-        // toolkits eagerly until budget is exhausted, defer the rest.
-        $candidatesWithPriority = $this->rankCandidatesByFrequency($candidates);
+        // Over budget: rank by frequency, promote until promotion budget exhausted
+        $promotionBudget = (int) ($budget * $promotionPercent / 100);
+        $rankedAuto = $this->rankCandidatesByFrequency($autoCandidates);
 
         $usedBudget = 0;
-        foreach ($candidatesWithPriority as $entry) {
-            $idx = $entry['original_index'];
-            $tokens = $candidateTokens[$idx];
+        foreach ($rankedAuto as $entry) {
+            $budgetIdx = $entry['_budget_idx'];
+            $tokens = $candidateTokens[$budgetIdx];
             $toolkit = $entry['toolkit'];
             $package = $entry['package'];
-
-            // User-explicit eager override via ToolkitLoadingRegistry always loads
             $basename = self::toolkitBasename($toolkit);
-            if ($this->loadingRegistry?->shouldLoadEagerly($basename) === true) {
-                $this->addToolkit($toolkit, $package);
-                $usedBudget += $tokens;
-                continue;
-            }
 
-            // If adding this toolkit fits within budget, load eagerly
-            if ($usedBudget + $tokens <= $budget) {
+            if ($usedBudget + $tokens <= $promotionBudget) {
                 $this->addToolkit($toolkit, $package);
+                $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Eager;
                 $usedBudget += $tokens;
-                continue;
+            } else {
+                $this->addToolkit(new StubToolkit($toolkit), $package);
+                $this->deferredToolkitInfo[] = [
+                    'name' => $basename,
+                    'description' => $entry['description'],
+                    'package' => $package,
+                ];
+                $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Deferred;
             }
-
-            // Over budget: defer this toolkit
-            $this->addToolkit(new StubToolkit($toolkit), $package);
-            $this->deferredToolkitInfo[] = [
-                'name' => $basename,
-                'description' => $entry['description'],
-                'package' => $package,
-            ];
         }
     }
 
@@ -1375,6 +1437,19 @@ final class OrchestratorAgent extends AbstractAgent
     public function getDeferredToolkitInfo(): array
     {
         return $this->deferredToolkitInfo;
+    }
+
+    /**
+     * Get the applied loading modes for REPL display.
+     *
+     * Maps toolkit basename → ToolkitLoadingMode as actually applied at runtime
+     * (not just what's configured in the registry). This reflects budget gate decisions.
+     *
+     * @return array<string, ToolkitLoadingMode>
+     */
+    public function getAppliedLoadingModes(): array
+    {
+        return $this->appliedLoadingModes;
     }
 
     /**

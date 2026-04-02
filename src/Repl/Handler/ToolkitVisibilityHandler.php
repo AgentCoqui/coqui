@@ -6,14 +6,15 @@ namespace CoquiBot\Coqui\Repl\Handler;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
- * Handles /toolkits [enable|stub|disable <pkg|tool:name>] slash command.
+ * Handles /toolkits [enable|stub|disable|promote|demote|auto <pkg|tool:name>] slash command.
  *
- * Table includes: package name, visibility, loading mode, token estimate,
- * and aggregate tool usage count sourced from ToolUsageTracker.
+ * Table includes: package name, visibility, loading mode (applied at runtime),
+ * token estimate, and aggregate tool usage count sourced from ToolUsageTracker.
  */
 final class ToolkitVisibilityHandler
 {
@@ -35,7 +36,7 @@ final class ToolkitVisibilityHandler
             }
 
             $loadingRegistry = $this->boot->loadingRegistry();
-            $usageTracker = $this->boot->usageTracker();
+            $appliedModes = $preview['applied_loading_modes'] ?? [];
 
             $rows = [];
             foreach ($discovery->allWithVisibility() as $entry) {
@@ -46,18 +47,24 @@ final class ToolkitVisibilityHandler
                     }
                 }
 
-                // Resolve loading mode from the first class basename
-                $loadingMode = '-';
-                if ($loadingRegistry !== null && $entry['classes'] !== []) {
+                // Resolve applied loading mode from the first class basename
+                $loadingDisplay = '-';
+                if ($entry['classes'] !== []) {
                     $parts = explode('\\', $entry['classes'][0]);
                     $basename = end($parts);
-                    $loadingMode = $loadingRegistry->getMode($basename);
+
+                    // Prefer applied runtime mode, fall back to registry mode
+                    if (isset($appliedModes[$basename])) {
+                        $loadingDisplay = $appliedModes[$basename]->value;
+                    } elseif ($loadingRegistry !== null) {
+                        $loadingDisplay = $loadingRegistry->getMode($basename)->value;
+                    }
                 }
 
                 $rows[] = [
                     $entry['package'],
                     $entry['visibility'],
-                    $loadingMode,
+                    $loadingDisplay,
                     number_format($pkgTokens),
                 ];
             }
@@ -93,6 +100,7 @@ final class ToolkitVisibilityHandler
                 $io->text([
                     implode(' • ', $summaryParts),
                     '<fg=gray>Use /toolkits enable|stub|disable <pkg> or tool:<name></>',
+                    '<fg=gray>Use /toolkits promote|demote|auto <toolkit> to change loading mode</>',
                 ]);
             }
 
@@ -103,8 +111,15 @@ final class ToolkitVisibilityHandler
         $action = strtolower($parts[0]);
         $target = $parts[1] ?? '';
 
+        // Loading mode actions: promote, demote, auto
+        if (in_array($action, ['promote', 'demote', 'auto'], strict: true)) {
+            $this->handleLoadingAction($io, $action, $target);
+            return;
+        }
+
+        // Visibility actions: enable, stub, disable
         if (!in_array($action, ['enable', 'stub', 'disable'], strict: true)) {
-            $io->error("Unknown action: {$action}. Use enable, stub, or disable.");
+            $io->error("Unknown action: {$action}. Use enable|stub|disable or promote|demote|auto.");
             return;
         }
 
@@ -128,6 +143,39 @@ final class ToolkitVisibilityHandler
                 $registry->setPackageVisibility($target, $visibility);
                 $io->success("Package \"{$target}\" set to {$visibility->value}. Restart to apply.");
             }
+        } catch (\InvalidArgumentException $e) {
+            $io->error($e->getMessage());
+        }
+    }
+
+    private function handleLoadingAction(SymfonyStyle $io, string $action, string $target): void
+    {
+        $loadingRegistry = $this->boot->loadingRegistry();
+
+        if ($loadingRegistry === null) {
+            $io->error('Loading registry is not available.');
+            return;
+        }
+
+        if ($target === '') {
+            $io->error("Usage: /toolkits {$action} <ToolkitClassName>");
+            return;
+        }
+
+        try {
+            match ($action) {
+                'promote' => $loadingRegistry->setMode($target, ToolkitLoadingMode::Eager),
+                'demote' => $loadingRegistry->setMode($target, ToolkitLoadingMode::Deferred),
+                'auto' => $loadingRegistry->resetMode($target),
+            };
+
+            $resultLabel = match ($action) {
+                'promote' => 'eager (always loaded)',
+                'demote' => 'deferred (always stubbed)',
+                'auto' => 'auto (budget-gated)',
+            };
+
+            $io->success("Toolkit \"{$target}\" loading mode set to {$resultLabel}. Restart to apply.");
         } catch (\InvalidArgumentException $e) {
             $io->error($e->getMessage());
         }

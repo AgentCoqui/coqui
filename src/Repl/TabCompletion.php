@@ -104,16 +104,18 @@ final class TabCompletion
     private function completeToolkits(array $parts, string $input): array
     {
         $sub = $parts[1];
-        $toolkitSubCommands = ['enable', 'stub', 'disable'];
+        $visibilitySubCommands = ['enable', 'stub', 'disable'];
+        $loadingSubCommands = ['promote', 'demote', 'auto'];
+        $allSubCommands = [...$visibilitySubCommands, ...$loadingSubCommands];
 
         if (count($parts) === 2) {
             return array_values(array_filter(
-                $toolkitSubCommands,
+                $allSubCommands,
                 fn(string $s) => str_starts_with($s, $input),
             ));
         }
 
-        if (count($parts) === 3 && in_array($sub, $toolkitSubCommands, strict: true)) {
+        if (count($parts) === 3 && in_array($sub, $visibilitySubCommands, strict: true)) {
             $prefix = $parts[2];
             $candidates = [];
 
@@ -129,6 +131,25 @@ final class TabCompletion
 
             return array_values(array_filter(
                 $candidates,
+                fn(string $c) => str_starts_with($c, $prefix),
+            ));
+        }
+
+        // Loading mode subcommands target toolkit class basenames
+        if (count($parts) === 3 && in_array($sub, $loadingSubCommands, strict: true)) {
+            $prefix = $parts[2];
+            $candidates = [];
+
+            $allPackages = $this->boot->discovery()->allWithVisibility();
+            foreach ($allPackages as $entry) {
+                foreach ($entry['classes'] as $cls) {
+                    $clsParts = explode('\\', $cls);
+                    $candidates[] = end($clsParts);
+                }
+            }
+
+            return array_values(array_filter(
+                array_unique($candidates),
                 fn(string $c) => str_starts_with($c, $prefix),
             ));
         }
