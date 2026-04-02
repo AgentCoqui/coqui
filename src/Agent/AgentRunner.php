@@ -507,7 +507,7 @@ final class AgentRunner
      *
      * Used by the /prompt REPL command and GET /api/v1/server/prompt endpoint.
      *
-     * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>}
+     * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array}}>}
      */
     public function buildPromptPreview(?string $role = null): array
     {
@@ -555,6 +555,11 @@ final class AgentRunner
         $toolkitToolTokens = array_sum(array_column($toolkitBreakdown, 'tools_tokens'));
         $toolTokens = $standaloneToolTokens + $toolkitToolTokens;
 
+        $toolSchemas = array_map(
+            fn($tool) => $tool->toFunctionSchema(),
+            $agent->tools(),
+        );
+
         return [
             'prompt'            => $promptText,
             'tool_count'        => $agent->getToolCount(),
@@ -563,7 +568,105 @@ final class AgentRunner
             'tool_tokens'       => $toolTokens,
             'total_tokens'      => $promptTokens + $toolTokens,
             'toolkit_breakdown' => $toolkitBreakdown,
+            'tool_schemas'      => $toolSchemas,
         ];
+    }
+
+    /**
+     * Export the system prompt and tool schemas to a human-readable file.
+     *
+     * @return string Absolute path to the exported file.
+     */
+    public function exportPromptToFile(?string $role = null): string
+    {
+        $preview = $this->buildPromptPreview($role);
+        $effectiveRole = $role ?? 'orchestrator';
+        $timestamp = date('Y-m-d_H-i-s');
+
+        $lines = [];
+        $lines[] = '# Coqui System Prompt Export';
+        $lines[] = '# Generated: ' . date('c');
+        $lines[] = '# Role: ' . $effectiveRole;
+        $lines[] = '# Tools: ' . $preview['tool_count'] . '  |  Toolkits: ' . $preview['toolkit_count'];
+        $lines[] = '# Prompt tokens: ' . number_format($preview['prompt_tokens'])
+            . '  |  Tool schema tokens: ' . number_format($preview['tool_tokens'])
+            . '  |  Total: ' . number_format($preview['total_tokens']);
+        $lines[] = '';
+        $lines[] = str_repeat('=', 80);
+        $lines[] = 'SYSTEM PROMPT';
+        $lines[] = str_repeat('=', 80);
+        $lines[] = '';
+        $lines[] = $preview['prompt'];
+        $lines[] = '';
+        $lines[] = str_repeat('=', 80);
+        $lines[] = 'TOOLKIT TOKEN BREAKDOWN';
+        $lines[] = str_repeat('=', 80);
+        $lines[] = '';
+
+        foreach ($preview['toolkit_breakdown'] as $entry) {
+            $lines[] = sprintf(
+                '%s: %s guidelines + %s tools = %s total',
+                $entry['name'],
+                number_format($entry['guidelines_tokens']),
+                number_format($entry['tools_tokens']),
+                number_format($entry['total_tokens']),
+            );
+        }
+
+        $lines[] = '';
+        $lines[] = str_repeat('=', 80);
+        $lines[] = 'TOOL SCHEMAS (' . $preview['tool_count'] . ' tools)';
+        $lines[] = str_repeat('=', 80);
+
+        foreach ($preview['tool_schemas'] as $schema) {
+            $fn = $schema['function'] ?? [];
+            $name = $fn['name'] ?? 'unknown';
+            $desc = $fn['description'] ?? '';
+            $params = $fn['parameters'] ?? [];
+
+            $lines[] = '';
+            $lines[] = '## ' . $name;
+            $lines[] = $desc;
+
+            $properties = $params['properties'] ?? [];
+            $required = $params['required'] ?? [];
+
+            if ($properties instanceof \stdClass) {
+                $properties = (array) $properties;
+            }
+
+            if (!empty($properties)) {
+                $lines[] = '';
+                $lines[] = 'Parameters:';
+
+                foreach ($properties as $pName => $pSchema) {
+                    $type = $pSchema['type'] ?? 'mixed';
+                    if (isset($pSchema['enum'])) {
+                        $type = 'enum(' . implode('|', $pSchema['enum']) . ')';
+                    }
+                    $isRequired = in_array($pName, $required, true);
+                    $pDesc = $pSchema['description'] ?? '';
+                    $lines[] = sprintf(
+                        '  %s (%s%s)%s',
+                        $pName,
+                        $type,
+                        $isRequired ? ', required' : '',
+                        $pDesc !== '' ? ' — ' . $pDesc : '',
+                    );
+                }
+            }
+
+            $lines[] = '';
+            $lines[] = str_repeat('-', 40);
+        }
+
+        $lines[] = '';
+
+        $content = implode("\n", $lines);
+        $filePath = rtrim($this->workspacePath, '/') . '/Prompt-' . $timestamp . '.txt';
+        file_put_contents($filePath, $content);
+
+        return $filePath;
     }
 
     /**

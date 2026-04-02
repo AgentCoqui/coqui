@@ -53,6 +53,7 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/toolkits stub tool:<name>` | Set an individual tool to `stub` |
 | `/toolkits disable tool:<name>` | Set an individual tool to `disabled` |
 | `/prompt` | Print the fully rendered system prompt with tool/toolkit/token counts |
+| `/prompt export` | Export system prompt and tool schemas to a file in the workspace |
 
 ### Background Tasks
 
