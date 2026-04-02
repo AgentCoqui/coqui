@@ -92,7 +92,7 @@ test('exec allows all commands when allowedCommands is empty', function () {
     expect($result->status)->toBe(ToolResultStatus::Success);
     $output = json_decode($result->content, true);
     expect(trim($output['stdout']))->toBe('hello');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'ShellToolkit exec is designed for Unix environments');
 
 test('exec blocks command not in allowlist when allowlist is set', function () {
     $toolkit = new ShellToolkit(workDir: $this->workDir, allowedCommands: ['echo']);
@@ -114,7 +114,7 @@ test('unsafe mode allows commands blocked by allowlist', function () {
     $result = $tool->execute(['command' => 'ls']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'ShellToolkit exec uses Unix commands not available on Windows');
 
 test('unsafe mode allows commands blocked by denylist', function () {
     $toolkit = new ShellToolkit(workDir: $this->workDir, deniedCommands: ['echo'], unsafe: true);
@@ -125,7 +125,7 @@ test('unsafe mode allows commands blocked by denylist', function () {
     expect($result->status)->toBe(ToolResultStatus::Success);
     $output = json_decode($result->content, true);
     expect(trim($output['stdout']))->toBe('hello');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'ShellToolkit exec uses Unix commands not available on Windows');
 
 test('unsafe mode bypasses DENIED_PATTERNS', function () {
     // 'mkdir -p' would normally work, but 'rm -rf /' is a DENIED_PATTERN.
@@ -142,7 +142,7 @@ test('unsafe mode bypasses DENIED_PATTERNS', function () {
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect(is_dir($subDir))->toBeFalse();
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'rm -rf is not available on Windows');
 
 test('unsafe mode guidelines show unrestricted', function () {
     $toolkit = new ShellToolkit(workDir: $this->workDir, allowedCommands: ['echo'], unsafe: true);

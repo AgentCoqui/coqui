@@ -11,6 +11,7 @@ beforeEach(function () {
 });
 
 afterEach(function () {
+    $this->storage = null;
     if (file_exists($this->dbPath)) {
         unlink($this->dbPath);
     }
@@ -200,7 +201,7 @@ test('markOrphanedTasksFailed preserves tasks with live PIDs', function () {
 
     $task = $this->storage->getTask($taskId);
     expect($task['status'])->toBe('running');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'PID liveness check relies on posix_kill; wmic is unavailable on modern Windows');
 
 // --- updateTurnProcessStatusConditional ---
 
@@ -254,4 +255,4 @@ test('markOrphanedTurnProcessesFailed preserves processes with live PIDs', funct
 
     $turn = $this->storage->getTurnProcess($turnId);
     expect($turn['status'])->toBe('running');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'PID liveness check relies on posix_kill; wmic is unavailable on modern Windows');
