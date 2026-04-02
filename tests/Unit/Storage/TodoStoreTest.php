@@ -412,3 +412,190 @@ test('cleanupStale preserves recent todos', function () {
     expect($cleaned)->toBe(0);
     expect($this->store->get($id))->not->toBeNull();
 });
+
+// --- cleanupUnlinked ---
+
+test('cleanupUnlinked removes NULL artifact_id todos from inactive sessions', function () {
+    $id = $this->store->create(
+        sessionId: $this->sessionId,
+        title: 'Unlinked todo',
+    );
+
+    // Backdate session to make it inactive
+    $oldDate = date('Y-m-d\TH:i:s\Z', strtotime('-30 days'));
+    $this->storage->getPdo()->exec("UPDATE sessions SET updated_at = '{$oldDate}' WHERE id = '{$this->sessionId}'");
+
+    $cleaned = $this->store->cleanupUnlinked(inactiveDays: 7);
+
+    expect($cleaned)->toBe(1);
+    expect($this->store->get($id))->toBeNull();
+});
+
+test('cleanupUnlinked preserves linked todos from inactive sessions', function () {
+    $artifactId = $this->artifactStore->create(
+        sessionId: $this->sessionId,
+        type: 'plan',
+        title: 'Plan',
+        content: 'Content',
+    );
+
+    $id = $this->store->create(
+        sessionId: $this->sessionId,
+        title: 'Linked todo',
+        artifactId: $artifactId,
+    );
+
+    // Backdate session to make it inactive
+    $oldDate = date('Y-m-d\TH:i:s\Z', strtotime('-30 days'));
+    $this->storage->getPdo()->exec("UPDATE sessions SET updated_at = '{$oldDate}' WHERE id = '{$this->sessionId}'");
+
+    $cleaned = $this->store->cleanupUnlinked(inactiveDays: 7);
+
+    expect($cleaned)->toBe(0);
+    expect($this->store->get($id))->not->toBeNull();
+});
+
+test('cleanupUnlinked preserves unlinked todos from active sessions', function () {
+    $id = $this->store->create(
+        sessionId: $this->sessionId,
+        title: 'Unlinked but active',
+    );
+
+    // Session was just created — it's active
+    $cleaned = $this->store->cleanupUnlinked(inactiveDays: 7);
+
+    expect($cleaned)->toBe(0);
+    expect($this->store->get($id))->not->toBeNull();
+});
+
+test('cleanupUnlinked returns zero when no unlinked todos exist', function () {
+    $artifactId = $this->artifactStore->create(
+        sessionId: $this->sessionId,
+        type: 'plan',
+        title: 'Plan',
+        content: 'Content',
+    );
+
+    $this->store->create(
+        sessionId: $this->sessionId,
+        title: 'Linked',
+        artifactId: $artifactId,
+    );
+
+    $cleaned = $this->store->cleanupUnlinked(inactiveDays: 7);
+
+    expect($cleaned)->toBe(0);
+});
+
+// --- Session Isolation ---
+
+test('get with sessionId rejects cross-session access', function () {
+    $id = $this->store->create(
+        sessionId: $this->sessionId,
+        title: 'Session A todo',
+    );
+
+    $otherSessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    // Without sessionId — returns the todo
+    expect($this->store->get($id))->not->toBeNull();
+
+    // With correct sessionId — returns the todo
+    expect($this->store->get($id, sessionId: $this->sessionId))->not->toBeNull();
+
+    // With wrong sessionId — returns null
+    expect($this->store->get($id, sessionId: $otherSessionId))->toBeNull();
+});
+
+test('update with sessionId rejects cross-session mutation', function () {
+    $id = $this->store->create(
+        sessionId: $this->sessionId,
+        title: 'Original',
+    );
+
+    $otherSessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    $result = $this->store->update(
+        id: $id,
+        title: 'Hacked',
+        sessionId: $otherSessionId,
+    );
+
+    expect($result)->toBeFalse();
+
+    // Title unchanged
+    $todo = $this->store->get($id);
+    expect($todo['title'])->toBe('Original');
+});
+
+test('complete with sessionId rejects cross-session mutation', function () {
+    $id = $this->store->create(
+        sessionId: $this->sessionId,
+        title: 'Task to complete',
+    );
+
+    $otherSessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    $result = $this->store->complete(
+        id: $id,
+        completedBy: 'attacker',
+        sessionId: $otherSessionId,
+    );
+
+    expect($result)->toBeFalse();
+
+    // Status unchanged
+    $todo = $this->store->get($id);
+    expect($todo['status'])->toBe('pending');
+});
+
+test('delete with sessionId rejects cross-session deletion', function () {
+    $id = $this->store->create(
+        sessionId: $this->sessionId,
+        title: 'Protected todo',
+    );
+
+    $otherSessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    $result = $this->store->delete($id, sessionId: $otherSessionId);
+
+    expect($result)->toBeFalse();
+
+    // Todo still exists
+    expect($this->store->get($id))->not->toBeNull();
+});
+
+test('list only returns todos for the requested session', function () {
+    $this->store->create($this->sessionId, 'Session A');
+
+    $otherSessionId = $this->storage->createSession('orchestrator', 'test/model');
+    $this->store->create($otherSessionId, 'Session B');
+
+    $listA = $this->store->list($this->sessionId);
+    $listB = $this->store->list($otherSessionId);
+
+    expect($listA)->toHaveCount(1);
+    expect($listA[0]['title'])->toBe('Session A');
+
+    expect($listB)->toHaveCount(1);
+    expect($listB[0]['title'])->toBe('Session B');
+});
+
+test('bulkUpdate with sessionId rejects cross-session mutations', function () {
+    $id = $this->store->create(
+        sessionId: $this->sessionId,
+        title: 'Original',
+    );
+
+    $otherSessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    $count = $this->store->bulkUpdate(
+        [['id' => $id, 'title' => 'Hacked']],
+        sessionId: $otherSessionId,
+    );
+
+    expect($count)->toBe(0);
+
+    $todo = $this->store->get($id);
+    expect($todo['title'])->toBe('Original');
+});

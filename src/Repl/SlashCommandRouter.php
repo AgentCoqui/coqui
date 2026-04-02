@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
+use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
@@ -42,6 +43,7 @@ final class SlashCommandRouter
         private readonly ConversationHandler $conversation,
         private readonly WebhookHandler $webhook,
         private readonly EvaluationHandler $evaluation,
+        private readonly LoopHandler $loop,
         private readonly AgentRunner $agentRunner,
         private readonly \Closure $onHintsToggle,
     ) {}
@@ -52,10 +54,11 @@ final class SlashCommandRouter
      * @param string $command Full command string (e.g. "/role coder")
      * @param string $activeRole Current active role (may be updated by returned RouteResult)
      * @param string $sessionId Current session ID (may be updated by returned RouteResult)
+     * @param ?string $activeProjectId Current active project ID (may be updated by returned RouteResult)
      *
      * @return RouteResult Result containing exit code or state changes.
      */
-    public function route(string $command, string $activeRole, string $sessionId, SymfonyStyle $io): RouteResult
+    public function route(string $command, string $activeRole, string $sessionId, SymfonyStyle $io, ?string $activeProjectId = null): RouteResult
     {
         $parts = explode(' ', $command, 2);
         $cmd = $parts[0];
@@ -72,8 +75,8 @@ final class SlashCommandRouter
             '/config' => $this->handleConfig($io, $arg),
             '/tasks' => $this->handleTasks($io, $arg),
             '/todos' => $this->handleTodos($io, $arg, $sessionId),
-            '/projects' => $this->handleProjects($io, $arg),
-            '/sprints' => $this->handleSprints($io, $arg),
+            '/projects' => $this->handleProjects($io, $arg, $sessionId, $activeProjectId),
+            '/sprints' => $this->handleSprints($io, $arg, $sessionId),
             '/task' => $this->handleTask($io, $arg),
             '/task-cancel' => $this->handleTaskCancel($io, $arg),
             '/update' => $this->handleUpdate($io),
@@ -86,6 +89,7 @@ final class SlashCommandRouter
             '/schedules' => $this->handleSchedules($io, $arg),
             '/webhooks' => $this->handleWebhooks($io, $arg),
             '/evaluations' => $this->handleEvaluations($io, $arg),
+            '/loops' => $this->handleLoops($io, $arg, $sessionId),
             '/hints' => $this->handleHints($io),
             '/help' => $this->handleHelp($io),
             default => $this->handleUnknown($io, $cmd),
@@ -158,15 +162,24 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleProjects(SymfonyStyle $io, string $arg): RouteResult
+    private function handleProjects(SymfonyStyle $io, string $arg, string $sessionId, ?string $activeProjectId): RouteResult
     {
-        $this->project->handleProjects($io, $arg);
+        [$projectId, $projectSlug] = $this->project->handleProjects($io, $arg, $sessionId, $activeProjectId);
+
+        if ($projectId === '__clear__') {
+            return RouteResult::stateChange(newActiveProjectId: '');
+        }
+
+        if ($projectId !== null) {
+            return RouteResult::stateChange(newActiveProjectId: $projectId);
+        }
+
         return RouteResult::continue();
     }
 
-    private function handleSprints(SymfonyStyle $io, string $arg): RouteResult
+    private function handleSprints(SymfonyStyle $io, string $arg, string $sessionId): RouteResult
     {
-        $this->project->handleSprints($io, $arg);
+        $this->project->handleSprints($io, $arg, $sessionId);
         return RouteResult::continue();
     }
 
@@ -259,6 +272,12 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
+    private function handleLoops(SymfonyStyle $io, string $arg, string $sessionId): RouteResult
+    {
+        $this->loop->handle($io, $arg, $sessionId);
+        return RouteResult::continue();
+    }
+
     private function handleHints(SymfonyStyle $io): RouteResult
     {
         ($this->onHintsToggle)();
@@ -294,6 +313,7 @@ final class SlashCommandRouter
                 ['/schedules', 'List scheduled tasks with status and next run time'],
                 ['/webhooks', 'List webhook subscriptions with status and trigger counts'],
                 ['/evaluations', 'List session evaluation reports with grades and scores'],
+                ['/loops [start <def> <goal>|status|definitions|pause|resume|stop <id|all>]', 'Manage automated loop workflows'],
                 ['/summarize [recent N] [focus "topic"]', 'Summarize conversation history to save tokens'],
                 ['/hints', 'Toggle command hints in the input area'],
                 ['/update', 'Check for and apply dependency updates'],

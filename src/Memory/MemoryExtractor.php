@@ -7,7 +7,7 @@ namespace CoquiBot\Coqui\Memory;
 use CarmeloSantana\PHPAgents\Contract\MessageInterface;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Enum\Role;
-use CarmeloSantana\PHPAgents\Memory\MemoryEntry;
+use CoquiBot\Coqui\Memory\MemoryEntry;
 use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Message\SystemMessage;
 use CarmeloSantana\PHPAgents\Message\UserMessage;

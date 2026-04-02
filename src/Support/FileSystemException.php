@@ -48,4 +48,39 @@ final class FileSystemException extends \RuntimeException
     {
         return new self(sprintf('Path escapes workspace boundary: %s', $path));
     }
+
+    public static function copyFailed(string $source, string $destination, string $reason = ''): self
+    {
+        $msg = sprintf('Failed to copy %s → %s', $source, $destination);
+        if ($reason !== '') {
+            $msg .= ': ' . $reason;
+        }
+
+        return new self($msg);
+    }
+
+    public static function moveFailed(string $source, string $destination, string $reason = ''): self
+    {
+        $msg = sprintf('Failed to move %s → %s', $source, $destination);
+        if ($reason !== '') {
+            $msg .= ': ' . $reason;
+        }
+
+        return new self($msg);
+    }
+
+    public static function cannotCopyToSelf(string $path): self
+    {
+        return new self(sprintf('Cannot copy a path onto itself: %s', $path));
+    }
+
+    public static function maxRecursiveItemsExceeded(int $limit): self
+    {
+        return new self(sprintf('Recursive operation exceeds the safety limit of %d items', $limit));
+    }
+
+    public static function deletionFailed(string $path): self
+    {
+        return new self(sprintf('Failed to delete: %s', $path));
+    }
 }

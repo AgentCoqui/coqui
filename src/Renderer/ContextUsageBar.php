@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Renderer;
 use CarmeloSantana\PHPAgents\Contract\ContextWindowInterface;
 use CarmeloSantana\PHPAgents\Enum\Role;
 use CarmeloSantana\PHPAgents\Message\Conversation;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\ContextUsageSnapshot;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -69,8 +70,8 @@ final class ContextUsageBar
             $usedTokens = $contextWindow->usedTokens();
             $usagePercent = $contextWindow->usagePercent();
         } else {
-            $maxTokens = 128_000;
-            $reservedTokens = 4_096;
+            $maxTokens = CoquiDefaults::CONTEXT_WINDOW_FALLBACK;
+            $reservedTokens = CoquiDefaults::CONTEXT_WINDOW_RESERVED;
             $usedTokens = $conversation->estimateTokens();
             $effective = $maxTokens - $reservedTokens;
             /** @phpstan-ignore greater.alwaysTrue */

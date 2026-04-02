@@ -15,6 +15,7 @@ Coqui is built on [`carmelosantana/php-agents`](https://github.com/carmelosantan
 | `pendingInputProvider` | `?PendingInputProviderInterface` | `null` | Inject messages mid-loop (API mode) |
 | `contextWindow` | `?ContextWindowInterface` | `null` | Token budget tracking + auto-pruning |
 | `pruningStrategy` | `?BudgetPruningStrategyInterface` | `null` | Custom budget pruning (default: trim + drop) |
+| `toolExecutor` | `?ToolExecutorInterface` | `null` | Tool execution strategy (default: `SynchronousToolExecutor`) |
 
 ### Run Loop Output
 
@@ -41,6 +42,8 @@ Agents implement `SplSubject`. Coqui attaches `TerminalObserver` (REPL) and `Sse
 | `agent.start` | `MessageInterface` | Before first iteration |
 | `agent.iteration` | `int` | Top of each loop |
 | `agent.tool_call` | `ToolCall` | Before executing a tool |
+| `agent.batch_start` | `array{count, tools}` | Before concurrent batch execution |
+| `agent.batch_end` | `array{count}` | After concurrent batch completes |
 | `agent.tool_result` | `ToolResult` | After successful tool execution |
 | `agent.tool_error` | `string` | When a tool throws |
 | `agent.warning` | `string` | Non-fatal warnings (e.g. provider fallback) |
@@ -55,17 +58,24 @@ Agents implement `SplSubject`. Coqui attaches `TerminalObserver` (REPL) and `Sse
 | `ToolInterface` | All tools in `src/Tool/`; standalone tools in `OrchestratorAgent` |
 | `ToolkitInterface` | `src/Toolkit/`, plus auto-discovered workspace packages |
 | `ToolExecutionPolicyInterface` | `InteractiveApprovalPolicy`, `AutoApprovalPolicy` |
+| `ToolExecutorInterface` | `SynchronousToolExecutor` (php-agents), `ConcurrentToolExecutor` (Coqui) |
+| `BatchToolExecutorInterface` | `ConcurrentToolExecutor` (Coqui — Fiber-parallel via ReactPHP) |
 | `CancellationTokenInterface` | `CancellationToken` — driven by SIGINT handler and `EscCancellationObserver` |
 | `ContextWindowInterface` | `ContextWindow` — optionally enabled; prunes conversation on token pressure |
 | `BudgetPruningStrategyInterface` | `SummarizePruningStrategy` — summarize-then-drop; falls back to `DefaultBudgetPruningStrategy` |
 
-### Deprecated in php-agents — Do Not Use in Coqui
+### Removed from php-agents (Now in Coqui)
 
-| Item | Replacement |
+| Class | Coqui Location |
 | ----------------------------------- | ------------------------------------- |
+| `FilesystemToolkit` | `src/Toolkit/FileSystemToolkit.php` (expanded to 16 tools + edit history) |
+| `ShellToolkit` | `src/Toolkit/ShellToolkit.php` |
+| `WebToolkit` | `src/Toolkit/WebToolkit.php` |
+| `MemoryToolkit` | `src/Toolkit/MemoryToolkit.php` |
+| `MemoryEntry` | `src/Memory/MemoryEntry.php` |
 | `FileMemory` | `src/Memory/MemoryStore.php` (SQLite + FTS5) |
-| `MemoryToolkit` (php-agents) | `src/Toolkit/MemoryToolkit.php` (Coqui's own) |
-| `FileAgent`, `WebAgent`, `CodeAgent` | `AbstractAgent` + explicit toolkits |
+| `MemoryInterface` | Removed — `MemoryStore` is standalone |
+| `FileAgent`, `WebAgent`, `CodeAgent` | Removed — use `AbstractAgent` + explicit toolkits |
 
 
 
@@ -368,6 +378,281 @@ Coqui supports running individual tools asynchronously in background processes. 
 | `src/Toolkit/BackgroundTaskToolkit.php` | Agent-facing tools including `start_background_tool`                  |
 | `src/Command/TaskRunCommand.php`        | Branches on `tool_name` presence: agent path vs direct tool execution |
 
+## Toolkit Loading & Budget Gate Architecture
+
+Coqui uses a token-budget-aware loading system to control which toolkits are fully loaded into LLM context versus deferred for on-demand discovery. This follows Anthropic's tool search pattern: system toolkits are always loaded, while non-system toolkits are deferred when context is constrained and promoted based on usage frequency.
+
+### Three-Tier Loading Model
+
+| Mode     | Behavior |
+| -------- | -------- |
+| `system` | Always loaded with full schema. Hardcoded in `CoquiDefaults::SYSTEM_TOOLKITS`. Immutable. |
+| `eager`  | Loaded with full schema when budget allows. User override via `ToolkitLoadingRegistry`. |
+| `deferred` | Wrapped as `StubToolkit` with minimal schema. Discoverable via `tool_search`. Default for non-system toolkits. |
+
+### How It Works
+
+1. **System toolkits** (FileSystemToolkit, ShellToolkit, WebToolkit, MemoryToolkit, ArtifactToolkit, TodoToolkit, SprintToolkit, CoquiSourceToolkit, SkillToolkit) are added directly — they always enter LLM context.
+2. **Candidate toolkits** (discovered packages, ToolkitGeneratorToolkit, BackgroundTaskToolkit, ScheduleToolkit, etc.) are collected into an array during constructor execution.
+3. **`applyToolkitBudgetGate()`** estimates the total token cost of all candidates using `HeuristicCounter`. If the total is under the configured budget (`agents.defaults.toolkitTokenBudget`, default 10,000), all candidates load eagerly.
+4. **Over budget**: candidates are ranked by `rankCandidatesByFrequency()` using `ToolUsageTracker` data. The most-used toolkits are loaded eagerly until the budget is exhausted. Remaining candidates are wrapped as `StubToolkit`.
+5. **Deferred toolkits** are recorded in `$deferredToolkitInfo` and a `# DEFERRED TOOLKITS` section is injected into the system prompt, telling the LLM to use `tool_search` to discover them.
+6. **`ToolkitLoadingRegistry`** allows users to force a toolkit to `eager` mode (always loaded regardless of budget) or `deferred` (always stubbed). System toolkits cannot be changed.
+
+### Usage Frequency Tracking
+
+`ToolUsageTracker` aggregates tool usage from the `turns.tools_used` JSON column using SQLite `json_each()`. Results are cached in memory for 5 minutes. After each agent turn, the tracker is refreshed via `DeferredWorkQueue` to capture the latest usage data for future sessions.
+
+### Configuration
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "toolkitTokenBudget": 10000
+        }
+    }
+}
+```
+
+### REPL Integration
+
+The `/toolkits` command displays a Loading column alongside Visibility and Tokens, showing `system`, `eager`, or `deferred` for each registered package. A deferred count is shown in the summary line.
+
+### Relationship to Visibility
+
+Loading mode is orthogonal to toolkit visibility:
+- **Visibility** (Enabled/Stub/Disabled) controls whether the LLM sees a tool at all.
+- **Loading mode** (system/eager/deferred) controls *when* a visible tool enters context.
+- A toolkit can be `Enabled` visibility but `deferred` loading — it's visible when discovered via `tool_search`.
+- A `Disabled` toolkit is never loaded regardless of loading mode.
+- A user-explicit `Stub` visibility bypasses the budget gate entirely (always deferred).
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Config/ToolkitLoadingRegistry.php` | Persists loading mode overrides; guards system toolkits |
+| `src/Storage/ToolUsageTracker.php` | SQLite json_each() frequency aggregation with 5-min cache |
+| `src/Tool/ToolRegistry.php` | BM25 index with package name tracking for tool discovery |
+| `src/Tool/ToolSearchTool.php` | Agent-facing tool_search with package labels in results |
+| `src/Agent/OrchestratorAgent.php` | `applyToolkitBudgetGate()`, `rankCandidatesByFrequency()`, `injectDeferredToolkitHint()` |
+| `src/Contract/CoquiDefaults.php` | `TOOLKIT_TOKEN_BUDGET`, `SYSTEM_TOOLKITS`, `SYSTEM_TOOLS` constants |
+
+## Concurrent Tool Execution Architecture
+
+When an LLM returns multiple tool calls in a single response, Coqui executes them concurrently using PHP Fibers via ReactPHP's `React\Async\parallel()`. This provides true parallel execution during I/O-bound tool calls (HTTP requests, file operations) while maintaining correct result ordering for the conversation history.
+
+### How It Works
+
+1. **`AbstractAgent::executeToolCalls()`** implements a 3-phase architecture for every set of tool calls returned by the LLM:
+   - **Pre-flight** (serial) — tick callback, cancellation check, emit `agent.tool_call` events, check execution policy, resolve tools. Denied tools produce immediate error results; approved tools are collected for execution.
+   - **Execution** — if `toolExecutor instanceof BatchToolExecutorInterface && count(approved) > 1`, calls `executeBatch()` for concurrent execution. Emits `agent.batch_start` before and `agent.batch_end` after. Otherwise falls through to serial per-tool execution.
+   - **Post-flight** (serial) — merges pre-resolved (denied) and executed results in original call order, adds `ToolResultMessage` to conversation, emits `agent.tool_result` events.
+2. **`ConcurrentToolExecutor::executeBatch()`** wraps each tool call in `React\Async\async()` and passes the task list to `React\Async\parallel()`. Each tool runs in its own Fiber — concurrency occurs during I/O suspension (e.g. `await()` on HTTP requests). Purely synchronous tools execute serially with negligible overhead.
+3. **Result ordering** is preserved — `parallel()` returns results keyed by their original position, and `ksort()` ensures consistent ordering before returning to `AbstractAgent`.
+4. **`TerminationException`** (from `DoneTool`) propagates correctly — `parallel()` rejects and auto-cancels remaining Fibers when any tool throws `TerminationException`.
+
+### Batch Detection
+
+Batch execution activates automatically when all three conditions are met:
+- The `toolExecutor` implements `BatchToolExecutorInterface`
+- More than one approved tool call exists in the current response
+- No cancellation is pending
+
+Single tool calls always use the regular `execute()` path to avoid unnecessary Fiber overhead.
+
+### Executor Implementations
+
+| Executor | Package | Interface | Behavior |
+| --- | --- | --- | --- |
+| `SynchronousToolExecutor` | php-agents | `ToolExecutorInterface` | Serial per-tool execution with cancellation checks between calls (default) |
+| `ConcurrentToolExecutor` | Coqui | `BatchToolExecutorInterface` | Fiber-parallel via `React\Async\parallel()` — true concurrency during I/O |
+
+### Injection Points
+
+`ConcurrentToolExecutor` is injected at runtime contexts where ReactPHP is available:
+
+| Context | File | Receives Executor |
+| --- | --- | --- |
+| REPL (interactive) | `RunCommand.php` | Yes — `ConcurrentToolExecutor` |
+| Background tasks | `TaskRunCommand.php` | Yes — `ConcurrentToolExecutor` |
+| API turns | `TurnRunCommand.php` | Yes — `ConcurrentToolExecutor` |
+| Headless mode | `RunCommand.php` (headless) | No — defaults to `SynchronousToolExecutor` |
+| Preview runner | `ApiCommand.php` | No — read-only, no tool execution |
+| Child agents | `SpawnAgentTool.php` | No — defaults to `SynchronousToolExecutor` |
+| Loop stage agents | `LoopRunner.php` | No — defaults to `SynchronousToolExecutor` |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `php-agents: src/Contract/BatchToolExecutorInterface.php` | Interface extending `ToolExecutorInterface` with `executeBatch()` |
+| `php-agents: src/Agent/SynchronousToolExecutor.php` | Default serial executor (`ToolExecutorInterface` only — does not support batch) |
+| `php-agents: src/Agent/AbstractAgent.php` | `executeToolCalls()` — 3-phase architecture with batch detection |
+| `src/Agent/ConcurrentToolExecutor.php` | ReactPHP Fiber-based concurrent executor |
+| `src/Agent/AgentRunner.php` | Accepts `?ToolExecutorInterface` and passes to `OrchestratorAgent` |
+
+## Loop System Architecture
+
+Coqui supports fully automated, multi-iteration workflows called **Loops**. A loop strings together existing agent roles in sequence — each role processes the output of the previous one — and repeats until a termination condition is met. Loops are completely hands-off: no human approval, no iteration caps (unless declared), 100% automated.
+
+### How It Works
+
+1. **Loop definitions** are JSON files discovered from `workspace/loops/` (user-created) or `config/loops/` (built-in, seeded on first boot). Each definition declares a sequence of roles with prompts and a termination condition.
+2. **`LoopDiscovery`** scans for `.json` files, parses them into `LoopDefinition` value objects, and caches results. Built-in definitions are seeded from `config/loops/` on first boot.
+3. **`LoopStore`** persists loop state to SQLite via three tables: `loops` (lifecycle), `loop_iterations` (iteration tracking), `loop_stages` (per-stage results within each iteration).
+4. **`LoopExecutor`** is the mode-agnostic orchestration engine. It manages the state machine: advancing through stages, composing prompts with previous stage output, evaluating termination conditions, and tracking iteration/stage records.
+5. **`LoopRunner`** drives loops synchronously in the REPL. It spawns `ChildAgent` instances for each stage, attaches observers for live output, and calls `LoopExecutor` to advance through the workflow.
+6. **`LoopManager`** drives loops asynchronously in the API server via a 5-second ReactPHP periodic timer. It picks up running/resumed loops and advances them one stage per tick.
+
+### Loop Definition Schema
+
+```json
+{
+    "name": "harness",
+    "description": "Generator-evaluator pattern",
+    "roles": [
+        {
+            "role": "plan",
+            "prompt": "Analyze the goal and create an implementation plan.",
+            "skills": [],
+            "maxIterations": 30
+        },
+        {
+            "role": "coder",
+            "prompt": "Implement the plan from the previous stage."
+        },
+        {
+            "role": "reviewer",
+            "prompt": "Review the implementation. Respond APPROVED if ready, or provide feedback."
+        }
+    ],
+    "termination": {
+        "type": "evaluation_bound",
+        "value": "APPROVED"
+    }
+}
+```
+
+### Termination Conditions
+
+| Type | Value | Behavior |
+| --- | --- | --- |
+| `evaluation_bound` | String keyword | Loop ends when the last stage's output contains the keyword (e.g. "APPROVED") |
+| `iteration_bound` | Integer | Loop ends after N iterations |
+| `time_bound` | Integer (seconds) | Loop ends after N seconds of wall-clock time |
+| `manual` | — | Loop runs until explicitly stopped by user/agent |
+
+### Loop Lifecycle
+
+| Status | Description |
+| --- | --- |
+| `running` | Active — stages are being executed |
+| `paused` | Suspended — can be resumed |
+| `completed` | Termination condition met |
+| `failed` | Stage error or unrecoverable failure |
+| `cancelled` | Stopped by user/agent |
+
+### Agent-Facing Tools (LoopToolkit)
+
+| Tool | Description |
+| --- | --- |
+| `loop_start` | Start a loop from a definition with a goal prompt |
+| `loop_list` | List all loops with optional status filter |
+| `loop_status` | Get detailed status of a specific loop |
+| `loop_pause` | Pause a running loop |
+| `loop_resume` | Resume a paused loop |
+| `loop_stop` | Stop/cancel a running or paused loop |
+| `loop_definitions` | List available loop definitions |
+
+### API Endpoints
+
+| Method | Endpoint | Description |
+| --- | --- | --- |
+| `GET` | `/api/v1/loops` | List loops |
+| `POST` | `/api/v1/loops` | Create/start a loop |
+| `GET` | `/api/v1/loops/definitions` | List available definitions |
+| `GET` | `/api/v1/loops/{id}` | Get loop details |
+| `DELETE` | `/api/v1/loops/{id}` | Delete a loop |
+| `POST` | `/api/v1/loops/{id}/pause` | Pause loop |
+| `POST` | `/api/v1/loops/{id}/resume` | Resume loop |
+| `POST` | `/api/v1/loops/{id}/stop` | Stop/cancel loop |
+| `GET` | `/api/v1/loops/{id}/iterations` | List iterations |
+| `GET` | `/api/v1/loops/{id}/iterations/{iterationId}` | Get iteration with stages |
+
+### REPL Command
+
+| Command | Description |
+| --- | --- |
+| `/loops` | List all loops with status and progress |
+| `/loops definitions` | Show available loop definitions |
+| `/loops status <id>` | Detailed status of a specific loop |
+| `/loops pause <id\|all>` | Pause running loop(s) |
+| `/loops resume <id\|all>` | Resume paused loop(s) |
+| `/loops stop <id\|all>` | Stop/cancel loop(s) |
+
+### Observer Events
+
+Loop events are emitted via `SplSubject` from `LoopRunner`:
+
+| Event | Data | When |
+| --- | --- | --- |
+| `loop.start` | `{loop_id, definition, goal}` | Loop begins |
+| `loop.iteration_start` | `{loop_id, iteration}` | New iteration starts |
+| `loop.stage_start` | `{loop_id, iteration, stage, role}` | Stage begins execution |
+| `loop.stage_end` | `{loop_id, iteration, stage, role, status}` | Stage completes |
+| `loop.iteration_end` | `{loop_id, iteration, outcome}` | Iteration finishes |
+| `loop.complete` | `{loop_id, status, iterations}` | Loop terminates |
+
+### Built-in Loop Definitions
+
+| Definition | Roles | Termination | Description |
+| --- | --- | --- | --- |
+| `harness` | plan → coder → reviewer | `evaluation_bound: "APPROVED"` | Generator-evaluator pattern inspired by Anthropic's Harness |
+| `research` | explorer → coder → reviewer | `evaluation_bound: "APPROVED"` | Research-driven implementation with codebase exploration |
+
+### Session Propagation
+
+Loop stage agents share the parent session's artifacts, todos, and sprint context:
+
+1. **`LoopToolkit`** receives the orchestrator's `sessionId` at construction and passes it to `LoopExecutor::startLoop()` when the agent calls `loop_start`.
+2. **`LoopExecutor`** stores `session_id` in the `loops` table and propagates it through `LoopStageResult::sessionId` when preparing stages.
+3. **`LoopRunner::buildToolkits()`** passes `stageResult->sessionId` to `ArtifactToolkit`, `TodoToolkit`, and `SprintToolkit` — so stage agents can read parent artifacts, track todos, and coordinate sprints.
+4. **`LoopRunner` artifacts** — after each successful stage, the runner creates a `loop_output` artifact in the parent session, linked to the stage's sprint.
+
+This mirrors the `SpawnAgentTool` pattern where child agents receive the parent's session ID for toolkit scoping.
+
+### Nested Loop Protection
+
+Loop stage agents intentionally do **not** receive `LoopToolkit`, `BackgroundTaskToolkit`, `ScheduleToolkit`, or `WebhookToolkit`. These toolkits are only constructed inline by `OrchestratorAgent` — they are never part of auto-discovered packages. This prevents:
+
+- **Infinite recursion** — a stage agent starting another loop inside its own loop
+- **Uncontrolled spawning** — stage agents creating background tasks or schedules
+- **Resource exhaustion** — unbounded process/session creation
+
+Stage agents receive: `FileSystemToolkit`, `ShellToolkit` (access-level dependent), `WebToolkit`, `CoquiSourceToolkit`, `MemoryToolkit`, `SkillToolkit`, `ArtifactToolkit`, `TodoToolkit`, `SprintToolkit`, and auto-discovered package toolkits.
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Agent/LoopExecutor.php` | Mode-agnostic orchestration engine: state machine, prompt composition, termination evaluation |
+| `src/Agent/LoopRunner.php` | REPL synchronous driver: spawns ChildAgents, emits observer events |
+| `src/Api/LoopManager.php` | API async driver: 5-second ReactPHP timer, picks up running/resumed loops |
+| `src/Storage/LoopStore.php` | SQLite persistence: 3 tables (loops, loop_iterations, loop_stages) |
+| `src/Config/LoopDiscovery.php` | JSON file discovery from workspace/loops/, seeds built-ins from config/loops/ |
+| `src/Toolkit/LoopToolkit.php` | 7 agent-facing tools with dynamic guidelines; receives `sessionId` for executor propagation |
+| `src/Contract/LoopDefinition.php` | Immutable value object: name, description, roles, termination condition |
+| `src/Contract/LoopRoleDefinition.php` | Value object: role, prompt, skills, maxIterations per stage |
+| `src/Contract/TerminationType.php` | Backed enum: EvaluationBound, IterationBound, TimeBound, Manual |
+| `src/Contract/TerminationCondition.php` | Value object: type + threshold value |
+| `src/Contract/LoopStageResult.php` | Value object: next stage preparation (role, prompt, sessionId, sprintId) |
+| `src/Contract/IterationOutcome.php` | Enum: Complete, Continue, Failed, LimitReached |
+| `src/Repl/Handler/LoopHandler.php` | REPL /loops command handler |
+| `src/Api/Handler/LoopHandler.php` | REST API endpoints (10 routes, self-registering) |
+| `prompts/tools/loops.md` | Agent prompt injection documentation |
+
 ## Schedule System Architecture
 
 Coqui supports autonomous, timer-driven execution via a cron-style scheduling system. The agent can create, manage, and self-schedule recurring or one-shot tasks that execute as background tasks inside the ReactPHP event loop.
@@ -619,6 +904,7 @@ Coqui provides session-scoped task tracking via the todo system. Agents use todo
 | `created_by` | TEXT | Role that created the todo |
 | `completed_by` | TEXT | Role that completed it |
 | `notes` | TEXT | Additional context |
+| `sprint_id` | TEXT FK | Optional link to sprint for project tracking |
 | `sort_order` | INTEGER | Display ordering |
 
 ### Role-Based Permissions
@@ -675,6 +961,67 @@ This is best-effort — the stage transition always succeeds even if todo genera
 | `src/Api/Handler/TodoHandler.php` | REST API endpoints for todo CRUD and bulk operations |
 | `src/Agent/PlanTodoGenerator.php` | Auto-generates todos from finalized plan artifacts via utility model |
 | `prompts/tools/todos.md` | Agent usage guidelines for todo workflow |
+
+## Project Context Architecture
+
+Coqui supports setting an **active project** per session. When a project is active, its metadata, sprint roster, and dedicated directory are injected into the agent's system prompt as an `# ACTIVE PROJECT` section. This gives all agents (orchestrator, children, background tasks) ambient awareness of what project they're working on.
+
+### How It Works
+
+1. **`SessionStorage`** stores the active project ID per session via `active_project_id` column. `setActiveProject()` persists the association; `getActiveProjectId()` retrieves it.
+2. **`/projects <slug>`** REPL command switches the active project. `/projects clear` unsets it. The project listing marks the active project with `●`.
+3. **`project_switch`** tool in `SprintToolkit` allows the agent to switch or clear the active project programmatically. Only available when `SessionStorage` and `sessionId` are provided.
+4. **`OrchestratorAgent::injectProjectContext()`** appends the `# ACTIVE PROJECT` section to the system prompt. Content includes: name, slug, status, description, directory path, and sprint roster with progress bars.
+5. **Project directories** are auto-created at `workspace/projects/{slug}-{hash(8)}/` when a project is created via `project_create`. The directory name is stored in the `directory` column of the `projects` table.
+
+### Session Persistence & Propagation
+
+- **Session restore**: On session load/switch, `RunCommand::restoreActiveProject()` reads the active project from storage. Stale references (deleted projects) are cleared automatically.
+- **Background tasks**: `BackgroundTaskToolkit` propagates the parent session's active project to newly created child task sessions.
+- **Child agents**: Spawned via `spawn_agent` — children are session-less and do not receive active project context directly. Context flows through the task prompt.
+- **Loop agents**: Same as child agents — no project propagation. Context flows through loop goal/prompts.
+
+### REPL Integration
+
+| Feature | Behavior |
+| --- | --- |
+| Readline prompt | ` [slug] › ` when active, ` › ` otherwise |
+| User display | `You [slug]:` with magenta color |
+| Tab completion | `/projects` autocompletes project slugs + `clear`, `active`, `completed`, `archived` |
+| Project listing | `●` marker next to active project |
+
+### System Prompt Injection
+
+When `resolveActiveProjectId()` returns a non-null project ID, `injectProjectContext()` calls `ProjectStore::getProjectContext()` and appends:
+
+```
+# ACTIVE PROJECT
+**My App** (my-app) — active
+Description text here.
+
+**Directory:** workspace/projects/my-app-a1b2c3d4/
+
+## Sprints
+| # | Sprint | Status | Progress |
+| 1 | MVP | in_progress | ████░░░░ 50% (3/6 todos) |
+```
+
+The prompt cache key includes the project ID, so prompt recomputation is triggered on project switch.
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Storage/SessionStorage.php` | `active_project_id` column, `setActiveProject()`, `getActiveProjectId()` |
+| `src/Storage/ProjectStore.php` | `directory` column, `getProjectDirectory()`, `getProjectContext()` |
+| `src/Agent/OrchestratorAgent.php` | `resolveActiveProjectId()`, `injectProjectContext()` — system prompt injection |
+| `src/Toolkit/SprintToolkit.php` | `project_switch` tool, `●` active marker in guidelines |
+| `src/Command/RunCommand.php` | `restoreActiveProject()`, `applyProjectChange()`, REPL prompt formatting |
+| `src/Repl/Handler/ProjectHandler.php` | `/projects <slug>` switching, `/projects clear`, active marker in listing |
+| `src/Repl/SlashCommandRouter.php` | Routes project state changes via `RouteResult::stateChange()` |
+| `src/Repl/RouteResult.php` | `newActiveProjectId` field for project state changes |
+| `src/Repl/TabCompletion.php` | Project slug + status filter autocomplete |
+| `src/Toolkit/BackgroundTaskToolkit.php` | Propagates active project from parent to child task sessions |
 
 ## Evaluation System Architecture
 
@@ -779,8 +1126,8 @@ Rules are case-insensitive. Multiple rules separated by commas. Last match wins.
 | explorer | `+*, -MemoryToolkit, -spawn_agent, -php_execute` | Allow-all minus dangerous tools |
 | plan | `+*, -ShellToolkit, -MemoryToolkit, -php_execute, -LearningToolkit, -SessionEvaluationToolkit` | Allow-all minus write-capable and role-specific |
 | reviewer | `+*, -MemoryToolkit, -LearningToolkit, -SessionEvaluationToolkit, -php_execute` | Allow-all minus write-capable and role-specific |
-| evaluator | `-*, +SessionEvaluationToolkit, +ProjectSourceToolkit` | Deny-all, only evaluation tools |
-| learner | `-*, +LearningToolkit, +SkillToolkit, +ProjectSourceToolkit` | Deny-all, only learning tools |
+| evaluator | `-*, +SessionEvaluationToolkit, +CoquiSourceToolkit` | Deny-all, only evaluation tools |
+| learner | `-*, +LearningToolkit, +SkillToolkit, +CoquiSourceToolkit` | Deny-all, only learning tools |
 | vision | `-*` | Deny all (single-shot image analysis, no tools) |
 | title-generator | `-*` | Deny all (single-shot title generation) |
 | plan-todo-generator | `-*` | Deny all (single-shot todo extraction) |
@@ -805,7 +1152,7 @@ Coqui provides an autonomous learning loop where a `learner` role analyzes poor 
 ### How It Works
 
 1. **`EvaluationStore::getPoorEvaluations()`** queries the evaluations table for sessions scoring below a threshold (default 0.5) within a rolling time window (default 7 days).
-2. **`LearningToolkit`** provides 2 agent-facing tools: `learning_list_poor_evaluations` and `learning_read_evaluation`. The toolkit's visibility is controlled by the `learner` role's `toolkits` frontmatter field (`-*, +LearningToolkit, +SkillToolkit, +ProjectSourceToolkit`), so these tools are only available when the active role is `learner`.
+2. **`LearningToolkit`** provides 2 agent-facing tools: `learning_list_poor_evaluations` and `learning_read_evaluation`. The toolkit's visibility is controlled by the `learner` role's `toolkits` frontmatter field (`-*, +LearningToolkit, +SkillToolkit, +CoquiSourceToolkit`), so these tools are only available when the active role is `learner`.
 3. **The `learner` role** (`config/roles/learner.md`) defines the autonomous workflow: list poor evaluations → read each report → identify failure patterns → check existing skills → create or update Skills with corrective procedures.
 4. **Skill creation and updates** — the learner uses the standard `SkillToolkit` (available to all roles) to create new skills via `skill_create` or append lessons to existing skills via `skill_update`.
 5. **Autonomous scheduling** — the user creates a schedule via the Schedule System to run the learner periodically (e.g., daily). The schedule spawns a background task with `role: learner`.
@@ -888,7 +1235,7 @@ Coqui provides a unified `FileSystemToolkit` that replaces both the deprecated p
 | Category | Tools | Description |
 | --- | --- | --- |
 | Read | `read_file`, `list_dir`, `search_files`, `file_info` | Non-mutating file inspection |
-| Write | `write_file`, `create_dir`, `delete_file` | Full-file creation and deletion |
+| Write | `write_file`, `create_dir`, `delete_file`, `copy_file`, `move` | Full-file creation, deletion, copy, and move |
 | Surgical Edit | `replace_in_file`, `insert_before`, `insert_after`, `replace_block`, `remove_lines`, `write_lines`, `batch_replace`, `indent_lines`, `append_to_file` | Line/pattern-based mutation with edit history |
 | History | `edit_history` | Undo, diff, list, prune recorded edits |
 
@@ -918,7 +1265,7 @@ Symlinks are followed and verified — the real path must fall within allowed bo
 | Diff | Pure PHP Myers LCS algorithm producing unified diff output |
 | Prune | Removes old edits and their backup files by age |
 
-The `edit_history` tool exposes four actions: `list` (recent edits, optionally filtered by file), `undo` (restore a specific edit), `diff` (show unified diff), `prune` (clean up old records).
+The `edit_history` tool exposes four actions: `list` (recent edits, optionally filtered by file), `undo` (restore a specific edit), `diff` (show unified diff), `prune` (clean up old records). The default retention days for pruning is configurable via `agents.defaults.editHistory.retentionDays` in `openclaw.json` (default: 7).
 
 Edit history is only created for the orchestrator agent. Child agents and background tool executors do not receive an `EditHistory` instance — they are ephemeral and do not need edit tracking.
 
@@ -1696,6 +2043,29 @@ We encourage contributions of new agents, tools, and toolkits. Coqui's power gro
 
 See README "Extending Coqui" for a full walkthrough with `ToolkitInterface`, `composer.json` registration, and credential declarations. Key contracts: `ToolkitInterface::tools()` returns `Tool[]`, `guidelines()` returns a prompt string. Use `StringParameter`, `NumberParameter`, `BooleanParameter`, `EnumParameter` from php-agents for typed parameters.
 
+#### Distributing Roles, Loops, and Skills
+
+Toolkit packages can bundle roles, loop definitions, and skills that are automatically discovered and seeded on boot. Declare their paths in `composer.json`:
+
+```json
+{
+    "extra": {
+        "php-agents": {
+            "toolkits": ["Vendor\\Package\\MyToolkit"],
+            "skills": "skills",
+            "roles": "config/roles",
+            "loops": "config/loops"
+        }
+    }
+}
+```
+
+- **Skills** (`extra.php-agents.skills`) — referenced in-place from the vendor directory. Workspace skills shadow package skills with the same name.
+- **Roles** (`extra.php-agents.roles`) — `.md` files are copied to `workspace/roles/` on boot. Existing workspace files are never overwritten.
+- **Loops** (`extra.php-agents.loops`) — `.json` files are copied to `workspace/loops/` on boot. Existing workspace files are never overwritten.
+
+Package role/loop seeding runs after `discoverToolkits()` via `BootManager::seedPackageContent()`. The methods `ToolkitDiscovery::discoverPackageRolePaths()` and `discoverPackageLoopPaths()` read the paths from each registered package's `composer.json`, and `RoleDiscovery::seedPackageRoles()` / `LoopDiscovery::seedPackageLoops()` handle the copy-if-not-exists logic.
+
 ### Adding a New Tool to Coqui
 
 Follow the patterns in `src/Tool/`. Each tool:
@@ -1857,7 +2227,7 @@ $db->exec('PRAGMA foreign_keys=ON');
 
 ## Source Map Maintenance
 
-The file `config/source.json` is the structured codebase map that Coqui uses to understand its own source code. It is loaded by the `project_source_map` tool and injected into agent context.
+The file `config/source.json` is the structured codebase map that Coqui uses to understand its own source code. It is loaded by the `coqui_source_map` tool and injected into agent context.
 
 ### When to Update
 
@@ -1885,7 +2255,7 @@ Each entry in the `files` array must include:
 
 ### Validation
 
-Run `project_source_map` after editing to verify the JSON is valid and the structure is correct. Every source file under `src/` should have a corresponding entry.
+Run `coqui_source_map` after editing to verify the JSON is valid and the structure is correct. Every source file under `src/` should have a corresponding entry.
 
 ## Docker
 

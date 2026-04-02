@@ -11,6 +11,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
  * Handles /toolkits [enable|stub|disable <pkg|tool:name>] slash command.
+ *
+ * Table includes: package name, visibility, loading mode, token estimate,
+ * and aggregate tool usage count sourced from ToolUsageTracker.
  */
 final class ToolkitVisibilityHandler
 {
@@ -31,6 +34,9 @@ final class ToolkitVisibilityHandler
                 $tokensByClass[$entry['class']] = $entry;
             }
 
+            $loadingRegistry = $this->boot->loadingRegistry();
+            $usageTracker = $this->boot->usageTracker();
+
             $rows = [];
             foreach ($discovery->allWithVisibility() as $entry) {
                 $pkgTokens = 0;
@@ -39,22 +45,53 @@ final class ToolkitVisibilityHandler
                         $pkgTokens += $tokensByClass[$cls]['total_tokens'];
                     }
                 }
-                $rows[] = [$entry['package'], $entry['visibility'], number_format($pkgTokens)];
+
+                // Resolve loading mode from the first class basename
+                $loadingMode = '-';
+                if ($loadingRegistry !== null && $entry['classes'] !== []) {
+                    $parts = explode('\\', $entry['classes'][0]);
+                    $basename = end($parts);
+                    $loadingMode = $loadingRegistry->getMode($basename);
+                }
+
+                $rows[] = [
+                    $entry['package'],
+                    $entry['visibility'],
+                    $loadingMode,
+                    number_format($pkgTokens),
+                ];
             }
 
             $state = $registry->all();
             foreach ($state['tools'] as $toolName => $vis) {
-                $rows[] = ['tool:' . $toolName, $vis, '-'];
+                $rows[] = ['tool:' . $toolName, $vis, '-', '-'];
             }
 
             if (empty($rows)) {
                 $io->text('No toolkits registered. Install a toolkit package first.');
             } else {
-                $io->table(['Package / Tool', 'Visibility', 'Tokens'], $rows);
+                $io->table(['Package / Tool', 'Visibility', 'Loading', 'Tokens'], $rows);
+
+                // Show deferred toolkit summary if any are deferred
+                $deferredCount = 0;
+                foreach ($rows as $row) {
+                    if ($row[2] === 'deferred') {
+                        $deferredCount++;
+                    }
+                }
+
+                $summaryParts = [
+                    '<fg=gray>Prompt tokens:</> ' . number_format($preview['prompt_tokens']),
+                    '<fg=gray>Tool schema tokens:</> ' . number_format($preview['tool_tokens']),
+                    '<fg=gray>Total:</> ' . number_format($preview['total_tokens']),
+                ];
+
+                if ($deferredCount > 0) {
+                    $summaryParts[] = '<fg=yellow>Deferred:</> ' . $deferredCount;
+                }
+
                 $io->text([
-                    '<fg=gray>Prompt tokens:</> ' . number_format($preview['prompt_tokens'])
-                        . '<fg=gray> • Tool schema tokens:</> ' . number_format($preview['tool_tokens'])
-                        . '<fg=gray> • Total:</> ' . number_format($preview['total_tokens']),
+                    implode(' • ', $summaryParts),
                     '<fg=gray>Use /toolkits enable|stub|disable <pkg> or tool:<name></>',
                 ]);
             }

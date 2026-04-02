@@ -131,14 +131,14 @@ name: evaluator
 display_name: Evaluator
 description: Grades past sessions
 access_level: readonly
-toolkits: "-*, +SessionEvaluationToolkit, +ProjectSourceToolkit"
+toolkits: "-*, +SessionEvaluationToolkit, +CoquiSourceToolkit"
 ---
 Instructions here.
 MD);
 
     $props = $this->parser->readProperties($path);
 
-    expect($props->toolkits)->toBe('-*, +SessionEvaluationToolkit, +ProjectSourceToolkit');
+    expect($props->toolkits)->toBe('-*, +SessionEvaluationToolkit, +CoquiSourceToolkit');
 });
 
 test('falls back to allowed-tools when toolkits is absent', function () {

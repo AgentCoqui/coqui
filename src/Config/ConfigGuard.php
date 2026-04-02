@@ -19,6 +19,7 @@ final class ConfigGuard
      * @var string[]
      */
     private const array ALLOWED_PREFIXES = [
+        'agents.defaults.editHistory.',
         'agents.defaults.model.primary',
         'agents.defaults.model.fallbacks',
         'agents.defaults.roles.',

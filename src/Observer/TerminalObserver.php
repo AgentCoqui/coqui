@@ -24,7 +24,9 @@ final class TerminalObserver implements SplObserver
     private int $indentLevel = 0;
     private bool $hasStreamedText = false;
     private bool $hasStreamedReasoning = false;
+    private bool $statusLineVisible = false;
     private readonly StreamingMarkdownBuffer $markdownBuffer;
+    private ?AnimatedTickCallback $tickCallback = null;
 
     public function __construct(
         private readonly OutputInterface $output,
@@ -34,8 +36,25 @@ final class TerminalObserver implements SplObserver
         );
     }
 
+    /**
+     * Set the animated tick callback to delegate status line rendering.
+     *
+     * When set, showStatusLine() updates the callback's context instead of
+     * rendering its own static line, and clearStatusLine() delegates to it.
+     */
+    public function setTickCallback(AnimatedTickCallback $callback): void
+    {
+        $this->tickCallback = $callback;
+    }
+
     public function update(SplSubject $subject): void
     {
+        // Handle loop events from transient SplSubject
+        if (method_exists($subject, 'getEventName') && method_exists($subject, 'getEventData')) {
+            $this->handleEvent($subject->getEventName(), $subject->getEventData());
+            return;
+        }
+
         if (!$subject instanceof AgentInterface) {
             return;
         }
@@ -56,12 +75,20 @@ final class TerminalObserver implements SplObserver
     {
         $indent = str_repeat('  ', $this->indentLevel);
 
+        // Clear the in-place status line before writing any new output.
+        // Text streaming and reasoning are excluded — they write inline
+        // and the status line is already cleared before their first chunk.
+        if (!in_array($event, ['agent.text_delta', 'agent.reasoning'], true)) {
+            $this->clearStatusLine();
+        }
+
         match ($event) {
             'agent.start' => (function () use ($indent): void {
                 $this->hasStreamedText = false;
                 $this->hasStreamedReasoning = false;
                 $this->markdownBuffer->reset();
                 $this->output->writeln("{$indent}<fg=cyan>▶ Agent started</>");
+                $this->showStatusLine();
             })(),
 
             'agent.iteration' => (function () use ($indent, $data): void {
@@ -70,6 +97,7 @@ final class TerminalObserver implements SplObserver
                     $this->hasStreamedReasoning = false;
                 }
                 $this->output->writeln("{$indent}<fg=gray>  ⟳ Iteration {$data}</>");
+                $this->showStatusLine();
             })(),
 
             'agent.reasoning' => $this->handleReasoningDelta($data),
@@ -77,6 +105,10 @@ final class TerminalObserver implements SplObserver
             'agent.text_delta' => $this->handleTextDelta($data),
 
             'agent.tool_call' => $this->handleToolCall($data, $indent),
+
+            'agent.batch_start' => $this->handleBatchStart($data, $indent),
+
+            'agent.batch_end' => null,
 
             'agent.tool_result' => $this->handleToolResult($data, $indent),
 
@@ -98,6 +130,13 @@ final class TerminalObserver implements SplObserver
 
             'child.review_end' => $this->handleReviewEnd($data, $indent),
 
+            'loop.start' => $this->handleLoopStart($data, $indent),
+            'loop.iteration_start' => $this->handleLoopIterationStart($data, $indent),
+            'loop.stage_start' => $this->handleLoopStageStart($data, $indent),
+            'loop.stage_end' => $this->handleLoopStageEnd($data, $indent),
+            'loop.iteration_end' => $this->handleLoopIterationEnd($data, $indent),
+            'loop.complete' => $this->handleLoopComplete($data, $indent),
+
             default => null,
         };
     }
@@ -109,11 +148,29 @@ final class TerminalObserver implements SplObserver
         }
 
         if (!$this->hasStreamedReasoning) {
+            if ($this->tickCallback !== null) {
+                $this->tickCallback->suspend();
+            } else {
+                $this->clearStatusLine();
+            }
             $this->hasStreamedReasoning = true;
             $this->output->write('<fg=gray>  ⛭ </>');
         }
 
         $this->output->write('<fg=gray>' . $data . '</>');
+    }
+
+    private function handleBatchStart(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $count = $data['count'] ?? 0;
+        $tools = $data['tools'] ?? [];
+        $toolList = implode(', ', $tools);
+        $this->output->writeln("{$indent}<fg=magenta>⚡ Running {$count} tools concurrently: {$toolList}</>");
+        $this->showStatusLine("{$count} tools concurrently");
     }
 
     private function handleToolCall(mixed $data, string $indent): void
@@ -154,6 +211,7 @@ final class TerminalObserver implements SplObserver
 
         $args = $this->formatArguments($data->arguments);
         $this->output->writeln("{$indent}<fg=gray>  ▸ Using:</> <fg=yellow>{$data->name}</><fg=gray>({$args})</>");
+        $this->showStatusLine($data->name);
     }
 
     private function handleToolResult(mixed $data, string $indent): void
@@ -174,6 +232,7 @@ final class TerminalObserver implements SplObserver
         $content = str_replace(["\n", "\r"], ' ', $content);
 
         $this->output->writeln("{$indent}    <fg={$color}>{$icon}</> <fg=gray>{$content}</>");
+        $this->showStatusLine();
     }
 
     private function handleTextDelta(mixed $data): void
@@ -182,11 +241,21 @@ final class TerminalObserver implements SplObserver
             return;
         }
 
-        // Close the reasoning line before the first text chunk so the
+        // Clear the reasoning line before the first text chunk so the
         // response starts on a new line, visually separated from the thinking.
         if ($this->hasStreamedReasoning) {
             $this->output->writeln('');
             $this->hasStreamedReasoning = false;
+        }
+
+        // Suspend the spinner before the first text chunk so the periodic
+        // timer stops redrawing it while text is streaming.
+        if (!$this->hasStreamedText) {
+            if ($this->tickCallback !== null) {
+                $this->tickCallback->suspend();
+            } else {
+                $this->clearStatusLine();
+            }
         }
 
         $this->hasStreamedText = true;
@@ -318,5 +387,111 @@ final class TerminalObserver implements SplObserver
     public function decreaseIndent(): void
     {
         $this->indentLevel = max(0, $this->indentLevel - 1);
+    }
+
+    private function handleLoopStart(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        $def = $data['definition'] ?? '?';
+        $goal = $data['goal'] ?? '';
+        $goalShort = mb_strlen($goal) > 80 ? mb_substr($goal, 0, 77) . '...' : $goal;
+        $this->output->writeln('');
+        $this->output->writeln("{$indent}<fg=magenta>🔄 Loop started:</> <fg=white;options=bold>{$def}</>");
+        $this->output->writeln("{$indent}   <fg=gray>{$goalShort}</>");
+    }
+
+    private function handleLoopIterationStart(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        $iter = $data['iteration'] ?? '?';
+        $this->output->writeln("{$indent}<fg=magenta>  ⟳ Iteration {$iter}</>");
+    }
+
+    private function handleLoopStageStart(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        $role = $data['role'] ?? '?';
+        $stage = $data['stage_index'] ?? '?';
+        $this->output->writeln("{$indent}<fg=cyan>    ▶ Stage {$stage}: {$role}</>");
+    }
+
+    private function handleLoopStageEnd(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        $role = $data['role'] ?? '?';
+        $success = ($data['success'] ?? false) === true;
+        $icon = $success ? '<fg=green>✓</>' : '<fg=red>✗</>';
+        $this->output->writeln("{$indent}    {$icon} <fg=gray>{$role} complete</>");
+    }
+
+    private function handleLoopIterationEnd(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        $outcome = $data['outcome'] ?? '?';
+        $color = match ($outcome) {
+            'Complete' => 'green',
+            'Continue' => 'yellow',
+            'Failed' => 'red',
+            default => 'gray',
+        };
+        $this->output->writeln("{$indent}  <fg={$color}>  ⟶ Iteration outcome: {$outcome}</>");
+    }
+
+    private function handleLoopComplete(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+        $outcome = $data['outcome'] ?? '?';
+        $iterations = $data['iterations_completed'] ?? '?';
+        $icon = $outcome === 'Complete' ? '✅' : ($outcome === 'Failed' ? '❌' : '⊘');
+        $this->output->writeln('');
+        $this->output->writeln("{$indent}<fg=magenta>{$icon} Loop finished:</> {$outcome} after {$iterations} iteration(s)");
+    }
+
+    /**
+     * Show the status line at the bottom of the terminal output.
+     *
+     * Uses carriage return + clear to maintain a single in-place line.
+     */
+    private function showStatusLine(string $context = ''): void
+    {
+        if ($this->tickCallback !== null) {
+            $this->tickCallback->resume();
+            $this->tickCallback->setContext($context);
+            // Force immediate redraw to eliminate gap between clearStatusLine and next timer tick
+            $this->tickCallback->tick();
+            return;
+        }
+        $label = $context !== '' ? "Working on {$context}" : 'Working';
+        // \r moves to column 0, \033[K clears to end of line
+        $this->output->write("\r\033[K  <fg=gray>{$label}...</> <fg=#666666>(press ESC to cancel)</>");
+        $this->statusLineVisible = true;
+    }
+
+    /**
+     * Clear the status line if it is currently visible.
+     */
+    private function clearStatusLine(): void
+    {
+        if ($this->tickCallback !== null) {
+            $this->tickCallback->clearStatusLine();
+            return;
+        }
+        if (!$this->statusLineVisible) {
+            return;
+        }
+        $this->output->write("\r\033[K");
+        $this->statusLineVisible = false;
     }
 }

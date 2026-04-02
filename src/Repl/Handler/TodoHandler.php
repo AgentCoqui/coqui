@@ -135,7 +135,7 @@ final class TodoHandler
         }
 
         $todo = $result['todo'];
-        $store->delete($todo['id']);
+        $store->delete($todo['id'], sessionId: $sessionId);
         $io->success("Deleted: {$todo['title']}");
     }
 
@@ -180,7 +180,7 @@ final class TodoHandler
             $io->info("Already completed: {$todo['title']}");
             return;
         }
-        $store->complete($todo['id'], 'user');
+        $store->complete($todo['id'], 'user', sessionId: $sessionId);
         $io->success("Completed: {$todo['title']}");
     }
 
@@ -209,7 +209,7 @@ final class TodoHandler
             $io->info("Already cancelled: {$todo['title']}");
             return;
         }
-        $store->update($todo['id'], status: 'cancelled');
+        $store->update($todo['id'], status: 'cancelled', sessionId: $sessionId);
         $io->success("Cancelled: {$todo['title']}");
     }
 

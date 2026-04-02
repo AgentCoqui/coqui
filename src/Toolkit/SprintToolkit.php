@@ -12,6 +12,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Storage\ProjectStore;
+use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 
 /**
@@ -38,11 +39,14 @@ final readonly class SprintToolkit implements ToolkitInterface
         private ProjectStore $projectStore,
         private TodoStore $todoStore,
         private ?string $sessionId = null,
+        private ?string $workspacePath = null,
+        private ?string $activeProjectId = null,
+        private ?SessionStorage $storage = null,
     ) {}
 
     public function tools(): array
     {
-        return [
+        $tools = [
             $this->projectCreateTool(),
             $this->projectListTool(),
             $this->projectGetTool(),
@@ -53,6 +57,13 @@ final readonly class SprintToolkit implements ToolkitInterface
             $this->sprintTransitionTool(),
             $this->sprintUpdateTool(),
         ];
+
+        // project_switch requires session storage to persist the active project
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $tools[] = $this->projectSwitchTool();
+        }
+
+        return $tools;
     }
 
     public function guidelines(): string
@@ -77,7 +88,8 @@ final readonly class SprintToolkit implements ToolkitInterface
         $lines = [];
         foreach ($projects as $p) {
             $sprintInfo = sprintf('%d/%d sprints done', (int) $p['sprints_completed'], (int) $p['sprint_count']);
-            $lines[] = sprintf('- **%s** (`%s`) [%s] %s', $p['title'], $p['slug'], $p['status'], $sprintInfo);
+            $marker = $p['id'] === $this->activeProjectId ? ' ●' : '';
+            $lines[] = sprintf('- **%s**%s (`%s`) [%s] %s', $p['title'], $marker, $p['slug'], $p['status'], $sprintInfo);
         }
         $listing = implode("\n", $lines);
 
@@ -88,7 +100,7 @@ final readonly class SprintToolkit implements ToolkitInterface
             if ($activeSprints !== []) {
                 $sprintParts = [];
                 foreach ($activeSprints as $s) {
-                    $progress = $this->projectStore->getSprintProgress($s['id'], $this->todoStore);
+                    $progress = $this->projectStore->getSprintProgress($s['id'], $this->todoStore, $this->sessionId);
                     $sprintParts[] = sprintf(
                         '- Sprint #%d: **%s** [%s] %d%% (%d/%d todos) — project: %s',
                         $s['sprint_number'],
@@ -146,10 +158,20 @@ final readonly class SprintToolkit implements ToolkitInterface
                         description: isset($args['description']) ? trim($args['description']) : null,
                     );
 
+                    // Auto-create the project directory under workspace/projects/
+                    $directory = $this->projectStore->getProjectDirectory($id);
+                    if ($this->workspacePath !== null) {
+                        $projectDir = $this->workspacePath . '/projects/' . $directory;
+                        if (!is_dir($projectDir)) {
+                            mkdir($projectDir, 0755, true);
+                        }
+                    }
+
                     return ToolResult::success(json_encode([
                         'id' => $id,
                         'title' => $title,
                         'slug' => $slug,
+                        'directory' => $directory,
                         'status' => 'active',
                     ], JSON_UNESCAPED_SLASHES) ?: '{}');
                 } catch (\InvalidArgumentException $e) {
@@ -181,7 +203,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                         '- **%s** (slug: `%s`, id: %s) [%s] — %d sprints (%d completed)',
                         $p['title'],
                         $p['slug'],
-                        substr($p['id'], 0, 8) . '...',
+                        $p['id'],
                         $p['status'],
                         (int) $p['sprint_count'],
                         (int) $p['sprints_completed'],
@@ -216,7 +238,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                 $sprints = $this->projectStore->listSprints($project['id']);
                 $sprintLines = [];
                 foreach ($sprints as $s) {
-                    $progress = $this->projectStore->getSprintProgress($s['id'], $this->todoStore);
+                    $progress = $this->projectStore->getSprintProgress($s['id'], $this->todoStore, $this->sessionId);
                     $sprintLines[] = sprintf(
                         '  #%d: %s [%s] %d%% (%d/%d todos)%s',
                         $s['sprint_number'],
@@ -281,6 +303,46 @@ final readonly class SprintToolkit implements ToolkitInterface
                 } catch (\InvalidArgumentException $e) {
                     return ToolResult::error($e->getMessage());
                 }
+            },
+        );
+    }
+
+    private function projectSwitchTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'project_switch',
+            description: 'Set or clear the active project for this session. When a project is active, all work is scoped to it and the project context appears in the system prompt.',
+            parameters: [
+                new StringParameter('slug', 'Project slug or ID to activate. Pass "clear" to deactivate the current project.', required: true),
+            ],
+            callback: function (array $args): ToolResult {
+                $slug = trim($args['slug'] ?? '');
+                if ($slug === '') {
+                    return ToolResult::error('Project slug or ID is required.');
+                }
+
+                // Guaranteed non-null by tools() guard
+                assert($this->storage !== null && $this->sessionId !== null);
+
+                if ($slug === 'clear') {
+                    $this->storage->setActiveProject($this->sessionId, null);
+                    return ToolResult::success('Active project cleared.');
+                }
+
+                $project = $this->projectStore->getProject($slug);
+                if ($project === null) {
+                    return ToolResult::error(sprintf('Project "%s" not found.', $slug));
+                }
+
+                $this->storage->setActiveProject($this->sessionId, $project['id']);
+
+                return ToolResult::success(json_encode([
+                    'id' => $project['id'],
+                    'title' => $project['title'],
+                    'slug' => $project['slug'],
+                    'directory' => $this->projectStore->getProjectDirectory($project['id']),
+                    'status' => 'active_project_set',
+                ], JSON_UNESCAPED_SLASHES) ?: '{}');
             },
         );
     }
@@ -368,7 +430,7 @@ final readonly class SprintToolkit implements ToolkitInterface
 
                 $lines = [];
                 foreach ($sprints as $s) {
-                    $progress = $this->projectStore->getSprintProgress($s['id'], $this->todoStore);
+                    $progress = $this->projectStore->getSprintProgress($s['id'], $this->todoStore, $this->sessionId);
                     $reviewInfo = (int) $s['review_round'] > 0
                         ? sprintf(' (review round %d/%d)', $s['review_round'], $s['max_review_rounds'])
                         : '';
@@ -382,7 +444,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                         $progress['completed'],
                         $progress['total'],
                         $reviewInfo,
-                        substr($s['id'], 0, 8) . '...',
+                        $s['id'],
                     );
                 }
 
@@ -411,7 +473,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                     return ToolResult::error("Sprint not found: {$id}");
                 }
 
-                $progress = $this->projectStore->getSprintProgress($id, $this->todoStore);
+                $progress = $this->projectStore->getSprintProgress($id, $this->todoStore, $this->sessionId);
 
                 $result = [
                     'id' => $sprint['id'],
@@ -471,7 +533,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                     }
 
                     $sprint = $this->projectStore->getSprint($id);
-                    $progress = $this->projectStore->getSprintProgress($id, $this->todoStore);
+                    $progress = $this->projectStore->getSprintProgress($id, $this->todoStore, $this->sessionId);
 
                     return ToolResult::success(json_encode([
                         'id' => $id,

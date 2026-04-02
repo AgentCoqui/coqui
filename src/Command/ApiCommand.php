@@ -12,13 +12,13 @@ use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
+use CoquiBot\Coqui\Api\Handler\LoopHandler as ApiLoopHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
 use CoquiBot\Coqui\Api\Handler\PromptHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Api\Handler\ServerHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
-use CoquiBot\Coqui\Api\Handler\SummarizeHandler;
 use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Api\Handler\ToolkitHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
@@ -30,10 +30,10 @@ use CoquiBot\Coqui\Api\Middleware\CorsMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
-use CoquiBot\Coqui\Api\ScheduleManager;
 use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
+use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -175,12 +175,6 @@ final class ApiCommand extends Command
 
         $startTime = microtime(true);
 
-        // Restart flag — set by ConfigHandler when config is updated via API
-        $restartRequested = false;
-
-        /** @var SocketServer|null $socket Pre-declared for closure capture; assigned after server creation. */
-        $socket = null;
-
         // Schedule & webhook stores (created early for health endpoint)
         $scheduleStore = new ScheduleStore($storage->getPdo());
         $webhookStore = new WebhookStore($storage->getPdo());
@@ -192,22 +186,7 @@ final class ApiCommand extends Command
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler(
             $boot->config(),
-            $boot->configManager(),
             new ConfigValidator(),
-            onRestart: function () use (&$restartRequested, &$socket, $output, $taskManager, $turnManager): void {
-                $restartRequested = true;
-                $output->writeln('');
-                $output->writeln('<comment>Config updated via API — scheduling restart...</comment>');
-                // Defer shutdown to next tick so the HTTP response is sent first
-                Loop::futureTick(static function () use (&$socket, $taskManager, $turnManager): void {
-                    $turnManager->shutdown();
-                    $taskManager->shutdown();
-                    if ($socket instanceof SocketServer) {
-                        $socket->close();
-                    }
-                    Loop::stop();
-                });
-            },
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
@@ -235,6 +214,7 @@ final class ApiCommand extends Command
             spaceToolkit: $boot->spaceToolkit(),
             projectStore: $boot->projectStore(),
             defaultsLoader: $boot->defaultsLoader(),
+            httpClient: new ReactHttpClientAdapter(),
         );
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($previewRunner);
@@ -242,26 +222,23 @@ final class ApiCommand extends Command
         $artifactHandler = new ArtifactHandler($artifactStore);
         $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($storage->getPdo());
         $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
-        $summarizeHandler = new SummarizeHandler($storage, $boot->config(), $boot->roleResolver(), $boot->memoryStore(), $todoStore, $artifactStore);
-
         // Schedule & webhook infrastructure
-        $scheduleManager = new ScheduleManager($scheduleStore, $storage);
-        $scheduleManager->setOnNotify(static function (string $event, array $data) use ($output): void {
-            $output->writeln(sprintf(
-                '<fg=gray>[%s]</> <info>%s</info>: %s',
-                date('H:i:s'),
-                $event,
-                json_encode($data, JSON_UNESCAPED_SLASHES) ?: '{}',
-            ), OutputInterface::VERBOSITY_VERBOSE);
-        });
         $verifierRegistry = new WebhookVerifierRegistry();
-        $scheduleHandler = new ScheduleHandler($scheduleStore, $scheduleManager);
+        $scheduleHandler = new ScheduleHandler($scheduleStore);
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
         $webhookMgmtHandler = new WebhookManagementHandler($webhookStore);
 
+        // Loop read-only handler (no LoopManager — loops are REPL-only)
+        $loopStore = $boot->loopStore();
+        $loopDiscovery = $boot->loopDiscovery();
+
+        $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
+            ? new ApiLoopHandler($loopStore, $loopDiscovery)
+            : null;
+
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $summarizeHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -363,21 +340,19 @@ final class ApiCommand extends Command
             $turnManager->tick();
         });
 
-        // Periodic timer: evaluate scheduled tasks every 60 seconds
-        Loop::addPeriodicTimer(60.0, static function () use ($scheduleManager): void {
-            $scheduleManager->tick();
-        });
-
         // Periodic timer: purge old webhook delivery logs daily (3600s check)
         Loop::addPeriodicTimer(3600.0, static function () use ($webhookStore): void {
             $webhookStore->purgeOldDeliveries();
         });
 
-        return $restartRequested ? RunCommand::RESTART_EXIT_CODE : Command::SUCCESS;
+        return Command::SUCCESS;
     }
 
     /**
      * Register all API routes on the router.
+     *
+     * Read-only endpoints for loops, schedules, roles, config, todos, and artifacts.
+     * Mutating operations for these resources are REPL-only.
      */
     private function registerRoutes(
         Router $router,
@@ -393,12 +368,12 @@ final class ApiCommand extends Command
         ServerHandler $server,
         ToolkitHandler $toolkit,
         PromptHandler $prompt,
-        SummarizeHandler $summarize,
         ArtifactHandler $artifact,
         \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
         ScheduleHandler $schedule,
         WebhookHandler $webhook,
         WebhookManagementHandler $webhookMgmt,
+        ?ApiLoopHandler $loop,
     ): void {
         $v1 = '/api/v1';
 
@@ -427,18 +402,14 @@ final class ApiCommand extends Command
         $router->get($v1 . '/sessions/{id}/turns', [$turn, 'list']);
         $router->get($v1 . '/sessions/{id}/turns/{turnId}', [$turn, 'get']);
 
-        // Config
+        // Config (read-only — updates are REPL-only)
         $router->get($v1 . '/config', [$config, 'get']);
-        $router->put($v1 . '/config', [$config, 'update']);
         $router->post($v1 . '/config/validate', [$config, 'validate']);
         $router->get($v1 . '/config/models', [$config, 'models']);
 
-        // Roles
+        // Roles (read-only — create/update/delete are REPL-only)
         $router->get($v1 . '/config/roles', [$role, 'list']);
-        $router->post($v1 . '/config/roles', [$role, 'create']);
         $router->get($v1 . '/config/roles/{name}', [$role, 'get']);
-        $router->patch($v1 . '/config/roles/{name}', [$role, 'update']);
-        $router->delete($v1 . '/config/roles/{name}', [$role, 'delete']);
 
         // Credentials
         $router->get($v1 . '/credentials', [$credential, 'list']);
@@ -457,50 +428,35 @@ final class ApiCommand extends Command
         // Child runs
         $router->get($v1 . '/sessions/{id}/child-runs', [$session, 'childRuns']);
 
-        // Summarization
-        $router->post($v1 . '/sessions/{id}/summarize', [$summarize, 'summarize']);
-
         // Server
         $router->get($v1 . '/server/info', [$server, 'info']);
         $router->get($v1 . '/server/stats', [$server, 'stats']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
 
-        // Artifacts
+        // Artifacts (read-only — create/update/delete are REPL-only)
         $router->get($v1 . '/sessions/{id}/artifacts', [$artifact, 'list']);
-        $router->post($v1 . '/sessions/{id}/artifacts', [$artifact, 'create']);
         $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'get']);
-        $router->patch($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'update']);
-        $router->delete($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'delete']);
         $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}/versions', [$artifact, 'versions']);
 
-        // Todos
+        // Todos (read-only — create/update/complete/delete are REPL-only)
         $router->get($v1 . '/sessions/{id}/todos', [$todo, 'list']);
-        $router->post($v1 . '/sessions/{id}/todos', [$todo, 'create']);
-        $router->post($v1 . '/sessions/{id}/todos/bulk', [$todo, 'bulkCreate']);
-        $router->patch($v1 . '/sessions/{id}/todos/bulk', [$todo, 'bulkUpdate']);
         $router->get($v1 . '/sessions/{id}/todos/stats', [$todo, 'stats']);
         $router->get($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'get']);
-        $router->patch($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'update']);
-        $router->post($v1 . '/sessions/{id}/todos/{todoId}/complete', [$todo, 'complete']);
-        $router->delete($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'delete']);
 
         // Toolkit visibility management
         $router->get($v1 . '/toolkits', [$toolkit, 'list']);
         $router->post($v1 . '/toolkits/visibility', [$toolkit, 'setVisibility']);
 
-        // Schedules
+        // Schedules (read-only — create/update/delete/trigger are REPL-only)
         $router->get($v1 . '/schedules', [$schedule, 'list']);
-        $router->post($v1 . '/schedules', [$schedule, 'create']);
         $router->get($v1 . '/schedules/{id}', [$schedule, 'get']);
-        $router->patch($v1 . '/schedules/{id}', [$schedule, 'update']);
-        $router->delete($v1 . '/schedules/{id}', [$schedule, 'delete']);
-        $router->post($v1 . '/schedules/{id}/trigger', [$schedule, 'trigger']);
-        $router->post($v1 . '/schedules/{id}/enable', [$schedule, 'enable']);
-        $router->post($v1 . '/schedules/{id}/disable', [$schedule, 'disable']);
 
         // Webhooks (incoming receiver + management CRUD)
         $webhook->register($router);
         $webhookMgmt->register($router);
+
+        // Loops (read-only — create/pause/resume/stop are REPL-only)
+        $loop?->register($router);
     }
 
     /**

@@ -31,7 +31,9 @@ Use descriptive types that match the content: `code`, `document`, `config`, `pla
 
 ### Integration with Todos
 
-Plan artifacts and todos work together for structured implementation:
+Plan artifacts and todos work together for structured implementation. All todos **must** be linked to an artifact:
+- Create a plan artifact first, then link todos via `artifact_id`
 - When a plan artifact is staged to `final`, todos are auto-generated from its content
 - Use `todo_list(artifact_id: "<id>")` to see todos linked to a specific plan
 - Artifact guidelines show linked todo progress for plan artifacts (e.g. "todos: 3/5")
+- IDs shown in guidelines and tool outputs are full UUIDs — use them directly in tool calls

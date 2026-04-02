@@ -142,6 +142,8 @@ final class ArtifactStore
 
     /**
      * Update an artifact's content, bumping the version.
+     *
+     * @param string|null $sessionId When provided, validates the artifact belongs to this session.
      */
     public function update(
         string $id,
@@ -149,8 +151,9 @@ final class ArtifactStore
         ?string $changeSummary = null,
         ?string $title = null,
         ?string $stage = null,
+        ?string $sessionId = null,
     ): bool {
-        $artifact = $this->get($id);
+        $artifact = $this->get($id, $sessionId);
         if ($artifact === null) {
             return false;
         }
@@ -184,12 +187,18 @@ final class ArtifactStore
     /**
      * Get a single artifact by ID.
      *
+     * @param string|null $sessionId When provided, validates the artifact belongs to this session.
      * @return array<string, mixed>|null
      */
-    public function get(string $id): ?array
+    public function get(string $id, ?string $sessionId = null): ?array
     {
-        $stmt = $this->db->prepare('SELECT * FROM artifacts WHERE id = ?');
-        $stmt->execute([$id]);
+        if ($sessionId !== null) {
+            $stmt = $this->db->prepare('SELECT * FROM artifacts WHERE id = ? AND session_id = ?');
+            $stmt->execute([$id, $sessionId]);
+        } else {
+            $stmt = $this->db->prepare('SELECT * FROM artifacts WHERE id = ?');
+            $stmt->execute([$id]);
+        }
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $row !== false ? $row : null;
@@ -244,11 +253,18 @@ final class ArtifactStore
 
     /**
      * Delete an artifact and all its versions.
+     *
+     * @param string|null $sessionId When provided, validates the artifact belongs to this session.
      */
-    public function delete(string $id): bool
+    public function delete(string $id, ?string $sessionId = null): bool
     {
-        $stmt = $this->db->prepare('DELETE FROM artifacts WHERE id = ?');
-        $stmt->execute([$id]);
+        if ($sessionId !== null) {
+            $stmt = $this->db->prepare('DELETE FROM artifacts WHERE id = ? AND session_id = ?');
+            $stmt->execute([$id, $sessionId]);
+        } else {
+            $stmt = $this->db->prepare('DELETE FROM artifacts WHERE id = ?');
+            $stmt->execute([$id]);
+        }
 
         return $stmt->rowCount() > 0;
     }
@@ -256,10 +272,15 @@ final class ArtifactStore
     /**
      * Get version history for an artifact.
      *
+     * @param string|null $sessionId When provided, validates the artifact belongs to this session.
      * @return list<array<string, mixed>>
      */
-    public function getVersions(string $artifactId): array
+    public function getVersions(string $artifactId, ?string $sessionId = null): array
     {
+        if ($sessionId !== null && $this->get($artifactId, $sessionId) === null) {
+            return [];
+        }
+
         $stmt = $this->db->prepare(
             'SELECT * FROM artifact_versions WHERE artifact_id = ? ORDER BY version DESC',
         );
@@ -287,14 +308,24 @@ final class ArtifactStore
 
     /**
      * Update only the stage of an artifact (e.g. draft → review → final).
+     *
+     * @param string|null $sessionId When provided, validates the artifact belongs to this session.
      */
-    public function updateStage(string $id, string $stage): bool
+    public function updateStage(string $id, string $stage, ?string $sessionId = null): bool
     {
         $now = gmdate('Y-m-d\TH:i:s\Z');
-        $stmt = $this->db->prepare(
-            'UPDATE artifacts SET stage = ?, updated_at = ? WHERE id = ?',
-        );
-        $stmt->execute([$stage, $now, $id]);
+
+        if ($sessionId !== null) {
+            $stmt = $this->db->prepare(
+                'UPDATE artifacts SET stage = ?, updated_at = ? WHERE id = ? AND session_id = ?',
+            );
+            $stmt->execute([$stage, $now, $id, $sessionId]);
+        } else {
+            $stmt = $this->db->prepare(
+                'UPDATE artifacts SET stage = ?, updated_at = ? WHERE id = ?',
+            );
+            $stmt->execute([$stage, $now, $id]);
+        }
 
         return $stmt->rowCount() > 0;
     }
@@ -314,6 +345,43 @@ final class ArtifactStore
         $stmt->execute();
 
         return $stmt->rowCount();
+    }
+
+    /**
+     * Batch update stage for multiple artifacts in a session.
+     *
+     * @param list<string> $ids Artifact IDs to transition
+     * @return int Number of artifacts updated
+     */
+    public function bulkUpdateStage(array $ids, string $stage, string $sessionId): int
+    {
+        if ($ids === []) {
+            return 0;
+        }
+
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $count = 0;
+
+        $this->db->beginTransaction();
+
+        try {
+            $stmt = $this->db->prepare(
+                'UPDATE artifacts SET stage = ?, updated_at = ? WHERE id = ? AND session_id = ?',
+            );
+
+            foreach ($ids as $id) {
+                $stmt->execute([$stage, $now, $id, $sessionId]);
+                $count += $stmt->rowCount();
+            }
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+
+            throw $e;
+        }
+
+        return $count;
     }
 
     /**

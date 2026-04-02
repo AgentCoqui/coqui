@@ -8,9 +8,12 @@ use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use React\EventLoop\Loop;
+use React\EventLoop\TimerInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -29,6 +32,7 @@ final class AgentTurnExecutor
         private readonly EscCancellationObserver $escObserver,
         private readonly TerminalStateManager $terminalState,
         private readonly ExecutionPolicyFactory $policyFactory,
+        private readonly ?AnimatedTickCallback $tickCallback = null,
     ) {}
 
     /**
@@ -53,18 +57,14 @@ final class AgentTurnExecutor
         $cancellationToken = new ProcessCancellationToken();
         $this->escObserver->setToken($cancellationToken);
         $sigintCount = 0;
-
-        // Two-stage Ctrl+C:
-        //   First  → cooperative cancel (sets token; agent stops after current response)
-        //   Second → restore SIG_DFL and re-raise to kill immediately (exit 130)
+        $shutdownRequested = false;
         if ($hasSignals) {
-            pcntl_signal(SIGINT, static function () use ($cancellationToken, &$sigintCount, $io): void {
+            pcntl_signal(SIGINT, static function () use ($cancellationToken, &$sigintCount, &$shutdownRequested, $io): void {
                 $sigintCount++;
                 if ($sigintCount === 1) {
+                    $shutdownRequested = true;
                     $cancellationToken->cancel();
-                    $io->writeln(
-                        "\n<fg=yellow>⚑ Stopping — completing current LLM response, then returning to prompt. Press Ctrl+C again to force quit.</>",
-                    );
+                    $io->writeln("\n<fg=yellow>⚑ Shutting down — completing current response. Press Ctrl+C again to force quit.</>");
                 } else {
                     pcntl_signal(SIGINT, SIG_DFL);
                     posix_kill(posix_getpid(), SIGINT);
@@ -78,6 +78,21 @@ final class AgentTurnExecutor
         $this->terminalState->enterRawMode();
         $this->escObserver->active = true;
 
+        // Start animated spinner (tick callback drives animation between blocking calls)
+        $this->tickCallback?->setCancellationToken($cancellationToken);
+        $this->tickCallback?->start();
+
+        // Periodic event-loop timer drives the spinner DURING blocking ReactPHP I/O.
+        // When the provider calls React\Async\await() inside ReactResponseStream,
+        // the event loop runs and this timer fires, keeping the spinner animated.
+        $timer = null;
+        if ($this->tickCallback !== null) {
+            $cb = $this->tickCallback;
+            $timer = Loop::addPeriodicTimer(0.05, static function () use ($cb): void {
+                $cb->tick();
+            });
+        }
+
         try {
             $result = $this->agentRunner->run(
                 $prompt,
@@ -87,6 +102,10 @@ final class AgentTurnExecutor
                 role: $activeRole !== 'orchestrator' ? $activeRole : null,
             );
         } finally {
+            if ($timer !== null) {
+                Loop::cancelTimer($timer);
+            }
+            $this->tickCallback?->stop();
             $this->escObserver->active = false;
             $this->terminalState->drainStdin();
             $this->terminalState->restoreState($stty);
@@ -96,6 +115,11 @@ final class AgentTurnExecutor
         // Render output — user sees stats immediately
         $renderer = new TerminalRenderer($io, showHints: fn(): bool => (bool) $this->boot->config()->get('agents.defaults.hints', true));
         $renderer->render($result, contentStreamed: true);
+
+        // Ctrl+C during execution → graceful shutdown (skip deferred work, exit REPL)
+        if ($shutdownRequested) {
+            return new AgentTurnResult(exitCode: 0);
+        }
 
         // Enqueue title generation as deferred work (first-turn LLM call)
         $result->deferredWork?->enqueue(fn() => $this->maybeGenerateTitle($sessionId, $prompt));
@@ -118,7 +142,7 @@ final class AgentTurnExecutor
                 $sprint = $sprints[0];
                 $todoStore = $this->boot->todoStore();
                 $progress = $todoStore !== null
-                    ? $this->boot->projectStore()->getSprintProgress($sprint['id'], $todoStore)
+                    ? $this->boot->projectStore()->getSprintProgress($sprint['id'], $todoStore, $sessionId)
                     : ['percent' => 0, 'completed' => 0, 'total' => 0];
                 $title = $sprint['title'];
                 $pct = $progress['percent'];

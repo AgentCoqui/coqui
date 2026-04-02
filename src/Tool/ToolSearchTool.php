@@ -102,7 +102,8 @@ final class ToolSearchTool implements ToolInterface
             if (strlen($desc) > 120) {
                 $desc = substr($desc, 0, 117) . '...';
             }
-            $lines[] = "- **{$result['name']}**: {$desc}";
+            $pkg = $result['package'] !== '' ? " [{$result['package']}]" : '';
+            $lines[] = "- **{$result['name']}**{$pkg}: {$desc}";
         }
 
         $count = count($results);

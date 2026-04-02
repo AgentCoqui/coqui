@@ -15,25 +15,25 @@ namespace CoquiBot\Coqui\Contract;
 final class CoquiDefaults
 {
     /** Default maximum agent loop iterations (config: agents.defaults.maxIterations). */
-    public const int MAX_ITERATIONS = 48;
+    public const int MAX_ITERATIONS = 256;
 
     /** Maximum iterations for background tasks (unattended, capped for safety). */
-    public const int BACKGROUND_TASK_MAX_ITERATIONS = 100;
+    public const int BACKGROUND_TASK_MAX_ITERATIONS = 512;
 
     /** Default concurrent background tasks (config: api.tasks.maxConcurrent). */
-    public const int MAX_CONCURRENT_TASKS = 6;
+    public const int MAX_CONCURRENT_TASKS = 32;
 
     /** Default recent turns preserved during on-demand summarization (config: agents.defaults.context.keepRecentTurns). */
-    public const int KEEP_RECENT_TURNS = 10;
+    public const int KEEP_RECENT_TURNS = 24;
 
     /** Default recent turns preserved during auto-summarization (config: agents.defaults.context.autoSummarizeKeepRecent). */
-    public const int AUTO_SUMMARIZE_KEEP_RECENT = 15;
+    public const int AUTO_SUMMARIZE_KEEP_RECENT = 32;
 
     /** Token usage percentage threshold that triggers auto-summarization (config: agents.defaults.context.autoSummarizeThreshold). */
-    public const float AUTO_SUMMARIZE_THRESHOLD = 70.0;
+    public const float AUTO_SUMMARIZE_THRESHOLD = 64.0;
 
     /** User turn count that triggers auto-summarization when mode is 'turn' (config: agents.defaults.context.autoSummarizeTurnThreshold). */
-    public const int AUTO_SUMMARIZE_TURN_THRESHOLD = 20;
+    public const int AUTO_SUMMARIZE_TURN_THRESHOLD = 32;
 
     /** Auto-summarization trigger mode: 'token' (default), 'turn', or 'manual' (config: agents.defaults.context.autoSummarizeMode). */
     public const string AUTO_SUMMARIZE_MODE = 'token';
@@ -58,4 +58,60 @@ final class CoquiDefaults
 
     /** Whether automatic memory extraction runs after every turn (config: agents.defaults.memory.autoExtract). */
     public const bool MEMORY_AUTO_EXTRACT = false;
+
+    /** Default edit history retention in days for prune operations (config: agents.defaults.editHistory.retentionDays). */
+    public const int EDIT_HISTORY_RETENTION_DAYS = 7;
+
+    /** Safety cap on recursive copy/move operations to prevent runaway traversals. */
+    public const int MAX_RECURSIVE_ITEMS = 10_000;
+
+    /** Default max execution time in seconds for background tasks (config: agents.defaults.backgroundTaskMaxExecutionSeconds). */
+    public const int BACKGROUND_TASK_MAX_EXECUTION_SECONDS = 3600;
+
+    /**
+     * Tool schema token budget threshold for deferred loading.
+     *
+     * When total tool schema tokens for non-system toolkits exceed this threshold,
+     * non-system toolkits are deferred (wrapped as StubToolkit) and discoverable
+     * via tool_search. When under budget, all toolkits load eagerly.
+     *
+     * Config: agents.defaults.toolkitTokenBudget
+     */
+    public const int TOOLKIT_TOKEN_BUDGET = 10_000;
+
+    /**
+     * Toolkit class basenames that are always loaded (never deferred).
+     *
+     * These are the core toolkits that every agent session needs. They are
+     * always registered with full schemas regardless of the token budget.
+     *
+     * @var list<string>
+     */
+    public const array SYSTEM_TOOLKITS = [
+        'FileSystemToolkit',
+        'ShellToolkit',
+        'WebToolkit',
+        'MemoryToolkit',
+        'ArtifactToolkit',
+        'TodoToolkit',
+        'SprintToolkit',
+        'CoquiSourceToolkit',
+        'SkillToolkit',
+    ];
+
+    /**
+     * Standalone tool names that are always loaded (never deferred).
+     *
+     * @var list<string>
+     */
+    public const array SYSTEM_TOOLS = [
+        'tool_search',
+        'credentials',
+        'spawn_agent',
+        'vision_analyze',
+        'restart_coqui',
+        'summarize_conversation',
+        'extract_memories',
+        'config',
+    ];
 }

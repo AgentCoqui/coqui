@@ -24,7 +24,7 @@ final class ToolRegistry
     private const float K1 = 1.5;
     private const float B = 0.75;
 
-    /** @var array<string, array{name: string, description: string, tokens: int[]}> */
+    /** @var array<string, array{name: string, description: string, tokens: int[], package: string}> */
     private array $documents = [];
 
     /** @var array<string, int> term → document-frequency */
@@ -39,7 +39,7 @@ final class ToolRegistry
      * The document text is: name (boosted ×3) + description.
      * Duplicate registrations silently overwrite the prior entry.
      */
-    public function register(ToolInterface $tool): void
+    public function register(ToolInterface $tool, string $packageName = ''): void
     {
         $name = $tool->name();
         $description = $tool->description();
@@ -71,6 +71,7 @@ final class ToolRegistry
             'name' => $name,
             'description' => $description,
             'tokens' => $freq,
+            'package' => $packageName,
         ];
 
         $this->totalLength += count($terms);
@@ -80,7 +81,7 @@ final class ToolRegistry
     /**
      * Search the registry and return up to $topN best-matching tool summaries.
      *
-     * @return array<int, array{name: string, description: string}>
+     * @return array<int, array{name: string, description: string, package: string}>
      */
     public function search(string $query, int $topN = 5): array
     {
@@ -127,6 +128,7 @@ final class ToolRegistry
         return array_map(fn(string $name): array => [
             'name' => $name,
             'description' => $this->documents[$name]['description'],
+            'package' => $this->documents[$name]['package'],
         ], $top);
     }
 
@@ -136,7 +138,7 @@ final class ToolRegistry
      * Used to build a system prompt catalogue so the agent knows what
      * categories of tools are available to search for.
      *
-     * @return array<int, array{name: string, description: string}>
+     * @return array<int, array{name: string, description: string, package: string}>
      */
     public function all(): array
     {
@@ -144,6 +146,7 @@ final class ToolRegistry
             fn(array $doc): array => [
                 'name' => $doc['name'],
                 'description' => $doc['description'],
+                'package' => $doc['package'],
             ],
             $this->documents,
         ));

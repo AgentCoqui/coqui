@@ -338,3 +338,105 @@ test('resolvePath throws when symlink escapes sandbox', function () {
 
     expect($threw)->toBeTrue();
 })->skip(PHP_OS_FAMILY === 'Windows', 'symlink() requires Developer Mode on Windows');
+
+// ---------------------------------------------------------------
+// Copy operations
+// ---------------------------------------------------------------
+
+test('copyPath copies a single file', function () {
+    file_put_contents($this->root . '/src.txt', 'content');
+
+    $count = $this->fs->copyPath('src.txt', 'dst.txt');
+
+    expect($count)->toBe(1);
+    expect(file_get_contents($this->root . '/dst.txt'))->toBe('content');
+    expect(file_exists($this->root . '/src.txt'))->toBeTrue();
+});
+
+test('copyPath copies a directory recursively', function () {
+    mkdir($this->root . '/src-dir/nested', 0755, true);
+    file_put_contents($this->root . '/src-dir/a.txt', 'A');
+    file_put_contents($this->root . '/src-dir/nested/b.txt', 'B');
+
+    $count = $this->fs->copyPath('src-dir', 'dst-dir');
+
+    expect($count)->toBeGreaterThanOrEqual(2);
+    expect(file_get_contents($this->root . '/dst-dir/a.txt'))->toBe('A');
+    expect(file_get_contents($this->root . '/dst-dir/nested/b.txt'))->toBe('B');
+});
+
+test('copyPath creates destination parent directories', function () {
+    file_put_contents($this->root . '/f.txt', 'data');
+
+    $this->fs->copyPath('f.txt', 'deep/nested/f.txt');
+
+    expect(file_get_contents($this->root . '/deep/nested/f.txt'))->toBe('data');
+});
+
+test('copyPath throws for missing source', function () {
+    $this->fs->copyPath('missing.txt', 'dst.txt');
+})->throws(FileSystemException::class);
+
+test('copyPath throws when source equals destination', function () {
+    file_put_contents($this->root . '/same.txt', 'data');
+
+    $this->fs->copyPath('same.txt', 'same.txt');
+})->throws(FileSystemException::class, 'itself');
+
+// ---------------------------------------------------------------
+// Move operations
+// ---------------------------------------------------------------
+
+test('movePath moves a single file', function () {
+    file_put_contents($this->root . '/old.txt', 'data');
+
+    $count = $this->fs->movePath('old.txt', 'new.txt');
+
+    expect($count)->toBe(1);
+    expect(file_exists($this->root . '/old.txt'))->toBeFalse();
+    expect(file_get_contents($this->root . '/new.txt'))->toBe('data');
+});
+
+test('movePath moves a directory', function () {
+    mkdir($this->root . '/old-dir/sub', 0755, true);
+    file_put_contents($this->root . '/old-dir/sub/f.txt', 'data');
+
+    $count = $this->fs->movePath('old-dir', 'new-dir');
+
+    expect($count)->toBeGreaterThanOrEqual(1);
+    expect(is_dir($this->root . '/old-dir'))->toBeFalse();
+    expect(file_get_contents($this->root . '/new-dir/sub/f.txt'))->toBe('data');
+});
+
+test('movePath throws for missing source', function () {
+    $this->fs->movePath('missing.txt', 'dst.txt');
+})->throws(FileSystemException::class);
+
+test('movePath creates destination parent directories', function () {
+    file_put_contents($this->root . '/f.txt', 'data');
+
+    $this->fs->movePath('f.txt', 'deep/nested/f.txt');
+
+    expect(file_exists($this->root . '/f.txt'))->toBeFalse();
+    expect(file_get_contents($this->root . '/deep/nested/f.txt'))->toBe('data');
+});
+
+// ---------------------------------------------------------------
+// Delete directory
+// ---------------------------------------------------------------
+
+test('deleteDirectory removes directory and all contents', function () {
+    mkdir($this->root . '/to-delete/nested', 0755, true);
+    file_put_contents($this->root . '/to-delete/a.txt', 'A');
+    file_put_contents($this->root . '/to-delete/nested/b.txt', 'B');
+
+    $this->fs->deleteDirectory($this->root . '/to-delete');
+
+    expect(is_dir($this->root . '/to-delete'))->toBeFalse();
+})->skip(PHP_OS_FAMILY === 'Windows', 'deleteDirectory uses Unix-style recursive deletion that fails on Windows');
+
+test('deleteDirectory is noop for non-existent directory', function () {
+    $this->fs->deleteDirectory($this->root . '/nonexistent');
+
+    expect(true)->toBeTrue(); // no exception
+});

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Contract;
 
+use CoquiBot\Coqui\Contract\BackgroundTaskSummary;
+
 /**
  * Immutable value object representing the outcome of a single agent turn.
  *
@@ -35,6 +37,7 @@ final readonly class AgentTurnResult
         public ?string $reviewFeedback = null,
         public ?bool $reviewApproved = null,
         public ?DeferredWorkQueue $deferredWork = null,
+        public ?BackgroundTaskSummary $backgroundTasks = null,
     ) {}
 
     public function isError(): bool
@@ -91,6 +94,7 @@ final readonly class AgentTurnResult
             'error' => $this->error,
             'review_feedback' => $this->reviewFeedback,
             'review_approved' => $this->reviewApproved,
+            'background_tasks' => $this->backgroundTasks?->toArray(),
         ];
     }
 }

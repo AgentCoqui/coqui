@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api;
 
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\ProcessSpawner;
 
 /**
  * Manages child processes for interactive API agent turns.
@@ -23,11 +24,16 @@ use CoquiBot\Coqui\Storage\SessionStorage;
  */
 final class AgentTurnManager
 {
+    private const GRACEFUL_SHUTDOWN_TIMEOUT_MS = 3000;
+
     /** @var array<string, resource> Process handles keyed by turn process ID */
     private array $processes = [];
 
     /** @var array<string, array<int, resource>> Pipe handles per turn process */
     private array $pipes = [];
+
+    /** @var array<string, int> PID keyed by turn process ID */
+    private array $pids = [];
 
     /** @var array<string, string> Map session ID → turn process ID for active turns */
     private array $sessionTurns = [];
@@ -74,7 +80,7 @@ final class AgentTurnManager
     }
 
     /**
-     * Cancel an active turn for a session — send SIGTERM to the child process.
+     * Cancel an active turn for a session — send SIGTERM to the process group.
      */
     public function cancel(string $sessionId): bool
     {
@@ -88,11 +94,12 @@ final class AgentTurnManager
             return false;
         }
 
-        $process = $this->processes[$turnProcessId];
-        $status = proc_get_status($process);
+        $pid = $this->pids[$turnProcessId] ?? 0;
 
-        if ($status['running'] && $status['pid'] > 0 && function_exists('posix_kill')) {
-            posix_kill($status['pid'], SIGTERM);
+        if ($pid > 0) {
+            ProcessSpawner::killProcessGroup($pid, SIGTERM);
+        } else {
+            proc_terminate($this->processes[$turnProcessId]);
         }
 
         return true;
@@ -101,18 +108,16 @@ final class AgentTurnManager
     /**
      * Gracefully shut down all running turn processes.
      *
-     * Called during API server shutdown.
+     * Sends SIGTERM to each process group, waits up to 3s, then escalates
+     * to SIGKILL for any that refuse to exit. Called during API server shutdown.
      */
     public function shutdown(): void
     {
         foreach (array_keys($this->processes) as $turnProcessId) {
             $process = $this->processes[$turnProcessId];
-            $status = proc_get_status($process);
+            $pid = $this->pids[$turnProcessId] ?? 0;
 
-            if ($status['running'] && $status['pid'] > 0 && function_exists('posix_kill')) {
-                posix_kill($status['pid'], SIGTERM);
-            }
-
+            ProcessSpawner::terminateGracefully($process, $pid, self::GRACEFUL_SHUTDOWN_TIMEOUT_MS);
             $this->closeProcess($turnProcessId);
         }
 
@@ -137,6 +142,8 @@ final class AgentTurnManager
 
     /**
      * Check for finished processes, update status, and clean up.
+     *
+     * Uses conditional UPDATE to avoid overwriting status the child already committed.
      */
     private function reapFinishedProcesses(): void
     {
@@ -163,15 +170,13 @@ final class AgentTurnManager
                 unset($this->sessionTurns[$sessionId]);
             }
 
-            // Check if the child process updated status itself
-            $turnProcess = $this->storage->getTurnProcess($turnProcessId);
+            // Conditional update — only set failed if child hasn't already written final status
+            $error = $stderr !== '' ? mb_substr($stderr, 0, 1000) : 'Process exited unexpectedly';
+            $updated = $this->storage->updateTurnProcessStatusConditional($turnProcessId, 'failed', 'running', [
+                'error' => sprintf('Exit code %d: %s', $exitCode, $error),
+            ]);
 
-            if ($turnProcess !== null && $turnProcess['status'] === 'running') {
-                // Process died without updating status — mark as failed
-                $error = $stderr !== '' ? mb_substr($stderr, 0, 1000) : 'Process exited unexpectedly';
-                $this->storage->updateTurnProcessStatus($turnProcessId, 'failed', [
-                    'error' => sprintf('Exit code %d: %s', $exitCode, $error),
-                ]);
+            if ($updated) {
                 $this->storage->appendTaskEvent($turnProcessId, 'error', [
                     'message' => sprintf('Process exited with code %d', $exitCode),
                 ]);
@@ -184,7 +189,7 @@ final class AgentTurnManager
     }
 
     /**
-     * Spawn a child process for a turn.
+     * Spawn a child process for a turn using process group isolation.
      */
     private function spawnProcess(string $turnProcessId): bool
     {
@@ -210,21 +215,9 @@ final class AgentTurnManager
             $cmd[] = '--unsafe';
         }
 
-        $descriptors = [
-            0 => ['pipe', 'r'],  // stdin
-            1 => ['pipe', 'w'],  // stdout
-            2 => ['pipe', 'w'],  // stderr
-        ];
+        $result = ProcessSpawner::spawn($cmd, $this->workDir);
 
-        $process = proc_open(
-            $cmd,
-            $descriptors,
-            $pipes,
-            $this->workDir,
-            null, // inherit environment
-        );
-
-        if (!is_resource($process)) {
+        if ($result === null) {
             $this->storage->updateTurnProcessStatus($turnProcessId, 'failed', [
                 'error' => 'Failed to spawn turn process',
             ]);
@@ -239,21 +232,15 @@ final class AgentTurnManager
             return false;
         }
 
-        // Close stdin — the turn process doesn't read from it
-        fclose($pipes[0]);
+        $this->processes[$turnProcessId] = $result['process'];
+        $this->pipes[$turnProcessId] = $result['pipes'];
 
-        // Set stdout and stderr to non-blocking so tick() doesn't hang
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-
-        $this->processes[$turnProcessId] = $process;
-        $this->pipes[$turnProcessId] = $pipes;
-
-        // Update turn with the PID
-        $status = proc_get_status($process);
-        if ($status['pid'] > 0) {
+        // Track PID for process group kills
+        $pid = ProcessSpawner::getPid($result['process']);
+        if ($pid > 0) {
+            $this->pids[$turnProcessId] = $pid;
             $this->storage->updateTurnProcessStatus($turnProcessId, 'running', [
-                'pid' => $status['pid'],
+                'pid' => $pid,
             ]);
         }
 
@@ -278,5 +265,7 @@ final class AgentTurnManager
             proc_close($this->processes[$turnProcessId]);
             unset($this->processes[$turnProcessId]);
         }
+
+        unset($this->pids[$turnProcessId]);
     }
 }

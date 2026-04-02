@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
@@ -14,6 +15,22 @@ function makeTerminalObserver(): array
     $observer = new TerminalObserver($output);
 
     return [$observer, $output];
+}
+
+/**
+ * Create a TerminalObserver with an AnimatedTickCallback attached.
+ *
+ * Uses null stdin to avoid TTY checks. The tick callback writes to the
+ * same BufferedOutput so we can verify spinner output is suppressed.
+ */
+function makeTerminalObserverWithTicker(): array
+{
+    $output = new BufferedOutput();
+    $observer = new TerminalObserver($output);
+    $ticker = new AnimatedTickCallback($output, stdin: null);
+    $observer->setTickCallback($ticker);
+
+    return [$observer, $output, $ticker];
 }
 
 // --- agent.reasoning ---
@@ -200,4 +217,114 @@ test('unknown event is silently ignored', function () {
     $observer->handleEvent('unknown.event', 'data');
 
     expect($output->fetch())->toBe('');
+});
+
+// --- tick callback suspend/resume integration ---
+
+test('text_delta suspends tick callback on first chunk', function () {
+    [$observer, $output, $ticker] = makeTerminalObserverWithTicker();
+
+    // Start the ticker to simulate the REPL spinner running
+    $ticker->start();
+    $output->fetch(); // discard start output
+
+    // First text_delta should suspend the ticker
+    $observer->handleEvent('agent.text_delta', "Hello\n");
+    $output->fetch(); // discard
+
+    // Subsequent tick() calls should produce no spinner output
+    $ticker->tick();
+    $ticker->tick();
+
+    expect($output->fetch())->toBe('');
+});
+
+test('reasoning suspends tick callback on first chunk', function () {
+    [$observer, $output, $ticker] = makeTerminalObserverWithTicker();
+
+    $ticker->start();
+    $output->fetch();
+
+    $observer->handleEvent('agent.reasoning', 'thinking...');
+    $output->fetch();
+
+    // Ticker should be suspended — no spinner output
+    $ticker->tick();
+
+    expect($output->fetch())->toBe('');
+});
+
+test('showStatusLine via tool_call resumes tick callback after text streaming', function () {
+    [$observer, $output, $ticker] = makeTerminalObserverWithTicker();
+
+    $ticker->start();
+    $output->fetch();
+
+    // Simulate text streaming → suspends ticker
+    $observer->handleEvent('agent.text_delta', "response text\n");
+    $observer->handleEvent('agent.done', []);
+    $output->fetch();
+
+    // Now simulate a new iteration with a tool call → showStatusLine resumes
+    $observer->handleEvent('agent.start', null);
+    $observer->handleEvent('agent.iteration', 2);
+    $output->fetch();
+
+    $toolCall = new ToolCall(id: 'call_1', name: 'read_file', arguments: ['path' => 'foo.php']);
+    $observer->handleEvent('agent.tool_call', $toolCall);
+    $output->fetch();
+
+    // The ticker should be resumed — tick() should produce spinner output
+    // Force a draw by resetting the throttle window
+    $ticker->start('read_file');
+    $text = $output->fetch();
+
+    expect($text)->toContain('Working on read_file');
+});
+
+test('text_delta does not suspend on subsequent chunks', function () {
+    [$observer, $output, $ticker] = makeTerminalObserverWithTicker();
+
+    $ticker->start();
+    $output->fetch();
+
+    // First chunk suspends
+    $observer->handleEvent('agent.text_delta', 'chunk1');
+    $output->fetch();
+
+    // Verify suspended
+    $ticker->tick();
+    expect($output->fetch())->toBe('');
+
+    // Second chunk should NOT call suspend again (already suspended)
+    // This is a no-op verification — the point is no errors occur
+    $observer->handleEvent('agent.text_delta', 'chunk2');
+    $output->fetch();
+
+    $ticker->tick();
+    expect($output->fetch())->toBe('');
+});
+
+test('spinner does not interfere with streaming text', function () {
+    [$observer, $output, $ticker] = makeTerminalObserverWithTicker();
+
+    $ticker->start();
+    $output->fetch(); // discard initial spinner
+
+    // Simulate streaming: multiple text deltas with tick() calls between them
+    // (mimicking AbstractAgent's tick-between-chunks + periodic timer)
+    $observer->handleEvent('agent.text_delta', "Hello ");
+    $ticker->tick(); // Should be no-op (suspended after first text_delta)
+    $observer->handleEvent('agent.text_delta', "world\n");
+    $ticker->tick(); // Still no-op
+
+    // Flush via done
+    $observer->handleEvent('agent.done', []);
+
+    $text = $output->fetch();
+
+    // Text should be present and no "Working" should appear in the streaming output
+    expect($text)->toContain('Hello world');
+    // After the first text_delta, no spinner frames should have been drawn
+    expect(substr_count($text, 'Working'))->toBe(0);
 });

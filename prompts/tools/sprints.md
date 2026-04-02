@@ -41,6 +41,7 @@ Each `review → rejected` transition increments the review round counter. When 
 - Pass `sprint_id` when creating artifacts (`artifact_create`) or todos (`todo_add`, `todo_bulk_add`)
 - Pass `project_id` when creating artifacts to mark them as persistent (survives session deletion)
 - Use `sprint_get` to see todo progress for a sprint
+- All IDs (project, sprint, artifact, todo) shown in tool outputs and guidelines are full UUIDs — use them directly in subsequent tool calls
 
 ### Workflow Pattern
 

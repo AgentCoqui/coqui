@@ -7,13 +7,16 @@ namespace CoquiBot\Coqui\Agent;
 use CarmeloSantana\PHPAgents\Contract\CancellationTokenInterface;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
+use CarmeloSantana\PHPAgents\Contract\TickCallbackInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
+use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Enum\Role;
 use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Agent\Output;
 use CarmeloSantana\PHPAgents\Context\TokenCounterFactory;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 use CarmeloSantana\PHPAgents\Provider\Usage;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
@@ -29,6 +32,7 @@ use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
+use CoquiBot\Coqui\Contract\BackgroundTaskSummary;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\DeferredWorkQueue;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
@@ -43,8 +47,10 @@ use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
+use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Renderer\ContextUsageBar;
+use CoquiBot\Coqui\Storage\ToolUsageTracker;
 
 /**
  * Handles agent creation, execution, and turn message persistence.
@@ -80,6 +86,11 @@ final class AgentRunner
         private readonly ?ArtifactStore $artifactStore = null,
         private readonly ?ProjectStore $projectStore = null,
         private readonly ?DefaultsLoader $defaultsLoader = null,
+        private readonly ?TickCallbackInterface $tickCallback = null,
+        private readonly ?ToolExecutorInterface $toolExecutor = null,
+        private readonly ?HttpClientInterface $httpClient = null,
+        private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
+        private readonly ?ToolUsageTracker $usageTracker = null,
     ) {}
 
     /**
@@ -290,7 +301,7 @@ final class AgentRunner
                         storage: $this->storage,
                         memoryStore: $this->memoryStore,
                     );
-                    $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+                    $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
                     $utilityModel = $this->roleResolver->resolveUtility();
                     if ($utilityModel !== '') {
                         $utilityProvider = $factory->create($utilityModel);
@@ -316,8 +327,13 @@ final class AgentRunner
                 $pruningStrategy->reset();
             }
 
-            // Enqueue memory extraction as deferred work — runs after stats are rendered
+            // Enqueue memory extraction and usage tracking refresh as deferred work
             $deferredWork = new DeferredWorkQueue();
+
+            if ($this->usageTracker !== null) {
+                $deferredWork->enqueue(fn() => $this->usageTracker->refresh());
+            }
+
             $conversationForExtraction = $output->conversation ?? $history;
             $deferredWork->enqueue(fn() => $this->autoExtractMemories(
                 $conversationForExtraction,
@@ -356,6 +372,20 @@ final class AgentRunner
                 }
             }
 
+            // Build active background tasks snapshot for footer rendering
+            $backgroundTasks = null;
+            try {
+                $showBg = (bool) $this->config->get('agents.defaults.footer.backgroundTasks', true);
+                if ($showBg) {
+                    $rows = $this->storage->getActiveBackgroundSummary();
+                    if ($rows !== []) {
+                        $backgroundTasks = BackgroundTaskSummary::fromRows($rows);
+                    }
+                }
+            } catch (\Throwable) {
+                // Non-fatal — background task summary is optional
+            }
+
             return new AgentTurnResult(
                 content: $output->content,
                 iterations: $output->iterations,
@@ -372,6 +402,7 @@ final class AgentRunner
                 reviewFeedback: $reviewFeedback,
                 reviewApproved: $reviewApproved,
                 deferredWork: $deferredWork,
+                backgroundTasks: $backgroundTasks,
             );
         } catch (\Throwable $e) {
             // Complete turn even on error so duration/state is tracked
@@ -416,7 +447,7 @@ final class AgentRunner
         ?int $maxIterations = null,
     ): OrchestratorAgent {
         $modelString = $this->roleResolver->resolve($role);
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
         $provider = $factory->create($modelString);
 
         return new OrchestratorAgent(
@@ -461,6 +492,12 @@ final class AgentRunner
             familyResolver: $this->defaultsLoader !== null
                 ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
                 : null,
+            unsafeMode: $this->unsafeMode,
+            toolExecutor: $this->toolExecutor,
+            tickCallback: $this->tickCallback,
+            httpClient: $this->httpClient,
+            loadingRegistry: $this->loadingRegistry,
+            usageTracker: $this->usageTracker,
         );
     }
 
@@ -476,7 +513,7 @@ final class AgentRunner
     {
         $effectiveRole = $role ?? 'orchestrator';
         $modelString = $this->roleResolver->resolve($effectiveRole);
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
         $provider = $factory->create($modelString);
 
         $sanitizer = new ScriptSanitizer(unsafe: false, blacklist: $this->blacklist);
@@ -505,6 +542,8 @@ final class AgentRunner
             familyResolver: $this->defaultsLoader !== null
                 ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
                 : null,
+            loadingRegistry: $this->loadingRegistry,
+            usageTracker: $this->usageTracker,
         );
 
         $counter = TokenCounterFactory::forModel($modelString);
@@ -557,11 +596,17 @@ final class AgentRunner
             $role = $msg->role();
 
             try {
+                $sanitizedContent = $this->sanitizeContent($msg->content());
+
+                if ($role === Role::Assistant && trim($sanitizedContent) === '' && $msg->toolCalls() === []) {
+                    continue;
+                }
+
                 match ($role) {
                     Role::Assistant => $this->storage->addMessage(
                         $sessionId,
                         'assistant',
-                        $this->sanitizeContent($msg->content()),
+                        $sanitizedContent,
                         !empty($msg->toolCalls()) ? json_encode(
                             array_map(fn(ToolCall $tc) => [
                                 'id' => $tc->id,
@@ -577,7 +622,7 @@ final class AgentRunner
                     Role::Tool => $this->storage->addMessage(
                         $sessionId,
                         'tool',
-                        $this->sanitizeContent($msg->content()),
+                        $sanitizedContent,
                         null,
                         $msg->toolCallId(),
                         turnId: $turnId,
@@ -826,7 +871,7 @@ final class AgentRunner
         );
 
         // Resolve a cheap provider for summarization via utility model chain
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
         $provider = null;
 
         try {
@@ -978,7 +1023,7 @@ final class AgentRunner
                 $maxRounds = $sprint['max_review_rounds'] ?? 3;
                 $progress = '';
                 if ($this->todoStore !== null) {
-                    $stats = $this->projectStore->getSprintProgress($sprint['id'], $this->todoStore);
+                    $stats = $this->projectStore->getSprintProgress($sprint['id'], $this->todoStore, $sessionId);
                     $progress = " — {$stats['percent']}% complete";
                 }
                 $lines[] = "  - Sprint #{$number} '{$title}' ({$status}{$progress}, round {$round}/{$maxRounds})";
@@ -990,8 +1035,7 @@ final class AgentRunner
     }
 
     /**
-     * Run automatic memory extraction from a completed conversation turn.
-     *     * Collect file edits that occurred during the current turn.
+     * Collect file edits that occurred during the current turn.
      *
      * @return ?array<int, array{file_path: string, operation: string}>
      */
@@ -1077,12 +1121,12 @@ final class AgentRunner
                     readOnly: true,
                     allowedPaths: $mountPaths,
                 ),
-                new \CarmeloSantana\PHPAgents\Toolkit\ShellToolkit(
+                new \CoquiBot\Coqui\Toolkit\ShellToolkit(
                     workDir: $this->projectRoot,
-                    allowedCommands: ['grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls', 'sort', 'uniq', 'sed', 'awk', 'diff'],
+                    allowedCommands: \CoquiBot\Coqui\Config\ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
                     timeout: 60,
                 ),
-                new \CoquiBot\Coqui\Toolkit\ProjectSourceToolkit(projectRoot: $this->projectRoot),
+                new \CoquiBot\Coqui\Toolkit\CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ];
 
             return $cycle->run(
@@ -1097,7 +1141,8 @@ final class AgentRunner
         }
     }
 
-    /**     * Uses a cheap LLM call to identify noteworthy facts in recent turns
+    /**
+     * Uses a cheap LLM call to identify noteworthy facts in recent turns
      * and saves them as memories. Respects cooldown and config toggle.
      *
      * @param ?\Closure(string, mixed): void $notify  Optional observer callback for transparency events
@@ -1121,7 +1166,7 @@ final class AgentRunner
         }
 
         try {
-            $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+            $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
             $provider = null;
 
             // Resolve a cheap utility provider

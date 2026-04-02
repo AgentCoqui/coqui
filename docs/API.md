@@ -1,5 +1,7 @@
 # Coqui HTTP API
 
+> **REPL-first**: The terminal REPL is Coqui's primary interface. The API exists as a background-task executor and monitoring surface. Mutating operations (loops, schedules, roles, config) should be performed through the REPL or agent tools. The API provides read-only inspection of most resources plus core session/message/task operations. See [REPL-API-DIVERGENCES.md](REPL-API-DIVERGENCES.md) for details.
+
 The Coqui HTTP API provides programmatic access to Coqui's AI agent capabilities. It enables headless operation, remote session management, and real-time streaming of agent responses via Server-Sent Events (SSE).
 
 The API is built on ReactPHP and runs as a long-lived PHP process. It shares the same core engine as the terminal REPL but without any terminal I/O dependency.
@@ -2171,6 +2173,212 @@ Disable a schedule. The schedule is preserved and can be re-enabled later.
 }
 ```
 
+### Loops
+
+Loops are fully automated, multi-iteration workflows that string together existing agent roles in sequence. Each role processes the output of the previous one, repeating until a termination condition is met.
+
+#### `GET /api/v1/loops`
+
+List all loops with optional status filter.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `status` | string | Filter by status: `running`, `paused`, `completed`, `failed`, `cancelled` |
+
+**Response `200`**
+
+```json
+{
+  "loops": [
+    {
+      "id": "abc123",
+      "definition": "harness",
+      "goal": "Implement a new caching layer",
+      "status": "running",
+      "current_iteration": 2,
+      "current_stage": 1,
+      "created_at": "2026-02-16T14:00:00Z",
+      "updated_at": "2026-02-16T14:30:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+#### `POST /api/v1/loops`
+
+Create and start a new loop from a definition.
+
+**Request Body**
+
+```json
+{
+  "definition": "harness",
+  "goal": "Implement a new caching layer with Redis support",
+  "session_id": "optional-session-id"
+}
+```
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `definition` | string | Yes | Name of a loop definition (e.g. `harness`, `research`) |
+| `goal` | string | Yes | The goal prompt for the loop |
+| `session_id` | string | No | Session to associate with (auto-created if omitted) |
+
+**Response `201`**
+
+```json
+{
+  "id": "abc123",
+  "definition": "harness",
+  "goal": "Implement a new caching layer with Redis support",
+  "status": "running"
+}
+```
+
+#### `GET /api/v1/loops/definitions`
+
+List available loop definitions.
+
+**Response `200`**
+
+```json
+{
+  "definitions": [
+    {
+      "name": "harness",
+      "description": "Generator-evaluator pattern",
+      "roles": ["plan", "coder", "reviewer"],
+      "termination": {
+        "type": "evaluation_bound",
+        "value": "APPROVED"
+      }
+    }
+  ],
+  "count": 1
+}
+```
+
+#### `GET /api/v1/loops/{id}`
+
+Get detailed loop status including current iteration and stage information.
+
+**Response `200`**
+
+```json
+{
+  "id": "abc123",
+  "definition": "harness",
+  "goal": "Implement a new caching layer",
+  "status": "running",
+  "current_iteration": 2,
+  "current_stage": 1,
+  "configuration": { ... },
+  "created_at": "2026-02-16T14:00:00Z",
+  "updated_at": "2026-02-16T14:30:00Z"
+}
+```
+
+#### `DELETE /api/v1/loops/{id}`
+
+Delete a loop and all its iteration/stage records.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true
+}
+```
+
+#### `POST /api/v1/loops/{id}/pause`
+
+Pause a running loop. The loop preserves its current position and can be resumed.
+
+**Response `200`**
+
+```json
+{
+  "status": "paused"
+}
+```
+
+#### `POST /api/v1/loops/{id}/resume`
+
+Resume a paused loop from where it left off.
+
+**Response `200`**
+
+```json
+{
+  "status": "running"
+}
+```
+
+#### `POST /api/v1/loops/{id}/stop`
+
+Stop/cancel a running or paused loop.
+
+**Response `200`**
+
+```json
+{
+  "status": "cancelled"
+}
+```
+
+#### `GET /api/v1/loops/{id}/iterations`
+
+List all iterations for a loop.
+
+**Response `200`**
+
+```json
+{
+  "iterations": [
+    {
+      "id": "iter123",
+      "loop_id": "abc123",
+      "iteration_number": 1,
+      "status": "completed",
+      "started_at": "2026-02-16T14:00:00Z",
+      "completed_at": "2026-02-16T14:15:00Z"
+    }
+  ],
+  "count": 1
+}
+```
+
+#### `GET /api/v1/loops/{id}/iterations/{iterationId}`
+
+Get a specific iteration with all its stage details.
+
+**Response `200`**
+
+```json
+{
+  "id": "iter123",
+  "loop_id": "abc123",
+  "iteration_number": 1,
+  "status": "completed",
+  "stages": [
+    {
+      "id": "stage123",
+      "stage_index": 0,
+      "role": "plan",
+      "status": "completed",
+      "output": "## Implementation Plan\n1. ...",
+      "started_at": "2026-02-16T14:00:00Z",
+      "completed_at": "2026-02-16T14:05:00Z"
+    }
+  ],
+  "started_at": "2026-02-16T14:00:00Z",
+  "completed_at": "2026-02-16T14:15:00Z"
+}
+```
+
 ### Webhooks
 
 Webhooks receive signed HTTP POST requests from external services and automatically spawn background tasks. Signature verification supports GitHub, Slack, and generic HMAC schemes.
@@ -2634,6 +2842,12 @@ Every REPL slash command has an API equivalent, allowing dashboards and client a
 | `/toolkits stub <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to stub |
 | `/toolkits disable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to disabled |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
+| `/loops` | `GET /api/v1/loops` | Lists all loops with status and progress |
+| `/loops definitions` | `GET /api/v1/loops/definitions` | Shows available loop definitions |
+| `/loops status <id>` | `GET /api/v1/loops/{id}` | Detailed status of a specific loop |
+| `/loops pause <id\|all>` | `POST /api/v1/loops/{id}/pause` | Pauses running loop(s) |
+| `/loops resume <id\|all>` | `POST /api/v1/loops/{id}/resume` | Resumes paused loop(s) |
+| `/loops stop <id\|all>` | `POST /api/v1/loops/{id}/stop` | Stops/cancels loop(s) |
 
 ## Quick Reference
 
@@ -2687,6 +2901,16 @@ Every REPL slash command has an API equivalent, allowing dashboards and client a
 | `POST` | `/api/v1/schedules/{id}/trigger` | Yes | Trigger schedule immediately |
 | `POST` | `/api/v1/schedules/{id}/enable` | Yes | Enable schedule |
 | `POST` | `/api/v1/schedules/{id}/disable` | Yes | Disable schedule |
+| `GET` | `/api/v1/loops` | Yes | List loops |
+| `POST` | `/api/v1/loops` | Yes | Create/start loop |
+| `GET` | `/api/v1/loops/definitions` | Yes | List loop definitions |
+| `GET` | `/api/v1/loops/{id}` | Yes | Get loop details |
+| `DELETE` | `/api/v1/loops/{id}` | Yes | Delete loop |
+| `POST` | `/api/v1/loops/{id}/pause` | Yes | Pause loop |
+| `POST` | `/api/v1/loops/{id}/resume` | Yes | Resume loop |
+| `POST` | `/api/v1/loops/{id}/stop` | Yes | Stop/cancel loop |
+| `GET` | `/api/v1/loops/{id}/iterations` | Yes | List loop iterations |
+| `GET` | `/api/v1/loops/{id}/iterations/{iterationId}` | Yes | Get iteration with stages |
 | `POST` | `/api/v1/webhooks/incoming/{name}` | No* | Receive webhook (signature-verified) |
 | `GET` | `/api/v1/webhooks` | Yes | List webhook subscriptions |
 | `POST` | `/api/v1/webhooks` | Yes | Create webhook subscription |
