@@ -467,14 +467,7 @@ final class CoquiSourceToolkit implements ToolkitInterface
      */
     private function readSectionLines(array $sec, string $filePath): ?string
     {
-        $lineStart = $sec['line_start'] ?? null;
-        $lineEnd = $sec['line_end'] ?? null;
-
-        if ($lineStart !== null && $lineEnd !== null) {
-            return $this->readLineRange($filePath, (int) $lineStart, (int) $lineEnd);
-        }
-
-        return null;
+        return $this->readLineRange($filePath, $sec['line_start'], $sec['line_end']);
     }
 
     /**
@@ -577,6 +570,8 @@ final class CoquiSourceToolkit implements ToolkitInterface
      * Extract all headings from a markdown file for error suggestions.
      *
      * Extracts H1–H4 to match the documentation index scope. Skips code-fenced blocks.
+     *
+     * @return list<string>
      */
     private function extractHeadings(string $filePath): array
     {

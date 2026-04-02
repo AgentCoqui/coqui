@@ -561,7 +561,7 @@ final class BootManager
         }
 
         $packageLoopPaths = $this->discovery->discoverPackageLoopPaths();
-        if (!empty($packageLoopPaths)) {
+        if ($this->loopDiscovery !== null && !empty($packageLoopPaths)) {
             $this->loopDiscovery->seedPackageLoops($packageLoopPaths);
         }
     }

@@ -210,10 +210,6 @@ final class RunCommand extends Command
             $loopExecutor = new LoopExecutor(
                 loopStore: $loopStore,
                 projectStore: $projectStore,
-                artifactStore: $artifactStore,
-                roleResolver: $this->boot->roleResolver(),
-                roleDiscovery: $this->boot->roleDiscovery(),
-                config: $this->boot->config(),
             );
 
             $shellAllowed = ShellConfigResolver::resolveAllowed($this->boot->config());

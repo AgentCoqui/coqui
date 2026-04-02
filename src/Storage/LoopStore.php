@@ -150,9 +150,12 @@ final class LoopStore
             $stmt->execute([$status]);
         } else {
             $stmt = $this->db->query('SELECT * FROM loops ORDER BY started_at DESC');
+            if ($stmt === false) {
+                return [];
+            }
         }
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -227,7 +230,7 @@ final class LoopStore
         $stmt = $this->db->prepare('SELECT * FROM loop_iterations WHERE loop_id = ? ORDER BY iteration_number ASC');
         $stmt->execute([$loopId]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -297,7 +300,7 @@ final class LoopStore
         $stmt = $this->db->prepare('SELECT * FROM loop_stages WHERE iteration_id = ? ORDER BY stage_index ASC');
         $stmt->execute([$iterationId]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -374,7 +377,7 @@ final class LoopStore
         SQL);
         $stmt->execute([$iterationId]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -392,7 +395,7 @@ final class LoopStore
         SQL);
         $stmt->execute([$loopId, $beforeIteration]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -401,6 +404,9 @@ final class LoopStore
     public function countActive(): int
     {
         $stmt = $this->db->query("SELECT COUNT(*) FROM loops WHERE status = 'running'");
+        if ($stmt === false) {
+            return 0;
+        }
 
         return (int) $stmt->fetchColumn();
     }

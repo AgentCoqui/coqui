@@ -37,6 +37,9 @@ final readonly class ReactHttpChunk implements ChunkInterface
         return $this->isLast;
     }
 
+    /**
+     * @return array<string, string>|null
+     */
     public function getInformationalStatus(): ?array
     {
         return null;

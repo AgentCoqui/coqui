@@ -38,7 +38,7 @@ final readonly class LoopParameterDefinition
     }
 
     /**
-     * @param array{name: string, description: string, required?: bool, default?: string} $data
+     * @param array<string, mixed> $data
      */
     public static function fromArray(array $data): self
     {

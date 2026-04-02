@@ -4,15 +4,11 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Agent;
 
-use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
-use CoquiBot\Coqui\Config\RoleResolver;
-use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Contract\IterationOutcome;
 use CoquiBot\Coqui\Contract\LoopDefinition;
 use CoquiBot\Coqui\Contract\LoopRoleDefinition;
 use CoquiBot\Coqui\Contract\LoopStageResult;
 use CoquiBot\Coqui\Contract\TerminationType;
-use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 
@@ -28,10 +24,6 @@ final class LoopExecutor
     public function __construct(
         private readonly LoopStore $loopStore,
         private readonly ProjectStore $projectStore,
-        private readonly ArtifactStore $artifactStore,
-        private readonly RoleResolver $roleResolver,
-        private readonly RoleDiscovery $roleDiscovery,
-        private readonly ConfigInterface $config,
     ) {}
 
     /**
@@ -234,6 +226,10 @@ final class LoopExecutor
         $loop = $state['loop'];
         $iteration = $state['iteration'];
         $stages = $state['stages'];
+
+        if ($iteration === null) {
+            return IterationOutcome::Failed;
+        }
 
         // Check if any stage failed
         $failedStages = array_filter($stages, fn(array $s) => $s['status'] === 'failed');
@@ -565,7 +561,7 @@ final class LoopExecutor
             $summary = $stage['result_summary'] ?? '(no output)';
 
             // Truncate to one line for the iteration summary
-            $firstLine = strtok($summary, "\n");
+            $firstLine = (string) strtok($summary, "\n");
             if (mb_strlen($firstLine) > 200) {
                 $firstLine = mb_substr($firstLine, 0, 200) . '...';
             }

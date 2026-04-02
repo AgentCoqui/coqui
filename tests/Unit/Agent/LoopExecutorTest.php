@@ -41,10 +41,6 @@ beforeEach(function () {
     $this->executor = new LoopExecutor(
         loopStore: $this->loopStore,
         projectStore: $this->projectStore,
-        artifactStore: $this->artifactStore,
-        roleResolver: $this->roleResolver,
-        roleDiscovery: $this->roleDiscovery,
-        config: $this->config,
     );
 
     $this->harnessDefinition = LoopDefinition::fromArray([
