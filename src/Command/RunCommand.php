@@ -196,6 +196,8 @@ final class RunCommand extends Command
             tickCallback: $this->animatedTickCallback,
             toolExecutor: new ConcurrentToolExecutor(),
             httpClient: new ReactHttpClientAdapter(),
+            loadingRegistry: $this->boot->loadingRegistry(),
+            usageTracker: $this->boot->usageTracker(),
         );
 
         // Initialize loop execution pipeline (requires stores from boot)
@@ -600,6 +602,8 @@ final class RunCommand extends Command
             artifactStore: $this->boot->artifactStore(),
             projectStore: $this->boot->projectStore(),
             defaultsLoader: $this->boot->defaultsLoader(),
+            loadingRegistry: $this->boot->loadingRegistry(),
+            usageTracker: $this->boot->usageTracker(),
         );
 
         // Handle session

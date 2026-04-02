@@ -67,4 +67,51 @@ final class CoquiDefaults
 
     /** Default max execution time in seconds for background tasks (config: agents.defaults.backgroundTaskMaxExecutionSeconds). */
     public const int BACKGROUND_TASK_MAX_EXECUTION_SECONDS = 3600;
+
+    /**
+     * Tool schema token budget threshold for deferred loading.
+     *
+     * When total tool schema tokens for non-system toolkits exceed this threshold,
+     * non-system toolkits are deferred (wrapped as StubToolkit) and discoverable
+     * via tool_search. When under budget, all toolkits load eagerly.
+     *
+     * Config: agents.defaults.toolkitTokenBudget
+     */
+    public const int TOOLKIT_TOKEN_BUDGET = 10_000;
+
+    /**
+     * Toolkit class basenames that are always loaded (never deferred).
+     *
+     * These are the core toolkits that every agent session needs. They are
+     * always registered with full schemas regardless of the token budget.
+     *
+     * @var list<string>
+     */
+    public const array SYSTEM_TOOLKITS = [
+        'FileSystemToolkit',
+        'ShellToolkit',
+        'WebToolkit',
+        'MemoryToolkit',
+        'ArtifactToolkit',
+        'TodoToolkit',
+        'SprintToolkit',
+        'CoquiSourceToolkit',
+        'SkillToolkit',
+    ];
+
+    /**
+     * Standalone tool names that are always loaded (never deferred).
+     *
+     * @var list<string>
+     */
+    public const array SYSTEM_TOOLS = [
+        'tool_search',
+        'credentials',
+        'spawn_agent',
+        'vision_analyze',
+        'restart_coqui',
+        'summarize_conversation',
+        'extract_memories',
+        'config',
+    ];
 }

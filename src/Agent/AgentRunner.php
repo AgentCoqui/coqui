@@ -47,8 +47,10 @@ use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
+use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Renderer\ContextUsageBar;
+use CoquiBot\Coqui\Storage\ToolUsageTracker;
 
 /**
  * Handles agent creation, execution, and turn message persistence.
@@ -87,6 +89,8 @@ final class AgentRunner
         private readonly ?TickCallbackInterface $tickCallback = null,
         private readonly ?ToolExecutorInterface $toolExecutor = null,
         private readonly ?HttpClientInterface $httpClient = null,
+        private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
+        private readonly ?ToolUsageTracker $usageTracker = null,
     ) {}
 
     /**
@@ -323,8 +327,13 @@ final class AgentRunner
                 $pruningStrategy->reset();
             }
 
-            // Enqueue memory extraction as deferred work — runs after stats are rendered
+            // Enqueue memory extraction and usage tracking refresh as deferred work
             $deferredWork = new DeferredWorkQueue();
+
+            if ($this->usageTracker !== null) {
+                $deferredWork->enqueue(fn() => $this->usageTracker->refresh());
+            }
+
             $conversationForExtraction = $output->conversation ?? $history;
             $deferredWork->enqueue(fn() => $this->autoExtractMemories(
                 $conversationForExtraction,
@@ -487,6 +496,8 @@ final class AgentRunner
             toolExecutor: $this->toolExecutor,
             tickCallback: $this->tickCallback,
             httpClient: $this->httpClient,
+            loadingRegistry: $this->loadingRegistry,
+            usageTracker: $this->usageTracker,
         );
     }
 
@@ -531,6 +542,8 @@ final class AgentRunner
             familyResolver: $this->defaultsLoader !== null
                 ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
                 : null,
+            loadingRegistry: $this->loadingRegistry,
+            usageTracker: $this->usageTracker,
         );
 
         $counter = TokenCounterFactory::forModel($modelString);

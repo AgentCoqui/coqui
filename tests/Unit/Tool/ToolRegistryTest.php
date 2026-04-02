@@ -109,5 +109,31 @@ test('search result contains name and description keys', function () {
 
     expect($results[0])->toHaveKey('name')
         ->and($results[0])->toHaveKey('description')
+        ->and($results[0])->toHaveKey('package')
         ->and($results[0]['name'])->toBe('shell_exec');
+});
+
+test('register stores package name when provided', function () {
+    $registry = new ToolRegistry();
+    $registry->register(makeTool('brave_search', 'Search the web'), 'coqui/brave-search');
+
+    $all = $registry->all();
+    expect($all[0]['package'])->toBe('coqui/brave-search');
+});
+
+test('register defaults package to empty string', function () {
+    $registry = new ToolRegistry();
+    $registry->register(makeTool('read_file', 'Read a file'));
+
+    $all = $registry->all();
+    expect($all[0]['package'])->toBe('');
+});
+
+test('search results include package name', function () {
+    $registry = new ToolRegistry();
+    $registry->register(makeTool('brave_search', 'Search the web via Brave'), 'coqui/brave-search');
+    $registry->register(makeTool('read_file', 'Read a file'));
+
+    $results = $registry->search('brave search');
+    expect($results[0]['package'])->toBe('coqui/brave-search');
 });

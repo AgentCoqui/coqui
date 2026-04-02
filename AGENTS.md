@@ -378,6 +378,67 @@ Coqui supports running individual tools asynchronously in background processes. 
 | `src/Toolkit/BackgroundTaskToolkit.php` | Agent-facing tools including `start_background_tool`                  |
 | `src/Command/TaskRunCommand.php`        | Branches on `tool_name` presence: agent path vs direct tool execution |
 
+## Toolkit Loading & Budget Gate Architecture
+
+Coqui uses a token-budget-aware loading system to control which toolkits are fully loaded into LLM context versus deferred for on-demand discovery. This follows Anthropic's tool search pattern: system toolkits are always loaded, while non-system toolkits are deferred when context is constrained and promoted based on usage frequency.
+
+### Three-Tier Loading Model
+
+| Mode     | Behavior |
+| -------- | -------- |
+| `system` | Always loaded with full schema. Hardcoded in `CoquiDefaults::SYSTEM_TOOLKITS`. Immutable. |
+| `eager`  | Loaded with full schema when budget allows. User override via `ToolkitLoadingRegistry`. |
+| `deferred` | Wrapped as `StubToolkit` with minimal schema. Discoverable via `tool_search`. Default for non-system toolkits. |
+
+### How It Works
+
+1. **System toolkits** (FileSystemToolkit, ShellToolkit, WebToolkit, MemoryToolkit, ArtifactToolkit, TodoToolkit, SprintToolkit, CoquiSourceToolkit, SkillToolkit) are added directly — they always enter LLM context.
+2. **Candidate toolkits** (discovered packages, ToolkitGeneratorToolkit, BackgroundTaskToolkit, ScheduleToolkit, etc.) are collected into an array during constructor execution.
+3. **`applyToolkitBudgetGate()`** estimates the total token cost of all candidates using `HeuristicCounter`. If the total is under the configured budget (`agents.defaults.toolkitTokenBudget`, default 10,000), all candidates load eagerly.
+4. **Over budget**: candidates are ranked by `rankCandidatesByFrequency()` using `ToolUsageTracker` data. The most-used toolkits are loaded eagerly until the budget is exhausted. Remaining candidates are wrapped as `StubToolkit`.
+5. **Deferred toolkits** are recorded in `$deferredToolkitInfo` and a `# DEFERRED TOOLKITS` section is injected into the system prompt, telling the LLM to use `tool_search` to discover them.
+6. **`ToolkitLoadingRegistry`** allows users to force a toolkit to `eager` mode (always loaded regardless of budget) or `deferred` (always stubbed). System toolkits cannot be changed.
+
+### Usage Frequency Tracking
+
+`ToolUsageTracker` aggregates tool usage from the `turns.tools_used` JSON column using SQLite `json_each()`. Results are cached in memory for 5 minutes. After each agent turn, the tracker is refreshed via `DeferredWorkQueue` to capture the latest usage data for future sessions.
+
+### Configuration
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "toolkitTokenBudget": 10000
+        }
+    }
+}
+```
+
+### REPL Integration
+
+The `/toolkits` command displays a Loading column alongside Visibility and Tokens, showing `system`, `eager`, or `deferred` for each registered package. A deferred count is shown in the summary line.
+
+### Relationship to Visibility
+
+Loading mode is orthogonal to toolkit visibility:
+- **Visibility** (Enabled/Stub/Disabled) controls whether the LLM sees a tool at all.
+- **Loading mode** (system/eager/deferred) controls *when* a visible tool enters context.
+- A toolkit can be `Enabled` visibility but `deferred` loading — it's visible when discovered via `tool_search`.
+- A `Disabled` toolkit is never loaded regardless of loading mode.
+- A user-explicit `Stub` visibility bypasses the budget gate entirely (always deferred).
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Config/ToolkitLoadingRegistry.php` | Persists loading mode overrides; guards system toolkits |
+| `src/Storage/ToolUsageTracker.php` | SQLite json_each() frequency aggregation with 5-min cache |
+| `src/Tool/ToolRegistry.php` | BM25 index with package name tracking for tool discovery |
+| `src/Tool/ToolSearchTool.php` | Agent-facing tool_search with package labels in results |
+| `src/Agent/OrchestratorAgent.php` | `applyToolkitBudgetGate()`, `rankCandidatesByFrequency()`, `injectDeferredToolkitHint()` |
+| `src/Contract/CoquiDefaults.php` | `TOOLKIT_TOKEN_BUDGET`, `SYSTEM_TOOLKITS`, `SYSTEM_TOOLS` constants |
+
 ## Concurrent Tool Execution Architecture
 
 When an LLM returns multiple tool calls in a single response, Coqui executes them concurrently using PHP Fibers via ReactPHP's `React\Async\parallel()`. This provides true parallel execution during I/O-bound tool calls (HTTP requests, file operations) while maintaining correct result ordering for the conversation history.
