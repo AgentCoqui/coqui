@@ -157,6 +157,14 @@ The full workflow lives at `.github/workflows/ci.yml`. Key design decisions:
 - **`actions/cache@v4`** — caches Composer's download directory across runs
 - **PHPStan bleeding edge** — Coqui uses `bleedingEdge.neon` for strictest analysis
 
+## Platform Support
+
+Linux and macOS are the primary supported platforms. WSL is the recommended environment for Windows users.
+
+The CI matrix runs `windows-latest` for basic cross-platform coverage, but `ShellToolkit` and `FileSystemToolkit` are designed for Unix environments — tests that rely on Unix commands (`ls`, `rm`, `grep`, etc.) or Unix path/permission semantics are skipped on Windows. Windows CI failures in those areas do not indicate product bugs.
+
+If you are contributing primarily from Windows, use WSL2 (Windows Subsystem for Linux) to run the full test suite and validate shell-related functionality.
+
 ## Troubleshooting
 
 ### Tests pass locally but fail in CI

@@ -59,6 +59,13 @@ beforeEach(function () {
 });
 
 afterEach(function () {
+    // Release PDO handles before cleanup — Windows locks open SQLite files
+    $this->storage = null;
+    $this->loopStore = null;
+    $this->projectStore = null;
+    $this->artifactStore = null;
+    $this->executor = null;
+
     if (file_exists($this->dbPath)) {
         unlink($this->dbPath);
     }

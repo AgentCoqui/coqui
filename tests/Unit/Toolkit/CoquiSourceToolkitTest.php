@@ -320,7 +320,7 @@ test('coqui_list recursive shows nested files', function () {
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('Agent/Orchestrator.php');
     expect($result->content)->toContain('Tool/VisionTool.php');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'Recursive listing returns backslash paths on Windows');
 
 // ---------------------------------------------------------------
 // coqui_search
@@ -333,7 +333,7 @@ test('coqui_search finds files with standard glob', function () {
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('src/Agent/Orchestrator.php');
     expect($result->content)->toContain('src/Agent/Child.php');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'Glob search returns backslash paths on Windows');
 
 test('coqui_search finds files with recursive glob', function () {
     $tool = coquiSourceFindTool($this->toolkit, 'coqui_search');
@@ -342,7 +342,7 @@ test('coqui_search finds files with recursive glob', function () {
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('src/Agent/Orchestrator.php');
     expect($result->content)->toContain('src/Tool/VisionTool.php');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'Glob search returns backslash paths on Windows');
 
 test('coqui_search returns message for no matches', function () {
     $tool = coquiSourceFindTool($this->toolkit, 'coqui_search');

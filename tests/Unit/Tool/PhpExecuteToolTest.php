@@ -40,7 +40,7 @@ test('executes simple PHP code', function () {
 
     expect($result->status->value)->toBe('success');
     expect($result->content)->toContain('Hello from Coqui!');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
 
 test('captures stderr on error', function () {
     $result = $this->tool->execute([
@@ -49,7 +49,7 @@ test('captures stderr on error', function () {
 
     // Division by zero produces a warning/error
     expect($result->content)->toContain('stderr');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
 
 test('denies eval in code', function () {
     $result = $this->tool->execute([
@@ -101,7 +101,7 @@ test('cleans up temp files after execution', function () {
     $files = is_dir($tmpDir) ? (glob($tmpDir . '/exec_*.php') ?: []) : [];
 
     expect($files)->toBeEmpty();
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
 
 test('reports exit code', function () {
     $result = $this->tool->execute([
@@ -110,7 +110,7 @@ test('reports exit code', function () {
 
     expect($result->content)->toContain('Exit code');
     expect($result->content)->toContain('0');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
 
 test('generates valid function schema', function () {
     $schema = $this->tool->toFunctionSchema();
@@ -130,4 +130,4 @@ test('autoloader is available in executed code', function () {
 
     expect($result->status->value)->toBe('success');
     expect($result->content)->toContain('autoloader works');
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
