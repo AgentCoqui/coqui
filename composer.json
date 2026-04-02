@@ -8,22 +8,12 @@
     {
       "name": "Carmelo Santana"
     }
-  ],
-  "repositories": {
-    "php-agents": {
-      "type": "path",
-      "url": "../php-agents",
-      "options": {
-        "symlink": true
-      }
-    }
-  },   
+  ], 
   "require": {
     "php": "^8.4",
     "ext-pdo_sqlite": "*",
-    "carmelosantana/php-agents": "^0.11 || @dev",
+    "carmelosantana/php-agents": "^0.12",
     "coquibot/coqui-toolkit-composer": "^0.1",
-    "coquibot/coqui-toolkit-git": "*",
     "coquibot/coqui-toolkit-packagist": "^0.1",
     "dragonmantank/cron-expression": "^3.0",
     "league/commonmark": "^2.8",

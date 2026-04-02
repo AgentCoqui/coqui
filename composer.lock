@@ -4,15 +4,21 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "7dbe3467f885854f94dd69f49116b6e3",
+    "content-hash": "336264b8b24da9e5b5304d861b3ea7f4",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "dev-feat_rewrite-async",
+            "version": "v0.12.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/php-agents.git",
+                "reference": "0908b836f2ee60bd4ba9e24bd59f8d8f70ceff9f"
+            },
             "dist": {
-                "type": "path",
-                "url": "../php-agents",
-                "reference": "da16dd256f7535f5592693426225d6f773d0a867"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/0908b836f2ee60bd4ba9e24bd59f8d8f70ceff9f",
+                "reference": "0908b836f2ee60bd4ba9e24bd59f8d8f70ceff9f",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4",
@@ -36,19 +42,7 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=512M"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -65,10 +59,11 @@
                 "php-agents",
                 "tools"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/php-agents/issues",
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.12.0"
+            },
+            "time": "2026-04-02T13:14:22+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-composer",
@@ -129,105 +124,6 @@
                 "source": "https://github.com/carmelosantana/coqui-toolkit-composer/tree/v0.1.3"
             },
             "time": "2026-03-07T17:05:47+00:00"
-        },
-        {
-            "name": "coquibot/coqui-toolkit-git",
-            "version": "v0.1.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/carmelosantana/coqui-toolkit-git.git",
-                "reference": "887a1ce53d4b175bc4793d130378b16f60612908"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-git/zipball/887a1ce53d4b175bc4793d130378b16f60612908",
-                "reference": "887a1ce53d4b175bc4793d130378b16f60612908",
-                "shasum": ""
-            },
-            "require": {
-                "php": "^8.4"
-            },
-            "require-dev": {
-                "carmelosantana/php-agents": "^0.7",
-                "pestphp/pest": "^3.0",
-                "phpstan/phpstan": "^2.0"
-            },
-            "type": "library",
-            "extra": {
-                "php-agents": {
-                    "gated": {
-                        "git_tag": [
-                            "delete"
-                        ],
-                        "git_pull": [
-                            "*"
-                        ],
-                        "git_push": [
-                            "*"
-                        ],
-                        "git_merge": [
-                            "*"
-                        ],
-                        "git_branch": [
-                            "delete"
-                        ],
-                        "git_commit": [
-                            {
-                                "amend": true
-                            }
-                        ],
-                        "git_remote": [
-                            "remove"
-                        ],
-                        "git_checkout": [
-                            {
-                                "files": "*"
-                            }
-                        ]
-                    },
-                    "toolkits": [
-                        "CoquiBot\\Toolkits\\Git\\GitToolkit"
-                    ],
-                    "credentials": {
-                        "GIT_BOT_NAME": {
-                            "optional": true,
-                            "description": "Git author/committer name for bot commits (e.g. 'Coqui Bot'). Optional — omit to use the repo's default git config."
-                        },
-                        "GIT_BOT_EMAIL": {
-                            "optional": true,
-                            "description": "Git author/committer email for bot commits (e.g. 'bot@coqui.dev'). Optional — omit to use the repo's default git config."
-                        }
-                    },
-                    "description": "Git repository management — status, staging, commits, branches, tags, remotes, push/pull, merge, diff, log"
-                }
-            },
-            "autoload": {
-                "psr-4": {
-                    "CoquiBot\\Toolkits\\Git\\": "src/"
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "MIT"
-            ],
-            "authors": [
-                {
-                    "name": "Carmelo Santana"
-                }
-            ],
-            "description": "Git repository management toolkit for Coqui — status, staging, commits, branches, tags, remotes, push/pull, merge, diff, log",
-            "keywords": [
-                "coqui",
-                "git",
-                "php-agents",
-                "toolkit",
-                "version-control"
-            ],
-            "support": {
-                "issues": "https://github.com/carmelosantana/coqui-toolkit-git/issues",
-                "source": "https://github.com/carmelosantana/coqui-toolkit-git/tree/v0.1.0"
-            },
-            "time": "2026-03-17T20:01:03+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-packagist",
@@ -4125,11 +4021,11 @@
         },
         {
             "name": "phpstan/phpstan",
-            "version": "2.1.45",
+            "version": "2.1.46",
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/f8cdfd9421b7edb7686a2d150a234870464eac70",
-                "reference": "f8cdfd9421b7edb7686a2d150a234870464eac70",
+                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/a193923fc2d6325ef4e741cf3af8c3e8f54dbf25",
+                "reference": "a193923fc2d6325ef4e741cf3af8c3e8f54dbf25",
                 "shasum": ""
             },
             "require": {
@@ -4174,7 +4070,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-03-30T13:22:02+00:00"
+            "time": "2026-04-01T09:25:14+00:00"
         },
         {
             "name": "phpunit/php-code-coverage",
@@ -5935,9 +5831,7 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {
-        "carmelosantana/php-agents": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
