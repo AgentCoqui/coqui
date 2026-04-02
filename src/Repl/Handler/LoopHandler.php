@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Repl\Handler;
 
-use CoquiBot\Coqui\Agent\LoopRunner;
+use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Repl\TimeFormatter;
 use CoquiBot\Coqui\Storage\LoopStore;
@@ -19,7 +19,7 @@ final class LoopHandler
     public function __construct(
         private readonly SessionStorage $storage,
         private readonly ?LoopDiscovery $loopDiscovery,
-        private readonly ?LoopRunner $loopRunner = null,
+        private readonly ?LoopExecutor $loopExecutor = null,
     ) {}
 
     public function handle(SymfonyStyle $io, string $arg, string $sessionId = ''): void
@@ -44,7 +44,7 @@ final class LoopHandler
 
     private function handleStart(SymfonyStyle $io, string $target, string $sessionId): void
     {
-        if ($this->loopRunner === null || $this->loopDiscovery === null) {
+        if ($this->loopExecutor === null || $this->loopDiscovery === null) {
             $io->error('Loop execution is not available — required stores were not initialized.');
             return;
         }
@@ -91,21 +91,20 @@ final class LoopHandler
         $io->newLine();
 
         try {
-            $result = $this->loopRunner->run(
+            $loopId = $this->loopExecutor->startLoop(
                 definition: $definition,
                 goal: $goal,
                 sessionId: $sessionId !== '' ? $sessionId : null,
             );
 
-            $io->newLine();
             $io->success(sprintf(
-                'Loop completed — %d iteration(s), %d total stage(s), outcome: %s',
-                $result['iterations_completed'],
-                $result['total_stages_run'],
-                $result['outcome']->value,
+                'Loop "%s" started with ID %s. Stages will execute as background tasks via the API server. Use /loops status %s to monitor.',
+                $defName,
+                $loopId,
+                substr($loopId, 0, 8),
             ));
         } catch (\Throwable $e) {
-            $io->error(sprintf('Loop execution failed: %s', $e->getMessage()));
+            $io->error(sprintf('Failed to start loop: %s', $e->getMessage()));
         }
     }
 
