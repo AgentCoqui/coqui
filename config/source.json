@@ -806,6 +806,53 @@
             ]
         },
         {
+            "path": "src/Tool/ToolRegistry.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ToolRegistry",
+            "layer": "tool",
+            "description": "BM25 in-memory search index for tool discovery. Registers tool names and descriptions with optional package association. Supports ranked full-text search (K1=1.5, B=0.75, name boosted 3x) used by ToolSearchTool. Indexes real tools even from StubToolkits so deferred tools remain discoverable.",
+            "methods": [
+                "register(ToolInterface $tool, string $packageName = ''): void — adds tool to BM25 index with optional package",
+                "search(string $query, int $topN = 5): array — ranked BM25 search returning [{name, description, package}]",
+                "all(): array — returns all registered tools as [{name, description, package}]",
+                "count(): int — number of registered tools"
+            ]
+        },
+        {
+            "path": "src/Tool/ToolSearchTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ToolSearchTool",
+            "layer": "tool",
+            "description": "Agent-facing tool for on-demand tool discovery via BM25 search. Always loaded (ALWAYS_ENABLED). Returns ranked results with tool name, package origin, and description. Enables progressive tool disclosure — deferred toolkits are discoverable via keyword search.",
+            "methods": [
+                "execute(array $input): ToolResult — searches ToolRegistry, formats results with package labels"
+            ]
+        },
+        {
+            "path": "src/Storage/ToolUsageTracker.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\ToolUsageTracker",
+            "layer": "storage",
+            "description": "Aggregates tool usage frequency from turns.tools_used JSON column using SQLite json_each(). Provides in-memory cached frequency maps (5-min TTL) for toolkit loading priority decisions. Used by OrchestratorAgent budget gate to promote frequently-used toolkits to eager loading.",
+            "methods": [
+                "getFrequencyMap(): array<string, int> — tool_name => count, sorted descending",
+                "getTopTools(int $limit = 10): list<string> — most used tool names",
+                "getToolkitFrequency(array $toolkitToolMap): array<string, int> — aggregate by toolkit",
+                "getToolUsageCount(string $toolName): int — count for single tool",
+                "refresh(): void — force cache refresh"
+            ]
+        },
+        {
+            "path": "src/Config/ToolkitLoadingRegistry.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ToolkitLoadingRegistry",
+            "layer": "config",
+            "description": "Manages per-toolkit loading mode (system/eager/deferred). System toolkits (CoquiDefaults::SYSTEM_TOOLKITS) are immutable. Persists user overrides to workspace/toolkit-loading.json. Orthogonal to ToolkitVisibilityRegistry — visibility controls whether a tool is seen, loading mode controls when it enters context.",
+            "methods": [
+                "getMode(string $classBasename): string — returns system/eager/deferred",
+                "setMode(string $classBasename, string $mode): void — persists override (guards system toolkits)",
+                "isSystem(string $classBasename): bool — checks CoquiDefaults::SYSTEM_TOOLKITS",
+                "shouldLoadEagerly(string $classBasename): bool — system OR explicit eager",
+                "all(): array<string, string> — persisted overrides for display"
+            ]
+        },
+        {
             "path": "src/Toolkit/CoquiSourceToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\CoquiSourceToolkit",
             "layer": "toolkit",

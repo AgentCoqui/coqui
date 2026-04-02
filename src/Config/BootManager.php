@@ -18,6 +18,7 @@ use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
+use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -53,6 +54,8 @@ final class BootManager
     private ?SpaceToolkit $spaceToolkit = null;
     private ?LoopStore $loopStore = null;
     private ?LoopDiscovery $loopDiscovery = null;
+    private ?ToolUsageTracker $usageTracker = null;
+    private ?ToolkitLoadingRegistry $loadingRegistry = null;
 
     public function __construct(
         private readonly string $workDir,
@@ -228,6 +231,16 @@ final class BootManager
     public function loopDiscovery(): ?LoopDiscovery
     {
         return $this->loopDiscovery;
+    }
+
+    public function usageTracker(): ?ToolUsageTracker
+    {
+        return $this->usageTracker;
+    }
+
+    public function loadingRegistry(): ?ToolkitLoadingRegistry
+    {
+        return $this->loadingRegistry;
     }
 
     private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
@@ -460,6 +473,8 @@ final class BootManager
         $this->todoStore->cleanupUnlinked();
         $this->projectStore = new ProjectStore($pdo);
         $this->loopStore = new LoopStore($pdo);
+        $this->usageTracker = new ToolUsageTracker($pdo);
+        $this->loadingRegistry = new ToolkitLoadingRegistry($this->workspacePath);
     }
 
     /**

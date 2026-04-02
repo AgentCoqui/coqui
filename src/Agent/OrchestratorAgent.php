@@ -41,12 +41,14 @@ use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\SummarizePruningStrategy;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
+use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Memory\MemoryEntry;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\LearningToolkit;
@@ -71,6 +73,7 @@ use CoquiBot\Coqui\Tool\ToolSearchTool;
 use CoquiBot\Coqui\Tool\VisionTool;
 use CoquiBot\Coqui\Toolkit\SessionEvaluationToolkit;
 use CarmeloSantana\PHPAgents\Context\ContextWindow;
+use CarmeloSantana\PHPAgents\Context\HeuristicCounter;
 use CarmeloSantana\PHPAgents\Contract\ContextWindowInterface;
 use CarmeloSantana\PHPAgents\Contract\TokenCounterInterface;
 use CarmeloSantana\PHPAgents\Prompt\SystemPrompt;
@@ -104,6 +107,9 @@ final class OrchestratorAgent extends AbstractAgent
 
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
+
+    /** @var array<int, array{name: string, description: string, package: string}> Deferred toolkit info for prompt injection */
+    private array $deferredToolkitInfo = [];
 
     // Prompt cache — avoids rebuilding from disk (glob + file reads) on every iteration
     private ?string $cachedInstructions = null;
@@ -148,6 +154,8 @@ final class OrchestratorAgent extends AbstractAgent
         ?ToolExecutorInterface $toolExecutor = null,
         ?TickCallbackInterface $tickCallback = null,
         private readonly ?HttpClientInterface $httpClient = null,
+        private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
+        private readonly ?ToolUsageTracker $usageTracker = null,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
@@ -328,22 +336,33 @@ final class OrchestratorAgent extends AbstractAgent
         // Project source toolkit — read-only access to the Coqui project codebase
         $this->addToolkit(new CoquiSourceToolkit(projectRoot: $this->projectRoot));
 
+        // --- Candidate toolkits: collected first, then budget-gated ---
+        // Non-system toolkits may be deferred (wrapped as StubToolkit) when the
+        // total tool schema token count exceeds the configured budget. Frequency
+        // data from ToolUsageTracker determines which candidates earn eager loading.
+
+        /** @var array<int, array{toolkit: ToolkitInterface, package: string, description: string}> */
+        $candidateToolkits = [];
+
         // Toolkit generator — scaffold new toolkit packages
         if ($this->roleToolkitResolver->isToolkitAllowed(ToolkitGeneratorToolkit::class)) {
-            $this->addToolkit(new ToolkitGeneratorToolkit(workspacePath: $this->workspacePath));
-        }
-
-        // Skill toolkit — discover and use Agent Skills
-        if ($this->skillDiscovery !== null) {
-            $this->addToolkit(new SkillToolkit($this->skillDiscovery));
+            $candidateToolkits[] = [
+                'toolkit' => new ToolkitGeneratorToolkit(workspacePath: $this->workspacePath),
+                'package' => '',
+                'description' => 'scaffold new toolkit packages',
+            ];
         }
 
         // Coqui Space toolkit — marketplace integration
         if ($this->spaceToolkit !== null) {
-            $this->addToolkit($this->spaceToolkit);
+            $candidateToolkits[] = [
+                'toolkit' => $this->spaceToolkit,
+                'package' => '',
+                'description' => 'marketplace integration',
+            ];
         }
 
-        // Register any auto-discovered toolkits from installed packages with visibility applied
+        // Auto-discovered toolkits from installed packages with visibility applied
         if ($discovery !== null) {
             foreach ($discovery->instantiateRegisteredGrouped() as $entry) {
                 $packageName = $entry['package'];
@@ -351,13 +370,115 @@ final class OrchestratorAgent extends AbstractAgent
                 $vis = $this->visibilityRegistry?->getPackageVisibility($packageName)
                     ?? ToolkitVisibility::Enabled;
 
-                if ($vis === ToolkitVisibility::Stub) {
-                    $this->addToolkit(new StubToolkit($toolkit));
-                } else {
-                    $this->addToolkit($toolkit);
+                // Disabled packages are invisible — skip entirely
+                if ($vis === ToolkitVisibility::Disabled) {
+                    continue;
                 }
+
+                // User-explicit Stub visibility always wins — bypass budget gate
+                if ($vis === ToolkitVisibility::Stub) {
+                    $this->addToolkit(new StubToolkit($toolkit), $packageName);
+                    $this->deferredToolkitInfo[] = [
+                        'name' => self::toolkitBasename($toolkit),
+                        'description' => $this->extractToolkitDescription($toolkit),
+                        'package' => $packageName,
+                    ];
+                    continue;
+                }
+
+                $candidateToolkits[] = [
+                    'toolkit' => $toolkit,
+                    'package' => $packageName,
+                    'description' => $this->extractToolkitDescription($toolkit),
+                ];
             }
         }
+
+        // Background task toolkit — only in API mode
+        if ($backgroundTaskToolkit !== null) {
+            $candidateToolkits[] = [
+                'toolkit' => $backgroundTaskToolkit,
+                'package' => '',
+                'description' => 'background task management',
+            ];
+        }
+
+        // Schedule and webhook toolkits — self-scheduling and webhook management
+        if ($this->storage !== null && $effectiveAccessLevel === 'full') {
+            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\ScheduleToolkit::class)) {
+                $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
+                $candidateToolkits[] = [
+                    'toolkit' => new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore),
+                    'package' => '',
+                    'description' => 'cron-style task scheduling',
+                ];
+            }
+
+            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\WebhookToolkit::class)) {
+                $webhookStore = new \CoquiBot\Coqui\Storage\WebhookStore($this->storage->getPdo());
+                $candidateToolkits[] = [
+                    'toolkit' => new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore),
+                    'package' => '',
+                    'description' => 'webhook subscription management',
+                ];
+            }
+
+            // Loop toolkit — manages automated multi-role loop workflows
+            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\LoopToolkit::class)) {
+                $loopStore = new \CoquiBot\Coqui\Storage\LoopStore($this->storage->getPdo());
+                $loopDiscovery = new \CoquiBot\Coqui\Config\LoopDiscovery(
+                    $this->workspacePath,
+                    $this->projectRoot !== '' ? $this->projectRoot : null,
+                );
+                $loopExecutor = ($this->projectStore !== null && isset($artifactStore) && $this->roleDiscovery !== null)
+                    ? new \CoquiBot\Coqui\Agent\LoopExecutor(
+                        loopStore: $loopStore,
+                        projectStore: $this->projectStore,
+                        artifactStore: $artifactStore,
+                        roleResolver: $this->roleResolver,
+                        roleDiscovery: $this->roleDiscovery,
+                        config: $this->config,
+                    )
+                    : null;
+                $candidateToolkits[] = [
+                    'toolkit' => new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId),
+                    'package' => '',
+                    'description' => 'automated multi-role loop workflows',
+                ];
+            }
+        }
+
+        // Session evaluation toolkit
+        if ($this->roleToolkitResolver->isToolkitAllowed(SessionEvaluationToolkit::class) && $this->storage !== null) {
+            $evaluationStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
+            $lookbackHours = (int) ($this->config->get('agents.defaults.evaluation.lookbackHours') ?? 24);
+            $inactivityHours = (int) ($this->config->get('agents.defaults.evaluation.inactivityHours') ?? 3);
+            $candidateToolkits[] = [
+                'toolkit' => new SessionEvaluationToolkit(
+                    evaluationStore: $evaluationStore,
+                    storage: $this->storage,
+                    defaultLookbackHours: $lookbackHours,
+                    defaultInactivityHours: $inactivityHours,
+                ),
+                'package' => '',
+                'description' => 'session evaluation and grading',
+            ];
+        }
+
+        // Learning toolkit
+        if ($this->roleToolkitResolver->isToolkitAllowed(LearningToolkit::class) && $this->storage !== null) {
+            $learnerEvalStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
+            $candidateToolkits[] = [
+                'toolkit' => new LearningToolkit(
+                    evaluationStore: $learnerEvalStore,
+                ),
+                'package' => '',
+                'description' => 'autonomous learning from evaluations',
+            ];
+        }
+
+        // --- Budget gate: decide which candidates load eagerly vs deferred ---
+        $this->applyToolkitBudgetGate($candidateToolkits);
 
         // Create spawn tool with workspace isolation
         $this->spawnTool = new SpawnAgentTool(
@@ -455,68 +576,6 @@ final class OrchestratorAgent extends AbstractAgent
             );
         }
 
-        // Background task toolkit — only in API mode
-        if ($backgroundTaskToolkit !== null) {
-            $this->addToolkit($backgroundTaskToolkit);
-        }
-
-        // Schedule and webhook toolkits — self-scheduling and webhook management
-        // Conditional instantiation avoids creating Store objects when role denies the toolkit.
-        if ($this->storage !== null && $effectiveAccessLevel === 'full') {
-            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\ScheduleToolkit::class)) {
-                $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
-                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore));
-            }
-
-            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\WebhookToolkit::class)) {
-                $webhookStore = new \CoquiBot\Coqui\Storage\WebhookStore($this->storage->getPdo());
-                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore));
-            }
-
-            // Loop toolkit — manages automated multi-role loop workflows
-            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\LoopToolkit::class)) {
-                $loopStore = new \CoquiBot\Coqui\Storage\LoopStore($this->storage->getPdo());
-                $loopDiscovery = new \CoquiBot\Coqui\Config\LoopDiscovery(
-                    $this->workspacePath,
-                    $this->projectRoot !== '' ? $this->projectRoot : null,
-                );
-                $loopExecutor = ($this->projectStore !== null && isset($artifactStore) && $this->roleDiscovery !== null)
-                    ? new \CoquiBot\Coqui\Agent\LoopExecutor(
-                        loopStore: $loopStore,
-                        projectStore: $this->projectStore,
-                        artifactStore: $artifactStore,
-                        roleResolver: $this->roleResolver,
-                        roleDiscovery: $this->roleDiscovery,
-                        config: $this->config,
-                    )
-                    : null;
-                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId));
-            }
-        }
-
-        // Session evaluation toolkit — registered when role allows it.
-        // Conditional instantiation avoids creating EvaluationStore when not needed.
-        if ($this->roleToolkitResolver->isToolkitAllowed(SessionEvaluationToolkit::class) && $this->storage !== null) {
-            $evaluationStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
-            $lookbackHours = (int) ($this->config->get('agents.defaults.evaluation.lookbackHours') ?? 24);
-            $inactivityHours = (int) ($this->config->get('agents.defaults.evaluation.inactivityHours') ?? 3);
-            $this->addToolkit(new SessionEvaluationToolkit(
-                evaluationStore: $evaluationStore,
-                storage: $this->storage,
-                defaultLookbackHours: $lookbackHours,
-                defaultInactivityHours: $inactivityHours,
-            ));
-        }
-
-        // Learning toolkit — registered when role allows it.
-        // Reads poor evaluations and generates corrective Skills.
-        if ($this->roleToolkitResolver->isToolkitAllowed(LearningToolkit::class) && $this->storage !== null) {
-            $learnerEvalStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
-            $this->addToolkit(new LearningToolkit(
-                evaluationStore: $learnerEvalStore,
-            ));
-        }
-
         // Register standalone tools in the registry now that they're all created.
         // Toolkit tools are already registered via addToolkit() override above.
         foreach ([$this->spawnTool, $this->credentialTool, $this->packageInfoTool, $this->phpExecuteTool] as $tool) {
@@ -571,7 +630,7 @@ final class OrchestratorAgent extends AbstractAgent
      * Tracks all added toolkits locally for getSystemPromptText() reconstruction.
      */
     #[\Override]
-    public function addToolkit(ToolkitInterface $toolkit): static
+    public function addToolkit(ToolkitInterface $toolkit, string $packageName = ''): static
     {
         // Role-based toolkit filtering via declarative frontmatter patterns.
         // Check toolkit class basename against the role's toolkits rules.
@@ -592,7 +651,7 @@ final class OrchestratorAgent extends AbstractAgent
             : $toolkit->tools();
 
         foreach ($toolsForRegistry as $tool) {
-            $this->toolRegistry->register($tool);
+            $this->toolRegistry->register($tool, $packageName);
         }
 
         parent::addToolkit($toolkit);
@@ -634,6 +693,9 @@ final class OrchestratorAgent extends AbstractAgent
         } else {
             $rendered = $this->renderOrchestratorPrompt();
         }
+
+        // Inject deferred toolkit discovery hints when toolkits have been deferred
+        $rendered = $this->injectDeferredToolkitHint($rendered);
 
         // Lost-in-middle mitigation: inject memories at START (high attention)
         // and recapitulation at END (recency attention) of the instructions block.
@@ -827,6 +889,36 @@ final class OrchestratorAgent extends AbstractAgent
         $rendered .= "\n\n" . implode("\n", $lines);
 
         return $rendered;
+    }
+
+    /**
+     * Inject a # DEFERRED TOOLKITS section when toolkits have been deferred.
+     *
+     * Tells the LLM that additional toolkits are available via tool_search,
+     * following Anthropic's recommendation to describe available tool categories.
+     */
+    private function injectDeferredToolkitHint(string $rendered): string
+    {
+        if (empty($this->deferredToolkitInfo)) {
+            return $rendered;
+        }
+
+        $lines = [
+            '# DEFERRED TOOLKITS',
+            '',
+            'Additional toolkits are available but not loaded in context. Use `tool_search` to discover their tools:',
+        ];
+
+        foreach ($this->deferredToolkitInfo as $info) {
+            $label = $info['package'] !== '' ? $info['package'] : $info['name'];
+            $desc = $info['description'] !== '' ? " — {$info['description']}" : '';
+            $lines[] = "- {$label}{$desc}";
+        }
+
+        $lines[] = '';
+        $lines[] = 'Use `tool_search("keyword")` to find specific tools, or `toolkit_list` for a full inventory.';
+
+        return $rendered . "\n\n" . implode("\n", $lines);
     }
 
     /**
@@ -1112,5 +1204,196 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         return null;
+    }
+
+    /**
+     * Apply the token budget gate to candidate toolkits.
+     *
+     * When the total tool schema tokens for all candidates exceed the configured
+     * budget, non-system toolkits are sorted by usage frequency and the most-used
+     * are loaded eagerly while the rest are deferred (wrapped as StubToolkit).
+     *
+     * When under budget, all candidates load eagerly.
+     *
+     * @param array<int, array{toolkit: ToolkitInterface, package: string, description: string}> $candidates
+     */
+    private function applyToolkitBudgetGate(array $candidates): void
+    {
+        if (empty($candidates)) {
+            return;
+        }
+
+        // Resolve token budget from config (default: CoquiDefaults::TOOLKIT_TOKEN_BUDGET)
+        $budgetCfg = $this->config->get('agents.defaults.toolkitTokenBudget');
+        $budget = is_numeric($budgetCfg) ? (int) $budgetCfg : CoquiDefaults::TOOLKIT_TOKEN_BUDGET;
+
+        // Use a lightweight heuristic counter for budget estimation
+        $counter = new HeuristicCounter();
+
+        // Estimate tokens for each candidate toolkit
+        $candidateTokens = [];
+        foreach ($candidates as $idx => $entry) {
+            $toolkit = $entry['toolkit'];
+            $tokens = $counter->count($toolkit->guidelines()) + $counter->countTools($toolkit->tools());
+            $candidateTokens[$idx] = $tokens;
+        }
+
+        $totalCandidateTokens = array_sum($candidateTokens);
+
+        // Under budget: load all candidates eagerly
+        if ($totalCandidateTokens <= $budget) {
+            foreach ($candidates as $entry) {
+                $this->addToolkit($entry['toolkit'], $entry['package']);
+            }
+            return;
+        }
+
+        // Over budget: sort candidates by usage frequency, load highest-frequency
+        // toolkits eagerly until budget is exhausted, defer the rest.
+        $candidatesWithPriority = $this->rankCandidatesByFrequency($candidates);
+
+        $usedBudget = 0;
+        foreach ($candidatesWithPriority as $entry) {
+            $idx = $entry['original_index'];
+            $tokens = $candidateTokens[$idx];
+            $toolkit = $entry['toolkit'];
+            $package = $entry['package'];
+
+            // User-explicit eager override via ToolkitLoadingRegistry always loads
+            $basename = self::toolkitBasename($toolkit);
+            if ($this->loadingRegistry?->shouldLoadEagerly($basename) === true) {
+                $this->addToolkit($toolkit, $package);
+                $usedBudget += $tokens;
+                continue;
+            }
+
+            // If adding this toolkit fits within budget, load eagerly
+            if ($usedBudget + $tokens <= $budget) {
+                $this->addToolkit($toolkit, $package);
+                $usedBudget += $tokens;
+                continue;
+            }
+
+            // Over budget: defer this toolkit
+            $this->addToolkit(new StubToolkit($toolkit), $package);
+            $this->deferredToolkitInfo[] = [
+                'name' => $basename,
+                'description' => $entry['description'],
+                'package' => $package,
+            ];
+        }
+    }
+
+    /**
+     * Rank candidate toolkits by aggregate usage frequency (descending).
+     *
+     * Candidates with higher historical usage are promoted to load eagerly.
+     * When no usage data is available, candidates retain their original order.
+     *
+     * @param array<int, array{toolkit: ToolkitInterface, package: string, description: string}> $candidates
+     * @return array<int, array{toolkit: ToolkitInterface, package: string, description: string, original_index: int, frequency: int}>
+     */
+    private function rankCandidatesByFrequency(array $candidates): array
+    {
+        if ($this->usageTracker === null) {
+            // No usage data — preserve original order
+            return array_map(
+                fn(int $idx, array $entry) => $entry + ['original_index' => $idx, 'frequency' => 0],
+                array_keys($candidates),
+                $candidates,
+            );
+        }
+
+        // Build a map of toolkit basename → tool names for frequency aggregation
+        $toolkitToolMap = [];
+        foreach ($candidates as $idx => $entry) {
+            $basename = self::toolkitBasename($entry['toolkit']);
+            $toolNames = array_map(
+                fn(ToolInterface $tool) => $tool->name(),
+                $entry['toolkit']->tools(),
+            );
+            $toolkitToolMap[$idx] = $toolNames;
+        }
+
+        // Aggregate frequency per candidate (by index, not basename, to handle duplicates)
+        $frequencyMap = $this->usageTracker->getFrequencyMap();
+        $ranked = [];
+        foreach ($candidates as $idx => $entry) {
+            $freq = 0;
+            foreach ($toolkitToolMap[$idx] as $toolName) {
+                $freq += $frequencyMap[$toolName] ?? 0;
+            }
+            $ranked[] = $entry + ['original_index' => $idx, 'frequency' => $freq];
+        }
+
+        // Sort by frequency descending (stable sort preserves order for equal frequencies)
+        usort($ranked, fn(array $a, array $b) => $b['frequency'] <=> $a['frequency']);
+
+        return $ranked;
+    }
+
+    /**
+     * Extract a class basename from a toolkit instance, unwrapping decorators.
+     */
+    private static function toolkitBasename(ToolkitInterface $toolkit): string
+    {
+        $class = $toolkit::class;
+
+        if ($toolkit instanceof StubToolkit) {
+            $class = $toolkit->innerClass();
+        } elseif ($toolkit instanceof CredentialGuardToolkit) {
+            $class = $toolkit->innerClass();
+        }
+
+        $parts = explode('\\', $class);
+
+        return end($parts);
+    }
+
+    /**
+     * Extract a brief description from a toolkit's guidelines (first non-empty line).
+     */
+    private function extractToolkitDescription(ToolkitInterface $toolkit): string
+    {
+        $guidelines = $toolkit->guidelines();
+        if ($guidelines === '') {
+            return '';
+        }
+
+        // Take the first meaningful line (skip headers, blanks)
+        foreach (explode("\n", $guidelines) as $line) {
+            $line = trim($line);
+            if ($line !== '' && !str_starts_with($line, '#') && strlen($line) > 10) {
+                return strlen($line) > 100 ? substr($line, 0, 97) . '...' : $line;
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Get the list of deferred toolkit info for prompt injection and REPL display.
+     *
+     * @return array<int, array{name: string, description: string, package: string}>
+     */
+    public function getDeferredToolkitInfo(): array
+    {
+        return $this->deferredToolkitInfo;
+    }
+
+    /**
+     * Get the ToolUsageTracker instance (if available).
+     */
+    public function getUsageTracker(): ?ToolUsageTracker
+    {
+        return $this->usageTracker;
+    }
+
+    /**
+     * Get the ToolkitLoadingRegistry instance (if available).
+     */
+    public function getLoadingRegistry(): ?ToolkitLoadingRegistry
+    {
+        return $this->loadingRegistry;
     }
 }
