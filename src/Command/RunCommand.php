@@ -5,12 +5,18 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
+use CoquiBot\Coqui\Agent\LoopExecutor;
+use CoquiBot\Coqui\Agent\LoopRunner;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\RoleUpdateInfo;
+use CoquiBot\Coqui\Config\ShellConfigResolver;
+use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
+use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Renderer\JsonRenderer;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
@@ -19,6 +25,7 @@ use CoquiBot\Coqui\Repl\ExecutionPolicyFactory;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
+use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
@@ -54,15 +61,20 @@ final class RunCommand extends Command
 
     private BootManager $boot;
     private AgentRunner $agentRunner;
+    private ?LoopRunner $loopRunner = null;
     private EscCancellationObserver $escObserver;
+    private ?AnimatedTickCallback $animatedTickCallback = null;
     private SessionStorage $storage;
     private string $sessionId;
     private string $workDir;
     private bool $unsafeMode = false;
     private bool $autoApprove = false;
     private bool $restartRequested = false;
+    private bool $continueMode = false;
     private bool $hintsEnabled = true;
     private string $activeRole = 'orchestrator';
+    private ?string $activeProjectId = null;
+    private ?string $activeProjectSlug = null;
 
     protected function configure(): void
     {
@@ -78,7 +90,8 @@ final class RunCommand extends Command
             ->addOption('update', null, InputOption::VALUE_NONE, 'Check for and apply dependency updates, then restart')
             ->addOption('no-terminal', null, InputOption::VALUE_NONE, 'Headless mode: run a single prompt without the REPL')
             ->addOption('prompt', 'p', InputOption::VALUE_REQUIRED, 'Prompt to send in --no-terminal mode')
-            ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'Output format for --no-terminal mode (text or json)', 'text');
+            ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'Output format for --no-terminal mode (text or json)', 'text')
+            ->addOption('continue', null, InputOption::VALUE_NONE, 'Resume the last session and automatically send "Continue." as the first prompt');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -91,6 +104,13 @@ final class RunCommand extends Command
         $this->autoApprove = (bool) $input->getOption('auto-approve')
             || filter_var(getenv('COQUI_AUTO_APPROVE'), FILTER_VALIDATE_BOOLEAN);
         $noTerminal = (bool) $input->getOption('no-terminal');
+        $this->continueMode = (bool) $input->getOption('continue');
+
+        // Validate --continue + --no-terminal combination
+        if ($this->continueMode && $noTerminal) {
+            $io->error('Cannot combine --continue with --no-terminal. The --continue flag starts the REPL.');
+            return Command::FAILURE;
+        }
 
         // Boot sequence: config, workspace, credentials, toolkit discovery
         $configOption = $input->getOption('config');
@@ -136,6 +156,11 @@ final class RunCommand extends Command
 
         // Choose observer for terminal mode
         $terminalObserver = new TerminalObserver($output);
+
+        // Animated tick callback for spinner during tool execution
+        $this->animatedTickCallback = new AnimatedTickCallback($output);
+        $terminalObserver->setTickCallback($this->animatedTickCallback);
+
         $this->escObserver = new EscCancellationObserver(
             $terminalObserver,
             new ProcessCancellationToken(),
@@ -168,11 +193,62 @@ final class RunCommand extends Command
             artifactStore: $this->boot->artifactStore(),
             projectStore: $this->boot->projectStore(),
             defaultsLoader: $this->boot->defaultsLoader(),
+            tickCallback: $this->animatedTickCallback,
+            toolExecutor: new ConcurrentToolExecutor(),
+            httpClient: new ReactHttpClientAdapter(),
+            loadingRegistry: $this->boot->loadingRegistry(),
+            usageTracker: $this->boot->usageTracker(),
         );
+
+        // Initialize loop execution pipeline (requires stores from boot)
+        $loopStore = $this->boot->loopStore();
+        $projectStore = $this->boot->projectStore();
+        $artifactStore = $this->boot->artifactStore();
+        $loopDiscovery = $this->boot->loopDiscovery();
+
+        if ($loopStore !== null && $projectStore !== null && $artifactStore !== null && $loopDiscovery !== null) {
+            $loopExecutor = new LoopExecutor(
+                loopStore: $loopStore,
+                projectStore: $projectStore,
+            );
+
+            $shellAllowed = ShellConfigResolver::resolveAllowed($this->boot->config());
+            $shellDenied = ShellConfigResolver::resolveDenied($this->boot->config());
+
+            $this->loopRunner = new LoopRunner(
+                executor: $loopExecutor,
+                loopStore: $loopStore,
+                roleResolver: $this->boot->roleResolver(),
+                roleDiscovery: $this->boot->roleDiscovery(),
+                config: $this->boot->config(),
+                projectRoot: $this->workDir,
+                workspacePath: $this->boot->workspacePath(),
+                storage: $this->storage,
+                artifactStore: $artifactStore,
+                todoStore: $this->boot->todoStore(),
+                projectStore: $projectStore,
+                memoryStore: $this->boot->memoryStore(),
+                skillDiscovery: $this->boot->skillDiscovery(),
+                discovery: $this->boot->discovery(),
+                visibilityRegistry: $this->boot->visibilityRegistry(),
+                mountManager: $this->boot->mountManager(),
+                observer: $this->escObserver,
+                unsafeMode: $this->unsafeMode,
+                shellAllowedCommands: $shellAllowed,
+                shellDeniedCommands: $shellDenied,
+            );
+        }
 
         // Handle session
         $sessionHandler = new SessionHandler($this->boot, $this->storage);
-        if ($input->getOption('new')) {
+        if ($this->continueMode) {
+            // --continue: always resume the last session (from .coqui-session or most recent in DB)
+            $this->sessionId = $sessionHandler->loadOrCreateSession($io);
+            $restored = $sessionHandler->restoreActiveRoleFromSession($this->sessionId);
+            if ($restored !== null) {
+                $this->activeRole = $restored;
+            }
+        } elseif ($input->getOption('new')) {
             $this->sessionId = $sessionHandler->createNewSession();
         } elseif ($input->getOption('session')) {
             $this->sessionId = $input->getOption('session');
@@ -196,6 +272,9 @@ final class RunCommand extends Command
         // Load hints preference from config (default: enabled)
         $hintsConfig = $this->boot->config()->get('agents.defaults.hints', true);
         $this->hintsEnabled = (bool) $hintsConfig;
+
+        // Restore active project from session
+        $this->restoreActiveProject();
 
         // Display safety mode warnings
         if ($this->unsafeMode) {
@@ -286,6 +365,7 @@ final class RunCommand extends Command
             $this->escObserver,
             $terminalState,
             $policyFactory,
+            $this->animatedTickCallback,
         );
 
         $router = new SlashCommandRouter(
@@ -293,7 +373,7 @@ final class RunCommand extends Command
             task: new TaskHandler($this->storage),
             todo: new TodoHandler($this->boot->todoStore()),
             schedule: new ScheduleHandler($this->storage),
-            project: new ProjectHandler($this->boot),
+            project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             space: new SpaceHandler($this->boot),
@@ -301,6 +381,7 @@ final class RunCommand extends Command
             conversation: new ConversationHandler($this->boot, $this->storage),
             webhook: new WebhookHandler($this->storage),
             evaluation: new EvaluationHandler($this->storage),
+            loop: new LoopHandler($this->storage, $this->boot->loopDiscovery(), $this->loopRunner),
             agentRunner: $this->agentRunner,
             onHintsToggle: function () use ($io): void {
                 $this->hintsEnabled = !$this->hintsEnabled;
@@ -309,18 +390,31 @@ final class RunCommand extends Command
             },
         );
 
-        // Track consecutive Ctrl+C presses at the readline prompt.
-        $quitAttempts = 0;
+        // --continue: auto-send "Continue." as the first prompt without displaying it
+        $pendingPrompt = $this->continueMode ? 'Continue.' : null;
 
         while (true) {
+            // If there's a pending prompt (from --continue), skip user input
+            if ($pendingPrompt !== null) {
+                $prompt = $pendingPrompt;
+                $pendingPrompt = null;
+            } else {
             $io->writeln('');
             if ($this->hintsEnabled) {
+                $projectTag = $this->activeProjectSlug !== null
+                    ? sprintf(' <fg=magenta>[%s]</>', $this->activeProjectSlug)
+                    : '';
                 if ($this->activeRole !== 'orchestrator') {
-                    $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>:', $this->activeRole));
+                    $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>%s:', $this->activeRole, $projectTag));
                 } else {
-                    $io->writeln(' <fg=cyan>You:</>');
+                    $io->writeln(sprintf(' <fg=cyan>You</>%s:', $projectTag));
                 }
             }
+
+            // Build readline prompt with optional project slug
+            $readlinePrompt = $this->activeProjectSlug !== null
+                ? sprintf(' [%s] › ', $this->activeProjectSlug)
+                : ' › ';
 
             // Read input using readline's callback API for non-blocking signal handling.
             $line = null;
@@ -330,7 +424,7 @@ final class RunCommand extends Command
             $hasReadline = function_exists('readline_callback_handler_install');
 
             if ($hasReadline) {
-                readline_callback_handler_install(' › ', static function (?string $input) use (&$line, &$lineReady): void {
+                readline_callback_handler_install($readlinePrompt, static function (?string $input) use (&$line, &$lineReady): void {
                     $line = $input;
                     $lineReady = true;
                 });
@@ -355,7 +449,7 @@ final class RunCommand extends Command
 
                 readline_callback_handler_remove();
             } else {
-                $io->write(' › ');
+                $io->write($readlinePrompt);
                 $raw = fgets(STDIN);
                 if ($raw === false) {
                     $line = null;
@@ -366,18 +460,13 @@ final class RunCommand extends Command
                 }
             }
 
-            // Ctrl+C — count attempts; exit only on the second consecutive press.
+            // Ctrl+C at the prompt → graceful shutdown
             if ($ctrlCPressed) {
-                $quitAttempts++;
-                if ($quitAttempts >= 2) {
-                    if (getenv('COQUI_LAUNCHER') !== '1') {
-                        $io->newLine();
-                        $io->info('Shutting down Coqui.');
-                    }
-                    return 0;
+                if (getenv('COQUI_LAUNCHER') !== '1') {
+                    $io->newLine();
+                    $io->info('Shutting down Coqui.');
                 }
-                $io->writeln('<fg=yellow>(Press Ctrl+C again to quit.)</>');
-                continue;
+                return 0;
             }
 
             // Ctrl+D (EOF) with STDIN closed — exit cleanly
@@ -393,11 +482,11 @@ final class RunCommand extends Command
             if (function_exists('readline_add_history')) {
                 readline_add_history($prompt);
             }
-            $quitAttempts = 0;
+            } // end else (user input)
 
             // Handle slash commands
             if (str_starts_with($prompt, '/')) {
-                $routeResult = $router->route($prompt, $this->activeRole, $this->sessionId, $io);
+                $routeResult = $router->route($prompt, $this->activeRole, $this->sessionId, $io, $this->activeProjectId);
 
                 if (!$routeResult->shouldContinue) {
                     return $routeResult->exitCode ?? Command::SUCCESS;
@@ -411,6 +500,11 @@ final class RunCommand extends Command
                     $this->sessionId = $routeResult->newSessionId;
                     $sessionHandler->saveSessionFile($this->sessionId);
                     $tabCompletion->setSessionId($this->sessionId);
+                    // Restore project context for resumed session
+                    $this->restoreActiveProject();
+                }
+                if ($routeResult->newActiveProjectId !== null) {
+                    $this->applyProjectChange($routeResult->newActiveProjectId);
                 }
 
                 continue;
@@ -504,6 +598,8 @@ final class RunCommand extends Command
             artifactStore: $this->boot->artifactStore(),
             projectStore: $this->boot->projectStore(),
             defaultsLoader: $this->boot->defaultsLoader(),
+            loadingRegistry: $this->boot->loadingRegistry(),
+            usageTracker: $this->boot->usageTracker(),
         );
 
         // Handle session
@@ -555,5 +651,60 @@ final class RunCommand extends Command
         }
 
         return null;
+    }
+
+    /**
+     * Restore active project state from the current session's database record.
+     */
+    private function restoreActiveProject(): void
+    {
+        $projectId = $this->storage->getActiveProjectId($this->sessionId);
+        if ($projectId === null) {
+            $this->activeProjectId = null;
+            $this->activeProjectSlug = null;
+            return;
+        }
+
+        $projectStore = $this->boot->projectStore();
+        if ($projectStore === null) {
+            return;
+        }
+
+        $project = $projectStore->getProject($projectId);
+        if ($project === null) {
+            // Project was deleted — clear stale reference
+            $this->storage->setActiveProject($this->sessionId, null);
+            $this->activeProjectId = null;
+            $this->activeProjectSlug = null;
+            return;
+        }
+
+        $this->activeProjectId = $project['id'];
+        $this->activeProjectSlug = $project['slug'];
+    }
+
+    /**
+     * Apply a project state change from a RouteResult.
+     *
+     * @param string $projectId Project ID, or empty string to clear.
+     */
+    private function applyProjectChange(string $projectId): void
+    {
+        if ($projectId === '') {
+            $this->activeProjectId = null;
+            $this->activeProjectSlug = null;
+            return;
+        }
+
+        $projectStore = $this->boot->projectStore();
+        if ($projectStore === null) {
+            return;
+        }
+
+        $project = $projectStore->getProject($projectId);
+        if ($project !== null) {
+            $this->activeProjectId = $project['id'];
+            $this->activeProjectSlug = $project['slug'];
+        }
     }
 }

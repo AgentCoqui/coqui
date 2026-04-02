@@ -95,7 +95,7 @@ Autonomous session evaluator that grades past sessions on completion, hallucinat
 | --- | --- |
 | Access Level | `readonly` |
 | Max Iterations | `48` |
-| Toolkits | `-*, +SessionEvaluationToolkit, +ProjectSourceToolkit` |
+| Toolkits | `-*, +SessionEvaluationToolkit, +CoquiSourceToolkit` |
 
 Activate: Delegated via `spawn_agent(role: "evaluator")` or triggered by a schedule.
 
@@ -107,7 +107,7 @@ Autonomous learning agent that analyzes poor evaluation reports and creates or u
 | --- | --- |
 | Access Level | `readonly` |
 | Max Iterations | `48` |
-| Toolkits | `-*, +LearningToolkit, +SkillToolkit, +ProjectSourceToolkit` |
+| Toolkits | `-*, +LearningToolkit, +SkillToolkit, +CoquiSourceToolkit` |
 
 Activate: Delegated via `spawn_agent(role: "learner")` or triggered by a schedule.
 

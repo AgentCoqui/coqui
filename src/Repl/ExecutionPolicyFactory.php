@@ -22,8 +22,10 @@ final class ExecutionPolicyFactory
 {
     /** Tool names that require user confirmation in interactive mode. */
     private const GATED_TOOLS = [
+        'batch_replace' => ['*'],
         'composer' => ['require', 'remove', 'update'],
         'exec' => ['*'],
+        'move' => ['*'],
         'php_execute' => ['*'],
         'restart_coqui' => ['*'],
     ];

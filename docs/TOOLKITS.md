@@ -129,6 +129,10 @@ The `extra.php-agents` section is what makes a package a toolkit:
 |-------|------|-------------|
 | `credentials` | `object` | Map of `KEY_NAME` → description for required credentials |
 | `description` | `string` | Human-readable description of the toolkit |
+| `skills` | `string` | Relative path to a directory containing skill subdirectories |
+| `roles` | `string` | Relative path to a directory containing `.md` role files (auto-seeded to workspace on boot) |
+| `loops` | `string` | Relative path to a directory containing `.json` loop definitions (auto-seeded to workspace on boot) |
+| `gated` | `object` | Map of tool names → gating rules for destructive operation confirmation |
 
 ### Toolkit Class
 
@@ -822,11 +826,16 @@ abstract readonly class Parameter
             "credentials": {
                 "KEY_NAME": "Human-readable description of the credential"
             },
-            "description": "Optional toolkit description"
+            "description": "Optional toolkit description",
+            "skills": "skills",
+            "roles": "config/roles",
+            "loops": "config/loops"
         }
     }
 }
 ```
+
+Roles and loops declared by packages are auto-seeded into the workspace (`workspace/roles/`, `workspace/loops/`) on every boot. Existing workspace files are never overwritten — workspace always takes priority. This uses the same copy-if-not-exists semantics as built-in role/loop seeding.
 
 ## Examples
 

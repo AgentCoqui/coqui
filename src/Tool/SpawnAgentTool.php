@@ -11,8 +11,9 @@ use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
+use CoquiBot\Coqui\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
 use CoquiBot\Coqui\Agent\CodeReviewCycle;
 use CoquiBot\Coqui\Agent\PlanTodoGenerator;
@@ -21,6 +22,7 @@ use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleToolkitResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Config\ShellConfigResolver;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
@@ -32,7 +34,7 @@ use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
-use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
+use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\TodoToolkit;
 use CoquiBot\Coqui\Storage\TodoStore;
@@ -47,12 +49,6 @@ use SplObserver;
  */
 final class SpawnAgentTool implements ToolInterface
 {
-    /** Read-only shell commands for readonly-shell access level. */
-    private const array READ_ONLY_SHELL_COMMANDS = [
-        'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
-        'sort', 'uniq', 'sed', 'awk', 'diff',
-    ];
-
     private int $currentIteration = 0;
     private int $childRunCount = 0;
     private ?VisionAnalyzer $visionAnalyzer = null;
@@ -79,6 +75,7 @@ final class SpawnAgentTool implements ToolInterface
         private readonly ?ScriptSanitizer $sanitizer = null,
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
         private readonly array $shellDeniedCommands = ['sudo'],
+        private readonly bool $unsafeMode = false,
     ) {}
 
     public function name(): string
@@ -241,23 +238,25 @@ final class SpawnAgentTool implements ToolInterface
                     allowedCommands: $this->shellAllowedCommands,
                     deniedCommands: $this->shellDeniedCommands,
                     timeout: 60,
+                    unsafe: $this->unsafeMode,
                 ),
-                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
+                new WebToolkit(),
+                new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             'readonly-shell' => [
                 new FileSystemToolkit(workspacePath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
                 new ShellToolkit(
                     workDir: $this->projectRoot,
-                    allowedCommands: self::READ_ONLY_SHELL_COMMANDS,
+                    allowedCommands: ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
                     timeout: 60,
                 ),
-                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
+                new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             'readonly' => [
                 new FileSystemToolkit(workspacePath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
-                new ProjectSourceToolkit(projectRoot: $this->projectRoot),
+                new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             // 'minimal' — no toolkits
@@ -315,6 +314,7 @@ final class SpawnAgentTool implements ToolInterface
                 $this->projectStore,
                 $todoStore,
                 $this->sessionId,
+                $this->workspacePath,
             );
         }
 

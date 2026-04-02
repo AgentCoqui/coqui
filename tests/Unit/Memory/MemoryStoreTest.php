@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-use CarmeloSantana\PHPAgents\Memory\MemoryEntry;
+use CoquiBot\Coqui\Memory\MemoryEntry;
 use CoquiBot\Coqui\Memory\MemoryStore;
 
 beforeEach(function () {

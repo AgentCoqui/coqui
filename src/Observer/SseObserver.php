@@ -30,6 +30,12 @@ final class SseObserver implements SplObserver
 
     public function update(SplSubject $subject): void
     {
+        // Handle loop events from transient SplSubject
+        if (method_exists($subject, 'getEventName') && method_exists($subject, 'getEventData')) {
+            $this->handleEvent($subject->getEventName(), $subject->getEventData());
+            return;
+        }
+
         if (!$subject instanceof AgentInterface) {
             return;
         }
@@ -54,6 +60,10 @@ final class SseObserver implements SplObserver
             ]),
 
             'agent.tool_call' => $this->handleToolCall($data),
+
+            'agent.batch_start' => $this->writeEvent('batch_start', is_array($data) ? $data : []),
+
+            'agent.batch_end' => $this->writeEvent('batch_end', is_array($data) ? $data : []),
 
             'agent.tool_result' => $this->handleToolResult($data),
 
@@ -86,6 +96,13 @@ final class SseObserver implements SplObserver
             'child.review_start' => $this->handleReviewStart($data),
 
             'child.review_end' => $this->handleReviewEnd($data),
+
+            'loop.start' => $this->writeEvent('loop_start', is_array($data) ? $data : []),
+            'loop.iteration_start' => $this->writeEvent('loop_iteration_start', is_array($data) ? $data : []),
+            'loop.stage_start' => $this->writeEvent('loop_stage_start', is_array($data) ? $data : []),
+            'loop.stage_end' => $this->writeEvent('loop_stage_end', is_array($data) ? $data : []),
+            'loop.iteration_end' => $this->writeEvent('loop_iteration_end', is_array($data) ? $data : []),
+            'loop.complete' => $this->writeEvent('loop_complete', is_array($data) ? $data : []),
 
             default => null,
         };

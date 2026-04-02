@@ -484,6 +484,15 @@ final class SetupWizard
                     $model['name'] = $curated['name'] ?? $m->name;
                 }
 
+                // Prefer numCtx from Ollama model details as it reflects the actual
+                // context window. Fall back to CONTEXT_WINDOW_FALLBACK for unknown
+                // models whose contextWindow is still the ModelDefinition placeholder (4096).
+                if ($m->numCtx !== null && $m->numCtx > CoquiDefaults::CONTEXT_WINDOW_RESERVED) {
+                    $model['contextWindow'] = $m->numCtx;
+                } elseif ($model['contextWindow'] <= CoquiDefaults::CONTEXT_WINDOW_RESERVED) {
+                    $model['contextWindow'] = CoquiDefaults::CONTEXT_WINDOW_FALLBACK;
+                }
+
                 return $model;
             },
             $definitions,
@@ -1092,8 +1101,8 @@ final class SetupWizard
                     'reasoning' => $meta['reasoning'] ?? false,
                     'input' => $input,
                     'cost' => $cost,
-                    'contextWindow' => $meta['contextWindow'] ?? 4096,
-                    'maxTokens' => $meta['maxTokens'] ?? 2048,
+                    'contextWindow' => $meta['contextWindow'] ?? CoquiDefaults::CONTEXT_WINDOW_FALLBACK,
+                    'maxTokens' => $meta['maxTokens'] ?? CoquiDefaults::CONTEXT_WINDOW_RESERVED,
                 ];
 
                 if (isset($meta['numCtx'])) {

@@ -6,13 +6,15 @@ namespace CoquiBot\Coqui\Agent;
 
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
+use CoquiBot\Coqui\Config\ShellConfigResolver;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CarmeloSantana\PHPAgents\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
+use CoquiBot\Coqui\Toolkit\ShellToolkit;
+use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
-use CoquiBot\Coqui\Toolkit\ProjectSourceToolkit;
+use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
 
 /**
@@ -91,22 +93,27 @@ final class BackgroundToolExecutor
             allowedPaths: $this->boot->mountManager()->allowedPaths(),
         ));
 
-        // Shell toolkit — runs in project root
-        $shellAllowed = $this->resolveShellAllowedCommands($config);
-        $shellDenied = $this->resolveShellDeniedCommands($config);
+        // Shell toolkit — runs in project root.
+        // In unsafe mode, bypass all command restrictions.
+        $shellAllowed = $this->unsafeMode ? [] : ShellConfigResolver::resolveAllowed($config);
+        $shellDenied = $this->unsafeMode ? [] : ShellConfigResolver::resolveDenied($config);
         $this->registerToolkit(new ShellToolkit(
             workDir: $this->projectRoot,
             allowedCommands: $shellAllowed,
             deniedCommands: $shellDenied,
             timeout: 60,
+            unsafe: $this->unsafeMode,
         ));
+
+        // Web toolkit — HTTP requests with SSRF protection
+        $this->registerToolkit(new WebToolkit());
 
         // Memory toolkit
         $memoryStore = $this->boot->memoryStore();
         $this->registerToolkit(new MemoryToolkit($memoryStore));
 
         // Project source toolkit
-        $this->registerToolkit(new ProjectSourceToolkit(projectRoot: $this->projectRoot));
+        $this->registerToolkit(new CoquiSourceToolkit(projectRoot: $this->projectRoot));
 
         // PHP execution tool
         $sanitizer = new ScriptSanitizer(
@@ -135,39 +142,6 @@ final class BackgroundToolExecutor
         foreach ($toolkit->tools() as $tool) {
             $this->tools[$tool->name()] = $tool;
         }
-    }
-
-    /**
-     * Resolve shell allowed commands from config.
-     *
-     * Returns empty array (all commands allowed) unless explicitly configured.
-     *
-     * @return string[]
-     */
-    private function resolveShellAllowedCommands(ConfigInterface $config): array
-    {
-        $configured = $config->get('agents.defaults.shellAllowedCommands');
-
-        if (is_array($configured) && !empty($configured)) {
-            return array_values(array_filter($configured, 'is_string'));
-        }
-
-        return [];
-    }
-
-    /**
-     * Resolve shell denied commands from config.
-     *
-     * @return string[]
-     */
-    private function resolveShellDeniedCommands(ConfigInterface $config): array
-    {
-        $allowSudo = filter_var(
-            $config->get('agents.defaults.allowSudo', false),
-            FILTER_VALIDATE_BOOLEAN,
-        );
-
-        return $allowSudo ? [] : ['sudo'];
     }
 
     /**

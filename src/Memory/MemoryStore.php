@@ -5,8 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Memory;
 
 use CarmeloSantana\PHPAgents\Contract\EmbeddingProviderInterface;
-use CarmeloSantana\PHPAgents\Contract\MemoryInterface;
-use CarmeloSantana\PHPAgents\Memory\MemoryEntry;
+use CoquiBot\Coqui\Memory\MemoryEntry;
 use DateTimeImmutable;
 use PDO;
 
@@ -19,7 +18,7 @@ use PDO;
  *
  * Memories are global and shared across all sessions, organized by area and tags.
  */
-final class MemoryStore implements MemoryInterface
+final class MemoryStore
 {
     private const AREA_DEFAULT_IMPORTANCE = [
         'preferences' => 0.8,

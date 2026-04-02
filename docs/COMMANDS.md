@@ -77,6 +77,12 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/schedules disable <name\|id\|all>` | Disable a schedule (or all enabled schedules) |
 | `/schedules delete <name\|id\|all>` | Delete a schedule (or all schedules) |
 | `/schedules trigger <name\|id\|all>` | Force-trigger a schedule on the next API tick |
+| `/loops` | List all loops with status and progress |
+| `/loops definitions` | Show available loop definitions |
+| `/loops status <id>` | Detailed status of a specific loop |
+| `/loops pause <id\|all>` | Pause running loop(s) |
+| `/loops resume <id\|all>` | Resume paused loop(s) |
+| `/loops stop <id\|all>` | Stop/cancel loop(s) |
 | `/webhooks` | List webhook subscriptions with status and trigger counts |
 | `/evaluations [grade]` | List session evaluation reports, optionally filtered by grade |
 | `/hints` | Toggle command hints in the input area |
@@ -117,6 +123,7 @@ coqui                          # Start the REPL (default)
 coqui run --new                # Start a fresh session
 coqui run --session abc123     # Resume a specific session
 coqui run --auto-approve       # Skip tool confirmation prompts
+coqui run --continue           # Resume last session and auto-send "Continue."
 ```
 
 | Option | Short | Description |
@@ -124,6 +131,7 @@ coqui run --auto-approve       # Skip tool confirmation prompts
 | `--config <path>` | `-c` | Path to `openclaw.json` |
 | `--new` | | Start a new session |
 | `--session <id>` | `-s` | Resume a specific session |
+| `--continue` | | Resume the last session and automatically send "Continue." as the first prompt |
 | `--workdir <path>` | | Working directory (project root). Default: current directory |
 | `--workspace <path>` | | Workspace directory (overrides config and default) |
 | `--wizard` | `-w` | Run the setup wizard (no REPL, no session) |
@@ -221,6 +229,7 @@ coqui-launcher status            # Show which services are running
 | `--host <host>` | API bind address (default `127.0.0.1`, use `0.0.0.0` for network access) |
 | `--port <port>` | API port (default `3300`) |
 | `--auto-approve` | Forwarded to `coqui run` |
+| `--continue` | Forwarded to `coqui run` |
 | `--unsafe` | Forwarded to both `coqui run` and `coqui api` |
 | `--config <path>` | Forwarded to both `coqui run` and `coqui api` |
 | `--workdir <path>` | Forwarded to both `coqui run` and `coqui api` |

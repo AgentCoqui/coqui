@@ -8,15 +8,17 @@
     {
       "name": "Carmelo Santana"
     }
-  ],
+  ], 
   "require": {
     "php": "^8.4",
     "ext-pdo_sqlite": "*",
-    "carmelosantana/php-agents": "^0.10",
+    "carmelosantana/php-agents": "^0.12",
     "coquibot/coqui-toolkit-composer": "^0.1",
     "coquibot/coqui-toolkit-packagist": "^0.1",
     "dragonmantank/cron-expression": "^3.0",
     "league/commonmark": "^2.8",
+    "react/async": "^4",
+    "react/child-process": "^0.6",
     "react/http": "^1.11",
     "symfony/console": "^8.0",
     "symfony/http-client": "^8.0",
@@ -40,7 +42,9 @@
       "CoquiBot\\Coqui\\Tests\\": "tests/"
     }
   },
-  "bin": ["bin/coqui"],
+  "bin": [
+    "bin/coqui"
+  ],
   "config": {
     "optimize-autoloader": true,
     "sort-packages": true,

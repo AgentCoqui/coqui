@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Support;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
+
 /**
  * Shared file I/O helpers with path sandboxing, atomic writes, and line ending detection.
  *
@@ -214,6 +216,208 @@ final readonly class FileSystemOperations
         if (!@mkdir($path, 0755, true)) {
             throw FileSystemException::directoryCreationFailed($relativePath);
         }
+    }
+
+    // ---------------------------------------------------------------
+    // Copy and move operations
+    // ---------------------------------------------------------------
+
+    /**
+     * Copy a file or directory to a destination within the sandbox.
+     *
+     * For files: single copy. For directories: recursive copy.
+     * Creates destination parent directories automatically.
+     *
+     * @return int Number of items copied (1 for a file, N for a directory tree).
+     * @throws FileSystemException
+     */
+    public function copyPath(string $source, string $destination): int
+    {
+        $srcPath = $this->resolvePath($source);
+        $dstPath = $this->resolvePath($destination);
+        $this->guardReadOnly($dstPath, $destination);
+
+        if (!file_exists($srcPath)) {
+            throw FileSystemException::fileNotFound($source);
+        }
+
+        $realSrc = realpath($srcPath);
+        $realDst = realpath($dstPath);
+        if ($realSrc !== false && $realDst !== false && $realSrc === $realDst) {
+            throw FileSystemException::cannotCopyToSelf($source);
+        }
+
+        if (is_file($srcPath)) {
+            return $this->copySingleFile($srcPath, $dstPath, $source, $destination);
+        }
+
+        return $this->copyDirectory($srcPath, $dstPath, $source, $destination);
+    }
+
+    /**
+     * Move a file or directory to a destination within the sandbox.
+     *
+     * Attempts a rename first; falls back to copy+delete for cross-device moves.
+     *
+     * @return int Number of items moved (1 for a file, N for a directory tree).
+     * @throws FileSystemException
+     */
+    public function movePath(string $source, string $destination): int
+    {
+        $srcPath = $this->resolvePath($source);
+        $dstPath = $this->resolvePath($destination);
+        $this->guardReadOnly($srcPath, $source);
+        $this->guardReadOnly($dstPath, $destination);
+
+        if (!file_exists($srcPath)) {
+            throw FileSystemException::fileNotFound($source);
+        }
+
+        $realSrc = realpath($srcPath);
+        $realDst = realpath($dstPath);
+        if ($realSrc !== false && $realDst !== false && $realSrc === $realDst) {
+            throw FileSystemException::cannotCopyToSelf($source);
+        }
+
+        // Attempt rename (atomic, same filesystem)
+        $dstDir = dirname($dstPath);
+        if (!is_dir($dstDir)) {
+            @mkdir($dstDir, 0755, true);
+        }
+
+        if (@rename($srcPath, $dstPath)) {
+            // Count items for consistency
+            if (is_dir($dstPath)) {
+                return $this->countItems($dstPath);
+            }
+
+            return 1;
+        }
+
+        // Cross-device fallback: copy then delete source
+        $count = $this->copyPath($source, $destination);
+        $this->deleteDirectory($srcPath);
+
+        return $count;
+    }
+
+    /**
+     * Recursively delete a directory and all its contents.
+     *
+     * @throws FileSystemException
+     */
+    public function deleteDirectory(string $path): void
+    {
+        // Accept both relative and absolute paths
+        if (!str_starts_with($path, '/')) {
+            $path = $this->resolvePath($path);
+        }
+
+        if (!is_dir($path)) {
+            return;
+        }
+
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($path, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST,
+        );
+
+        foreach ($iterator as $item) {
+            if ($item->isDir()) {
+                if (!@rmdir($item->getPathname())) {
+                    throw FileSystemException::deletionFailed($item->getPathname());
+                }
+            } else {
+                if (!@unlink($item->getPathname())) {
+                    throw FileSystemException::deletionFailed($item->getPathname());
+                }
+            }
+        }
+
+        if (!@rmdir($path)) {
+            throw FileSystemException::deletionFailed($path);
+        }
+    }
+
+    private function copySingleFile(string $srcPath, string $dstPath, string $srcDisplay, string $dstDisplay): int
+    {
+        $dstDir = dirname($dstPath);
+        if (!is_dir($dstDir)) {
+            @mkdir($dstDir, 0755, true);
+        }
+
+        if (!@copy($srcPath, $dstPath)) {
+            throw FileSystemException::copyFailed($srcDisplay, $dstDisplay);
+        }
+
+        return 1;
+    }
+
+    private function copyDirectory(string $srcPath, string $dstPath, string $srcDisplay, string $dstDisplay): int
+    {
+        if (!is_dir($dstPath)) {
+            if (!@mkdir($dstPath, 0755, true)) {
+                throw FileSystemException::directoryCreationFailed($dstDisplay);
+            }
+        }
+
+        $dirIterator = new \RecursiveDirectoryIterator($srcPath, \FilesystemIterator::SKIP_DOTS);
+        $iterator = new \RecursiveIteratorIterator(
+            $dirIterator,
+            \RecursiveIteratorIterator::SELF_FIRST,
+        );
+
+        $count = 0;
+        $srcLen = strlen($srcPath);
+
+        foreach ($iterator as $item) {
+            if ($count >= CoquiDefaults::MAX_RECURSIVE_ITEMS) {
+                throw FileSystemException::maxRecursiveItemsExceeded(CoquiDefaults::MAX_RECURSIVE_ITEMS);
+            }
+
+            $subPath = substr($item->getPathname(), $srcLen + 1);
+            $target = $dstPath . '/' . $subPath;
+
+            if ($item->isDir()) {
+                if (!is_dir($target)) {
+                    if (!@mkdir($target, 0755, true)) {
+                        throw FileSystemException::directoryCreationFailed($subPath);
+                    }
+                }
+            } else {
+                $targetDir = dirname($target);
+                if (!is_dir($targetDir)) {
+                    @mkdir($targetDir, 0755, true);
+                }
+
+                if (!@copy($item->getPathname(), $target)) {
+                    throw FileSystemException::copyFailed($srcDisplay, $dstDisplay, $subPath);
+                }
+            }
+
+            $count++;
+        }
+
+        return max(1, $count);
+    }
+
+    private function countItems(string $dirPath): int
+    {
+        if (!is_dir($dirPath)) {
+            return 1;
+        }
+
+        $count = 0;
+        $iterator = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dirPath, \FilesystemIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::SELF_FIRST,
+        );
+
+        foreach ($iterator as $_) {
+            $count++;
+        }
+
+        return max(1, $count);
     }
 
     // ---------------------------------------------------------------

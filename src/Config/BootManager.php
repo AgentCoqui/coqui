@@ -14,9 +14,11 @@ use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
+use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -50,6 +52,10 @@ final class BootManager
     private ?TodoStore $todoStore = null;
     private ?ProjectStore $projectStore = null;
     private ?SpaceToolkit $spaceToolkit = null;
+    private ?LoopStore $loopStore = null;
+    private ?LoopDiscovery $loopDiscovery = null;
+    private ?ToolUsageTracker $usageTracker = null;
+    private ?ToolkitLoadingRegistry $loadingRegistry = null;
 
     public function __construct(
         private readonly string $workDir,
@@ -77,7 +83,9 @@ final class BootManager
         $this->initializeCredentials();
         $this->initializeMemory();
         $this->initializeArtifacts();
+        $this->discoverLoops();
         $this->discoverToolkits($io);
+        $this->seedPackageContent();
         $this->discoverSkills();
         $this->initializeSpace();
 
@@ -213,6 +221,26 @@ final class BootManager
     public function projectStore(): ?ProjectStore
     {
         return $this->projectStore;
+    }
+
+    public function loopStore(): ?LoopStore
+    {
+        return $this->loopStore;
+    }
+
+    public function loopDiscovery(): ?LoopDiscovery
+    {
+        return $this->loopDiscovery;
+    }
+
+    public function usageTracker(): ?ToolUsageTracker
+    {
+        return $this->usageTracker;
+    }
+
+    public function loadingRegistry(): ?ToolkitLoadingRegistry
+    {
+        return $this->loadingRegistry;
     }
 
     private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
@@ -392,6 +420,12 @@ final class BootManager
         $this->credentialResolver->loadIntoProcessEnv();
     }
 
+    private function discoverLoops(): void
+    {
+        $this->loopDiscovery = new LoopDiscovery($this->workspacePath, $this->workDir !== '' ? $this->workDir : null);
+        $this->loopDiscovery->seedBuiltinLoops();
+    }
+
     private function discoverRoles(): void
     {
         $builtinDir = ($this->workDir !== '' ? PathHelper::trimTrailingSlash($this->workDir) : dirname(__DIR__, 2)) . '/config/roles';
@@ -436,7 +470,11 @@ final class BootManager
         $this->todoStore = new TodoStore($pdo);
         $this->todoStore->cleanupOrphaned();
         $this->todoStore->cleanupStale();
+        $this->todoStore->cleanupUnlinked();
         $this->projectStore = new ProjectStore($pdo);
+        $this->loopStore = new LoopStore($pdo);
+        $this->usageTracker = new ToolUsageTracker($pdo);
+        $this->loadingRegistry = new ToolkitLoadingRegistry($this->workspacePath);
     }
 
     /**
@@ -506,6 +544,25 @@ final class BootManager
 
         if (!empty($newToolkits) && $io !== null && $io->isVerbose()) {
             $io->writeln('Discovered new toolkits: ' . implode(', ', $newToolkits));
+        }
+    }
+
+    /**
+     * Seed roles and loop definitions from discovered toolkit packages.
+     *
+     * Runs after discoverToolkits() so ToolkitDiscovery is available.
+     * Package roles/loops use copy-if-not-exists semantics — workspace files always win.
+     */
+    private function seedPackageContent(): void
+    {
+        $packageRolePaths = $this->discovery->discoverPackageRolePaths();
+        if (!empty($packageRolePaths)) {
+            $this->roleDiscovery->seedPackageRoles($packageRolePaths);
+        }
+
+        $packageLoopPaths = $this->discovery->discoverPackageLoopPaths();
+        if ($this->loopDiscovery !== null && !empty($packageLoopPaths)) {
+            $this->loopDiscovery->seedPackageLoops($packageLoopPaths);
         }
     }
 

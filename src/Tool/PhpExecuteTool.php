@@ -11,6 +11,10 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\PathHelper;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
+use React\ChildProcess\Process as ReactProcess;
+use React\EventLoop\Loop;
+use React\Promise\Deferred;
+use function React\Async\await;
 
 /**
  * Executes generated PHP code in a subprocess.
@@ -211,60 +215,47 @@ final class PhpExecuteTool implements ToolInterface
      */
     private function runScript(string $scriptPath, int $timeout): ToolResult
     {
-        $descriptors = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-
         $openBasedirDirective = 'open_basedir=' . $this->buildOpenBasedir();
         if (PHP_OS_FAMILY === 'Windows') {
             $openBasedirDirective = '"' . $openBasedirDirective . '"';
         }
 
-        $process = proc_open(
-            ['php', '-d', $openBasedirDirective, $scriptPath],
-            $descriptors,
-            $pipes,
-            $this->workspacePath,
-        );
-
-        if (!is_resource($process)) {
-            return ToolResult::error('Failed to start PHP process.');
-        }
-
-        fclose($pipes[0]);
-
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-
+        $commandLine = 'php -d ' . escapeshellarg($openBasedirDirective) . ' ' . escapeshellarg($scriptPath);
+        $reactProcess = new ReactProcess($commandLine, $this->workspacePath);
+        $deferred = new Deferred();
         $stdout = '';
         $stderr = '';
-        $startTime = time();
+        $timedOut = false;
 
-        while (proc_get_status($process)['running']) {
-            $stdout .= stream_get_contents($pipes[1]) ?: '';
-            $stderr .= stream_get_contents($pipes[2]) ?: '';
-
-            if (time() - $startTime > $timeout) {
-                proc_terminate($process, 9);
-                fclose($pipes[1]);
-                fclose($pipes[2]);
-                proc_close($process);
-
-                return ToolResult::error("Script timed out after {$timeout}s.");
-            }
-
-            usleep(10_000);
+        try {
+            $reactProcess->start();
+        } catch (\Throwable $e) {
+            return ToolResult::error('Failed to start PHP process: ' . $e->getMessage());
         }
 
-        $stdout .= stream_get_contents($pipes[1]) ?: '';
-        $stderr .= stream_get_contents($pipes[2]) ?: '';
+        $reactProcess->stdout?->on('data', static function (string $chunk) use (&$stdout): void {
+            $stdout .= $chunk;
+        });
 
-        fclose($pipes[1]);
-        fclose($pipes[2]);
+        $reactProcess->stderr?->on('data', static function (string $chunk) use (&$stderr): void {
+            $stderr .= $chunk;
+        });
 
-        $exitCode = proc_close($process);
+        $timeoutTimer = Loop::addTimer($timeout, static function () use ($reactProcess, &$timedOut): void {
+            $timedOut = true;
+            $reactProcess->terminate(9);
+        });
+
+        $reactProcess->on('exit', static function (?int $code) use ($deferred, $timeoutTimer): void {
+            Loop::cancelTimer($timeoutTimer);
+            $deferred->resolve($code ?? 1);
+        });
+
+        $exitCode = (int) await($deferred->promise());
+
+        if ($timedOut) {
+            return ToolResult::error("Script timed out after {$timeout}s.");
+        }
 
         // Truncate output
         if (strlen($stdout) > self::MAX_OUTPUT_BYTES) {

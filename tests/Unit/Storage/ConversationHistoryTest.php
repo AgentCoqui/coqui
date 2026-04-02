@@ -75,6 +75,21 @@ test('loadConversation reconstructs tool call chains', function () {
     expect($messages[3]->role())->toBe(Role::Assistant);
 });
 
+test('loadConversation skips empty assistant messages without tool calls', function () {
+    $this->storage->addMessage($this->sessionId, 'user', 'hello');
+    $this->storage->addMessage($this->sessionId, 'assistant', '');
+    $this->storage->addMessage($this->sessionId, 'user', 'still there?');
+
+    $conversation = $this->storage->loadConversation($this->sessionId);
+    $messages = $conversation->messages();
+
+    expect($messages)->toHaveCount(2);
+    expect($messages[0]->role())->toBe(Role::User);
+    expect($messages[0]->content())->toBe('hello');
+    expect($messages[1]->role())->toBe(Role::User);
+    expect($messages[1]->content())->toBe('still there?');
+});
+
 test('loaded conversation can be pruned to fit budget', function () {
     // Simulate a long conversation
     for ($i = 0; $i < 10; $i++) {

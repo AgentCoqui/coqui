@@ -36,18 +36,18 @@ afterEach(function () {
 // Tool registration
 // ---------------------------------------------------------------
 
-test('full toolkit provides 17 tools', function () {
-    expect($this->toolkit->tools())->toHaveCount(17);
+test('full toolkit provides 19 tools', function () {
+    expect($this->toolkit->tools())->toHaveCount(19);
 });
 
 test('readonly toolkit provides only 4 read tools', function () {
     expect($this->readonlyToolkit->tools())->toHaveCount(4);
 });
 
-test('toolkit without history has 16 tools', function () {
+test('toolkit without history has 18 tools', function () {
     $tk = new FileSystemToolkit($this->root, false, []);
 
-    expect($tk->tools())->toHaveCount(16);
+    expect($tk->tools())->toHaveCount(18);
 });
 
 test('tool names are correct for full toolkit', function () {
@@ -73,6 +73,8 @@ test('tool names are correct for full toolkit', function () {
     expect($names)->toContain('indent_lines');
     expect($names)->toContain('append_to_file');
     expect($names)->toContain('edit_history');
+    expect($names)->toContain('copy_file');
+    expect($names)->toContain('move');
 });
 
 test('readonly tool names are read-only', function () {
@@ -388,6 +390,99 @@ test('search_files with ** finds files in subdirectories', function () {
     // **/*.php requires a parent directory component; nested files are matched
     expect($result->content)->toContain('nested.php');
     expect($result->content)->not->toContain('other.txt');
+});
+
+// ---------------------------------------------------------------
+// Copy tool
+// ---------------------------------------------------------------
+
+test('copy_file copies a single file', function () {
+    file_put_contents($this->root . '/source.txt', 'original content');
+
+    $tool = findToolByName($this->toolkit, 'copy_file');
+    $result = $tool->execute(['source' => 'source.txt', 'destination' => 'dest.txt']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('Copied file');
+    expect(file_get_contents($this->root . '/dest.txt'))->toBe('original content');
+    expect(file_exists($this->root . '/source.txt'))->toBeTrue(); // source preserved
+});
+
+test('copy_file copies a directory recursively', function () {
+    mkdir($this->root . '/src-dir/nested', 0755, true);
+    file_put_contents($this->root . '/src-dir/a.txt', 'A');
+    file_put_contents($this->root . '/src-dir/nested/b.txt', 'B');
+
+    $tool = findToolByName($this->toolkit, 'copy_file');
+    $result = $tool->execute(['source' => 'src-dir', 'destination' => 'dst-dir']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('Copied directory');
+    expect(file_get_contents($this->root . '/dst-dir/a.txt'))->toBe('A');
+    expect(file_get_contents($this->root . '/dst-dir/nested/b.txt'))->toBe('B');
+});
+
+test('copy_file errors for missing source', function () {
+    $tool = findToolByName($this->toolkit, 'copy_file');
+    $result = $tool->execute(['source' => 'missing.txt', 'destination' => 'dest.txt']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+});
+
+test('copy_file errors when copying to self', function () {
+    file_put_contents($this->root . '/same.txt', 'data');
+
+    $tool = findToolByName($this->toolkit, 'copy_file');
+    $result = $tool->execute(['source' => 'same.txt', 'destination' => 'same.txt']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+    expect($result->content)->toContain('itself');
+});
+
+// ---------------------------------------------------------------
+// Move tool
+// ---------------------------------------------------------------
+
+test('move renames a single file', function () {
+    file_put_contents($this->root . '/old.txt', 'data');
+
+    $tool = findToolByName($this->toolkit, 'move');
+    $result = $tool->execute(['source' => 'old.txt', 'destination' => 'new.txt']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('Moved file');
+    expect(file_exists($this->root . '/old.txt'))->toBeFalse();
+    expect(file_get_contents($this->root . '/new.txt'))->toBe('data');
+});
+
+test('move renames a directory', function () {
+    mkdir($this->root . '/old-dir/sub', 0755, true);
+    file_put_contents($this->root . '/old-dir/sub/f.txt', 'content');
+
+    $tool = findToolByName($this->toolkit, 'move');
+    $result = $tool->execute(['source' => 'old-dir', 'destination' => 'new-dir']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect(is_dir($this->root . '/old-dir'))->toBeFalse();
+    expect(file_get_contents($this->root . '/new-dir/sub/f.txt'))->toBe('content');
+});
+
+test('move records edit history for files', function () {
+    file_put_contents($this->root . '/tracked.txt', 'tracked data');
+
+    $tool = findToolByName($this->toolkit, 'move');
+    $tool->execute(['source' => 'tracked.txt', 'destination' => 'moved.txt']);
+
+    $edits = $this->history->list(limit: 10);
+    expect($edits)->not->toBeEmpty();
+    expect($edits[0]['operation'])->toBe('move');
+});
+
+test('move errors for missing source', function () {
+    $tool = findToolByName($this->toolkit, 'move');
+    $result = $tool->execute(['source' => 'missing.txt', 'destination' => 'dest.txt']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
 });
 
 // ---------------------------------------------------------------

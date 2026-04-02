@@ -17,14 +17,16 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, ProjectSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string \u2014 returns the full system prompt with role descriptions, security rules, and operational guidelines",
                 "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation)",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
                 "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking",
                 "resolveContextWindow(): ?ContextWindowInterface — resolves ContextWindow from ModelDefinition with 128K/4K fallback",
-                "getContextWindow(): ?ContextWindowInterface — accessor for the resolved context window"
+                "getContextWindow(): ?ContextWindowInterface — accessor for the resolved context window",
+                "resolveActiveProjectId(): ?string — reads active project from SessionStorage",
+                "injectProjectContext(string): string — appends # ACTIVE PROJECT section with metadata, sprints, and directory to system prompt"
             ]
         },
         {
@@ -61,6 +63,47 @@
             "methods": [
                 "execute(string $toolName, array $arguments): ToolResult — resolve tool and call execute() directly",
                 "hasTool(string $toolName): bool — check if a tool exists in the index"
+            ]
+        },
+        {
+            "path": "src/Agent/ConcurrentToolExecutor.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\ConcurrentToolExecutor",
+            "layer": "agent",
+            "description": "ReactPHP Fiber-based concurrent tool executor. Implements BatchToolExecutorInterface to enable parallel tool execution when multiple tool calls are returned by the LLM. Uses React\\Async\\parallel() to run each tool in its own Fiber — concurrency occurs during I/O suspension (HTTP requests, async network calls). Shell tools use blocking calls and do not benefit from Fiber concurrency. Single tool calls bypass Fiber overhead. TerminationException propagates correctly via parallel() rejection. Result ordering is preserved via ksort().",
+            "methods": [
+                "execute(ToolInterface $tool, array $arguments): ToolResult — single tool pass-through execution",
+                "executeBatch(array $batch): array — concurrent execution via React\\Async\\parallel(), returns ToolResult[] in original order"
+            ]
+        },
+        {
+            "path": "src/Agent/LoopExecutor.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
+            "layer": "agent",
+            "description": "Core loop orchestration engine. Mode-agnostic — drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Creates projects per loop, snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound). Does not execute child agents directly — callers (LoopRunner for REPL, LoopManager for API) handle execution.",
+            "methods": [
+                "startLoop(LoopDefinition, string $goal, ?string $sessionId): string — creates loop and first iteration",
+                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, builds context prompt, returns stage result",
+                "completeStage(string $stageId, ?string $result, ?string $sessionId, ?string $taskId): void — records stage result",
+                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition and advances if continuing"
+            ]
+        },
+        {
+            "path": "src/Agent/LoopRunner.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\LoopRunner",
+            "layer": "agent",
+            "description": "REPL synchronous loop execution driver. Spawns child agents for each stage, runs iterations synchronously, emits observer events (loop.start, loop.iteration_start, loop.stage_start, loop.stage_end, loop.iteration_end, loop.complete). Mirrors SpawnAgentTool patterns for toolkit building.",
+            "methods": [
+                "run(LoopDefinition, string $goal, ?string $sessionId): array — runs loop to completion synchronously"
+            ]
+        },
+        {
+            "path": "src/Api/LoopManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\LoopManager",
+            "layer": "agent",
+            "description": "ReactPHP timer-based async loop coordinator. 5-second tick checks running loops, starts pending stages as background tasks, polls for stage task completion, evaluates iterations. Integrates with SessionStorage for background task creation.",
+            "methods": [
+                "tick(): void — process all running loops on timer",
+                "processLoop(array $loop): void — advance a single loop's stages"
             ]
         },
         {
@@ -106,11 +149,11 @@
             "path": "src/Repl/RouteResult.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\RouteResult",
             "layer": "command",
-            "description": "Value object returned by SlashCommandRouter. Carries shouldContinue flag, optional exit code, and optional state changes (newActiveRole, newSessionId).",
+            "description": "Value object returned by SlashCommandRouter. Carries shouldContinue flag, optional exit code, and optional state changes (newActiveRole, newSessionId, newActiveProjectId).",
             "methods": [
                 "static continue(): self — continue the REPL loop",
                 "static exit(int): self — exit with code",
-                "static stateChange(?string, ?string): self — continue with role/session update"
+                "static stateChange(?string, ?string, ?string): self — continue with role/session/project update"
             ]
         },
         {
@@ -199,12 +242,21 @@
             ]
         },
         {
+            "path": "src/Repl/Handler/LoopHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\LoopHandler",
+            "layer": "command",
+            "description": "Handles /loops REPL command with subcommands: list (with optional status filter), definitions/defs, status <id>, pause <id|all>, resume <id|all>, stop <id|all>.",
+            "methods": [
+                "handle(SymfonyStyle, string): void — dispatches loop subcommand"
+            ]
+        },
+        {
             "path": "src/Repl/Handler/ProjectHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ProjectHandler",
             "layer": "command",
-            "description": "Handles /projects and /sprints REPL commands for project and sprint management.",
+            "description": "Handles /projects and /sprints REPL commands. Supports project listing with active marker (●), switching via /projects <slug>, clearing via /projects clear, and status filtering.",
             "methods": [
-                "handleProjects(SymfonyStyle, string): void — lists or manages projects",
+                "handleProjects(SymfonyStyle, string, string, ?string): array — lists/switches/clears project context; returns [projectId, projectSlug] or [null, null]",
                 "handleSprints(SymfonyStyle, string): void — lists or manages sprints"
             ]
         },
@@ -377,6 +429,54 @@
             ]
         },
         {
+            "path": "src/Contract/TerminationType.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\TerminationType",
+            "layer": "contract",
+            "description": "Backed string enum defining loop termination strategies: EvaluationBound (stage output evaluated for done signal), IterationBound (fixed iteration count), TimeBound (wall-clock duration), Manual (user-controlled stop).",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/TerminationCondition.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\TerminationCondition",
+            "layer": "contract",
+            "description": "Value object pairing a TerminationType with its threshold value. Factory method fromArray() parses JSON config format {type, value}.",
+            "methods": [
+                "fromArray(array): self — factory from JSON config"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopRoleDefinition.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopRoleDefinition",
+            "layer": "contract",
+            "description": "Value object for a single stage in a loop definition. Contains role name, prompt template, optional skills array, and optional per-stage maxIterations override.",
+            "methods": [
+                "fromArray(array): self — factory from JSON config"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopDefinition.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopDefinition",
+            "layer": "contract",
+            "description": "Immutable value object representing a complete loop configuration. Contains name (validated against /^[a-z0-9][a-z0-9_-]*$/), description, roles array (LoopRoleDefinition[]), and termination condition.",
+            "methods": [
+                "fromArray(string, array): self — factory from JSON config with name validation"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopStageResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopStageResult",
+            "layer": "contract",
+            "description": "Value object returned by LoopExecutor::prepareNextStage(). Contains the role name, composed prompt (with previous stage output injected), skills, and max iterations for the next stage to execute.",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/IterationOutcome.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\IterationOutcome",
+            "layer": "contract",
+            "description": "Enum representing the result of a single loop iteration: Complete (termination condition met), Continue (loop should proceed), Failed (stage error), LimitReached (iteration/time bound hit).",
+            "methods": []
+        },
+        {
             "path": "src/Config/DefaultsLoader.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\DefaultsLoader",
             "layer": "config",
@@ -442,6 +542,16 @@
             ]
         },
         {
+            "path": "src/Config/ShellConfigResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ShellConfigResolver",
+            "layer": "config",
+            "description": "Shared shell command resolution logic. Centralizes the shell allowed/denied command resolution and the READ_ONLY_SHELL_COMMANDS constant that were previously duplicated across OrchestratorAgent, RunCommand, BackgroundToolExecutor, and SpawnAgentTool.",
+            "methods": [
+                "resolveAllowed(ConfigInterface $config): array — reads agents.defaults.shellAllowedCommands; empty array means all allowed",
+                "resolveDenied(ConfigInterface $config): array — reads agents.defaults.allowSudo; returns ['sudo'] when false"
+            ]
+        },
+        {
             "path": "src/Config/SummarizePruningStrategy.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\SummarizePruningStrategy",
             "layer": "config",
@@ -475,7 +585,23 @@
                 "unregister(string $packageName): void — remove from registry",
                 "loadCredentialRequirements(string $packageName): CredentialRequirement[] — load credential declarations (supports string shorthand and object format with optional flag)",
                 "loadGatedTools(string $packageName): array — load gated tool declarations from extra.php-agents.gated",
-                "collectAllGatedTools(): array — merge gated tool declarations from all registered packages"
+                "collectAllGatedTools(): array — merge gated tool declarations from all registered packages",
+                "discoverPackageSkillPaths(): string[] — discover skill directory paths declared by registered packages via extra.php-agents.skills",
+                "discoverPackageRolePaths(): string[] — discover role directory paths declared by registered packages via extra.php-agents.roles",
+                "discoverPackageLoopPaths(): string[] — discover loop definition directory paths declared by registered packages via extra.php-agents.loops"
+            ]
+        },
+        {
+            "path": "src/Config/LoopDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\LoopDiscovery",
+            "layer": "config",
+            "description": "Discovers loop definitions from JSON files in workspace/loops/. Seeds built-in loop definitions from config/loops/ on first boot. Seeds package-distributed loop definitions from toolkit vendor directories. Caches parsed LoopDefinition objects for reuse.",
+            "methods": [
+                "discover(): array — scan workspace/loops/ for .json files, returns map of name → LoopDefinition",
+                "get(string): ?LoopDefinition — get a single definition by name",
+                "names(): string[] — list all available definition names",
+                "seedBuiltins(): void — copy config/loops/*.json to workspace/loops/ if not present",
+                "seedPackageLoops(string[] $packageLoopPaths): void — copy .json loop files from package directories to workspace/loops/ (never overwrites)"
             ]
         },
         {
@@ -545,7 +671,7 @@
             "path": "src/Contract/CoquiDefaults.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\CoquiDefaults",
             "layer": "contract",
-            "description": "Centralized default values for Coqui configuration. Single source of truth for all default limits and thresholds (maxIterations, maxConcurrent, keepRecentTurns, autoSummarizeKeepRecent, autoSummarizeThreshold, context window fallbacks). All config fallbacks reference these constants instead of hardcoding values.",
+            "description": "Centralized default values for Coqui configuration. Single source of truth for all default limits and thresholds (maxIterations, maxConcurrent, keepRecentTurns, autoSummarizeKeepRecent, autoSummarizeThreshold, context window fallbacks, editHistoryRetentionDays, maxRecursiveItems). All config fallbacks reference these constants instead of hardcoding values.",
             "methods": []
         },
         {
@@ -680,13 +806,60 @@
             ]
         },
         {
-            "path": "src/Toolkit/ProjectSourceToolkit.php",
-            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ProjectSourceToolkit",
-            "layer": "toolkit",
-            "description": "Read-only toolkit providing structured access to the Coqui project source code. Tools: project_source_map (returns config/source.json), project_read (reads a file from project root), project_list (lists a directory), project_search (glob search). Enables the agent to understand and navigate its own codebase.",
+            "path": "src/Tool/ToolRegistry.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ToolRegistry",
+            "layer": "tool",
+            "description": "BM25 in-memory search index for tool discovery. Registers tool names and descriptions with optional package association. Supports ranked full-text search (K1=1.5, B=0.75, name boosted 3x) used by ToolSearchTool. Indexes real tools even from StubToolkits so deferred tools remain discoverable.",
             "methods": [
-                "tools(): ToolInterface[] — returns project_source_map, project_read, project_list, project_search",
-                "guidelines(): string — usage instructions for project source access"
+                "register(ToolInterface $tool, string $packageName = ''): void — adds tool to BM25 index with optional package",
+                "search(string $query, int $topN = 5): array — ranked BM25 search returning [{name, description, package}]",
+                "all(): array — returns all registered tools as [{name, description, package}]",
+                "count(): int — number of registered tools"
+            ]
+        },
+        {
+            "path": "src/Tool/ToolSearchTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ToolSearchTool",
+            "layer": "tool",
+            "description": "Agent-facing tool for on-demand tool discovery via BM25 search. Always loaded (ALWAYS_ENABLED). Returns ranked results with tool name, package origin, and description. Enables progressive tool disclosure — deferred toolkits are discoverable via keyword search.",
+            "methods": [
+                "execute(array $input): ToolResult — searches ToolRegistry, formats results with package labels"
+            ]
+        },
+        {
+            "path": "src/Storage/ToolUsageTracker.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\ToolUsageTracker",
+            "layer": "storage",
+            "description": "Aggregates tool usage frequency from turns.tools_used JSON column using SQLite json_each(). Provides in-memory cached frequency maps (5-min TTL) for toolkit loading priority decisions. Used by OrchestratorAgent budget gate to promote frequently-used toolkits to eager loading.",
+            "methods": [
+                "getFrequencyMap(): array<string, int> — tool_name => count, sorted descending",
+                "getTopTools(int $limit = 10): list<string> — most used tool names",
+                "getToolkitFrequency(array $toolkitToolMap): array<string, int> — aggregate by toolkit",
+                "getToolUsageCount(string $toolName): int — count for single tool",
+                "refresh(): void — force cache refresh"
+            ]
+        },
+        {
+            "path": "src/Config/ToolkitLoadingRegistry.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ToolkitLoadingRegistry",
+            "layer": "config",
+            "description": "Manages per-toolkit loading mode (system/eager/deferred). System toolkits (CoquiDefaults::SYSTEM_TOOLKITS) are immutable. Persists user overrides to workspace/toolkit-loading.json. Orthogonal to ToolkitVisibilityRegistry — visibility controls whether a tool is seen, loading mode controls when it enters context.",
+            "methods": [
+                "getMode(string $classBasename): string — returns system/eager/deferred",
+                "setMode(string $classBasename, string $mode): void — persists override (guards system toolkits)",
+                "isSystem(string $classBasename): bool — checks CoquiDefaults::SYSTEM_TOOLKITS",
+                "shouldLoadEagerly(string $classBasename): bool — system OR explicit eager",
+                "all(): array<string, string> — persisted overrides for display"
+            ]
+        },
+        {
+            "path": "src/Toolkit/CoquiSourceToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\CoquiSourceToolkit",
+            "layer": "toolkit",
+            "description": "Read-only toolkit providing structured access to the Coqui project source code and documentation. Tools: coqui_source_map (returns config/source.json), coqui_read (reads a file from project root), coqui_list (lists a directory), coqui_search (glob search with ** recursive support), coqui_doc_map (returns config/documentation.json section index), coqui_doc_read (reads specific documentation sections by heading). Enables the agent to understand and navigate its own codebase and configuration docs.",
+            "methods": [
+                "tools(): ToolInterface[] — returns coqui_source_map, coqui_read, coqui_list, coqui_search, coqui_doc_map, coqui_doc_read",
+                "guidelines(): string — usage instructions for project source and documentation access"
             ]
         },
         {
@@ -1182,6 +1355,8 @@
                 "listSessions(int $limit): array — lists recent sessions (includes title)",
                 "getSession(string $id): ?array — retrieves session details (includes title)",
                 "updateSessionTitle(string $sessionId, string $title): void — updates session title",
+            "setActiveProject(string $sessionId, ?string $projectId): void — sets or clears the active project for a session",
+            "getActiveProjectId(string $sessionId): ?string — returns the active project ID for a session, or null",
                 "addMessage(string $sessionId, ..., ?string $turnId): string — persists a message with optional turn linkage",
                 "loadConversation(string $sessionId): Conversation — rebuilds full conversation history",
                 "logChildRun(...): string — logs a child agent execution",
@@ -1235,7 +1410,7 @@
             "path": "src/Storage/ProjectStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ProjectStore",
             "layer": "storage",
-            "description": "SQLite-backed session-independent project and sprint persistence. Tables: projects (id, title, slug UNIQUE, description, status, timestamps) and sprints (id, project_id FK CASCADE, title, sprint_number, status, contract_artifact_id, acceptance_criteria, reviewer_notes, review_round, max_review_rounds, last_session_id, timestamps, completed_at). Enforces a 4-state sprint lifecycle (planned→in_progress→review→complete/rejected) via transitionSprint() with validation and review round tracking.",
+            "description": "SQLite-backed session-independent project and sprint persistence. Tables: projects (id, title, slug UNIQUE, description, status, directory, timestamps) and sprints (id, project_id FK CASCADE, title, sprint_number, status, contract_artifact_id, acceptance_criteria, reviewer_notes, review_round, max_review_rounds, last_session_id, timestamps, completed_at). Enforces a 4-state sprint lifecycle (planned→in_progress→review→complete/rejected) via transitionSprint() with validation and review round tracking. Supports project directories at workspace/projects/{slug}-{hash(8)} and project context retrieval for system prompt injection.",
             "methods": [
                 "createProject(title, slug, description): string — creates project, returns ID",
                 "getProject(idOrSlug): ?array — retrieves project by ID or slug",
@@ -1250,7 +1425,9 @@
                 "getActiveSprintForProject(projectId): ?array — first in_progress or review sprint",
                 "getActiveSprintsForSession(sessionId): array — sprints linked to a session via last_session_id",
                 "getSprintProgress(sprintId, TodoStore): array — aggregates todo stats for a sprint",
-                "deleteSprint(id): bool — deletes a sprint"
+                "deleteSprint(id): bool — deletes a sprint",
+            "getProjectDirectory(projectId): string — returns the project directory name from DB or computes fallback",
+            "getProjectContext(projectId, ?TodoStore, ?sessionId): array — returns project metadata, sprint roster with progress, and directory for system prompt injection"
             ]
         },
         {
@@ -1378,7 +1555,7 @@
             "path": "src/Toolkit/SprintToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\SprintToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing project and sprint management toolkit providing 9 tools: project_create, project_list, project_get, project_update, sprint_create, sprint_list, sprint_get, sprint_transition, sprint_update. Projects persist across sessions. Sprints follow a 4-state lifecycle (planned→in_progress→review→complete/rejected). Dynamic guidelines show active project and sprint progress when a sprint is linked to the current session.",
+            "description": "Agent-facing project and sprint management toolkit providing 10 tools: project_create, project_list, project_get, project_update, project_switch, sprint_create, sprint_list, sprint_get, sprint_transition, sprint_update. Projects persist across sessions with dedicated directories at workspace/projects/{slug}-{hash}. Sprints follow a 4-state lifecycle (planned→in_progress→review→complete/rejected). Dynamic guidelines show active project marker (●) and sprint progress. project_switch tool allows agent to change active project context.",
             "methods": [
                 "tools(): array — returns 9 project and sprint management Tool instances",
                 "guidelines(): string — dynamic active project/sprint summary with progress bar, empty when no active sprint"
@@ -1454,12 +1631,13 @@
             "path": "src/Config/RoleDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleDiscovery",
             "layer": "config",
-            "description": "Boot-time role discovery. Scans workspace/roles/ for .md files, parses metadata only (progressive disclosure). Seeds built-in roles from config/roles/ on first boot with optional RoleUpdateTracker for hash recording. Provides CRUD operations with backup support for updates.",
+            "description": "Boot-time role discovery. Scans workspace/roles/ for .md files, parses metadata only (progressive disclosure). Seeds built-in roles from config/roles/ on first boot with optional RoleUpdateTracker for hash recording. Seeds package-distributed roles via seedPackageRoles(). Provides CRUD operations with backup support for updates.",
             "methods": [
                 "discoverAll(): array<string, RoleProperties> — scan and cache all roles",
                 "getRole(string $name): RoleProperties — get role or throw RoleNotFoundException",
                 "readInstructions(string $name): string — load role body for activation",
                 "seedBuiltinRoles(?RoleUpdateTracker): void — copy config/roles/ to workspace/roles/, optionally recording hashes",
+                "seedPackageRoles(array $packageRolePaths): void — copy package-distributed .md role files to workspace/roles/ if not already present, invalidates cache",
                 "createRole(array, string): RoleProperties — create new role file",
                 "updateRole(string, array|RoleProperties, string): RoleProperties — update with backup",
                 "deleteRole(string): void — delete non-builtin role"
@@ -1696,6 +1874,23 @@
             ]
         },
         {
+            "path": "src/Storage/LoopStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\LoopStore",
+            "layer": "storage",
+            "description": "SQLite-backed persistence for loop workflows. Three tables: loops, loop_iterations, loop_stages. Tracks loop lifecycle from running through completion/failure/cancellation with full iteration and stage history.",
+            "methods": [
+                "createLoop(string, string, array, ...): string — create a new loop record",
+                "getLoop(string): ?array — get loop by ID",
+                "listLoops(?string): array — list loops with optional status filter",
+                "updateLoopStatus(string, string): void — update loop status",
+                "createIteration(string, int): string — create iteration record",
+                "createStage(string, int, string, string): string — create stage record",
+                "getCurrentState(string): ?array — get loop with current iteration and stages",
+                "countActive(): int — count running loops",
+                "deleteLoop(string): bool — delete loop and cascading records"
+            ]
+        },
+        {
             "path": "src/Storage/WebhookStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\WebhookStore",
             "layer": "storage",
@@ -1741,6 +1936,25 @@
                 "trigger(ServerRequestInterface, string): Response — POST /api/v1/schedules/{id}/trigger",
                 "enable(ServerRequestInterface, string): Response — POST /api/v1/schedules/{id}/enable",
                 "disable(ServerRequestInterface, string): Response — POST /api/v1/schedules/{id}/disable"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/LoopHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\LoopHandler",
+            "layer": "agent",
+            "description": "REST API endpoints for loop CRUD and control. 10 endpoints: list, create, definitions, get, delete, pause, resume, stop, iterations, iteration. Self-registers routes via register(Router).",
+            "methods": [
+                "register(Router): void — register all loop API routes",
+                "list(ServerRequestInterface): Response — GET /api/v1/loops",
+                "create(ServerRequestInterface): Response — POST /api/v1/loops",
+                "definitions(ServerRequestInterface): Response — GET /api/v1/loops/definitions",
+                "get(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}",
+                "delete(ServerRequestInterface, string): Response — DELETE /api/v1/loops/{id}",
+                "pause(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/pause",
+                "resume(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/resume",
+                "stop(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/stop",
+                "iterations(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}/iterations",
+                "iteration(ServerRequestInterface, string, string): Response — GET /api/v1/loops/{id}/iterations/{iterationId}"
             ]
         },
         {
@@ -1793,6 +2007,16 @@
             ]
         },
         {
+            "path": "src/Toolkit/LoopToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\LoopToolkit",
+            "layer": "toolkit",
+            "description": "Agent-facing tools for starting and managing loop workflows. 7 tools: loop_start, loop_list, loop_status, loop_pause, loop_resume, loop_stop, loop_definitions. Guidelines inject active loop count, running loop details, and available definition names.",
+            "methods": [
+                "tools(): array — return all 7 loop tools",
+                "guidelines(): string — dynamic active loop status and definition list"
+            ]
+        },
+        {
             "path": "src/Toolkit/WebhookToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\WebhookToolkit",
             "layer": "toolkit",
@@ -1839,10 +2063,40 @@
             "path": "src/Toolkit/FileSystemToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\FileSystemToolkit",
             "layer": "toolkit",
-            "description": "Unified filesystem toolkit providing 16 tools: 4 read (read_file, list_dir, search_files, file_info), 3 write (write_file, create_dir, delete_file), 8 surgical edit (replace_in_file, insert_before, insert_after, replace_block, remove_lines, write_lines, batch_replace, indent_lines, append_to_file), and 1 history (edit_history). list_dir accepts a max_depth parameter (1–10, default 3) when recursive=true. search_files supports ** for recursive glob (delegated to FileSystemOperations::resolveGlob). Supports readOnly mode, mount-aware path sandboxing, and SQLite-backed edit history with unified diff and undo.",
+            "description": "Unified filesystem toolkit providing 18 tools: 4 read (read_file, list_dir, search_files, file_info), 5 write (write_file, create_dir, delete_file, copy_file, move), 8 surgical edit (replace_in_file, insert_before, insert_after, replace_block, remove_lines, write_lines, batch_replace, indent_lines, append_to_file), and 1 history (edit_history). copy_file and move auto-detect files vs directories for recursive operations. list_dir accepts a max_depth parameter (1–10, default 3) when recursive=true. search_files supports ** for recursive glob (delegated to FileSystemOperations::resolveGlob). Supports readOnly mode, mount-aware path sandboxing, configurable edit history retention, and SQLite-backed edit history with unified diff and undo.",
             "methods": [
-                "tools(): array — returns 4 read tools always, plus 12 write/edit/history tools when not readOnly",
+                "tools(): array — returns 4 read tools always, plus 14 write/edit/history tools when not readOnly",
                 "guidelines(): string — tool selection guide with best practices, mode-aware"
+            ]
+        },
+        {
+            "path": "src/Toolkit/ShellToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ShellToolkit",
+            "layer": "toolkit",
+            "description": "Shell command execution with configurable safety layers. Provides the exec tool. Supports allowlist (empty = all commands permitted), denylist, built-in DENIED_PATTERNS regex (rm -rf, curl|bash, php -r, mkfifo, netcat), shell injection detection, and configurable working directory. Ported from php-agents.",
+            "methods": [
+                "tools(): array — returns [exec] tool",
+                "guidelines(): string — shell usage guidelines"
+            ]
+        },
+        {
+            "path": "src/Toolkit/WebToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\WebToolkit",
+            "layer": "toolkit",
+            "description": "HTTP requests and optional web search. Provides http_request tool (GET/POST/PUT/DELETE with SSRF protection) and optional web_search tool (when searchEndpoint is configured). Blocks private/internal network addresses by default. Truncates responses to 10K chars. Ported from php-agents.",
+            "methods": [
+                "tools(): array — returns [http_request] always, plus [web_search] when search endpoint configured",
+                "guidelines(): string — web usage guidelines"
+            ]
+        },
+        {
+            "path": "src/Memory/MemoryEntry.php",
+            "fqcn": "CoquiBot\\Coqui\\Memory\\MemoryEntry",
+            "layer": "storage",
+            "description": "Immutable value object for memory entries. Contains content, area, metadata, optional id/score/createdAt. Provides withId() and withScore() for immutable updates. Used by MemoryStore, MemoryToolkit, MemoryExtractor, ConversationSummarizer. Moved from php-agents.",
+            "methods": [
+                "withId(string): self — returns new instance with the given ID",
+                "withScore(float): self — returns new instance with the given score"
             ]
         },
         {
@@ -1866,7 +2120,7 @@
             "path": "src/Support/FileSystemException.php",
             "fqcn": "CoquiBot\\Coqui\\Support\\FileSystemException",
             "layer": "support",
-            "description": "Domain exception for filesystem operations with static factories for common error types: fileNotFound, readFailed, writeFailed, readOnlyMount, pathEscapesSandbox, invalidRange, invalidRegex.",
+            "description": "Domain exception for filesystem operations with static factories for common error types: fileNotFound, readFailed, writeFailed, readOnlyMount, pathEscapesSandbox, invalidRange, invalidRegex, copyFailed, moveFailed, cannotCopyToSelf, maxRecursiveItemsExceeded, deletionFailed.",
             "methods": []
         },
         {
@@ -1937,11 +2191,11 @@
                 },
                 {
                     "path": "src/Toolkit/ShellToolkit.php",
-                    "description": "Shell command execution with allowedCommands whitelist and built-in safety patterns"
+                    "description": "REMOVED — now lives in Coqui (src/Toolkit/ShellToolkit.php)"
                 },
                 {
                     "path": "src/Toolkit/MemoryToolkit.php",
-                    "description": "Persistent key-value memory (memory_save, memory_load, memory_forget) backed by FileMemory — superseded by Coqui's SQLite-backed MemoryToolkit"
+                    "description": "REMOVED — now lives in Coqui (src/Toolkit/MemoryToolkit.php)"
                 },
                 {
                     "path": "src/Provider/ProviderFactory.php",
