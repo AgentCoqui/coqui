@@ -17,16 +17,17 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation, toolkit_list). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Constructed fresh on every REPL turn.",
             "methods": [
-                "instructions(): string \u2014 returns the full system prompt with role descriptions, security rules, and operational guidelines",
-                "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation)",
+                "instructions(): string — returns the full system prompt with role descriptions, security rules, and operational guidelines",
+                "tools(): ToolInterface[] — returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation, toolkit_list)",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
                 "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking",
                 "resolveContextWindow(): ?ContextWindowInterface — resolves ContextWindow from ModelDefinition with 128K/4K fallback",
                 "getContextWindow(): ?ContextWindowInterface — accessor for the resolved context window",
                 "resolveActiveProjectId(): ?string — reads active project from SessionStorage",
-                "injectProjectContext(string): string — appends # ACTIVE PROJECT section with metadata, sprints, and directory to system prompt"
+                "injectProjectContext(string): string — appends # ACTIVE PROJECT section with metadata, sprints, and directory to system prompt",
+                "getAppliedLoadingModes(): array<string, ToolkitLoadingMode> — applied runtime loading modes (toolkit basename => mode) for REPL display"
             ]
         },
         {
@@ -827,6 +828,25 @@
             ]
         },
         {
+            "path": "src/Tool/ToolkitListTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ToolkitListTool",
+            "layer": "tool",
+            "description": "Standalone system tool that lists all workspace toolkit packages. Promoted from ToolkitGeneratorToolkit so it is always available (never deferred). Lists packages from workspace/packages/ with their tools, dependencies, and credential requirements.",
+            "methods": [
+                "tool(): ToolInterface — returns the toolkit_list tool instance"
+            ]
+        },
+        {
+            "path": "src/Contract/ToolkitLoadingMode.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitLoadingMode",
+            "layer": "contract",
+            "description": "Backed string enum defining when a toolkit enters LLM context. System (always loaded, immutable), Eager (user override, always loaded), Deferred (user override, always stubbed), Auto (budget gate decides based on token budget and usage frequency). isPersistable() returns true for Eager/Deferred only. isLoaded() returns true for System/Eager.",
+            "methods": [
+                "isPersistable(): bool — Eager or Deferred only",
+                "isLoaded(): bool — System or Eager"
+            ]
+        },
+        {
             "path": "src/Storage/ToolUsageTracker.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ToolUsageTracker",
             "layer": "storage",
@@ -843,12 +863,12 @@
             "path": "src/Config/ToolkitLoadingRegistry.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\ToolkitLoadingRegistry",
             "layer": "config",
-            "description": "Manages per-toolkit loading mode (system/eager/deferred). System toolkits (CoquiDefaults::SYSTEM_TOOLKITS) are immutable. Persists user overrides to workspace/toolkit-loading.json. Orthogonal to ToolkitVisibilityRegistry — visibility controls whether a tool is seen, loading mode controls when it enters context.",
+            "description": "Manages per-toolkit loading mode (System/Eager/Deferred/Auto via ToolkitLoadingMode enum). System toolkits (CoquiDefaults::SYSTEM_TOOLKITS) are immutable. Persists user overrides (Eager/Deferred) to workspace/toolkit-loading.json. Auto is the default when no override exists — the budget gate decides. Orthogonal to ToolkitVisibilityRegistry — visibility controls whether a tool is seen, loading mode controls when it enters context.",
             "methods": [
-                "getMode(string $classBasename): string — returns system/eager/deferred",
-                "setMode(string $classBasename, string $mode): void — persists override (guards system toolkits)",
+                "getMode(string $classBasename): ToolkitLoadingMode — returns System/Eager/Deferred/Auto",
+                "setMode(string $classBasename, ToolkitLoadingMode $mode): void — persists Eager/Deferred override (guards system toolkits)",
+                "resetMode(string $classBasename): void — removes persisted override, returns to Auto",
                 "isSystem(string $classBasename): bool — checks CoquiDefaults::SYSTEM_TOOLKITS",
-                "shouldLoadEagerly(string $classBasename): bool — system OR explicit eager",
                 "all(): array<string, string> — persisted overrides for display"
             ]
         },
@@ -866,7 +886,7 @@
             "path": "src/Toolkit/ToolkitGeneratorToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\ToolkitGeneratorToolkit",
             "layer": "toolkit",
-            "description": "Generates complete toolkit package scaffolds for Coqui. Tools: toolkit_create (scaffolds a new package with composer.json, toolkit class, README, runs composer install), toolkit_add_tool (inserts a new tool into an existing toolkit class), toolkit_list (lists workspace toolkit packages with metadata). All generated packages follow Coqui conventions and are auto-discoverable.",
+            "description": "Generates complete toolkit package scaffolds for Coqui. Tools: toolkit_create (scaffolds a new package with composer.json, toolkit class, README, runs composer install), toolkit_add_tool (inserts a new tool into an existing toolkit class). The toolkit_list tool was promoted to a standalone system tool (ToolkitListTool). All generated packages follow Coqui conventions and are auto-discoverable.",
             "methods": [
                 "tools(): ToolInterface[] — returns toolkit_create, toolkit_add_tool, toolkit_list",
                 "guidelines(): string — usage instructions for toolkit generation workflow"

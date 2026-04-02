@@ -80,6 +80,16 @@ final class CoquiDefaults
     public const int TOOLKIT_TOKEN_BUDGET = 10_000;
 
     /**
+     * Percentage of the token budget allocated for promoting Auto-mode toolkits.
+     *
+     * When Auto candidates exceed the full budget, only this percentage is used
+     * for frequency-ranked eager promotion. The rest are deferred.
+     *
+     * Config: agents.defaults.toolkitPromotionBudgetPercent
+     */
+    public const int TOOLKIT_PROMOTION_BUDGET_PERCENT = 60;
+
+    /**
      * Toolkit class basenames that are always loaded (never deferred).
      *
      * These are the core toolkits that every agent session needs. They are
@@ -113,5 +123,6 @@ final class CoquiDefaults
         'summarize_conversation',
         'extract_memories',
         'config',
+        'toolkit_list',
     ];
 }
