@@ -736,16 +736,62 @@ This enforces the contract that plan stages must produce artifacts before coder 
 
 ## Schedule System Architecture
 
-Coqui supports autonomous, timer-driven execution via a cron-style scheduling system. The agent can create, manage, and self-schedule recurring or one-shot tasks that execute as background tasks inside the ReactPHP event loop.
+Coqui supports autonomous, timer-driven execution via a cron-style scheduling system. The agent can create, manage, and self-schedule recurring or one-shot tasks that execute as background tasks inside the ReactPHP event loop. Schedules can be created programmatically (via agent tools or API) or declaratively via JSON files in `workspace/schedules/`.
 
 ### How It Works
 
-1. **`ScheduleStore`** manages a `scheduled_tasks` SQLite table. Each schedule has a name, cron expression, prompt, role, iteration limit, timezone, and circuit-breaker counters.
+1. **`ScheduleStore`** manages a `scheduled_tasks` SQLite table. Each schedule has a name, cron expression, prompt, role, iteration limit, timezone, circuit-breaker counters, and a `source` field (`system` or `filesystem`).
 2. **`ScheduleManager`** runs inside the ReactPHP event loop via a 60-second periodic timer. On each `tick()`, it queries `getReadySchedules(now)` for enabled schedules whose `next_run_at` has passed, creates background tasks via `SessionStorage`, and updates the schedule records.
 3. **`ScheduleHandler`** exposes 8 REST endpoints for CRUD, manual trigger, and enable/disable operations.
-4. **`ScheduleToolkit`** provides 6 agent-facing tools so the agent can create and manage its own schedules during conversations.
+4. **`ScheduleToolkit`** provides 8 agent-facing tools so the agent can create and manage its own schedules during conversations.
 5. **Circuit breaker** — when a schedule's `failure_count` reaches `max_failures` (default 3), the schedule is automatically disabled. The agent or user must re-enable it after investigating.
 6. **One-shot schedules** — the special expression `@once` creates a schedule that runs once at the next tick and is then automatically disabled.
+
+### Filesystem Schedules
+
+Users can define schedules declaratively by placing JSON files in `workspace/schedules/`. The `WorkspaceWatcher` polls this directory every 10 seconds and syncs changes into the `scheduled_tasks` table via `ScheduleStore::upsertFilesystem()`.
+
+#### JSON File Format
+
+```json
+{
+    "schedule_expression": "0 9 * * 1-5",
+    "prompt": "Review recent changes and generate a daily report",
+    "role": "coder",
+    "max_iterations": 30,
+    "description": "Weekday morning code review",
+    "timezone": "America/New_York",
+    "enabled": true
+}
+```
+
+Required fields: `schedule_expression` (or `expression`/`cron` aliases), `prompt`. All other fields are optional with sensible defaults. The schedule name is derived from the filename stem (e.g. `daily-backup.json` → name `daily-backup`).
+
+#### Source Model
+
+Schedules track their origin via two columns:
+
+| Column | Type | Description |
+| --- | --- | --- |
+| `source` | TEXT | `system` (agent/API-created) or `filesystem` (JSON file) |
+| `source_path` | TEXT | Absolute path to source JSON file (filesystem only) |
+
+#### Mutation Guards
+
+Filesystem schedules are **read-only from the application**. Users edit or delete JSON files directly. Mutation attempts via agent tools, REPL commands, or API are blocked with helpful error messages that reference the source file:
+
+- `schedule_update` → "Edit the JSON file directly to modify it"
+- `schedule_delete` → "Delete the JSON file to remove it"
+- `schedule_enable`/`schedule_disable` → "Set `enabled` in the JSON file"
+- `schedule_trigger` → Allowed (runtime-only action, not a definition mutation)
+- Bulk operations (`deleteAll`, `enableAll`, `disableAll`) only affect `system` schedules
+
+#### Sync Behavior
+
+- **New files** are parsed via `ScheduleFileDefinition` and inserted into the store
+- **Modified files** (mtime change) are re-parsed; only definition fields are updated (runtime state like `run_count`, `failure_count`, `last_run_at` is preserved)
+- **Removed files** trigger deletion of the corresponding database row
+- **Malformed files** are logged as errors but do not block other files from syncing
 
 ### Schedule Schema
 
@@ -768,6 +814,8 @@ Coqui supports autonomous, timer-driven execution via a cron-style scheduling sy
 | `failure_count` | INTEGER | Consecutive failures (resets on success) |
 | `max_failures` | INTEGER | Circuit breaker threshold (default: 3) |
 | `metadata` | TEXT | Optional JSON metadata |
+| `source` | TEXT | Schedule origin: `system` or `filesystem` (default: `system`) |
+| `source_path` | TEXT | Absolute path to source JSON file (filesystem schedules only) |
 
 ### Agent-Facing Tools (ScheduleToolkit)
 
@@ -804,7 +852,7 @@ Coqui supports autonomous, timer-driven execution via a cron-style scheduling sy
 
 | Command | Description |
 | --- | --- |
-| `/schedules` | Table-formatted list of all schedules with status, cron, next run, last run, and run count |
+| `/schedules` | Table-formatted list of all schedules with status, source, cron, next run, last run, and run count |
 | `/schedules enable <name\|id\|all>` | Enable a schedule or all disabled schedules |
 | `/schedules disable <name\|id\|all>` | Disable a schedule or all enabled schedules |
 | `/schedules delete <name\|id\|all>` | Delete a schedule or all schedules |
@@ -814,10 +862,46 @@ Coqui supports autonomous, timer-driven execution via a cron-style scheduling sy
 
 | File | Purpose |
 | --- | --- |
-| `src/Storage/ScheduleStore.php` | SQLite CRUD with circuit breaker, cron next-run computation, stats |
+| `src/Storage/ScheduleStore.php` | SQLite CRUD with circuit breaker, cron next-run computation, stats, filesystem upsert/delete |
 | `src/Api/ScheduleManager.php` | ReactPHP timer-driven scheduler with MIN_INTERVAL_SECONDS enforcement |
 | `src/Api/Handler/ScheduleHandler.php` | 8 REST endpoints for schedule management |
-| `src/Toolkit/ScheduleToolkit.php` | 8 agent-facing tools for self-scheduling with bulk operation support |
+| `src/Toolkit/ScheduleToolkit.php` | 8 agent-facing tools for self-scheduling with bulk operation support and filesystem guards |
+| `src/Contract/ScheduleFileDefinition.php` | Immutable value object for parsing schedule JSON files with validation |
+| `src/Api/WatchJob/ScheduleFileWatchJob.php` | WatchJobInterface implementation: scans workspace/schedules/, syncs to ScheduleStore |
+
+
+## Workspace Watcher Architecture
+
+Coqui provides a generic, polling-based workspace file watcher that monitors workspace directories for changes and dispatches reconciliation to pluggable watch jobs. The watcher is designed as a reusable infrastructure component — schedule file sync is the first watch job, but the pattern supports any directory-based feature.
+
+### How It Works
+
+1. **`WorkspaceWatcher`** is the main manager. It holds registered `WatchJobInterface` instances and runs all jobs on each tick.
+2. **`WatchJobInterface`** is the pluggable contract. Implementations scan a specific directory, track state (mtimes, hashes), and return a `WatchJobResult` summarizing changes.
+3. **`WatchJobResult`** is a readonly value object with counts for `added`, `modified`, `removed`, and a `list<string>` of non-fatal `errors`.
+4. **Jobs handle their own state tracking** — the watcher simply iterates and aggregates. This keeps the watcher thin and allows each job to use the most appropriate change detection strategy (mtime, content hash, etc.).
+
+### Timer Integration
+
+The watcher runs on a **10-second periodic timer** in `ApiCommand.php`, positioned after the schedule manager timers. On boot, `initialSync()` runs all jobs once before the timer starts. The `workspace/schedules/` directory is created automatically if it doesn't exist.
+
+### Adding a New Watch Job
+
+1. Create a class implementing `WatchJobInterface` with `scan(): WatchJobResult` and `name(): string`.
+2. Register it on the `WorkspaceWatcher` instance in `ApiCommand.php`:
+   ```php
+   $watcher->register(new MyWatchJob($myDir, $myStore));
+   ```
+3. The watcher handles tick scheduling, error isolation, and result aggregation.
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `src/Contract/WatchJobInterface.php` | Pluggable watch job contract: `scan()` and `name()` |
+| `src/Contract/WatchJobResult.php` | Readonly value object: added/modified/removed counts + errors |
+| `src/Api/WorkspaceWatcher.php` | Generic polling manager: registers jobs, ticks, aggregates results |
+| `src/Api/WatchJob/ScheduleFileWatchJob.php` | First watch job: syncs workspace/schedules/*.json into ScheduleStore |
 
 
 ## Webhook System Architecture
