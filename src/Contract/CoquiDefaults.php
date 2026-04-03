@@ -107,6 +107,8 @@ final class CoquiDefaults
         'SprintToolkit',
         'CoquiSourceToolkit',
         'SkillToolkit',
+        'ComposerToolkit',
+        'PackagistToolkit',
     ];
 
     /**

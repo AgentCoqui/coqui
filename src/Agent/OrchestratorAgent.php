@@ -54,7 +54,9 @@ use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\LearningToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
+use CoquiBot\Coqui\Toolkit\ComposerToolkit;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
+use CoquiBot\Coqui\Toolkit\PackagistToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\StubToolkit;
 use CoquiBot\Coqui\Toolkit\TodoToolkit;
@@ -347,6 +349,15 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Project source toolkit — read-only access to the Coqui project codebase
         $this->addToolkit(new CoquiSourceToolkit(projectRoot: $this->projectRoot));
+
+        // Composer & Packagist toolkits — workspace package management
+        if ($effectiveAccessLevel === 'full') {
+            $this->addToolkit(new ComposerToolkit(
+                workspacePath: $this->workspacePath,
+                listener: $discovery,
+            ));
+            $this->addToolkit(new PackagistToolkit());
+        }
 
         // --- Candidate toolkits: collected first, then budget-gated ---
         // Non-system toolkits may be deferred (wrapped as StubToolkit) when the

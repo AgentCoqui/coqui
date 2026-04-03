@@ -14,8 +14,10 @@ use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Contract\ToolExecutorInterface;
+use CoquiBot\Coqui\Toolkit\ComposerToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
+use CoquiBot\Coqui\Toolkit\PackagistToolkit;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
 
 /**
@@ -115,6 +117,13 @@ final class BackgroundToolExecutor implements ToolExecutorInterface
 
         // Project source toolkit
         $this->registerToolkit(new CoquiSourceToolkit(projectRoot: $this->projectRoot));
+
+        // Composer & Packagist toolkits — workspace package management
+        $this->registerToolkit(new ComposerToolkit(
+            workspacePath: $workspacePath,
+            listener: $this->boot->discovery(),
+        ));
+        $this->registerToolkit(new PackagistToolkit());
 
         // PHP execution tool
         $sanitizer = new ScriptSanitizer(
