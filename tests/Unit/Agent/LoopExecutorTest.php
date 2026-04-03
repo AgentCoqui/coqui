@@ -2,11 +2,17 @@
 
 declare(strict_types=1);
 
+use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
+use CarmeloSantana\PHPAgents\Provider\Response;
+use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CoquiBot\Coqui\Agent\GoalEvaluator;
 use CoquiBot\Coqui\Agent\LoopExecutor;
+use CoquiBot\Coqui\Agent\ToolBoundEvaluator;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\IterationOutcome;
 use CoquiBot\Coqui\Contract\TerminationType;
+use CoquiBot\Coqui\Contract\ToolExecutorInterface;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
@@ -826,4 +832,530 @@ test('stage prompt omits parameters section for non-parameterized loops', functi
     $result = $this->executor->prepareNextStage($loopId);
 
     expect($result->prompt)->not->toContain('## Parameters');
+});
+
+// ──────────────────────────────────────────────
+//  Edge cases: Approval detection
+// ──────────────────────────────────────────────
+
+test('evaluateIteration recognizes "accepted" as approval', function () {
+    $loopId = $this->executor->startLoop($this->harnessDefinition, 'Goal');
+
+    $s1 = $this->executor->prepareNextStage($loopId);
+    $this->executor->completeStage($s1->stageId, 'Plan done');
+    $s2 = $this->executor->prepareNextStage($loopId);
+    $this->executor->completeStage($s2->stageId, 'Code done');
+    $s3 = $this->executor->prepareNextStage($loopId);
+    $this->executor->completeStage($s3->stageId, 'Accepted - meets all requirements');
+
+    expect($this->executor->evaluateIteration($loopId))->toBe(IterationOutcome::Complete);
+});
+
+test('evaluateIteration recognizes "passes all criteria" as approval', function () {
+    $loopId = $this->executor->startLoop($this->harnessDefinition, 'Goal');
+
+    $s1 = $this->executor->prepareNextStage($loopId);
+    $this->executor->completeStage($s1->stageId, 'Plan done');
+    $s2 = $this->executor->prepareNextStage($loopId);
+    $this->executor->completeStage($s2->stageId, 'Code done');
+    $s3 = $this->executor->prepareNextStage($loopId);
+    $this->executor->completeStage($s3->stageId, 'The implementation passes all criteria set forth.');
+
+    expect($this->executor->evaluateIteration($loopId))->toBe(IterationOutcome::Complete);
+});
+
+test('evaluateIteration treats mixed approval and rejection as rejection', function () {
+    $loopId = $this->executor->startLoop($this->harnessDefinition, 'Goal');
+
+    $s1 = $this->executor->prepareNextStage($loopId);
+    $this->executor->completeStage($s1->stageId, 'Plan done');
+    $s2 = $this->executor->prepareNextStage($loopId);
+    $this->executor->completeStage($s2->stageId, 'Code done');
+    $s3 = $this->executor->prepareNextStage($loopId);
+    // Contains "approved" but also "rejected" — should be treated as rejection
+    $this->executor->completeStage($s3->stageId, 'Previously approved features are fine but rejected due to missing validation');
+
+    expect($this->executor->evaluateIteration($loopId))->toBe(IterationOutcome::Continue);
+});
+
+test('evaluateIteration approval is case insensitive', function () {
+    $loopId = $this->executor->startLoop($this->harnessDefinition, 'Goal');
+
+    $s1 = $this->executor->prepareNextStage($loopId);
+    $this->executor->completeStage($s1->stageId, 'Plan done');
+    $s2 = $this->executor->prepareNextStage($loopId);
+    $this->executor->completeStage($s2->stageId, 'Code done');
+    $s3 = $this->executor->prepareNextStage($loopId);
+    $this->executor->completeStage($s3->stageId, 'APPROVED - ALL TESTS PASS');
+
+    expect($this->executor->evaluateIteration($loopId))->toBe(IterationOutcome::Complete);
+});
+
+// ──────────────────────────────────────────────
+//  Edge cases: Template parameters
+// ──────────────────────────────────────────────
+
+test('startLoop applies multiple parameter substitutions in same prompt', function () {
+    $def = [
+        'name' => 'multi-param',
+        'description' => '{{lang}} {{framework}} test',
+        'roles' => [['role' => 'coder', 'prompt' => 'Write {{lang}} code using {{framework}}.']],
+        'termination_condition' => ['type' => 'manual'],
+        'parameters' => [
+            ['name' => 'lang', 'description' => 'Language', 'required' => true],
+            ['name' => 'framework', 'description' => 'Framework', 'required' => true],
+        ],
+    ];
+
+    $loopId = $this->executor->startLoop($def, 'Build with {{lang}} and {{framework}}', parameters: ['lang' => 'PHP', 'framework' => 'Pest']);
+
+    $result = $this->executor->prepareNextStage($loopId);
+
+    expect($result->prompt)->toContain('Write PHP code using Pest.');
+    expect($result->prompt)->toContain('Build with PHP and Pest');
+    expect($result->prompt)->not->toContain('{{lang}}');
+    expect($result->prompt)->not->toContain('{{framework}}');
+});
+
+test('startLoop substitutes parameters in termination condition value', function () {
+    $def = [
+        'name' => 'tc-param',
+        'description' => 'Termination param test',
+        'roles' => [
+            ['role' => 'coder', 'prompt' => 'Code.'],
+            ['role' => 'reviewer', 'prompt' => 'Review.'],
+        ],
+        'termination_condition' => [
+            'type' => 'evaluation_bound',
+            'value' => ['criteria' => 'Must pass {{standard}}', 'max_review_rounds' => '{{rounds}}'],
+        ],
+        'parameters' => [
+            ['name' => 'standard', 'description' => 'Quality standard', 'required' => true],
+            ['name' => 'rounds', 'description' => 'Max rounds', 'required' => false, 'default' => '3'],
+        ],
+    ];
+
+    $loopId = $this->executor->startLoop($def, 'Goal', parameters: ['standard' => 'PER-CS 2.0']);
+
+    $loop = $this->loopStore->getLoop($loopId);
+    expect((int) $loop['max_iterations'])->toBe(3);
+    expect($loop['termination_criteria'])->toBe('Must pass PER-CS 2.0');
+});
+
+test('startLoop with empty parameters array on non-parameterized definition succeeds', function () {
+    $loopId = $this->executor->startLoop($this->harnessDefinition, 'Goal', parameters: []);
+
+    expect($loopId)->toBeString();
+    expect(strlen($loopId))->toBe(32);
+});
+
+// ──────────────────────────────────────────────
+//  Helper: Goal/Tool evaluator stubs
+// ──────────────────────────────────────────────
+
+function makeLoopGoalProvider(string $responseContent): ProviderInterface
+{
+    return new class ($responseContent) implements ProviderInterface {
+        public function __construct(private readonly string $responseContent) {}
+
+        public function chat(array $messages, array $tools = [], array $options = []): Response
+        {
+            return new Response(content: $this->responseContent, finishReason: \CarmeloSantana\PHPAgents\Enum\FinishReason::Stop);
+        }
+
+        public function stream(array $messages, array $tools = [], array $options = []): iterable { return []; }
+        public function structured(array $messages, string $schema, array $options = []): mixed { return null; }
+        public function models(): array { return []; }
+        public function isAvailable(): bool { return true; }
+        public function getModel(): string { return 'test/model'; }
+        public function withModel(string $model): static { return $this; }
+    };
+}
+
+function makeLoopToolExecutor(ToolResult $result): ToolExecutorInterface
+{
+    return new class ($result) implements ToolExecutorInterface {
+        public function __construct(private readonly ToolResult $result) {}
+
+        public function execute(string $toolName, array $arguments): ToolResult
+        {
+            return $this->result;
+        }
+    };
+}
+
+// ──────────────────────────────────────────────
+//  evaluateIteration — Goal Bound
+// ──────────────────────────────────────────────
+
+test('evaluateIteration goal_bound returns Complete when goal achieved', function () {
+    $goalEvaluator = new GoalEvaluator(makeLoopGoalProvider("ACHIEVED\nAll requirements met."));
+
+    $executor = new LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $this->projectStore,
+        goalEvaluator: $goalEvaluator,
+    );
+
+    $def = [
+        'name' => 'goal-test',
+        'description' => 'Goal bound test',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => [
+            'type' => 'goal_bound',
+            'value' => ['goal_prompt' => 'Is the API complete?', 'max_iterations' => 5],
+        ],
+    ];
+
+    $loopId = $executor->startLoop($def, 'Build an API');
+
+    $s = $executor->prepareNextStage($loopId);
+    $executor->completeStage($s->stageId, 'API implementation complete with all endpoints.');
+
+    $outcome = $executor->evaluateIteration($loopId);
+
+    expect($outcome)->toBe(IterationOutcome::Complete);
+    expect($this->loopStore->getLoop($loopId)['status'])->toBe('completed');
+});
+
+test('evaluateIteration goal_bound returns Continue when goal not achieved', function () {
+    $goalEvaluator = new GoalEvaluator(makeLoopGoalProvider("NOT_ACHIEVED\nMissing authentication."));
+
+    $executor = new LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $this->projectStore,
+        goalEvaluator: $goalEvaluator,
+    );
+
+    $def = [
+        'name' => 'goal-test',
+        'description' => 'Goal bound test',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => [
+            'type' => 'goal_bound',
+            'value' => ['goal_prompt' => 'Is it done?', 'max_iterations' => 5],
+        ],
+    ];
+
+    $loopId = $executor->startLoop($def, 'Build auth');
+
+    $s = $executor->prepareNextStage($loopId);
+    $executor->completeStage($s->stageId, 'Basic structure created.');
+
+    $outcome = $executor->evaluateIteration($loopId);
+
+    expect($outcome)->toBe(IterationOutcome::Continue);
+    expect($this->loopStore->getLoop($loopId)['status'])->toBe('running');
+
+    // New iteration should be created
+    $iterations = $this->loopStore->listIterations($loopId);
+    expect($iterations)->toHaveCount(2);
+});
+
+test('evaluateIteration goal_bound returns LimitReached at max iterations', function () {
+    // Provider returns NOT_ACHIEVED, but we're at the iteration limit
+    $goalEvaluator = new GoalEvaluator(makeLoopGoalProvider("NOT_ACHIEVED\nStill incomplete."));
+
+    $executor = new LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $this->projectStore,
+        goalEvaluator: $goalEvaluator,
+    );
+
+    $def = [
+        'name' => 'goal-limit',
+        'description' => 'Limit test',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => [
+            'type' => 'goal_bound',
+            'value' => ['goal_prompt' => 'Done?', 'max_iterations' => 1],
+        ],
+    ];
+
+    $loopId = $executor->startLoop($def, 'Goal');
+
+    $s = $executor->prepareNextStage($loopId);
+    $executor->completeStage($s->stageId, 'Output');
+
+    $outcome = $executor->evaluateIteration($loopId);
+
+    // max_iterations=1, we're on iteration 1 → LimitReached (before evaluator is even called)
+    expect($outcome)->toBe(IterationOutcome::LimitReached);
+    expect($this->loopStore->getLoop($loopId)['status'])->toBe('completed');
+});
+
+test('evaluateIteration goal_bound falls back to Continue without evaluator', function () {
+    // No goalEvaluator injected — acts as manual
+    $executor = new LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $this->projectStore,
+    );
+
+    $def = [
+        'name' => 'goal-no-eval',
+        'description' => 'No evaluator',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => [
+            'type' => 'goal_bound',
+            'value' => ['goal_prompt' => 'Done?', 'max_iterations' => 10],
+        ],
+    ];
+
+    $loopId = $executor->startLoop($def, 'Goal');
+
+    $s = $executor->prepareNextStage($loopId);
+    $executor->completeStage($s->stageId, 'Output');
+
+    $outcome = $executor->evaluateIteration($loopId);
+
+    expect($outcome)->toBe(IterationOutcome::Continue);
+});
+
+test('evaluateIteration goal_bound multi-iteration lifecycle', function () {
+    // First call: NOT_ACHIEVED, second call: ACHIEVED
+    $callCount = 0;
+    $provider = new class ($callCount) implements ProviderInterface {
+        private int $callCount;
+
+        public function __construct(int &$callCount)
+        {
+            $this->callCount = &$callCount;
+        }
+
+        public function chat(array $messages, array $tools = [], array $options = []): Response
+        {
+            $this->callCount++;
+            $content = $this->callCount >= 2
+                ? "ACHIEVED\nGoal met on second iteration."
+                : "NOT_ACHIEVED\nNot yet.";
+            return new Response(content: $content, finishReason: \CarmeloSantana\PHPAgents\Enum\FinishReason::Stop);
+        }
+
+        public function stream(array $messages, array $tools = [], array $options = []): iterable { return []; }
+        public function structured(array $messages, string $schema, array $options = []): mixed { return null; }
+        public function models(): array { return []; }
+        public function isAvailable(): bool { return true; }
+        public function getModel(): string { return 'test/model'; }
+        public function withModel(string $model): static { return $this; }
+    };
+
+    $executor = new LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $this->projectStore,
+        goalEvaluator: new GoalEvaluator($provider),
+    );
+
+    $def = [
+        'name' => 'goal-lifecycle',
+        'description' => 'Multi-iteration goal',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => [
+            'type' => 'goal_bound',
+            'value' => ['goal_prompt' => 'Is it done?', 'max_iterations' => 5],
+        ],
+    ];
+
+    $loopId = $executor->startLoop($def, 'Build it');
+
+    // Iteration 1: NOT_ACHIEVED → Continue
+    $s1 = $executor->prepareNextStage($loopId);
+    $executor->completeStage($s1->stageId, 'Partial work');
+    expect($executor->evaluateIteration($loopId))->toBe(IterationOutcome::Continue);
+
+    // Iteration 2: ACHIEVED → Complete
+    $s2 = $executor->prepareNextStage($loopId);
+    $executor->completeStage($s2->stageId, 'All work done');
+    expect($executor->evaluateIteration($loopId))->toBe(IterationOutcome::Complete);
+
+    expect($this->loopStore->getLoop($loopId)['status'])->toBe('completed');
+    expect($this->loopStore->listIterations($loopId))->toHaveCount(2);
+});
+
+// ──────────────────────────────────────────────
+//  evaluateIteration — Tool Bound
+// ──────────────────────────────────────────────
+
+test('evaluateIteration tool_bound returns Complete when threshold met', function () {
+    $toolEvaluator = new ToolBoundEvaluator(makeLoopToolExecutor(ToolResult::success('95')));
+
+    $executor = new LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $this->projectStore,
+        toolBoundEvaluator: $toolEvaluator,
+    );
+
+    $def = [
+        'name' => 'tool-test',
+        'description' => 'Tool bound test',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => [
+            'type' => 'tool_bound',
+            'value' => [
+                'tool' => 'test_coverage',
+                'operator' => '>=',
+                'threshold' => 80,
+                'max_iterations' => 5,
+            ],
+        ],
+    ];
+
+    $loopId = $executor->startLoop($def, 'Increase coverage');
+
+    $s = $executor->prepareNextStage($loopId);
+    $executor->completeStage($s->stageId, 'Added tests');
+
+    $outcome = $executor->evaluateIteration($loopId);
+
+    expect($outcome)->toBe(IterationOutcome::Complete);
+    expect($this->loopStore->getLoop($loopId)['status'])->toBe('completed');
+});
+
+test('evaluateIteration tool_bound returns Continue when threshold not met', function () {
+    $toolEvaluator = new ToolBoundEvaluator(makeLoopToolExecutor(ToolResult::success('50')));
+
+    $executor = new LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $this->projectStore,
+        toolBoundEvaluator: $toolEvaluator,
+    );
+
+    $def = [
+        'name' => 'tool-test',
+        'description' => 'Tool bound test',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => [
+            'type' => 'tool_bound',
+            'value' => [
+                'tool' => 'test_coverage',
+                'operator' => '>=',
+                'threshold' => 80,
+                'max_iterations' => 5,
+            ],
+        ],
+    ];
+
+    $loopId = $executor->startLoop($def, 'Increase coverage');
+
+    $s = $executor->prepareNextStage($loopId);
+    $executor->completeStage($s->stageId, 'Added some tests');
+
+    $outcome = $executor->evaluateIteration($loopId);
+
+    expect($outcome)->toBe(IterationOutcome::Continue);
+    expect($this->loopStore->getLoop($loopId)['status'])->toBe('running');
+    expect($this->loopStore->listIterations($loopId))->toHaveCount(2);
+});
+
+test('evaluateIteration tool_bound returns LimitReached at max iterations', function () {
+    $toolEvaluator = new ToolBoundEvaluator(makeLoopToolExecutor(ToolResult::success('50')));
+
+    $executor = new LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $this->projectStore,
+        toolBoundEvaluator: $toolEvaluator,
+    );
+
+    $def = [
+        'name' => 'tool-limit',
+        'description' => 'Limit test',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => [
+            'type' => 'tool_bound',
+            'value' => [
+                'tool' => 'test_coverage',
+                'operator' => '>=',
+                'threshold' => 80,
+                'max_iterations' => 1,
+            ],
+        ],
+    ];
+
+    $loopId = $executor->startLoop($def, 'Goal');
+
+    $s = $executor->prepareNextStage($loopId);
+    $executor->completeStage($s->stageId, 'Output');
+
+    $outcome = $executor->evaluateIteration($loopId);
+
+    expect($outcome)->toBe(IterationOutcome::LimitReached);
+    expect($this->loopStore->getLoop($loopId)['status'])->toBe('completed');
+});
+
+test('evaluateIteration tool_bound falls back to Continue without evaluator', function () {
+    $executor = new LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $this->projectStore,
+    );
+
+    $def = [
+        'name' => 'tool-no-eval',
+        'description' => 'No evaluator',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => [
+            'type' => 'tool_bound',
+            'value' => [
+                'tool' => 'test_coverage',
+                'operator' => '>=',
+                'threshold' => 80,
+                'max_iterations' => 10,
+            ],
+        ],
+    ];
+
+    $loopId = $executor->startLoop($def, 'Goal');
+
+    $s = $executor->prepareNextStage($loopId);
+    $executor->completeStage($s->stageId, 'Output');
+
+    $outcome = $executor->evaluateIteration($loopId);
+
+    expect($outcome)->toBe(IterationOutcome::Continue);
+});
+
+test('evaluateIteration tool_bound with arguments passes them to tool', function () {
+    $capturedArgs = null;
+    $executor_stub = new class ($capturedArgs) implements ToolExecutorInterface {
+        public function __construct(private ?array &$capturedArgs) {}
+
+        public function execute(string $toolName, array $arguments): ToolResult
+        {
+            $this->capturedArgs = ['tool' => $toolName, 'args' => $arguments];
+            return ToolResult::success('100');
+        }
+    };
+
+    $toolEvaluator = new ToolBoundEvaluator($executor_stub);
+
+    $executor = new LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $this->projectStore,
+        toolBoundEvaluator: $toolEvaluator,
+    );
+
+    $def = [
+        'name' => 'tool-args',
+        'description' => 'Arguments test',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => [
+            'type' => 'tool_bound',
+            'value' => [
+                'tool' => 'run_tests',
+                'arguments' => ['suite' => 'unit', 'verbose' => true],
+                'operator' => '>=',
+                'threshold' => 90,
+                'max_iterations' => 5,
+            ],
+        ],
+    ];
+
+    $loopId = $executor->startLoop($def, 'Goal');
+
+    $s = $executor->prepareNextStage($loopId);
+    $executor->completeStage($s->stageId, 'Done');
+
+    $executor->evaluateIteration($loopId);
+
+    expect($capturedArgs)->not->toBeNull();
+    expect($capturedArgs['tool'])->toBe('run_tests');
+    expect($capturedArgs['args'])->toBe(['suite' => 'unit', 'verbose' => true]);
 });

@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Agent;
 
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CoquiBot\Coqui\Contract\ToolBoundEvaluationResult;
+use CoquiBot\Coqui\Contract\ToolExecutorInterface;
 
 /**
  * Executes a tool by name and compares its numeric output against a threshold.
@@ -14,13 +15,13 @@ use CoquiBot\Coqui\Contract\ToolBoundEvaluationResult;
  * the specified tool is called and its output parsed as a number. The result
  * is compared against the configured threshold using the declared operator.
  *
- * Delegates tool resolution and execution to BackgroundToolExecutor, which
+ * Delegates tool resolution and execution to a ToolExecutorInterface, which
  * builds the same toolkit stack as OrchestratorAgent.
  */
 final class ToolBoundEvaluator
 {
     public function __construct(
-        private readonly BackgroundToolExecutor $executor,
+        private readonly ToolExecutorInterface $executor,
     ) {}
 
     /**
