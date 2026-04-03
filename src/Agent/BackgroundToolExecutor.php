@@ -13,6 +13,7 @@ use CoquiBot\Coqui\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Contract\ToolExecutorInterface;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
@@ -26,7 +27,7 @@ use CoquiBot\Coqui\Tool\PhpExecuteTool;
  *
  * Used by TaskRunCommand when a task record has tool_name set.
  */
-final class BackgroundToolExecutor
+final class BackgroundToolExecutor implements ToolExecutorInterface
 {
     /** @var array<string, ToolInterface> */
     private array $tools = [];
