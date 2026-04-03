@@ -711,17 +711,45 @@ Loop role definitions support an optional `requires_artifact_from` field — an 
 
 This enforces the contract that plan stages must produce artifacts before coder stages proceed, and coder stages must produce artifacts before reviewer stages proceed. The field is backward-compatible — existing definitions without `requires_artifact_from` continue to work unchanged.
 
+### Explicit Evidence Contract
+
+The optional `requires_explicit_evidence` boolean field (default `false`) strengthens the `requires_artifact_from` check. When `true`, `prepareNextStage()` additionally queries `ArtifactStore` for non-`loop_output` artifacts in the project scope created during the current iteration. Auto-created `loop_output` artifacts (produced by `LoopManager::reconcileLoop()`) do not satisfy this requirement — the referenced stage must have explicitly called `artifact_create`.
+
+This prevents reviewer stages from proceeding when the coder only emitted prose output without creating a review artifact summarizing changed files, verification results, and known gaps. The `harness` and `research` loop definitions set `requires_explicit_evidence: true` on their reviewer stages.
+
+### Loop Project Resolution
+
+`LoopExecutor::startLoop()` accepts optional `projectId`, `projectSlug`, and `sprintId` parameters. Project resolution follows a 3-tier fallback:
+
+1. **Explicit project** — `project_id` or `project_slug` parameter maps to an existing project
+2. **Session active project** — inherits the active project from the parent session via `SessionStorage::getActiveProjectId()`
+3. **Auto-create** — creates a new project scoped to the loop (original behavior preserved as fallback)
+
+Sprint resolution: when `sprintId` is provided, the first iteration reuses that sprint instead of auto-creating one. This enables loops to iterate on existing project work.
+
+### Loop Definition Update Tracking
+
+`LoopUpdateTracker` mirrors the `RoleUpdateTracker` pattern for built-in loop definitions. On boot, `BootManager::discoverLoops()` creates the tracker and passes it to `LoopDiscovery::seedBuiltinLoops()` to record SHA-256 hashes of both built-in and workspace copies. On subsequent boots, `autoUpdateAndNotify()` compares hashes:
+
+- **Unmodified definitions** (workspace hash matches seeded hash) are auto-updated silently.
+- **User-modified definitions** generate a notification for manual review.
+- **Backups** are created at `workspace/backups/loops/` before any update.
+
+Hash data is stored in `workspace/data/loop-hashes.json`.
+
 ### Key Source Files
 
 | File | Purpose |
 | --- | --- |
-| `src/Agent/LoopExecutor.php` | Mode-agnostic orchestration engine: state machine, prompt composition, termination evaluation, sprint auto-transitions |
+| `src/Agent/LoopExecutor.php` | Mode-agnostic orchestration engine: state machine, prompt composition, termination evaluation, sprint auto-transitions, project resolution, explicit evidence enforcement |
 | `src/Api/LoopManager.php` | API async driver: 5-second tick + 3-second reconciliation via background tasks, auto-creates loop_output artifacts |
 | `src/Storage/LoopStore.php` | SQLite persistence: 3 tables (loops, loop_iterations, loop_stages) |
 | `src/Config/LoopDiscovery.php` | JSON file discovery from workspace/loops/, seeds built-ins from config/loops/ |
+| `src/Config/LoopUpdateTracker.php` | SHA-256 hash tracking for built-in loop definitions, auto-update with backup |
+| `src/Config/LoopUpdateInfo.php` | Value object for pending loop definition update metadata |
 | `src/Toolkit/LoopToolkit.php` | 7 agent-facing tools with dynamic guidelines; receives `sessionId` for executor propagation |
 | `src/Contract/LoopDefinition.php` | Immutable value object: name, description, roles, termination condition |
-| `src/Contract/LoopRoleDefinition.php` | Value object: role, prompt, skills, maxIterations per stage |
+| `src/Contract/LoopRoleDefinition.php` | Value object: role, prompt, skills, maxIterations, requiresArtifactFrom, requiresExplicitEvidence |
 | `src/Contract/TerminationType.php` | Backed enum: EvaluationBound, IterationBound, TimeBound, Manual, GoalBound, ToolBound |
 | `src/Contract/TerminationCondition.php` | Value object: type + threshold value + goal/tool-bound fields |
 | `src/Contract/GoalEvaluationResult.php` | Value object: `{achieved, rationale}` from LLM goal evaluation |

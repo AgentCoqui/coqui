@@ -217,9 +217,10 @@ final class LoopDiscovery
      * Seed built-in loop definitions from config/loops/ to workspace/loops/.
      *
      * Only copies definitions that don't already exist in the workspace.
-     * Never overwrites user-edited files.
+     * Never overwrites user-edited files. When a LoopUpdateTracker is provided,
+     * newly seeded files are recorded for future update detection.
      */
-    public function seedBuiltinLoops(): void
+    public function seedBuiltinLoops(?LoopUpdateTracker $tracker = null): void
     {
         $this->ensureLoopsDir();
 
@@ -247,6 +248,13 @@ final class LoopDiscovery
             // Only copy if target doesn't exist — never overwrite user edits
             if (!file_exists($target)) {
                 copy($source, $target);
+
+                // Record hashes for the newly seeded file
+                if ($tracker !== null) {
+                    $loopName = basename($entry, '.json');
+                    $hash = $tracker->hashFile($source);
+                    $tracker->recordHash($loopName, $hash, $hash);
+                }
             }
         }
 

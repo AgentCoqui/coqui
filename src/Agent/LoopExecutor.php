@@ -12,6 +12,9 @@ use CoquiBot\Coqui\Contract\LoopStageResult;
 use CoquiBot\Coqui\Contract\TerminationType;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
+use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\TodoStore;
+use CoquiBot\Coqui\Storage\ArtifactStore;
 
 /**
  * Core orchestration engine for loop workflows.
@@ -25,12 +28,20 @@ final class LoopExecutor
     public function __construct(
         private readonly LoopStore $loopStore,
         private readonly ProjectStore $projectStore,
+        private readonly ?SessionStorage $sessionStorage = null,
+        private readonly ?TodoStore $todoStore = null,
+        private readonly ?ArtifactStore $artifactStore = null,
         private readonly ?GoalEvaluator $goalEvaluator = null,
         private readonly ?ToolBoundEvaluator $toolBoundEvaluator = null,
     ) {}
 
     /**
-     * Start a new loop: create the loop instance, auto-create a project, and first iteration.
+     * Start a new loop: resolve or create a project, create the loop instance, and first iteration.
+     *
+     * Project resolution order:
+     * 1. Explicit project_id or project_slug — reuse the specified project
+     * 2. Active project on the parent session — inherit from the session
+     * 3. Auto-create a new project scoped to this loop
      *
      * Accepts a raw definition array so template parameters can be substituted into ALL fields
      * (including termination conditions) before parsing into typed value objects.
@@ -44,6 +55,9 @@ final class LoopExecutor
         string $goal,
         ?string $sessionId = null,
         array $parameters = [],
+        ?string $projectId = null,
+        ?string $projectSlug = null,
+        ?string $sprintId = null,
     ): string {
         // Extract declared parameters from the raw definition
         $declaredParams = [];
@@ -89,13 +103,8 @@ final class LoopExecutor
         // Now parse the substituted data into typed value objects
         $definition = LoopDefinition::fromArray($substitutedData);
 
-        // Auto-create a project for this loop
-        $projectSlug = 'loop-' . $definition->name . '-' . substr(bin2hex(random_bytes(4)), 0, 8);
-        $projectId = $this->projectStore->createProject(
-            title: sprintf('Loop: %s', $definition->name),
-            slug: $projectSlug,
-            description: $goal,
-        );
+        // Resolve project: explicit → session active → auto-create
+        $resolvedProjectId = $this->resolveProject($definition, $goal, $projectId, $projectSlug, $sessionId);
 
         // Snapshot the definition so edits don't affect running loops
         $configuration = $definition->toArray();
@@ -129,14 +138,14 @@ final class LoopExecutor
             goal: $goal,
             configuration: $configuration,
             sessionId: $sessionId,
-            projectId: $projectId,
+            projectId: $resolvedProjectId,
             maxIterations: $maxIterations,
             deadline: $deadline,
             terminationCriteria: $terminationCriteria,
         );
 
         // Create the first iteration and its sprint
-        $this->advanceIteration($loopId, $definition, $projectId, $goal);
+        $this->advanceIteration($loopId, $definition, $resolvedProjectId, $goal, $sprintId);
 
         return $loopId;
     }
@@ -214,6 +223,54 @@ final class LoopExecutor
                 );
 
                 return null;
+            }
+        }
+
+        // Enforce explicit evidence contract: when requires_explicit_evidence is set,
+        // the referenced stage must have produced at least one non-loop_output artifact
+        // (i.e. the agent explicitly called artifact_create, not just auto-created output)
+        if (
+            $roleDefinition->requiresExplicitEvidence
+            && $roleDefinition->requiresArtifactFrom !== null
+            && $this->artifactStore !== null
+        ) {
+            $projectId = $loop['project_id'] ?? null;
+            $sessionId = $loop['session_id'] ?? null;
+            $iterationCreatedAt = $iteration['created_at'] ?? null;
+
+            if ($sessionId !== null && $sessionId !== '' && $projectId !== null && $projectId !== '') {
+                $projectArtifacts = $this->artifactStore->list(
+                    sessionId: $sessionId,
+                    projectId: $projectId,
+                    createdAfter: $iterationCreatedAt,
+                );
+
+                $hasExplicitEvidence = false;
+                foreach ($projectArtifacts as $artifact) {
+                    if (($artifact['type'] ?? '') !== 'loop_output') {
+                        $hasExplicitEvidence = true;
+                        break;
+                    }
+                }
+
+                if (!$hasExplicitEvidence) {
+                    $requiredIndex = $roleDefinition->requiresArtifactFrom;
+                    $requiredRole = $definition->roles[$requiredIndex]->role ?? "stage {$requiredIndex}";
+                    $this->failStage(
+                        $nextStage['id'],
+                        sprintf(
+                            'Explicit evidence artifact missing from %s stage (stage %d). '
+                            . 'The %s must create a review artifact via artifact_create summarizing: '
+                            . 'changed files, verification results, and any known gaps. '
+                            . 'Auto-created loop_output artifacts do not satisfy this requirement.',
+                            $requiredRole,
+                            $requiredIndex,
+                            $requiredRole,
+                        ),
+                    );
+
+                    return null;
+                }
             }
         }
 
@@ -408,6 +465,64 @@ final class LoopExecutor
     }
 
     // ──────────────────────────────────────────────
+    //  Private: Project Resolution
+    // ──────────────────────────────────────────────
+
+    /**
+     * Resolve the project for a new loop.
+     *
+     * Resolution order:
+     * 1. Explicit project_id — verify it exists and use it
+     * 2. Explicit project_slug — look up by slug and use it
+     * 3. Active project on the parent session — inherit from session
+     * 4. Auto-create a new project for this loop
+     */
+    private function resolveProject(
+        LoopDefinition $definition,
+        string $goal,
+        ?string $projectId,
+        ?string $projectSlug,
+        ?string $sessionId,
+    ): string {
+        // 1. Explicit project_id
+        if ($projectId !== null && $projectId !== '') {
+            $project = $this->projectStore->getProject($projectId);
+            if ($project === null) {
+                throw new \InvalidArgumentException(sprintf('Project "%s" not found', $projectId));
+            }
+            return (string) $project['id'];
+        }
+
+        // 2. Explicit project_slug
+        if ($projectSlug !== null && $projectSlug !== '') {
+            $project = $this->projectStore->getProject($projectSlug);
+            if ($project === null) {
+                throw new \InvalidArgumentException(sprintf('Project with slug "%s" not found', $projectSlug));
+            }
+            return (string) $project['id'];
+        }
+
+        // 3. Active project on the parent session
+        if ($sessionId !== null && $this->sessionStorage !== null) {
+            $activeProjectId = $this->sessionStorage->getActiveProjectId($sessionId);
+            if ($activeProjectId !== null) {
+                $project = $this->projectStore->getProject($activeProjectId);
+                if ($project !== null) {
+                    return (string) $project['id'];
+                }
+            }
+        }
+
+        // 4. Auto-create a new project
+        $slug = 'loop-' . $definition->name . '-' . substr(bin2hex(random_bytes(4)), 0, 8);
+        return $this->projectStore->createProject(
+            title: sprintf('Loop: %s', $definition->name),
+            slug: $slug,
+            description: $goal,
+        );
+    }
+
+    // ──────────────────────────────────────────────
     //  Private: Iteration Lifecycle
     // ──────────────────────────────────────────────
 
@@ -419,14 +534,23 @@ final class LoopExecutor
         LoopDefinition $definition,
         ?string $projectId,
         string $goal,
+        ?string $initialSprintId = null,
     ): void {
         // Determine next iteration number
         $iterations = $this->loopStore->listIterations($loopId);
         $nextNumber = count($iterations) + 1;
 
-        // Create a sprint for this iteration
+        // Create a sprint for this iteration (or reuse the provided one for the first iteration)
         $sprintId = null;
-        if ($projectId !== null) {
+        if ($initialSprintId !== null && $nextNumber === 1) {
+            // Use the explicitly provided sprint for the first iteration
+            $sprintId = $initialSprintId;
+            try {
+                $this->projectStore->transitionSprint($sprintId, 'in_progress');
+            } catch (\Throwable) {
+                // Sprint may already be in_progress — non-fatal
+            }
+        } elseif ($projectId !== null) {
             $sprintTitle = sprintf('%s — iteration %d', $definition->name, $nextNumber);
             $criteria = $definition->terminationCondition->criteria;
 
@@ -725,15 +849,9 @@ final class LoopExecutor
             $sections[] = "## Parameters\n" . implode("\n", $paramLines);
         }
 
-        // Add loop scoping context so agents can filter artifacts/todos precisely
+        // Add loop scoping context with full project/sprint details
         if ($projectId !== null && $projectId !== '') {
-            $scopeLines = ["- **project_id**: `{$projectId}`"];
-            if ($sprintId !== null && $sprintId !== '') {
-                $scopeLines[] = "- **sprint_id**: `{$sprintId}`";
-            }
-            $scopeLines[] = '';
-            $scopeLines[] = 'Use these IDs with `artifact_list(project_id: "...", type: "loop_output")` to find loop-specific artifacts and avoid stale session artifacts.';
-            $sections[] = "## Loop Context\n" . implode("\n", $scopeLines);
+            $sections[] = $this->buildProjectContextSection($projectId, $sprintId);
         }
 
         $sections[] = "## Your Task\n{$rolePrompt}";
@@ -774,6 +892,83 @@ final class LoopExecutor
 
             $lines[] = "- {$role} [{$status}]: {$firstLine}";
         }
+
+        return implode("\n", $lines);
+    }
+
+    /**
+     * Build a rich project/sprint context section for stage prompts.
+     *
+     * Mirrors the OrchestratorAgent::injectProjectContext() pattern so
+     * loop stage agents get full project awareness — name, slug, description,
+     * directory, sprint roster, and scoping IDs.
+     */
+    private function buildProjectContextSection(?string $projectId, ?string $sprintId): string
+    {
+        $lines = ['## Project Context'];
+
+        if ($projectId === null || $projectId === '') {
+            $lines[] = '(No project assigned)';
+            return implode("\n", $lines);
+        }
+
+        try {
+            $context = $this->projectStore->getProjectContext(
+                $projectId,
+                $this->todoStore,
+            );
+        } catch (\Throwable) {
+            // Fallback to raw IDs if context resolution fails
+            $lines[] = "- **project_id**: `{$projectId}`";
+            if ($sprintId !== null && $sprintId !== '') {
+                $lines[] = "- **sprint_id**: `{$sprintId}`";
+            }
+            return implode("\n", $lines);
+        }
+
+        $project = $context['project'];
+        $lines[] = sprintf('**%s** (`%s`) — %s', $project['title'], $project['slug'], $project['status']);
+
+        if (!empty($project['description'])) {
+            $lines[] = $project['description'];
+        }
+
+        $lines[] = sprintf('**Directory:** `projects/%s/`', $context['directory']);
+        $lines[] = '';
+        $lines[] = "**IDs for filtering:**";
+        $lines[] = "- `project_id`: `{$projectId}`";
+        if ($sprintId !== null && $sprintId !== '') {
+            $lines[] = "- `sprint_id`: `{$sprintId}`";
+        }
+
+        // Sprint roster
+        if ($context['sprints'] !== []) {
+            $lines[] = '';
+            $lines[] = '**Sprints:**';
+            foreach ($context['sprints'] as $sprint) {
+                $progress = '';
+                if (isset($sprint['progress']['percent'])) {
+                    $progress = sprintf(
+                        ' %d%% (%d/%d)',
+                        $sprint['progress']['percent'],
+                        $sprint['progress']['completed'],
+                        $sprint['progress']['total'],
+                    );
+                }
+                $active = ($sprintId !== null && $sprint['id'] === $sprintId) ? ' ← current' : '';
+                $lines[] = sprintf(
+                    '- #%d %s [%s]%s%s',
+                    $sprint['sprint_number'],
+                    $sprint['title'],
+                    $sprint['status'],
+                    $progress,
+                    $active,
+                );
+            }
+        }
+
+        $lines[] = '';
+        $lines[] = 'Use `artifact_list(project_id: "' . $projectId . '", type: "loop_output")` to find loop-specific artifacts.';
 
         return implode("\n", $lines);
     }

@@ -54,6 +54,9 @@ final class BootManager
     private ?SpaceToolkit $spaceToolkit = null;
     private ?LoopStore $loopStore = null;
     private ?LoopDiscovery $loopDiscovery = null;
+    private ?LoopUpdateTracker $loopUpdateTracker = null;
+    /** @var list<LoopUpdateInfo> */
+    private array $pendingLoopUpdates = [];
     private ?ToolUsageTracker $usageTracker = null;
     private ?ToolkitLoadingRegistry $loadingRegistry = null;
 
@@ -231,6 +234,21 @@ final class BootManager
     public function loopDiscovery(): ?LoopDiscovery
     {
         return $this->loopDiscovery;
+    }
+
+    public function loopUpdateTracker(): ?LoopUpdateTracker
+    {
+        return $this->loopUpdateTracker;
+    }
+
+    /**
+     * Get loop definitions with pending updates that need user review.
+     *
+     * @return list<LoopUpdateInfo>
+     */
+    public function pendingLoopUpdates(): array
+    {
+        return $this->pendingLoopUpdates;
     }
 
     public function usageTracker(): ?ToolUsageTracker
@@ -422,8 +440,16 @@ final class BootManager
 
     private function discoverLoops(): void
     {
+        $builtinDir = ($this->workDir !== '' ? PathHelper::trimTrailingSlash($this->workDir) : dirname(__DIR__, 2)) . '/config/loops';
+
         $this->loopDiscovery = new LoopDiscovery($this->workspacePath, $this->workDir !== '' ? $this->workDir : null);
-        $this->loopDiscovery->seedBuiltinLoops();
+        $this->loopUpdateTracker = new LoopUpdateTracker($this->workspacePath, $builtinDir);
+
+        // Seed built-in loops, recording hashes for newly seeded files
+        $this->loopDiscovery->seedBuiltinLoops($this->loopUpdateTracker);
+
+        // Auto-update unmodified loops and collect notifications for modified ones
+        $this->pendingLoopUpdates = $this->loopUpdateTracker->autoUpdateAndNotify($this->loopDiscovery);
     }
 
     private function discoverRoles(): void

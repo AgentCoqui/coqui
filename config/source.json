@@ -98,12 +98,14 @@
             "path": "src/Agent/LoopExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
             "layer": "agent",
-            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Creates projects per loop with auto-sprint transitions, snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound, goal_bound, tool_bound). Supports template parameters with {{placeholder}} substitution before definition parsing. Enforces inter-stage artifact contracts via requires_artifact_from. Injects artifact references into stage prompts with truncation detection for cross-stage visibility. Does not execute child agents directly — LoopManager handles execution via background tasks.",
+            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Supports project resolution in startLoop via 3-tier fallback: explicit project_id/slug → active session project → auto-create. Creates sprints with auto-transitions. Snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound, goal_bound, tool_bound). Supports template parameters with {{placeholder}} substitution. Enforces inter-stage artifact contracts via requires_artifact_from and explicit evidence verification via requires_explicit_evidence (queries ArtifactStore for non-loop_output artifacts). Injects rich project context into stage prompts. Does not execute child agents directly — LoopManager handles execution via background tasks.",
             "methods": [
-                "startLoop(array $rawDefinition, string $goal, ?string $sessionId, array $parameters): string — validates/substitutes parameters, creates loop and first iteration with sprint auto-transition",
-                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, enforces artifact contract gate, builds context prompt with truncation-aware artifact references",
+                "startLoop(array $rawDefinition, string $goal, ?string $sessionId, array $parameters, ?string $projectId, ?string $projectSlug, ?string $sprintId): string — validates/substitutes parameters, resolves project via 3-tier fallback, creates loop and first iteration",
+                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, enforces artifact contract gate, enforces explicit evidence contract, builds context prompt with rich project context",
                 "completeStage(string $stageId, string $result, ?string $artifactId, ?string $taskId): void — records stage result with 2000-char truncation",
-                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition (dispatches to goal/tool evaluators for new types), auto-transitions sprints, advances if continuing"
+                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition (dispatches to goal/tool evaluators for new types), auto-transitions sprints, advances if continuing",
+                "resolveProject(?string $projectId, ?string $projectSlug, ?string $sessionId, string $goal): string — 3-tier project resolution: explicit ID/slug → session active project → auto-create",
+                "buildProjectContextSection(?string $projectId, ?string $sprintId): string — renders rich project context with sprint roster and progress for stage prompts"
             ]
         },
         {
@@ -475,9 +477,9 @@
             "path": "src/Contract/LoopRoleDefinition.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\LoopRoleDefinition",
             "layer": "contract",
-            "description": "Value object for a single stage in a loop definition. Contains role name, prompt template, optional skills array, optional per-stage maxIterations override, and optional requiresArtifactFrom index for inter-stage artifact contract enforcement.",
+            "description": "Value object for a single stage in a loop definition. Contains role name, prompt template, optional skills array, optional per-stage maxIterations override, optional requiresArtifactFrom index for inter-stage artifact contract enforcement, and optional requiresExplicitEvidence flag that strengthens the artifact contract to require non-loop_output artifacts.",
             "methods": [
-                "fromArray(array): self — factory from JSON config, parses requires_artifact_from"
+                "fromArray(array): self — factory from JSON config, parses requires_artifact_from and requires_explicit_evidence"
             ]
         },
         {
@@ -622,14 +624,34 @@
             "path": "src/Config/LoopDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\LoopDiscovery",
             "layer": "config",
-            "description": "Discovers loop definitions from JSON files in workspace/loops/. Seeds built-in loop definitions from config/loops/ on first boot. Seeds package-distributed loop definitions from toolkit vendor directories. Caches parsed LoopDefinition objects for reuse.",
+            "description": "Discovers loop definitions from JSON files in workspace/loops/. Seeds built-in loop definitions from config/loops/ on first boot. Seeds package-distributed loop definitions from toolkit vendor directories. Caches parsed LoopDefinition objects for reuse. Accepts an optional LoopUpdateTracker during seeding to record content hashes for update detection.",
             "methods": [
                 "discover(): array — scan workspace/loops/ for .json files, returns map of name → LoopDefinition",
                 "get(string): ?LoopDefinition — get a single definition by name",
                 "names(): string[] — list all available definition names",
-                "seedBuiltins(): void — copy config/loops/*.json to workspace/loops/ if not present",
+                "seedBuiltins(?LoopUpdateTracker): void — copy config/loops/*.json to workspace/loops/ if not present; records hashes when tracker provided",
                 "seedPackageLoops(string[] $packageLoopPaths): void — copy .json loop files from package directories to workspace/loops/ (never overwrites)"
             ]
+        },
+        {
+            "path": "src/Config/LoopUpdateTracker.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\LoopUpdateTracker",
+            "layer": "config",
+            "description": "Tracks content hashes of built-in loop definition files to detect updates. Mirrors the RoleUpdateTracker pattern: records SHA-256 hashes of both built-in source and workspace copy, auto-updates unmodified workspace copies when the built-in changes, returns pending update notifications for user-modified files. Hash data stored in workspace/data/loop-hashes.json.",
+            "methods": [
+                "recordHash(string $loopName, string $builtinPath, string $workspacePath): void — record SHA-256 hashes for a loop definition",
+                "checkForUpdates(string $builtinDir, string $workspaceDir): list<LoopUpdateInfo> — compare current hashes and return pending updates",
+                "applyUpdate(string $loopName, string $builtinPath, string $workspacePath): void — copy built-in to workspace with backup",
+                "autoUpdateAndNotify(string $builtinDir, string $workspaceDir): list<LoopUpdateInfo> — auto-update unmodified files, return user-modified for notification"
+            ]
+        },
+        {
+            "path": "src/Config/LoopUpdateInfo.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\LoopUpdateInfo",
+            "layer": "config",
+            "description": "Value object for a pending loop definition update. Contains loopName, hasBuiltinUpdate flag, and isUserModified flag. Used by LoopUpdateTracker::autoUpdateAndNotify() to report which definitions have pending updates that require user attention.",
+            "methods": []
+        },
         },
         {
             "path": "src/Config/UpdateManager.php",
