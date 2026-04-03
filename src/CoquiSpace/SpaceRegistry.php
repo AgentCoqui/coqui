@@ -21,6 +21,7 @@ final class SpaceRegistry
      */
     private const array EXCLUDED_PACKAGES = [
         'carmelosantana/php-agents',
+        'coquibot/coqui-toolkit-composer',
     ];
 
     public static function isExcluded(string $package): bool
