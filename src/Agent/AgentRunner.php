@@ -49,6 +49,7 @@ use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
 use CoquiBot\Coqui\Renderer\ContextUsageBar;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
 
@@ -513,7 +514,7 @@ final class AgentRunner
      *
      * Used by the /prompt REPL command and GET /api/v1/server/prompt endpoint.
      *
-     * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array}}>}
+     * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, applied_loading_modes: array<string, ToolkitLoadingMode>}
      */
     public function buildPromptPreview(?string $role = null): array
     {
@@ -561,10 +562,10 @@ final class AgentRunner
         $toolkitToolTokens = array_sum(array_column($toolkitBreakdown, 'tools_tokens'));
         $toolTokens = $standaloneToolTokens + $toolkitToolTokens;
 
-        $toolSchemas = array_map(
+        $toolSchemas = array_values(array_map(
             fn($tool) => $tool->toFunctionSchema(),
             $agent->tools(),
-        );
+        ));
 
         return [
             'prompt'                => $promptText,
@@ -626,10 +627,10 @@ final class AgentRunner
         $lines[] = str_repeat('=', 80);
 
         foreach ($preview['tool_schemas'] as $schema) {
-            $fn = $schema['function'] ?? [];
-            $name = $fn['name'] ?? 'unknown';
-            $desc = $fn['description'] ?? '';
-            $params = $fn['parameters'] ?? [];
+            $fn = $schema['function'];
+            $name = $fn['name'];
+            $desc = $fn['description'];
+            $params = $fn['parameters'];
 
             $lines[] = '';
             $lines[] = '## ' . $name;

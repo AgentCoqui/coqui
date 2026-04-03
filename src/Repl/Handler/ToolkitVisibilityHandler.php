@@ -36,7 +36,7 @@ final class ToolkitVisibilityHandler
             }
 
             $loadingRegistry = $this->boot->loadingRegistry();
-            $appliedModes = $preview['applied_loading_modes'] ?? [];
+            $appliedModes = $preview['applied_loading_modes'];
 
             $rows = [];
             foreach ($discovery->allWithVisibility() as $entry) {
@@ -167,6 +167,7 @@ final class ToolkitVisibilityHandler
                 'promote' => $loadingRegistry->setMode($target, ToolkitLoadingMode::Eager),
                 'demote' => $loadingRegistry->setMode($target, ToolkitLoadingMode::Deferred),
                 'auto' => $loadingRegistry->resetMode($target),
+                default => throw new \InvalidArgumentException("Unknown loading action: {$action}"),
             };
 
             $resultLabel = match ($action) {

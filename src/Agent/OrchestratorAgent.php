@@ -1367,8 +1367,8 @@ final class OrchestratorAgent extends AbstractAgent
      * Candidates with higher historical usage are promoted to load eagerly.
      * When no usage data is available, candidates retain their original order.
      *
-     * @param array<int, array{toolkit: ToolkitInterface, package: string, description: string}> $candidates
-     * @return array<int, array{toolkit: ToolkitInterface, package: string, description: string, original_index: int, frequency: int}>
+     * @param array<int, array{toolkit: ToolkitInterface, package: string, description: string, _budget_idx: int}> $candidates
+     * @return array<int, array{toolkit: ToolkitInterface, package: string, description: string, _budget_idx: int, original_index: int, frequency: int}>
      */
     private function rankCandidatesByFrequency(array $candidates): array
     {
