@@ -6,7 +6,6 @@ use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\IterationOutcome;
-use CoquiBot\Coqui\Contract\LoopDefinition;
 use CoquiBot\Coqui\Contract\TerminationType;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
@@ -43,7 +42,7 @@ beforeEach(function () {
         projectStore: $this->projectStore,
     );
 
-    $this->harnessDefinition = LoopDefinition::fromArray([
+    $this->harnessDefinition = [
         'name' => 'harness',
         'description' => 'Generator-evaluator pattern',
         'roles' => [
@@ -55,7 +54,7 @@ beforeEach(function () {
             'type' => 'evaluation_bound',
             'value' => ['criteria' => 'Explicit approval required', 'max_review_rounds' => 5],
         ],
-    ]);
+    ];
 });
 
 afterEach(function () {
@@ -118,12 +117,12 @@ test('startLoop creates loop with project and first iteration', function () {
 });
 
 test('startLoop with iteration_bound definition', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'iter-test',
         'description' => 'Iteration bound test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'iteration_bound', 'value' => 10],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Test goal');
 
@@ -134,12 +133,12 @@ test('startLoop with iteration_bound definition', function () {
 });
 
 test('startLoop with time_bound definition', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'time-test',
         'description' => 'Time bound test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'time_bound', 'value' => '2025-12-31T23:59:59Z'],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Test goal');
 
@@ -344,7 +343,7 @@ test('evaluateIteration detects negated approval', function () {
 
 test('evaluateIteration returns LimitReached at max_review_rounds', function () {
     // Definition with max_review_rounds = 2
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'tight-loop',
         'description' => 'Quick eval',
         'roles' => [
@@ -355,7 +354,7 @@ test('evaluateIteration returns LimitReached at max_review_rounds', function () 
             'type' => 'evaluation_bound',
             'value' => ['criteria' => 'Must pass', 'max_review_rounds' => 2],
         ],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Goal');
 
@@ -396,12 +395,12 @@ test('evaluateIteration recognizes lgtm as approval', function () {
 // ──────────────────────────────────────────────
 
 test('evaluateIteration returns LimitReached at iteration bound', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'iter-bound',
         'description' => 'Fixed iterations',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'iteration_bound', 'value' => 1],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Goal');
 
@@ -415,12 +414,12 @@ test('evaluateIteration returns LimitReached at iteration bound', function () {
 });
 
 test('evaluateIteration returns Continue below iteration bound', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'iter-bound',
         'description' => 'Fixed iterations',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'iteration_bound', 'value' => 3],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Goal');
 
@@ -438,12 +437,12 @@ test('evaluateIteration returns Continue below iteration bound', function () {
 // ──────────────────────────────────────────────
 
 test('evaluateIteration returns LimitReached when deadline passed', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'time-bound',
         'description' => 'Deadline test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'time_bound', 'value' => '2020-01-01T00:00:00Z'],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Goal');
 
@@ -454,12 +453,12 @@ test('evaluateIteration returns LimitReached when deadline passed', function () 
 });
 
 test('evaluateIteration returns Continue when deadline is future', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'time-bound',
         'description' => 'Deadline test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'time_bound', 'value' => '2099-12-31T23:59:59Z'],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Goal');
 
@@ -474,12 +473,12 @@ test('evaluateIteration returns Continue when deadline is future', function () {
 // ──────────────────────────────────────────────
 
 test('evaluateIteration always returns Continue for manual type', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'manual-loop',
         'description' => 'Manual stop',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'manual'],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Goal');
 
@@ -529,12 +528,12 @@ test('evaluateIteration returns Failed for nonexistent loop', function () {
 // ──────────────────────────────────────────────
 
 test('evaluateIteration creates new iteration on Continue', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'multi-iter',
         'description' => 'Multi iteration',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'iteration_bound', 'value' => 5],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Goal');
 
@@ -631,12 +630,12 @@ test('stage prompt includes termination criteria for evaluation_bound', function
 });
 
 test('stage prompt includes previous iteration outcomes', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'context-test',
         'description' => 'Context test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'iteration_bound', 'value' => 5],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Goal');
 
@@ -656,7 +655,7 @@ test('stage prompt includes previous iteration outcomes', function () {
 // ──────────────────────────────────────────────
 
 test('full lifecycle: evaluation_bound loop completes after approval', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'lifecycle-test',
         'description' => 'Full lifecycle',
         'roles' => [
@@ -667,7 +666,7 @@ test('full lifecycle: evaluation_bound loop completes after approval', function 
             'type' => 'evaluation_bound',
             'value' => ['criteria' => 'Approval', 'max_review_rounds' => 5],
         ],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Build a thing');
 
@@ -701,7 +700,7 @@ test('full lifecycle: evaluation_bound loop completes after approval', function 
 // ──────────────────────────────────────────────
 
 test('startLoop with parameters stores resolved parameters in configuration', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'param-test',
         'description' => 'Parameterized test',
         'roles' => [['role' => 'coder', 'prompt' => 'Investigate {{topic}}.']],
@@ -709,7 +708,7 @@ test('startLoop with parameters stores resolved parameters in configuration', fu
         'parameters' => [
             ['name' => 'topic', 'description' => 'Subject', 'required' => true],
         ],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Research goal', parameters: ['topic' => 'authentication']);
 
@@ -721,7 +720,7 @@ test('startLoop with parameters stores resolved parameters in configuration', fu
 });
 
 test('startLoop throws on missing required parameters', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'param-req',
         'description' => 'Required param test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code {{topic}}.']],
@@ -729,13 +728,13 @@ test('startLoop throws on missing required parameters', function () {
         'parameters' => [
             ['name' => 'topic', 'description' => 'Subject', 'required' => true],
         ],
-    ]);
+    ];
 
     $this->executor->startLoop($def, 'Goal', parameters: []);
 })->throws(\InvalidArgumentException::class, 'Missing required parameters: topic');
 
 test('startLoop applies defaults for optional parameters', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'param-default',
         'description' => 'Default param test',
         'roles' => [['role' => 'coder', 'prompt' => 'Output {{format}}.']],
@@ -743,7 +742,7 @@ test('startLoop applies defaults for optional parameters', function () {
         'parameters' => [
             ['name' => 'format', 'description' => 'Format', 'required' => false, 'default' => 'markdown'],
         ],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Goal', parameters: []);
 
@@ -763,7 +762,7 @@ test('startLoop without parameters works on non-parameterized definitions', func
 });
 
 test('stage prompt substitutes parameter placeholders in role prompt', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'sub-test',
         'description' => 'Substitution test',
         'roles' => [['role' => 'coder', 'prompt' => 'Investigate {{topic}} and produce a {{format}}.']],
@@ -772,7 +771,7 @@ test('stage prompt substitutes parameter placeholders in role prompt', function 
             ['name' => 'topic', 'description' => 'Subject', 'required' => true],
             ['name' => 'format', 'description' => 'Format', 'required' => false, 'default' => 'report'],
         ],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Goal', parameters: ['topic' => 'authentication']);
 
@@ -784,7 +783,7 @@ test('stage prompt substitutes parameter placeholders in role prompt', function 
 });
 
 test('stage prompt substitutes parameter placeholders in goal', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'goal-sub',
         'description' => 'Goal substitution test',
         'roles' => [['role' => 'coder', 'prompt' => 'Work on it.']],
@@ -792,7 +791,7 @@ test('stage prompt substitutes parameter placeholders in goal', function () {
         'parameters' => [
             ['name' => 'feature', 'description' => 'Feature name', 'required' => true],
         ],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Build the {{feature}} module', parameters: ['feature' => 'payments']);
 
@@ -803,7 +802,7 @@ test('stage prompt substitutes parameter placeholders in goal', function () {
 });
 
 test('stage prompt includes parameters section when parameters exist', function () {
-    $def = LoopDefinition::fromArray([
+    $def = [
         'name' => 'params-section',
         'description' => 'Parameters section test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
@@ -811,7 +810,7 @@ test('stage prompt includes parameters section when parameters exist', function 
         'parameters' => [
             ['name' => 'topic', 'description' => 'Subject', 'required' => true],
         ],
-    ]);
+    ];
 
     $loopId = $this->executor->startLoop($def, 'Goal', parameters: ['topic' => 'auth']);
 

@@ -77,15 +77,33 @@
             ]
         },
         {
+            "path": "src/Agent/GoalEvaluator.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\GoalEvaluator",
+            "layer": "agent",
+            "description": "Single-shot LLM evaluator for goal_bound loop termination. Sends the loop goal, optional evaluation prompt, and the latest stage output to a utility model and parses a structured ACHIEVED/NOT_ACHIEVED judgment. Follows the TitleGenerator pattern — one LLM call, no tool use, catches all errors. Falls back to not-achieved on any failure.",
+            "methods": [
+                "evaluate(string $goal, ?string $goalPrompt, string $lastStageOutput, array $previousOutcomes): GoalEvaluationResult — single-shot LLM evaluation"
+            ]
+        },
+        {
+            "path": "src/Agent/ToolBoundEvaluator.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\ToolBoundEvaluator",
+            "layer": "agent",
+            "description": "Direct tool execution evaluator for tool_bound loop termination. Delegates tool resolution and execution to BackgroundToolExecutor, parses numeric output, and compares against a threshold using the configured operator. No LLM involved — zero token cost. Valid operators: >=, >, <=, <, ==, !=.",
+            "methods": [
+                "evaluate(string $toolName, array $arguments, string $operator, float $threshold): ToolBoundEvaluationResult — execute tool and compare numeric output"
+            ]
+        },
+        {
             "path": "src/Agent/LoopExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
             "layer": "agent",
-            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Creates projects per loop with auto-sprint transitions, snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound). Enforces inter-stage artifact contracts via requires_artifact_from. Injects artifact references into stage prompts with truncation detection for cross-stage visibility. Does not execute child agents directly — LoopManager handles execution via background tasks.",
+            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Creates projects per loop with auto-sprint transitions, snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound, goal_bound, tool_bound). Supports template parameters with {{placeholder}} substitution before definition parsing. Enforces inter-stage artifact contracts via requires_artifact_from. Injects artifact references into stage prompts with truncation detection for cross-stage visibility. Does not execute child agents directly — LoopManager handles execution via background tasks.",
             "methods": [
-                "startLoop(LoopDefinition, string $goal, ?string $sessionId): string — creates loop and first iteration with sprint auto-transition to in_progress",
+                "startLoop(array $rawDefinition, string $goal, ?string $sessionId, array $parameters): string — validates/substitutes parameters, creates loop and first iteration with sprint auto-transition",
                 "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, enforces artifact contract gate, builds context prompt with truncation-aware artifact references",
                 "completeStage(string $stageId, string $result, ?string $artifactId, ?string $taskId): void — records stage result with 2000-char truncation",
-                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition, auto-transitions sprints, advances if continuing"
+                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition (dispatches to goal/tool evaluators for new types), auto-transitions sprints, advances if continuing"
             ]
         },
         {
@@ -426,17 +444,32 @@
             "path": "src/Contract/TerminationType.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\TerminationType",
             "layer": "contract",
-            "description": "Backed string enum defining loop termination strategies: EvaluationBound (stage output evaluated for done signal), IterationBound (fixed iteration count), TimeBound (wall-clock duration), Manual (user-controlled stop).",
+            "description": "Backed string enum defining loop termination strategies: EvaluationBound (stage output evaluated for done signal), IterationBound (fixed iteration count), TimeBound (wall-clock duration), Manual (user-controlled stop), GoalBound (LLM-evaluated goal achievement), ToolBound (tool execution with numeric threshold comparison).",
             "methods": []
         },
         {
             "path": "src/Contract/TerminationCondition.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\TerminationCondition",
             "layer": "contract",
-            "description": "Value object pairing a TerminationType with its threshold value. Factory method fromArray() parses JSON config format {type, value}.",
+            "description": "Value object pairing a TerminationType with its configuration. Supports type-specific fields: goalPrompt for GoalBound, toolName/toolArguments/operator/threshold for ToolBound, maxIterations for both. Factory method fromArray() parses JSON config format {type, value}. VALID_OPERATORS constant defines allowed comparison operators for tool_bound.",
             "methods": [
-                "fromArray(array): self — factory from JSON config"
+                "fromArray(array): self — factory from JSON config",
+                "toArray(): array — serialize to JSON-compatible array"
             ]
+        },
+        {
+            "path": "src/Contract/GoalEvaluationResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\GoalEvaluationResult",
+            "layer": "contract",
+            "description": "Value object for LLM goal achievement evaluation result. Contains bool achieved and string rationale.",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/ToolBoundEvaluationResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolBoundEvaluationResult",
+            "layer": "contract",
+            "description": "Value object for direct tool execution evaluation result. Contains bool met, float actualValue, string operator, float threshold, and optional error string.",
+            "methods": []
         },
         {
             "path": "src/Contract/LoopRoleDefinition.php",

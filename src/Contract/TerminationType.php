@@ -20,4 +20,10 @@ enum TerminationType: string
 
     /** Never auto-stop — requires explicit user cancellation. */
     case Manual = 'manual';
+
+    /** Stop when an LLM evaluates the goal as achieved. */
+    case GoalBound = 'goal_bound';
+
+    /** Stop when a tool's numeric output meets a threshold. */
+    case ToolBound = 'tool_bound';
 }

@@ -1,6 +1,20 @@
 {
     "name": "harness",
     "description": "Generator-evaluator loop inspired by Anthropic's Harness pattern. A planner creates the approach, a coder implements it, and a reviewer evaluates the result. The loop continues until the reviewer approves or the iteration limit is reached.",
+    "parameters": [
+        {
+            "name": "max_review_rounds",
+            "description": "Maximum number of review iterations before the loop stops",
+            "required": false,
+            "default": "5"
+        },
+        {
+            "name": "termination_criteria",
+            "description": "Criteria the reviewer uses to decide approval",
+            "required": false,
+            "default": "The reviewer must explicitly approve the implementation as meeting the stated goal. Approval means no remaining issues that affect correctness or completeness."
+        }
+    ],
     "roles": [
         {
             "name": "plan",
@@ -26,8 +40,8 @@
     "termination_condition": {
         "type": "evaluation_bound",
         "value": {
-            "criteria": "The reviewer must explicitly approve the implementation as meeting the stated goal. Approval means no remaining issues that affect correctness or completeness.",
-            "max_review_rounds": 5
+            "criteria": "{{termination_criteria}}",
+            "max_review_rounds": "{{max_review_rounds}}"
         }
     }
 }

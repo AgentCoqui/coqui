@@ -23,7 +23,13 @@ Use loops to run multi-role automated iteration cycles that execute without huma
    - **evaluation_bound** — the last stage's output is checked for approval/rejection signals
    - **iteration_bound** — stops after a fixed number of iterations
    - **time_bound** — stops after a deadline
+   - **goal_bound** — an LLM evaluator judges whether the goal has been achieved
+   - **tool_bound** — a tool is executed and its numeric output is compared against a threshold
 4. If the condition is not met, a new iteration begins with the results from the previous cycle.
+
+### Template Parameters
+
+Loop definitions support `{{placeholder}}` parameters that are substituted at start time. Use `loop_definitions` to see available parameters for each definition. Pass parameters via `loop_start(parameters: {"max_review_rounds": "3"})`.
 
 ### Built-in Definitions
 
@@ -31,6 +37,7 @@ Use loops to run multi-role automated iteration cycles that execute without huma
 | --- | --- | --- | --- |
 | `harness` | plan → coder → reviewer | evaluation_bound (5 rounds) | Generator-evaluator pattern for iterative code quality |
 | `research` | explorer → coder → reviewer | evaluation_bound (3 rounds) | Research-driven implementation with review |
+| `goal-driven` | plan → coder | goal_bound (10 iterations) | LLM-evaluated goal completion without a reviewer role |
 
 ### Best Practices
 

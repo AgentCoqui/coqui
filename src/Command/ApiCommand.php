@@ -37,6 +37,10 @@ use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
+use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
+use CoquiBot\Coqui\Agent\GoalEvaluator;
+use CoquiBot\Coqui\Agent\ToolBoundEvaluator;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -240,7 +244,29 @@ final class ApiCommand extends Command
 
         $loopManager = null;
         if ($loopStore !== null && $projectStore !== null) {
-            $loopExecutor = new LoopExecutor($loopStore, $projectStore);
+            // Resolve utility model provider for goal_bound evaluation
+            $goalEvaluator = null;
+            try {
+                $factory = new ProviderFactory($boot->config(), new ReactHttpClientAdapter());
+                $utilityModel = $boot->roleResolver()->resolveUtility();
+                if ($utilityModel !== '') {
+                    $goalEvaluator = new GoalEvaluator($factory->create($utilityModel));
+                }
+            } catch (\Throwable) {
+                // Goal evaluation degrades gracefully — loops fall back to manual
+            }
+
+            // Build tool executor for tool_bound evaluation
+            $toolBoundEvaluator = new ToolBoundEvaluator(
+                new BackgroundToolExecutor($boot, $workDir, $unsafeMode),
+            );
+
+            $loopExecutor = new LoopExecutor(
+                loopStore: $loopStore,
+                projectStore: $projectStore,
+                goalEvaluator: $goalEvaluator,
+                toolBoundEvaluator: $toolBoundEvaluator,
+            );
             $loopManager = new LoopManager($storage, $loopStore, $loopExecutor, $artifactStore);
         }
 
