@@ -79,6 +79,7 @@ final class LoopHandler
             return;
         }
 
+        $rawDefinition = $this->loopDiscovery->getRawDefinition($defName);
         $definition = $this->loopDiscovery->get($defName);
 
         $io->section(sprintf('Starting loop: %s', $defName));
@@ -92,7 +93,7 @@ final class LoopHandler
 
         try {
             $loopId = $this->loopExecutor->startLoop(
-                definition: $definition,
+                rawDefinition: $rawDefinition,
                 goal: $goal,
                 sessionId: $sessionId !== '' ? $sessionId : null,
             );

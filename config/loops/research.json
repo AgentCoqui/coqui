@@ -12,6 +12,18 @@
             "description": "The type of deliverable to produce",
             "required": false,
             "default": "markdown document"
+        },
+        {
+            "name": "max_review_rounds",
+            "description": "Maximum number of review iterations before the loop stops",
+            "required": false,
+            "default": "3"
+        },
+        {
+            "name": "termination_criteria",
+            "description": "Criteria the reviewer uses to decide approval",
+            "required": false,
+            "default": "The reviewer must approve the deliverable as complete, accurate, and meeting the stated research goal. All major topics must be covered with verified references."
         }
     ],
     "roles": [
@@ -39,8 +51,8 @@
     "termination_condition": {
         "type": "evaluation_bound",
         "value": {
-            "criteria": "The reviewer must approve the deliverable as complete, accurate, and meeting the stated research goal. All major topics must be covered with verified references.",
-            "max_review_rounds": 3
+            "criteria": "{{termination_criteria}}",
+            "max_review_rounds": "{{max_review_rounds}}"
         }
     }
 }

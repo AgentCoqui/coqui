@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Agent;
 
 use CoquiBot\Coqui\Contract\IterationOutcome;
 use CoquiBot\Coqui\Contract\LoopDefinition;
+use CoquiBot\Coqui\Contract\LoopParameterDefinition;
 use CoquiBot\Coqui\Contract\LoopRoleDefinition;
 use CoquiBot\Coqui\Contract\LoopStageResult;
 use CoquiBot\Coqui\Contract\TerminationType;
@@ -24,30 +25,69 @@ final class LoopExecutor
     public function __construct(
         private readonly LoopStore $loopStore,
         private readonly ProjectStore $projectStore,
+        private readonly ?GoalEvaluator $goalEvaluator = null,
+        private readonly ?ToolBoundEvaluator $toolBoundEvaluator = null,
     ) {}
 
     /**
      * Start a new loop: create the loop instance, auto-create a project, and first iteration.
      *
-     * @param array<string, string> $parameters Template parameter values for {{variable}} substitution
+     * Accepts a raw definition array so template parameters can be substituted into ALL fields
+     * (including termination conditions) before parsing into typed value objects.
+     *
+     * @param array<string, mixed>  $rawDefinition Raw decoded JSON from the loop definition file
+     * @param array<string, string> $parameters    Template parameter values for {{variable}} substitution
      * @return string Loop ID
      */
     public function startLoop(
-        LoopDefinition $definition,
+        array $rawDefinition,
         string $goal,
         ?string $sessionId = null,
         array $parameters = [],
     ): string {
+        // Extract declared parameters from the raw definition
+        $declaredParams = [];
+        foreach ($rawDefinition['parameters'] ?? [] as $paramData) {
+            if (is_array($paramData)) {
+                $declaredParams[] = LoopParameterDefinition::fromArray($paramData);
+            }
+        }
+
         // Validate required parameters
-        $missing = array_diff($definition->requiredParameterNames(), array_keys($parameters));
+        $requiredNames = array_values(array_map(
+            static fn(LoopParameterDefinition $p) => $p->name,
+            array_filter($declaredParams, static fn(LoopParameterDefinition $p) => $p->required),
+        ));
+        $missing = array_diff($requiredNames, array_keys($parameters));
         if ($missing !== []) {
             throw new \InvalidArgumentException(
                 sprintf('Missing required parameters: %s', implode(', ', $missing)),
             );
         }
 
-        // Resolve parameters (apply defaults for optional params)
-        $resolvedParameters = $definition->resolveParameters($parameters);
+        // Resolve parameters (merge provided with defaults)
+        $resolvedParameters = [];
+        foreach ($declaredParams as $param) {
+            if (isset($parameters[$param->name])) {
+                $resolvedParameters[$param->name] = $parameters[$param->name];
+            } elseif ($param->default !== null) {
+                $resolvedParameters[$param->name] = $param->default;
+            }
+        }
+
+        // Build replacement map and substitute into the FULL raw definition
+        $substitutedData = $rawDefinition;
+        if ($resolvedParameters !== []) {
+            $replacements = [];
+            foreach ($resolvedParameters as $key => $value) {
+                $replacements['{{' . $key . '}}'] = $value;
+            }
+            $substitutedData = $this->substituteParameters($rawDefinition, $replacements);
+            $goal = strtr($goal, $replacements);
+        }
+
+        // Now parse the substituted data into typed value objects
+        $definition = LoopDefinition::fromArray($substitutedData);
 
         // Auto-create a project for this loop
         $projectSlug = 'loop-' . $definition->name . '-' . substr(bin2hex(random_bytes(4)), 0, 8);
@@ -67,7 +107,9 @@ final class LoopExecutor
 
         // Determine termination parameters
         $maxIterations = match ($definition->terminationCondition->type) {
-            TerminationType::IterationBound => $definition->terminationCondition->maxIterations,
+            TerminationType::IterationBound,
+            TerminationType::GoalBound,
+            TerminationType::ToolBound => $definition->terminationCondition->maxIterations,
             TerminationType::EvaluationBound => $definition->terminationCondition->maxReviewRounds,
             default => null,
         };
@@ -76,9 +118,11 @@ final class LoopExecutor
             ? $definition->terminationCondition->deadline
             : null;
 
-        $terminationCriteria = $definition->terminationCondition->type === TerminationType::EvaluationBound
-            ? $definition->terminationCondition->criteria
-            : null;
+        $terminationCriteria = match ($definition->terminationCondition->type) {
+            TerminationType::EvaluationBound => $definition->terminationCondition->criteria,
+            TerminationType::GoalBound => $definition->terminationCondition->goalPrompt,
+            default => null,
+        };
 
         $loopId = $this->loopStore->createLoop(
             definitionName: $definition->name,
@@ -284,6 +328,8 @@ final class LoopExecutor
             TerminationType::EvaluationBound => $this->evaluateEvaluationBound($stages, $iterationNumber, $loop),
             TerminationType::IterationBound => $this->evaluateIterationBound($iterationNumber, $loop),
             TerminationType::TimeBound => $this->evaluateTimeBound($loop),
+            TerminationType::GoalBound => $this->evaluateGoalBound($definition, $stages, $iterationNumber, $loop),
+            TerminationType::ToolBound => $this->evaluateToolBound($definition, $iterationNumber, $loop),
             TerminationType::Manual => IterationOutcome::Continue,
         };
 
@@ -497,6 +543,91 @@ final class LoopExecutor
             : IterationOutcome::Continue;
     }
 
+    /**
+     * Evaluate a goal_bound loop — delegate to GoalEvaluator for LLM judgment.
+     *
+     * Falls back to Continue when GoalEvaluator is not available (loop acts as Manual).
+     *
+     * @param list<array<string, mixed>> $stages
+     * @param array<string, mixed> $loop
+     */
+    private function evaluateGoalBound(
+        LoopDefinition $definition,
+        array $stages,
+        int $iterationNumber,
+        array $loop,
+    ): IterationOutcome {
+        // Check iteration limit first
+        $maxIterations = $loop['max_iterations'] !== null ? (int) $loop['max_iterations'] : null;
+        if ($maxIterations !== null && $iterationNumber >= $maxIterations) {
+            return IterationOutcome::LimitReached;
+        }
+
+        // If no evaluator available, act as manual (continue indefinitely)
+        if ($this->goalEvaluator === null) {
+            return IterationOutcome::Continue;
+        }
+
+        // Get the last stage's output for evaluation
+        $lastStage = end($stages);
+        if ($lastStage === false || ($lastStage['result_summary'] ?? null) === null) {
+            return IterationOutcome::Continue;
+        }
+
+        $previousOutcomes = $this->loopStore->getPreviousOutcomes($loop['id'], $iterationNumber);
+
+        $result = $this->goalEvaluator->evaluate(
+            goal: $loop['goal'],
+            goalPrompt: $definition->terminationCondition->goalPrompt,
+            lastStageOutput: $lastStage['result_summary'],
+            previousOutcomes: $previousOutcomes,
+        );
+
+        return $result->achieved
+            ? IterationOutcome::Complete
+            : IterationOutcome::Continue;
+    }
+
+    /**
+     * Evaluate a tool_bound loop — delegate to ToolBoundEvaluator for direct tool execution.
+     *
+     * Falls back to Continue when ToolBoundEvaluator is not available (loop acts as Manual).
+     *
+     * @param array<string, mixed> $loop
+     */
+    private function evaluateToolBound(
+        LoopDefinition $definition,
+        int $iterationNumber,
+        array $loop,
+    ): IterationOutcome {
+        // Check iteration limit first
+        $maxIterations = $loop['max_iterations'] !== null ? (int) $loop['max_iterations'] : null;
+        if ($maxIterations !== null && $iterationNumber >= $maxIterations) {
+            return IterationOutcome::LimitReached;
+        }
+
+        // If no evaluator available, act as manual
+        if ($this->toolBoundEvaluator === null) {
+            return IterationOutcome::Continue;
+        }
+
+        $tc = $definition->terminationCondition;
+        if ($tc->toolName === null || $tc->operator === null || $tc->threshold === null) {
+            return IterationOutcome::Continue;
+        }
+
+        $result = $this->toolBoundEvaluator->evaluate(
+            toolName: $tc->toolName,
+            arguments: $tc->toolArguments ?? [],
+            operator: $tc->operator,
+            threshold: $tc->threshold,
+        );
+
+        return $result->met
+            ? IterationOutcome::Complete
+            : IterationOutcome::Continue;
+    }
+
     // ──────────────────────────────────────────────
     //  Private: Prompt Building
     // ──────────────────────────────────────────────
@@ -630,5 +761,32 @@ final class LoopExecutor
         }
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Recursively apply strtr() to all string values in a nested array.
+     *
+     * Non-string values pass through unchanged. This enables template parameter
+     * substitution in termination condition fields, role prompts, and all other
+     * string values in a loop definition.
+     *
+     * @param array<string, mixed>  $data         The array to process
+     * @param array<string, string> $replacements Map of {{key}} => value
+     * @return array<string, mixed>
+     */
+    private function substituteParameters(array $data, array $replacements): array
+    {
+        $result = [];
+        foreach ($data as $key => $value) {
+            if (is_string($value)) {
+                $result[$key] = strtr($value, $replacements);
+            } elseif (is_array($value)) {
+                $result[$key] = $this->substituteParameters($value, $replacements);
+            } else {
+                $result[$key] = $value;
+            }
+        }
+
+        return $result;
     }
 }

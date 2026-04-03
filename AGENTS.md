@@ -542,6 +542,14 @@ Coqui supports fully automated, multi-iteration workflows called **Loops**. A lo
 {
     "name": "harness",
     "description": "Generator-evaluator pattern",
+    "parameters": [
+        {
+            "name": "max_review_rounds",
+            "description": "Maximum review iterations",
+            "required": false,
+            "default": "5"
+        }
+    ],
     "roles": [
         {
             "role": "plan",
@@ -558,21 +566,46 @@ Coqui supports fully automated, multi-iteration workflows called **Loops**. A lo
             "prompt": "Review the implementation. Respond APPROVED if ready, or provide feedback."
         }
     ],
-    "termination": {
+    "termination_condition": {
         "type": "evaluation_bound",
-        "value": "APPROVED"
+        "value": {
+            "criteria": "Explicit approval required",
+            "max_review_rounds": "{{max_review_rounds}}"
+        }
     }
 }
 ```
+
+### Template Parameters
+
+Loop definitions support declarative parameters with `{{placeholder}}` syntax. Parameters are substituted recursively across the entire definition (including termination conditions, role prompts, etc.) before parsing. This allows users to customize loop behavior at start time without creating new definitions.
+
+Each parameter declares:
+- `name` — placeholder key (used as `{{name}}` in the definition)
+- `description` — shown to the agent in `loop_definitions` output
+- `required` — if `true`, `loop_start` fails when the parameter is not provided
+- `default` — fallback value when not provided (all defaults are strings; numeric fields are cast during parsing)
+
+Parameters are passed via `loop_start(parameters: {"max_review_rounds": "3"})`.
 
 ### Termination Conditions
 
 | Type | Value | Behavior |
 | --- | --- | --- |
-| `evaluation_bound` | String keyword | Loop ends when the last stage's output contains the keyword (e.g. "APPROVED") |
+| `evaluation_bound` | `{criteria, max_review_rounds}` | Loop ends when the last stage's output meets the criteria (LLM-evaluated by the reviewer role) |
 | `iteration_bound` | Integer | Loop ends after N iterations |
 | `time_bound` | Integer (seconds) | Loop ends after N seconds of wall-clock time |
+| `goal_bound` | `{goal_prompt, max_iterations}` | Loop ends when an LLM evaluator judges the goal achieved based on stage output |
+| `tool_bound` | `{tool, arguments, operator, threshold, max_iterations}` | Loop ends when a tool's numeric output satisfies the operator/threshold condition |
 | `manual` | — | Loop runs until explicitly stopped by user/agent |
+
+#### goal_bound Termination
+
+Uses `GoalEvaluator` — a single-shot LLM call (utility model) that receives the loop goal, optional evaluation prompt, and the last stage's output. The evaluator responds `ACHIEVED` or `NOT_ACHIEVED` with a rationale. Falls back to `manual` behavior if no utility model is configured.
+
+#### tool_bound Termination
+
+Uses `ToolBoundEvaluator` — executes a named tool directly (no LLM) and compares its numeric output against a threshold. Valid operators: `>=`, `>`, `<=`, `<`, `==`, `!=`. Useful for metrics-driven loops (e.g., test pass rate, code coverage). Falls back to `manual` behavior if the tool is not found.
 
 ### Loop Lifecycle
 
@@ -630,8 +663,9 @@ Loop progress is tracked via the standard background task events (`BackgroundTas
 
 | Definition | Roles | Termination | Description |
 | --- | --- | --- | --- |
-| `harness` | plan → coder → reviewer | `evaluation_bound: "APPROVED"` | Generator-evaluator pattern inspired by Anthropic's Harness |
-| `research` | explorer → coder → reviewer | `evaluation_bound: "APPROVED"` | Research-driven implementation with codebase exploration |
+| `harness` | plan → coder → reviewer | `evaluation_bound` | Generator-evaluator pattern inspired by Anthropic's Harness |
+| `research` | explorer → coder → reviewer | `evaluation_bound` | Research-driven implementation with codebase exploration |
+| `goal-driven` | plan → coder | `goal_bound` | LLM-evaluated goal completion without a reviewer role |
 
 ### Session Propagation (Work-Scope Session Architecture)
 
@@ -683,8 +717,12 @@ This enforces the contract that plan stages must produce artifacts before coder 
 | `src/Toolkit/LoopToolkit.php` | 7 agent-facing tools with dynamic guidelines; receives `sessionId` for executor propagation |
 | `src/Contract/LoopDefinition.php` | Immutable value object: name, description, roles, termination condition |
 | `src/Contract/LoopRoleDefinition.php` | Value object: role, prompt, skills, maxIterations per stage |
-| `src/Contract/TerminationType.php` | Backed enum: EvaluationBound, IterationBound, TimeBound, Manual |
-| `src/Contract/TerminationCondition.php` | Value object: type + threshold value |
+| `src/Contract/TerminationType.php` | Backed enum: EvaluationBound, IterationBound, TimeBound, Manual, GoalBound, ToolBound |
+| `src/Contract/TerminationCondition.php` | Value object: type + threshold value + goal/tool-bound fields |
+| `src/Contract/GoalEvaluationResult.php` | Value object: `{achieved, rationale}` from LLM goal evaluation |
+| `src/Contract/ToolBoundEvaluationResult.php` | Value object: `{met, actualValue, operator, threshold, error}` from tool execution |
+| `src/Agent/GoalEvaluator.php` | Single-shot LLM evaluator for goal_bound termination |
+| `src/Agent/ToolBoundEvaluator.php` | Direct tool execution evaluator for tool_bound termination |
 | `src/Contract/LoopStageResult.php` | Value object: next stage preparation (role, prompt, sessionId, sprintId) |
 | `src/Contract/IterationOutcome.php` | Enum: Complete, Continue, Failed, LimitReached |
 | `src/Repl/Handler/LoopHandler.php` | REPL /loops command handler |

@@ -129,7 +129,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                     return ToolResult::error("Loop definition \"{$defName}\" not found. Available: {$available}");
                 }
 
-                $definition = $this->loopDiscovery->get($defName);
+                $rawDefinition = $this->loopDiscovery->getRawDefinition($defName);
 
                 // Parse template parameters if provided
                 $parameters = [];
@@ -145,11 +145,14 @@ final readonly class LoopToolkit implements ToolkitInterface
                 if ($this->executor !== null) {
                     try {
                         $loopId = $this->executor->startLoop(
-                            definition: $definition,
+                            rawDefinition: $rawDefinition,
                             goal: $goal,
                             sessionId: $this->sessionId,
                             parameters: $parameters,
                         );
+
+                        // Parse the definition for display (doesn't need substitution for metadata)
+                        $definition = $this->loopDiscovery->get($defName);
 
                         return ToolResult::success((string) json_encode([
                             'loop_id' => $loopId,
@@ -166,6 +169,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                 }
 
                 // Fallback: return definition details when executor is not available
+                $definition = $this->loopDiscovery->get($defName);
                 return ToolResult::success((string) json_encode([
                     'action' => 'start_loop',
                     'definition' => $defName,
