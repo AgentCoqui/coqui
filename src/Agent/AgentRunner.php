@@ -127,6 +127,7 @@ final class AgentRunner
         PendingInputProviderInterface $pendingInputProvider,
         ?string $role = null,
         ?int $maxIterations = null,
+        ?string $workScopeSessionId = null,
     ): AgentTurnResult {
         return $this->doRun(
             $prompt,
@@ -138,6 +139,7 @@ final class AgentRunner
             enableBackgroundTasks: false,
             role: $role,
             maxIterations: $maxIterations,
+            workScopeSessionId: $workScopeSessionId,
         );
     }
 
@@ -172,6 +174,7 @@ final class AgentRunner
         ?string $role = null,
         ?int $maxIterations = null,
         ?array $filePaths = null,
+        ?string $workScopeSessionId = null,
     ): AgentTurnResult {
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
@@ -210,6 +213,7 @@ final class AgentRunner
             enableBackgroundTasks: $enableBackgroundTasks,
             role: $effectiveRole,
             maxIterations: $maxIterations,
+            workScopeSessionId: $workScopeSessionId,
         );
 
         if ($observer !== null) {
@@ -445,6 +449,7 @@ final class AgentRunner
         bool $enableBackgroundTasks = true,
         string $role = 'orchestrator',
         ?int $maxIterations = null,
+        ?string $workScopeSessionId = null,
     ): OrchestratorAgent {
         $modelString = $this->roleResolver->resolve($role);
         $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
@@ -498,6 +503,7 @@ final class AgentRunner
             httpClient: $this->httpClient,
             loadingRegistry: $this->loadingRegistry,
             usageTracker: $this->usageTracker,
+            workScopeSessionId: $workScopeSessionId,
         );
     }
 

@@ -162,6 +162,7 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?HttpClientInterface $httpClient = null,
         private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
         private readonly ?ToolUsageTracker $usageTracker = null,
+        private readonly ?string $workScopeSessionId = null,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
@@ -290,7 +291,12 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         // Artifact toolkit — versioned output tracking (shares database with session storage)
-        if ($this->storage !== null && $this->sessionId !== null) {
+        // When workScopeSessionId is set (loop stage tasks), toolkits that scope data
+        // by session (artifacts, todos, sprints) use the work-scope session instead of
+        // the execution session. This allows cross-stage data sharing within a loop.
+        $toolkitSessionId = $this->workScopeSessionId ?? $this->sessionId;
+
+        if ($this->storage !== null && $toolkitSessionId !== null) {
             $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($this->storage->getPdo());
             $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
 
@@ -303,19 +309,19 @@ final class OrchestratorAgent extends AbstractAgent
 
             $this->addToolkit(new ArtifactToolkit(
                 $artifactStore,
-                $this->sessionId,
+                $toolkitSessionId,
                 planTodoGenerator: $planTodoGenerator,
                 todoStore: $todoStore,
             ));
         }
 
         // Todo toolkit — session-scoped task tracking for planning and implementation
-        if ($this->storage !== null && $this->sessionId !== null) {
+        if ($this->storage !== null && $toolkitSessionId !== null) {
             $todoStore ??= new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
             $activeRoleName = $this->activeRole ?? 'orchestrator';
             $this->addToolkit(new TodoToolkit(
                 $todoStore,
-                $this->sessionId,
+                $toolkitSessionId,
                 $activeRoleName,
                 $effectiveAccessLevel,
                 $artifactStore ?? null,
@@ -331,7 +337,7 @@ final class OrchestratorAgent extends AbstractAgent
                 $this->addToolkit(new \CoquiBot\Coqui\Toolkit\SprintToolkit(
                     $this->projectStore,
                     $todoStore,
-                    $this->sessionId,
+                    $toolkitSessionId,
                     $this->workspacePath,
                     $this->resolveActiveProjectId(),
                     $this->storage,
@@ -400,8 +406,8 @@ final class OrchestratorAgent extends AbstractAgent
             }
         }
 
-        // Background task toolkit — only in API mode
-        if ($backgroundTaskToolkit !== null) {
+        // Background task toolkit — only in API mode, never in loop stages
+        if ($backgroundTaskToolkit !== null && $this->workScopeSessionId === null) {
             $candidateToolkits[] = [
                 'toolkit' => $backgroundTaskToolkit,
                 'package' => '',
@@ -409,8 +415,10 @@ final class OrchestratorAgent extends AbstractAgent
             ];
         }
 
-        // Schedule and webhook toolkits — self-scheduling and webhook management
-        if ($this->storage !== null && $effectiveAccessLevel === 'full') {
+        // Schedule, webhook, and loop toolkits — only for top-level agents, never in loop stages.
+        // Loop stages must not spawn background tasks, create schedules, manage webhooks, or
+        // start nested loops — this prevents infinite recursion and uncontrolled spawning.
+        if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {
             if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\ScheduleToolkit::class)) {
                 $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
                 $candidateToolkits[] = [

@@ -241,7 +241,7 @@ final class ApiCommand extends Command
         $loopManager = null;
         if ($loopStore !== null && $projectStore !== null) {
             $loopExecutor = new LoopExecutor($loopStore, $projectStore);
-            $loopManager = new LoopManager($storage, $loopStore, $loopExecutor);
+            $loopManager = new LoopManager($storage, $loopStore, $loopExecutor, $artifactStore);
         }
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)

@@ -80,31 +80,24 @@
             "path": "src/Agent/LoopExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
             "layer": "agent",
-            "description": "Core loop orchestration engine. Mode-agnostic — drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Creates projects per loop, snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound). Does not execute child agents directly — callers (LoopRunner for REPL, LoopManager for API) handle execution.",
+            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Creates projects per loop with auto-sprint transitions, snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound). Injects artifact references into stage prompts for cross-stage visibility. Does not execute child agents directly — LoopManager handles execution via background tasks.",
             "methods": [
-                "startLoop(LoopDefinition, string $goal, ?string $sessionId): string — creates loop and first iteration",
-                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, builds context prompt, returns stage result",
-                "completeStage(string $stageId, ?string $result, ?string $sessionId, ?string $taskId): void — records stage result",
-                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition and advances if continuing"
-            ]
-        },
-        {
-            "path": "src/Agent/LoopRunner.php",
-            "fqcn": "CoquiBot\\Coqui\\Agent\\LoopRunner",
-            "layer": "agent",
-            "description": "REPL synchronous loop execution driver. Spawns child agents for each stage, runs iterations synchronously, emits observer events (loop.start, loop.iteration_start, loop.stage_start, loop.stage_end, loop.iteration_end, loop.complete). Mirrors SpawnAgentTool patterns for toolkit building.",
-            "methods": [
-                "run(LoopDefinition, string $goal, ?string $sessionId): array — runs loop to completion synchronously"
+                "startLoop(LoopDefinition, string $goal, ?string $sessionId): string — creates loop and first iteration with sprint auto-transition to in_progress",
+                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, builds context prompt with artifact references, returns stage result",
+                "completeStage(string $stageId, string $result, ?string $artifactId, ?string $taskId): void — records stage result",
+                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition, auto-transitions sprints, advances if continuing"
             ]
         },
         {
             "path": "src/Api/LoopManager.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\LoopManager",
             "layer": "agent",
-            "description": "ReactPHP timer-based async loop coordinator. 5-second tick checks running loops, starts pending stages as background tasks, polls for stage task completion, evaluates iterations. Integrates with SessionStorage for background task creation.",
+            "description": "ReactPHP timer-based async loop coordinator. 5-second tick checks running loops, starts pending stages as background tasks with work-scope session propagation (parentSessionId). 3-second reconciliation checks completed tasks, auto-creates loop_output artifacts in the parent session, and advances loop state. Propagates active project context from parent session to stage tasks.",
             "methods": [
                 "tick(): void — process all running loops on timer",
-                "processLoop(array $loop): void — advance a single loop's stages"
+                "advanceLoop(string $loopId): void — prepare next stage, create task with parentSessionId propagation",
+                "reconcileLoop(string $loopId): void — check completed tasks, create loop_output artifacts, advance state",
+                "createStageArtifact(string $loopId, array $stage, array $task, string $output, array $state): ?string — create loop_output artifact in work-scope session"
             ]
         },
         {

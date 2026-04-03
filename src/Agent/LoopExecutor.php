@@ -15,7 +15,7 @@ use CoquiBot\Coqui\Storage\ProjectStore;
 /**
  * Core orchestration engine for loop workflows.
  *
- * Mode-agnostic: used by both LoopRunner (REPL sync) and LoopManager (API async).
+ * Mode-agnostic: used by LoopManager (API async) for background task orchestration.
  * Handles loop lifecycle (create, advance, evaluate, complete) and context building
  * between stages. Does NOT execute agents — that's the runner's job.
  */
@@ -268,6 +268,24 @@ final class LoopExecutor
         $summary = $this->buildIterationSummary($stages);
         $this->loopStore->updateIterationStatus($iteration['id'], $iterationStatus, $summary);
 
+        // Auto-transition sprint based on iteration outcome
+        $sprintId = $iteration['sprint_id'] ?? null;
+        if ($sprintId !== null && $sprintId !== '') {
+            try {
+                if ($outcome === IterationOutcome::Complete || $outcome === IterationOutcome::LimitReached) {
+                    // Iteration accepted → in_progress → review → complete
+                    $this->projectStore->transitionSprint($sprintId, 'review');
+                    $this->projectStore->transitionSprint($sprintId, 'complete');
+                } elseif ($outcome === IterationOutcome::Continue) {
+                    // Iteration needs another round → review → rejected
+                    $this->projectStore->transitionSprint($sprintId, 'review');
+                    $this->projectStore->transitionSprint($sprintId, 'rejected', $summary);
+                }
+            } catch (\Throwable) {
+                // Sprint transition failures are non-fatal — the loop continues
+            }
+        }
+
         // If loop should continue, advance to next iteration
         if ($outcome === IterationOutcome::Continue) {
             $this->advanceIteration($loopId, $definition, $loop['project_id'], $loop['goal']);
@@ -340,6 +358,9 @@ final class LoopExecutor
                 title: $sprintTitle,
                 acceptanceCriteria: $criteria,
             );
+
+            // Auto-transition: planned → in_progress when the iteration starts executing
+            $this->projectStore->transitionSprint($sprintId, 'in_progress');
         }
 
         $iterationId = $this->loopStore->createIteration(
@@ -487,7 +508,11 @@ final class LoopExecutor
             $stageLines = [];
             foreach ($completedStages as $cs) {
                 $stageSummary = $cs['result_summary'] ?? '(no output recorded)';
-                $stageLines[] = "### Stage " . ((int) $cs['stage_index'] + 1) . ": {$cs['role']}\n{$stageSummary}";
+                $artifactRef = '';
+                if (isset($cs['artifact_id']) && $cs['artifact_id'] !== '') {
+                    $artifactRef = "\n> **Artifact ID:** `{$cs['artifact_id']}` — use `artifact_get` to read the full output.";
+                }
+                $stageLines[] = "### Stage " . ((int) $cs['stage_index'] + 1) . ": {$cs['role']}\n{$stageSummary}{$artifactRef}";
             }
             $sections[] = "## Previous Stages This Cycle\n" . implode("\n\n", $stageLines);
         }

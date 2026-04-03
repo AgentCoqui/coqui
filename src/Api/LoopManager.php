@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api;
 
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Contract\IterationOutcome;
+use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
@@ -21,6 +22,11 @@ use CoquiBot\Coqui\Storage\SessionStorage;
  * A reconciliation timer (every 3s) checks running stages whose linked
  * tasks have completed, calls LoopExecutor::completeStage() or failStage(),
  * and evaluates the iteration to decide whether to continue or stop.
+ *
+ * Each stage runs in its own isolated session for clean context windows,
+ * but the loop's parent session ID is propagated as parent_session_id so
+ * that ArtifactToolkit, TodoToolkit, and SprintToolkit scope to the shared
+ * work-scope session. This ensures all stages can see each other's artifacts.
  */
 final class LoopManager
 {
@@ -31,6 +37,7 @@ final class LoopManager
         private readonly SessionStorage $storage,
         private readonly LoopStore $loopStore,
         private readonly LoopExecutor $executor,
+        private readonly ArtifactStore $artifactStore,
     ) {}
 
     /**
@@ -102,17 +109,33 @@ final class LoopManager
 
         $this->advancingLoops[$loopId] = true;
 
-        // Create a session for this stage's background task
+        // The loop's parent session is the work-scope session — artifacts, todos,
+        // and sprints are scoped here. Each stage gets its own execution session
+        // for clean context windows, but parent_session_id links back to the
+        // shared work scope so ArtifactToolkit/TodoToolkit/SprintToolkit can
+        // access cross-stage data.
+        $workScopeSessionId = $stageResult->sessionId;
+
+        // Create a fresh execution session for this stage's background task
         $sessionId = $this->storage->createSession(
             modelRole: $stageResult->role,
             model: '',
         );
 
-        // Create the background task
+        // Propagate active project context from parent session to task session
+        if ($workScopeSessionId !== null) {
+            $parentProjectId = $this->storage->getActiveProjectId($workScopeSessionId);
+            if ($parentProjectId !== null) {
+                $this->storage->setActiveProject($sessionId, $parentProjectId);
+            }
+        }
+
+        // Create the background task with parent_session_id for work-scope propagation
         $taskId = $this->storage->createTask(
             sessionId: $sessionId,
             prompt: $stageResult->prompt,
             role: $stageResult->role,
+            parentSessionId: $workScopeSessionId,
             title: sprintf(
                 'Loop stage: %s (iter %d, stage %d)',
                 $stageResult->role,
@@ -160,10 +183,23 @@ final class LoopManager
             if ($taskStatus === 'completed') {
                 // Extract the task output from the session's last message
                 $output = $this->extractTaskOutput($task);
+
+                // Create a loop_output artifact in the work-scope session so
+                // subsequent stages (e.g. reviewer) can see the output via
+                // ArtifactToolkit scoped to the same parent session.
+                $artifactId = $this->createStageArtifact(
+                    loopId: $loopId,
+                    stage: $stage,
+                    task: $task,
+                    output: $output,
+                    state: $state,
+                );
+
                 $this->executor->completeStage(
                     stageId: (string) $stage['id'],
                     result: $output,
                     taskId: $taskId,
+                    artifactId: $artifactId,
                 );
             } elseif ($taskStatus === 'failed' || $taskStatus === 'cancelled') {
                 $error = $task['error'] ?? 'Task ' . $taskStatus;
@@ -200,6 +236,64 @@ final class LoopManager
                 $this->loopStore->updateLoopStatus($loopId, 'failed');
             }
         }
+    }
+
+    /**
+     * Create a loop_output artifact in the work-scope session for a completed stage.
+     *
+     * @param array<string, mixed> $stage
+     * @param array<string, mixed> $task
+     * @param array<string, mixed> $state
+     */
+    private function createStageArtifact(
+        string $loopId,
+        array $stage,
+        array $task,
+        string $output,
+        array $state,
+    ): ?string {
+        if ($output === '' || $output === '(no output)') {
+            return null;
+        }
+
+        // Resolve the work-scope session from the task's parent_session_id,
+        // falling back to the loop's own session_id.
+        $workScopeSessionId = $task['parent_session_id'] ?? null;
+        if ($workScopeSessionId === null || $workScopeSessionId === '') {
+            $loop = $this->loopStore->getLoop($loopId);
+            $workScopeSessionId = $loop['session_id'] ?? null;
+        }
+
+        if ($workScopeSessionId === null || $workScopeSessionId === '') {
+            return null;
+        }
+
+        $role = (string) ($stage['role'] ?? 'unknown');
+        $iterationNumber = (int) ($state['iteration']['iteration_number'] ?? 0);
+        $stageIndex = (int) ($stage['stage_index'] ?? 0);
+
+        // Resolve project_id and sprint_id from the loop and iteration records
+        $loop = $this->loopStore->getLoop($loopId);
+        $projectId = $loop['project_id'] ?? null;
+        $sprintId = $state['iteration']['sprint_id'] ?? null;
+
+        return $this->artifactStore->create(
+            sessionId: $workScopeSessionId,
+            title: sprintf('Loop output: %s (iter %d, stage %d)', $role, $iterationNumber, $stageIndex),
+            content: $output,
+            type: 'loop_output',
+            stage: 'final',
+            projectId: $projectId !== '' ? $projectId : null,
+            sprintId: $sprintId !== '' ? $sprintId : null,
+            metadata: [
+                'loop_id' => $loopId,
+                'stage_id' => (string) ($stage['id'] ?? ''),
+                'task_id' => (string) ($task['id'] ?? ''),
+                'role' => $role,
+                'iteration_number' => $iterationNumber,
+                'stage_index' => $stageIndex,
+            ],
+        );
     }
 
     /**
