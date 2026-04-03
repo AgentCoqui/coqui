@@ -208,6 +208,9 @@ final class RunCommand extends Command
             $this->loopExecutor = new LoopExecutor(
                 loopStore: $loopStore,
                 projectStore: $projectStore,
+                sessionStorage: $this->storage,
+                todoStore: $this->boot->todoStore(),
+                artifactStore: $artifactStore,
             );
         }
 

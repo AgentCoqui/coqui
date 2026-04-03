@@ -459,6 +459,9 @@ final class OrchestratorAgent extends AbstractAgent
                     ? new \CoquiBot\Coqui\Agent\LoopExecutor(
                         loopStore: $loopStore,
                         projectStore: $this->projectStore,
+                        sessionStorage: $this->storage,
+                        todoStore: isset($todoStore) ? $todoStore : null,
+                        artifactStore: $artifactStore,
                     )
                     : null;
                 $candidateToolkits[] = [

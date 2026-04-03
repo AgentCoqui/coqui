@@ -275,6 +275,9 @@ final class ApiCommand extends Command
             $loopExecutor = new LoopExecutor(
                 loopStore: $loopStore,
                 projectStore: $projectStore,
+                sessionStorage: $storage,
+                todoStore: $todoStore,
+                artifactStore: $artifactStore,
                 goalEvaluator: $goalEvaluator,
                 toolBoundEvaluator: $toolBoundEvaluator,
             );

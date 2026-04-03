@@ -83,6 +83,7 @@ final readonly class LoopToolkit implements ToolkitInterface
         ### Usage
         - Start a loop: `loop_start(definition: "harness", goal: "Build feature X")`
         - With parameters: `loop_start(definition: "research", goal: "Investigate auth", parameters: "{\"topic\": \"authentication\"}")`
+        - Reuse a project: `loop_start(definition: "harness", goal: "Fix bugs", project_slug: "my-app")`
         - Monitor: `loop_status(id: "...")` or `loop_list()`
         - Pause/resume: `loop_pause(id: "...")` / `loop_resume(id: "...")`
         - Cancel: `loop_stop(id: "...")`
@@ -93,7 +94,7 @@ final readonly class LoopToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'loop_start',
-            description: 'Start a new automated loop workflow from a named definition. The loop runs multiple roles in sequence per iteration, evaluating termination conditions between cycles. Definitions may declare parameters — pass them as a JSON object to substitute {{variable}} placeholders in role prompts.',
+            description: 'Start a new automated loop workflow from a named definition. The loop runs multiple roles in sequence per iteration, evaluating termination conditions between cycles. Definitions may declare parameters — pass them as a JSON object to substitute {{variable}} placeholders in role prompts. Loops can reuse an existing project (by ID or slug) instead of auto-creating a new one.',
             parameters: [
                 new StringParameter(
                     name: 'definition',
@@ -113,6 +114,21 @@ final readonly class LoopToolkit implements ToolkitInterface
                 new StringParameter(
                     name: 'parameters',
                     description: 'JSON object of template parameter values (e.g. {"topic": "authentication", "language": "PHP"}). These substitute {{variable}} placeholders in the loop\'s role prompts.',
+                    required: false,
+                ),
+                new StringParameter(
+                    name: 'project_id',
+                    description: 'Reuse an existing project by ID. The loop will scope all work to this project instead of creating a new one. Mutually exclusive with project_slug.',
+                    required: false,
+                ),
+                new StringParameter(
+                    name: 'project_slug',
+                    description: 'Reuse an existing project by slug. The loop will scope all work to this project instead of creating a new one. Mutually exclusive with project_id.',
+                    required: false,
+                ),
+                new StringParameter(
+                    name: 'sprint_id',
+                    description: 'Attach the loop to an existing sprint within the project. If omitted, a new sprint is created per iteration.',
                     required: false,
                 ),
             ],
@@ -144,11 +160,29 @@ final readonly class LoopToolkit implements ToolkitInterface
                 // Use LoopExecutor to actually start the loop when available
                 if ($this->executor !== null) {
                     try {
+                        // Resolve project input
+                        $projectId = isset($input['project_id']) && $input['project_id'] !== ''
+                            ? (string) $input['project_id']
+                            : null;
+                        $projectSlug = isset($input['project_slug']) && $input['project_slug'] !== ''
+                            ? (string) $input['project_slug']
+                            : null;
+                        $sprintId = isset($input['sprint_id']) && $input['sprint_id'] !== ''
+                            ? (string) $input['sprint_id']
+                            : null;
+
+                        if ($projectId !== null && $projectSlug !== null) {
+                            return ToolResult::error('Specify either "project_id" or "project_slug", not both');
+                        }
+
                         $loopId = $this->executor->startLoop(
                             rawDefinition: $rawDefinition,
                             goal: $goal,
                             sessionId: $this->sessionId,
                             parameters: $parameters,
+                            projectId: $projectId,
+                            projectSlug: $projectSlug,
+                            sprintId: $sprintId,
                         );
 
                         // Parse the definition for display (doesn't need substitution for metadata)

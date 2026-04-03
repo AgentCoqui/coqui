@@ -25,7 +25,7 @@
         {
             "name": "implement",
             "role": "coder",
-            "prompt": "Implement the plan from the previous stage. Follow the plan's steps precisely. Write clean, tested code. If continuing from a previous iteration, focus on completing the remaining work identified in the plan. After implementation, create an artifact using artifact_create summarizing what was done, then call artifact_stage(stage: \"final\") on it.",
+            "prompt": "Implement the plan from the previous stage. Follow the plan's steps precisely. Write clean, tested code directly to the filesystem using the project directory. If continuing from a previous iteration, focus on completing the remaining work identified in the plan. After implementation, run verification commands, then create an artifact using artifact_create summarizing changes and outcomes, and call artifact_stage(stage: \"final\") on it.",
             "order": 1,
             "requires_artifact_from": 0
         }
