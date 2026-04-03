@@ -36,14 +36,14 @@
         {
             "name": "synthesize",
             "role": "coder",
-            "prompt": "Synthesize the research findings about {{topic}} from the previous stage into a structured, polished {{output_format}}. Ensure all claims are backed by the research findings.",
+            "prompt": "Synthesize the research findings about {{topic}} from the previous stage into a structured, polished {{output_format}}. You MUST create an artifact using artifact_create with the full deliverable content, then call artifact_stage(stage: \"final\") on it. The loop cannot proceed until you produce a finalized artifact. Ensure all claims are backed by the research findings.",
             "order": 1,
             "requires_artifact_from": 0
         },
         {
             "name": "evaluate",
             "role": "reviewer",
-            "prompt": "Evaluate the {{output_format}} about {{topic}} for completeness, accuracy, and clarity. Always read the full synthesized output via artifact_get before judging — the inline summary may be truncated. Verify that all claims match the research findings. Check for missing topics, inaccurate references, or unclear sections. Approve if the deliverable meets the goal, or provide specific feedback on what needs more investigation or better synthesis.",
+            "prompt": "Evaluate the {{output_format}} about {{topic}} for completeness, accuracy, and clarity. IMPORTANT: Use artifact_list with type: \"loop_output\" to find loop-specific artifacts rather than browsing all session artifacts (which may contain stale items from prior work). Then use artifact_get to read the full content of each relevant artifact — the inline summary may be truncated. Verify that all claims match the research findings. Check for missing topics, inaccurate references, or unclear sections. Approve if the deliverable meets the goal, or provide specific feedback on what needs more investigation or better synthesis.",
             "order": 2,
             "requires_artifact_from": 1
         }

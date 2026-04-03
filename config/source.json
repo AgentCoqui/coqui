@@ -1458,16 +1458,17 @@
             "path": "src/Storage/ArtifactStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ArtifactStore",
             "layer": "storage",
-            "description": "SQLite-backed artifact persistence. Tables: artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, timestamps), artifact_versions (id, artifact_id, version, content, change_summary, created_at). Shares PDO connection from SessionStorage. Supports CRUD, automatic versioning on update, stage transitions (draft/review/final), and per-session listing with type/stage filters.",
+            "description": "SQLite-backed artifact persistence. Tables: artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, sprint_id, persistent, timestamps), artifact_versions (id, artifact_id, version, content, change_summary, created_at). Shares PDO connection from SessionStorage. Supports CRUD, automatic versioning on update, stage transitions (draft/review/final), and per-session listing with type/stage/project_id/sprint_id/created_after filters. cleanupFinalized() excludes loop_output artifacts to preserve loop stage references.",
             "methods": [
-                "create(sessionId, title, content, type, language, filepath, stage, turnId, metadata): string — creates artifact + initial version, returns ID",
+                "create(sessionId, title, content, type, language, filepath, stage, turnId, metadata, projectId, sprintId, persistent): string — creates artifact + initial version, returns ID",
                 "update(id, content, changeSummary, title, stage): bool — updates content, bumps version, saves snapshot",
                 "get(id): ?array — retrieves artifact by ID",
-                "list(sessionId, type, stage, limit): array — lists artifacts with optional filters",
+                "list(sessionId, type, stage, limit, projectId, sprintId, createdAfter): array — lists artifacts with optional filters",
                 "delete(id): bool — deletes artifact and cascaded versions",
                 "getVersions(artifactId): array — returns version history ordered desc",
                 "getVersion(artifactId, version): ?array — retrieves specific version",
-                "updateStage(id, stage): bool — updates stage only"
+                "updateStage(id, stage): bool — updates stage only",
+                "cleanupFinalized(): int — deletes non-persistent final artifacts except loop_output type"
             ]
         },
         {
@@ -1619,7 +1620,7 @@
             "path": "src/Toolkit/ArtifactToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\ArtifactToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing artifact management toolkit providing 5 tools: artifact_create (new versioned artifact), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage filter), artifact_stage (draft→review→final transition). Accepts optional TodoStore to show todo progress next to plan artifacts in guidelines. Guidelines dynamically list existing artifacts with todo counts for plans.",
+            "description": "Agent-facing artifact management toolkit providing 6 tools: artifact_create (new versioned artifact with project_id/sprint_id linking), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage/project_id/sprint_id/created_after filters), artifact_stage (draft→review→final transition with auto todo generation for plans), artifact_delete. Accepts optional TodoStore to show todo progress next to plan artifacts in guidelines. The artifact_list tool now supports loop_output type filtering and project/sprint scoping for loop reviewer isolation.",
             "methods": [
                 "tools(): array — returns 5 Tool instances for artifact CRUD + staging",
                 "guidelines(): string — dynamic guidelines showing existing artifact listing with todo progress for plans"

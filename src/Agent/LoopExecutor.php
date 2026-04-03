@@ -230,6 +230,8 @@ final class LoopExecutor
             previousOutcomes: $this->loopStore->getPreviousOutcomes($loopId, (int) $iteration['iteration_number']),
             terminationCriteria: $loop['termination_criteria'],
             resolvedParameters: $this->extractResolvedParameters($loop['configuration']),
+            projectId: $loop['project_id'] ?? null,
+            sprintId: $iteration['sprint_id'] ?? null,
         );
 
         // Mark stage as running
@@ -651,6 +653,8 @@ final class LoopExecutor
         array $previousOutcomes,
         ?string $terminationCriteria,
         array $resolvedParameters = [],
+        ?string $projectId = null,
+        ?string $sprintId = null,
     ): string {
         $iterationLabel = $maxIterations !== null
             ? "{$iterationNumber}/{$maxIterations}"
@@ -719,6 +723,17 @@ final class LoopExecutor
                 $paramLines[] = "- **{$key}**: {$value}";
             }
             $sections[] = "## Parameters\n" . implode("\n", $paramLines);
+        }
+
+        // Add loop scoping context so agents can filter artifacts/todos precisely
+        if ($projectId !== null && $projectId !== '') {
+            $scopeLines = ["- **project_id**: `{$projectId}`"];
+            if ($sprintId !== null && $sprintId !== '') {
+                $scopeLines[] = "- **sprint_id**: `{$sprintId}`";
+            }
+            $scopeLines[] = '';
+            $scopeLines[] = 'Use these IDs with `artifact_list(project_id: "...", type: "loop_output")` to find loop-specific artifacts and avoid stale session artifacts.';
+            $sections[] = "## Loop Context\n" . implode("\n", $scopeLines);
         }
 
         $sections[] = "## Your Task\n{$rolePrompt}";

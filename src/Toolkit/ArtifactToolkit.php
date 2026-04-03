@@ -105,7 +105,7 @@ final class ArtifactToolkit implements ToolkitInterface
             parameters: [
                 new StringParameter('title', 'Short descriptive title for the artifact', required: true),
                 new StringParameter('content', 'The full content of the artifact', required: true),
-                new EnumParameter('type', 'Artifact type', ['code', 'document', 'config', 'plan', 'data', 'other'], required: false),
+                new EnumParameter('type', 'Artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'other'], required: false),
                 new StringParameter('language', 'Programming language (for code artifacts, e.g. php, python, javascript)', required: false),
                 new StringParameter('filepath', 'Intended file path relative to workspace (e.g. src/MyClass.php)', required: false),
                 new StringParameter('project_id', 'Link artifact to a project (makes it persistent across sessions)', required: false),
@@ -239,23 +239,32 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_list',
-            description: 'List artifacts in the current session, optionally filtered by type or stage.',
+            description: 'List artifacts in the current session, optionally filtered by type, stage, project, sprint, or creation time.',
             parameters: [
-                new EnumParameter('type', 'Filter by artifact type', ['code', 'document', 'config', 'plan', 'data', 'other'], required: false),
+                new EnumParameter('type', 'Filter by artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'other'], required: false),
                 new EnumParameter('stage', 'Filter by stage', ['draft', 'review', 'final'], required: false),
+                new StringParameter('project_id', 'Filter by project ID — useful in loop/sprint contexts to see only relevant artifacts', required: false),
+                new StringParameter('sprint_id', 'Filter by sprint ID', required: false),
+                new StringParameter('created_after', 'Only return artifacts created after this ISO 8601 timestamp (e.g. 2026-04-03T12:00:00Z)', required: false),
             ],
             callback: function (array $args): ToolResult {
                 $type = isset($args['type']) ? trim($args['type']) : null;
                 $stage = isset($args['stage']) ? trim($args['stage']) : null;
+                $projectId = isset($args['project_id']) && trim($args['project_id']) !== '' ? trim($args['project_id']) : null;
+                $sprintId = isset($args['sprint_id']) && trim($args['sprint_id']) !== '' ? trim($args['sprint_id']) : null;
+                $createdAfter = isset($args['created_after']) && trim($args['created_after']) !== '' ? trim($args['created_after']) : null;
 
                 $artifacts = $this->store->list(
                     sessionId: $this->sessionId,
                     type: $type !== '' ? $type : null,
                     stage: $stage !== '' ? $stage : null,
+                    projectId: $projectId,
+                    sprintId: $sprintId,
+                    createdAfter: $createdAfter,
                 );
 
                 if ($artifacts === []) {
-                    return ToolResult::success('No artifacts found in this session.');
+                    return ToolResult::success('No artifacts found matching the given filters.');
                 }
 
                 $summary = array_map(fn(array $a) => [
@@ -266,7 +275,10 @@ final class ArtifactToolkit implements ToolkitInterface
                     'version' => $a['version'],
                     'language' => $a['language'],
                     'filepath' => $a['filepath'],
+                    'project_id' => $a['project_id'] ?? null,
+                    'sprint_id' => $a['sprint_id'] ?? null,
                     'updated_at' => $a['updated_at'],
+                    'created_at' => $a['created_at'],
                 ], $artifacts);
 
                 return ToolResult::success(json_encode([

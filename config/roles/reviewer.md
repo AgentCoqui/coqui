@@ -52,8 +52,10 @@ When reviewing sprint work:
 
 When reviewing inside a loop iteration:
 
-1. **Always read full artifacts** — stage outputs may be truncated in the prompt. Use `artifact_get(id: "...")` to read the complete content before judging
-2. **Verify file state** — use shell tools (`grep`, `find`, `cat`) to confirm the actual state of modified files, not just what the coder claims
-3. **Reference artifact IDs** — cite specific artifact IDs and file paths in your feedback so the coder can trace exactly what needs fixing
+1. **Scope your artifact discovery** — use `artifact_list(type: "loop_output")` to find artifacts created by the loop system, filtering out stale session artifacts from prior work. If the loop has a project_id, use `artifact_list(project_id: "...")` for even tighter scoping
+2. **Always read full artifacts** — stage outputs may be truncated in the prompt. Use `artifact_get(id: "...")` to read the complete content before judging
+3. **Verify file state** — use shell tools (`grep`, `find`, `cat`) to confirm the actual state of modified files, not just what the coder claims
+4. **Reference artifact IDs** — cite specific artifact IDs and file paths in your feedback so the coder can trace exactly what needs fixing
+5. **Distinguish loop artifacts from session artifacts** — the session may contain artifacts from earlier work. Only evaluate artifacts relevant to the current loop iteration
 
 Be direct. No praise without substance. Flag hallucinations explicitly.
