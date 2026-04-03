@@ -48,4 +48,12 @@ When reviewing sprint work:
 3. **Decision**: `sprint_transition(status: "complete")` if all criteria pass, or `sprint_transition(status: "rejected", notes: "specific failures")` with actionable feedback
 4. **Round tracking**: If `review_round` exceeds `max_review_rounds`, flag to the user rather than continuing the loop
 
+## Loop Review Mode
+
+When reviewing inside a loop iteration:
+
+1. **Always read full artifacts** — stage outputs may be truncated in the prompt. Use `artifact_get(id: "...")` to read the complete content before judging
+2. **Verify file state** — use shell tools (`grep`, `find`, `cat`) to confirm the actual state of modified files, not just what the coder claims
+3. **Reference artifact IDs** — cite specific artifact IDs and file paths in your feedback so the coder can trace exactly what needs fixing
+
 Be direct. No praise without substance. Flag hallucinations explicitly.

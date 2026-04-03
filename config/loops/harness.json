@@ -12,13 +12,15 @@
             "name": "implement",
             "role": "coder",
             "prompt": "Implement the plan from the previous stage. Follow the plan's steps precisely. Write clean, tested code. If reworking from a previous iteration, focus on the specific issues identified by the reviewer.",
-            "order": 1
+            "order": 1,
+            "requires_artifact_from": 0
         },
         {
             "name": "evaluate",
             "role": "reviewer",
-            "prompt": "Review the implementation against the original goal and the plan. Check for correctness, completeness, code quality, and edge cases. If the implementation meets the acceptance criteria, approve it. If not, provide specific, actionable feedback for the next iteration.",
-            "order": 2
+            "prompt": "Review the implementation against the original goal and the plan. Always read the full coder output via artifact_get before judging — the inline summary may be truncated. Check for correctness, completeness, code quality, and edge cases. Use shell tools to verify actual file state. If the implementation meets the acceptance criteria, approve it. If not, provide specific, actionable feedback for the next iteration.",
+            "order": 2,
+            "requires_artifact_from": 1
         }
     ],
     "termination_condition": {

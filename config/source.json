@@ -80,11 +80,11 @@
             "path": "src/Agent/LoopExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
             "layer": "agent",
-            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Creates projects per loop with auto-sprint transitions, snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound). Injects artifact references into stage prompts for cross-stage visibility. Does not execute child agents directly — LoopManager handles execution via background tasks.",
+            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Creates projects per loop with auto-sprint transitions, snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound). Enforces inter-stage artifact contracts via requires_artifact_from. Injects artifact references into stage prompts with truncation detection for cross-stage visibility. Does not execute child agents directly — LoopManager handles execution via background tasks.",
             "methods": [
                 "startLoop(LoopDefinition, string $goal, ?string $sessionId): string — creates loop and first iteration with sprint auto-transition to in_progress",
-                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, builds context prompt with artifact references, returns stage result",
-                "completeStage(string $stageId, string $result, ?string $artifactId, ?string $taskId): void — records stage result",
+                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, enforces artifact contract gate, builds context prompt with truncation-aware artifact references",
+                "completeStage(string $stageId, string $result, ?string $artifactId, ?string $taskId): void — records stage result with 2000-char truncation",
                 "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition, auto-transitions sprints, advances if continuing"
             ]
         },
@@ -442,16 +442,16 @@
             "path": "src/Contract/LoopRoleDefinition.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\LoopRoleDefinition",
             "layer": "contract",
-            "description": "Value object for a single stage in a loop definition. Contains role name, prompt template, optional skills array, and optional per-stage maxIterations override.",
+            "description": "Value object for a single stage in a loop definition. Contains role name, prompt template, optional skills array, optional per-stage maxIterations override, and optional requiresArtifactFrom index for inter-stage artifact contract enforcement.",
             "methods": [
-                "fromArray(array): self — factory from JSON config"
+                "fromArray(array): self — factory from JSON config, parses requires_artifact_from"
             ]
         },
         {
             "path": "src/Contract/LoopDefinition.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\LoopDefinition",
             "layer": "contract",
-            "description": "Immutable value object representing a complete loop configuration. Contains name (validated against /^[a-z0-9][a-z0-9_-]*$/), description, roles array (LoopRoleDefinition[]), and termination condition.",
+            "description": "Immutable value object representing a complete loop configuration. Contains name (validated against /^[a-z0-9][a-z0-9_-]*$/), description, roles array (LoopRoleDefinition[]), termination condition, and cross-stage artifact dependency validation.",
             "methods": [
                 "fromArray(string, array): self — factory from JSON config with name validation"
             ]

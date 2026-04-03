@@ -657,6 +657,21 @@ Loop stage agents intentionally do **not** receive `LoopToolkit`, `BackgroundTas
 
 Stage agents receive: `FileSystemToolkit`, `ShellToolkit` (access-level dependent), `WebToolkit`, `CoquiSourceToolkit`, `MemoryToolkit`, `SkillToolkit`, `ArtifactToolkit`, `TodoToolkit`, `SprintToolkit`, and auto-discovered package toolkits.
 
+### Result Truncation & Artifact Guidance
+
+`LoopExecutor::completeStage()` truncates `result_summary` to 2000 characters for context building. Long coder outputs lose trailing context (test results, verification output) in the reviewer's prompt. The auto-artifact system mitigates this:
+
+1. **Auto-artifacts** — `LoopManager::reconcileLoop()` creates `loop_output` artifacts with the full, untruncated stage output. The artifact ID is stored in the `loop_stages.artifact_id` column.
+2. **Truncation detection** — `buildStagePrompt()` checks for the `[... output truncated for context ...]` marker in `result_summary`. When truncation is detected **and** an `artifact_id` is present, the prompt upgrades the artifact reference to a prominent warning instructing the reviewer to use `artifact_get` before judging.
+3. **Reviewer role reinforcement** — the `reviewer` role's "Loop Review Mode" section instructs reviewers to always read full artifacts and verify file state with shell tools, regardless of whether truncation occurred.
+4. **Loop definition prompts** — both `harness` and `research` definitions include explicit `artifact_get` instructions in their reviewer stage prompts.
+
+### Contract Artifact Enforcement
+
+Loop role definitions support an optional `requires_artifact_from` field — an integer index referencing a prior stage in the same iteration. When set, `prepareNextStage()` verifies the referenced stage's `artifact_id` is non-null before allowing advancement. If the required artifact is missing, the stage is auto-failed with a descriptive error.
+
+This enforces the contract that plan stages must produce artifacts before coder stages proceed, and coder stages must produce artifacts before reviewer stages proceed. The field is backward-compatible — existing definitions without `requires_artifact_from` continue to work unchanged.
+
 ### Key Source Files
 
 | File | Purpose |

@@ -25,13 +25,15 @@
             "name": "synthesize",
             "role": "coder",
             "prompt": "Synthesize the research findings about {{topic}} from the previous stage into a structured, polished {{output_format}}. Ensure all claims are backed by the research findings.",
-            "order": 1
+            "order": 1,
+            "requires_artifact_from": 0
         },
         {
             "name": "evaluate",
             "role": "reviewer",
-            "prompt": "Evaluate the {{output_format}} about {{topic}} for completeness, accuracy, and clarity. Verify that all claims match the research findings. Check for missing topics, inaccurate references, or unclear sections. Approve if the deliverable meets the goal, or provide specific feedback on what needs more investigation or better synthesis.",
-            "order": 2
+            "prompt": "Evaluate the {{output_format}} about {{topic}} for completeness, accuracy, and clarity. Always read the full synthesized output via artifact_get before judging — the inline summary may be truncated. Verify that all claims match the research findings. Check for missing topics, inaccurate references, or unclear sections. Approve if the deliverable meets the goal, or provide specific feedback on what needs more investigation or better synthesis.",
+            "order": 2,
+            "requires_artifact_from": 1
         }
     ],
     "termination_condition": {

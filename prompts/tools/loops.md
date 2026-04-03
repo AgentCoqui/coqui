@@ -39,3 +39,9 @@ Use loops to run multi-role automated iteration cycles that execute without huma
 3. **Pause before modifying.** If you need to adjust something mid-loop, pause first, then resume after changes.
 4. **Use appropriate definitions.** Choose the definition that matches your workflow. Create custom definitions in `workspace/loops/` for specialized workflows.
 5. **Custom definitions.** Create a JSON file in `workspace/loops/` following the schema of built-in definitions. The loop will be auto-discovered.
+
+### Artifact Contract Enforcement
+
+Loop role definitions support an optional `requires_artifact_from` field — an integer index referencing a prior stage. When set, the loop engine verifies the referenced stage produced an artifact before allowing the current stage to run. If the required artifact is missing, the stage is auto-failed.
+
+Built-in definitions enforce this: the coder stage requires the plan/explorer artifact (index 0), and the reviewer stage requires the coder artifact (index 1). Custom definitions can use `requires_artifact_from` to declare any inter-stage dependency.

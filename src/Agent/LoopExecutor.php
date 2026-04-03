@@ -144,6 +144,35 @@ final class LoopExecutor
             return null;
         }
 
+        // Enforce artifact contract: if this stage requires an artifact from a prior stage,
+        // verify it was produced before allowing advancement
+        if ($roleDefinition->requiresArtifactFrom !== null) {
+            $requiredIndex = $roleDefinition->requiresArtifactFrom;
+            $requiredStage = null;
+            foreach ($stages as $stage) {
+                if ((int) $stage['stage_index'] === $requiredIndex && $stage['status'] === 'completed') {
+                    $requiredStage = $stage;
+                    break;
+                }
+            }
+
+            if ($requiredStage === null || !isset($requiredStage['artifact_id']) || $requiredStage['artifact_id'] === '') {
+                $requiredRole = $definition->roles[$requiredIndex]->role ?? "stage {$requiredIndex}";
+                $this->failStage(
+                    $nextStage['id'],
+                    sprintf(
+                        'Required artifact from stage %d (%s) was not produced. '
+                        . 'The %s stage must create an artifact via artifact_create or have one auto-created from its output.',
+                        $requiredIndex,
+                        $requiredRole,
+                        $requiredRole,
+                    ),
+                );
+
+                return null;
+            }
+        }
+
         // Build the context prompt
         $prompt = $this->buildStagePrompt(
             definition: $definition,
@@ -510,7 +539,13 @@ final class LoopExecutor
                 $stageSummary = $cs['result_summary'] ?? '(no output recorded)';
                 $artifactRef = '';
                 if (isset($cs['artifact_id']) && $cs['artifact_id'] !== '') {
-                    $artifactRef = "\n> **Artifact ID:** `{$cs['artifact_id']}` — use `artifact_get` to read the full output.";
+                    $isTruncated = str_contains($stageSummary, '[... output truncated for context ...]');
+                    if ($isTruncated) {
+                        $artifactRef = "\n> ⚠️ **Output was truncated.** The full content is available as artifact `{$cs['artifact_id']}`."
+                            . "\n> Use `artifact_get(id: \"{$cs['artifact_id']}\")` to read the complete output before making your evaluation.";
+                    } else {
+                        $artifactRef = "\n> **Artifact ID:** `{$cs['artifact_id']}` — use `artifact_get` to read the full output.";
+                    }
                 }
                 $stageLines[] = "### Stage " . ((int) $cs['stage_index'] + 1) . ": {$cs['role']}\n{$stageSummary}{$artifactRef}";
             }
