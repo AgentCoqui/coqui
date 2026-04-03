@@ -534,7 +534,7 @@ Coqui supports fully automated, multi-iteration workflows called **Loops**. A lo
 3. **`LoopStore`** persists loop state to SQLite via three tables: `loops` (lifecycle), `loop_iterations` (iteration tracking), `loop_stages` (per-stage results within each iteration).
 4. **`LoopExecutor`** is the mode-agnostic orchestration engine. It manages the state machine: advancing through stages, composing prompts with previous stage output, evaluating termination conditions, and tracking iteration/stage records.
 5. **`LoopManager`** drives loops asynchronously in the API server via a 5-second ReactPHP periodic timer. It picks up running loops, prepares the next stage via `LoopExecutor::prepareNextStage()`, creates a background task for execution, and links the task to the stage record. A 3-second reconciliation timer checks completed tasks and advances the loop state.
-6. **`LoopRunner`** (deprecated) was the synchronous REPL driver. Loop execution is now fully async via `LoopManager` + `BackgroundTaskManager`. The REPL `/loops start` command uses `LoopExecutor::startLoop()` directly and returns immediately.
+6. **`LoopManager`** drives loops asynchronously in the API server via a 5-second ReactPHP periodic timer. It picks up running loops, prepares the next stage via `LoopExecutor::prepareNextStage()`, creates a background task for execution, and links the task to the stage record. A 3-second reconciliation timer checks completed tasks, auto-creates `loop_output` artifacts in the work-scope session, and advances the loop state.
 
 ### Loop Definition Schema
 
@@ -624,7 +624,7 @@ Coqui supports fully automated, multi-iteration workflows called **Loops**. A lo
 
 ### Observer Events
 
-Loop events are no longer emitted via `LoopRunner` observer events (deprecated). Loop progress is now tracked via the standard background task events (`BackgroundTaskManager`) and the `loop_status` / `loop_list` tools. The REPL `/loops` command shows loop progress by querying the database directly.
+Loop progress is tracked via the standard background task events (`BackgroundTaskManager`) and the `loop_status` / `loop_list` tools. The REPL `/loops` command shows loop progress by querying the database directly.
 
 ### Built-in Loop Definitions
 
@@ -633,19 +633,23 @@ Loop events are no longer emitted via `LoopRunner` observer events (deprecated).
 | `harness` | plan → coder → reviewer | `evaluation_bound: "APPROVED"` | Generator-evaluator pattern inspired by Anthropic's Harness |
 | `research` | explorer → coder → reviewer | `evaluation_bound: "APPROVED"` | Research-driven implementation with codebase exploration |
 
-### Session Propagation
+### Session Propagation (Work-Scope Session Architecture)
 
-Loop stage agents share the parent session's artifacts, todos, and sprint context:
+Loop stage agents share the parent session's artifacts, todos, and sprint context via a **work-scope session** pattern:
 
 1. **`LoopToolkit`** receives the orchestrator's `sessionId` at construction and passes it to `LoopExecutor::startLoop()` when the agent calls `loop_start`.
 2. **`LoopExecutor`** stores `session_id` in the `loops` table and propagates it through `LoopStageResult::sessionId` when preparing stages.
-3. **`LoopManager`** creates a background task session for each stage. Toolkit scoping (artifacts, todos, sprints) is handled by `TaskRunCommand` which reads the parent session from the task record.
+3. **`LoopManager::advanceLoop()`** creates a fresh **execution session** for each stage's background task (clean context window), but passes the loop's `session_id` as `parentSessionId` to `SessionStorage::createTask()` via the `parent_session_id` column. Active project context is also propagated.
+4. **`TaskRunCommand`** reads `parent_session_id` from the task record and passes it as `workScopeSessionId` through `AgentRunner::runForTask()` to `OrchestratorAgent`.
+5. **`OrchestratorAgent`** computes `$toolkitSessionId = workScopeSessionId ?? sessionId`. The `ArtifactToolkit`, `TodoToolkit`, and `SprintToolkit` are scoped to `$toolkitSessionId` — so all stages within a loop share the same artifact/todo/sprint namespace.
+6. **`LoopManager::reconcileLoop()`** auto-creates `loop_output` artifacts in the work-scope session after extracting task output. The artifact ID is linked to the stage record via `LoopStore::updateStage(artifactId:)`.
+7. **`LoopExecutor::buildStagePrompt()`** includes artifact IDs from completed stages in the context prompt, so reviewer agents can use `artifact_get` to read full outputs.
 
 This mirrors the `SpawnAgentTool` pattern where child agents receive the parent's session ID for toolkit scoping.
 
 ### Nested Loop Protection
 
-Loop stage agents intentionally do **not** receive `LoopToolkit`, `BackgroundTaskToolkit`, `ScheduleToolkit`, or `WebhookToolkit`. These toolkits are only constructed inline by `OrchestratorAgent` — they are never part of auto-discovered packages. This prevents:
+Loop stage agents intentionally do **not** receive `LoopToolkit`, `BackgroundTaskToolkit`, `ScheduleToolkit`, or `WebhookToolkit`. When `workScopeSessionId` is set (indicating a loop stage task), `OrchestratorAgent` skips constructing these orchestration toolkits. This prevents:
 
 - **Infinite recursion** — a stage agent starting another loop inside its own loop
 - **Uncontrolled spawning** — stage agents creating background tasks or schedules
@@ -657,9 +661,8 @@ Stage agents receive: `FileSystemToolkit`, `ShellToolkit` (access-level dependen
 
 | File | Purpose |
 | --- | --- |
-| `src/Agent/LoopExecutor.php` | Mode-agnostic orchestration engine: state machine, prompt composition, termination evaluation |
-| `src/Agent/LoopRunner.php` | Deprecated synchronous driver — retained for reference only |
-| `src/Api/LoopManager.php` | API async driver: 5-second tick + 3-second reconciliation via background tasks |
+| `src/Agent/LoopExecutor.php` | Mode-agnostic orchestration engine: state machine, prompt composition, termination evaluation, sprint auto-transitions |
+| `src/Api/LoopManager.php` | API async driver: 5-second tick + 3-second reconciliation via background tasks, auto-creates loop_output artifacts |
 | `src/Storage/LoopStore.php` | SQLite persistence: 3 tables (loops, loop_iterations, loop_stages) |
 | `src/Config/LoopDiscovery.php` | JSON file discovery from workspace/loops/, seeds built-ins from config/loops/ |
 | `src/Toolkit/LoopToolkit.php` | 7 agent-facing tools with dynamic guidelines; receives `sessionId` for executor propagation |

@@ -107,6 +107,10 @@ final class TaskRunCommand extends Command
         $sessionId = $task['session_id'];
         $prompt = $task['prompt'];
         $role = $task['role'] ?? 'orchestrator';
+        $workScopeSessionId = $task['parent_session_id'] ?? null;
+        if ($workScopeSessionId === '') {
+            $workScopeSessionId = null;
+        }
         $resolvedMax = $boot->roleResolver()->resolveMaxIterations($role);
         $dbMax = isset($task['max_iterations']) ? (int) $task['max_iterations'] : $resolvedMax;
         // Background tasks are always clamped for safety (even if role allows unlimited)
@@ -178,6 +182,7 @@ final class TaskRunCommand extends Command
                 pendingInputProvider: $inputProvider,
                 role: $role,
                 maxIterations: $maxIterations,
+                workScopeSessionId: $workScopeSessionId,
             );
 
             if ($cancellationToken->isCancelled()) {
