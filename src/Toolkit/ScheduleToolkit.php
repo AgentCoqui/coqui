@@ -359,11 +359,14 @@ final readonly class ScheduleToolkit implements ToolkitInterface
             $runs = (int) ($s['run_count'] ?? 0);
             $failures = (int) ($s['failure_count'] ?? 0);
 
+            $source = ($s['source'] ?? 'system') === 'filesystem' ? ' [file]' : '';
+
             $line = sprintf(
-                '%s [%s] %s — cron: %s | next: %s | runs: %d | failures: %d',
+                '%s [%s] %s%s — cron: %s | next: %s | runs: %d | failures: %d',
                 $status,
                 $s['id'],
                 $s['name'],
+                $source,
                 $s['schedule_expression'],
                 $nextRun,
                 $runs,
@@ -396,6 +399,14 @@ final readonly class ScheduleToolkit implements ToolkitInterface
         $schedule = $this->resolveSchedule((string) ($args['id'] ?? ''));
         if ($schedule === null) {
             return ToolResult::error('Schedule not found');
+        }
+
+        if ($this->isFilesystemSchedule($schedule)) {
+            return ToolResult::error(sprintf(
+                "Schedule '%s' is defined by a filesystem file (%s). Edit the JSON file directly to modify it.",
+                $schedule['name'],
+                basename((string) $schedule['source_path']),
+            ));
         }
 
         $id = (string) $schedule['id'];
@@ -451,12 +462,20 @@ final readonly class ScheduleToolkit implements ToolkitInterface
 
         if (strtolower($id) === 'all') {
             $count = $this->scheduleStore->deleteAll();
-            return ToolResult::success("Deleted all schedules ({$count} total).");
+            return ToolResult::success("Deleted all system schedules ({$count} total). Filesystem schedules are managed by their JSON files.");
         }
 
         $schedule = $this->resolveSchedule($id);
         if ($schedule === null) {
             return ToolResult::error('Schedule not found');
+        }
+
+        if ($this->isFilesystemSchedule($schedule)) {
+            return ToolResult::error(sprintf(
+                "Schedule '%s' is defined by a filesystem file (%s). Delete the JSON file to remove it.",
+                $schedule['name'],
+                basename((string) $schedule['source_path']),
+            ));
         }
 
         $name = (string) $schedule['name'];
@@ -527,12 +546,20 @@ final readonly class ScheduleToolkit implements ToolkitInterface
 
         if (strtolower($id) === 'all') {
             $count = $this->scheduleStore->enableAll();
-            return ToolResult::success("Enabled {$count} schedule(s). Failure counters reset.");
+            return ToolResult::success("Enabled {$count} system schedule(s). Failure counters reset.");
         }
 
         $schedule = $this->resolveSchedule($id);
         if ($schedule === null) {
             return ToolResult::error('Schedule not found');
+        }
+
+        if ($this->isFilesystemSchedule($schedule)) {
+            return ToolResult::error(sprintf(
+                "Schedule '%s' is defined by a filesystem file (%s). Set \"enabled\": true in the JSON file to enable it.",
+                $schedule['name'],
+                basename((string) $schedule['source_path']),
+            ));
         }
 
         $name = (string) $schedule['name'];
@@ -550,7 +577,7 @@ final readonly class ScheduleToolkit implements ToolkitInterface
 
         if (strtolower($id) === 'all') {
             $count = $this->scheduleStore->disableAll();
-            return ToolResult::success("Disabled {$count} schedule(s).");
+            return ToolResult::success("Disabled {$count} system schedule(s).");
         }
 
         $schedule = $this->resolveSchedule($id);
@@ -558,10 +585,28 @@ final readonly class ScheduleToolkit implements ToolkitInterface
             return ToolResult::error('Schedule not found');
         }
 
+        if ($this->isFilesystemSchedule($schedule)) {
+            return ToolResult::error(sprintf(
+                "Schedule '%s' is defined by a filesystem file (%s). Set \"enabled\": false in the JSON file to disable it.",
+                $schedule['name'],
+                basename((string) $schedule['source_path']),
+            ));
+        }
+
         $name = (string) $schedule['name'];
         $this->scheduleStore->disable((string) $schedule['id']);
 
         return ToolResult::success("Schedule '{$name}' disabled.");
+    }
+
+    /**
+     * Check if a schedule is defined by a filesystem file.
+     *
+     * @param array<string, mixed> $schedule
+     */
+    private function isFilesystemSchedule(array $schedule): bool
+    {
+        return ($schedule['source'] ?? 'system') === ScheduleStore::SOURCE_FILESYSTEM;
     }
 
     /**

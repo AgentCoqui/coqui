@@ -1828,6 +1828,62 @@
             ]
         },
         {
+            "path": "src/Api/WorkspaceWatcher.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\WorkspaceWatcher",
+            "layer": "api",
+            "description": "Generic polling-based workspace watcher. Holds registered WatchJobInterface instances and runs all jobs on each tick. Designed to be driven by a ReactPHP periodic timer. Jobs handle their own state tracking; the watcher iterates and aggregates results.",
+            "methods": [
+                "register(WatchJobInterface): void — register a watch job",
+                "tick(): array — run all jobs and return results keyed by job name",
+                "initialSync(): array — run initial sync on boot (alias for tick)",
+                "getLastResults(): array — get last scan results per job",
+                "getJobNames(): array — list registered job names",
+                "hasJobs(): bool — check if any jobs are registered"
+            ]
+        },
+        {
+            "path": "src/Api/WatchJob/ScheduleFileWatchJob.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\WatchJob\\ScheduleFileWatchJob",
+            "layer": "api",
+            "description": "WatchJobInterface implementation that monitors workspace/schedules/ for JSON files. Tracks file mtimes to detect additions, modifications, and removals. Uses ScheduleFileDefinition for parsing and ScheduleStore::upsertFilesystem() for idempotent persistence.",
+            "methods": [
+                "scan(): WatchJobResult — scan directory, sync changes to ScheduleStore",
+                "name(): string — returns 'schedules'"
+            ]
+        },
+        {
+            "path": "src/Contract/WatchJobInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\WatchJobInterface",
+            "layer": "contract",
+            "description": "Pluggable watch job contract for the WorkspaceWatcher. Implementations scan a specific workspace subdirectory and reconcile detected changes into appropriate storage.",
+            "methods": [
+                "scan(): WatchJobResult — perform a full scan and reconcile changes",
+                "name(): string — human-readable name for logging"
+            ]
+        },
+        {
+            "path": "src/Contract/WatchJobResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\WatchJobResult",
+            "layer": "contract",
+            "description": "Readonly value object representing the result of a single WatchJob scan cycle. Tracks counts for added, modified, and removed items plus non-fatal error messages.",
+            "methods": [
+                "hasChanges(): bool — true if any items were added, modified, or removed",
+                "hasErrors(): bool — true if any errors occurred",
+                "total(): int — sum of added + modified + removed"
+            ]
+        },
+        {
+            "path": "src/Contract/ScheduleFileDefinition.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ScheduleFileDefinition",
+            "layer": "contract",
+            "description": "Immutable value object representing a schedule parsed from a workspace JSON file. Supports field aliases (schedule_expression/expression/cron), validates via ScheduleValidator, and derives the schedule name from the filename stem.",
+            "methods": [
+                "fromFile(string): self — parse a JSON file into a definition",
+                "fromArray(array, string): self — build from decoded JSON array",
+                "deriveNameFromPath(string): string — extract filename stem as schedule name"
+            ]
+        },
+        {
             "path": "src/Api/LoopManager.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\LoopManager",
             "layer": "api",
@@ -1955,16 +2011,16 @@
             "path": "src/Storage/ScheduleStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ScheduleStore",
             "layer": "storage",
-            "description": "SQLite-backed persistence for scheduled tasks. Stores cron-style schedule definitions that the ScheduleManager evaluates on each tick. Supports one-shot (@once) and recurring schedules with circuit-breaker logic for consecutive failures.",
+            "description": "SQLite-backed persistence for scheduled tasks. Stores cron-style schedule definitions that the ScheduleManager evaluates on each tick. Supports one-shot (@once) and recurring schedules with circuit-breaker logic for consecutive failures. Tracks schedule source (system or filesystem) for declarative JSON-file-based schedules.",
             "methods": [
                 "create(string, string, string, ...): string — create a new schedule, returns ID",
                 "get(string): ?array — get schedule by ID",
                 "getByName(string): ?array — get schedule by unique name",
                 "update(string, ...): bool — update schedule fields, recomputes next_run_at",
                 "delete(string): bool — delete a schedule",
-                "deleteAll(): int — delete all schedules, returns count",
-                "disableAll(): int — disable all enabled schedules, returns count",
-                "enableAll(): int — enable all disabled schedules with recomputed next_run_at, returns count",
+                "deleteAll(): int — delete all system schedules, returns count",
+                "disableAll(): int — disable all enabled system schedules, returns count",
+                "enableAll(): int — enable all disabled system schedules with recomputed next_run_at, returns count",
                 "list(?bool, ?string, int): array — list schedules with optional filters",
                 "getReadySchedules(DateTimeImmutable): array — get enabled schedules past due",
                 "markExecuted(string, string): void — record execution, update next_run_at",
@@ -1973,6 +2029,9 @@
                 "enable(string): bool — enable schedule and reset failure counter",
                 "disable(string): bool — disable schedule",
                 "getStats(): array — count total, enabled, disabled, total_runs",
+                "upsertFilesystem(string, string, string, string, ...): string — create or update a filesystem-sourced schedule, preserving runtime state",
+                "deleteRemovedFilesystemSchedules(array): int — delete filesystem schedules not in active paths",
+                "isFilesystemSchedule(string): bool — check if a schedule is filesystem-sourced",
                 "getUpcoming(int): array — get schedules due within N hours",
                 "forceNextRun(string, string): void — force next_run_at to a specific time",
                 "computeNextRun(string, string): ?DateTimeImmutable — compute next run from cron expression"

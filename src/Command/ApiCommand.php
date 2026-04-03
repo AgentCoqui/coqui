@@ -8,6 +8,8 @@ use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\ScheduleManager;
+use CoquiBot\Coqui\Api\WatchJob\ScheduleFileWatchJob;
+use CoquiBot\Coqui\Api\WorkspaceWatcher;
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
@@ -242,6 +244,15 @@ final class ApiCommand extends Command
 
         $scheduleManager = new ScheduleManager($storage, $scheduleStore);
 
+        // Workspace file watcher — polls directories for changes
+        $watcher = new WorkspaceWatcher();
+        $schedulesDir = $boot->workspacePath() . '/schedules';
+        if (!is_dir($schedulesDir)) {
+            @mkdir($schedulesDir, 0755, true);
+        }
+        $watcher->register(new ScheduleFileWatchJob($schedulesDir, $scheduleStore));
+        $watcher->initialSync();
+
         $loopManager = null;
         if ($loopStore !== null && $projectStore !== null) {
             // Resolve utility model provider for goal_bound evaluation
@@ -391,6 +402,11 @@ final class ApiCommand extends Command
         // Periodic timer: reconcile completed schedule tasks every 10 seconds
         Loop::addPeriodicTimer(10.0, static function () use ($scheduleManager): void {
             $scheduleManager->reconcile();
+        });
+
+        // Periodic timer: workspace file watcher every 10 seconds
+        Loop::addPeriodicTimer(10.0, static function () use ($watcher): void {
+            $watcher->tick();
         });
 
         // Periodic timer: advance running loops every 5 seconds
