@@ -695,10 +695,15 @@ Stage agents receive: `FileSystemToolkit`, `ShellToolkit` (access-level dependen
 
 `LoopExecutor::completeStage()` truncates `result_summary` to 2000 characters for context building. Long coder outputs lose trailing context (test results, verification output) in the reviewer's prompt. The auto-artifact system mitigates this:
 
-1. **Auto-artifacts** — `LoopManager::reconcileLoop()` creates `loop_output` artifacts with the full, untruncated stage output. The artifact ID is stored in the `loop_stages.artifact_id` column.
+1. **Auto-artifacts** — `LoopManager::reconcileLoop()` creates `loop_output` artifacts with the full, untruncated stage output. The artifact ID is stored in the `loop_stages.artifact_id` column. These artifacts are excluded from `ArtifactStore::cleanupFinalized()` so they survive across restarts.
 2. **Truncation detection** — `buildStagePrompt()` checks for the `[... output truncated for context ...]` marker in `result_summary`. When truncation is detected **and** an `artifact_id` is present, the prompt upgrades the artifact reference to a prominent warning instructing the reviewer to use `artifact_get` before judging.
-3. **Reviewer role reinforcement** — the `reviewer` role's "Loop Review Mode" section instructs reviewers to always read full artifacts and verify file state with shell tools, regardless of whether truncation occurred.
-4. **Loop definition prompts** — both `harness` and `research` definitions include explicit `artifact_get` instructions in their reviewer stage prompts.
+3. **Reviewer role reinforcement** — the `reviewer` role's "Loop Review Mode" section instructs reviewers to scope artifact discovery using `artifact_list(type: "loop_output")` or `artifact_list(project_id: "...")` to avoid stale session artifact contamination.
+4. **Loop definition prompts** — `harness`, `research`, and `goal-driven` definitions include explicit artifact creation instructions for coder stages and scoped artifact discovery for reviewer stages.
+5. **Loop context injection** — `buildStagePrompt()` includes a `## Loop Context` section with `project_id` and `sprint_id` so agents can filter artifacts precisely using `artifact_list(project_id: "...", type: "loop_output")`.
+
+### Artifact List Scoping
+
+`artifact_list` supports `project_id`, `sprint_id`, and `created_after` filters in addition to `type` and `stage`. In loop contexts, reviewers should use these filters to see only current-loop artifacts rather than browsing the entire shared work-scope session (which may contain stale artifacts from prior work). The `loop_output` type enum value is specifically for artifacts auto-created by `LoopManager`.
 
 ### Contract Artifact Enforcement
 

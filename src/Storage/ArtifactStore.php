@@ -216,6 +216,7 @@ final class ArtifactStore
         int $limit = 50,
         ?string $projectId = null,
         ?string $sprintId = null,
+        ?string $createdAfter = null,
     ): array {
         $where = ['session_id = ?'];
         $params = [$sessionId];
@@ -238,6 +239,11 @@ final class ArtifactStore
         if ($sprintId !== null) {
             $where[] = 'sprint_id = ?';
             $params[] = $sprintId;
+        }
+
+        if ($createdAfter !== null) {
+            $where[] = 'created_at > ?';
+            $params[] = $createdAfter;
         }
 
         $params[] = $limit;
@@ -335,13 +341,15 @@ final class ArtifactStore
      *
      * Draft and review artifacts are preserved across sessions so in-progress
      * planning work survives restarts. Version history is cascade-deleted by FK.
-     * Persistent artifacts (linked to projects) are never cleaned up.
+     * Persistent artifacts (linked to projects) and loop_output artifacts are
+     * never cleaned up — loop_output artifacts are referenced by loop_stages.artifact_id
+     * and must survive for loop debugging and reviewer evidence.
      *
      * @return int Number of artifacts deleted.
      */
     public function cleanupFinalized(): int
     {
-        $stmt = $this->db->prepare("DELETE FROM artifacts WHERE stage = 'final' AND persistent = 0");
+        $stmt = $this->db->prepare("DELETE FROM artifacts WHERE stage = 'final' AND persistent = 0 AND type != 'loop_output'");
         $stmt->execute();
 
         return $stmt->rowCount();
