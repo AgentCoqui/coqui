@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Provider\ReactHttpResponse;
 use CoquiBot\Coqui\Provider\ReactResponseStream;
@@ -213,4 +214,40 @@ test('withOptions() merges default options into requests', function () {
 
     expect($captured['headers'])->toHaveKey('Authorization');
     expect($captured['headers']['Authorization'])->toBe('Bearer default-token');
+});
+
+test('request is cancelled when the cancellation token is triggered', function () {
+    $captured = new ArrayObject();
+
+    $browser = new class ($captured) extends Browser {
+        public function __construct(
+            private readonly ArrayObject $captured,
+        ) {}
+
+        public function requestStreaming($method, $url, $headers = [], $body = ''): PromiseInterface
+        {
+            return new \React\Promise\Promise(
+                function () {},
+                function () use ($method, $url): void {
+                    $this->captured['cancelled'] = true;
+                    $this->captured['method'] = $method;
+                    $this->captured['url'] = $url;
+                },
+            );
+        }
+
+        public function withTimeout($timeout): static
+        {
+            return $this;
+        }
+    };
+
+    $token = new ProcessCancellationToken();
+    $adapter = new ReactHttpClientAdapter($browser, cancellationToken: $token);
+
+    $response = $adapter->request('GET', 'http://example.com/cancel');
+    $token->cancel();
+
+    expect($response->getInfo('canceled'))->toBeTrue()
+        ->and($captured['cancelled'] ?? false)->toBeTrue();
 });

@@ -8,6 +8,8 @@ use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Exception\InteractionCancelledException;
+use CoquiBot\Coqui\Exception\ShutdownRequestedException;
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
@@ -79,7 +81,6 @@ final class AgentTurnExecutor
         $this->escObserver->active = true;
 
         // Start animated spinner (tick callback drives animation between blocking calls)
-        $this->tickCallback?->setCancellationToken($cancellationToken);
         $this->tickCallback?->start();
 
         // Periodic event-loop timer drives the spinner DURING blocking ReactPHP I/O.
@@ -88,7 +89,9 @@ final class AgentTurnExecutor
         $timer = null;
         if ($this->tickCallback !== null) {
             $cb = $this->tickCallback;
-            $timer = Loop::addPeriodicTimer(0.05, static function () use ($cb): void {
+            $escObserver = $this->escObserver;
+            $timer = Loop::addPeriodicTimer(0.05, static function () use ($cb, $escObserver): void {
+                $escObserver->poll();
                 $cb->tick();
             });
         }
@@ -121,6 +124,10 @@ final class AgentTurnExecutor
             return new AgentTurnResult(exitCode: 0);
         }
 
+        if ($cancellationToken->isCancelled()) {
+            return new AgentTurnResult();
+        }
+
         // Enqueue title generation as deferred work (first-turn LLM call)
         $result->deferredWork?->enqueue(fn() => $this->maybeGenerateTitle($sessionId, $prompt));
 
@@ -149,8 +156,15 @@ final class AgentTurnExecutor
                 $done = $progress['completed'];
                 $total = $progress['total'];
                 $io->newLine();
-                if ($io->confirm("Sprint '{$title}' is {$pct}% complete ({$done}/{$total} todos). Continue?", true)) {
-                    $continuationPrompt = "Continue working on sprint '{$title}'. Check todo_list for remaining items.";
+                $prompter = new InterruptiblePrompt($io, $this->terminalState);
+                try {
+                    if ($prompter->confirm("Sprint '{$title}' is {$pct}% complete ({$done}/{$total} todos). Continue?", true)) {
+                        $continuationPrompt = "Continue working on sprint '{$title}'. Check todo_list for remaining items.";
+                    }
+                } catch (InteractionCancelledException) {
+                    return new AgentTurnResult();
+                } catch (ShutdownRequestedException) {
+                    return new AgentTurnResult(exitCode: 0);
                 }
             }
         }

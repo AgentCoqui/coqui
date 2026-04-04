@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Toolkit;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
+use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
@@ -45,6 +46,7 @@ final class ShellToolkit implements ToolkitInterface
         private readonly array $deniedCommands = ['sudo', 'chmod 777'],
         private readonly int $timeout = 30,
         private readonly bool $unsafe = false,
+        private readonly ?ProcessCancellationToken $cancellationToken = null,
     ) {}
 
     public function tools(): array
@@ -131,6 +133,7 @@ final class ShellToolkit implements ToolkitInterface
                 $stdout = '';
                 $stderr = '';
                 $timedOut = false;
+                $cancelled = false;
 
                 try {
                     $reactProcess->start();
@@ -144,6 +147,11 @@ final class ShellToolkit implements ToolkitInterface
 
                 $reactProcess->stderr?->on('data', static function (string $chunk) use (&$stderr): void {
                     $stderr .= $chunk;
+                });
+
+                $this->cancellationToken?->onCancel(static function () use ($reactProcess, &$cancelled): void {
+                    $cancelled = true;
+                    $reactProcess->terminate();
                 });
 
                 $timeoutTimer = Loop::addTimer($timeout, static function () use ($reactProcess, &$timedOut): void {
@@ -160,6 +168,10 @@ final class ShellToolkit implements ToolkitInterface
 
                 if ($timedOut) {
                     return ToolResult::error("Command timed out after {$timeout}s");
+                }
+
+                if ($cancelled) {
+                    return ToolResult::error('Command cancelled.');
                 }
 
                 $result = [

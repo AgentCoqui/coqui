@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
+use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Toolkit\ShellToolkit;
+use React\EventLoop\Loop;
 
 function shellExecTool(ShellToolkit $toolkit): ToolInterface
 {
@@ -158,3 +160,18 @@ test('non-unsafe mode still blocks denied commands', function () {
 
     expect($result->status)->toBe(ToolResultStatus::Error);
 });
+
+test('exec terminates running command when cancellation token is triggered', function () {
+    $token = new ProcessCancellationToken();
+    $toolkit = new ShellToolkit(workDir: $this->workDir, cancellationToken: $token, timeout: 10);
+    $tool = shellExecTool($toolkit);
+
+    Loop::addTimer(0.05, static function () use ($token): void {
+        $token->cancel();
+    });
+
+    $result = $tool->execute(['command' => 'sleep 5']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error)
+        ->and($result->content)->toContain('Command cancelled.');
+})->skip(PHP_OS_FAMILY === 'Windows', 'sleep command is intended for Unix environments');

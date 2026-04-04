@@ -19,6 +19,9 @@ use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
+use CoquiBot\Coqui\Exception\InteractionCancelledException;
+use CoquiBot\Coqui\Exception\ShutdownRequestedException;
+use CoquiBot\Coqui\Repl\InterruptiblePrompt;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -312,6 +315,7 @@ final class BootManager
 
         // Interactive setup wizard — only available with SymfonyStyle
         if ($io instanceof SymfonyStyle) {
+            $prompt = new InterruptiblePrompt($io);
             $io->warning('No openclaw.json configuration found.');
             $io->text([
                 'Coqui needs an openclaw.json file to know which AI providers and models to use.',
@@ -319,16 +323,22 @@ final class BootManager
                 '',
             ]);
 
-            if ($io->confirm('Would you like to run the setup wizard now?', true)) {
-                $outputPath = $this->configManager->path();
-                $wizard = new SetupWizard($io, $this->defaultsLoader);
-                $saved = $wizard->runAndSave($outputPath);
+            try {
+                if ($prompt->confirm('Would you like to run the setup wizard now?', true)) {
+                    $outputPath = $this->configManager->path();
+                    $wizard = new SetupWizard($io, $this->defaultsLoader);
+                    $saved = $wizard->runAndSave($outputPath);
 
-                if ($saved && file_exists($outputPath)) {
-                    $this->config = $this->configManager->load();
-                    $this->configPath = $this->configManager->path();
-                    return;
+                    if ($saved && file_exists($outputPath)) {
+                        $this->config = $this->configManager->load();
+                        $this->configPath = $this->configManager->path();
+                        return;
+                    }
                 }
+            } catch (InteractionCancelledException) {
+                $io->text('<fg=gray>Setup wizard cancelled.</>');
+            } catch (ShutdownRequestedException) {
+                $io->text('<fg=gray>Setup wizard interrupted. Continuing with defaults.</>');
             }
 
             $defaultModel = $this->defaultsLoader->defaultModel();
