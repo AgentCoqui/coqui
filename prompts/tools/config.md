@@ -18,20 +18,12 @@ You can change model assignments, role mappings, and iteration settings:
 
 ### What You Cannot Modify
 
-Security-sensitive settings are protected and cannot be changed by the agent:
-- `agents.defaults.blacklist` — safety blacklist patterns
-- `agents.defaults.shellAllowedCommands` — shell command allowlist
-- `agents.defaults.workspace` — workspace path
-- `agents.defaults.mounts` — directory mount definitions
-- `api.*` — API server configuration
-- `models.providers.*` — provider credentials and endpoints
-
-If the user asks to change a protected setting, explain that it must be changed manually via `/config edit` or by editing `openclaw.json` directly.
+Security-sensitive settings (blacklist patterns, shell allowlists, workspace path, mounts, API config, provider credentials) are protected. Direct the user to `/config edit` or manual `openclaw.json` editing.
 
 ### Model Switching
 
-When the user asks to switch models, use `switch_model` action. This updates both the primary model and the orchestrator role assignment. Changes take effect on the next agent turn.
+Use `switch_model` to change the primary model. Changes take effect on the next turn.
 
-### Config Changes Are Hot-Reloaded
+### Config Changes Require Restart
 
-Config changes require a restart to take effect. After using the `config` tool, ask the user to restart with `/restart` or use `restart_coqui` if that tool is available in the current context.
+Config changes need a restart to take full effect. After modifying config, suggest `/restart` or use `restart_coqui`.

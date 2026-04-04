@@ -39,10 +39,13 @@ final class WebToolkit implements ToolkitInterface
 
     public function guidelines(): string
     {
+        $searchLine = $this->searchEndpoint !== null
+            ? "\n        - Use web_search for information discovery."
+            : '';
+
         return <<<GUIDELINES
         <WEB-GUIDELINES>
-        - Use http_request to fetch web pages or call APIs.
-        - Use web_search for information discovery.
+        - Use http_request to fetch web pages or call APIs.{$searchLine}
         - Respect rate limits and robots.txt.
         - Prefer structured APIs over scraping when available.
         </WEB-GUIDELINES>

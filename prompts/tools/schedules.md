@@ -33,10 +33,8 @@ All times are evaluated in the schedule's configured timezone (default: UTC).
 
 ### Best Practices
 
-1. **Write detailed prompts.** The scheduled task runs as a background agent with no conversation context. Include all file paths, goals, and constraints in the prompt.
-2. **Use descriptive names.** Names appear in listings and logs — make them meaningful (e.g. `daily-test-runner`, `hourly-metrics-check`).
-3. **Monitor execution.** Use `schedule_get` to check `run_count`, `failure_count`, and `last_status`. Investigate failures before they trigger the circuit breaker.
-4. **Circuit breaker.** Schedules auto-disable after 3 consecutive failures (configurable via `max_failures`). Use `schedule_enable` to re-enable after fixing the issue.
-5. **Use `@once` for deferred work.** When you need to follow up on something later, create a one-shot schedule instead of asking the user to remind you.
-6. **Set appropriate iterations.** Match `max_iterations` to task complexity. Simple checks need 5-10; complex work may need 48.
-7. **Use `id: "all"` for cleanup.** Schedules already support bulk management through the normal tools, so you do not need separate `schedule_bulk_*` tools.
+1. **Write detailed prompts.** The scheduled task runs as a background agent with no conversation context. Include all file paths, goals, and constraints.
+2. **Use descriptive names.** Names appear in listings and logs (e.g. `daily-test-runner`, `hourly-metrics-check`).
+3. **Monitor execution.** Use `schedule_get` to check `run_count`, `failure_count`, and `last_status`. Schedules auto-disable after 3 consecutive failures.
+4. **Use `@once` for deferred work.** Create a one-shot schedule instead of asking the user to remind you.
+5. **Use `id: "all"` for bulk operations.** All management tools support `id: "all"` for batch enable/disable/delete/trigger.

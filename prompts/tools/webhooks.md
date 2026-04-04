@@ -38,9 +38,7 @@ Each webhook has a unique URL: `{api_base}/api/v1/webhooks/incoming/{name}`
 
 ### Best Practices
 
-1. **Write descriptive prompt templates.** Include context about what the webhook is for and how to handle the payload. The triggered agent has no conversation context.
+1. **Write descriptive prompt templates.** Include context about what the webhook is for. The triggered agent has no conversation context.
 2. **Use event filters.** Narrow to specific event types (e.g. `push,pull_request`) to avoid processing irrelevant deliveries.
-3. **Secure your secrets.** The signing secret is shown once at creation. Store it securely in the external service. Use `webhook_rotate_secret` if compromised.
-4. **Monitor deliveries.** Use `webhook_get` to review recent delivery logs for rejected or failed deliveries.
-5. **Payload size limit.** Incoming payloads larger than 1 MB are rejected. Design integrations to send focused payloads.
-6. **Delivery retention.** Delivery logs are automatically purged after 7 days.
+3. **Secure your secrets.** The signing secret is shown once at creation. Use `webhook_rotate_secret` if compromised.
+4. **Monitor deliveries.** Use `webhook_get` to review recent delivery logs. Logs are auto-purged after 7 days.
