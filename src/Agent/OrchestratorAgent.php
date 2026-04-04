@@ -295,19 +295,23 @@ final class OrchestratorAgent extends AbstractAgent
         $shellDenied = $this->unsafeMode ? [] : ShellConfigResolver::resolveDenied($this->config);
         if ($effectiveAccessLevel === 'full') {
             $this->addToolkit(new ShellToolkit(
-                workDir: $this->projectRoot,
+                workDir: $this->workspacePath,
                 allowedCommands: $shellAllowed,
                 deniedCommands: $shellDenied,
                 timeout: 60,
                 unsafe: $this->unsafeMode,
                 cancellationToken: $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken ? $cancellationToken : null,
+                rootPath: $this->workspacePath,
+                allowedPaths: $this->mountManager?->allowedPaths() ?? [],
             ));
         } elseif ($effectiveAccessLevel === 'readonly-shell') {
             $this->addToolkit(new ShellToolkit(
-                workDir: $this->projectRoot,
+                workDir: $this->workspacePath,
                 allowedCommands: ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
                 timeout: 60,
                 cancellationToken: $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken ? $cancellationToken : null,
+                rootPath: $this->workspacePath,
+                allowedPaths: $this->mountManager?->allowedPathsReadOnly() ?? [],
             ));
         }
 
@@ -823,7 +827,6 @@ final class OrchestratorAgent extends AbstractAgent
 
         $prompt = new OrchestratorPrompt(
             workspacePath: $this->workspacePath,
-            projectRoot: $this->projectRoot,
             availableRoles: $roles,
             availableSkills: $skillsSummary,
             storageMap: $storageMap,
@@ -1265,7 +1268,6 @@ final class OrchestratorAgent extends AbstractAgent
 
         $prompt = new OrchestratorPrompt(
             workspacePath: $this->workspacePath,
-            projectRoot: $this->projectRoot,
             availableRoles: $roles,
             availableSkills: $skillsSummary,
             storageMap: $storageMap,

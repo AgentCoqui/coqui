@@ -52,6 +52,8 @@ final class ScriptSanitizer
         'symlink',
         'link',
         'tempnam',
+        // SPL and stream write functions — defense-in-depth
+        'fputcsv',
     ];
 
     /**

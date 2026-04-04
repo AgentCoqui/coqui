@@ -1519,7 +1519,7 @@ This prevents partial writes and ensures readers always see either the old or ne
 
 ## Shell Execution Architecture
 
-The `ShellToolkit` (from php-agents) provides shell command execution with a layered safety model. By default, **all commands are allowed** — safety is enforced by built-in deny patterns, a configurable denylist, an optional allowlist, and the `CatastrophicBlacklist`/`InteractiveApprovalPolicy` layers above.
+The `ShellToolkit` (`src/Toolkit/ShellToolkit.php`) provides shell command execution with a layered safety model. By default, **all commands are allowed** — safety is enforced by built-in deny patterns, a configurable denylist, an optional allowlist, and the `CatastrophicBlacklist`/`InteractiveApprovalPolicy` layers above. The shell working directory defaults to the **workspace**, not the project root — the agent cannot `cd` to or execute commands from the project source directory.
 
 ### How It Works
 
@@ -1527,7 +1527,18 @@ The `ShellToolkit` (from php-agents) provides shell command execution with a lay
 2. **Optional allowlist** — if `agents.defaults.shellAllowedCommands` is set to a non-empty array, only commands whose first word matches the list can execute. Shell injection detection also activates to prevent metacharacter bypass.
 3. **Configurable denylist** — `agents.defaults.allowSudo` (default `false`) controls whether `sudo` is permitted. When `false`, `sudo` is added to the denied commands list. This is enforced via substring match.
 4. **Built-in deny patterns** — regardless of any configuration, regex patterns always block `rm -rf`, pipe-to-shell (`curl | bash`), `php -r`, `mkfifo`, and `netcat` variants.
-5. **Working directory** — the `exec` tool accepts an optional `cwd` parameter. Relative paths are resolved against the default working directory. The path must exist and be a directory. Omitting `cwd` uses the project root.
+5. **Working directory** — the `exec` tool accepts an optional `cwd` parameter. Relative paths are resolved against the default working directory (workspace root). The path must exist and be a directory. Omitting `cwd` uses the workspace root.
+
+### Working Directory Sandbox
+
+The shell's working directory and `cwd` parameter are sandboxed to the **workspace root** and **mounted directories**. The project root (Coqui's own source code) is never exposed as a writable shell target.
+
+- **`workDir`** — always set to `$workspacePath` (not `$projectRoot`)
+- **`rootPath`** — set to `$workspacePath` to enforce cwd sandbox boundaries
+- **`allowedPaths`** — populated from `MountManager::allowedPaths()` (mount directories)
+- **`resolveCwd()`** — resolves the path via `realpath()`, then verifies it is under `rootPath` or an allowed mount path. Paths that escape the sandbox return an error.
+
+This means even with `--auto-approve`, shell commands cannot `cd` to or target the project root. External directories are accessible only via the mount system.
 
 ### Configuration
 
@@ -1581,6 +1592,7 @@ These are all read-only search and inspection commands — no `git`, `php`, `cur
 | --- | --- | --- | --- |
 | `CatastrophicBlacklist` | Hardcoded destructive patterns | Always on | **No** — never disabled |
 | Built-in deny patterns | `rm -rf`, `curl\|bash`, `php -r`, `mkfifo`, `netcat` | Always on | No |
+| Cwd sandbox | Working directory confined to workspace + mounts | Always on | No |
 | Sudo denylist | `sudo` substring block | On (deny) | Yes — `allowSudo: true` in config |
 | `InteractiveApprovalPolicy` | Gated tools confirmation prompt | On | Yes — `--auto-approve` flag |
 | Allowlist | First-word command restriction | Off (open) | N/A — opt-in via `shellAllowedCommands` |
@@ -1605,7 +1617,7 @@ The `CatastrophicBlacklist` (hardcoded destructive patterns) **cannot be disable
 | `src/Agent/OrchestratorAgent.php`         | Reads config, resolves allowed/denied commands, constructs ShellToolkit |
 | `src/Tool/SpawnAgentTool.php`             | Passes allowed/denied commands to child agent ShellToolkit              |
 | `src/Agent/BackgroundToolExecutor.php`    | Resolves allowed/denied commands for background tool execution          |
-| php-agents `src/Toolkit/ShellToolkit.php` | Enforces allowlist, denylist, injection detection, deny patterns, cwd   |
+| `src/Toolkit/ShellToolkit.php`            | Enforces allowlist, denylist, injection detection, deny patterns, cwd   |
 | `src/Config/CatastrophicBlacklist.php`    | Always-on destructive command blocking                                  |
 
 

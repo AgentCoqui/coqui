@@ -39,6 +39,7 @@ final class ShellToolkit implements ToolkitInterface
     /**
      * @param string[] $allowedCommands
      * @param string[] $deniedCommands
+     * @param array<int, array{realPath: string, readOnly: bool}> $allowedPaths Mount paths for cwd sandbox
      */
     public function __construct(
         private readonly string $workDir = '.',
@@ -47,6 +48,8 @@ final class ShellToolkit implements ToolkitInterface
         private readonly int $timeout = 30,
         private readonly bool $unsafe = false,
         private readonly ?ProcessCancellationToken $cancellationToken = null,
+        private readonly ?string $rootPath = null,
+        private readonly array $allowedPaths = [],
     ) {}
 
     public function tools(): array
@@ -79,7 +82,7 @@ final class ShellToolkit implements ToolkitInterface
             description: 'Execute a shell command.',
             parameters: [
                 new StringParameter('command', 'The shell command to execute'),
-                new StringParameter('cwd', 'Working directory to run the command in. Relative paths are resolved from the default working directory. Defaults to project root.', required: false),
+                new StringParameter('cwd', 'Working directory to run the command in. Relative paths are resolved from the default working directory. Defaults to the workspace root.', required: false),
                 new NumberParameter('timeout', 'Timeout in seconds', required: false, integer: true),
             ],
             callback: function (array $input): ToolResult {
@@ -264,6 +267,26 @@ final class ShellToolkit implements ToolkitInterface
 
         if ($resolved === false || !is_dir($resolved)) {
             return null;
+        }
+
+        // Enforce sandbox: resolved cwd must be under the root path or an allowed mount
+        if ($this->rootPath !== null) {
+            $realRoot = realpath($this->rootPath);
+            if ($realRoot !== false) {
+                if (str_starts_with($resolved, $realRoot)) {
+                    return $resolved;
+                }
+
+                // Check allowed mount paths
+                foreach ($this->allowedPaths as $allowed) {
+                    if (str_starts_with($resolved, $allowed['realPath'])) {
+                        return $resolved;
+                    }
+                }
+
+                // Path escapes sandbox
+                return null;
+            }
         }
 
         return $resolved;

@@ -243,11 +243,13 @@ final class SpawnAgentTool implements ToolInterface
             'full' => [
                 new FileSystemToolkit(workspacePath: $this->workspacePath, allowedPaths: $mountPaths),
                 new ShellToolkit(
-                    workDir: $this->projectRoot,
+                    workDir: $this->workspacePath,
                     allowedCommands: $this->shellAllowedCommands,
                     deniedCommands: $this->shellDeniedCommands,
                     timeout: 60,
                     unsafe: $this->unsafeMode,
+                    rootPath: $this->workspacePath,
+                    allowedPaths: $mountPaths,
                 ),
                 new WebToolkit(),
                 new CoquiSourceToolkit(projectRoot: $this->projectRoot),
@@ -256,9 +258,11 @@ final class SpawnAgentTool implements ToolInterface
             'readonly-shell' => [
                 new FileSystemToolkit(workspacePath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
                 new ShellToolkit(
-                    workDir: $this->projectRoot,
+                    workDir: $this->workspacePath,
                     allowedCommands: ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
                     timeout: 60,
+                    rootPath: $this->workspacePath,
+                    allowedPaths: $mountPaths,
                 ),
                 new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],

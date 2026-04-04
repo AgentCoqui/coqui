@@ -96,16 +96,18 @@ final class BackgroundToolExecutor implements ToolExecutorInterface
             allowedPaths: $this->boot->mountManager()->allowedPaths(),
         ));
 
-        // Shell toolkit — runs in project root.
+        // Shell toolkit — runs in workspace, sandboxed to workspace + mounts.
         // In unsafe mode, bypass all command restrictions.
         $shellAllowed = $this->unsafeMode ? [] : ShellConfigResolver::resolveAllowed($config);
         $shellDenied = $this->unsafeMode ? [] : ShellConfigResolver::resolveDenied($config);
         $this->registerToolkit(new ShellToolkit(
-            workDir: $this->projectRoot,
+            workDir: $workspacePath,
             allowedCommands: $shellAllowed,
             deniedCommands: $shellDenied,
             timeout: 60,
             unsafe: $this->unsafeMode,
+            rootPath: $workspacePath,
+            allowedPaths: $this->boot->mountManager()->allowedPaths(),
         ));
 
         // Web toolkit — HTTP requests with SSRF protection
