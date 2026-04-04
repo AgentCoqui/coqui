@@ -26,6 +26,10 @@ use CoquiBot\Coqui\Config\PathHelper;
  */
 final class ComposerTool implements ToolInterface
 {
+    private const PACKAGE_NAME_PATTERN = '#^[a-z0-9]([_.-]?[a-z0-9]+)*/[a-z0-9]([_.-]?[a-z0-9]+)*$#i';
+
+    private const VERSION_CONSTRAINT_PATTERN = '/^[a-zA-Z0-9^~><=|.*@\- ]+$/';
+
     private const array DENYLIST_PATTERNS = [
         'laravel/*',
         'illuminate/*',
@@ -39,12 +43,14 @@ final class ComposerTool implements ToolInterface
 
     private readonly string $backupDir;
     private readonly string $composerJsonPath;
+    private readonly string $workspaceRoot;
 
     public function __construct(
         private readonly string $workspacePath,
         private readonly ?PackageEventListenerInterface $listener = null,
     ) {
         $root = PathHelper::trimTrailingSlash($this->workspacePath);
+        $this->workspaceRoot = $root;
         $this->backupDir = $root . '/backups/composer';
         $this->composerJsonPath = $root . '/composer.json';
     }
@@ -133,6 +139,10 @@ final class ComposerTool implements ToolInterface
     {
         $action = $input['action'] ?? '';
 
+        if (!is_dir($this->workspaceRoot)) {
+            return ToolResult::error('Workspace directory not found. Composer operations are limited to the workspace only.');
+        }
+
         if (!file_exists($this->composerJsonPath)) {
             return ToolResult::error(
                 'Workspace composer.json not found. The workspace project should be initialized at startup.',
@@ -176,12 +186,20 @@ final class ComposerTool implements ToolInterface
             return ToolResult::error('Package name is required for add action.');
         }
 
+        if (($error = $this->validatePackageName($package)) !== null) {
+            return ToolResult::error($error);
+        }
+
         $blocked = $this->checkDenylist($package);
         if ($blocked !== null) {
             return ToolResult::error($blocked);
         }
 
         $version = $input['version'] ?? '';
+        if ($version !== '' && ($error = $this->validateVersionConstraint($version)) !== null) {
+            return ToolResult::error($error);
+        }
+
         $dev = (bool) ($input['dev'] ?? false);
         $repoType = $input['repository_type'] ?? '';
         $repoUrl = $input['repository_url'] ?? '';
@@ -199,11 +217,13 @@ final class ComposerTool implements ToolInterface
             return ToolResult::error('Failed to create backup before installing package.');
         }
 
-        $packageArg = $version !== '' ? escapeshellarg("{$package}:{$version}") : escapeshellarg($package);
-        $devFlag = $dev ? ' --dev' : '';
-        $command = "composer require {$packageArg}{$devFlag} --no-interaction --no-ansi 2>&1";
+        $packageArg = $version !== '' ? "{$package}:{$version}" : $package;
+        $arguments = ['require', $packageArg, '--no-interaction', '--no-ansi'];
+        if ($dev) {
+            $arguments[] = '--dev';
+        }
 
-        $result = $this->runCommand($command);
+        $result = $this->runCommand($arguments);
 
         $output = "## Composer Add\n\n";
         $output .= "**Package:** {$package}" . ($version !== '' ? ":{$version}" : '') . "\n";
@@ -229,7 +249,7 @@ final class ComposerTool implements ToolInterface
         }
 
         // Run a security audit on the newly installed package
-        $auditResult = $this->runCommand('composer audit --no-ansi 2>&1');
+        $auditResult = $this->runCommand(['audit', '--no-ansi']);
         if ($auditResult['exit_code'] !== 0 && str_contains($auditResult['output'], 'advisories')) {
             $output .= "\n\n### Security Advisory\n\n";
             $output .= "```\n{$auditResult['output']}\n```";
@@ -304,6 +324,10 @@ final class ComposerTool implements ToolInterface
             return ToolResult::error('Package name is required for remove action.');
         }
 
+        if (($error = $this->validatePackageName($package)) !== null) {
+            return ToolResult::error($error);
+        }
+
         $dev = (bool) ($input['dev'] ?? false);
 
         $backupPath = $this->backup();
@@ -311,10 +335,12 @@ final class ComposerTool implements ToolInterface
             return ToolResult::error('Failed to create backup before removing package.');
         }
 
-        $devFlag = $dev ? ' --dev' : '';
-        $command = 'composer remove ' . escapeshellarg($package) . "{$devFlag} --no-interaction --no-ansi 2>&1";
+        $arguments = ['remove', $package, '--no-interaction', '--no-ansi'];
+        if ($dev) {
+            $arguments[] = '--dev';
+        }
 
-        $result = $this->runCommand($command);
+        $result = $this->runCommand($arguments);
 
         if ($result['exit_code'] === 0) {
             $this->listener?->onPackageRemoved($package);
@@ -341,15 +367,21 @@ final class ComposerTool implements ToolInterface
     {
         $package = $input['package'] ?? '';
 
+        if ($package !== '' && ($error = $this->validatePackageName($package)) !== null) {
+            return ToolResult::error($error);
+        }
+
         $backupPath = $this->backup();
         if ($backupPath === null) {
             return ToolResult::error('Failed to create backup before updating.');
         }
 
-        $pkgArg = $package !== '' ? ' ' . escapeshellarg($package) : '';
-        $command = "composer update{$pkgArg} --no-interaction --no-ansi 2>&1";
+        $arguments = ['update', '--no-interaction', '--no-ansi'];
+        if ($package !== '') {
+            array_splice($arguments, 1, 0, [$package]);
+        }
 
-        $result = $this->runCommand($command);
+        $result = $this->runCommand($arguments);
 
         $output = "## Composer Update\n\n";
         $output .= "**Package:** " . ($package !== '' ? $package : 'all') . "\n";
@@ -364,7 +396,7 @@ final class ComposerTool implements ToolInterface
 
     private function install(): ToolResult
     {
-        $result = $this->runCommand('composer install --no-interaction --no-ansi 2>&1');
+        $result = $this->runCommand(['install', '--no-interaction', '--no-ansi']);
 
         $output = "## Composer Install\n\n";
         $output .= "**Exit code:** {$result['exit_code']}\n\n";
@@ -377,7 +409,7 @@ final class ComposerTool implements ToolInterface
 
     private function dumpAutoload(): ToolResult
     {
-        $result = $this->runCommand('composer dump-autoload --optimize --no-ansi 2>&1');
+        $result = $this->runCommand(['dump-autoload', '--optimize', '--no-ansi']);
 
         $output = "## Composer Dump-Autoload\n\n";
         $output .= "**Exit code:** {$result['exit_code']}\n\n";
@@ -390,7 +422,7 @@ final class ComposerTool implements ToolInterface
 
     private function validate(): ToolResult
     {
-        $result = $this->runCommand('composer validate --no-ansi 2>&1');
+        $result = $this->runCommand(['validate', '--no-ansi']);
 
         $output = "## Composer Validate\n\n";
         $output .= "**Exit code:** {$result['exit_code']}\n\n";
@@ -408,7 +440,7 @@ final class ComposerTool implements ToolInterface
         $ok = [];
 
         // 1. Validate composer.json syntax
-        $validateResult = $this->runCommand('composer validate --no-ansi 2>&1');
+        $validateResult = $this->runCommand(['validate', '--no-ansi']);
         if ($validateResult['exit_code'] === 0) {
             $ok[] = '✓ composer.json is valid';
         } else {
@@ -443,7 +475,7 @@ final class ComposerTool implements ToolInterface
         }
 
         // 4. Check for abandoned packages
-        $showResult = $this->runCommand('composer show --format=json --no-ansi 2>&1');
+        $showResult = $this->runCommand(['show', '--format=json', '--no-ansi']);
         if ($showResult['exit_code'] === 0) {
             $data = json_decode($showResult['output'], true);
             $installed = is_array($data) ? ($data['installed'] ?? []) : [];
@@ -461,7 +493,7 @@ final class ComposerTool implements ToolInterface
         }
 
         // 5. Security audit
-        $auditResult = $this->runCommand('composer audit --no-ansi 2>&1');
+        $auditResult = $this->runCommand(['audit', '--no-ansi']);
         if ($auditResult['exit_code'] === 0) {
             $ok[] = '✓ No security advisories';
         } else {
@@ -509,8 +541,7 @@ final class ComposerTool implements ToolInterface
             return ToolResult::error('The `query` parameter is required for the search action.');
         }
 
-        $command = 'composer show --format=json --no-ansi 2>&1';
-        $result = $this->runCommand($command);
+        $result = $this->runCommand(['show', '--format=json', '--no-ansi']);
 
         if ($result['exit_code'] !== 0) {
             return ToolResult::error($result['output']);
@@ -565,8 +596,11 @@ final class ComposerTool implements ToolInterface
             return ToolResult::error('Package name is required for show-package action.');
         }
 
-        $command = 'composer show ' . escapeshellarg($package) . ' --no-ansi 2>&1';
-        $result = $this->runCommand($command);
+        if (($error = $this->validatePackageName($package)) !== null) {
+            return ToolResult::error($error);
+        }
+
+        $result = $this->runCommand(['show', $package, '--no-ansi']);
 
         return $result['exit_code'] === 0
             ? ToolResult::success("## Package: {$package}\n\n```\n{$result['output']}\n```")
@@ -575,7 +609,7 @@ final class ComposerTool implements ToolInterface
 
     private function showOutdated(): ToolResult
     {
-        $result = $this->runCommand('composer outdated --no-ansi 2>&1');
+        $result = $this->runCommand(['outdated', '--no-ansi']);
 
         // Exit code 0 = no outdated, 1 = has outdated (not an error)
         $output = $result['output'] !== '' ? $result['output'] : 'All packages are up to date.';
@@ -585,7 +619,7 @@ final class ComposerTool implements ToolInterface
 
     private function runAudit(): ToolResult
     {
-        $result = $this->runCommand('composer audit --no-ansi 2>&1');
+        $result = $this->runCommand(['audit', '--no-ansi']);
 
         $output = "## Security Audit\n\n```\n{$result['output']}\n```";
 
@@ -751,8 +785,7 @@ final class ComposerTool implements ToolInterface
             }
         }
 
-        $root = PathHelper::trimTrailingSlash($this->workspacePath);
-        $lockPath = $root . '/composer.lock';
+        $lockPath = $this->workspaceRoot . '/composer.lock';
 
         if (file_exists($this->composerJsonPath)) {
             copy($this->composerJsonPath, $backupPath . '/composer.json');
@@ -766,11 +799,12 @@ final class ComposerTool implements ToolInterface
     }
 
     /**
+     * @param list<string> $arguments
      * @return array{exit_code: int, output: string}
      */
-    private function runCommand(string $command): array
+    private function runCommand(array $arguments): array
     {
-        $cwd = PathHelper::trimTrailingSlash($this->workspacePath);
+        $command = [$this->resolveComposerBinary(), ...$arguments];
 
         $descriptors = [
             0 => ['pipe', 'r'],
@@ -778,7 +812,7 @@ final class ComposerTool implements ToolInterface
             2 => ['pipe', 'w'],
         ];
 
-        $process = proc_open($command, $descriptors, $pipes, $cwd);
+        $process = proc_open($command, $descriptors, $pipes, $this->workspaceRoot, $this->buildEnvironment());
 
         if (!is_resource($process)) {
             return ['exit_code' => 1, 'output' => 'Failed to start composer process.'];
@@ -800,6 +834,75 @@ final class ComposerTool implements ToolInterface
         }
 
         return ['exit_code' => $exitCode, 'output' => $output];
+    }
+
+    private function resolveComposerBinary(): string
+    {
+        $envBin = getenv('COMPOSER_BIN');
+        if ($envBin !== false && $envBin !== '') {
+            return $envBin;
+        }
+
+        $candidates = PHP_OS_FAMILY === 'Windows'
+            ? [
+                getenv('APPDATA') . '\\Composer\\vendor\\bin\\composer',
+                getenv('USERPROFILE') . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer',
+            ]
+            : [
+                '/opt/homebrew/bin/composer',
+                '/usr/local/bin/composer',
+                '/usr/bin/composer',
+            ];
+
+        foreach ($candidates as $candidate) {
+            if (file_exists($candidate) && is_executable($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return 'composer';
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function buildEnvironment(): array
+    {
+        $env = [];
+
+        $keys = ['HOME', 'PATH', 'COMPOSER_HOME', 'COMPOSER_ALLOW_SUPERUSER'];
+        if (PHP_OS_FAMILY === 'Windows') {
+            array_push($keys, 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'SystemRoot', 'TEMP', 'TMP');
+        }
+
+        foreach ($keys as $key) {
+            $value = getenv($key);
+            if ($value !== false) {
+                $env[$key] = $value;
+            }
+        }
+
+        $env['COMPOSER_NO_INTERACTION'] = '1';
+
+        return $env;
+    }
+
+    private function validatePackageName(string $package): ?string
+    {
+        if (preg_match(self::PACKAGE_NAME_PATTERN, $package) !== 1) {
+            return "Invalid package name: '{$package}'. Expected format: vendor/package.";
+        }
+
+        return null;
+    }
+
+    private function validateVersionConstraint(string $version): ?string
+    {
+        if (preg_match(self::VERSION_CONSTRAINT_PATTERN, $version) !== 1) {
+            return "Invalid version constraint: '{$version}'. Contains unsafe characters.";
+        }
+
+        return null;
     }
 
     public function toFunctionSchema(): array
