@@ -75,6 +75,25 @@ test('project_delete clears active project references', function () {
     expect($this->storage->getActiveProjectId($this->sessionId))->toBeNull();
 });
 
+test('project_switch persists and clears the active project for the session', function () {
+    $projectId = $this->projectStore->createProject('Delta', 'delta');
+
+    $tool = array_values(array_filter(
+        $this->toolkit->tools(),
+        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'project_switch',
+    ))[0];
+
+    $activate = $tool->execute(['slug' => 'delta']);
+
+    expect($activate->status)->toBe(ToolResultStatus::Success);
+    expect($this->storage->getActiveProjectId($this->sessionId))->toBe($projectId);
+
+    $clear = $tool->execute(['slug' => 'clear']);
+
+    expect($clear->status)->toBe(ToolResultStatus::Success);
+    expect($this->storage->getActiveProjectId($this->sessionId))->toBeNull();
+});
+
 test('project_delete optionally removes project directory', function () {
     $projectId = $this->projectStore->createProject('Beta', 'beta');
     $directory = $this->projectStore->getProjectDirectory($projectId);

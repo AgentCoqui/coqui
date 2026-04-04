@@ -42,7 +42,7 @@ When active, the system prompt gains an `# ACTIVE PROJECT` section containing:
 - Workspace directory path
 - Sprint roster with progress bars and todo counts
 
-This gives agents ambient awareness without requiring explicit lookups. The REPL prompt also changes to show the project slug: `[auth] ›`.
+This gives agents ambient awareness without requiring explicit lookups. In the REPL, the active project is shown in the visible `You [project]` label before each input cycle.
 
 Active project state is per-session and restores automatically when resuming a session.
 
