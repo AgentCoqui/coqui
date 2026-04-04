@@ -61,7 +61,7 @@ test('guidelines lists existing artifacts', function () {
 });
 
 test('artifact_create tool creates artifact', function () {
-    $tool = $this->toolkit->tools()[0];
+    $tool = toolFromToolkit($this->toolkit, 'artifact_create');
 
     $result = $tool->execute([
         'title' => 'My Script',
@@ -79,7 +79,7 @@ test('artifact_create tool creates artifact', function () {
 });
 
 test('artifact_create tool rejects empty title', function () {
-    $tool = $this->toolkit->tools()[0];
+    $tool = toolFromToolkit($this->toolkit, 'artifact_create');
 
     $result = $tool->execute(['title' => '', 'content' => 'x']);
 
@@ -90,7 +90,7 @@ test('artifact_create tool rejects empty title', function () {
 test('artifact_update tool updates content', function () {
     $id = $this->store->create($this->sessionId, 'Doc', 'v1');
 
-    $tool = $this->toolkit->tools()[1]; // artifact_update
+    $tool = toolFromToolkit($this->toolkit, 'artifact_update');
 
     $result = $tool->execute([
         'id' => $id,
@@ -105,7 +105,7 @@ test('artifact_update tool updates content', function () {
 });
 
 test('artifact_update tool errors on missing id', function () {
-    $tool = $this->toolkit->tools()[1];
+    $tool = toolFromToolkit($this->toolkit, 'artifact_update');
 
     $result = $tool->execute(['id' => 'nonexistent', 'content' => 'x']);
 
@@ -115,7 +115,7 @@ test('artifact_update tool errors on missing id', function () {
 test('artifact_get tool retrieves artifact', function () {
     $id = $this->store->create($this->sessionId, 'Fetched', 'body');
 
-    $tool = $this->toolkit->tools()[2]; // artifact_get
+    $tool = toolFromToolkit($this->toolkit, 'artifact_get');
 
     $result = $tool->execute(['id' => $id]);
 
@@ -129,7 +129,7 @@ test('artifact_get tool retrieves specific version', function () {
     $id = $this->store->create($this->sessionId, 'Versioned', 'original');
     $this->store->update($id, 'updated');
 
-    $tool = $this->toolkit->tools()[2];
+    $tool = toolFromToolkit($this->toolkit, 'artifact_get');
 
     $result = $tool->execute(['id' => $id, 'version' => 1]);
 
@@ -143,7 +143,7 @@ test('artifact_list tool returns artifacts', function () {
     $this->store->create($this->sessionId, 'A', 'content a');
     $this->store->create($this->sessionId, 'B', 'content b');
 
-    $tool = $this->toolkit->tools()[3]; // artifact_list
+    $tool = toolFromToolkit($this->toolkit, 'artifact_list');
 
     $result = $tool->execute([]);
 
@@ -153,7 +153,7 @@ test('artifact_list tool returns artifacts', function () {
 });
 
 test('artifact_list tool returns message when empty', function () {
-    $tool = $this->toolkit->tools()[3];
+    $tool = toolFromToolkit($this->toolkit, 'artifact_list');
 
     $result = $tool->execute([]);
 
@@ -164,7 +164,7 @@ test('artifact_list tool returns message when empty', function () {
 test('artifact_stage tool transitions stage', function () {
     $id = $this->store->create($this->sessionId, 'Staged', 'content');
 
-    $tool = $this->toolkit->tools()[4]; // artifact_stage
+    $tool = toolFromToolkit($this->toolkit, 'artifact_stage');
 
     $result = $tool->execute(['id' => $id, 'stage' => 'review']);
 
@@ -175,7 +175,7 @@ test('artifact_stage tool transitions stage', function () {
 });
 
 test('artifact_stage tool errors on missing artifact', function () {
-    $tool = $this->toolkit->tools()[4];
+    $tool = toolFromToolkit($this->toolkit, 'artifact_stage');
 
     $result = $tool->execute(['id' => 'nonexistent', 'stage' => 'final']);
 
@@ -232,7 +232,7 @@ test('artifact_delete tool deletes artifact', function () {
     $id = $this->store->create($this->sessionId, 'Deletable', 'content');
 
     $toolkit = new ArtifactToolkit($this->store, $this->sessionId);
-    $deleteTool = $toolkit->tools()[6]; // artifact_delete
+    $deleteTool = toolFromToolkit($toolkit, 'artifact_delete');
 
     $result = $deleteTool->execute(['id' => $id]);
 
@@ -244,7 +244,7 @@ test('artifact_delete tool deletes artifact', function () {
 
 test('artifact_delete tool errors on missing artifact', function () {
     $toolkit = new ArtifactToolkit($this->store, $this->sessionId);
-    $deleteTool = $toolkit->tools()[6];
+    $deleteTool = toolFromToolkit($toolkit, 'artifact_delete');
 
     $result = $deleteTool->execute(['id' => 'nonexistent']);
 
@@ -255,7 +255,7 @@ test('artifact_bulk_stage updates artifacts by explicit ids', function () {
     $id1 = $this->store->create($this->sessionId, 'One', 'content');
     $id2 = $this->store->create($this->sessionId, 'Two', 'content');
 
-    $tool = $this->toolkit->tools()[5]; // artifact_bulk_stage
+    $tool = toolFromToolkit($this->toolkit, 'artifact_bulk_stage');
 
     $result = $tool->execute([
         'ids' => json_encode([$id1, $id2]),
@@ -274,7 +274,7 @@ test('artifact_bulk_delete deletes artifacts selected by filter', function () {
     $this->store->create($this->sessionId, 'Draft Two', 'content', type: 'code');
     $keepId = $this->store->create($this->sessionId, 'Document', 'content', type: 'document');
 
-    $tool = $this->toolkit->tools()[7]; // artifact_bulk_delete
+    $tool = toolFromToolkit($this->toolkit, 'artifact_bulk_delete');
 
     $result = $tool->execute([
         'type' => 'code',

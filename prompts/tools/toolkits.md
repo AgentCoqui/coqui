@@ -2,6 +2,8 @@
 
 Use the toolkit generator to scaffold new toolkit packages:
 
+These tools are available to the default orchestrator role unless toolkit visibility settings hide them.
+
 1. `toolkit_create` — create a new toolkit with composer.json, source class, and README
    - Pass `dependencies` for Composer packages (comma-separated: "vendor/pkg:^1.0")
    - Pass `credentials` for API keys (JSON: '{"KEY": "description"}')

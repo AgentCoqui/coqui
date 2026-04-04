@@ -10,7 +10,6 @@ use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\ScheduleManager;
 use CoquiBot\Coqui\Api\WatchJob\ScheduleFileWatchJob;
 use CoquiBot\Coqui\Api\WorkspaceWatcher;
-use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Agent\QualityAutomationCoordinator;
 use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
@@ -42,6 +41,7 @@ use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
+use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
@@ -111,7 +111,7 @@ final class ApiCommand extends Command
         $configOption = $input->getOption('config');
         $configPath = is_string($configOption) ? $configOption : null;
 
-        $workspaceOverride = $this->resolveWorkspaceOverride($input);
+        $workspaceOverride = WorkspaceOverrideResolver::resolve($input);
 
         $boot = new BootManager($workDir, $workspaceOverride);
         $result = $boot->boot(io: null, configPath: $configPath);
@@ -217,27 +217,12 @@ final class ApiCommand extends Command
         $evaluationHandler = new EvaluationHandler($evaluationStore);
         $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $taskManager, $qualityStatus);
 
-        $previewRunner = new AgentRunner(
-            roleResolver: $boot->roleResolver(),
-            config: $boot->config(),
+        $previewRunner = AgentRunnerFactory::create(
+            boot: $boot,
             projectRoot: $workDir,
-            workspacePath: $boot->workspacePath(),
             storage: $storage,
-            observer: null,
-            discovery: $boot->discovery(),
-            blacklist: $boot->blacklist(),
-            credentialResolver: $boot->credentialResolver(),
-            skillDiscovery: $boot->skillDiscovery(),
-            roleDiscovery: $boot->roleDiscovery(),
-            memoryStore: $boot->memoryStore(),
-            memorySummarizer: $boot->memorySummarizer(),
-            mountManager: $boot->mountManager(),
-            configManager: $boot->configManager(),
-            visibilityRegistry: $boot->visibilityRegistry(),
-            spaceToolkit: $boot->spaceToolkit(),
-            projectStore: $boot->projectStore(),
-            defaultsLoader: $boot->defaultsLoader(),
-            httpClient: new ReactHttpClientAdapter(),
+            includeConfigManager: true,
+            includeVisibilityRegistry: true,
         );
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($previewRunner);
@@ -606,20 +591,4 @@ final class ApiCommand extends Command
         return null;
     }
 
-    private function resolveWorkspaceOverride(InputInterface $input): ?string
-    {
-        $option = $input->getOption('workspace');
-
-        if (is_string($option) && $option !== '') {
-            return $option;
-        }
-
-        $env = getenv('COQUI_WORKSPACE');
-
-        if (is_string($env) && $env !== '') {
-            return $env;
-        }
-
-        return null;
-    }
 }

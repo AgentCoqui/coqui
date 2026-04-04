@@ -878,7 +878,7 @@ Returns the full Coqui configuration. API keys in provider configs are masked as
 
 #### `PUT /api/v1/config`
 
-Write the full `openclaw.json` configuration. The body must be valid JSON. The file is pretty-printed before writing. Config changes are auto-detected by the REPL — no restart required.
+Write the full `openclaw.json` configuration. The body must be valid JSON. The file is pretty-printed before writing. Config changes require a restart because Coqui constructs long-lived providers, resolvers, and toolkits at boot.
 
 **Request Body**
 

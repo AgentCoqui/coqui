@@ -156,7 +156,7 @@ final class SkillLifecycleStore
                         $link['type'],
                         $link['evidence_id'] ?? null,
                         $link['label'],
-                        isset($link['metadata']) && is_array($link['metadata'])
+                        array_key_exists('metadata', $link) && $link['metadata'] !== null
                             ? json_encode($link['metadata'], JSON_UNESCAPED_SLASHES)
                             : null,
                         $now,

@@ -1332,7 +1332,7 @@ Rules are case-insensitive. Multiple rules separated by commas. Last match wins.
 
 | Role | `toolkits` | Strategy |
 | --- | --- | --- |
-| orchestrator | `+*, -SessionEvaluationToolkit, -LearningToolkit, -ToolkitGeneratorToolkit` | Allow-all minus role-specific toolkits |
+| orchestrator | `+*, -SessionEvaluationToolkit, -LearningToolkit` | Allow-all minus role-specific toolkits |
 | coder | *(none — allow all)* | Full access to all toolkits |
 | assistant | *(none — allow all)* | Full access to all toolkits |
 | explorer | `+*, -MemoryToolkit, -spawn_agent, -php_execute` | Allow-all minus dangerous tools |

@@ -10,12 +10,11 @@ use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
-use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\RoleUpdateInfo;
+use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
-use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Renderer\JsonRenderer;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
@@ -119,7 +118,7 @@ final class RunCommand extends Command
         $configOption = $input->getOption('config');
         $configPath = is_string($configOption) ? $configOption : null;
 
-        $workspaceOverride = $this->resolveWorkspaceOverride($input);
+        $workspaceOverride = WorkspaceOverrideResolver::resolve($input);
 
         // Handle --wizard: lightweight boot + setup wizard, then exit
         if ((bool) $input->getOption('wizard')) {
@@ -171,36 +170,18 @@ final class RunCommand extends Command
         );
 
         // Initialize agent runner
-        $this->agentRunner = new AgentRunner(
-            roleResolver: $this->boot->roleResolver(),
-            config: $this->boot->config(),
+        $this->agentRunner = AgentRunnerFactory::create(
+            boot: $this->boot,
             projectRoot: $this->workDir,
-            workspacePath: $this->boot->workspacePath(),
             storage: $this->storage,
             observer: $this->escObserver,
-            discovery: $this->boot->discovery(),
-            blacklist: $this->boot->blacklist(),
-            credentialResolver: $this->boot->credentialResolver(),
-            skillDiscovery: $this->boot->skillDiscovery(),
-            roleDiscovery: $this->boot->roleDiscovery(),
             unsafeMode: $this->unsafeMode,
             backgroundTasksEnabled: true,
-            memoryStore: $this->boot->memoryStore(),
-            memorySummarizer: $this->boot->memorySummarizer(),
-            mountManager: $this->boot->mountManager(),
-            configManager: $this->boot->configManager(),
-            configGuard: new ConfigGuard(),
-            visibilityRegistry: $this->boot->visibilityRegistry(),
-            spaceToolkit: $this->boot->spaceToolkit(),
-            todoStore: $this->boot->todoStore(),
-            artifactStore: $this->boot->artifactStore(),
-            projectStore: $this->boot->projectStore(),
-            defaultsLoader: $this->boot->defaultsLoader(),
+            includeConfigManager: true,
+            includeVisibilityRegistry: true,
+            includeLoadingData: true,
             tickCallback: $this->animatedTickCallback,
             toolExecutor: new ConcurrentToolExecutor(),
-            httpClient: new ReactHttpClientAdapter(),
-            loadingRegistry: $this->boot->loadingRegistry(),
-            usageTracker: $this->boot->usageTracker(),
         );
 
         // Initialize loop execution pipeline (requires stores from boot)
@@ -563,31 +544,14 @@ final class RunCommand extends Command
         $this->autoApprove = true;
 
         // Initialize agent runner with NullObserver (no terminal output during execution)
-        $this->agentRunner = new AgentRunner(
-            roleResolver: $this->boot->roleResolver(),
-            config: $this->boot->config(),
+        $this->agentRunner = AgentRunnerFactory::create(
+            boot: $this->boot,
             projectRoot: $this->workDir,
-            workspacePath: $this->boot->workspacePath(),
             storage: $this->storage,
             observer: new NullObserver(),
-            discovery: $this->boot->discovery(),
-            blacklist: $this->boot->blacklist(),
-            credentialResolver: $this->boot->credentialResolver(),
-            skillDiscovery: $this->boot->skillDiscovery(),
-            roleDiscovery: $this->boot->roleDiscovery(),
             unsafeMode: $this->unsafeMode,
-            memoryStore: $this->boot->memoryStore(),
-            memorySummarizer: $this->boot->memorySummarizer(),
-            mountManager: $this->boot->mountManager(),
-            configManager: $this->boot->configManager(),
-            configGuard: new ConfigGuard(),
-            spaceToolkit: $this->boot->spaceToolkit(),
-            todoStore: $this->boot->todoStore(),
-            artifactStore: $this->boot->artifactStore(),
-            projectStore: $this->boot->projectStore(),
-            defaultsLoader: $this->boot->defaultsLoader(),
-            loadingRegistry: $this->boot->loadingRegistry(),
-            usageTracker: $this->boot->usageTracker(),
+            includeConfigManager: true,
+            includeLoadingData: true,
         );
 
         // Handle session
@@ -622,23 +586,6 @@ final class RunCommand extends Command
         $renderer->render($result);
 
         return $result->isError() ? Command::FAILURE : Command::SUCCESS;
-    }
-
-    private function resolveWorkspaceOverride(InputInterface $input): ?string
-    {
-        $option = $input->getOption('workspace');
-
-        if (is_string($option) && $option !== '') {
-            return $option;
-        }
-
-        $env = getenv('COQUI_WORKSPACE');
-
-        if (is_string($env) && $env !== '') {
-            return $env;
-        }
-
-        return null;
     }
 
     /**

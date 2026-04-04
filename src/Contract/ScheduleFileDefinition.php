@@ -138,9 +138,13 @@ final readonly class ScheduleFileDefinition
             (int) ($data['max_failures'] ?? 3),
         );
 
-        $metadata = isset($data['metadata']) && is_array($data['metadata'])
-            ? json_encode($data['metadata'], JSON_UNESCAPED_SLASHES)
-            : (isset($data['metadata']) && is_string($data['metadata']) ? $data['metadata'] : null);
+        $metadata = null;
+        if (isset($data['metadata']) && is_array($data['metadata'])) {
+            $encodedMetadata = json_encode($data['metadata'], JSON_UNESCAPED_SLASHES);
+            $metadata = $encodedMetadata === false ? null : $encodedMetadata;
+        } elseif (isset($data['metadata']) && is_string($data['metadata'])) {
+            $metadata = $data['metadata'];
+        }
 
         return new self(
             name: $name,

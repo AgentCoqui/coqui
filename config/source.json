@@ -17,10 +17,10 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation, toolkit_list). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Also builds prompt-section telemetry with pinned-versus-deferrable classification and rationale for budget inspection surfaces. Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, toolkit_list). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Also builds prompt-section telemetry with pinned-versus-deferrable classification and rationale for budget inspection surfaces. Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string — returns the full system prompt with role descriptions, security rules, and operational guidelines",
-                "tools(): ToolInterface[] — returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation, toolkit_list)",
+                "tools(): ToolInterface[] — returns standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, toolkit_list)",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
                 "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking",
                 "resolveContextWindow(): ?ContextWindowInterface — resolves ContextWindow from ModelDefinition with 128K/4K fallback",
@@ -415,6 +415,15 @@
             "description": "Standalone 'setup' command that runs the SetupWizard to create or overwrite openclaw.json.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — runs the interactive setup wizard"
+            ]
+        },
+        {
+            "path": "src/Command/WorkspaceOverrideResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Command\\WorkspaceOverrideResolver",
+            "layer": "command",
+            "description": "Shared helper for Symfony Console commands that resolves the workspace override from the --workspace CLI option or the COQUI_WORKSPACE environment variable.",
+            "methods": [
+                "resolve(InputInterface): ?string — returns CLI workspace override first, then COQUI_WORKSPACE, else null"
             ]
         },
         {
@@ -879,6 +888,15 @@
             ]
         },
         {
+            "path": "src/Tool/ConfigTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ConfigTool",
+            "layer": "tool",
+            "description": "Agent-facing tool for reading and modifying openclaw.json configuration with guardrails. Supports get, set, show, list_models, and switch_model actions. Delegates persistence to ConfigManager and blocks security-sensitive keys via ConfigGuard. Current runtime behavior requires a restart after successful writes because Coqui constructs long-lived providers, resolvers, and toolkits at boot.",
+            "methods": [
+                "execute(array $input): ToolResult — dispatches config actions and returns guarded read/write results"
+            ]
+        },
+        {
 
             "path": "src/Tool/PhpExecuteTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\PhpExecuteTool",
@@ -928,7 +946,7 @@
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",
-            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/readonly-shell/minimal) to determine toolkit assignment. Full-access children inherit the parent's shellAllowedCommands and shellDeniedCommands. readonly-shell children receive ShellToolkit restricted to READ_ONLY_SHELL_COMMANDS (grep, find, cat, head, tail, wc, ls, sort, uniq, sed, awk, diff). Normalizes task and context input into a typed ChildAgentHandoff envelope before invoking the child, passes through the injected ToolExecutorInterface for executor consistency, and persists handoff metadata on child run records. Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
+            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/readonly-shell/minimal) to determine toolkit assignment. Full-access children inherit the parent's shellAllowedCommands and shellDeniedCommands. readonly-shell children receive ShellToolkit restricted to READ_ONLY_SHELL_COMMANDS (grep, cat, head, tail, wc, ls, uniq, diff). Normalizes task and context input into a typed ChildAgentHandoff envelope before invoking the child, passes through the injected ToolExecutorInterface for executor consistency, and persists handoff metadata on child run records. Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
             "methods": [
                 "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
                 "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level with visibility filtering, credential guards in child mode, and optional BackgroundTaskToolkit",

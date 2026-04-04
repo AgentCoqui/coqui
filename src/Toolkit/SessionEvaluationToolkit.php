@@ -391,7 +391,7 @@ final class SessionEvaluationToolkit implements ToolkitInterface
                     evaluationId: $id,
                     sessionId: $sessionId,
                     session: $session,
-                    childRuns: $childRuns,
+                    childRuns: array_values($childRuns),
                     artifacts: $artifacts,
                     skillUsage: $skillUsage,
                 );

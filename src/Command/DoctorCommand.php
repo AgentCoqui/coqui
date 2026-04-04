@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Config\CredentialResolver;
 use CoquiBot\Coqui\Config\PathHelper;
 use CoquiBot\Coqui\Config\WorkspaceComposerManager;
 use CoquiBot\Coqui\Config\WorkspaceResolver;
+use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\LoopStore;
@@ -100,7 +101,7 @@ final class DoctorCommand extends Command
         $results['config'] = $this->checkConfig($io, $workDir, $configPath, $jsonOutput);
 
         // 3. Workspace
-        $workspaceOverride = $this->resolveWorkspaceOverride($input);
+        $workspaceOverride = WorkspaceOverrideResolver::resolve($input);
         $workspacePath = $workspaceOverride ?? $this->resolveWorkspacePath($workDir, $configPath);
         $results['workspace'] = $this->checkWorkspace($io, $workspacePath, $repair, $jsonOutput);
 
@@ -1152,20 +1153,4 @@ final class DoctorCommand extends Command
         }
     }
 
-    private function resolveWorkspaceOverride(InputInterface $input): ?string
-    {
-        $option = $input->getOption('workspace');
-
-        if (is_string($option) && $option !== '') {
-            return $option;
-        }
-
-        $env = getenv('COQUI_WORKSPACE');
-
-        if (is_string($env) && $env !== '') {
-            return $env;
-        }
-
-        return null;
-    }
 }

@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Contract;
 final readonly class EvaluationReadModel
 {
     /**
+     * @param array<string, mixed>|null $learnerOutcomeMetadata
      * @param array<string, mixed>|null $metadata
      */
     public function __construct(

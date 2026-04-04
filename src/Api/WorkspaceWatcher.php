@@ -56,6 +56,8 @@ final class WorkspaceWatcher
 
     /**
      * Run initial sync for all jobs (alias for tick on first boot).
+     *
+     * @return array<string, WatchJobResult>
      */
     public function initialSync(): array
     {
