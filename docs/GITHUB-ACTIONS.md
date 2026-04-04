@@ -1,28 +1,26 @@
 # GitHub Actions CI
 
-Coqui uses GitHub Actions for continuous integration. The workflow runs on every pull request targeting `main` and on direct pushes to `main`, ensuring tests and static analysis pass before code is merged.
+Coqui uses GitHub Actions for continuous integration. The workflow runs on every pull request targeting `main` and on direct pushes to `main`, ensuring tests and static analysis pass before code is merged. Coverage is reported on a dedicated lane, but it is not enforced as a merge gate yet.
 
 ## Workflow Overview
 
-The CI workflow (`.github/workflows/ci.yml`) runs two parallel jobs across a PHP version matrix:
+The CI workflow (`.github/workflows/ci.yml`) runs four main jobs:
 
-| Job | Command | Purpose |
-|-----|---------|---------|
-| **Tests** | `composer test` | Runs the Pest 3.x test suite |
-| **PHPStan** | `composer analyse` | Static analysis at level 8 (bleeding edge) |
+- **Tests** — `composer test` across the full matrix
+- **Coverage** — `composer test:coverage:ci` on one stable lane, uploading Clover XML
+- **PHPStan** — `composer analyse` at level 8 with bleeding edge rules
+- **Bash Tests** — `bash tests/bash/launcher-sigint-test.sh` for launcher signal-handling behavior
 
 ### PHP Version Matrix
 
-| Version | Status |
-|---------|--------|
-| 8.4 | Required (minimum) |
-| 8.5 | Future-proofing |
+- **8.4** — Required minimum
+- **8.5** — Future-proofing
 
-Both jobs use `fail-fast: false` so all matrix combinations report independently — a failure on 8.5 won't cancel the 8.4 run.
+The matrix jobs use `fail-fast: false` so all matrix combinations report independently — a failure on 8.5 won't cancel the 8.4 run.
 
 ### Extensions
 
-The workflow installs: `pdo_sqlite`, `mbstring`, `curl`, `xml`, `zip`, `pcntl`. These cover the required `ext-pdo_sqlite` and suggested `ext-pcntl` extensions along with transitive needs from Symfony Console and HTTP Client.
+The workflow installs: `pdo_sqlite`, `mbstring`, `curl`, `xml`, `zip`, `pcntl`. The coverage job additionally enables PCOV so Pest can generate code-coverage reports without slowing every matrix lane.
 
 ### Caching
 
@@ -83,6 +81,12 @@ composer test
 composer analyse
 ```
 
+For a local coverage summary:
+
+```bash
+composer test:coverage
+```
+
 ### Linux (Ubuntu)
 
 Install PHP 8.4 from the `ondrej/php` PPA:
@@ -115,6 +119,12 @@ composer test
 composer analyse
 ```
 
+For a local coverage summary:
+
+```bash
+composer test:coverage
+```
+
 ### Using Docker
 
 If you have Docker installed, you can run tests inside the Coqui container without installing PHP locally:
@@ -145,13 +155,33 @@ The script runs both `composer test` and `composer analyse` in sequence, exiting
 ./scripts/ci-test.sh --install
 ```
 
+Add `--coverage` when you want the Pest step to emit a coverage report:
+
+```bash
+./scripts/ci-test.sh --coverage
+```
+
 See [scripts/ci-test.sh](../scripts/ci-test.sh) for details.
+
+## Coverage Reporting
+
+Coverage is currently reporting-only. The dedicated CI coverage lane runs on Ubuntu with PHP 8.4 and uploads a Clover XML artifact at `build/coverage/clover.xml`.
+
+For local detailed reporting, use one of these:
+
+```bash
+composer test -- --coverage
+composer test:coverage
+make test-coverage
+```
+
+`composer test -- --coverage` works when your PHP process is already configured for coverage. `composer test:coverage` uses the repository wrapper script to auto-enable PCOV or Xdebug when available.
 
 ## Workflow File Reference
 
 The full workflow lives at `.github/workflows/ci.yml`. Key design decisions:
 
-- **Two parallel jobs** (tests + static analysis) rather than sequential steps — faster feedback and independent failure reporting
+- **Matrix test lanes + a single coverage lane** — fast feedback on correctness, focused reporting on coverage
 - **`composer.lock` committed** — as a project, Coqui pins exact dependency versions for reproducible CI runs
 - **`shivammathur/setup-php@v2`** — reliable PHP provisioning with extension management
 - **`actions/cache@v4`** — caches Composer's download directory across runs
@@ -178,6 +208,12 @@ If you are contributing primarily from Windows, use WSL2 (Windows Subsystem for 
 - Ensure you're running the same PHPStan version. Delete `vendor/` and run `composer install` from the lockfile.
 - Coqui uses `bleedingEdge.neon` which enables experimental strictness rules — these may flag things that standard PHPStan does not.
 - PHPStan caches results — delete `.phpstan.cache` locally and rerun.
+
+### Coverage command fails locally
+
+- Install either PCOV or Xdebug.
+- `composer test:coverage` auto-enables PCOV or Xdebug coverage mode when the extension is present.
+- `composer test -- --coverage` requires your PHP process to already be configured for coverage, for example with `XDEBUG_MODE=coverage`.
 
 ### Missing ext-pdo_sqlite
 

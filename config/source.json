@@ -951,7 +951,6 @@
                 "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
                 "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level with visibility filtering, credential guards in child mode, and optional BackgroundTaskToolkit",
                 "resolveAccessLevel(string $role): string — looks up access_level from RoleProperties",
-                "setCurrentIteration(int $iteration): void — tracks parent iteration for logging",
                 "getChildRunCount(): int — returns number of child agents spawned during this turn",
                 "isChildBackgroundTasksEnabled(): bool — checks agents.defaults.childBackgroundTasks config flag"
             ]

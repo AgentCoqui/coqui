@@ -52,7 +52,6 @@ use SplObserver;
  */
 final class SpawnAgentTool implements ToolInterface
 {
-    private int $currentIteration = 0;
     private int $childRunCount = 0;
     private ?VisionAnalyzer $visionAnalyzer = null;
 
@@ -187,7 +186,7 @@ final class SpawnAgentTool implements ToolInterface
             if ($this->storage !== null && $this->sessionId !== null) {
                 $this->storage->logChildRun(
                     sessionId: $this->sessionId,
-                    parentIteration: $this->currentIteration,
+                    parentIteration: 0,
                     agentRole: $role,
                     model: $modelString,
                     prompt: $prompt,
@@ -446,11 +445,6 @@ final class SpawnAgentTool implements ToolInterface
         } catch (\Throwable) {
             return new RoleToolkitResolver(null);
         }
-    }
-
-    public function setCurrentIteration(int $iteration): void
-    {
-        $this->currentIteration = $iteration;
     }
 
     public function setVisionAnalyzer(VisionAnalyzer $analyzer): void

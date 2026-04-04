@@ -87,18 +87,21 @@ check_requirements() {
 # ---------------------------------------------------------------------------
 main() {
     local do_install=0
+    local do_coverage=0
 
     for arg in "$@"; do
         case "$arg" in
             --install) do_install=1 ;;
+            --coverage) do_coverage=1 ;;
             --help|-h)
-                echo "Usage: $0 [--install]"
+                echo "Usage: $0 [--install] [--coverage]"
                 echo ""
                 echo "Options:"
                 echo "  --install    Run composer install before tests"
+                echo "  --coverage   Run the coverage-enabled Pest command"
                 echo ""
                 echo "Mirrors the GitHub Actions CI pipeline locally."
-                echo "Runs: composer test, composer analyse"
+                echo "Runs: composer test or composer test:coverage, composer analyse"
                 exit 0
                 ;;
             *)
@@ -126,12 +129,22 @@ main() {
 
     # Run tests
     echo ""
-    info "Running tests (Pest)..."
-    if composer test; then
-        ok "Tests passed"
+    if [[ $do_coverage -eq 1 ]]; then
+        info "Running tests with coverage (Pest)..."
+        if composer test:coverage; then
+            ok "Coverage run passed"
+        else
+            fail "Coverage run failed"
+            exit 1
+        fi
     else
-        fail "Tests failed"
-        exit 1
+        info "Running tests (Pest)..."
+        if composer test; then
+            ok "Tests passed"
+        else
+            fail "Tests failed"
+            exit 1
+        fi
     fi
 
     # Run static analysis
