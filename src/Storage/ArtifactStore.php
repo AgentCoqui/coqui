@@ -280,6 +280,27 @@ final class ArtifactStore
     }
 
     /**
+     * Delete multiple artifacts from a session.
+     *
+     * @param list<string> $ids
+     * @return int Number of artifacts deleted.
+     */
+    public function bulkDelete(array $ids, string $sessionId): int
+    {
+        if ($ids === []) {
+            return 0;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->prepare(
+            "DELETE FROM artifacts WHERE id IN ({$placeholders}) AND session_id = ?",
+        );
+        $stmt->execute([...$ids, $sessionId]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * Get version history for an artifact.
      *
      * @param string|null $sessionId When provided, validates the artifact belongs to this session.

@@ -104,7 +104,9 @@ All agent types (regardless of access level) receive `ArtifactToolkit`. The `art
 | `artifact_get` | yes | Retrieve artifact or specific version |
 | `artifact_list` | yes | List session artifacts with filters |
 | `artifact_stage` | yes | Transition artifact stage |
+| `artifact_bulk_stage` | yes | Transition multiple artifacts by IDs or filters |
 | `artifact_delete` | no | Delete artifact and all versions |
+| `artifact_bulk_delete` | no | Delete multiple artifacts by IDs or filters |
 
 ## API Endpoints
 
@@ -135,6 +137,21 @@ All routes under `/api/v1/sessions/{id}/artifacts`:
 5. **Todos auto-generated** — linked to the artifact and sprint
 6. **Coder role** reads todos via `todo_list(artifact_id: "...")` and implements each step
 7. **Loop stages** (if using a harness loop) create `loop_output` artifacts after each stage
+
+## Bulk Management
+
+Artifacts can now be managed in bulk for cleanup and organization workflows:
+
+```
+artifact_bulk_stage(ids: '["art1", "art2"]', stage: "review")
+artifact_bulk_delete(stage: "draft")
+artifact_bulk_delete(project_id: "proj123")
+artifact_bulk_delete(all: true)
+```
+
+- Use explicit `ids` when you already know the target artifacts
+- Use filters when cleaning up by stage, type, or project context
+- Use `all: true` only when you want to wipe the full session artifact set
 
 ## Related
 

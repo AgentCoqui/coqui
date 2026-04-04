@@ -9,6 +9,9 @@ Artifacts are versioned, structured outputs that persist across turns within a s
 - `artifact_get` — Retrieve a specific artifact by ID, including its current content and metadata.
 - `artifact_list` — List artifacts in the current session, optionally filtered by type or stage.
 - `artifact_stage` — Transition an artifact through stages: `draft` → `review` → `final`. Stage transitions are one-directional.
+- `artifact_bulk_stage` — Transition multiple artifacts to a new stage by explicit IDs or by filters. Use `all: true` to transition every artifact in the session.
+- `artifact_delete` — Delete a single artifact and all of its version history.
+- `artifact_bulk_delete` — Delete multiple artifacts by explicit IDs or by filters. Use `all: true` to wipe all session artifacts.
 
 ### Artifact Types
 
@@ -28,6 +31,7 @@ Use descriptive types that match the content: `code`, `document`, `config`, `pla
 4. **Set language for code.** When creating code artifacts, set the `language` parameter (e.g., `php`, `python`, `sql`) for proper syntax context.
 5. **Set filepath when applicable.** If the artifact corresponds to a file, set `filepath` so the user knows where it belongs.
 6. **Advance stages deliberately.** Move to `review` when the artifact is ready for the user to evaluate. Only move to `final` when the user has approved it.
+7. **Use filtered bulk cleanup for reset workflows.** For example, delete all draft artifacts with `artifact_bulk_delete(stage: "draft")`, or wipe the session with `artifact_bulk_delete(all: true)` when you need a clean slate.
 
 ### Integration with Todos
 

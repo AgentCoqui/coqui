@@ -14,6 +14,8 @@ Todos are session-scoped task items for tracking progress through multi-step wor
 - `todo_bulk_update` — update multiple todos in one call (max 25). Takes a JSON array of updates. Use when batch-updating status or priority
 - `todo_bulk_complete` — mark multiple todos as completed in one call (max 25). Use when finishing a batch of tasks
 - `todo_bulk_delete` — delete multiple todos in one call (max 25). Use sparingly — prefer cancelling
+- `todo_complete_all` — mark every pending or in-progress todo in the current session as completed
+- `todo_clear` — delete completed/cancelled todos, or wipe the entire session todo list with `scope: "all"`
 
 ### When to Create Todos
 
@@ -48,6 +50,7 @@ Use `parent_id` to create subtasks when a top-level todo needs to be broken down
 4. **Add notes on completion.** When completing a todo, include brief notes about what was done or any follow-ups needed.
 5. **Don't over-create.** Only create todos for actionable work items. Don't create a todo for reading a file or thinking about a problem.
 6. **Use bulk operations for efficiency.** When creating 3+ todos at once (e.g. from a plan checklist), use `todo_bulk_add` instead of multiple `todo_add` calls. Use `todo_bulk_update` to batch status changes. Use `todo_bulk_complete` to finish multiple tasks at once.
+7. **Use session cleanup deliberately.** `todo_clear(scope: "completed")` is useful after finishing a sprint. `todo_clear(scope: "all")` is for reset/start-fresh workflows and deletes the whole session checklist.
 
 ### After Summarization
 

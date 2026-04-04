@@ -22,7 +22,7 @@ afterEach(function () {
 });
 
 test('provides exactly 6 tools', function () {
-    expect($this->toolkit->tools())->toHaveCount(6);
+    expect($this->toolkit->tools())->toHaveCount(8);
 });
 
 test('tool names are correct', function () {
@@ -37,7 +37,9 @@ test('tool names are correct', function () {
         'artifact_get',
         'artifact_list',
         'artifact_stage',
+        'artifact_bulk_stage',
         'artifact_delete',
+        'artifact_bulk_delete',
     ]);
 });
 
@@ -191,7 +193,8 @@ test('default toolkit provides 6 tools including delete', function () {
     );
 
     expect($names)->toContain('artifact_delete');
-    expect($names)->toHaveCount(6);
+    expect($names)->toContain('artifact_bulk_delete');
+    expect($names)->toHaveCount(8);
 });
 
 test('readonly toolkit provides 5 tools without delete', function () {
@@ -203,7 +206,8 @@ test('readonly toolkit provides 5 tools without delete', function () {
     );
 
     expect($names)->not->toContain('artifact_delete');
-    expect($names)->toHaveCount(5);
+    expect($names)->not->toContain('artifact_bulk_delete');
+    expect($names)->toHaveCount(6);
 });
 
 test('readonly toolkit still allows create, update, get, list, stage', function () {
@@ -220,6 +224,7 @@ test('readonly toolkit still allows create, update, get, list, stage', function 
         'artifact_get',
         'artifact_list',
         'artifact_stage',
+        'artifact_bulk_stage',
     ]);
 });
 
@@ -227,7 +232,7 @@ test('artifact_delete tool deletes artifact', function () {
     $id = $this->store->create($this->sessionId, 'Deletable', 'content');
 
     $toolkit = new ArtifactToolkit($this->store, $this->sessionId);
-    $deleteTool = $toolkit->tools()[5]; // artifact_delete
+    $deleteTool = $toolkit->tools()[6]; // artifact_delete
 
     $result = $deleteTool->execute(['id' => $id]);
 
@@ -239,9 +244,45 @@ test('artifact_delete tool deletes artifact', function () {
 
 test('artifact_delete tool errors on missing artifact', function () {
     $toolkit = new ArtifactToolkit($this->store, $this->sessionId);
-    $deleteTool = $toolkit->tools()[5];
+    $deleteTool = $toolkit->tools()[6];
 
     $result = $deleteTool->execute(['id' => 'nonexistent']);
 
     expect($result->status)->toBe(ToolResultStatus::Error);
+});
+
+test('artifact_bulk_stage updates artifacts by explicit ids', function () {
+    $id1 = $this->store->create($this->sessionId, 'One', 'content');
+    $id2 = $this->store->create($this->sessionId, 'Two', 'content');
+
+    $tool = $this->toolkit->tools()[5]; // artifact_bulk_stage
+
+    $result = $tool->execute([
+        'ids' => json_encode([$id1, $id2]),
+        'stage' => 'review',
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $data = json_decode($result->content, true);
+    expect($data['updated'])->toBe(2);
+    expect($this->store->get($id1)['stage'])->toBe('review');
+    expect($this->store->get($id2)['stage'])->toBe('review');
+});
+
+test('artifact_bulk_delete deletes artifacts selected by filter', function () {
+    $this->store->create($this->sessionId, 'Draft One', 'content', type: 'code');
+    $this->store->create($this->sessionId, 'Draft Two', 'content', type: 'code');
+    $keepId = $this->store->create($this->sessionId, 'Document', 'content', type: 'document');
+
+    $tool = $this->toolkit->tools()[7]; // artifact_bulk_delete
+
+    $result = $tool->execute([
+        'type' => 'code',
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $data = json_decode($result->content, true);
+    expect($data['deleted'])->toBe(2);
+    expect($this->store->list($this->sessionId))->toHaveCount(1);
+    expect($this->store->get($keepId))->not->toBeNull();
 });

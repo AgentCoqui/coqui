@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
@@ -49,10 +50,12 @@ final class ArtifactToolkit implements ToolkitInterface
             $this->getTool(),
             $this->listTool(),
             $this->stageTool(),
+            $this->bulkStageTool(),
         ];
 
         if (!$this->readOnly) {
             $tools[] = $this->deleteTool();
+            $tools[] = $this->bulkDeleteTool();
         }
 
         return $tools;
@@ -375,6 +378,144 @@ final class ArtifactToolkit implements ToolkitInterface
                 ], JSON_UNESCAPED_SLASHES) ?: '{}');
             },
         );
+    }
+
+    private function bulkStageTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'artifact_bulk_stage',
+            description: 'Transition multiple artifacts to a new stage by ID list or by session filters. Use all=true to transition every artifact in the current session.',
+            parameters: [
+                new StringParameter('ids', 'Optional JSON array of artifact IDs: ["id1", "id2", ...]. Max 200.', required: false),
+                new EnumParameter('stage', 'Target stage', ['draft', 'review', 'final'], required: true),
+                new EnumParameter('type', 'Optional filter by artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'other'], required: false),
+                new EnumParameter('current_stage', 'Optional filter by current stage', ['draft', 'review', 'final'], required: false),
+                new StringParameter('project_id', 'Optional filter by project ID', required: false),
+                new StringParameter('sprint_id', 'Optional filter by sprint ID', required: false),
+                new StringParameter('created_after', 'Optional ISO 8601 creation-time filter', required: false),
+                new BoolParameter('all', 'If true, target all artifacts in the current session.', required: false),
+            ],
+            callback: function (array $args): ToolResult {
+                [$matchedIds, $failedIds, $error] = $this->resolveArtifactTargets($args, stageFilterKey: 'current_stage');
+
+                if ($error !== null) {
+                    return ToolResult::error($error);
+                }
+
+                if ($matchedIds === []) {
+                    return ToolResult::success(json_encode([
+                        'updated' => 0,
+                        'target_stage' => $args['stage'],
+                        'failed_ids' => $failedIds,
+                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                }
+
+                $updated = $this->store->bulkUpdateStage($matchedIds, (string) $args['stage'], $this->sessionId);
+
+                return ToolResult::success(json_encode([
+                    'updated' => $updated,
+                    'target_stage' => $args['stage'],
+                    'failed_ids' => $failedIds,
+                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+            },
+        );
+    }
+
+    private function bulkDeleteTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'artifact_bulk_delete',
+            description: 'Delete multiple artifacts by ID list or by session filters. Use all=true to wipe all artifacts in the current session.',
+            parameters: [
+                new StringParameter('ids', 'Optional JSON array of artifact IDs: ["id1", "id2", ...]. Max 200.', required: false),
+                new EnumParameter('type', 'Optional filter by artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'other'], required: false),
+                new EnumParameter('stage', 'Optional filter by stage', ['draft', 'review', 'final'], required: false),
+                new StringParameter('project_id', 'Optional filter by project ID', required: false),
+                new StringParameter('sprint_id', 'Optional filter by sprint ID', required: false),
+                new StringParameter('created_after', 'Optional ISO 8601 creation-time filter', required: false),
+                new BoolParameter('all', 'If true, target all artifacts in the current session.', required: false),
+            ],
+            callback: function (array $args): ToolResult {
+                [$matchedIds, $failedIds, $error] = $this->resolveArtifactTargets($args);
+
+                if ($error !== null) {
+                    return ToolResult::error($error);
+                }
+
+                $deleted = $this->store->bulkDelete($matchedIds, $this->sessionId);
+
+                return ToolResult::success(json_encode([
+                    'deleted' => $deleted,
+                    'failed_ids' => $failedIds,
+                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+            },
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $args
+     * @return array{0: list<string>, 1: list<string>, 2: ?string}
+     */
+    private function resolveArtifactTargets(array $args, string $stageFilterKey = 'stage'): array
+    {
+        $idsRaw = isset($args['ids']) ? trim((string) $args['ids']) : '';
+        $type = isset($args['type']) && trim((string) $args['type']) !== '' ? trim((string) $args['type']) : null;
+        $stage = isset($args[$stageFilterKey]) && trim((string) $args[$stageFilterKey]) !== '' ? trim((string) $args[$stageFilterKey]) : null;
+        $projectId = isset($args['project_id']) && trim((string) $args['project_id']) !== '' ? trim((string) $args['project_id']) : null;
+        $sprintId = isset($args['sprint_id']) && trim((string) $args['sprint_id']) !== '' ? trim((string) $args['sprint_id']) : null;
+        $createdAfter = isset($args['created_after']) && trim((string) $args['created_after']) !== '' ? trim((string) $args['created_after']) : null;
+        $all = (bool) ($args['all'] ?? false);
+
+        if ($idsRaw !== '') {
+            $decoded = json_decode($idsRaw, true);
+            if (!is_array($decoded) || $decoded === []) {
+                return [[], [], 'ids must be a non-empty JSON array of artifact IDs.'];
+            }
+            if (count($decoded) > 200) {
+                return [[], [], 'Maximum 200 artifact IDs per bulk operation.'];
+            }
+
+            $matched = [];
+            $failed = [];
+            foreach ($decoded as $id) {
+                $artifactId = trim((string) $id);
+                if ($artifactId === '') {
+                    continue;
+                }
+
+                $artifact = $this->store->get($artifactId, sessionId: $this->sessionId);
+                if ($artifact === null) {
+                    $failed[] = $artifactId;
+                    continue;
+                }
+
+                $matched[] = $artifactId;
+            }
+
+            return [array_values(array_unique($matched)), $failed, null];
+        }
+
+        if (!$all && $type === null && $stage === null && $projectId === null && $sprintId === null && $createdAfter === null) {
+            return [[], [], 'Specify ids, all=true, or at least one filter to select artifacts.'];
+        }
+
+        $artifacts = $this->store->list(
+            sessionId: $this->sessionId,
+            type: $type,
+            stage: $stage,
+            limit: 5000,
+            projectId: $projectId,
+            sprintId: $sprintId,
+            createdAfter: $createdAfter,
+        );
+
+        /** @var list<string> $matched */
+        $matched = array_values(array_map(
+            static fn(array $artifact): string => (string) $artifact['id'],
+            $artifacts,
+        ));
+
+        return [$matched, [], null];
     }
 
     /**

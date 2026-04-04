@@ -229,6 +229,41 @@ test('getPdo returns working connection', function () {
     expect($row['id'])->toBe($sessionId);
 });
 
+test('clearActiveProjectReferences clears matching session pointers only', function () {
+    $projectA = 'project-a';
+    $projectB = 'project-b';
+    $sessionA = $this->storage->createSession('orchestrator', 'model-a');
+    $sessionB = $this->storage->createSession('orchestrator', 'model-b');
+    $sessionC = $this->storage->createSession('orchestrator', 'model-c');
+
+    $this->storage->setActiveProject($sessionA, $projectA);
+    $this->storage->setActiveProject($sessionB, $projectA);
+    $this->storage->setActiveProject($sessionC, $projectB);
+
+    $cleared = $this->storage->clearActiveProjectReferences($projectA);
+
+    expect($cleared)->toBe(2);
+    expect($this->storage->getActiveProjectId($sessionA))->toBeNull();
+    expect($this->storage->getActiveProjectId($sessionB))->toBeNull();
+    expect($this->storage->getActiveProjectId($sessionC))->toBe($projectB);
+});
+
+test('clearAllActiveProjects clears every active project pointer', function () {
+    $sessionA = $this->storage->createSession('orchestrator', 'model-a');
+    $sessionB = $this->storage->createSession('orchestrator', 'model-b');
+    $sessionC = $this->storage->createSession('orchestrator', 'model-c');
+
+    $this->storage->setActiveProject($sessionA, 'project-a');
+    $this->storage->setActiveProject($sessionB, 'project-b');
+
+    $cleared = $this->storage->clearAllActiveProjects();
+
+    expect($cleared)->toBe(2);
+    expect($this->storage->getActiveProjectId($sessionA))->toBeNull();
+    expect($this->storage->getActiveProjectId($sessionB))->toBeNull();
+    expect($this->storage->getActiveProjectId($sessionC))->toBeNull();
+});
+
 test('loadConversation preserves ToolCall metadata through storage roundtrip', function () {
     $sessionId = $this->storage->createSession('test', 'model');
 

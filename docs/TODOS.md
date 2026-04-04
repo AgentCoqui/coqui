@@ -134,6 +134,10 @@ Todos are shared between agents through session ID propagation — the same mech
 | `todo_delete` | Delete a todo (cascades to subtasks) |
 | `todo_bulk_add` | Create up to 25 todos at once |
 | `todo_bulk_update` | Update up to 25 todos at once |
+| `todo_bulk_complete` | Mark up to 25 todos completed at once |
+| `todo_bulk_delete` | Delete up to 25 todos at once |
+| `todo_complete_all` | Mark every pending/in-progress todo in the session completed |
+| `todo_clear` | Delete completed/cancelled todos or wipe the full session todo list |
 
 ## API Endpoints
 
@@ -158,6 +162,20 @@ All routes under `/api/v1/sessions/{id}/todos`:
 /todos pending      # Filter by status
 /todos completed    # Filter by status
 ```
+
+## Session Cleanup
+
+Use the agent tools when you need to reset progress without enumerating IDs first:
+
+```
+todo_complete_all()
+todo_clear(scope: "completed")
+todo_clear(scope: "all")
+```
+
+- `scope: "completed"` removes completed and cancelled todos only
+- `scope: "all"` deletes every todo in the current session
+- For explicit ID batches, continue using `todo_bulk_complete` and `todo_bulk_delete`
 
 ## Cleanup
 

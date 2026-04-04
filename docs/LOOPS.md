@@ -215,12 +215,15 @@ Returns: current iteration/stage, status, elapsed time, and stage results.
 ```
 loop_pause(id: "loop123")    # Pauses after current stage completes
 loop_resume(id: "loop123")   # Continues from where it stopped
+loop_pause(id: "all")        # Pauses every running loop
+loop_resume(id: "all")       # Resumes every paused loop
 ```
 
 ### Stop
 
 ```
 loop_stop(id: "loop123")     # Cancels the loop
+loop_stop(id: "all")         # Cancels every active loop
 ```
 
 ## Agent Tools
@@ -230,9 +233,9 @@ loop_stop(id: "loop123")     # Cancels the loop
 | `loop_start` | Start a loop from a definition with a goal |
 | `loop_list` | List loops with optional status filter |
 | `loop_status` | Get detailed status of a specific loop |
-| `loop_pause` | Pause a running loop |
-| `loop_resume` | Resume a paused loop |
-| `loop_stop` | Stop/cancel a loop |
+| `loop_pause` | Pause a running loop or all running loops |
+| `loop_resume` | Resume a paused loop or all paused loops |
+| `loop_stop` | Stop/cancel one loop or all active loops |
 | `loop_definitions` | List available loop definitions |
 
 ## API Endpoints

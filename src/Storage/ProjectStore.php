@@ -259,6 +259,19 @@ final class ProjectStore
         return $stmt->rowCount() > 0;
     }
 
+    /**
+     * Delete all projects and cascading sprints.
+     *
+     * @return int Number of projects deleted.
+     */
+    public function deleteAllProjects(): int
+    {
+        $stmt = $this->db->prepare('DELETE FROM projects');
+        $stmt->execute();
+
+        return $stmt->rowCount();
+    }
+
     // =========================================================================
     // Sprint CRUD
     // =========================================================================
@@ -529,6 +542,26 @@ final class ProjectStore
         $stmt->execute([$id]);
 
         return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Delete all sprints, optionally limited to a project.
+     *
+     * @return int Number of sprints deleted.
+     */
+    public function deleteAllSprints(?string $projectId = null): int
+    {
+        if ($projectId !== null) {
+            $stmt = $this->db->prepare('DELETE FROM sprints WHERE project_id = ?');
+            $stmt->execute([$projectId]);
+
+            return $stmt->rowCount();
+        }
+
+        $stmt = $this->db->prepare('DELETE FROM sprints');
+        $stmt->execute();
+
+        return $stmt->rowCount();
     }
 
     // =========================================================================

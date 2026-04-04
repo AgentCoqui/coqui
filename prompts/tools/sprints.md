@@ -8,6 +8,7 @@ Projects organize long-running work across multiple sessions. Sprints divide pro
 - `project_list` — list projects with sprint counts and completion progress
 - `project_get` — get project details including sprint roster with progress
 - `project_update` — update title, description, or status (active/completed/archived)
+- `project_delete` — delete a project or `id: "all"` projects, clear active-project session references, and optionally delete project directories
 
 ### Sprint Tools
 
@@ -16,6 +17,7 @@ Projects organize long-running work across multiple sessions. Sprints divide pro
 - `sprint_get` — full sprint details with progress, review notes, acceptance criteria
 - `sprint_transition` — move sprint through lifecycle states
 - `sprint_update` — update sprint metadata (title, criteria, contract artifact link)
+- `sprint_delete` — delete a sprint or `id: "all"` sprints; pass `project_id` to scope a bulk delete to one project
 
 ### Sprint Lifecycle
 
@@ -65,3 +67,4 @@ Sprints track `last_session_id`. When resuming work in a new session:
 3. **Write acceptance criteria upfront.** They guide the reviewer and prevent subjective rejections.
 4. **Include reviewer notes on rejection.** Specific, actionable feedback helps the coder iterate faster.
 5. **Use contract artifacts.** Link the plan artifact to the sprint via `contract_artifact_id` for reference.
+6. **Separate structural cleanup from artifact cleanup.** Deleting projects or sprints removes those records, but related artifacts/todos are managed through their own toolkits.
