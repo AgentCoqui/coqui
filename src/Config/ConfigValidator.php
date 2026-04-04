@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
+use Cron\CronExpression;
+
 /**
  * Validates openclaw.json configuration data.
  *
@@ -33,6 +35,7 @@ final class ConfigValidator
         $errors = [...$errors, ...$this->validateShellAllowedCommands($data)];
         $errors = [...$errors, ...$this->validateWorkspace($data)];
         $errors = [...$errors, ...$this->validateMemory($data)];
+        $errors = [...$errors, ...$this->validateQuality($data)];
         $errors = [...$errors, ...$this->validateApi($data)];
         $errors = [...$errors, ...$this->validateEditHistory($data)];
 
@@ -91,9 +94,44 @@ final class ConfigValidator
 
         $errors = [];
         foreach ($roles as $name => $model) {
-            if (!is_string($model)) {
-                continue; // Role might have complex config
+            if (is_array($model)) {
+                $roleModel = $model['model'] ?? null;
+                if ($roleModel !== null) {
+                    if (!is_string($roleModel)) {
+                        $errors[] = sprintf('agents.defaults.roles.%s.model must be a string', $name);
+                    } elseif (!$this->isValidModelString($roleModel)) {
+                        $errors[] = sprintf(
+                            'agents.defaults.roles.%s.model: invalid model format "%s" (expected "provider/model")',
+                            $name,
+                            $roleModel,
+                        );
+                    }
+                }
+
+                $budget = $model['toolkitTokenBudget'] ?? null;
+                if ($budget !== null && (!is_int($budget) || $budget <= 0)) {
+                    $errors[] = sprintf(
+                        'agents.defaults.roles.%s.toolkitTokenBudget must be a positive integer',
+                        $name,
+                    );
+                }
+
+                $promotion = $model['toolkitPromotionBudgetPercent'] ?? null;
+                if ($promotion !== null && (!is_int($promotion) || $promotion < 0 || $promotion > 100)) {
+                    $errors[] = sprintf(
+                        'agents.defaults.roles.%s.toolkitPromotionBudgetPercent must be an integer between 0 and 100',
+                        $name,
+                    );
+                }
+
+                continue;
             }
+
+            if (!is_string($model)) {
+                $errors[] = sprintf('agents.defaults.roles.%s must be a string or an object', $name);
+                continue;
+            }
+
             if (!$this->isValidModelString($model)) {
                 $errors[] = sprintf(
                     'agents.defaults.roles.%s: invalid model format "%s" (expected "provider/model")',
@@ -367,6 +405,70 @@ final class ConfigValidator
 
         if (isset($memory['enabled']) && !is_bool($memory['enabled'])) {
             $errors[] = 'agents.defaults.memory.enabled must be a boolean';
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
+    private function validateQuality(array $data): array
+    {
+        $quality = $data['agents']['defaults']['quality'] ?? null;
+        if ($quality === null) {
+            return [];
+        }
+
+        if (!is_array($quality)) {
+            return ['agents.defaults.quality must be an object'];
+        }
+
+        $errors = [];
+
+        foreach (['enabled', 'bootstrapSchedules', 'autoTriggerLearner'] as $key) {
+            if (isset($quality[$key]) && !is_bool($quality[$key])) {
+                $errors[] = sprintf('agents.defaults.quality.%s must be a boolean', $key);
+            }
+        }
+
+        if (isset($quality['poorEvaluationThreshold'])) {
+            $threshold = $quality['poorEvaluationThreshold'];
+            if ((!is_int($threshold) && !is_float($threshold)) || $threshold < 0 || $threshold > 1) {
+                $errors[] = 'agents.defaults.quality.poorEvaluationThreshold must be a number between 0.0 and 1.0';
+            }
+        }
+
+        if (isset($quality['learnerDedupLookbackHours'])) {
+            $hours = $quality['learnerDedupLookbackHours'];
+            if (!is_int($hours) || $hours < 1) {
+                $errors[] = 'agents.defaults.quality.learnerDedupLookbackHours must be a positive integer';
+            }
+        }
+
+        foreach (['evaluationSchedule', 'learningSchedule'] as $key) {
+            if (!isset($quality[$key])) {
+                continue;
+            }
+
+            $expression = $quality[$key];
+            if (!is_string($expression) || ($expression !== '@once' && !CronExpression::isValidExpression($expression))) {
+                $errors[] = sprintf('agents.defaults.quality.%s must be a valid cron expression or @once', $key);
+            }
+        }
+
+        if (isset($quality['timezone'])) {
+            $timezone = $quality['timezone'];
+            if (!is_string($timezone) || $timezone === '') {
+                $errors[] = 'agents.defaults.quality.timezone must be a non-empty string';
+            } else {
+                try {
+                    new \DateTimeZone($timezone);
+                } catch (\Throwable) {
+                    $errors[] = sprintf('agents.defaults.quality.timezone must be a valid timezone, got "%s"', $timezone);
+                }
+            }
         }
 
         return $errors;

@@ -79,6 +79,7 @@ final class SessionStorage
                 prompt TEXT NOT NULL,
                 result TEXT NOT NULL,
                 token_count INTEGER DEFAULT 0,
+                metadata TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             )
@@ -144,6 +145,7 @@ final class SessionStorage
                 title TEXT,
                 prompt TEXT NOT NULL,
                 role TEXT NOT NULL DEFAULT 'orchestrator',
+                metadata TEXT,
                 result TEXT,
                 error TEXT,
                 max_iterations INTEGER DEFAULT 25,
@@ -180,6 +182,7 @@ final class SessionStorage
         // Migration: add tool columns for background tool execution
         $this->migrateAddColumn('background_tasks', 'tool_name', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('background_tasks', 'tool_arguments', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('background_tasks', 'metadata', 'TEXT DEFAULT NULL');
 
         // Migration: add schedule_id for scheduled task tracking
         $this->migrateAddColumn('background_tasks', 'schedule_id', 'TEXT DEFAULT NULL');
@@ -199,6 +202,9 @@ final class SessionStorage
 
         // Migration: active project tracking per session
         $this->migrateAddColumn('sessions', 'active_project_id', 'TEXT DEFAULT NULL');
+
+        // Migration: child-run metadata for typed handoffs and provenance
+        $this->migrateAddColumn('child_runs', 'metadata', 'TEXT DEFAULT NULL');
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON background_tasks(status)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_session ON background_tasks(session_id)');
@@ -804,13 +810,14 @@ final class SessionStorage
         string $prompt,
         string $result,
         int $tokenCount = 0,
+        ?array $metadata = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO child_runs (id, session_id, parent_iteration, agent_role, model, prompt, result, token_count, created_at)
-            VALUES (:id, :session_id, :parent_iteration, :agent_role, :model, :prompt, :result, :token_count, :created_at)
+            INSERT INTO child_runs (id, session_id, parent_iteration, agent_role, model, prompt, result, token_count, metadata, created_at)
+            VALUES (:id, :session_id, :parent_iteration, :agent_role, :model, :prompt, :result, :token_count, :metadata, :created_at)
         SQL);
 
         $stmt->execute([
@@ -822,6 +829,7 @@ final class SessionStorage
             'prompt' => $prompt,
             'result' => $result,
             'token_count' => $tokenCount,
+            'metadata' => $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
             'created_at' => $now,
         ]);
 
@@ -834,7 +842,7 @@ final class SessionStorage
     public function getChildRuns(string $sessionId): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, parent_iteration, agent_role, model, prompt, result, token_count, created_at
+            SELECT id, parent_iteration, agent_role, model, prompt, result, token_count, metadata, created_at
             FROM child_runs
             WHERE session_id = :session_id
             ORDER BY created_at ASC
@@ -1141,13 +1149,14 @@ final class SessionStorage
         int $maxExecutionSeconds = 3600,
         ?string $projectId = null,
         ?string $sprintId = null,
+        ?array $metadata = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, max_iterations, tool_name, tool_arguments, schedule_id, max_execution_seconds, project_id, sprint_id, created_at)
-            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :max_iterations, :tool_name, :tool_arguments, :schedule_id, :max_execution_seconds, :project_id, :sprint_id, :created_at)
+            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, metadata, max_iterations, tool_name, tool_arguments, schedule_id, max_execution_seconds, project_id, sprint_id, created_at)
+            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :metadata, :max_iterations, :tool_name, :tool_arguments, :schedule_id, :max_execution_seconds, :project_id, :sprint_id, :created_at)
         SQL);
 
         $stmt->execute([
@@ -1157,6 +1166,7 @@ final class SessionStorage
             'title' => $title,
             'prompt' => $prompt,
             'role' => $role,
+            'metadata' => $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
             'max_iterations' => $maxIterations,
             'tool_name' => $toolName,
             'tool_arguments' => $toolArguments,
@@ -1354,6 +1364,49 @@ final class SessionStorage
     }
 
     /**
+     * Find the most recent task with a given title, optionally filtered by role and status.
+     *
+     * @param list<string> $statuses
+     * @return array<string, mixed>|null
+     */
+    public function findRecentTaskByTitle(
+        string $title,
+        ?string $role = null,
+        array $statuses = ['pending', 'running', 'completed'],
+        int $lookbackHours = 24,
+    ): ?array {
+        if ($statuses === []) {
+            return null;
+        }
+
+        $cutoff = date('c', time() - ($lookbackHours * 3600));
+        $statusPlaceholders = implode(', ', array_fill(0, count($statuses), '?'));
+        $roleClause = $role !== null ? 'AND role = ?' : '';
+
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT *
+            FROM background_tasks
+            WHERE title = ?
+              {$roleClause}
+              AND status IN ({$statusPlaceholders})
+              AND created_at >= ?
+            ORDER BY created_at DESC
+            LIMIT 1
+        SQL);
+
+        $params = [$title];
+        if ($role !== null) {
+            $params[] = $role;
+        }
+        $params = [...$params, ...$statuses, $cutoff];
+
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    /**
      * Get all tasks with a specific status.
      *
      * @return array<array<string, mixed>>
@@ -1386,7 +1439,7 @@ final class SessionStorage
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, session_id, parent_session_id, pid, status, title, prompt, role,
-                   max_iterations, created_at, started_at, completed_at, cancelled_at
+                   metadata, max_iterations, created_at, started_at, completed_at, cancelled_at
             FROM background_tasks
             {$where}
             ORDER BY created_at DESC

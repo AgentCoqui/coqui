@@ -86,6 +86,8 @@ final readonly class LoopHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
         }
 
+        $state['stages'] = array_map(fn(array $stage): array => $this->normalizeStage($stage), $state['stages']);
+
         return Router::jsonResponse($state);
     }
 
@@ -118,6 +120,7 @@ final readonly class LoopHandler
         }
 
         $stages = $this->store->listStages($iterationId);
+        $stages = array_map(fn(array $stage): array => $this->normalizeStage($stage), $stages);
 
         return Router::jsonResponse([
             'iteration' => $iteration,
@@ -137,5 +140,30 @@ final readonly class LoopHandler
         $router->get($v1 . '/loops/{id}', [$this, 'get']);
         $router->get($v1 . '/loops/{id}/iterations', [$this, 'iterations']);
         $router->get($v1 . '/loops/{id}/iterations/{iterationId}', [$this, 'iteration']);
+    }
+
+    /**
+     * @param array<string, mixed> $stage
+     * @return array<string, mixed>
+     */
+    private function normalizeStage(array $stage): array
+    {
+        $stage['metadata'] = $this->decodeJsonObject($stage['metadata'] ?? null);
+
+        return $stage;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function decodeJsonObject(mixed $value): ?array
+    {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+
+        $decoded = json_decode($value, true);
+
+        return is_array($decoded) ? $decoded : null;
     }
 }

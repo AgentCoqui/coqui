@@ -17,7 +17,7 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation, toolkit_list). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation, toolkit_list). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Also builds prompt-section telemetry with pinned-versus-deferrable classification and rationale for budget inspection surfaces. Constructed fresh on every REPL turn.",
             "methods": [
                 "instructions(): string — returns the full system prompt with role descriptions, security rules, and operational guidelines",
                 "tools(): ToolInterface[] — returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation, toolkit_list)",
@@ -27,6 +27,7 @@
                 "getContextWindow(): ?ContextWindowInterface — accessor for the resolved context window",
                 "resolveActiveProjectId(): ?string — reads active project from SessionStorage",
                 "injectProjectContext(string): string — appends # ACTIVE PROJECT section with metadata, sprints, and directory to system prompt",
+                "getPromptSectionBreakdown(TokenCounterInterface): array — returns typed prompt-section telemetry with priority, pinning, rationale, and token counts",
                 "getAppliedLoadingModes(): array<string, ToolkitLoadingMode> — applied runtime loading modes (toolkit basename => mode) for REPL display"
             ]
         },
@@ -34,7 +35,7 @@
             "path": "src/Agent/ChildAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\ChildAgent",
             "layer": "agent",
-            "description": "Flexible child agent spawned by SpawnAgentTool. Receives role, task instructions, and toolkits at construction time. Loads role instructions from file-based roles via RoleDiscovery, falling back to hardcoded instructions for backward compatibility.",
+            "description": "Flexible child agent spawned by SpawnAgentTool. Receives role, a typed child handoff envelope or legacy task string, and toolkits at construction time. Loads role instructions from file-based roles via RoleDiscovery, falling back to hardcoded instructions for backward compatibility.",
             "methods": [
                 "instructions(): string — resolves role instructions from file or hardcoded fallback + task injection",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
@@ -45,7 +46,7 @@
             "path": "src/Agent/AgentRunner.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunner",
             "layer": "agent",
-            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Includes autoSummarizeIfNeeded() for pre-turn budget checks with workflow context injection, and autoExtractMemories() which runs LLM-based memory extraction after each successful turn (configurable via agents.defaults.memory.autoExtract). Accepts optional TodoStore and ArtifactStore to build workflow context for summarization.",
+            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Includes autoSummarizeIfNeeded() for pre-turn budget checks with workflow context injection, and autoExtractMemories() which runs LLM-based memory extraction after each successful turn (configurable via agents.defaults.memory.autoExtract). Also builds prompt-preview and prompt-budget snapshots used by the REPL and API inspection surfaces, including prompt-section rationale and pinning metadata. Accepts optional TodoStore and ArtifactStore to build workflow context for summarization.",
             "methods": [
                 "run(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy): AgentTurnResult — runs a single agent turn using the default observer",
                 "runWithObserver(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy, SplObserver $observer): AgentTurnResult — runs a turn with a per-turn observer override",
@@ -53,7 +54,55 @@
                 "createAgent(..., ?SplObserver $observer, string $role, ?int $maxIterations): OrchestratorAgent — builds the orchestrator agent with role-resolved model and iteration limit",
                 "autoSummarizeIfNeeded(OrchestratorAgent, Conversation, string $sessionId, ?SplObserver): Conversation — checks token budget and auto-summarizes with workflow context if threshold exceeded",
                 "autoExtractMemories(Conversation, string $sessionId): void — runs LLM-based memory extraction from completed turn",
-                "buildWorkflowContext(string $sessionId): ?string — queries TodoStore and ArtifactStore to build workflow context for summarization"
+                "buildWorkflowContext(string $sessionId): ?string — queries TodoStore and ArtifactStore to build workflow context for summarization",
+                "buildPromptPreview(?string): array — builds prompt text, token counts, schemas, and budget snapshot for REPL/API prompt inspection",
+                "buildBudgetPreview(?string): PromptBudgetSnapshot — builds role/model prompt-budget telemetry without the full prompt body"
+            ]
+        },
+        {
+            "path": "src/Agent/PromptBudgetManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\PromptBudgetManager",
+            "layer": "agent",
+            "description": "Stateless builder for prompt-budget snapshots. Normalizes prompt/tool token counts, converts applied loading modes into serializable strings, carries prompt-section rationale and pinning metadata, and maps preview totals onto a ContextUsageSnapshot so REPL and API budget surfaces share the same derived metadata.",
+            "methods": [
+                "buildSnapshot(string, string, int, int, int, int, array, array, array, array, array, array, ?ContextWindowInterface): PromptBudgetSnapshot — assemble immutable prompt budget telemetry"
+            ]
+        },
+        {
+            "path": "src/Agent/CodeReviewCycle.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\CodeReviewCycle",
+            "layer": "agent",
+            "description": "Coordinates coder-reviewer-rework loops for automated code review. Builds typed ChildAgentHandoff envelopes with structured ReviewHandoffMetadata for reviewer and coder rework passes, and accepts an injected ToolExecutorInterface so child review runs can reuse the same executor mode as their parent context.",
+            "methods": [
+                "run(string $coderOutput, string $originalTask, array $reviewerToolkits, int $maxRounds, array $coderToolkits, bool $autoIterate, ?string $sprintContext, int $coderMaxIterations): CodeReviewResult — runs review and optional rework rounds until approved or exhausted"
+            ]
+        },
+        {
+            "path": "src/Agent/QualityAutomationCoordinator.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\QualityAutomationCoordinator",
+            "layer": "agent",
+            "description": "Coordinates the autonomous quality loop across schedules and background tasks. Bootstraps default evaluator and learner schedules when enabled, and queues learner follow-up background tasks when poor evaluations are saved. When an EvaluationStore is injected, it also persists explicit provenance from the evaluation record to the learner follow-up task instead of relying on inferred title matching. Learner follow-up tasks now also receive typed LearnerFollowUpMetadata on the background task record. Reads agents.defaults.quality.* config directly for enablement, cron expressions, timezone, learner dedupe window, and poor-evaluation threshold.",
+            "methods": [
+                "ensureDefaultSchedules(): array — creates the default evaluator and learner system schedules when missing",
+                "queueLearnerFollowUp(string $evaluationId, string $evaluatedSessionId, string $overallGrade, float $overallScore): ?array — reuses an explicitly linked follow-up when present or queues a learner background task for poor evaluations"
+            ]
+        },
+        {
+            "path": "src/Agent/QualityAutomationStatusService.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\QualityAutomationStatusService",
+            "layer": "agent",
+            "description": "Read-only visibility service for the autonomous quality loop. Aggregates agents.defaults.quality config, the managed evaluator/learner schedules, explicit evaluation-to-follow-up task provenance, and decoded learner outcomes into a single summary payload that can be reused by REPL and API surfaces.",
+            "methods": [
+                "summary(int $followUpLimit = 10): array — returns config flags, managed schedule state, and linked learner follow-up task status"
+            ]
+        },
+        {
+            "path": "src/Agent/LearnerOutcomeTracker.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\LearnerOutcomeTracker",
+            "layer": "agent",
+            "description": "Quality-loop helper that persists learner follow-up results back onto evaluations. Detects learner tasks via task metadata, extracts created and updated skill names from learner result text, and stores a structured outcome payload on the source evaluation record.",
+            "methods": [
+                "recordFromTask(array $task, string $status, ?string $result, ?string $error): bool — persist learner outcome metadata for a completed, failed, or cancelled learner follow-up task"
             ]
         },
         {
@@ -98,7 +147,7 @@
             "path": "src/Agent/LoopExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
             "layer": "agent",
-            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Supports project resolution in startLoop via 3-tier fallback: explicit project_id/slug → active session project → auto-create. Creates sprints with auto-transitions. Snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound, goal_bound, tool_bound). Supports template parameters with {{placeholder}} substitution. Enforces inter-stage artifact contracts via requires_artifact_from and explicit evidence verification via requires_explicit_evidence — queries ArtifactStore by session+createdAfter (optionally narrowing by projectId when available), never silently bypasses when projectId is null. Injects Required Deliverables into coder prompts when next stage requires explicit evidence. Injects Evidence Artifacts section into reviewer prompts with explicit artifact IDs, titles, and types for deterministic discovery. Injects rich project context into stage prompts. Does not execute child agents directly — LoopManager handles execution via background tasks.",
+            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Supports project resolution in startLoop via 3-tier fallback: explicit project_id/slug → active session project → auto-create. Creates sprints with auto-transitions. Snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound, goal_bound, tool_bound). Supports template parameters with {{placeholder}} substitution. Enforces inter-stage artifact contracts via requires_artifact_from and explicit evidence verification via requires_explicit_evidence — queries ArtifactStore by session+createdAfter (optionally narrowing by projectId when available), never silently bypasses when projectId is null. Injects Required Deliverables into coder prompts when next stage requires explicit evidence. Injects Evidence Artifacts section into reviewer prompts with explicit artifact IDs, titles, and types for deterministic discovery. Injects rich project context into stage prompts. Prepared stages now carry typed LoopStageHandoffMetadata for persistence and observability. Does not execute child agents directly — LoopManager handles execution via background tasks.",
             "methods": [
                 "startLoop(array $rawDefinition, string $goal, ?string $sessionId, array $parameters, ?string $projectId, ?string $projectSlug, ?string $sprintId): string — validates/substitutes parameters, resolves project via 3-tier fallback, creates loop and first iteration",
                 "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, enforces artifact contract gate, enforces explicit evidence contract, builds context prompt with rich project context",
@@ -112,7 +161,7 @@
             "path": "src/Api/LoopManager.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\LoopManager",
             "layer": "agent",
-            "description": "ReactPHP timer-based async loop coordinator. 5-second tick checks running loops, starts pending stages as background tasks with work-scope session propagation (parentSessionId). 3-second reconciliation checks completed tasks, auto-creates loop_output artifacts in the parent session, and advances loop state. Propagates active project context from parent session to stage tasks.",
+            "description": "ReactPHP timer-based async loop coordinator. 5-second tick checks running loops, starts pending stages as background tasks with work-scope session propagation (parentSessionId), and persists typed LoopStageHandoffMetadata onto both the stage row and spawned background task. 3-second reconciliation checks completed tasks, auto-creates loop_output artifacts in the parent session, and advances loop state. Propagates active project context from parent session to stage tasks.",
             "methods": [
                 "tick(): void — process all running loops on timer",
                 "advanceLoop(string $loopId): void — prepare next stage, create task with parentSessionId propagation",
@@ -124,7 +173,7 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface into REPL handlers. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system, resolves session, enters REPL or headless mode",
                 "runRepl(SymfonyStyle, bool): int — interactive REPL loop with readline, signal handling, slash command routing, and agent turn execution",
@@ -154,7 +203,7 @@
             "path": "src/Repl/SlashCommandRouter.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\SlashCommandRouter",
             "layer": "command",
-            "description": "Routes REPL slash commands to the appropriate handler class. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session).",
+            "description": "Routes REPL slash commands to the appropriate handler class. Includes prompt-budget visibility via /budget and quality automation visibility via /quality alongside the existing task, schedule, loop, role, and evaluation commands. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session).",
             "methods": [
                 "route(string, string, string, SymfonyStyle): RouteResult — dispatches a slash command string to the matching handler"
             ]
@@ -207,10 +256,19 @@
             "path": "src/Repl/TabCompletion.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\TabCompletion",
             "layer": "command",
-            "description": "Readline tab-completion for REPL slash commands. Provides context-aware completions for /role, /roles, /toolkits, /todos, /schedules, and top-level commands.",
+            "description": "Readline tab-completion for REPL slash commands. Provides context-aware completions for /role, /roles, /toolkits, /todos, /schedules, /budget, /quality, and top-level commands.",
             "methods": [
                 "register(): void — installs readline_completion_function",
                 "setSessionId(string): void — updates session for todo completions"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/BudgetHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\BudgetHandler",
+            "layer": "command",
+            "description": "Handles /budget REPL command. Renders prompt/token totals, context-window headroom, toolkit budget sources, and recent toolkit loading decisions so prompt pressure is visible without exporting the full system prompt.",
+            "methods": [
+                "handle(SymfonyStyle, ?string): void — renders prompt-budget telemetry for the active or requested role"
             ]
         },
         {
@@ -253,6 +311,15 @@
             "description": "Handles /schedules REPL command with subcommands: list, enable, disable, delete, trigger.",
             "methods": [
                 "handle(SymfonyStyle, string): void — dispatches schedule subcommand"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/QualityHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\QualityHandler",
+            "layer": "command",
+            "description": "Handles /quality REPL command. Renders the managed evaluator/learner schedules plus explicit learner follow-up task state from QualityAutomationStatusService so users can inspect the autonomous quality loop without querying the database.",
+            "methods": [
+                "handle(SymfonyStyle): void — renders quality automation config, schedules, and active/recent follow-up tasks"
             ]
         },
         {
@@ -495,8 +562,26 @@
             "path": "src/Contract/LoopStageResult.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\LoopStageResult",
             "layer": "contract",
-            "description": "Value object returned by LoopExecutor::prepareNextStage(). Contains the role name, composed prompt (with previous stage output injected), skills, max iterations, session/sprint/project IDs for the next stage to execute. The projectId field enables pipeline propagation of the loop's project context through LoopManager → background task → TaskRunCommand → AgentRunner → OrchestratorAgent → ArtifactToolkit for auto-scoping.",
+            "description": "Value object returned by LoopExecutor::prepareNextStage(). Contains the role name, composed prompt, skills, max iterations, session/sprint/project IDs for the next stage to execute, and optional typed LoopStageHandoffMetadata for persistence on loop stages and spawned background tasks. The projectId field enables pipeline propagation of the loop's project context through LoopManager -> background task -> TaskRunCommand -> AgentRunner -> OrchestratorAgent -> ArtifactToolkit for auto-scoping.",
             "methods": []
+        },
+        {
+            "path": "src/Contract/ReviewHandoffMetadata.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ReviewHandoffMetadata",
+            "layer": "contract",
+            "description": "Typed review-cycle metadata attached to reviewer and coder rework child handoffs. Captures review phase, round number, source role, sprint-context presence, and whether automated rework iteration is enabled.",
+            "methods": [
+                "toArray(): array - serialize structured review handoff metadata"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopStageHandoffMetadata.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopStageHandoffMetadata",
+            "layer": "contract",
+            "description": "Typed loop-stage coordination metadata built by LoopExecutor and persisted through LoopStore and SessionStorage background tasks. Captures loop, iteration, stage, role, prior-stage artifact IDs, completed roles, and work-scope project/session/sprint context.",
+            "methods": [
+                "toArray(): array - serialize structured loop-stage handoff metadata"
+            ]
         },
         {
             "path": "src/Contract/IterationOutcome.php",
@@ -651,7 +736,6 @@
             "layer": "config",
             "description": "Value object for a pending loop definition update. Contains loopName, hasBuiltinUpdate flag, and isUserModified flag. Used by LoopUpdateTracker::autoUpdateAndNotify() to report which definitions have pending updates that require user attention.",
             "methods": []
-        },
         },
         {
             "path": "src/Config/UpdateManager.php",
@@ -844,7 +928,7 @@
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",
-            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/readonly-shell/minimal) to determine toolkit assignment. Full-access children inherit the parent's shellAllowedCommands and shellDeniedCommands. readonly-shell children receive ShellToolkit restricted to READ_ONLY_SHELL_COMMANDS (grep, find, cat, head, tail, wc, ls, sort, uniq, sed, awk, diff). Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
+            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/readonly-shell/minimal) to determine toolkit assignment. Full-access children inherit the parent's shellAllowedCommands and shellDeniedCommands. readonly-shell children receive ShellToolkit restricted to READ_ONLY_SHELL_COMMANDS (grep, find, cat, head, tail, wc, ls, sort, uniq, sed, awk, diff). Normalizes task and context input into a typed ChildAgentHandoff envelope before invoking the child, passes through the injected ToolExecutorInterface for executor consistency, and persists handoff metadata on child run records. Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
             "methods": [
                 "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
                 "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level with visibility filtering, credential guards in child mode, and optional BackgroundTaskToolkit",
@@ -905,6 +989,20 @@
                 "getToolkitFrequency(array $toolkitToolMap): array<string, int> — aggregate by toolkit",
                 "getToolUsageCount(string $toolName): int — count for single tool",
                 "refresh(): void — force cache refresh"
+            ]
+        },
+        {
+            "path": "src/Storage/SkillLifecycleStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\SkillLifecycleStore",
+            "layer": "storage",
+            "description": "SQLite-backed lifecycle store for the quality-learning loop. Persists per-skill usage events, normalized evaluation evidence links, and learner-created skill provenance records so evaluator and learner flows can reference durable evidence beyond JSON metadata blobs.",
+            "methods": [
+                "recordSkillUsage(string $skillName, string $action, string $sourceTool, ?string $sessionId = null, ?string $turnId = null, ?string $agentRole = null, ?array $metadata = null): string — persist a skill usage event",
+                "listSkillUsage(?string $skillName = null, ?string $sessionId = null, int $limit = 100): array — list recorded skill usage events",
+                "replaceEvaluationEvidenceLinks(string $evaluationId, array $links): void — replace normalized evidence links for an evaluation",
+                "listEvaluationEvidenceLinks(string $evaluationId): array — list persisted evidence links for an evaluation",
+                "recordSkillProvenance(string $skillName, string $action, string $evaluationId, string $learnerTaskId, ?array $metadata = null): string — persist learner provenance for a created or updated skill",
+                "listSkillProvenance(?string $skillName = null, ?string $evaluationId = null, int $limit = 100): array — list persisted provenance events"
             ]
         },
         {
@@ -1245,6 +1343,96 @@
             ]
         },
         {
+            "path": "src/Contract/ChildAgentHandoff.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ChildAgentHandoff",
+            "layer": "contract",
+            "description": "Typed envelope for parent-to-child task coordination. Carries the child task, optional context, metadata, workflow intent, artifact and todo references, and parent/work-scope project/session/sprint context. Used by SpawnAgentTool, ChildAgent, and CodeReviewCycle to normalize cross-agent handoffs while preserving a rendered user prompt for current child execution paths.",
+            "methods": [
+                "fromTask(string): self — build a handoff from a bare task string",
+                "fromInput(string, string, array): self — normalize spawn_agent inputs into a typed envelope",
+                "hasContext(): bool — whether auxiliary context is present",
+                "taskInstructions(): string — the normalized task body used in child instructions",
+                "userPrompt(): string — render the structured user prompt with context and task sections",
+                "toArray(): array — serialize the handoff envelope"
+            ]
+        },
+        {
+            "path": "src/Contract/EvaluationEvidenceMetadata.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\EvaluationEvidenceMetadata",
+            "layer": "contract",
+            "description": "Typed provenance payload stored on evaluation records. Captures the evaluated session identity, evidence sources consulted by the evaluator, and related child run identifiers and counts so learner and reporting flows do not need to infer provenance from report text.",
+            "methods": [
+                "toArray(): array - serialize structured evaluation evidence metadata"
+            ]
+        },
+        {
+            "path": "src/Contract/EvaluationReadModel.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\EvaluationReadModel",
+            "layer": "contract",
+            "description": "Typed evaluation read model used by API and future observability surfaces. Hydrates an evaluation row plus optional session title, normalizes numeric score fields, decodes structured metadata, and exposes full and summary serialization helpers.",
+            "methods": [
+                "fromRow(array): self — hydrate typed evaluation data from a storage row",
+                "toArray(): array — serialize the full evaluation payload including report and metadata",
+                "toSummaryArray(): array — serialize the compact evaluation payload for list endpoints"
+            ]
+        },
+        {
+            "path": "src/Contract/EvaluationStatsReadModel.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\EvaluationStatsReadModel",
+            "layer": "contract",
+            "description": "Typed aggregate evaluation metrics payload. Wraps total counts, per-dimension averages, and grade distribution so API clients consume a stable structure instead of raw associative arrays.",
+            "methods": [
+                "fromArray(array): self — normalize aggregate evaluation stats into a typed payload",
+                "toArray(): array — serialize aggregate metrics for API responses"
+            ]
+        },
+        {
+            "path": "src/Contract/LearnerFollowUpMetadata.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LearnerFollowUpMetadata",
+            "layer": "contract",
+            "description": "Typed provenance payload attached to learner follow-up background tasks created from poor evaluations. Carries the source evaluation ID, evaluated session ID, grade and score summary, and the key evaluation evidence context needed for learner and reporting flows.",
+            "methods": [
+                "toArray(): array - serialize structured learner follow-up metadata"
+            ]
+        },
+        {
+            "path": "src/Contract/LearnerOutcomeMetadata.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LearnerOutcomeMetadata",
+            "layer": "contract",
+            "description": "Typed learner-outcome payload stored on evaluations after a learner follow-up task completes. Captures the learner task status, created and updated skill names, and a compact result or error excerpt for quality observability surfaces.",
+            "methods": [
+                "toArray(): array - serialize structured learner outcome metadata"
+            ]
+        },
+        {
+            "path": "src/Contract/PromptSectionPriority.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\PromptSectionPriority",
+            "layer": "contract",
+            "description": "Backed enum describing whether a prompt section is critical, workflow-scoped, or volatile. Used by prompt-budget telemetry to distinguish pinned context from deferrable prompt content.",
+            "methods": [
+                "isPinned(): bool — whether this priority should remain pinned in budget reporting",
+                "isDeferrable(): bool — whether this priority represents deferrable prompt content"
+            ]
+        },
+        {
+            "path": "src/Contract/PromptSection.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\PromptSection",
+            "layer": "contract",
+            "description": "Immutable value object for typed prompt sections. Carries section identity, content, priority, rationale, inclusion decision, and source metadata so prompt-budget surfaces can explain why high-cost prompt sections are present.",
+            "methods": [
+                "toTelemetryArray(int): array — serialize a prompt section with token count, pinning flags, and rationale"
+            ]
+        },
+        {
+            "path": "src/Contract/PromptBudgetSnapshot.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\PromptBudgetSnapshot",
+            "layer": "contract",
+            "description": "Immutable value object for prompt-preview budget telemetry. Captures role/model identity, prompt and tool token totals, prompt-section rationale and pinning metadata, toolkit breakdown, serialized applied loading modes, toolkit loading decisions, deferred toolkit metadata, and optional context-window headroom.",
+            "methods": [
+                "toArray(): array — serialize prompt-budget telemetry for REPL/API surfaces"
+            ]
+        },
+        {
             "path": "src/Api/AgentFiberExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\AgentFiberExecutor",
             "layer": "agent",
@@ -1319,7 +1507,7 @@
             "path": "src/Api/Handler/HealthHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\HealthHandler",
             "layer": "command",
-            "description": "GET /api/v1/health — liveness check returning status, version, uptime, and active session count.",
+            "description": "GET /api/v1/health — liveness check returning status, version, uptime, active session count, schedule/webhook stats, and a compact quality automation summary when available.",
             "methods": [
                 "__invoke(ServerRequestInterface $request): Response"
             ]
@@ -1398,13 +1586,43 @@
             ]
         },
         {
+            "path": "src/Api/Handler/BudgetHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\BudgetHandler",
+            "layer": "command",
+            "description": "Handles /budget REPL command. Renders prompt/token totals, context-window headroom, toolkit budget sources, recent toolkit loading decisions, and prompt-section rationale with pinned-versus-deferrable classification so prompt pressure is visible without exporting the full system prompt.",
+            "methods": [
+                "get(request): Response — returns a serialized PromptBudgetSnapshot"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/PromptHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\PromptHandler",
+            "layer": "command",
+            "description": "GET /api/v1/server/prompt — system prompt inspection endpoint. Returns the fully rendered system prompt plus tool counts, token estimates, toolkit breakdown, and the associated prompt-budget snapshot.",
+            "methods": [
+                "get(request): Response — returns prompt text and budget metadata for the requested or active role"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/EvaluationHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\EvaluationHandler",
+            "layer": "command",
+            "description": "Read-only evaluation API surface. Exposes list, detail, and aggregate stats endpoints backed by typed evaluation read models so dashboards and external clients can inspect evaluator output without scraping REPL text.",
+            "methods": [
+                "list(request): Response — list evaluations with optional grade, session, and limit filters",
+                "get(request, id): Response — return a single evaluation or 404 when missing",
+                "stats(request): Response — return aggregate evaluation metrics and grade distribution"
+            ]
+        },
+        {
             "path": "src/Api/Handler/ServerHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ServerHandler",
             "layer": "command",
-            "description": "Server status and control endpoints: GET /api/v1/server/info (runtime info, uptime, memory, active sessions/tasks), GET /api/v1/server/stats (database statistics and table integrity check).",
+            "description": "Server status and control endpoints: GET /api/v1/server/info (runtime info, uptime, memory, active sessions/tasks, compact quality summary), GET /api/v1/server/stats (database statistics and table integrity check), and GET /api/v1/server/quality (detailed quality automation state).",
             "methods": [
                 "info(request): Response — version, uptime, memory, active workload",
-                "stats(request): Response — database stats and table check"
+                "stats(request): Response — database stats and table check",
+                "quality(request): Response — detailed quality automation summary"
             ]
         },
         {
@@ -1444,10 +1662,10 @@
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including RoleHandler, TitleGenerator, and SummarizeHandler, configures CORS (with PATCH support) and optional API key auth, and enters the ReactPHP event loop.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, and prompt-inspection surfaces, configures CORS (with PATCH support) and optional API key auth, and enters the ReactPHP event loop.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
-                "registerRoutes(Router, ...handlers): void — registers all API routes including summarize endpoint",
+                "registerRoutes(Router, ...handlers): void — registers all API routes including evaluation, prompt, budget, and loop endpoints",
                 "resolveApiKey(BootManager): ?string — resolves API key from config/env/workspace"
             ]
         },
@@ -1455,7 +1673,7 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, session title management, and background task queries. Idempotent migrations add turn_id FK columns and title column.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, session title management, and background task queries. child_runs and background_tasks include structured metadata columns for typed coordination and provenance. Idempotent migrations add turn_id FK columns, title column, and metadata columns.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
                 "listSessions(int $limit): array — lists recent sessions (includes title)",
@@ -1472,6 +1690,7 @@
                 "completeTurn(string $turnId, ...): void — updates turn with response, tokens, duration, tools used",
                 "getTurns(string $sessionId, int $limit): array — returns turns ordered by turn_number ASC",
                 "getTurnWithMessages(string $turnId): ?array — returns turn with nested messages",
+                "findRecentTaskByTitle(string $title, ?string $role, array $statuses, int $lookbackHours): ?array — finds the newest matching background task for dedupe/orchestration",
                 "getTasksByStatus(string $status): array — returns all tasks with a given status",
                 "purgeOldTaskEvents(int $maxAgeDays): int — deletes old events for terminal tasks, returns count"
             ]
@@ -1541,15 +1760,22 @@
             "path": "src/Storage/EvaluationStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\EvaluationStore",
             "layer": "storage",
-            "description": "SQLite-backed evaluation report persistence. Table: evaluations (id, session_id, evaluator_task_id, overall_grade, score_completion, score_hallucination, score_efficiency, overall_score, report, model, metadata, created_at). Shares PDO connection from SessionStorage. Provides efficient unevaluated session discovery via LEFT JOIN, aggregate statistics with grade distribution, and orphaned record cleanup.",
+            "description": "SQLite-backed evaluation report persistence. Table: evaluations (id, session_id, evaluator_task_id, learner_follow_up_task_id, learner_follow_up_linked_at, learner_outcome_metadata, overall_grade, score_completion, score_hallucination, score_efficiency, overall_score, report, model, metadata, created_at). Shares PDO connection from SessionStorage. Provides efficient unevaluated session discovery via LEFT JOIN, aggregate statistics with grade distribution, explicit provenance linking from evaluations to learner follow-up tasks, structured metadata persistence for evaluator evidence and learner outcomes, and typed read-model hydration for API observability surfaces.",
             "methods": [
                 "create(sessionId, overallGrade, scores, report, model): string \u2014 creates evaluation record, returns ID",
                 "get(id): ?array \u2014 retrieves evaluation by ID",
+                "getReadModel(id): ?EvaluationReadModel — retrieves a typed evaluation payload joined with session title",
                 "getBySessionId(sessionId): array \u2014 fetches evaluations for a session",
+                "linkLearnerFollowUpTask(string $evaluationId, string $taskId): bool \u2014 persists the learner follow-up task linked to an evaluation",
+                "updateLearnerOutcomeMetadata(string $evaluationId, array $metadata): bool — persists structured learner outcome data back onto the source evaluation",
                 "getUnevaluatedSessions(lookbackHours, inactivityHours, minTurns, limit): array \u2014 LEFT JOIN query for sessions without evaluations",
                 "list(grade, limit): array \u2014 lists recent evaluations with optional grade filter",
+                "listReadModels(?string $grade, ?string $sessionId, int $limit): array — lists typed evaluation payloads for API consumers",
                 "getStats(): array \u2014 aggregate statistics with grade distribution and score averages",
+                "getStatsReadModel(): EvaluationStatsReadModel — returns typed aggregate evaluation metrics",
                 "getPoorEvaluations(limit, thresholdScore, sinceHours): array \u2014 fetches evaluations below a score threshold within a rolling time window",
+                "listLearnerFollowUps(?array $statuses, int $limit): array \u2014 joins evaluations to learner follow-up tasks for explicit provenance reporting",
+                "getLearnerFollowUpStats(): array \u2014 groups linked learner follow-up tasks by task status",
                 "cleanupOrphaned(): int \u2014 removes evaluations for deleted sessions"
             ]
         },
@@ -1672,7 +1898,7 @@
             "path": "src/Toolkit/SessionEvaluationToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\SessionEvaluationToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing toolkit for the evaluator role. Visibility restricted via the evaluator role's toolkits frontmatter field. Provides 4 tools for introspecting past sessions and recording structured evaluation reports: evaluation_list_sessions, evaluation_read_transcript, evaluation_read_child_runs, evaluation_save_report. Guidelines dynamically show evaluation statistics and grade distribution.",
+            "description": "Agent-facing toolkit for the evaluator role. Visibility restricted via the evaluator role's toolkits frontmatter field. Provides 4 tools for introspecting past sessions and recording structured evaluation reports: evaluation_list_sessions, evaluation_read_transcript, evaluation_read_child_runs, evaluation_save_report. When a QualityAutomationCoordinator is injected, saving a poor evaluation can also queue a learner follow-up background task. Guidelines dynamically show evaluation statistics and grade distribution.",
             "methods": [
                 "roleScope(): string \u2014 returns 'evaluator' to restrict this toolkit to the evaluator role",
                 "tools(): array \u2014 returns 4 evaluation Tool instances",

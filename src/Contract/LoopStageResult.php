@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Contract;
 
+use CoquiBot\Coqui\Contract\LoopStageHandoffMetadata;
+
 /**
  * Configuration returned by LoopExecutor when preparing the next stage for execution.
  *
@@ -23,6 +25,7 @@ final readonly class LoopStageResult
      * @param string|null $sprintId   Linked sprint ID for artifact/todo creation
      * @param string|null $sessionId   Session ID for artifact/todo scoping
      * @param string|null $projectId   Loop project ID for artifact auto-scoping
+     * @param LoopStageHandoffMetadata|null $handoffMetadata Typed stage coordination metadata for persistence and observability
      */
     public function __construct(
         public string $stageId,
@@ -35,5 +38,6 @@ final readonly class LoopStageResult
         public ?string $sprintId = null,
         public ?string $sessionId = null,
         public ?string $projectId = null,
+        public ?LoopStageHandoffMetadata $handoffMetadata = null,
     ) {}
 }

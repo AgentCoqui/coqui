@@ -247,6 +247,25 @@ test('task_status returns details for existing task', function () {
     expect($result->content)->toContain('pending');
 });
 
+test('task_status includes structured metadata when present', function () {
+    $taskId = $this->storage->createTask(
+        sessionId: $this->parentSessionId,
+        prompt: 'Inspect provenance',
+        role: 'orchestrator',
+        title: 'Inspect provenance',
+        metadata: ['workflow_phase' => 'review', 'intent' => 'code_review'],
+    );
+
+    $statusTool = $this->toolkit->tools()[2];
+    $result = $statusTool->execute(['task_id' => $taskId]);
+    $decoded = json_decode($result->content, true);
+
+    expect($decoded['metadata'])->toBe([
+        'workflow_phase' => 'review',
+        'intent' => 'code_review',
+    ]);
+});
+
 // --- list_tasks ---
 
 test('list_tasks returns empty list when no tasks', function () {
@@ -255,6 +274,25 @@ test('list_tasks returns empty list when no tasks', function () {
     $result = $tool->execute([]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+});
+
+test('list_tasks includes decoded metadata when present', function () {
+    $this->storage->createTask(
+        sessionId: $this->parentSessionId,
+        prompt: 'Loop stage task',
+        role: 'coder',
+        title: 'Loop stage task',
+        metadata: ['loop_id' => 'loop-123', 'stage_index' => 1],
+    );
+
+    $tool = $this->toolkit->tools()[3];
+    $result = $tool->execute([]);
+    $decoded = json_decode($result->content, true);
+
+    expect($decoded['tasks'][0]['metadata'])->toBe([
+        'loop_id' => 'loop-123',
+        'stage_index' => 1,
+    ]);
 });
 
 test('list_tasks returns created tasks', function () {

@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Agent;
 
 use CoquiBot\Coqui\Contract\IterationOutcome;
 use CoquiBot\Coqui\Contract\LoopDefinition;
+use CoquiBot\Coqui\Contract\LoopStageHandoffMetadata;
 use CoquiBot\Coqui\Contract\LoopParameterDefinition;
 use CoquiBot\Coqui\Contract\LoopRoleDefinition;
 use CoquiBot\Coqui\Contract\LoopStageResult;
@@ -279,6 +280,8 @@ final class LoopExecutor
         }
 
         // Build the context prompt
+        $completedStages = $this->loopStore->getCompletedStages($iteration['id']);
+
         $prompt = $this->buildStagePrompt(
             definition: $definition,
             goal: $loop['goal'],
@@ -287,7 +290,7 @@ final class LoopExecutor
             stageIndex: $stageIndex,
             totalStages: count($definition->roles),
             roleDefinition: $roleDefinition,
-            completedStages: $this->loopStore->getCompletedStages($iteration['id']),
+            completedStages: $completedStages,
             previousOutcomes: $this->loopStore->getPreviousOutcomes($loopId, (int) $iteration['iteration_number']),
             terminationCriteria: $loop['termination_criteria'],
             resolvedParameters: $this->extractResolvedParameters($loop['configuration']),
@@ -297,8 +300,29 @@ final class LoopExecutor
             iterationCreatedAt: $iteration['started_at'] ?? null,
         );
 
+        $handoffMetadata = new LoopStageHandoffMetadata(
+            loopId: $loopId,
+            iterationId: $iteration['id'],
+            stageId: $nextStage['id'],
+            stageIndex: $stageIndex,
+            totalStages: count($definition->roles),
+            role: $roleDefinition->role,
+            artifactIds: array_values(array_filter(array_map(
+                static fn(array $stage): string => (string) ($stage['artifact_id'] ?? ''),
+                $completedStages,
+            ))),
+            completedStageRoles: array_values(array_map(
+                static fn(array $stage): string => (string) ($stage['role'] ?? ''),
+                $completedStages,
+            )),
+            requiresExplicitEvidence: $roleDefinition->requiresExplicitEvidence,
+            sessionId: $loop['session_id'] ?? null,
+            projectId: $loop['project_id'] ?? null,
+            sprintId: $iteration['sprint_id'] ?? null,
+        );
+
         // Mark stage as running
-        $this->loopStore->updateStage($nextStage['id'], 'running');
+        $this->loopStore->updateStage($nextStage['id'], 'running', metadata: $handoffMetadata->toArray());
         $this->loopStore->updateLoopProgress($loopId, (int) $iteration['iteration_number'], $stageIndex);
 
         return new LoopStageResult(
@@ -312,6 +336,7 @@ final class LoopExecutor
             sprintId: $iteration['sprint_id'],
             sessionId: $loop['session_id'],
             projectId: $loop['project_id'] ?? null,
+            handoffMetadata: $handoffMetadata,
         );
     }
 

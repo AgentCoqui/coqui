@@ -232,6 +232,16 @@ final class LoopHandler
                 ];
             }
             $io->table(['#', 'Role', 'Status', 'Summary'], $stageRows);
+
+            foreach ($stages as $s) {
+                $metadata = $this->decodeJsonObject($s['metadata'] ?? null);
+                if ($metadata === null) {
+                    continue;
+                }
+
+                $io->text(sprintf('<fg=cyan>Stage %d metadata (%s):</>', $s['stage_index'], $s['role']));
+                $io->writeln(json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}');
+            }
         }
     }
 
@@ -355,5 +365,19 @@ final class LoopHandler
 
         $store->updateLoopStatus($target, 'cancelled');
         $io->success("Cancelled loop {$target}.");
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function decodeJsonObject(mixed $value): ?array
+    {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+
+        $decoded = json_decode($value, true);
+
+        return is_array($decoded) ? $decoded : null;
     }
 }

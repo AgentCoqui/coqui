@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Command;
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\LoopExecutor;
+use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigGuard;
@@ -20,11 +21,13 @@ use CoquiBot\Coqui\Renderer\JsonRenderer;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Repl\AgentTurnExecutor;
 use CoquiBot\Coqui\Repl\ExecutionPolicyFactory;
+use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
+use CoquiBot\Coqui\Repl\Handler\QualityHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
@@ -36,6 +39,8 @@ use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\TabCompletion;
 use CoquiBot\Coqui\Repl\TerminalStateManager;
+use CoquiBot\Coqui\Storage\EvaluationStore;
+use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -348,6 +353,15 @@ final class RunCommand extends Command
             task: new TaskHandler($this->storage),
             todo: new TodoHandler($this->boot->todoStore()),
             schedule: new ScheduleHandler($this->storage),
+            budget: new BudgetHandler($this->agentRunner),
+            quality: new QualityHandler(
+                new QualityAutomationStatusService(
+                    config: $this->boot->config(),
+                    storage: $this->storage,
+                    evaluationStore: new EvaluationStore($this->storage->getPdo()),
+                    scheduleStore: new ScheduleStore($this->storage->getPdo()),
+                ),
+            ),
             project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),

@@ -49,6 +49,7 @@ use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Contract\PromptBudgetSnapshot;
 use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
 use CoquiBot\Coqui\Renderer\ContextUsageBar;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
@@ -209,6 +210,7 @@ final class AgentRunner
 
         $agent = $this->createAgent(
             sessionId: $sessionId,
+            currentTurnId: $turnId,
             executionPolicy: $executionPolicy,
             sanitizer: $sanitizer,
             onRestart: function () use (&$restartRequested): void {
@@ -449,6 +451,7 @@ final class AgentRunner
 
     private function createAgent(
         string $sessionId,
+        ?string $currentTurnId,
         ToolExecutionPolicyInterface $executionPolicy,
         ScriptSanitizer $sanitizer,
         \Closure $onRestart,
@@ -474,6 +477,7 @@ final class AgentRunner
             workspacePath: $this->workspacePath,
             storage: $this->storage,
             sessionId: $sessionId,
+            currentTurnId: $currentTurnId,
             observer: $observer,
             discovery: $this->discovery,
             maxIterations: $maxIterations ?? $this->roleResolver->resolveMaxIterations($role),
@@ -526,9 +530,78 @@ final class AgentRunner
      *
      * Used by the /prompt REPL command and GET /api/v1/server/prompt endpoint.
      *
-     * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, applied_loading_modes: array<string, ToolkitLoadingMode>}
+     * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, applied_loading_modes: array<string, ToolkitLoadingMode>, budget_snapshot: array<string, mixed>}
      */
     public function buildPromptPreview(?string $role = null): array
+    {
+        $preview = $this->buildPromptPreviewData($role);
+
+        return [
+            'prompt' => $preview['prompt'],
+            'tool_count' => $preview['snapshot']->toolCount,
+            'toolkit_count' => $preview['snapshot']->toolkitCount,
+            'prompt_tokens' => $preview['snapshot']->promptTokens,
+            'tool_tokens' => $preview['snapshot']->toolTokens,
+            'total_tokens' => $preview['snapshot']->totalTokens,
+            'toolkit_breakdown' => $preview['snapshot']->toolkitBreakdown,
+            'tool_schemas' => $preview['tool_schemas'],
+            'applied_loading_modes' => $preview['agent']->getAppliedLoadingModes(),
+            'budget_snapshot' => $preview['snapshot']->toArray(),
+        ];
+    }
+
+    public function buildBudgetPreview(?string $role = null): PromptBudgetSnapshot
+    {
+        return $this->buildPromptPreviewData($role)['snapshot'];
+    }
+
+    /**
+     * @return array{prompt: string, snapshot: PromptBudgetSnapshot, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, agent: OrchestratorAgent}
+     */
+    private function buildPromptPreviewData(?string $role = null): array
+    {
+        $previewContext = $this->buildPreviewContext($role);
+        $agent = $previewContext['agent'];
+        $counter = $previewContext['counter'];
+        $promptText = $agent->getSystemPromptText();
+        $promptTokens = $counter->count($promptText);
+        $toolkitBreakdown = $agent->getToolkitTokenBreakdown($counter);
+        $standaloneToolTokens = $agent->getStandaloneToolTokens($counter);
+        $toolkitToolTokens = array_sum(array_column($toolkitBreakdown, 'tools_tokens'));
+        $toolTokens = $standaloneToolTokens + $toolkitToolTokens;
+        $toolSchemas = array_values(array_map(
+            fn($tool) => $tool->toFunctionSchema(),
+            $agent->tools(),
+        ));
+
+        $snapshot = (new PromptBudgetManager())->buildSnapshot(
+            role: $previewContext['effective_role'],
+            model: $previewContext['model_string'],
+            toolCount: $agent->getToolCount(),
+            toolkitCount: $agent->getOwnToolkitCount(),
+            promptTokens: $promptTokens,
+            toolTokens: $toolTokens,
+            toolkitBreakdown: $toolkitBreakdown,
+            promptSections: $agent->getPromptSectionBreakdown($counter),
+            appliedLoadingModes: $agent->getAppliedLoadingModes(),
+            loadingDecisions: $agent->getToolkitLoadingDecisions(),
+            deferredToolkits: $agent->getDeferredToolkitInfo(),
+            toolkitBudget: $agent->getToolkitBudgetSnapshot(),
+            contextWindow: $agent->getContextWindow(),
+        );
+
+        return [
+            'prompt' => $promptText,
+            'snapshot' => $snapshot,
+            'tool_schemas' => $toolSchemas,
+            'agent' => $agent,
+        ];
+    }
+
+    /**
+     * @return array{effective_role: string, model_string: string, agent: OrchestratorAgent, counter: \CarmeloSantana\PHPAgents\Contract\TokenCounterInterface}
+     */
+    private function buildPreviewContext(?string $role = null): array
     {
         $effectiveRole = $role ?? 'orchestrator';
         $modelString = $this->roleResolver->resolve($effectiveRole);
@@ -565,30 +638,11 @@ final class AgentRunner
             usageTracker: $this->usageTracker,
         );
 
-        $counter = TokenCounterFactory::forModel($modelString);
-        $promptText = $agent->getSystemPromptText();
-        $promptTokens = $counter->count($promptText);
-        $toolkitBreakdown = $agent->getToolkitTokenBreakdown($counter);
-        $standaloneToolTokens = $agent->getStandaloneToolTokens($counter);
-
-        $toolkitToolTokens = array_sum(array_column($toolkitBreakdown, 'tools_tokens'));
-        $toolTokens = $standaloneToolTokens + $toolkitToolTokens;
-
-        $toolSchemas = array_values(array_map(
-            fn($tool) => $tool->toFunctionSchema(),
-            $agent->tools(),
-        ));
-
         return [
-            'prompt'                => $promptText,
-            'tool_count'            => $agent->getToolCount(),
-            'toolkit_count'         => $agent->getOwnToolkitCount(),
-            'prompt_tokens'         => $promptTokens,
-            'tool_tokens'           => $toolTokens,
-            'total_tokens'          => $promptTokens + $toolTokens,
-            'toolkit_breakdown'     => $toolkitBreakdown,
-            'tool_schemas'          => $toolSchemas,
-            'applied_loading_modes' => $agent->getAppliedLoadingModes(),
+            'effective_role' => $effectiveRole,
+            'model_string' => $modelString,
+            'agent' => $agent,
+            'counter' => TokenCounterFactory::forModel($modelString),
         ];
     }
 
@@ -1234,6 +1288,7 @@ final class AgentRunner
                 config: $this->config,
                 roleDiscovery: $this->roleDiscovery,
                 observer: $observer,
+                toolExecutor: $this->toolExecutor,
             );
 
             // Build reviewer toolkits: read-only filesystem + shell search

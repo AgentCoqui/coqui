@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CoquiBot\Coqui\Storage\EvaluationStore;
+use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 
 /**
  * Agent-facing toolkit for the learner role.
@@ -27,6 +28,7 @@ final class LearningToolkit implements ToolkitInterface
 {
     public function __construct(
         private readonly EvaluationStore $evaluationStore,
+        private readonly ?SkillLifecycleStore $skillLifecycleStore = null,
     ) {}
 
     /**
@@ -166,8 +168,62 @@ final class LearningToolkit implements ToolkitInterface
                     $eval['report'],
                 );
 
+                $metadata = $this->decodeJsonObject($eval['metadata'] ?? null);
+                if ($metadata !== null) {
+                    $output .= "\n\n---\n\n## Structured Evidence Metadata\n\n";
+                    $output .= json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}';
+                }
+
+                $evidenceLinks = $this->skillLifecycleStore?->listEvaluationEvidenceLinks($id) ?? [];
+                if ($evidenceLinks !== []) {
+                    $lines = array_map(
+                        static fn(array $link): string => sprintf(
+                            '- [%s] %s%s',
+                            $link['evidence_type'],
+                            $link['label'],
+                            isset($link['evidence_id']) && is_string($link['evidence_id']) && $link['evidence_id'] !== ''
+                                ? sprintf(' (%s)', $link['evidence_id'])
+                                : '',
+                        ),
+                        $evidenceLinks,
+                    );
+                    $output .= "\n\n---\n\n## Evidence Links\n\n" . implode("\n", $lines);
+                }
+
+                $skillProvenance = $this->skillLifecycleStore?->listSkillProvenance(evaluationId: $id) ?? [];
+                if ($skillProvenance !== []) {
+                    $lines = array_map(
+                        static fn(array $event): string => sprintf(
+                            '- %s: %s via learner task %s',
+                            $event['action'],
+                            $event['skill_name'],
+                            $event['learner_task_id'],
+                        ),
+                        $skillProvenance,
+                    );
+                    $output .= "\n\n---\n\n## Skill Provenance\n\n" . implode("\n", $lines);
+                }
+
                 return ToolResult::success($output);
             },
         );
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function decodeJsonObject(mixed $value): ?array
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        try {
+            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return is_array($decoded) ? $decoded : null;
     }
 }
