@@ -673,9 +673,9 @@ Loop stage agents share the parent session's artifacts, todos, and sprint contex
 
 1. **`LoopToolkit`** receives the orchestrator's `sessionId` at construction and passes it to `LoopExecutor::startLoop()` when the agent calls `loop_start`.
 2. **`LoopExecutor`** stores `session_id` in the `loops` table and propagates it through `LoopStageResult::sessionId` when preparing stages.
-3. **`LoopManager::advanceLoop()`** creates a fresh **execution session** for each stage's background task (clean context window), but passes the loop's `session_id` as `parentSessionId` to `SessionStorage::createTask()` via the `parent_session_id` column. Active project context is also propagated.
-4. **`TaskRunCommand`** reads `parent_session_id` from the task record and passes it as `workScopeSessionId` through `AgentRunner::runForTask()` to `OrchestratorAgent`.
-5. **`OrchestratorAgent`** computes `$toolkitSessionId = workScopeSessionId ?? sessionId`. The `ArtifactToolkit`, `TodoToolkit`, and `SprintToolkit` are scoped to `$toolkitSessionId` — so all stages within a loop share the same artifact/todo/sprint namespace.
+3. **`LoopManager::advanceLoop()`** creates a fresh **execution session** for each stage's background task (clean context window), but passes the loop's `session_id` as `parentSessionId` to `SessionStorage::createTask()` via the `parent_session_id` column. Active project context is also propagated. The loop's `project_id` and iteration's `sprint_id` are stored on the task record for artifact auto-scoping.
+4. **`TaskRunCommand`** reads `parent_session_id`, `project_id`, and `sprint_id` from the task record and passes them through `AgentRunner::runForTask()` to `OrchestratorAgent`.
+5. **`OrchestratorAgent`** computes `$toolkitSessionId = workScopeSessionId ?? sessionId`. The `ArtifactToolkit`, `TodoToolkit`, and `SprintToolkit` are scoped to `$toolkitSessionId` — so all stages within a loop share the same artifact/todo/sprint namespace. `ArtifactToolkit` receives `defaultProjectId`/`defaultSprintId` from the task record for auto-scoping `artifact_create` calls.
 6. **`LoopManager::reconcileLoop()`** auto-creates `loop_output` artifacts in the work-scope session after extracting task output. The artifact ID is linked to the stage record via `LoopStore::updateStage(artifactId:)`.
 7. **`LoopExecutor::buildStagePrompt()`** includes artifact IDs from completed stages in the context prompt, so reviewer agents can use `artifact_get` to read full outputs.
 
@@ -697,13 +697,14 @@ Stage agents receive: `FileSystemToolkit`, `ShellToolkit` (access-level dependen
 
 1. **Auto-artifacts** — `LoopManager::reconcileLoop()` creates `loop_output` artifacts with the full, untruncated stage output. The artifact ID is stored in the `loop_stages.artifact_id` column. These artifacts are excluded from `ArtifactStore::cleanupFinalized()` so they survive across restarts.
 2. **Truncation detection** — `buildStagePrompt()` checks for the `[... output truncated for context ...]` marker in `result_summary`. When truncation is detected **and** an `artifact_id` is present, the prompt upgrades the artifact reference to a prominent warning instructing the reviewer to use `artifact_get` before judging.
-3. **Reviewer role reinforcement** — the `reviewer` role's "Loop Review Mode" section instructs reviewers to scope artifact discovery using `artifact_list(type: "loop_output")` or `artifact_list(project_id: "...")` to avoid stale session artifact contamination.
-4. **Loop definition prompts** — `harness`, `research`, and `goal-driven` definitions include explicit artifact creation instructions for coder stages and scoped artifact discovery for reviewer stages.
-5. **Loop context injection** — `buildStagePrompt()` includes a `## Loop Context` section with `project_id` and `sprint_id` so agents can filter artifacts precisely using `artifact_list(project_id: "...", type: "loop_output")`.
+3. **Evidence artifact injection** — when a custom loop definition sets `requiresExplicitEvidence: true` on a stage, `buildStagePrompt()` queries `ArtifactStore` for non-`loop_output` artifacts created during the iteration and injects a `## Evidence Artifacts` section listing their IDs, titles, types, and stages. Built-in loop definitions (`harness`, `research`, `goal-driven`) do not use this feature — reviewers verify work via filesystem inspection.
+4. **Reviewer role** — the `reviewer` role's "Loop Review Mode" section instructs reviewers to read stage output from the prompt (or via `artifact_get` when truncated) and verify actual file state using shell tools.
+5. **Loop definition prompts** — `harness`, `research`, and `goal-driven` definitions instruct coder stages to write to the filesystem and run verification commands. Reviewer stages verify work by inspecting actual files, not artifact evidence.
+6. **Loop context injection** — `buildStagePrompt()` includes a `## Loop Context` section with `project_id` and `sprint_id` so agents can filter artifacts precisely using `artifact_list(project_id: "...")` when needed.
 
 ### Artifact List Scoping
 
-`artifact_list` supports `project_id`, `sprint_id`, and `created_after` filters in addition to `type` and `stage`. In loop contexts, reviewers should use these filters to see only current-loop artifacts rather than browsing the entire shared work-scope session (which may contain stale artifacts from prior work). The `loop_output` type enum value is specifically for artifacts auto-created by `LoopManager`.
+`artifact_list` supports `project_id`, `sprint_id`, and `created_after` filters in addition to `type` and `stage`. In loop contexts, reviewers should use `project_id` to scope artifacts to the current loop rather than browsing the entire shared work-scope session. Avoid filtering by `type: "loop_output"` in reviewer prompts — this misses evidence artifacts which use domain-specific types (report, plan, etc.). The `loop_output` type is specifically for artifacts auto-created by `LoopManager`.
 
 ### Contract Artifact Enforcement
 
@@ -713,9 +714,30 @@ This enforces the contract that plan stages must produce artifacts before coder 
 
 ### Explicit Evidence Contract
 
-The optional `requires_explicit_evidence` boolean field (default `false`) strengthens the `requires_artifact_from` check. When `true`, `prepareNextStage()` additionally queries `ArtifactStore` for non-`loop_output` artifacts in the project scope created during the current iteration. Auto-created `loop_output` artifacts (produced by `LoopManager::reconcileLoop()`) do not satisfy this requirement — the referenced stage must have explicitly called `artifact_create`.
+The optional `requires_explicit_evidence` boolean field (default `false`) strengthens the `requires_artifact_from` check. When `true`, `prepareNextStage()` additionally queries `ArtifactStore` for non-`loop_output` artifacts created during the current iteration. The query uses `sessionId + createdAfter` as the primary filter, optionally narrowing by `projectId` when available — but never silently bypasses the check when `projectId` is null. Auto-created `loop_output` artifacts (produced by `LoopManager::reconcileLoop()`) do not satisfy this requirement — the referenced stage must have explicitly called `artifact_create`.
 
-This prevents reviewer stages from proceeding when the coder only emitted prose output without creating a review artifact summarizing changed files, verification results, and known gaps. The `harness` and `research` loop definitions set `requires_explicit_evidence: true` on their reviewer stages.
+> **Note:** Built-in loop definitions (`harness`, `research`, `goal-driven`) do not use `requires_explicit_evidence`. Reviewers in built-in loops verify work via filesystem inspection instead. This feature is available for custom loop definitions that need strict artifact handoff contracts.
+
+### Artifact Auto-Scoping in Loop Stages
+
+`ArtifactToolkit` accepts optional `defaultProjectId` and `defaultSprintId` constructor parameters. When `artifact_create` is called without explicit `project_id`/`sprint_id`, these defaults are used as fallback. This eliminates the dependency on the LLM remembering to pass project context IDs — the most common cause of evidence check failures in loops.
+
+The defaults are propagated through the full pipeline:
+1. **`LoopExecutor::prepareNextStage()`** includes `projectId` in `LoopStageResult`
+2. **`LoopManager::advanceLoop()`** stores `project_id`/`sprint_id` on the background task record
+3. **`TaskRunCommand`** reads them from the task and passes to `AgentRunner::runForTask()`
+4. **`AgentRunner`** forwards to `OrchestratorAgent` constructor
+5. **`OrchestratorAgent`** passes them to `ArtifactToolkit` as `defaultProjectId`/`defaultSprintId`
+
+The `artifact_list` tool is not affected — discovery remains unfiltered by default.
+
+`ArtifactStore::create()` automatically sets `persistent = true` when `projectId` is non-null. This ensures project-linked artifacts survive `cleanupFinalized()` — critical because each background task process runs cleanup on boot, which would otherwise delete the coder's `final`-stage evidence artifacts before the reviewer's process can read them.
+
+### Coder Deliverables Prompt Injection
+
+`LoopExecutor::buildStagePrompt()` detects when the next stage in the sequence has `requiresExplicitEvidence: true` and injects a `## Required Deliverables` section into the current stage's prompt. This tells the coder (or whichever role precedes the evidence-requiring reviewer) that it must create at least one artifact via `artifact_create` before completing, or the next stage will fail automatically. When a project is active, the section notes that project/sprint IDs are applied automatically.
+
+> **Note:** Built-in loop definitions do not trigger this injection since their reviewer stages do not set `requiresExplicitEvidence`. This feature activates only for custom loop definitions that use the explicit evidence contract.
 
 ### Loop Project Resolution
 
@@ -1077,7 +1099,7 @@ Coqui provides session-scoped task tracking via the todo system. Agents use todo
 3. **Guidelines injection** — `TodoToolkit::guidelines()` dynamically generates a progress summary (progress bar, active/pending listing) that is included in the system prompt on every iteration. Todos linked to artifacts display ` → artifact: {title}` for traceability. A recovery hint reminds agents to check `todo_list` and `artifact_list` after conversation summarization.
 4. **Child agent sharing** — `SpawnAgentTool::buildToolkits()` injects `TodoToolkit` into every child agent with the parent's session ID, so todos are visible across all agents in a session.
 5. **Auto-generation** — `PlanTodoGenerator` automatically creates todos when a plan artifact reaches `final` stage via `artifact_stage`. Uses the utility model to extract implementation steps from the plan content.
-6. **Boot cleanup** — `BootManager::initializeArtifacts()` calls `TodoStore::cleanupOrphaned()` and `TodoStore::cleanupStale()` on every boot to remove orphaned todos (sessions deleted) and stale completed/cancelled todos from inactive sessions.
+6. **Boot cleanup** — `BootManager::initializeArtifacts()` calls `ArtifactStore::cleanupFinalized()`, `TodoStore::cleanupOrphaned()`, `TodoStore::cleanupStale()`, and `TodoStore::cleanupUnlinked()` on boot to remove stale data. Cleanup is skipped in ephemeral background task processes (`boot(skipMaintenance: true)`) to avoid deleting artifacts that sibling tasks need to read.
 
 ### Cross-References
 

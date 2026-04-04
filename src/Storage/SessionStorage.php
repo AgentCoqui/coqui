@@ -190,6 +190,10 @@ final class SessionStorage
         // Migration: per-task max execution time (seconds, 0 = no limit)
         $this->migrateAddColumn('background_tasks', 'max_execution_seconds', 'INTEGER DEFAULT 3600');
 
+        // Migration: project/sprint context for loop stage tasks (artifact auto-scoping)
+        $this->migrateAddColumn('background_tasks', 'project_id', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('background_tasks', 'sprint_id', 'TEXT DEFAULT NULL');
+
         // Migration: soft-delete flag for summarized messages
         $this->migrateAddColumn('messages', 'is_summarized', 'INTEGER NOT NULL DEFAULT 0');
 
@@ -1094,13 +1098,15 @@ final class SessionStorage
         ?string $toolArguments = null,
         ?string $scheduleId = null,
         int $maxExecutionSeconds = 3600,
+        ?string $projectId = null,
+        ?string $sprintId = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, max_iterations, tool_name, tool_arguments, schedule_id, max_execution_seconds, created_at)
-            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :max_iterations, :tool_name, :tool_arguments, :schedule_id, :max_execution_seconds, :created_at)
+            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, max_iterations, tool_name, tool_arguments, schedule_id, max_execution_seconds, project_id, sprint_id, created_at)
+            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :max_iterations, :tool_name, :tool_arguments, :schedule_id, :max_execution_seconds, :project_id, :sprint_id, :created_at)
         SQL);
 
         $stmt->execute([
@@ -1115,6 +1121,8 @@ final class SessionStorage
             'tool_arguments' => $toolArguments,
             'schedule_id' => $scheduleId,
             'max_execution_seconds' => $maxExecutionSeconds,
+            'project_id' => $projectId,
+            'sprint_id' => $sprintId,
             'created_at' => $now,
         ]);
 

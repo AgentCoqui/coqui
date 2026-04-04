@@ -73,7 +73,7 @@ final class TurnRunCommand extends Command
         $workspaceOverride = $this->resolveWorkspaceOverride($input);
 
         $boot = new BootManager($workDir, $workspaceOverride);
-        $result = $boot->boot(io: null, configPath: $configPath);
+        $result = $boot->boot(io: null, configPath: $configPath, skipMaintenance: true);
 
         if (!$result) {
             $output->writeln('<error>Boot failed</error>');

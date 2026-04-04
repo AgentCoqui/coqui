@@ -20,8 +20,9 @@ final readonly class LoopStageResult
      * @param string $role          Coqui role name for this stage
      * @param string $prompt        Fully assembled prompt with context
      * @param int|null $maxIterations  Per-stage iteration limit (null = role default)
-     * @param string|null $sprintId Linked sprint ID for artifact/todo creation
-     * @param string|null $sessionId  Session ID for artifact/todo scoping
+     * @param string|null $sprintId   Linked sprint ID for artifact/todo creation
+     * @param string|null $sessionId   Session ID for artifact/todo scoping
+     * @param string|null $projectId   Loop project ID for artifact auto-scoping
      */
     public function __construct(
         public string $stageId,
@@ -33,5 +34,6 @@ final readonly class LoopStageResult
         public ?int $maxIterations = null,
         public ?string $sprintId = null,
         public ?string $sessionId = null,
+        public ?string $projectId = null,
     ) {}
 }

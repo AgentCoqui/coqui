@@ -143,6 +143,8 @@ final class LoopManager
                 $stageResult->stageIndex,
             ),
             maxIterations: min($stageResult->maxIterations ?? 48, 100),
+            projectId: $stageResult->projectId,
+            sprintId: $stageResult->sprintId,
         );
 
         // Link the task to the stage record

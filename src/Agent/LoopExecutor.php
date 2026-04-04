@@ -236,17 +236,21 @@ final class LoopExecutor
         ) {
             $projectId = $loop['project_id'] ?? null;
             $sessionId = $loop['session_id'] ?? null;
-            $iterationCreatedAt = $iteration['created_at'] ?? null;
+            $iterationCreatedAt = $iteration['started_at'] ?? null;
 
-            if ($sessionId !== null && $sessionId !== '' && $projectId !== null && $projectId !== '') {
-                $projectArtifacts = $this->artifactStore->list(
+            // Query by session + createdAfter (always available for loop stages).
+            // Optionally narrow by project_id when available, but never skip the
+            // check entirely — missing project_id used to silently bypass this
+            // contract, allowing reviewers to proceed without evidence.
+            if ($sessionId !== null && $sessionId !== '') {
+                $artifacts = $this->artifactStore->list(
                     sessionId: $sessionId,
-                    projectId: $projectId,
+                    projectId: ($projectId !== null && $projectId !== '') ? $projectId : null,
                     createdAfter: $iterationCreatedAt,
                 );
 
                 $hasExplicitEvidence = false;
-                foreach ($projectArtifacts as $artifact) {
+                foreach ($artifacts as $artifact) {
                     if (($artifact['type'] ?? '') !== 'loop_output') {
                         $hasExplicitEvidence = true;
                         break;
@@ -289,6 +293,8 @@ final class LoopExecutor
             resolvedParameters: $this->extractResolvedParameters($loop['configuration']),
             projectId: $loop['project_id'] ?? null,
             sprintId: $iteration['sprint_id'] ?? null,
+            sessionId: $loop['session_id'] ?? null,
+            iterationCreatedAt: $iteration['started_at'] ?? null,
         );
 
         // Mark stage as running
@@ -305,6 +311,7 @@ final class LoopExecutor
             maxIterations: $roleDefinition->maxIterations,
             sprintId: $iteration['sprint_id'],
             sessionId: $loop['session_id'],
+            projectId: $loop['project_id'] ?? null,
         );
     }
 
@@ -779,6 +786,8 @@ final class LoopExecutor
         array $resolvedParameters = [],
         ?string $projectId = null,
         ?string $sprintId = null,
+        ?string $sessionId = null,
+        ?string $iterationCreatedAt = null,
     ): string {
         $iterationLabel = $maxIterations !== null
             ? "{$iterationNumber}/{$maxIterations}"
@@ -809,6 +818,42 @@ final class LoopExecutor
                 $stageLines[] = "### Stage " . ((int) $cs['stage_index'] + 1) . ": {$cs['role']}\n{$stageSummary}{$artifactRef}";
             }
             $sections[] = "## Previous Stages This Cycle\n" . implode("\n\n", $stageLines);
+        }
+
+        // Inject evidence artifact IDs directly into the prompt for stages that
+        // require explicit evidence. This ensures the reviewer sees the exact
+        // artifact IDs the coder created, rather than relying on artifact_list
+        // discovery (which may filter incorrectly or miss evidence artifacts).
+        if (
+            $roleDefinition->requiresExplicitEvidence
+            && $this->artifactStore !== null
+            && $sessionId !== null
+            && $sessionId !== ''
+        ) {
+            $evidenceArtifacts = $this->artifactStore->list(
+                sessionId: $sessionId,
+                projectId: ($projectId !== null && $projectId !== '') ? $projectId : null,
+                createdAfter: $iterationCreatedAt,
+            );
+
+            $evidenceLines = [];
+            foreach ($evidenceArtifacts as $artifact) {
+                if (($artifact['type'] ?? '') === 'loop_output') {
+                    continue; // Skip auto-created loop output artifacts
+                }
+                $title = $artifact['title'] ?? '(untitled)';
+                $type = $artifact['type'] ?? 'unknown';
+                $stage = $artifact['stage'] ?? 'unknown';
+                $evidenceLines[] = "- **`{$artifact['id']}`** — {$title} (type: {$type}, stage: {$stage})";
+            }
+
+            if ($evidenceLines !== []) {
+                $evidenceSection = "## Evidence Artifacts\n"
+                    . "The following artifacts were explicitly created during this iteration. "
+                    . "Use `artifact_get(id: \"...\")` to read their full content.\n\n"
+                    . implode("\n", $evidenceLines);
+                $sections[] = $evidenceSection;
+            }
         }
 
         // Previous iteration outcomes
@@ -852,6 +897,24 @@ final class LoopExecutor
         // Add loop scoping context with full project/sprint details
         if ($projectId !== null && $projectId !== '') {
             $sections[] = $this->buildProjectContextSection($projectId, $sprintId);
+        }
+
+        // Inject required deliverables when the next stage requires explicit evidence.
+        // This tells the coder (or whichever stage precedes the evidence-requiring stage)
+        // that it MUST create an artifact via artifact_create or the next stage will fail.
+        $nextStageIndex = $stageIndex + 1;
+        if ($nextStageIndex < $totalStages) {
+            $nextRole = $definition->roles[$nextStageIndex] ?? null;
+            if ($nextRole !== null && $nextRole->requiresExplicitEvidence) {
+                $deliverables = "## Required Deliverables\n"
+                    . "You **MUST** create at least one artifact via `artifact_create` before completing this stage.\n"
+                    . "Summarize: changed files, verification results, and known gaps.\n"
+                    . "Failure to create an artifact will cause the next stage ({$nextRole->role}) to fail automatically.";
+                if ($projectId !== null && $projectId !== '') {
+                    $deliverables .= "\n\n> Project and sprint IDs are applied automatically — you do not need to specify `project_id` or `sprint_id`.";
+                }
+                $sections[] = $deliverables;
+            }
         }
 
         $sections[] = "## Your Task\n{$rolePrompt}";
