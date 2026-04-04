@@ -386,10 +386,7 @@ final class RunCommand extends Command
                 }
             }
 
-            // Build readline prompt with optional project slug
-            $readlinePrompt = $this->activeProjectSlug !== null
-                ? sprintf(' [%s] › ', $this->activeProjectSlug)
-                : ' › ';
+            $readlinePrompt = ' › ';
 
             // Read input using readline's callback API for non-blocking signal handling.
             $line = null;
@@ -496,6 +493,7 @@ final class RunCommand extends Command
                 $shutdownStty,
             );
             $shutdownGuard($shutdownStty);
+            $this->restoreActiveProject();
 
             if ($turnResult->shouldExit()) {
                 return $turnResult->exitCode ?? Command::SUCCESS;
@@ -515,6 +513,7 @@ final class RunCommand extends Command
                     $shutdownStty,
                 );
                 $shutdownGuard($shutdownStty);
+                $this->restoreActiveProject();
 
                 if ($turnResult->shouldExit()) {
                     return $turnResult->exitCode ?? Command::SUCCESS;

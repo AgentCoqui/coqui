@@ -57,7 +57,7 @@ Webhooks **require the API server to be running** to receive incoming deliveries
 
 | Concern | REPL | API |
 |---------|------|-----|
-| Active project | Injected into system prompt; displayed in readline prompt | Not injected — API turns don't carry project context |
+| Active project | Injected into system prompt; displayed in the REPL user label before input | Not injected — API turns don't carry project context |
 | Terminal rendering | Rich terminal output with colors, progress bars, file-change summaries | No terminal rendering — events are structured JSON |
 | Edit history | Tracked per-turn with file-change summary after each turn | Not tracked — API turns don't have `EditHistory` |
 
