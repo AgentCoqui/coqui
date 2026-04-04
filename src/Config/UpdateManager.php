@@ -260,7 +260,7 @@ final class UpdateManager
             ];
 
         foreach ($candidates as $candidate) {
-            if (is_string($candidate) && $candidate !== '' && file_exists($candidate) && is_executable($candidate)) {
+            if (file_exists($candidate) && is_executable($candidate)) {
                 return $candidate;
             }
         }

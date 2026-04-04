@@ -510,10 +510,10 @@ final class ArtifactToolkit implements ToolkitInterface
         );
 
         /** @var list<string> $matched */
-        $matched = array_values(array_map(
+        $matched = array_map(
             static fn(array $artifact): string => (string) $artifact['id'],
             $artifacts,
-        ));
+        );
 
         return [$matched, [], null];
     }

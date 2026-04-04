@@ -4,16 +4,14 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Command;
 
-use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
-use CoquiBot\Coqui\Config\ConfigGuard;
+use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Observer\BackgroundTaskObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
-use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -70,7 +68,7 @@ final class TurnRunCommand extends Command
         $configOption = $input->getOption('config');
         $configPath = is_string($configOption) ? $configOption : null;
 
-        $workspaceOverride = $this->resolveWorkspaceOverride($input);
+        $workspaceOverride = WorkspaceOverrideResolver::resolve($input);
 
         $boot = new BootManager($workDir, $workspaceOverride);
         $result = $boot->boot(io: null, configPath: $configPath, skipMaintenance: true);
@@ -133,32 +131,15 @@ final class TurnRunCommand extends Command
         $turnObserver = new BackgroundTaskObserver($storage, $turnProcessId);
 
         // Create agent runner
-        $agentRunner = new AgentRunner(
-            roleResolver: $boot->roleResolver(),
-            config: $boot->config(),
+        $agentRunner = AgentRunnerFactory::create(
+            boot: $boot,
             projectRoot: $workDir,
-            workspacePath: $boot->workspacePath(),
             storage: $storage,
             observer: new NullObserver(),
-            discovery: $boot->discovery(),
-            blacklist: $boot->blacklist(),
-            credentialResolver: $boot->credentialResolver(),
-            skillDiscovery: $boot->skillDiscovery(),
-            roleDiscovery: $boot->roleDiscovery(),
             unsafeMode: $unsafeMode,
             backgroundTasksEnabled: true,
-            memoryStore: $boot->memoryStore(),
-            memorySummarizer: $boot->memorySummarizer(),
-            mountManager: $boot->mountManager(),
-            configManager: $boot->configManager(),
-            configGuard: new ConfigGuard(),
-            spaceToolkit: $boot->spaceToolkit(),
-            todoStore: $boot->todoStore(),
-            artifactStore: $boot->artifactStore(),
-            projectStore: $boot->projectStore(),
-            defaultsLoader: $boot->defaultsLoader(),
+            includeConfigManager: true,
             toolExecutor: new ConcurrentToolExecutor(),
-            httpClient: new ReactHttpClientAdapter(),
         );
 
         // Create execution policy (auto-approve — no human in the loop)
@@ -293,20 +274,4 @@ final class TurnRunCommand extends Command
         }
     }
 
-    private function resolveWorkspaceOverride(InputInterface $input): ?string
-    {
-        $option = $input->getOption('workspace');
-
-        if (is_string($option) && $option !== '') {
-            return $option;
-        }
-
-        $env = getenv('COQUI_WORKSPACE');
-
-        if (is_string($env) && $env !== '') {
-            return $env;
-        }
-
-        return null;
-    }
 }

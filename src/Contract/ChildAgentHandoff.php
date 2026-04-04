@@ -9,6 +9,11 @@ namespace CoquiBot\Coqui\Contract;
  */
 final readonly class ChildAgentHandoff
 {
+    /**
+     * @param array<string, mixed> $metadata
+     * @param list<string> $artifactIds
+     * @param list<string> $todoIds
+     */
     public function __construct(
         public string $task,
         public string $context = '',
@@ -28,6 +33,11 @@ final readonly class ChildAgentHandoff
         return new self(task: $task);
     }
 
+    /**
+     * @param array<string, mixed> $metadata
+     * @param list<string> $artifactIds
+     * @param list<string> $todoIds
+     */
     public static function fromInput(
         string $task,
         string $context = '',

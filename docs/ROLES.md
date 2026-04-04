@@ -10,7 +10,7 @@ Every role has an `access_level` that determines what the agent can do:
 | --- | --- | --- | --- | --- |
 | `full` | Read + Write | All allowed commands | All (per toolkit filter) | Implementation, code generation |
 | `readonly` | Read only | None | Non-mutating tools | Planning, review, analysis |
-| `readonly-shell` | Read only | Read-only commands only (`grep`, `find`, `cat`, `head`, `tail`, `wc`, `ls`, `sort`, `uniq`, `sed`, `awk`, `diff`) | Non-mutating tools | Codebase exploration |
+| `readonly-shell` | Read only | Read-only commands only (`grep`, `cat`, `head`, `tail`, `wc`, `ls`, `uniq`, `diff`) | Non-mutating tools | Codebase exploration |
 | `minimal` | None | None | None (or very restricted) | Single-shot LLM tasks (titles, summaries) |
 
 ## Built-in Roles
@@ -23,7 +23,7 @@ The default role. Receives user messages directly, delegates specialized work to
 | --- | --- |
 | Access Level | `full` |
 | Max Iterations | Global default (configurable via `agents.defaults.maxIterations`) |
-| Toolkits | `+*, -SessionEvaluationToolkit, -LearningToolkit, -ToolkitGeneratorToolkit` |
+| Toolkits | `+*, -SessionEvaluationToolkit, -LearningToolkit` |
 
 Activate: This is the default role. Switch back with `/role orchestrator` or `/role reset`.
 

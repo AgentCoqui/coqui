@@ -324,6 +324,8 @@ final class LoopStore
 
     /**
      * Update stage status with optional result data.
+     *
+     * @param array<string, mixed>|null $metadata
      */
     public function updateStage(
         string $id,

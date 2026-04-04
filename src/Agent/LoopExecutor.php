@@ -311,10 +311,10 @@ final class LoopExecutor
                 static fn(array $stage): string => (string) ($stage['artifact_id'] ?? ''),
                 $completedStages,
             ))),
-            completedStageRoles: array_values(array_map(
+            completedStageRoles: array_map(
                 static fn(array $stage): string => (string) ($stage['role'] ?? ''),
                 $completedStages,
-            )),
+            ),
             requiresExplicitEvidence: $roleDefinition->requiresExplicitEvidence,
             sessionId: $loop['session_id'] ?? null,
             projectId: $loop['project_id'] ?? null,

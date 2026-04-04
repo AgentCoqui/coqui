@@ -256,6 +256,9 @@ Analyze recent poor evaluations, cluster recurring failure patterns, and create 
 PROMPT;
     }
 
+    /**
+     * @param list<string> $evidenceSources
+     */
     private function buildLearnerFollowUpPrompt(
         string $evaluationId,
         string $evaluatedSessionId,

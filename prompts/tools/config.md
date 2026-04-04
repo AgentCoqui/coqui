@@ -34,4 +34,4 @@ When the user asks to switch models, use `switch_model` action. This updates bot
 
 ### Config Changes Are Hot-Reloaded
 
-Config changes are detected automatically between agent turns. After using the `config` tool to make changes, they will be active on the next turn without requiring a restart.
+Config changes require a restart to take effect. After using the `config` tool, ask the user to restart with `/restart` or use `restart_coqui` if that tool is available in the current context.

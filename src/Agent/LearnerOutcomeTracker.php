@@ -97,7 +97,10 @@ final readonly class LearnerOutcomeTracker
         preg_match_all($pattern, $result, $matches);
 
         /** @var list<string> $names */
-        $names = array_values(array_unique(array_filter($matches[1] ?? [], static fn(mixed $value): bool => is_string($value) && $value !== '')));
+        $names = array_values(array_unique(array_filter(
+            $matches[1] ?? [],
+            static fn(string $value): bool => $value !== '',
+        )));
 
         return $names;
     }

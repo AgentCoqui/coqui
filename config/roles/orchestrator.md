@@ -5,7 +5,7 @@ description: General-purpose assistant that delegates specialized work to child 
 version: 2
 access_level: full
 is_builtin: true
-toolkits: "+*, -SessionEvaluationToolkit, -LearningToolkit, -ToolkitGeneratorToolkit"
+toolkits: "+*, -SessionEvaluationToolkit, -LearningToolkit"
 ---
 
 <!-- Orchestrator instructions are rendered by OrchestratorAgent; this file controls role metadata only. -->

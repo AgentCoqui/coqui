@@ -21,6 +21,7 @@ final class ComposerRunner
     /**
      * Run a Composer command and return stdout.
      *
+      * @param list<string>|string $command
      * @throws \RuntimeException If the command fails
      */
     public function run(array|string $command): string
@@ -82,7 +83,7 @@ final class ComposerRunner
         }
 
         $arguments = is_array($command)
-            ? array_values(array_filter($command, static fn(mixed $value): bool => is_string($value) && $value !== ''))
+            ? array_values(array_filter($command, static fn(string $value): bool => $value !== ''))
             : (preg_split('/\s+/', trim($command)) ?: []);
 
         if ($arguments === []) {

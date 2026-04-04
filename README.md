@@ -199,7 +199,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full command reference with exa
 
 Coqui uses an `openclaw.json` config file for centralized model routing. The format is fully compatible with [OpenClaw](https://github.com/openclaw/openclaw) — you can drop in your existing OpenClaw config and it works without any changes. Coqui-specific extensions (workspace, mounts, shell access control) live under `agents.defaults` and are safely ignored by other OpenClaw-compatible tools.
 
-Config changes are detected automatically — edit the file and your next message uses the new settings. No restart required.
+Config changes require a restart to take effect. Use `/restart` in the REPL or restart the process after editing `openclaw.json`.
 
 For the full config reference, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 

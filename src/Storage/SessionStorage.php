@@ -802,6 +802,9 @@ final class SessionStorage
         return ['ok' => empty($missing), 'missing' => $missing];
     }
 
+    /**
+     * @param array<string, mixed>|null $metadata
+     */
     public function logChildRun(
         string $sessionId,
         int $parentIteration,
@@ -1135,6 +1138,8 @@ final class SessionStorage
 
     /**
      * Create a new background task record.
+     *
+     * @param array<string, mixed>|null $metadata
      */
     public function createTask(
         string $sessionId,
