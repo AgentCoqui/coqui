@@ -58,6 +58,8 @@ final class PhpExecuteTool implements ToolInterface
         'fputcsv',
     ];
 
+    private const RUNTIME_GUARD_PREFIX = 'php_execute bootstrap failed:';
+
     private readonly ScriptSanitizer $sanitizer;
 
     public function __construct(
@@ -207,9 +209,59 @@ final class PhpExecuteTool implements ToolInterface
         // Replace the placeholder with actual path
         $preamble = str_replace('__ENV_PATH__', addslashes($envPath), $preamble);
 
+        $preamble .= $this->buildRuntimeGuardPreamble();
+
         $preamble .= "\n// --- User code begins ---\n\n";
 
         return $preamble . $code . "\n";
+    }
+
+    private function buildRuntimeGuardPreamble(): string
+    {
+        $guard = <<<'PHP'
+            // Verify runtime safety directives before user code executes.
+            $__requiredOpenBasedirPaths = __REQUIRED_OPEN_BASEDIR__;
+            $__effectiveOpenBasedir = (string) ini_get('open_basedir');
+            $__effectiveOpenBasedirPaths = array_values(array_filter(array_map(
+                static fn(string $path): string => rtrim(trim($path), DIRECTORY_SEPARATOR),
+                explode(PATH_SEPARATOR, $__effectiveOpenBasedir),
+            )));
+            $__missingOpenBasedirPaths = array_values(array_filter(
+                $__requiredOpenBasedirPaths,
+                static fn(string $path): bool => !in_array(rtrim($path, DIRECTORY_SEPARATOR), $__effectiveOpenBasedirPaths, true),
+            ));
+            if ($__missingOpenBasedirPaths !== []) {
+                throw new \RuntimeException('__PREFIX__ missing open_basedir paths: ' . implode(', ', $__missingOpenBasedirPaths));
+            }
+
+            $__requiredDisabledFunctions = __REQUIRED_DISABLED_FUNCTIONS__;
+            $__effectiveDisabledFunctions = array_values(array_filter(array_map('trim', explode(',', (string) ini_get('disable_functions')))));
+            $__missingDisabledFunctions = array_values(array_diff($__requiredDisabledFunctions, $__effectiveDisabledFunctions));
+            if ($__missingDisabledFunctions !== []) {
+                throw new \RuntimeException('__PREFIX__ missing disable_functions entries: ' . implode(', ', $__missingDisabledFunctions));
+            }
+
+            unset(
+                $__requiredOpenBasedirPaths,
+                $__effectiveOpenBasedir,
+                $__effectiveOpenBasedirPaths,
+                $__missingOpenBasedirPaths,
+                $__requiredDisabledFunctions,
+                $__effectiveDisabledFunctions,
+                $__missingDisabledFunctions,
+            );
+
+            PHP;
+
+        return str_replace(
+            ['__REQUIRED_OPEN_BASEDIR__', '__REQUIRED_DISABLED_FUNCTIONS__', '__PREFIX__'],
+            [
+                var_export($this->buildOpenBasedirPaths(), true),
+                var_export(self::DISABLED_WRITE_FUNCTIONS, true),
+                self::RUNTIME_GUARD_PREFIX,
+            ],
+            $guard,
+        );
     }
 
     /**
@@ -222,18 +274,27 @@ final class PhpExecuteTool implements ToolInterface
      */
     private function buildOpenBasedir(): string
     {
+        return implode(PATH_SEPARATOR, $this->buildOpenBasedirPaths());
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function buildOpenBasedirPaths(): array
+    {
         $paths = [
             PathHelper::trimTrailingSlash($this->workspacePath),
             PathHelper::trimTrailingSlash($this->projectRoot),
-            sys_get_temp_dir(),
+            rtrim(sys_get_temp_dir(), DIRECTORY_SEPARATOR),
         ];
 
-        // Append mounted directories so PHP subprocesses can read/write them
         if ($this->mountManager !== null) {
-            array_push($paths, ...$this->mountManager->openBasedirPaths());
+            foreach ($this->mountManager->openBasedirPaths() as $path) {
+                $paths[] = rtrim($path, DIRECTORY_SEPARATOR);
+            }
         }
 
-        return implode(PATH_SEPARATOR, $paths);
+        return array_values(array_unique($paths));
     }
 
     /**

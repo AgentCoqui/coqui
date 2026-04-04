@@ -27,6 +27,10 @@ afterEach(function () {
     if (is_dir($this->tmpDir)) {
         rmdir($this->tmpDir);
     }
+
+    if (isset($this->projectMutationProbe) && is_string($this->projectMutationProbe) && file_exists($this->projectMutationProbe)) {
+        unlink($this->projectMutationProbe);
+    }
 });
 
 test('has correct name', function () {
@@ -208,4 +212,50 @@ test('runtime disable_functions blocks file_put_contents', function () {
         // If it somehow passed sanitizer, runtime should block it
         expect($result->content)->not->toContain('written');
     }
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
+
+test('runtime bootstrap exposes the expected safety directives', function () {
+    $result = $this->tool->execute([
+        'code' => <<<'PHP'
+            echo json_encode([
+                'open_basedir' => ini_get('open_basedir'),
+                'disable_functions' => ini_get('disable_functions'),
+            ], JSON_THROW_ON_ERROR);
+            PHP,
+    ]);
+
+    preg_match('/```\n(.*?)\n```/s', $result->content, $matches);
+    $payload = json_decode($matches[1] ?? '{}', true, flags: JSON_THROW_ON_ERROR);
+
+    expect($result->status->value)->toBe('success');
+    expect($payload['open_basedir'] ?? '')->toContain($this->tmpDir);
+    expect($payload['open_basedir'] ?? '')->toContain($this->projectRoot);
+    expect($payload['open_basedir'] ?? '')->toContain(sys_get_temp_dir());
+    expect($payload['disable_functions'] ?? '')->toContain('file_put_contents');
+    expect($payload['disable_functions'] ?? '')->toContain('fopen');
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
+
+test('open_basedir blocks reads outside allowed roots', function () {
+    $result = $this->tool->execute([
+        'code' => <<<'PHP'
+            var_dump(file_get_contents('/etc/passwd'));
+            PHP,
+    ]);
+
+    expect($result->status->value)->toBe('success');
+    expect($result->content)->toContain('open_basedir');
+    expect($result->content)->toContain('bool(false)');
+    expect($result->content)->not->toContain('root:');
+})->skip(PHP_OS_FAMILY === 'Windows', 'open_basedir check targets Unix paths');
+
+test('runtime disable_functions blocks project root mutation attempts', function () {
+    $this->projectMutationProbe = $this->projectRoot . '/.coqui-php-exec-probe-' . bin2hex(random_bytes(4));
+
+    $result = $this->tool->execute([
+        'code' => '$writer = "file_put_" . "contents"; $writer(' . var_export($this->projectMutationProbe, true) . ', "blocked");',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+    expect(file_exists($this->projectMutationProbe))->toBeFalse();
+    expect($result->content)->toContain('file_put_contents');
 })->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');

@@ -12,6 +12,8 @@ namespace CoquiBot\Coqui\CoquiSpace\Installer;
  */
 final class ComposerRunner
 {
+    private const ALLOWED_COMMANDS = ['require', 'update', 'remove'];
+
     public function __construct(
         private readonly string $workingDirectory,
     ) {}
@@ -21,10 +23,10 @@ final class ComposerRunner
      *
      * @throws \RuntimeException If the command fails
      */
-    public function run(string $command): string
+    public function run(array|string $command): string
     {
+        $arguments = $this->normalizeArguments($command);
         $composer = $this->resolveComposerBinary();
-        $fullCommand = escapeshellarg($composer) . ' ' . $command;
 
         $descriptors = [
             0 => ['pipe', 'r'],
@@ -35,7 +37,7 @@ final class ComposerRunner
         $env = $this->buildEnvironment();
 
         $process = proc_open(
-            $fullCommand,
+            [$composer, ...$arguments],
             $descriptors,
             $pipes,
             $this->workingDirectory,
@@ -43,7 +45,7 @@ final class ComposerRunner
         );
 
         if (!is_resource($process)) {
-            throw new \RuntimeException("Failed to start Composer process: {$fullCommand}");
+            throw new \RuntimeException('Failed to start Composer process.');
         }
 
         fclose($pipes[0]);
@@ -63,6 +65,37 @@ final class ComposerRunner
         }
 
         return (string) $stdout;
+    }
+
+    /**
+     * @param array<int, string>|string $command
+     * @return list<string>
+     */
+    private function normalizeArguments(array|string $command): array
+    {
+        if (!is_dir($this->workingDirectory)) {
+            throw new \RuntimeException("Composer working directory not found: {$this->workingDirectory}");
+        }
+
+        if (!file_exists($this->workingDirectory . '/composer.json')) {
+            throw new \RuntimeException('Composer working directory must contain composer.json.');
+        }
+
+        $arguments = is_array($command)
+            ? array_values(array_filter($command, static fn(mixed $value): bool => is_string($value) && $value !== ''))
+            : (preg_split('/\s+/', trim($command)) ?: []);
+
+        if ($arguments === []) {
+            throw new \InvalidArgumentException('Composer command is required.');
+        }
+
+        if (!in_array($arguments[0], self::ALLOWED_COMMANDS, true)) {
+            throw new \InvalidArgumentException(
+                'Unsupported Composer command: ' . $arguments[0] . '. Allowed: ' . implode(', ', self::ALLOWED_COMMANDS),
+            );
+        }
+
+        return $arguments;
     }
 
     /**

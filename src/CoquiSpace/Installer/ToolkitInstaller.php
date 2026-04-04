@@ -45,7 +45,7 @@ final class ToolkitInstaller
         }
 
         try {
-            $this->composer->run("require {$constraint} --no-interaction");
+            $this->composer->run(['require', $constraint, '--no-interaction']);
         } catch (\RuntimeException $e) {
             if (str_contains($e->getMessage(), 'Could not find a matching version')) {
                 throw new \RuntimeException($this->diagnosePackageNotFound($package));
@@ -85,7 +85,7 @@ final class ToolkitInstaller
             throw new \RuntimeException("Toolkit '{$package}' is not installed.");
         }
 
-        $this->composer->run("update {$package} --no-interaction");
+        $this->composer->run(['update', $package, '--no-interaction']);
 
         // Re-discover in case toolkit classes changed
         $this->discovery->discover($package);
@@ -166,7 +166,7 @@ final class ToolkitInstaller
         // Save constraint before removing
         $this->saveDisabledState($package, $constraint);
 
-        $this->composer->run("remove {$package} --no-interaction");
+        $this->composer->run(['remove', $package, '--no-interaction']);
 
         return "Toolkit '{$package}' disabled. Restart Coqui to apply. Use space(action: \"enable\", name: \"{$package}\") to re-enable.";
     }
@@ -191,7 +191,7 @@ final class ToolkitInstaller
 
         $constraint = (string) ($state[$package]['constraint'] ?? '*');
 
-        $this->composer->run("require {$package}:{$constraint} --no-interaction");
+        $this->composer->run(['require', "{$package}:{$constraint}", '--no-interaction']);
         $this->removeDisabledState($package);
 
         // Re-discover after re-install
@@ -212,7 +212,7 @@ final class ToolkitInstaller
         }
 
         if ($this->isInstalled($package)) {
-            $this->composer->run("remove {$package} --no-interaction");
+            $this->composer->run(['remove', $package, '--no-interaction']);
         }
 
         // Clean up registry and disabled state
