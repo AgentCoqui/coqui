@@ -23,7 +23,7 @@ Termination types: `evaluation_bound` (approval signals), `iteration_bound` (fix
 
 ### Template Parameters
 
-Definitions support `{{placeholder}}` parameters substituted at start time. Use `loop_definitions` to see available parameters. Pass via `loop_start(parameters: {"max_review_rounds": "3"})`.
+Definitions support `{{placeholder}}` parameters substituted at start time. Use the goal for the loop's main subject matter; parameters should tune behavior or structured outputs. Use `loop_definitions` to see available parameters. Pass via `loop_start(parameters: {"max_review_rounds": "3"})`.
 
 ### Built-in Definitions
 

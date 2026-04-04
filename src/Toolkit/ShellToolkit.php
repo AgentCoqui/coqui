@@ -37,20 +37,6 @@ final class ShellToolkit implements ToolkitInterface
     ];
 
     /**
-     * Regex patterns matching common write-oriented redirections/commands
-     * with absolute paths. Used by validateWriteTargets() to detect
-     * writes outside the workspace sandbox.
-     *
-     * Each pattern should capture the target path in group 1.
-     *
-     * @var string[]
-     */
-    private const WRITE_REDIRECT_PATTERNS = [
-        // Shell output redirections: >, >>, 2>, 2>>, &>, &>>
-        '/(?:^|[^\\\\])(?:>>?|[12]>>?|&>>?)\s*([\'"]?)(\/?[^\s;|&<>]+)\1/m',
-    ];
-
-    /**
      * Commands whose last positional argument is a write target.
      *
      * @var string[]
@@ -744,20 +730,29 @@ final class ShellToolkit implements ToolkitInterface
     private function buildSanitizedEnvironment(): array
     {
         $env = getenv();
-        if (!is_array($env)) {
-            return [];
-        }
 
         $sanitized = [];
 
         foreach ($env as $name => $value) {
-            if (!is_string($name) || !is_string($value)) {
+            $upperName = strtoupper($name);
+
+            // Safe prefixes take priority — explicitly allowed vars are never stripped.
+            // This prevents false positives like GIT_AUTHOR_NAME matching "AUTH".
+            $isSafe = false;
+            foreach (self::SAFE_ENV_PREFIXES as $prefix) {
+                $upperPrefix = strtoupper($prefix);
+                if ($upperName === $upperPrefix || str_starts_with($upperName, $upperPrefix)) {
+                    $isSafe = true;
+                    break;
+                }
+            }
+
+            if ($isSafe) {
+                $sanitized[$name] = $value;
                 continue;
             }
 
-            $upperName = strtoupper($name);
-
-            // Check sensitive patterns first (deny takes priority)
+            // Non-safelisted vars are stripped if they contain sensitive patterns
             $isSensitive = false;
             foreach (self::SENSITIVE_ENV_PATTERNS as $pattern) {
                 if (str_contains($upperName, $pattern)) {
@@ -766,17 +761,8 @@ final class ShellToolkit implements ToolkitInterface
                 }
             }
 
-            if ($isSensitive) {
-                continue;
-            }
-
-            // Check against safe prefixes
-            foreach (self::SAFE_ENV_PREFIXES as $prefix) {
-                $upperPrefix = strtoupper($prefix);
-                if ($upperName === $upperPrefix || str_starts_with($upperName, $upperPrefix)) {
-                    $sanitized[$name] = $value;
-                    break;
-                }
+            if (!$isSensitive) {
+                $sanitized[$name] = $value;
             }
         }
 

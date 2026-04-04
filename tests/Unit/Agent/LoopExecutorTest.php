@@ -709,35 +709,35 @@ test('startLoop with parameters stores resolved parameters in configuration', fu
     $def = [
         'name' => 'param-test',
         'description' => 'Parameterized test',
-        'roles' => [['role' => 'coder', 'prompt' => 'Investigate {{topic}}.']],
+        'roles' => [['role' => 'coder', 'prompt' => 'Investigate {{subject}}.']],
         'termination_condition' => ['type' => 'manual'],
         'parameters' => [
-            ['name' => 'topic', 'description' => 'Subject', 'required' => true],
+            ['name' => 'subject', 'description' => 'Subject', 'required' => true],
         ],
     ];
 
-    $loopId = $this->executor->startLoop($def, 'Research goal', parameters: ['topic' => 'authentication']);
+    $loopId = $this->executor->startLoop($def, 'Research goal', parameters: ['subject' => 'authentication']);
 
     $loop = $this->loopStore->getLoop($loopId);
     $config = json_decode($loop['configuration'], true);
 
     expect($config)->toHaveKey('resolved_parameters');
-    expect($config['resolved_parameters'])->toBe(['topic' => 'authentication']);
+    expect($config['resolved_parameters'])->toBe(['subject' => 'authentication']);
 });
 
 test('startLoop throws on missing required parameters', function () {
     $def = [
         'name' => 'param-req',
         'description' => 'Required param test',
-        'roles' => [['role' => 'coder', 'prompt' => 'Code {{topic}}.']],
+        'roles' => [['role' => 'coder', 'prompt' => 'Code {{subject}}.']],
         'termination_condition' => ['type' => 'manual'],
         'parameters' => [
-            ['name' => 'topic', 'description' => 'Subject', 'required' => true],
+            ['name' => 'subject', 'description' => 'Subject', 'required' => true],
         ],
     ];
 
     $this->executor->startLoop($def, 'Goal', parameters: []);
-})->throws(\InvalidArgumentException::class, 'Missing required parameters: topic');
+})->throws(\InvalidArgumentException::class, 'Missing required parameters: subject');
 
 test('startLoop applies defaults for optional parameters', function () {
     $def = [
@@ -771,20 +771,20 @@ test('stage prompt substitutes parameter placeholders in role prompt', function 
     $def = [
         'name' => 'sub-test',
         'description' => 'Substitution test',
-        'roles' => [['role' => 'coder', 'prompt' => 'Investigate {{topic}} and produce a {{format}}.']],
+        'roles' => [['role' => 'coder', 'prompt' => 'Investigate {{subject}} and produce a {{format}}.']],
         'termination_condition' => ['type' => 'manual'],
         'parameters' => [
-            ['name' => 'topic', 'description' => 'Subject', 'required' => true],
+            ['name' => 'subject', 'description' => 'Subject', 'required' => true],
             ['name' => 'format', 'description' => 'Format', 'required' => false, 'default' => 'report'],
         ],
     ];
 
-    $loopId = $this->executor->startLoop($def, 'Goal', parameters: ['topic' => 'authentication']);
+    $loopId = $this->executor->startLoop($def, 'Goal', parameters: ['subject' => 'authentication']);
 
     $result = $this->executor->prepareNextStage($loopId);
 
     expect($result->prompt)->toContain('Investigate authentication and produce a report.');
-    expect($result->prompt)->not->toContain('{{topic}}');
+    expect($result->prompt)->not->toContain('{{subject}}');
     expect($result->prompt)->not->toContain('{{format}}');
 });
 
@@ -814,16 +814,16 @@ test('stage prompt includes parameters section when parameters exist', function 
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'manual'],
         'parameters' => [
-            ['name' => 'topic', 'description' => 'Subject', 'required' => true],
+            ['name' => 'subject', 'description' => 'Subject', 'required' => true],
         ],
     ];
 
-    $loopId = $this->executor->startLoop($def, 'Goal', parameters: ['topic' => 'auth']);
+    $loopId = $this->executor->startLoop($def, 'Goal', parameters: ['subject' => 'auth']);
 
     $result = $this->executor->prepareNextStage($loopId);
 
     expect($result->prompt)->toContain('## Parameters');
-    expect($result->prompt)->toContain('**topic**: auth');
+    expect($result->prompt)->toContain('**subject**: auth');
 });
 
 test('stage prompt omits parameters section for non-parameterized loops', function () {
