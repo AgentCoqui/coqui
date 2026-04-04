@@ -37,6 +37,8 @@ final class ArtifactToolkit implements ToolkitInterface
         private readonly bool $readOnly = false,
         private readonly ?PlanTodoGenerator $planTodoGenerator = null,
         private readonly ?TodoStore $todoStore = null,
+        private readonly ?string $defaultProjectId = null,
+        private readonly ?string $defaultSprintId = null,
     ) {}
 
     public function tools(): array
@@ -117,8 +119,8 @@ final class ArtifactToolkit implements ToolkitInterface
                 $type = $args['type'] ?? 'code';
                 $language = isset($args['language']) ? trim($args['language']) : null;
                 $filepath = isset($args['filepath']) ? trim($args['filepath']) : null;
-                $projectId = isset($args['project_id']) && trim($args['project_id']) !== '' ? trim($args['project_id']) : null;
-                $sprintId = isset($args['sprint_id']) && trim($args['sprint_id']) !== '' ? trim($args['sprint_id']) : null;
+                $projectId = isset($args['project_id']) && trim($args['project_id']) !== '' ? trim($args['project_id']) : $this->defaultProjectId;
+                $sprintId = isset($args['sprint_id']) && trim($args['sprint_id']) !== '' ? trim($args['sprint_id']) : $this->defaultSprintId;
 
                 if ($title === '') {
                     return ToolResult::error('Title is required.');

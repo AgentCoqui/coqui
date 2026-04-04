@@ -73,7 +73,7 @@ final class TaskRunCommand extends Command
         $workspaceOverride = $this->resolveWorkspaceOverride($input);
 
         $boot = new BootManager($workDir, $workspaceOverride);
-        $result = $boot->boot(io: null, configPath: $configPath);
+        $result = $boot->boot(io: null, configPath: $configPath, skipMaintenance: true);
 
         if (!$result) {
             $output->writeln('<error>Boot failed</error>');
@@ -110,6 +110,14 @@ final class TaskRunCommand extends Command
         $workScopeSessionId = $task['parent_session_id'] ?? null;
         if ($workScopeSessionId === '') {
             $workScopeSessionId = null;
+        }
+        $taskProjectId = $task['project_id'] ?? null;
+        if ($taskProjectId === '') {
+            $taskProjectId = null;
+        }
+        $taskSprintId = $task['sprint_id'] ?? null;
+        if ($taskSprintId === '') {
+            $taskSprintId = null;
         }
         $resolvedMax = $boot->roleResolver()->resolveMaxIterations($role);
         $dbMax = isset($task['max_iterations']) ? (int) $task['max_iterations'] : $resolvedMax;
@@ -183,6 +191,8 @@ final class TaskRunCommand extends Command
                 role: $role,
                 maxIterations: $maxIterations,
                 workScopeSessionId: $workScopeSessionId,
+                defaultProjectId: $taskProjectId,
+                defaultSprintId: $taskSprintId,
             );
 
             if ($cancellationToken->isCancelled()) {

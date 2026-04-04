@@ -75,8 +75,11 @@ final class BootManager
      *                                               or null for headless/API mode.
      * @return bool True if boot succeeded, false if it should abort.
      */
-    public function boot(OutputInterface|SymfonyStyle|null $io = null, ?string $configPath = null): bool
-    {
+    public function boot(
+        OutputInterface|SymfonyStyle|null $io = null,
+        ?string $configPath = null,
+        bool $skipMaintenance = false,
+    ): bool {
         $this->loadConfig($io, $configPath);
         $this->blacklist = CatastrophicBlacklist::fromConfig($this->config);
         $this->initializeWorkspace();
@@ -85,7 +88,7 @@ final class BootManager
         $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
         $this->initializeCredentials();
         $this->initializeMemory();
-        $this->initializeArtifacts();
+        $this->initializeArtifacts($skipMaintenance);
         $this->discoverLoops();
         $this->discoverToolkits($io);
         $this->seedPackageContent();
@@ -479,12 +482,13 @@ final class BootManager
     }
 
     /**
-     * Initialize artifact store and clean up finalized artifacts from previous sessions.
+     * Initialize artifact store and optionally clean up finalized artifacts.
      *
-     * Draft and review artifacts are preserved across sessions. Final-stage artifacts
-     * are deleted because they have already been consumed by coder agents.
+     * Maintenance cleanup (cleanupFinalized, cleanupOrphaned, cleanupStale, cleanupUnlinked)
+     * runs only in long-lived processes (REPL, API server). Ephemeral background task
+     * processes skip cleanup to avoid deleting artifacts that sibling tasks need to read.
      */
-    private function initializeArtifacts(): void
+    private function initializeArtifacts(bool $skipMaintenance = false): void
     {
         $dbPath = $this->workspacePath . '/data/coqui.db';
 
@@ -492,15 +496,18 @@ final class BootManager
         $pdo = $storage->getPdo();
 
         $this->artifactStore = new ArtifactStore($pdo);
-        $this->artifactStore->cleanupFinalized();
         $this->todoStore = new TodoStore($pdo);
-        $this->todoStore->cleanupOrphaned();
-        $this->todoStore->cleanupStale();
-        $this->todoStore->cleanupUnlinked();
         $this->projectStore = new ProjectStore($pdo);
         $this->loopStore = new LoopStore($pdo);
         $this->usageTracker = new ToolUsageTracker($pdo);
         $this->loadingRegistry = new ToolkitLoadingRegistry($this->workspacePath);
+
+        if (!$skipMaintenance) {
+            $this->artifactStore->cleanupFinalized();
+            $this->todoStore->cleanupOrphaned();
+            $this->todoStore->cleanupStale();
+            $this->todoStore->cleanupUnlinked();
+        }
     }
 
     /**

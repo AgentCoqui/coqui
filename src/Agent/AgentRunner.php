@@ -129,6 +129,8 @@ final class AgentRunner
         ?string $role = null,
         ?int $maxIterations = null,
         ?string $workScopeSessionId = null,
+        ?string $defaultProjectId = null,
+        ?string $defaultSprintId = null,
     ): AgentTurnResult {
         return $this->doRun(
             $prompt,
@@ -141,6 +143,8 @@ final class AgentRunner
             role: $role,
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
+            defaultProjectId: $defaultProjectId,
+            defaultSprintId: $defaultSprintId,
         );
     }
 
@@ -176,6 +180,8 @@ final class AgentRunner
         ?int $maxIterations = null,
         ?array $filePaths = null,
         ?string $workScopeSessionId = null,
+        ?string $defaultProjectId = null,
+        ?string $defaultSprintId = null,
     ): AgentTurnResult {
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
@@ -215,6 +221,8 @@ final class AgentRunner
             role: $effectiveRole,
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
+            defaultProjectId: $defaultProjectId,
+            defaultSprintId: $defaultSprintId,
         );
 
         if ($observer !== null) {
@@ -451,6 +459,8 @@ final class AgentRunner
         string $role = 'orchestrator',
         ?int $maxIterations = null,
         ?string $workScopeSessionId = null,
+        ?string $defaultProjectId = null,
+        ?string $defaultSprintId = null,
     ): OrchestratorAgent {
         $modelString = $this->roleResolver->resolve($role);
         $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
@@ -505,6 +515,8 @@ final class AgentRunner
             loadingRegistry: $this->loadingRegistry,
             usageTracker: $this->usageTracker,
             workScopeSessionId: $workScopeSessionId,
+            defaultProjectId: $defaultProjectId,
+            defaultSprintId: $defaultSprintId,
         );
     }
 

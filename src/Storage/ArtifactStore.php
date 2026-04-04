@@ -112,6 +112,11 @@ final class ArtifactStore
         $id = bin2hex(random_bytes(16));
         $now = gmdate('Y-m-d\TH:i:s\Z');
 
+        // Auto-persist artifacts linked to projects — project-linked artifacts
+        // survive cleanupFinalized() so they remain available to later loop stages
+        // (e.g. reviewers) whose processes boot and run cleanup before reading them.
+        $isPersistent = $persistent || ($projectId !== null && $projectId !== '');
+
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, sprint_id, persistent, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
@@ -129,11 +134,10 @@ final class ArtifactStore
             $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
             $projectId,
             $sprintId,
-            $persistent ? 1 : 0,
+            $isPersistent ? 1 : 0,
             $now,
             $now,
         ]);
-
         // Save initial version
         $this->saveVersion($id, 1, $content, 'Initial version');
 

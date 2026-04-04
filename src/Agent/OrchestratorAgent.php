@@ -165,6 +165,8 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
         private readonly ?ToolUsageTracker $usageTracker = null,
         private readonly ?string $workScopeSessionId = null,
+        private readonly ?string $defaultProjectId = null,
+        private readonly ?string $defaultSprintId = null,
     ) {
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
@@ -314,6 +316,8 @@ final class OrchestratorAgent extends AbstractAgent
                 $toolkitSessionId,
                 planTodoGenerator: $planTodoGenerator,
                 todoStore: $todoStore,
+                defaultProjectId: $this->defaultProjectId,
+                defaultSprintId: $this->defaultSprintId,
             ));
         }
 
