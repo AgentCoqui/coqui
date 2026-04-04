@@ -11,7 +11,8 @@
 ###############################################################################
 
 .PHONY: help \
-        start stop status repl api api-stop restart \
+	start stop status repl api api-stop restart \
+	test test-coverage analyse \
         dev \
         test-launcher \
         docker-build docker-start docker-stop docker-status \
@@ -76,6 +77,15 @@ wizard: ## Run the setup wizard (no REPL, no session)
 
 dev: ## Start REPL + API in dev mode
 	@./bin/coqui-launcher $(ARGS)
+
+test: ## Run Pest test suite
+	@composer test $(ARGS)
+
+test-coverage: ## Run Pest with coverage reporting
+	@composer test:coverage $(ARGS)
+
+analyse: ## Run PHPStan static analysis
+	@composer analyse $(ARGS)
 
 test-launcher: ## Run bash unit tests for the launcher script
 	@bash tests/bash/launcher-sigint-test.sh
