@@ -18,7 +18,7 @@ The REPL is Coqui's primary interface. The API server exists as a background-tas
 | Task creation | Agent calls `start_background_task` → record written to SQLite | Same (agent tool or `POST /api/v1/tasks`) |
 | Task execution | **Not executed by REPL** — tasks remain pending until the API server picks them up | `BackgroundTaskManager` spawns `bin/coqui task:run` child processes on 1-second tick |
 | Monitoring | Agent polls with `task_status` tool; user checks `/tasks` REPL command | Same tools, plus `GET /api/v1/tasks/{id}/events` SSE stream |
-| Concurrency | N/A (REPL doesn't execute tasks) | Configurable via `api.tasks.maxConcurrent` (default 3) |
+| Concurrency | N/A (REPL doesn't execute tasks) | Configurable via `api.tasks.maxConcurrent` (default 32) |
 
 Background tasks **require the API server to be running** for execution. The REPL can create and monitor tasks, but only the API server spawns the child processes that execute them.
 
@@ -26,7 +26,7 @@ Background tasks **require the API server to be running** for execution. The REP
 
 | Concern | REPL | API |
 |---------|------|-----|
-| Orchestrator | `LoopRunner` — synchronous, blocking | `LoopManager` — async 5-second ReactPHP timer (removed in v0.x) |
+| Orchestrator | `LoopExecutor` — synchronous, blocking | `LoopManager` — async 5-second ReactPHP timer |
 | Session model | **Parent session shared** across all stages — artifacts, todos, and sprints flow continuously | **New session per stage** — each stage runs as an independent background task |
 | Stage execution | Child agent runs in-process (same as `SpawnAgentTool`) | Stage spawned as background task via `BackgroundTaskManager` |
 | Artifact continuity | Stage outputs stored as `loop_output` artifacts in the parent session | Stage outputs stored in per-stage sessions; linked via loop store only |

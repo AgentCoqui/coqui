@@ -36,7 +36,7 @@ Pending tasks can be cancelled immediately (status goes straight to `cancelled`)
 
 ### Concurrency
 
-By default, one background task runs at a time. Additional tasks are queued and start automatically when a slot opens. Configure the concurrency limit in `openclaw.json`:
+By default, up to 32 background tasks run concurrently. Additional tasks are queued and start automatically when a slot opens. Configure the concurrency limit in `openclaw.json`:
 
 ```json
 {
@@ -74,7 +74,7 @@ The API server is still the sole executor — the ReactPHP event loop manages ch
 
 ### Via the LLM Agent
 
-When connected through the API, the orchestrator agent has access to four background task tools. You can ask it naturally:
+When connected through the API, the orchestrator agent has access to five background task tools. You can ask it naturally:
 
 > "Start a background task to refactor the authentication module"
 

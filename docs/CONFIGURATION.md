@@ -75,8 +75,8 @@ The simplest valid config only needs a primary model:
                 "vision": "gemini/gemini-2.5-flash"
             },
             "workspace": "~/.coqui/.workspace",
-            "maxIterations": 48,
-            "backgroundTaskMaxIterations": 100,
+            "maxIterations": 256,
+            "backgroundTaskMaxIterations": 512,
             "childBackgroundTasks": false,
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
             "allowSudo": false,
@@ -94,7 +94,7 @@ The simplest valid config only needs a primary model:
             },
             "context": {
                 "autoSummarizeMode": "token",
-                "autoSummarizeThreshold": 70,
+                "autoSummarizeThreshold": 64,
                 "autoSummarizeTurnThreshold": 20,
                 "autoSummarizeKeepRecent": 15,
                 "keepRecentTurns": 10,
@@ -189,7 +189,7 @@ The sandboxed directory where Coqui reads and writes files. Supports `~` (home d
 
 ### `maxIterations`
 
-Global limit on agent loop iterations per turn. Each iteration is one LLM call that may include tool use. Default: `25`.
+Global limit on agent loop iterations per turn. Each iteration is one LLM call that may include tool use. Default: `256`.
 
 Set to `0` for unlimited iterations (the agent runs until it calls the `done` tool or encounters an error). Background tasks are clamped separately via `backgroundTaskMaxIterations`.
 
@@ -197,13 +197,13 @@ Per-role overrides are configured in role `.md` files via the `max_iterations` f
 
 ### `backgroundTaskMaxIterations`
 
-Maximum iterations any single background task can run. This is a per-task safety limit that prevents unattended tasks from running indefinitely. Default: `100`.
+Maximum iterations any single background task can run. This is a per-task safety limit that prevents unattended tasks from running indefinitely. Default: `512`.
 
 ```json
 {
     "agents": {
         "defaults": {
-            "backgroundTaskMaxIterations": 100
+            "backgroundTaskMaxIterations": 512
         }
     }
 }
@@ -336,7 +336,7 @@ Configure automatic conversation summarization behavior.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `autoSummarizeMode` | string | `"token"` | Summarization trigger mode: `"token"` (trigger on context window usage), `"turn"` (trigger after N user turns), or `"manual"` (no auto-summarization; use `/summarize` on demand) |
-| `autoSummarizeThreshold` | int/float | `70` | Token usage percentage that triggers auto-summarization (used when mode is `"token"`). Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeThreshold` | int/float | `64` | Token usage percentage that triggers auto-summarization (used when mode is `"token"`). Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
 | `autoSummarizeTurnThreshold` | int | `20` | Number of user turns that triggers auto-summarization (used when mode is `"turn"`) |
 | `autoSummarizeKeepRecent` | int | `15` | Turns preserved during auto-summarization (clamped 1–20) |
 | `keepRecentTurns` | int | `10` | Default turns preserved during on-demand summarization (`/summarize`) |
@@ -346,9 +346,9 @@ Configure automatic conversation summarization behavior.
 {
     "context": {
         "autoSummarizeMode": "token",
-        "autoSummarizeThreshold": 70,
-        "autoSummarizeKeepRecent": 15,
-        "keepRecentTurns": 10
+        "autoSummarizeThreshold": 64,
+        "autoSummarizeKeepRecent": 32,
+        "keepRecentTurns": 24
     }
 }
 ```

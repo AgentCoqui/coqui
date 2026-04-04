@@ -213,7 +213,7 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 
 ## <a id="conversation-summarization"></a> 🔄 Conversation Summarization
 
-**What it does:** Automatic and on-demand conversation compression. When token usage exceeds a configurable threshold (default 75%), older messages are summarized via LLM while preserving recent turns and workflow state (todos, artifacts).
+**What it does:** Automatic and on-demand conversation compression. When token usage exceeds a configurable threshold (default 64%), older messages are summarized via LLM while preserving recent turns and workflow state (todos, artifacts).
 
 **How it helps:** Long sessions never hit token limits. The agent maintains awareness of earlier work through structured summaries while staying within budget.
 

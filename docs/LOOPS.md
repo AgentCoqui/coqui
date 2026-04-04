@@ -2,7 +2,7 @@
 
 Fully automated, multi-role iteration cycles that run hands-off until a termination condition is met.
 
-> **REPL-only execution**: Loop orchestration runs synchronously in the REPL via `LoopRunner`. The API provides read-only inspection of loop status and definitions but does not drive loop execution. See [REPL-API-DIVERGENCES.md](REPL-API-DIVERGENCES.md) for details on session model differences.
+> Loop orchestration uses `LoopExecutor` as the shared engine. The REPL drives loops synchronously; the API drives them asynchronously via `LoopManager` with a 5-second ReactPHP timer. See [REPL-API-DIVERGENCES.md](REPL-API-DIVERGENCES.md) for details.
 
 ## Overview
 
@@ -16,6 +16,7 @@ The most common pattern is **generator-evaluator**: a plan agent designs, a code
 | --- | --- | --- | --- | --- |
 | `harness` | plan → coder → reviewer | `evaluation_bound` | 5 | Generator-evaluator pattern inspired by Anthropic's Harness |
 | `research` | explorer → coder → reviewer | `evaluation_bound` | 3 | Research-driven investigation and synthesis |
+| `goal-driven` | plan → coder | `goal_bound` | 10 | LLM-evaluated goal completion without a reviewer role |
 
 View available definitions with `loop_definitions` or `GET /api/v1/loops/definitions`.
 
@@ -116,11 +117,11 @@ OrchestratorAgent sessionId
     → LoopExecutor.startLoop(sessionId)
       → loops.session_id
         → LoopStageResult.sessionId
-          → LoopRunner.buildToolkits(sessionId)
+          → LoopManager.advanceLoop()
             → ArtifactToolkit, TodoToolkit, SprintToolkit
 ```
 
-This means stage agents can read and create artifacts, track todos, and update sprint progress — all within the parent session's context. After each successful stage, LoopRunner creates a `loop_output` artifact with the stage's result.
+This means stage agents can read and create artifacts, track todos, and update sprint progress — all within the parent session's context. After each successful stage, `LoopManager` creates a `loop_output` artifact with the stage's result.
 
 ## Stage Agent Capabilities
 
@@ -270,7 +271,7 @@ Loops execute differently depending on the interface:
 
 | Mode | Driver | Behavior |
 | --- | --- | --- |
-| REPL | `LoopRunner` | Synchronous — spawns `ChildAgent` per stage, attaches observers for live output |
+| REPL | `LoopExecutor` | Synchronous — spawns `ChildAgent` per stage, attaches observers for live output |
 | API | `LoopManager` | Asynchronous — 5-second ReactPHP timer advances one stage per tick |
 
 Both modes use `LoopExecutor` as the shared orchestration engine for state management, prompt composition, and termination evaluation.
