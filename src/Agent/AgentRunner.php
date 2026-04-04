@@ -40,6 +40,7 @@ use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryExtractor;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
+use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\EditHistory;
@@ -466,7 +467,12 @@ final class AgentRunner
         ?string $defaultSprintId = null,
     ): OrchestratorAgent {
         $modelString = $this->roleResolver->resolve($role);
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
+        $httpClient = $this->httpClient;
+        if ($httpClient instanceof ReactHttpClientAdapter && $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken) {
+            $httpClient = $httpClient->withCancellationToken($cancellationToken);
+        }
+
+        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $httpClient);
         $provider = $factory->create($modelString);
 
         return new OrchestratorAgent(
@@ -515,7 +521,7 @@ final class AgentRunner
             unsafeMode: $this->unsafeMode,
             toolExecutor: $this->toolExecutor,
             tickCallback: $this->tickCallback,
-            httpClient: $this->httpClient,
+            httpClient: $httpClient,
             loadingRegistry: $this->loadingRegistry,
             usageTracker: $this->usageTracker,
             workScopeSessionId: $workScopeSessionId,

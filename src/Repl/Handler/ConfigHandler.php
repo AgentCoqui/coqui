@@ -7,6 +7,9 @@ namespace CoquiBot\Coqui\Repl\Handler;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\SetupWizard;
 use CoquiBot\Coqui\Config\UpdateManager;
+use CoquiBot\Coqui\Exception\InteractionCancelledException;
+use CoquiBot\Coqui\Exception\ShutdownRequestedException;
+use CoquiBot\Coqui\Repl\InterruptiblePrompt;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -41,11 +44,25 @@ final class ConfigHandler
     {
         $outputPath = $this->boot->configManager()->path();
         $existingConfig = $this->boot->configManager()->toArray();
-        $wizard = new SetupWizard($io, $this->boot->defaultsLoader(), $this->boot->credentialResolver());
-        $saved = $wizard->runAndSave($outputPath, $existingConfig !== [] ? $existingConfig : null);
+        $prompt = new InterruptiblePrompt($io);
+
+        try {
+            $wizard = new SetupWizard($io, $this->boot->defaultsLoader(), $this->boot->credentialResolver());
+            $saved = $wizard->runAndSave($outputPath, $existingConfig !== [] ? $existingConfig : null);
+        } catch (InteractionCancelledException) {
+            $io->text('<fg=gray>Configuration edit cancelled.</>');
+            return true;
+        } catch (ShutdownRequestedException) {
+            if (getenv('COQUI_LAUNCHER') !== '1') {
+                $io->newLine();
+                $io->info('Shutting down Coqui.');
+            }
+
+            return Command::SUCCESS;
+        }
 
         if ($saved && file_exists($outputPath)) {
-            if ($io->confirm('Restart now to apply the new configuration?', true)) {
+            if ($prompt->confirm('Restart now to apply the new configuration?', true)) {
                 $io->info('Restarting Coqui...');
                 return self::RESTART_EXIT_CODE;
             }
@@ -58,8 +75,15 @@ final class ConfigHandler
     public function runWizardAndExit(SymfonyStyle $io): int
     {
         $outputPath = $this->boot->configManager()->path();
-        $wizard = new SetupWizard($io, $this->boot->defaultsLoader(), $this->boot->credentialResolver());
-        $saved = $wizard->runAndSave($outputPath);
+        try {
+            $wizard = new SetupWizard($io, $this->boot->defaultsLoader(), $this->boot->credentialResolver());
+            $saved = $wizard->runAndSave($outputPath);
+        } catch (InteractionCancelledException) {
+            $io->text('<fg=gray>Configuration edit cancelled.</>');
+            return Command::SUCCESS;
+        } catch (ShutdownRequestedException) {
+            return Command::SUCCESS;
+        }
 
         return $saved ? Command::SUCCESS : Command::FAILURE;
     }
@@ -67,6 +91,7 @@ final class ConfigHandler
     public function runUpdate(SymfonyStyle $io): int|true
     {
         $updateManager = new UpdateManager($this->workDir, $this->boot->workspacePath());
+        $prompt = new InterruptiblePrompt($io);
 
         $io->text('<fg=gray>Checking for updates...</>');
         $check = $updateManager->checkForUpdates();
@@ -79,8 +104,15 @@ final class ConfigHandler
         $io->writeln($check->summary());
         $io->newLine();
 
-        if (!$io->confirm('Apply updates now?', true)) {
+        try {
+            if (!$prompt->confirm('Apply updates now?', true)) {
+                return true;
+            }
+        } catch (InteractionCancelledException) {
+            $io->text('<fg=gray>Update cancelled.</>');
             return true;
+        } catch (ShutdownRequestedException) {
+            return Command::SUCCESS;
         }
 
         $io->text('<fg=gray>Updating dependencies...</>');

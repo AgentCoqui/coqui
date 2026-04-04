@@ -48,7 +48,7 @@ final class ReactHttpResponse implements ResponseInterface
         // Symfony expects lowercase header names with list<string> values
         $normalized = [];
         foreach ($psrHeaders as $name => $values) {
-            $normalized[strtolower($name)] = array_values($values);
+            $normalized[strtolower((string) $name)] = array_values($values);
         }
 
         return $normalized;
@@ -90,6 +90,10 @@ final class ReactHttpResponse implements ResponseInterface
 
     public function cancel(): void
     {
+        if ($this->cancelled) {
+            return;
+        }
+
         $this->cancelled = true;
         if ($this->resolved !== null) {
             $body = $this->resolved->getBody();

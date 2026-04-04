@@ -300,12 +300,14 @@ final class OrchestratorAgent extends AbstractAgent
                 deniedCommands: $shellDenied,
                 timeout: 60,
                 unsafe: $this->unsafeMode,
+                cancellationToken: $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken ? $cancellationToken : null,
             ));
         } elseif ($effectiveAccessLevel === 'readonly-shell') {
             $this->addToolkit(new ShellToolkit(
                 workDir: $this->projectRoot,
                 allowedCommands: ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
                 timeout: 60,
+                cancellationToken: $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken ? $cancellationToken : null,
             ));
         }
 
