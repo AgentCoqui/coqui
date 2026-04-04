@@ -16,8 +16,7 @@ final class ShellConfigResolver
 {
     /** Read-only shell commands for readonly-shell access level. */
     public const array READ_ONLY_SHELL_COMMANDS = [
-        'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
-        'sort', 'uniq', 'sed', 'awk', 'diff',
+        'grep', 'cat', 'head', 'tail', 'wc', 'ls', 'uniq', 'diff',
     ];
 
     /**

@@ -63,16 +63,23 @@ final class ShellToolkit implements ToolkitInterface
             ? 'all (unsafe mode — only catastrophic patterns blocked at policy layer)'
             : (empty($this->allowedCommands) ? 'all (except denied)' : implode(', ', $this->allowedCommands));
 
-        return <<<GUIDELINES
-        <SHELL-GUIDELINES>
-        Working directory: {$this->workDir}
-        Allowed commands: {$allowed}
-        Timeout: {$this->timeout}s
-        - Use shell commands for build, test, and system operations.
-        - Prefer specific commands over broad ones.
-        - Always check exit codes and stderr.
-        </SHELL-GUIDELINES>
-        GUIDELINES;
+        $lines = [
+            '<SHELL-GUIDELINES>',
+            "Working directory: {$this->workDir}",
+            "Allowed commands: {$allowed}",
+            "Timeout: {$this->timeout}s",
+            '- Use shell commands for build, test, and system operations.',
+            '- Prefer specific commands over broad ones.',
+            '- Always check exit codes and stderr.',
+        ];
+
+        if (!empty($this->allowedCommands)) {
+            $lines[] = '- Allowlist mode rejects shell operators, redirection, line breaks, and leading environment assignments.';
+        }
+
+        $lines[] = '</SHELL-GUIDELINES>';
+
+        return implode("\n", $lines);
     }
 
     private function execTool(): ToolInterface
@@ -94,18 +101,17 @@ final class ShellToolkit implements ToolkitInterface
                     return ToolResult::error('Command is required');
                 }
 
+                $allowlistViolation = $this->validateAllowlistedCommand($command);
+                if ($allowlistViolation !== null) {
+                    return ToolResult::error($allowlistViolation);
+                }
+
                 // In unsafe mode, skip all command validation — only basic sanity
                 // and working directory resolution apply. Catastrophic commands are
                 // blocked at the execution policy layer (CatastrophicBlacklist).
                 if (!$this->unsafe) {
                     if (!$this->isCommandAllowed($command)) {
                         return ToolResult::error("Command not allowed: {$command}");
-                    }
-
-                    // When an allowlist is active, also check for shell injection
-                    // patterns that could bypass the allowlist.
-                    if (!empty($this->allowedCommands) && $this->hasShellInjection($command)) {
-                        return ToolResult::error('Denied: command contains shell metacharacters that could bypass the allowlist.');
                     }
 
                     // Check configurable denylist (substring match)
@@ -199,21 +205,9 @@ final class ShellToolkit implements ToolkitInterface
             return true;
         }
 
-        // Parse the actual executable from the command, stripping any
-        // environment variable assignments (KEY=value) and handling
-        // common shell constructs.
         $trimmed = trim($command);
-        $words = preg_split('/\s+/', $trimmed) ?: [$trimmed];
-
-        // Skip leading env var assignments (e.g., FOO=bar command)
-        $firstWord = '';
-        foreach ($words as $word) {
-            if (str_contains($word, '=') && !str_starts_with($word, '-')) {
-                continue;
-            }
-            $firstWord = $word;
-            break;
-        }
+        $words = preg_split('/\s+/', $trimmed, 2) ?: [$trimmed];
+        $firstWord = $words[0];
 
         if ($firstWord === '') {
             return false;
@@ -230,26 +224,106 @@ final class ShellToolkit implements ToolkitInterface
     }
 
     /**
-     * Check for shell metacharacters that could be used to chain
-     * or redirect command execution beyond the allowlist.
+     * Reject shell syntax that makes allowlist mode unsafe.
      */
-    private function hasShellInjection(string $command): bool
+    private function validateAllowlistedCommand(string $command): ?string
     {
-        // Detect command chaining that could bypass the allowlist
-        $patterns = [
-            '/[;&|]/',                    // Command separators and pipes
-            '/\$\(/',                     // Command substitution
-            '/`/',                        // Backtick substitution
-            '/\b(eval|source|\.)\s/',    // eval/source execution
-        ];
+        if (empty($this->allowedCommands)) {
+            return null;
+        }
 
-        foreach ($patterns as $pattern) {
-            if (preg_match($pattern, $command)) {
+        if (preg_match('/[\r\n]/', $command) === 1) {
+            return 'Denied: allowlisted commands cannot contain line breaks.';
+        }
+
+        $tokens = preg_split('/\s+/', trim($command)) ?: [];
+        if ($tokens !== [] && $this->hasLeadingEnvironmentAssignment($tokens)) {
+            return 'Denied: allowlisted commands cannot start with environment variable assignments.';
+        }
+
+        if ($this->hasShellOperators($command)) {
+            return 'Denied: allowlisted commands cannot use shell operators, redirection, or command substitution.';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param string[] $tokens
+     */
+    private function hasLeadingEnvironmentAssignment(array $tokens): bool
+    {
+        $firstToken = $tokens[0] ?? '';
+
+        if ($firstToken === '') {
+            return false;
+        }
+
+        return preg_match('/^[A-Za-z_][A-Za-z0-9_]*=.*/', $firstToken) === 1;
+    }
+
+    /**
+     * Detect shell operators outside of quoted strings.
+     */
+    private function hasShellOperators(string $command): bool
+    {
+        $quote = null;
+        $escapeNext = false;
+        $length = strlen($command);
+
+        for ($index = 0; $index < $length; $index++) {
+            $char = $command[$index];
+
+            if ($escapeNext) {
+                $escapeNext = false;
+                continue;
+            }
+
+            if ($quote === "'") {
+                if ($char === "'") {
+                    $quote = null;
+                }
+
+                continue;
+            }
+
+            if ($char === '\\') {
+                $escapeNext = true;
+                continue;
+            }
+
+            if ($quote === '"') {
+                if ($char === '"') {
+                    $quote = null;
+                    continue;
+                }
+
+                if ($char === '`') {
+                    return true;
+                }
+
+                if ($char === '$' && ($command[$index + 1] ?? '') === '(') {
+                    return true;
+                }
+
+                continue;
+            }
+
+            if ($char === "'" || $char === '"') {
+                $quote = $char;
+                continue;
+            }
+
+            if (in_array($char, [';', '&', '|', '<', '>', '`'], true)) {
+                return true;
+            }
+
+            if ($char === '$' && ($command[$index + 1] ?? '') === '(') {
                 return true;
             }
         }
 
-        return false;
+        return $quote !== null;
     }
 
     private function resolveCwd(?string $cwd): ?string

@@ -1578,11 +1578,11 @@ When `false` (default), `sudo` is blocked via the denied commands list. When `tr
 
 The `readonly-shell` access level gives child agents read-only filesystem access **plus** a restricted subset of shell commands for codebase exploration. This sits between `readonly` (no shell at all) and `full` (full shell).
 
-The restricted command list is defined in `SpawnAgentTool::READ_ONLY_SHELL_COMMANDS`:
+The restricted command list is defined in `ShellConfigResolver::READ_ONLY_SHELL_COMMANDS`:
 
-`grep`, `find`, `cat`, `head`, `tail`, `wc`, `ls`, `sort`, `uniq`, `sed`, `awk`, `diff`
+`grep`, `cat`, `head`, `tail`, `wc`, `ls`, `uniq`, `diff`
 
-These are all read-only search and inspection commands — no `git`, `php`, `curl`, `wget`, `make`, or any command that can modify state. The `OrchestratorAgent` uses the same restricted list when the active role's access level is `readonly-shell`.
+These are all read-only inspection commands — no `git`, `php`, `curl`, `wget`, `make`, or utilities with direct file-write flags such as `find -exec`, `sed -i`, `awk` output redirection, or `sort -o`. The `OrchestratorAgent` uses the same restricted list when the active role's access level is `readonly-shell`.
 
 ### Safety Layer Summary
 
@@ -1594,7 +1594,7 @@ These are all read-only search and inspection commands — no `git`, `php`, `cur
 | Sudo denylist | `sudo` substring block | On (deny) | Yes — `allowSudo: true` in config |
 | `InteractiveApprovalPolicy` | Gated tools confirmation prompt | On | Yes — `--auto-approve` flag |
 | Allowlist | First-word command restriction | Off (open) | N/A — opt-in via `shellAllowedCommands` |
-| Shell injection detection | Metacharacter blocking | Only when allowlist is active | N/A — tied to allowlist |
+| Shell injection detection | Blocks shell operators, redirection, line breaks, and leading env assignments | Only when allowlist is active | N/A — tied to allowlist |
 
 ### Safety Layer Interactions
 

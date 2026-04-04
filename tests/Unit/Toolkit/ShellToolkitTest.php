@@ -5,6 +5,7 @@ declare(strict_types=1);
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
+use CoquiBot\Coqui\Config\ShellConfigResolver;
 use CoquiBot\Coqui\Toolkit\ShellToolkit;
 use React\EventLoop\Loop;
 
@@ -104,6 +105,41 @@ test('exec blocks command not in allowlist when allowlist is set', function () {
 
     expect($result->status)->toBe(ToolResultStatus::Error);
 });
+
+test('allowlist blocks shell redirection', function () {
+    $toolkit = new ShellToolkit(workDir: $this->workDir, allowedCommands: ['cat']);
+    $tool = shellExecTool($toolkit);
+
+    $result = $tool->execute(['command' => 'cat /etc/hosts > blocked.txt']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+    expect($result->content)->toContain('shell operators');
+    expect(file_exists($this->workDir . '/blocked.txt'))->toBeFalse();
+})->skip(PHP_OS_FAMILY === 'Windows', 'ShellToolkit exec is designed for Unix environments');
+
+test('allowlist blocks leading environment assignments', function () {
+    $toolkit = new ShellToolkit(workDir: $this->workDir, allowedCommands: ['grep']);
+    $tool = shellExecTool($toolkit);
+
+    $result = $tool->execute(['command' => 'PATH=. grep root /etc/passwd']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+    expect($result->content)->toContain('environment variable assignments');
+})->skip(PHP_OS_FAMILY === 'Windows', 'ShellToolkit exec is designed for Unix environments');
+
+test('allowlist permits quoted regex alternation', function () {
+    file_put_contents($this->workDir . '/patterns.txt', "alpha\nbeta\n");
+
+    $toolkit = new ShellToolkit(workDir: $this->workDir, allowedCommands: ['grep']);
+    $tool = shellExecTool($toolkit);
+
+    $result = $tool->execute(['command' => "grep -E 'alpha|beta' patterns.txt"]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $output = json_decode($result->content, true);
+    expect($output['stdout'])->toContain('alpha');
+    expect($output['stdout'])->toContain('beta');
+})->skip(PHP_OS_FAMILY === 'Windows', 'ShellToolkit exec is designed for Unix environments');
 
 // ---------------------------------------------------------------
 // unsafe mode
@@ -270,3 +306,10 @@ test('cwd sandbox blocks relative path that escapes via ..', function () {
 
     expect($result->status)->toBe(ToolResultStatus::Error);
 })->skip(PHP_OS_FAMILY === 'Windows', 'Path resolution differs on Windows');
+
+test('readonly shell command list excludes write-capable tools', function () {
+    expect(ShellConfigResolver::READ_ONLY_SHELL_COMMANDS)->not->toContain('find');
+    expect(ShellConfigResolver::READ_ONLY_SHELL_COMMANDS)->not->toContain('sed');
+    expect(ShellConfigResolver::READ_ONLY_SHELL_COMMANDS)->not->toContain('awk');
+    expect(ShellConfigResolver::READ_ONLY_SHELL_COMMANDS)->not->toContain('sort');
+});
