@@ -29,6 +29,8 @@ use CoquiBot\Coqui\Provider\FallbackProvider;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Contract\PromptSection;
+use CoquiBot\Coqui\Contract\PromptSectionPriority;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\RoleToolkitResolver;
@@ -49,6 +51,7 @@ use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Memory\MemoryEntry;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
@@ -109,6 +112,7 @@ final class OrchestratorAgent extends AbstractAgent
     private ToolSearchTool $toolSearchTool;
     private ?ContextWindowInterface $contextWindowInstance = null;
     private ?SummarizePruningStrategy $pruningStrategyInstance = null;
+    private readonly ?ToolExecutorInterface $childToolExecutor;
 
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
@@ -118,6 +122,24 @@ final class OrchestratorAgent extends AbstractAgent
 
     /** @var array<string, ToolkitLoadingMode> Applied loading modes for REPL display (toolkit basename => mode) */
     private array $appliedLoadingModes = [];
+
+    /** @var array<int, array{name: string, package: string, description: string, mode: string, configured_mode: string, reason: string, tokens: int, frequency: int|null, rank: int|null}> Toolkit budget decisions for prompt preview surfaces */
+    private array $toolkitLoadingDecisions = [];
+
+    /** @var array{effective_role: string, budget_tokens: int, budget_source: string, promotion_budget_percent: int, promotion_budget_source: string, promotion_budget_tokens: int, auto_candidate_count: int, auto_candidate_tokens: int, used_promotion_budget_tokens: int, within_budget: bool, deferred_count: int} Budget summary captured during toolkit gating */
+    private array $toolkitBudgetSnapshot = [
+        'effective_role' => 'orchestrator',
+        'budget_tokens' => CoquiDefaults::TOOLKIT_TOKEN_BUDGET,
+        'budget_source' => 'default',
+        'promotion_budget_percent' => CoquiDefaults::TOOLKIT_PROMOTION_BUDGET_PERCENT,
+        'promotion_budget_source' => 'default',
+        'promotion_budget_tokens' => 0,
+        'auto_candidate_count' => 0,
+        'auto_candidate_tokens' => 0,
+        'used_promotion_budget_tokens' => 0,
+        'within_budget' => true,
+        'deferred_count' => 0,
+    ];
 
     // Prompt cache — avoids rebuilding from disk (glob + file reads) on every iteration
     private ?string $cachedInstructions = null;
@@ -135,6 +157,7 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly string $workspacePath,
         private readonly ?SessionStorage $storage = null,
         private readonly ?string $sessionId = null,
+        private readonly ?string $currentTurnId = null,
         private readonly ?SplObserver $observer = null,
         ?ToolkitDiscovery $discovery = null,
         int $maxIterations = AbstractAgent::DEFAULT_MAX_ITERATIONS,
@@ -168,6 +191,8 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?string $defaultProjectId = null,
         private readonly ?string $defaultSprintId = null,
     ) {
+        $this->childToolExecutor = $toolExecutor;
+
         // Initialise the registry before parent::__construct() so that our
         // addToolkit() override can populate it immediately for every toolkit added.
         $this->toolRegistry = new ToolRegistry();
@@ -292,6 +317,17 @@ final class OrchestratorAgent extends AbstractAgent
         // Memory toolkit — SQLite-backed with optional vector search
         if ($this->memoryStore !== null) {
             $this->addToolkit(new MemoryToolkit($this->memoryStore));
+        }
+
+        // Skill toolkit — discovered reusable instructions with usage attribution.
+        if ($this->skillDiscovery !== null && $effectiveAccessLevel !== 'minimal') {
+            $this->addToolkit(new SkillToolkit(
+                discovery: $this->skillDiscovery,
+                lifecycleStore: $this->storage !== null ? new SkillLifecycleStore($this->storage->getPdo()) : null,
+                sessionId: $this->sessionId,
+                turnId: $this->currentTurnId,
+                agentRole: $this->activeRole ?? 'orchestrator',
+            ));
         }
 
         // Artifact toolkit — versioned output tracking (shares database with session storage)
@@ -479,14 +515,23 @@ final class OrchestratorAgent extends AbstractAgent
         // Session evaluation toolkit
         if ($this->roleToolkitResolver->isToolkitAllowed(SessionEvaluationToolkit::class) && $this->storage !== null) {
             $evaluationStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
+            $skillLifecycleStore = new SkillLifecycleStore($this->storage->getPdo());
             $lookbackHours = (int) ($this->config->get('agents.defaults.evaluation.lookbackHours') ?? 24);
             $inactivityHours = (int) ($this->config->get('agents.defaults.evaluation.inactivityHours') ?? 3);
+            $qualityAutomation = new QualityAutomationCoordinator(
+                config: $this->config,
+                storage: $this->storage,
+                evaluationStore: $evaluationStore,
+            );
             $candidateToolkits[] = [
                 'toolkit' => new SessionEvaluationToolkit(
                     evaluationStore: $evaluationStore,
                     storage: $this->storage,
                     defaultLookbackHours: $lookbackHours,
                     defaultInactivityHours: $inactivityHours,
+                    qualityAutomation: $qualityAutomation,
+                    artifactStore: $artifactStore ?? null,
+                    skillLifecycleStore: $skillLifecycleStore,
                 ),
                 'package' => '',
                 'description' => 'session evaluation and grading',
@@ -499,6 +544,7 @@ final class OrchestratorAgent extends AbstractAgent
             $candidateToolkits[] = [
                 'toolkit' => new LearningToolkit(
                     evaluationStore: $learnerEvalStore,
+                    skillLifecycleStore: new SkillLifecycleStore($this->storage->getPdo()),
                 ),
                 'package' => '',
                 'description' => 'autonomous learning from evaluations',
@@ -528,6 +574,7 @@ final class OrchestratorAgent extends AbstractAgent
             visibilityRegistry: $this->visibilityRegistry,
             shellDeniedCommands: $shellDenied,
             unsafeMode: $this->unsafeMode,
+            toolExecutor: $this->childToolExecutor,
         );
 
         // Create credential tool for API key management
@@ -1119,11 +1166,385 @@ final class OrchestratorAgent extends AbstractAgent
     }
 
     /**
+     * Token breakdown for prompt sections with pinning and rationale metadata.
+     *
+     * @return array<int, array{id: string, title: string, group: string, priority: string, pinned: bool, deferrable: bool, included: bool, decision: string, rationale: string, source: string|null, tokens: int}>
+     */
+    public function getPromptSectionBreakdown(TokenCounterInterface $counter): array
+    {
+        $breakdown = [];
+
+        foreach ($this->buildPromptSections() as $section) {
+            $breakdown[] = $section->toTelemetryArray($counter->count($section->content));
+        }
+
+        usort(
+            $breakdown,
+            static fn(array $a, array $b) => $b['tokens'] <=> $a['tokens'],
+        );
+
+        return $breakdown;
+    }
+
+    /**
      * Token count for standalone tools (not part of any toolkit).
      */
     public function getStandaloneToolTokens(TokenCounterInterface $counter): int
     {
         return $counter->countTools($this->tools());
+    }
+
+    /**
+     * @return list<PromptSection>
+     */
+    private function buildPromptSections(): array
+    {
+        $sections = [];
+
+        foreach ($this->buildMemoryPromptSections() as $section) {
+            $sections[] = $section;
+        }
+
+        foreach ($this->buildInstructionPromptSections() as $section) {
+            $sections[] = $section;
+        }
+
+        if (($deferred = $this->buildDeferredToolkitPromptSection()) !== null) {
+            $sections[] = $deferred;
+        }
+
+        if (($project = $this->buildActiveProjectPromptSection()) !== null) {
+            $sections[] = $project;
+        }
+
+        if (($iteration = $this->buildIterationBudgetPromptSection()) !== null) {
+            $sections[] = $iteration;
+        }
+
+        foreach ($this->buildToolkitGuidelinePromptSections() as $section) {
+            $sections[] = $section;
+        }
+
+        return $sections;
+    }
+
+    /**
+     * @return list<PromptSection>
+     */
+    private function buildInstructionPromptSections(): array
+    {
+        if ($this->activeRole !== null && $this->activeRole !== 'orchestrator' && $this->roleDiscovery !== null) {
+            try {
+                $roleInstructions = $this->roleDiscovery->readInstructions($this->activeRole);
+
+                return [new PromptSection(
+                    id: 'role.' . $this->activeRole,
+                    title: ucfirst(str_replace('-', ' ', $this->activeRole)) . ' Instructions',
+                    content: $roleInstructions,
+                    priority: PromptSectionPriority::Critical,
+                    rationale: 'Role-specific instructions define the active agent behavior for this turn and cannot be deferred safely.',
+                    decision: 'pinned_critical',
+                    group: 'identity',
+                )];
+            } catch (\Throwable) {
+                // Fall back to the orchestrator prompt sections below.
+            }
+        }
+
+        $roles = implode(', ', $this->roleResolver->availableRoles());
+        $skillsSummary = $this->skillDiscovery?->buildPromptSummary() ?? 'No skills installed.';
+        $storageMap = $this->mountManager?->storageMap() ?? '';
+
+        $timeSinceLastMessage = 'New session';
+        if ($this->storage !== null && $this->sessionId !== null) {
+            $session = $this->storage->getSession($this->sessionId);
+            $timeSinceLastMessage = $this->formatTimeSince($session['updated_at'] ?? null);
+        }
+
+        $prompt = new OrchestratorPrompt(
+            workspacePath: $this->workspacePath,
+            projectRoot: $this->projectRoot,
+            availableRoles: $roles,
+            availableSkills: $skillsSummary,
+            storageMap: $storageMap,
+            timeSinceLastMessage: $timeSinceLastMessage,
+        );
+
+        $sections = [];
+        foreach ($prompt->renderSections() as $entry) {
+            $sections[] = $this->classifyInstructionPromptSection(
+                id: $entry['id'],
+                title: $entry['title'],
+                content: $entry['content'],
+                source: $entry['source'],
+            );
+        }
+
+        return $sections;
+    }
+
+    private function classifyInstructionPromptSection(string $id, string $title, string $content, string $source): PromptSection
+    {
+        return match ($id) {
+            'base' => new PromptSection(
+                id: 'prompt.base',
+                title: $title,
+                content: $content,
+                priority: PromptSectionPriority::Critical,
+                rationale: 'The base prompt defines the orchestrator identity and default operating rules, so it stays pinned.',
+                decision: 'pinned_critical',
+                group: 'identity',
+                source: $source,
+            ),
+            'security' => new PromptSection(
+                id: 'prompt.security',
+                title: $title,
+                content: $content,
+                priority: PromptSectionPriority::Critical,
+                rationale: 'Security guardrails must stay pinned so safety decisions do not depend on recency.',
+                decision: 'pinned_critical',
+                group: 'identity',
+                source: $source,
+            ),
+            'done' => new PromptSection(
+                id: 'prompt.done',
+                title: $title,
+                content: $content,
+                priority: PromptSectionPriority::Critical,
+                rationale: 'Completion rules stay pinned so the agent knows when and how to finish tool-driven loops.',
+                decision: 'pinned_critical',
+                group: 'identity',
+                source: $source,
+            ),
+            default => new PromptSection(
+                id: 'prompt.' . $id,
+                title: $title,
+                content: $content,
+                priority: PromptSectionPriority::Volatile,
+                rationale: sprintf('%s provides tool-usage guidance that improves quality but is more deferrable than identity or workflow state.', $title),
+                decision: 'included_volatile',
+                group: 'tool_prompts',
+                source: $source,
+            ),
+        };
+    }
+
+    /**
+     * @return list<PromptSection>
+     */
+    private function buildMemoryPromptSections(): array
+    {
+        if ($this->memorySummarizer === null) {
+            return [];
+        }
+
+        $utilityProvider = $this->resolveUtilityProvider();
+        $memorySummary = $this->memorySummarizer->getSummary($utilityProvider);
+
+        if ($memorySummary === '') {
+            return [];
+        }
+
+        $sections = [new PromptSection(
+            id: 'context.core-memories',
+            title: 'Core Memories',
+            content: "# CORE MEMORIES\n\n" . $memorySummary,
+            priority: PromptSectionPriority::Workflow,
+            rationale: 'Core memories preserve durable user and project knowledge, so they stay pinned as workflow context.',
+            decision: 'pinned_workflow',
+            group: 'memory',
+        )];
+
+        if ($this->memoryStore === null) {
+            return $sections;
+        }
+
+        $topMemories = $this->memoryStore->getTopImportantMemories(5);
+        if ($topMemories === []) {
+            return $sections;
+        }
+
+        $bullets = array_map(
+            static fn(MemoryEntry $entry) => '- ' . $entry->content,
+            $topMemories,
+        );
+
+        $sections[] = new PromptSection(
+            id: 'context.key-memory-reminder',
+            title: 'Key Context Reminder',
+            content: "# KEY CONTEXT REMINDER\n\nCritical user context (refer to CORE MEMORIES for full details):\n" . implode("\n", $bullets),
+            priority: PromptSectionPriority::Workflow,
+            rationale: 'The reminder keeps the highest-value memory facts near the end of the prompt without dropping the full summary.',
+            decision: 'pinned_workflow',
+            group: 'memory',
+        );
+
+        return $sections;
+    }
+
+    private function buildActiveProjectPromptSection(): ?PromptSection
+    {
+        $projectId = $this->resolveActiveProjectId();
+        if ($projectId === null || $this->projectStore === null) {
+            return null;
+        }
+
+        try {
+            $todoStore = null;
+            if ($this->storage !== null) {
+                $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
+            }
+
+            $context = $this->projectStore->getProjectContext(
+                $projectId,
+                $todoStore,
+                $this->sessionId,
+            );
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $project = $context['project'];
+        $lines = [
+            '# ACTIVE PROJECT',
+            '',
+            sprintf('**%s** (`%s`) — %s', $project['title'], $project['slug'], $project['status']),
+        ];
+
+        if (!empty($project['description'])) {
+            $lines[] = $project['description'];
+        }
+
+        $lines[] = sprintf('Project directory: `projects/%s/`', $context['directory']);
+
+        if ($context['sprints'] !== []) {
+            $lines[] = '';
+            $lines[] = '**Sprints:**';
+            foreach ($context['sprints'] as $sprint) {
+                $progress = '';
+                if (isset($sprint['progress']['percent'])) {
+                    $progress = sprintf(
+                        ' %d%% (%d/%d)',
+                        $sprint['progress']['percent'],
+                        $sprint['progress']['completed'],
+                        $sprint['progress']['total'],
+                    );
+                }
+                $lines[] = sprintf(
+                    '- #%d %s [%s]%s',
+                    $sprint['sprint_number'],
+                    $sprint['title'],
+                    $sprint['status'],
+                    $progress,
+                );
+            }
+        }
+
+        $lines[] = '';
+        $lines[] = 'All work in this session is scoped to this project. Use `project_switch` or `/projects clear` to change.';
+
+        return new PromptSection(
+            id: 'context.active-project',
+            title: 'Active Project',
+            content: implode("\n", $lines),
+            priority: PromptSectionPriority::Workflow,
+            rationale: 'Active project state stays pinned so tasks, artifacts, and sprint work remain scoped correctly.',
+            decision: 'pinned_workflow',
+            group: 'project',
+        );
+    }
+
+    private function buildDeferredToolkitPromptSection(): ?PromptSection
+    {
+        if ($this->deferredToolkitInfo === []) {
+            return null;
+        }
+
+        $lines = [
+            '# DEFERRED TOOLKITS',
+            '',
+            'Additional toolkits are available but not loaded in context. Use `tool_search` to discover their tools:',
+        ];
+
+        foreach ($this->deferredToolkitInfo as $info) {
+            $label = $info['package'] !== '' ? $info['package'] : $info['name'];
+            $desc = $info['description'] !== '' ? " — {$info['description']}" : '';
+            $lines[] = "- {$label}{$desc}";
+        }
+
+        $lines[] = '';
+        $lines[] = 'Use `tool_search("keyword")` to find specific tools, or `toolkit_list` for a full inventory.';
+
+        return new PromptSection(
+            id: 'context.deferred-toolkits',
+            title: 'Deferred Toolkits',
+            content: implode("\n", $lines),
+            priority: PromptSectionPriority::Volatile,
+            rationale: 'Deferred toolkit hints improve discoverability, but they are more deferrable than pinned identity and workflow state.',
+            decision: 'included_volatile',
+            group: 'tool_discovery',
+        );
+    }
+
+    private function buildIterationBudgetPromptSection(): ?PromptSection
+    {
+        if ($this->maxIterations() === 0) {
+            return null;
+        }
+
+        $content = sprintf(
+            "# ITERATION BUDGET\n\nYou have **%d iterations** to complete this task. Each iteration is one round-trip with the provider — you send a message, receive a response, and optionally execute tool calls. When all iterations are consumed, execution stops.\n\n**Manage your budget wisely:**\n- Batch multiple independent tool calls in a single iteration when possible.\n- Prioritize the most impactful actions early.\n- If you are running low on iterations, summarize your progress and prepare questions or next steps for the user so work can continue in the next turn.",
+            $this->maxIterations(),
+        );
+
+        return new PromptSection(
+            id: 'system.iteration-budget',
+            title: 'Iteration Budget',
+            content: $content,
+            priority: PromptSectionPriority::Critical,
+            rationale: 'Iteration budget remains pinned so the agent can actively manage finite execution headroom.',
+            decision: 'pinned_critical',
+            group: 'iteration_budget',
+        );
+    }
+
+    /**
+     * @return list<PromptSection>
+     */
+    private function buildToolkitGuidelinePromptSections(): array
+    {
+        $sections = [];
+
+        foreach ($this->ownToolkits as $toolkit) {
+            $guidelines = $toolkit->guidelines();
+            if ($guidelines === '') {
+                continue;
+            }
+
+            if ($toolkit instanceof StubToolkit) {
+                $class = $toolkit->innerClass();
+                $displayName = basename(str_replace('\\', '/', $class)) . ' (stub)';
+            } elseif ($toolkit instanceof CredentialGuardToolkit) {
+                $class = $toolkit->innerClass();
+                $displayName = basename(str_replace('\\', '/', $class));
+            } else {
+                $class = $toolkit::class;
+                $displayName = basename(str_replace('\\', '/', $class));
+            }
+
+            $sections[] = new PromptSection(
+                id: 'toolkit.' . strtolower(preg_replace('/[^a-z0-9]+/i', '-', $displayName) ?? $displayName),
+                title: $displayName,
+                content: $guidelines,
+                priority: PromptSectionPriority::Volatile,
+                rationale: sprintf('%s guidelines improve tool-use quality, but they are more deferrable than pinned identity or workflow context.', $displayName),
+                decision: 'included_toolkit_guidance',
+                group: 'toolkit_guidelines',
+                source: $class,
+            );
+        }
+
+        return $sections;
     }
 
 
@@ -1258,19 +1679,42 @@ final class OrchestratorAgent extends AbstractAgent
      */
     private function applyToolkitBudgetGate(array $candidates): void
     {
+        $effectiveRole = $this->effectiveRoleName();
+        $budgetConfig = $this->resolveRoleScopedIntConfig(
+            roleKey: 'toolkitTokenBudget',
+            globalKey: 'agents.defaults.toolkitTokenBudget',
+            default: CoquiDefaults::TOOLKIT_TOKEN_BUDGET,
+        );
+        $promotionPercentConfig = $this->resolveRoleScopedIntConfig(
+            roleKey: 'toolkitPromotionBudgetPercent',
+            globalKey: 'agents.defaults.toolkitPromotionBudgetPercent',
+            default: CoquiDefaults::TOOLKIT_PROMOTION_BUDGET_PERCENT,
+            min: 0,
+            max: 100,
+        );
+
+        $budget = $budgetConfig['value'];
+        $promotionPercent = $promotionPercentConfig['value'];
+        $promotionBudget = (int) ($budget * $promotionPercent / 100);
+
+        $this->toolkitLoadingDecisions = [];
+        $this->toolkitBudgetSnapshot = [
+            'effective_role' => $effectiveRole,
+            'budget_tokens' => $budget,
+            'budget_source' => $budgetConfig['source'],
+            'promotion_budget_percent' => $promotionPercent,
+            'promotion_budget_source' => $promotionPercentConfig['source'],
+            'promotion_budget_tokens' => $promotionBudget,
+            'auto_candidate_count' => 0,
+            'auto_candidate_tokens' => 0,
+            'used_promotion_budget_tokens' => 0,
+            'within_budget' => true,
+            'deferred_count' => 0,
+        ];
+
         if (empty($candidates)) {
             return;
         }
-
-        // Resolve token budget from config (default: CoquiDefaults::TOOLKIT_TOKEN_BUDGET)
-        $budgetCfg = $this->config->get('agents.defaults.toolkitTokenBudget');
-        $budget = is_numeric($budgetCfg) ? (int) $budgetCfg : CoquiDefaults::TOOLKIT_TOKEN_BUDGET;
-
-        // Resolve promotion budget percentage (what fraction of budget Auto candidates can fill)
-        $promotionPercentCfg = $this->config->get('agents.defaults.toolkitPromotionBudgetPercent');
-        $promotionPercent = is_numeric($promotionPercentCfg)
-            ? max(0, min(100, (int) $promotionPercentCfg))
-            : CoquiDefaults::TOOLKIT_PROMOTION_BUDGET_PERCENT;
 
         $counter = new HeuristicCounter();
 
@@ -1303,6 +1747,15 @@ final class OrchestratorAgent extends AbstractAgent
             if ($mode === ToolkitLoadingMode::Eager) {
                 $this->addToolkit($toolkit, $package);
                 $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Eager;
+                $this->recordToolkitLoadingDecision(
+                    name: $basename,
+                    package: $package,
+                    description: $entry['description'],
+                    mode: ToolkitLoadingMode::Eager,
+                    configuredMode: $mode,
+                    reason: 'explicit_eager',
+                    tokens: $candidateTokens[$idx],
+                );
             } elseif ($mode === ToolkitLoadingMode::Deferred) {
                 $this->addToolkit(new StubToolkit($toolkit), $package);
                 $this->deferredToolkitInfo[] = [
@@ -1311,6 +1764,15 @@ final class OrchestratorAgent extends AbstractAgent
                     'package' => $package,
                 ];
                 $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Deferred;
+                $this->recordToolkitLoadingDecision(
+                    name: $basename,
+                    package: $package,
+                    description: $entry['description'],
+                    mode: ToolkitLoadingMode::Deferred,
+                    configuredMode: $mode,
+                    reason: 'explicit_deferred',
+                    tokens: $candidateTokens[$idx],
+                );
             }
         }
 
@@ -1330,22 +1792,36 @@ final class OrchestratorAgent extends AbstractAgent
             $totalAutoTokens += $candidateTokens[$idx];
         }
 
+        $this->toolkitBudgetSnapshot['auto_candidate_count'] = count($autoCandidateIndices);
+        $this->toolkitBudgetSnapshot['auto_candidate_tokens'] = $totalAutoTokens;
+        $this->toolkitBudgetSnapshot['within_budget'] = $totalAutoTokens <= $budget;
+
         // Under budget: load all Auto candidates eagerly
         if ($totalAutoTokens <= $budget) {
             foreach ($autoCandidates as $entry) {
                 $basename = self::toolkitBasename($entry['toolkit']);
                 $this->addToolkit($entry['toolkit'], $entry['package']);
                 $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Eager;
+                $this->recordToolkitLoadingDecision(
+                    name: $basename,
+                    package: $entry['package'],
+                    description: $entry['description'],
+                    mode: ToolkitLoadingMode::Eager,
+                    configuredMode: ToolkitLoadingMode::Auto,
+                    reason: 'auto_within_budget',
+                    tokens: $candidateTokens[$entry['_budget_idx']],
+                );
             }
+
+            $this->toolkitBudgetSnapshot['deferred_count'] = count($this->deferredToolkitInfo);
             return;
         }
 
         // Over budget: rank by frequency, promote until promotion budget exhausted
-        $promotionBudget = (int) ($budget * $promotionPercent / 100);
         $rankedAuto = $this->rankCandidatesByFrequency($autoCandidates);
 
         $usedBudget = 0;
-        foreach ($rankedAuto as $entry) {
+        foreach ($rankedAuto as $rank => $entry) {
             $budgetIdx = $entry['_budget_idx'];
             $tokens = $candidateTokens[$budgetIdx];
             $toolkit = $entry['toolkit'];
@@ -1356,6 +1832,17 @@ final class OrchestratorAgent extends AbstractAgent
                 $this->addToolkit($toolkit, $package);
                 $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Eager;
                 $usedBudget += $tokens;
+                $this->recordToolkitLoadingDecision(
+                    name: $basename,
+                    package: $package,
+                    description: $entry['description'],
+                    mode: ToolkitLoadingMode::Eager,
+                    configuredMode: ToolkitLoadingMode::Auto,
+                    reason: 'auto_promoted_by_frequency',
+                    tokens: $tokens,
+                    frequency: $entry['frequency'],
+                    rank: $rank + 1,
+                );
             } else {
                 $this->addToolkit(new StubToolkit($toolkit), $package);
                 $this->deferredToolkitInfo[] = [
@@ -1364,8 +1851,22 @@ final class OrchestratorAgent extends AbstractAgent
                     'package' => $package,
                 ];
                 $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Deferred;
+                $this->recordToolkitLoadingDecision(
+                    name: $basename,
+                    package: $package,
+                    description: $entry['description'],
+                    mode: ToolkitLoadingMode::Deferred,
+                    configuredMode: ToolkitLoadingMode::Auto,
+                    reason: 'auto_deferred_budget',
+                    tokens: $tokens,
+                    frequency: $entry['frequency'],
+                    rank: $rank + 1,
+                );
             }
         }
+
+        $this->toolkitBudgetSnapshot['used_promotion_budget_tokens'] = $usedBudget;
+        $this->toolkitBudgetSnapshot['deferred_count'] = count($this->deferredToolkitInfo);
     }
 
     /**
@@ -1476,6 +1977,94 @@ final class OrchestratorAgent extends AbstractAgent
     public function getAppliedLoadingModes(): array
     {
         return $this->appliedLoadingModes;
+    }
+
+    /**
+     * @return array<int, array{name: string, package: string, description: string, mode: string, configured_mode: string, reason: string, tokens: int, frequency: int|null, rank: int|null}>
+     */
+    public function getToolkitLoadingDecisions(): array
+    {
+        return $this->toolkitLoadingDecisions;
+    }
+
+    /**
+     * @return array{effective_role: string, budget_tokens: int, budget_source: string, promotion_budget_percent: int, promotion_budget_source: string, promotion_budget_tokens: int, auto_candidate_count: int, auto_candidate_tokens: int, used_promotion_budget_tokens: int, within_budget: bool, deferred_count: int}
+     */
+    public function getToolkitBudgetSnapshot(): array
+    {
+        return $this->toolkitBudgetSnapshot;
+    }
+
+    /**
+     * @return array{value: int, source: string}
+     */
+    private function resolveRoleScopedIntConfig(string $roleKey, string $globalKey, int $default, ?int $min = null, ?int $max = null): array
+    {
+        $effectiveRole = $this->effectiveRoleName();
+        $rolePath = sprintf('agents.defaults.roles.%s.%s', $effectiveRole, $roleKey);
+        $roleValue = $this->config->get($rolePath);
+
+        if (is_numeric($roleValue)) {
+            return [
+                'value' => $this->clampInt((int) $roleValue, $min, $max),
+                'source' => $rolePath,
+            ];
+        }
+
+        $globalValue = $this->config->get($globalKey);
+        if (is_numeric($globalValue)) {
+            return [
+                'value' => $this->clampInt((int) $globalValue, $min, $max),
+                'source' => $globalKey,
+            ];
+        }
+
+        return [
+            'value' => $this->clampInt($default, $min, $max),
+            'source' => 'default',
+        ];
+    }
+
+    private function effectiveRoleName(): string
+    {
+        return ($this->activeRole === null || $this->activeRole === '') ? 'orchestrator' : $this->activeRole;
+    }
+
+    private function clampInt(int $value, ?int $min = null, ?int $max = null): int
+    {
+        if ($min !== null && $value < $min) {
+            $value = $min;
+        }
+
+        if ($max !== null && $value > $max) {
+            $value = $max;
+        }
+
+        return $value;
+    }
+
+    private function recordToolkitLoadingDecision(
+        string $name,
+        string $package,
+        string $description,
+        ToolkitLoadingMode $mode,
+        ToolkitLoadingMode $configuredMode,
+        string $reason,
+        int $tokens,
+        ?int $frequency = null,
+        ?int $rank = null,
+    ): void {
+        $this->toolkitLoadingDecisions[] = [
+            'name' => $name,
+            'package' => $package,
+            'description' => $description,
+            'mode' => $mode->value,
+            'configured_mode' => $configuredMode->value,
+            'reason' => $reason,
+            'tokens' => $tokens,
+            'frequency' => $frequency,
+            'rank' => $rank,
+        ];
     }
 
     /**

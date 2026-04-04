@@ -67,6 +67,7 @@ final class LoopStore
                 role TEXT NOT NULL,
                 task_id TEXT,
                 artifact_id TEXT,
+                metadata TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
                 result_summary TEXT,
                 started_at TEXT,
@@ -78,6 +79,24 @@ final class LoopStore
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_loops_status ON loops(status)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_loop_iterations_loop ON loop_iterations(loop_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_loop_stages_iteration ON loop_stages(iteration_id)');
+
+        $this->migrateAddColumn('loop_stages', 'metadata', 'TEXT DEFAULT NULL');
+    }
+
+    private function migrateAddColumn(string $table, string $column, string $definition): void
+    {
+        $stmt = $this->db->query("PRAGMA table_info({$table})");
+        if ($stmt === false) {
+            return;
+        }
+
+        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $exists = array_any($columns, static fn(array $col): bool => $col['name'] === $column);
+        if ($exists) {
+            return;
+        }
+
+        $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
     }
 
     // ──────────────────────────────────────────────
@@ -312,21 +331,23 @@ final class LoopStore
         ?string $taskId = null,
         ?string $artifactId = null,
         ?string $resultSummary = null,
+        ?array $metadata = null,
     ): void {
         $now = gmdate('Y-m-d\TH:i:s\Z');
+        $metadataJson = $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null;
 
         if ($status === 'running') {
             $stmt = $this->db->prepare(<<<'SQL'
-                UPDATE loop_stages SET status = ?, task_id = COALESCE(?, task_id), started_at = COALESCE(started_at, ?) WHERE id = ?
+                UPDATE loop_stages SET status = ?, task_id = COALESCE(?, task_id), metadata = COALESCE(?, metadata), started_at = COALESCE(started_at, ?) WHERE id = ?
             SQL);
-            $stmt->execute([$status, $taskId, $now, $id]);
+            $stmt->execute([$status, $taskId, $metadataJson, $now, $id]);
         } else {
             $completedAt = in_array($status, ['completed', 'failed'], true) ? $now : null;
 
             $stmt = $this->db->prepare(<<<'SQL'
-                UPDATE loop_stages SET status = ?, task_id = COALESCE(?, task_id), artifact_id = COALESCE(?, artifact_id), result_summary = COALESCE(?, result_summary), completed_at = COALESCE(?, completed_at) WHERE id = ?
+                UPDATE loop_stages SET status = ?, task_id = COALESCE(?, task_id), artifact_id = COALESCE(?, artifact_id), metadata = COALESCE(?, metadata), result_summary = COALESCE(?, result_summary), completed_at = COALESCE(?, completed_at) WHERE id = ?
             SQL);
-            $stmt->execute([$status, $taskId, $artifactId, $resultSummary, $completedAt, $id]);
+            $stmt->execute([$status, $taskId, $artifactId, $metadataJson, $resultSummary, $completedAt, $id]);
         }
     }
 

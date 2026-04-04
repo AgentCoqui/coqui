@@ -119,6 +119,7 @@ final readonly class TaskHandler
         $limit = isset($params['limit']) ? min((int) $params['limit'], 200) : 50;
 
         $tasks = $this->storage->listTasks($status, $limit);
+        $tasks = array_map(fn(array $task): array => $this->normalizeTask($task), $tasks);
 
         return Router::jsonResponse([
             'tasks' => $tasks,
@@ -139,9 +140,35 @@ final readonly class TaskHandler
         }
 
         // Add live process status
+        $task = $this->normalizeTask($task);
         $task['process_alive'] = $this->taskManager->isRunning($id);
 
         return Router::jsonResponse($task);
+    }
+
+    /**
+     * @param array<string, mixed> $task
+     * @return array<string, mixed>
+     */
+    private function normalizeTask(array $task): array
+    {
+        $task['metadata'] = $this->decodeJsonObject($task['metadata'] ?? null);
+
+        return $task;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function decodeJsonObject(mixed $value): ?array
+    {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+
+        $decoded = json_decode($value, true);
+
+        return is_array($decoded) ? $decoded : null;
     }
 
     /**

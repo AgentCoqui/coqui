@@ -14,6 +14,7 @@ use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\SkillParser;
 use CoquiBot\Coqui\Exception\SkillNotFoundException;
 use CoquiBot\Coqui\Exception\SkillValidationException;
+use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 
 /**
  * Toolkit providing skill management tools.
@@ -31,6 +32,10 @@ final class SkillToolkit implements ToolkitInterface
 
     public function __construct(
         private readonly SkillDiscovery $discovery,
+        private readonly ?SkillLifecycleStore $lifecycleStore = null,
+        private readonly ?string $sessionId = null,
+        private readonly ?string $turnId = null,
+        private readonly ?string $agentRole = null,
     ) {
         $this->parser = new SkillParser();
     }
@@ -137,6 +142,8 @@ final class SkillToolkit implements ToolkitInterface
                     );
                 }
 
+                $this->recordUsage($name, 'read', 'skill_read');
+
                 return ToolResult::success($body);
             },
         );
@@ -229,6 +236,12 @@ final class SkillToolkit implements ToolkitInterface
 
                 // Invalidate cache so the new skill is immediately visible
                 $this->discovery->invalidateCache();
+
+                $this->recordUsage($name, 'create', 'skill_create', [
+                    'description' => $description,
+                    'license' => $license,
+                    'compatibility' => $compatibility,
+                ]);
 
                 return ToolResult::success(
                     sprintf("Skill \"%s\" created successfully at:\n%s", $name, $skillDir),
@@ -324,11 +337,33 @@ final class SkillToolkit implements ToolkitInterface
 
                 $this->discovery->invalidateCache();
 
+                $this->recordUsage($name, 'update', 'skill_update', [
+                    'append' => $append,
+                    'description_changed' => $description !== null && $description !== '',
+                    'instructions_changed' => $instructions !== null,
+                ]);
+
                 $mode = $append ? 'appended to' : 'replaced';
                 return ToolResult::success(
                     sprintf('Skill "%s" updated successfully. Instructions %s.', $name, $mode),
                 );
             },
+        );
+    }
+
+    /**
+     * @param array<string, mixed>|null $metadata
+     */
+    private function recordUsage(string $skillName, string $action, string $sourceTool, ?array $metadata = null): void
+    {
+        $this->lifecycleStore?->recordSkillUsage(
+            skillName: $skillName,
+            action: $action,
+            sourceTool: $sourceTool,
+            sessionId: $this->sessionId,
+            turnId: $this->turnId,
+            agentRole: $this->agentRole,
+            metadata: $metadata,
         );
     }
 }

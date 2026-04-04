@@ -74,6 +74,13 @@ final class TaskHandler
             ['Completed' => $task['completed_at'] ?? '(not completed)'],
         );
 
+        $metadata = $this->decodeJsonObject($task['metadata'] ?? null);
+        if ($metadata !== null) {
+            $io->newLine();
+            $io->text('<fg=cyan>Structured Metadata:</>');
+            $io->writeln(json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}');
+        }
+
         if ($task['result'] !== null) {
             $result = $task['result'];
             if (mb_strlen($result) > 500) {
@@ -162,5 +169,19 @@ final class TaskHandler
         }
 
         return null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function decodeJsonObject(mixed $value): ?array
+    {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+
+        $decoded = json_decode($value, true);
+
+        return is_array($decoded) ? $decoded : null;
     }
 }

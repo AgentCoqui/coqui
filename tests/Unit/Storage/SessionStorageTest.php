@@ -104,6 +104,7 @@ test('logChildRun saves child run data', function () {
         prompt: 'Write a function',
         result: 'function test() {}',
         tokenCount: 150,
+        metadata: ['workflow_phase' => 'delegation', 'intent' => 'delegated_task'],
     );
 
     $runs = $this->storage->getChildRuns($sessionId);
@@ -112,6 +113,24 @@ test('logChildRun saves child run data', function () {
     expect($runs[0]['agent_role'])->toBe('coder');
     expect($runs[0]['parent_iteration'])->toBe(3);
     expect($runs[0]['token_count'])->toBe(150);
+    expect(json_decode((string) $runs[0]['metadata'], true)['workflow_phase'])->toBe('delegation');
+});
+
+test('createTask stores structured metadata', function () {
+    $sessionId = $this->storage->createSession('test', 'model');
+
+    $taskId = $this->storage->createTask(
+        sessionId: $sessionId,
+        prompt: 'Run loop stage',
+        role: 'coder',
+        metadata: ['loop_id' => 'loop-123', 'stage_index' => 1],
+    );
+
+    $task = $this->storage->getTask($taskId);
+
+    expect($task)->not->toBeNull();
+    expect(json_decode((string) $task['metadata'], true)['loop_id'])->toBe('loop-123');
+    expect(json_decode((string) $task['metadata'], true)['stage_index'])->toBe(1);
 });
 
 test('deleteSession removes session and messages', function () {
@@ -227,6 +246,35 @@ test('getPdo returns working connection', function () {
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
     expect($row['id'])->toBe($sessionId);
+});
+
+test('findRecentTaskByTitle returns most recent matching task', function () {
+    $sessionId = $this->storage->createSession('learner', 'quality-automation');
+
+    $firstTaskId = $this->storage->createTask(
+        sessionId: $sessionId,
+        prompt: 'first prompt',
+        role: 'learner',
+        title: 'Quality Learning Follow-up: eval-1',
+    );
+
+    sleep(1);
+
+    $secondTaskId = $this->storage->createTask(
+        sessionId: $sessionId,
+        prompt: 'second prompt',
+        role: 'learner',
+        title: 'Quality Learning Follow-up: eval-1',
+    );
+
+    $task = $this->storage->findRecentTaskByTitle(
+        title: 'Quality Learning Follow-up: eval-1',
+        role: 'learner',
+    );
+
+    expect($task)->not->toBeNull();
+    expect($task['id'])->toBe($secondTaskId);
+    expect($task['id'])->not->toBe($firstTaskId);
 });
 
 test('clearActiveProjectReferences clears matching session pointers only', function () {

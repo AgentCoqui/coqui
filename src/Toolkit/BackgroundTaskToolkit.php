@@ -337,6 +337,11 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             'completed_at' => $task['completed_at'],
         ];
 
+        $metadata = $this->decodeJsonObject($task['metadata'] ?? null);
+        if ($metadata !== null) {
+            $summary['metadata'] = $metadata;
+        }
+
         if ($task['result'] !== null) {
             $result = $task['result'];
             if (mb_strlen($result) > self::RESULT_PREVIEW_LENGTH) {
@@ -397,6 +402,7 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             'role' => $t['role'],
             'created_at' => $t['created_at'],
             'completed_at' => $t['completed_at'],
+            'metadata' => $this->decodeJsonObject($t['metadata'] ?? null),
         ], $tasks);
 
         $counts = $this->storage->getTaskCounts();
@@ -459,5 +465,19 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             'status' => 'cancelling',
             'message' => 'Cancellation signal sent. The task will stop after its current iteration.',
         ], JSON_UNESCAPED_SLASHES) ?: 'Cancel requested');
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function decodeJsonObject(mixed $value): ?array
+    {
+        if (!is_string($value) || $value === '') {
+            return null;
+        }
+
+        $decoded = json_decode($value, true);
+
+        return is_array($decoded) ? $decoded : null;
     }
 }

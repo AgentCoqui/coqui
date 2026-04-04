@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
+use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Router;
@@ -23,6 +24,7 @@ final readonly class HealthHandler
         private ?BackgroundTaskManager $taskManager = null,
         private ?ScheduleStore $scheduleStore = null,
         private ?WebhookStore $webhookStore = null,
+        private ?QualityAutomationStatusService $qualityAutomation = null,
     ) {}
 
     public function __invoke(ServerRequestInterface $request): Response
@@ -50,6 +52,15 @@ final readonly class HealthHandler
 
         if ($this->webhookStore !== null) {
             $data['webhooks'] = $this->webhookStore->getStats();
+        }
+
+        if ($this->qualityAutomation !== null) {
+            $summary = $this->qualityAutomation->summary();
+            $data['quality_automation'] = [
+                'enabled' => $summary['enabled'],
+                'linked_follow_ups' => $summary['follow_ups']['counts']['linked'],
+                'active_follow_ups' => count($summary['follow_ups']['active']),
+            ];
         }
 
         return Router::jsonResponse($data);

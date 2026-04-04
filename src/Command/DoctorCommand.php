@@ -4,12 +4,24 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Command;
 
+use CoquiBot\Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
+use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\CredentialResolver;
 use CoquiBot\Coqui\Config\PathHelper;
 use CoquiBot\Coqui\Config\WorkspaceComposerManager;
 use CoquiBot\Coqui\Config\WorkspaceResolver;
+use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\EvaluationStore;
+use CoquiBot\Coqui\Storage\LoopStore;
+use CoquiBot\Coqui\Storage\ProjectStore;
+use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\TodoStore;
+use CoquiBot\Coqui\Storage\ToolUsageTracker;
+use CoquiBot\Coqui\Storage\WebhookStore;
+use PDO;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -102,10 +114,10 @@ final class DoctorCommand extends Command
         $results['providers'] = $this->checkProviders($io, $workDir, $configPath, $jsonOutput);
 
         // 7. Toolkit discovery
-        $results['toolkits'] = $this->checkToolkits($io, $workspacePath, $jsonOutput);
+        $results['toolkits'] = $this->checkToolkits($io, $workDir, $workspacePath, $jsonOutput);
 
         // 8. Skills
-        $results['skills'] = $this->checkSkills($io, $workspacePath, $jsonOutput);
+        $results['skills'] = $this->checkSkills($io, $workDir, $workspacePath, $jsonOutput);
 
         // 9. Launcher
         $results['launcher'] = $this->checkLauncher($io, $jsonOutput);
@@ -360,7 +372,7 @@ final class DoctorCommand extends Command
         }
 
         // Subdirectories
-        foreach (['data', 'src', 'skills'] as $subdir) {
+        foreach (['data', 'src', 'skills', 'roles', 'loops', 'schedules'] as $subdir) {
             $path = $workspacePath . '/' . $subdir;
             if (is_dir($path)) {
                 $results["dir_{$subdir}"] = ['status' => 'ok'];
@@ -425,18 +437,73 @@ final class DoctorCommand extends Command
             $results['tables'] = ['status' => 'fail', 'missing' => $tableCheck['missing']];
         }
 
+        $pdo = $storage->getPdo();
+
+        $storeChecks = [
+            'evaluation_store' => static fn(PDO $db): mixed => new EvaluationStore($db),
+            'artifact_store' => static fn(PDO $db): mixed => new ArtifactStore($db),
+            'todo_store' => static fn(PDO $db): mixed => new TodoStore($db),
+            'project_store' => static fn(PDO $db): mixed => new ProjectStore($db),
+            'loop_store' => static fn(PDO $db): mixed => new LoopStore($db),
+            'schedule_store' => static fn(PDO $db): mixed => new ScheduleStore($db),
+            'webhook_store' => static fn(PDO $db): mixed => new WebhookStore($db),
+            'tool_usage_tracker' => static fn(PDO $db): mixed => (new ToolUsageTracker($db))->getTopTools(1),
+        ];
+
+        foreach ($storeChecks as $name => $factory) {
+            try {
+                $factory($pdo);
+                $this->ok($io, 'Database: ' . str_replace('_', ' ', $name) . ' initialized', $jsonOutput);
+                $results[$name] = ['status' => 'ok'];
+            } catch (\Throwable $e) {
+                $this->fail($io, 'Database: ' . str_replace('_', ' ', $name) . ' failed — ' . $e->getMessage(), $jsonOutput);
+                $results[$name] = ['status' => 'fail', 'error' => $e->getMessage()];
+            }
+        }
+
         // Stats
         $stats = $storage->getDatabaseStats();
         $sizeKb = round($stats['db_size_bytes'] / 1024);
         $this->ok($io, "Database: {$stats['sessions']} sessions, {$stats['messages']} messages, {$stats['turns']} turns ({$sizeKb} KB)", $jsonOutput);
         $results['stats'] = ['status' => 'ok', 'data' => $stats];
 
+        $extendedStats = [
+            'evaluations' => $this->queryTableCount($pdo, 'evaluations'),
+            'artifacts' => $this->queryTableCount($pdo, 'artifacts'),
+            'todos' => $this->queryTableCount($pdo, 'todos'),
+            'projects' => $this->queryTableCount($pdo, 'projects'),
+            'sprints' => $this->queryTableCount($pdo, 'sprints'),
+            'loops' => $this->queryTableCount($pdo, 'loops'),
+            'scheduled_tasks' => $this->queryTableCount($pdo, 'scheduled_tasks'),
+            'webhook_subscriptions' => $this->queryTableCount($pdo, 'webhook_subscriptions'),
+        ];
+        $this->ok(
+            $io,
+            sprintf(
+                'Database: %d evaluations, %d artifacts, %d todos, %d projects, %d loops, %d schedules, %d webhooks',
+                $extendedStats['evaluations'],
+                $extendedStats['artifacts'],
+                $extendedStats['todos'],
+                $extendedStats['projects'],
+                $extendedStats['loops'],
+                $extendedStats['scheduled_tasks'],
+                $extendedStats['webhook_subscriptions'],
+            ),
+            $jsonOutput,
+        );
+        $results['extended_stats'] = ['status' => 'ok', 'data' => $extendedStats];
+
         // Message integrity check for current session
         $sessionFile = $workspacePath . '/.coqui-session';
+        $currentSessionId = null;
         if (file_exists($sessionFile)) {
             $sessionId = trim(file_get_contents($sessionFile) ?: '');
             if ($sessionId !== '' && $storage->getSession($sessionId) !== null) {
-                $integrity = $storage->checkMessageIntegrity($sessionId);
+                $currentSessionId = $sessionId;
+                $integrity = $storage->checkMessageIntegrity(
+                    $sessionId,
+                    max(200, $this->countSessionMessages($pdo, $sessionId)),
+                );
 
                 if ($integrity['ok']) {
                     $this->ok($io, "Database: current session messages OK ({$sessionId})", $jsonOutput);
@@ -484,13 +551,16 @@ final class DoctorCommand extends Command
             }
         }
 
-        // Check ALL sessions for integrity issues
-        $sessions = $storage->listSessions(50);
+        // Check all non-task sessions for integrity issues
+        $sessions = $this->listUserSessionIds($pdo, $currentSessionId);
         $badSessions = [];
-        foreach ($sessions as $session) {
-            $check = $storage->checkMessageIntegrity($session['id'], 100);
+        foreach ($sessions as $sessionId) {
+            $check = $storage->checkMessageIntegrity(
+                $sessionId,
+                max(100, $this->countSessionMessages($pdo, $sessionId)),
+            );
             if (!$check['ok']) {
-                $badSessions[$session['id']] = count($check['issues']);
+                $badSessions[$sessionId] = count($check['issues']);
             }
         }
 
@@ -513,7 +583,10 @@ final class DoctorCommand extends Command
                 $totalDeleted = 0;
                 foreach (array_keys($badSessions) as $sid) {
                     $totalRepaired += $storage->repairUtf8Content($sid);
-                    $recheck = $storage->checkMessageIntegrity($sid, 100);
+                        $recheck = $storage->checkMessageIntegrity(
+                            $sid,
+                            max(100, $this->countSessionMessages($pdo, $sid)),
+                        );
                     if (!$recheck['ok']) {
                         $badIds = array_map(fn(array $i): string => $i['id'], $recheck['issues']);
                         $totalDeleted += $storage->deleteMessages($badIds);
@@ -526,8 +599,14 @@ final class DoctorCommand extends Command
         } else {
             $checkedCount = count($sessions);
             $this->ok($io, "Database: all {$checkedCount} session(s) pass integrity check", $jsonOutput);
-            $results['other_sessions_integrity'] = ['status' => 'ok'];
+            $results['other_sessions_integrity'] = ['status' => 'ok', 'checked_sessions' => $checkedCount];
         }
+
+        $results['session_integrity_scope'] = [
+            'status' => 'ok',
+            'mode' => 'all_sessions',
+            'excluded_current_session' => $currentSessionId !== null,
+        ];
 
         return $results;
     }
@@ -739,47 +818,63 @@ final class DoctorCommand extends Command
     /**
      * @return array<string, mixed>
      */
-    private function checkToolkits(SymfonyStyle $io, string $workspacePath, bool $jsonOutput): array
+    private function checkToolkits(SymfonyStyle $io, string $workDir, string $workspacePath, bool $jsonOutput): array
     {
         $results = [];
-        $registryPath = $workspacePath . '/toolkits.json';
-
-        if (!file_exists($registryPath)) {
-            $this->warn($io, 'Toolkits: toolkits.json not found', $jsonOutput);
-            $results['registry'] = ['status' => 'warn'];
-            return $results;
-        }
-
-        $content = file_get_contents($registryPath);
-        if ($content === false) {
-            $this->fail($io, 'Toolkits: unable to read toolkits.json', $jsonOutput);
-            $results['registry'] = ['status' => 'fail'];
-            return $results;
-        }
 
         try {
-            $data = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
-            $packageCount = count($data);
-            $toolkitCount = array_sum(array_map('count', $data));
-            $this->ok($io, "Toolkits: {$toolkitCount} toolkit(s) from {$packageCount} package(s)", $jsonOutput);
-            $results['registry'] = ['status' => 'ok', 'packages' => $packageCount, 'toolkits' => $toolkitCount];
-
-            if (!$jsonOutput) {
-                foreach ($data as $package => $classes) {
-                    foreach ($classes as $class) {
-                        $loadable = class_exists($class, true);
-                        $status = $loadable ? '<fg=green>✓</>' : '<fg=red>✗</>';
-                        $io->text("  {$status} {$class} <fg=gray>({$package})</>");
-
-                        if (!$loadable) {
-                            $this->warn($io, "Toolkit class not autoloadable: {$class}", $jsonOutput);
-                        }
-                    }
-                }
-            }
-        } catch (\JsonException $e) {
-            $this->fail($io, "Toolkits: invalid JSON — {$e->getMessage()}", $jsonOutput);
+            $discovery = new ToolkitDiscovery(
+                projectRoot: $workDir,
+                workspacePath: $workspacePath,
+                visibilityRegistry: new ToolkitVisibilityRegistry($workspacePath),
+            );
+            $registry = $discovery->loadRegistry();
+        } catch (\Throwable $e) {
+            $this->fail($io, 'Toolkits: discovery unavailable — ' . $e->getMessage(), $jsonOutput);
             $results['registry'] = ['status' => 'fail', 'error' => $e->getMessage()];
+            return $results;
+        }
+
+        if ($registry === []) {
+            $this->ok($io, 'Toolkits: no registered external toolkits', $jsonOutput);
+            $results['registry'] = ['status' => 'ok', 'packages' => 0, 'toolkits' => 0];
+            return $results;
+        }
+
+        $packageCount = count($registry);
+        $toolkitCount = array_sum(array_map('count', $registry));
+        $this->ok($io, "Toolkits: {$toolkitCount} toolkit(s) from {$packageCount} package(s)", $jsonOutput);
+        $results['registry'] = ['status' => 'ok', 'packages' => $packageCount, 'toolkits' => $toolkitCount];
+
+        $instantiated = [];
+        try {
+            foreach ($discovery->instantiateRegisteredGrouped() as $entry) {
+                $instantiated[] = $entry['toolkit']::class;
+            }
+        } catch (\Throwable $e) {
+            $this->fail($io, 'Toolkits: instantiation failed — ' . $e->getMessage(), $jsonOutput);
+            $results['instantiation'] = ['status' => 'fail', 'error' => $e->getMessage()];
+            return $results;
+        }
+
+        $registeredClasses = [];
+        foreach ($registry as $classes) {
+            foreach ($classes as $class) {
+                $registeredClasses[] = $class;
+            }
+        }
+
+        $missing = array_values(array_diff($registeredClasses, $instantiated));
+        if ($missing === []) {
+            $this->ok($io, 'Toolkits: all registered toolkits are instantiable', $jsonOutput);
+            $results['instantiation'] = ['status' => 'ok', 'count' => count($instantiated)];
+        } else {
+            $this->warn($io, 'Toolkits: ' . count($missing) . ' registered toolkit(s) could not be instantiated', $jsonOutput);
+            $results['instantiation'] = [
+                'status' => 'warn',
+                'count' => count($instantiated),
+                'missing' => $missing,
+            ];
         }
 
         return $results;
@@ -788,62 +883,57 @@ final class DoctorCommand extends Command
     /**
      * @return array<string, mixed>
      */
-    private function checkSkills(SymfonyStyle $io, string $workspacePath, bool $jsonOutput): array
+    private function checkSkills(SymfonyStyle $io, string $workDir, string $workspacePath, bool $jsonOutput): array
     {
         $results = [];
-        $skillsDir = $workspacePath . '/skills';
 
-        if (!is_dir($skillsDir)) {
-            $this->warn($io, 'Skills: skills/ directory not found', $jsonOutput);
-            $results['dir'] = ['status' => 'warn'];
+        try {
+            $toolkitDiscovery = new ToolkitDiscovery(projectRoot: $workDir, workspacePath: $workspacePath);
+            $skillDiscovery = new SkillDiscovery($workspacePath, $toolkitDiscovery->discoverPackageSkillPaths());
+            $skills = $skillDiscovery->discoverAll();
+        } catch (\Throwable $e) {
+            $this->fail($io, 'Skills: discovery failed — ' . $e->getMessage(), $jsonOutput);
+            $results['count'] = ['status' => 'fail', 'error' => $e->getMessage()];
             return $results;
         }
 
-        $entries = scandir($skillsDir);
-        if ($entries === false) {
-            $this->fail($io, 'Skills: unable to read skills/ directory', $jsonOutput);
-            $results['dir'] = ['status' => 'fail'];
-            return $results;
-        }
-
-        $skills = [];
-        $issues = [];
-        foreach ($entries as $entry) {
-            if ($entry === '.' || $entry === '..' || $entry === '.tmp') {
-                continue;
-            }
-
-            $skillDir = $skillsDir . '/' . $entry;
-            if (!is_dir($skillDir)) {
-                continue;
-            }
-
-            $skillMd = $skillDir . '/SKILL.md';
-            if (file_exists($skillMd)) {
-                $skills[] = $entry;
-            } else {
-                $issues[] = $entry;
-            }
-        }
+        $workspaceSkills = array_values(array_map(
+            static fn($skill): string => $skill->name,
+            array_filter($skills, static fn($skill): bool => !$skill->isPackageBundled),
+        ));
+        $packageSkills = array_values(array_map(
+            static fn($skill): string => $skill->name,
+            array_filter($skills, static fn($skill): bool => $skill->isPackageBundled),
+        ));
 
         $skillCount = count($skills);
         if ($skillCount > 0) {
-            $this->ok($io, "Skills: {$skillCount} skill(s) found", $jsonOutput);
-            $results['count'] = ['status' => 'ok', 'skills' => $skills];
+            $this->ok(
+                $io,
+                sprintf(
+                    'Skills: %d skill(s) found (%d workspace, %d package)',
+                    $skillCount,
+                    count($workspaceSkills),
+                    count($packageSkills),
+                ),
+                $jsonOutput,
+            );
+            $results['count'] = [
+                'status' => 'ok',
+                'total' => $skillCount,
+                'workspace' => $workspaceSkills,
+                'package' => $packageSkills,
+            ];
 
             if (!$jsonOutput) {
-                foreach ($skills as $name) {
-                    $io->text("  <fg=gray>•</> {$name}");
+                foreach ($skills as $skill) {
+                    $source = $skill->isPackageBundled ? 'package' : 'workspace';
+                    $io->text("  <fg=gray>•</> {$skill->name} <fg=gray>({$source})</>");
                 }
             }
         } else {
             $this->ok($io, 'Skills: no skills installed (optional)', $jsonOutput);
-            $results['count'] = ['status' => 'ok', 'skills' => []];
-        }
-
-        if (!empty($issues)) {
-            $this->warn($io, 'Skills: ' . count($issues) . ' skill dir(s) missing SKILL.md', $jsonOutput);
-            $results['issues'] = ['status' => 'warn', 'dirs' => $issues];
+            $results['count'] = ['status' => 'ok', 'total' => 0, 'workspace' => [], 'package' => []];
         }
 
         return $results;
@@ -948,6 +1038,50 @@ final class DoctorCommand extends Command
         $results['realpath_cache_size'] = ['status' => 'ok', 'value' => $realpathCacheSize];
 
         return $results;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function listUserSessionIds(PDO $pdo, ?string $excludeSessionId = null): array
+    {
+        $stmt = $pdo->prepare(<<<'SQL'
+            SELECT s.id
+            FROM sessions s
+            LEFT JOIN background_tasks bt ON bt.session_id = s.id
+            WHERE bt.id IS NULL
+              AND (:exclude_session_id IS NULL OR s.id <> :exclude_session_id)
+            ORDER BY s.updated_at DESC
+        SQL);
+        $stmt->bindValue('exclude_session_id', $excludeSessionId, $excludeSessionId === null ? PDO::PARAM_NULL : PDO::PARAM_STR);
+        $stmt->execute();
+
+        /** @var list<string> $ids */
+        $ids = array_map(
+            static fn(array $row): string => (string) $row['id'],
+            $stmt->fetchAll(PDO::FETCH_ASSOC),
+        );
+
+        return $ids;
+    }
+
+    private function countSessionMessages(PDO $pdo, string $sessionId): int
+    {
+        $stmt = $pdo->prepare('SELECT COUNT(*) FROM messages WHERE session_id = :session_id');
+        $stmt->execute(['session_id' => $sessionId]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    private function queryTableCount(PDO $pdo, string $table): int
+    {
+        $stmt = $pdo->query(sprintf('SELECT COUNT(*) FROM %s', $table));
+
+        if ($stmt === false) {
+            return 0;
+        }
+
+        return (int) $stmt->fetchColumn();
     }
 
     private function resolveWorkspacePath(string $workDir, ?string $configPath): string

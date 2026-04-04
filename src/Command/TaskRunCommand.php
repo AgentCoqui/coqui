@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Command;
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
+use CoquiBot\Coqui\Agent\LearnerOutcomeTracker;
 use CoquiBot\Coqui\Api\DatabasePendingInputProvider;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
@@ -16,6 +17,7 @@ use CoquiBot\Coqui\Observer\BackgroundTaskObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -83,6 +85,8 @@ final class TaskRunCommand extends Command
         // Initialize storage
         $dbPath = $boot->workspacePath() . '/data/coqui.db';
         $storage = new SessionStorage($dbPath);
+        $evaluationStore = new \CoquiBot\Coqui\Storage\EvaluationStore($storage->getPdo());
+        $learnerOutcomeTracker = new LearnerOutcomeTracker($evaluationStore, new SkillLifecycleStore($storage->getPdo()));
 
         // Load task definition
         $task = $storage->getTask($taskId);
@@ -199,6 +203,7 @@ final class TaskRunCommand extends Command
                 $storage->updateTaskStatus($taskId, 'cancelled', [
                     'result' => $turnResult->content,
                 ]);
+                $learnerOutcomeTracker->recordFromTask($task, 'cancelled', $turnResult->content, null);
                 $storage->appendTaskEvent($taskId, 'cancelled', [
                     'message' => 'Task was cancelled via SIGTERM',
                 ]);
@@ -211,6 +216,7 @@ final class TaskRunCommand extends Command
                     'error' => $turnResult->error,
                     'result' => $turnResult->content,
                 ]);
+                $learnerOutcomeTracker->recordFromTask($task, 'failed', $turnResult->content, $turnResult->error);
                 $storage->appendTaskEvent($taskId, 'failed', [
                     'error' => $turnResult->error,
                     'duration_ms' => $turnResult->durationMs,
@@ -222,6 +228,7 @@ final class TaskRunCommand extends Command
             $storage->updateTaskStatus($taskId, 'completed', [
                 'result' => $turnResult->content,
             ]);
+            $learnerOutcomeTracker->recordFromTask($task, 'completed', $turnResult->content, null);
             $storage->appendTaskEvent($taskId, 'completed', [
                 'duration_ms' => $turnResult->durationMs,
                 'iterations' => $turnResult->iterations,
@@ -234,6 +241,7 @@ final class TaskRunCommand extends Command
             $storage->updateTaskStatus($taskId, 'failed', [
                 'error' => $e->getMessage(),
             ]);
+            $learnerOutcomeTracker->recordFromTask($task, 'failed', null, $e->getMessage());
             $storage->appendTaskEvent($taskId, 'failed', [
                 'error' => $e->getMessage(),
             ]);

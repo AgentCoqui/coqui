@@ -12,9 +12,13 @@ use CoquiBot\Coqui\Api\WatchJob\ScheduleFileWatchJob;
 use CoquiBot\Coqui\Api\WorkspaceWatcher;
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\LoopExecutor;
+use CoquiBot\Coqui\Agent\QualityAutomationCoordinator;
+use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
+use CoquiBot\Coqui\Api\Handler\BudgetHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
+use CoquiBot\Coqui\Api\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler as ApiLoopHandler;
@@ -44,6 +48,7 @@ use CoquiBot\Coqui\Agent\GoalEvaluator;
 use CoquiBot\Coqui\Agent\ToolBoundEvaluator;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -189,7 +194,15 @@ final class ApiCommand extends Command
         $webhookStore = new WebhookStore($storage->getPdo());
 
         // Create handlers
-        $healthHandler = new HealthHandler($startTime, $turnManager, $taskManager, $scheduleStore, $webhookStore);
+        $evaluationStore = new EvaluationStore($storage->getPdo());
+        $qualityStatus = new QualityAutomationStatusService(
+            config: $boot->config(),
+            storage: $storage,
+            evaluationStore: $evaluationStore,
+            scheduleStore: $scheduleStore,
+        );
+
+        $healthHandler = new HealthHandler($startTime, $turnManager, $taskManager, $scheduleStore, $webhookStore, $qualityStatus);
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
         $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
@@ -201,7 +214,8 @@ final class ApiCommand extends Command
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
-        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $taskManager);
+        $evaluationHandler = new EvaluationHandler($evaluationStore);
+        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $taskManager, $qualityStatus);
 
         $previewRunner = new AgentRunner(
             roleResolver: $boot->roleResolver(),
@@ -227,6 +241,7 @@ final class ApiCommand extends Command
         );
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($previewRunner);
+        $budgetHandler = new BudgetHandler($previewRunner);
         $artifactStore = new ArtifactStore($storage->getPdo());
         $artifactHandler = new ArtifactHandler($artifactStore);
         $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($storage->getPdo());
@@ -243,6 +258,21 @@ final class ApiCommand extends Command
         $projectStore = $boot->projectStore();
 
         $scheduleManager = new ScheduleManager($storage, $scheduleStore);
+        $qualityAutomation = new QualityAutomationCoordinator(
+            config: $boot->config(),
+            storage: $storage,
+            scheduleStore: $scheduleStore,
+        );
+        $createdQualitySchedules = $qualityAutomation->ensureDefaultSchedules();
+        if ($createdQualitySchedules !== []) {
+            $output->writeln(
+                sprintf(
+                    '<fg=gray>Bootstrapped quality schedules: %s</>',
+                    implode(', ', $createdQualitySchedules),
+                ),
+                OutputInterface::VERBOSITY_VERBOSE,
+            );
+        }
 
         // Workspace file watcher — polls directories for changes
         $watcher = new WorkspaceWatcher();
@@ -290,7 +320,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -444,9 +474,11 @@ final class ApiCommand extends Command
         RoleHandler $role,
         TaskHandler $task,
         FileUploadHandler $fileUpload,
+        EvaluationHandler $evaluation,
         ServerHandler $server,
         ToolkitHandler $toolkit,
         PromptHandler $prompt,
+        BudgetHandler $budget,
         ArtifactHandler $artifact,
         \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
         ScheduleHandler $schedule,
@@ -507,10 +539,17 @@ final class ApiCommand extends Command
         // Child runs
         $router->get($v1 . '/sessions/{id}/child-runs', [$session, 'childRuns']);
 
+        // Evaluations (read-only — creation is evaluator-role/tool driven)
+        $router->get($v1 . '/evaluations', [$evaluation, 'list']);
+        $router->get($v1 . '/evaluations/stats', [$evaluation, 'stats']);
+        $router->get($v1 . '/evaluations/{id}', [$evaluation, 'get']);
+
         // Server
         $router->get($v1 . '/server/info', [$server, 'info']);
         $router->get($v1 . '/server/stats', [$server, 'stats']);
+        $router->get($v1 . '/server/quality', [$server, 'quality']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
+        $router->get($v1 . '/server/budget', [$budget, 'get']);
 
         // Artifacts (read-only — create/update/delete are REPL-only)
         $router->get($v1 . '/sessions/{id}/artifacts', [$artifact, 'list']);

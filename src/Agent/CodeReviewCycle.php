@@ -6,12 +6,15 @@ namespace CoquiBot\Coqui\Agent;
 
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
+use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use CoquiBot\Coqui\Contract\ChildAgentHandoff;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\CodeReviewResult;
+use CoquiBot\Coqui\Contract\ReviewHandoffMetadata;
 use CoquiBot\Coqui\Contract\ReviewVerdict;
 use SplObserver;
 
@@ -34,6 +37,7 @@ final class CodeReviewCycle
         private readonly ConfigInterface $config,
         private readonly ?RoleDiscovery $roleDiscovery = null,
         private readonly ?SplObserver $observer = null,
+        private readonly ?ToolExecutorInterface $toolExecutor = null,
     ) {}
 
     /**
@@ -163,14 +167,27 @@ final class CodeReviewCycle
         }
 
         $prompt = $this->buildReviewerPrompt($coderOutput, $originalTask, $sprintContext, $round);
+        $handoff = ChildAgentHandoff::fromInput(
+            task: $prompt,
+            metadata: (new ReviewHandoffMetadata(
+                phase: 'review',
+                round: $round,
+                sourceRole: 'coder',
+                hasSprintContext: $sprintContext !== null && $sprintContext !== '',
+                autoIterate: false,
+            ))->toArray(),
+            intent: 'code_review',
+            workflowPhase: 'review',
+        );
 
         $child = new ChildAgent(
             provider: $provider,
             role: 'reviewer',
-            taskInstructions: $prompt,
+            taskInstructions: $handoff,
             toolkits: $toolkits,
             maxIterations: self::REVIEWER_MAX_ITERATIONS,
             roleDiscovery: $this->roleDiscovery,
+            toolExecutor: $this->toolExecutor,
         );
 
         if ($this->observer !== null) {
@@ -178,7 +195,7 @@ final class CodeReviewCycle
         }
 
         try {
-            $output = $child->run(new UserMessage($prompt));
+            $output = $child->run(new UserMessage($handoff->userPrompt()));
 
             return [
                 'feedback' => $output->content,
@@ -222,14 +239,27 @@ final class CodeReviewCycle
         }
 
         $prompt = $this->buildCoderIterationPrompt($originalTask, $reviewFeedback, $round);
+        $handoff = ChildAgentHandoff::fromInput(
+            task: $prompt,
+            metadata: (new ReviewHandoffMetadata(
+                phase: 'rework',
+                round: $round,
+                sourceRole: 'reviewer',
+                hasSprintContext: false,
+                autoIterate: true,
+            ))->toArray(),
+            intent: 'code_rework',
+            workflowPhase: 'rework',
+        );
 
         $child = new ChildAgent(
             provider: $provider,
             role: 'coder',
-            taskInstructions: $prompt,
+            taskInstructions: $handoff,
             toolkits: $toolkits,
             maxIterations: $maxIterations,
             roleDiscovery: $this->roleDiscovery,
+            toolExecutor: $this->toolExecutor,
         );
 
         if ($this->observer !== null) {
@@ -237,7 +267,7 @@ final class CodeReviewCycle
         }
 
         try {
-            $output = $child->run(new UserMessage($prompt));
+            $output = $child->run(new UserMessage($handoff->userPrompt()));
 
             return [
                 'output' => $output->content,
@@ -327,12 +357,10 @@ final class CodeReviewCycle
 
     private function emitEvent(string $event, mixed $data): void
     {
-        if ($this->observer === null) {
+        if (!is_object($this->observer) || !method_exists($this->observer, 'handleEvent')) {
             return;
         }
 
-        if (method_exists($this->observer, 'handleEvent')) {
-            $this->observer->handleEvent($event, $data);
-        }
+        call_user_func([$this->observer, 'handleEvent'], $event, $data);
     }
 }

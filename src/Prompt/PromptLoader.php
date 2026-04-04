@@ -87,6 +87,49 @@ final readonly class PromptLoader
     }
 
     /**
+     * Discover section entries with metadata.
+     *
+     * @return array<int, array{id: string, title: string, filename: string, content: string, source: string}>
+     */
+    public function discoverSectionEntries(string $section): array
+    {
+        $dir = $this->promptsDir . '/' . $section;
+
+        if (!is_dir($dir)) {
+            return [];
+        }
+
+        $files = glob($dir . '/*.md');
+
+        if ($files === false || $files === []) {
+            return [];
+        }
+
+        sort($files);
+
+        $entries = [];
+        foreach ($files as $file) {
+            $content = file_get_contents($file);
+            if ($content === false) {
+                continue;
+            }
+
+            $filename = basename($file);
+            $slug = pathinfo($filename, PATHINFO_FILENAME);
+
+            $entries[] = [
+                'id' => sprintf('%s.%s', str_replace('/', '.', $section), $slug),
+                'title' => $this->humanizeName($slug),
+                'filename' => $filename,
+                'content' => $this->substitutePlaceholders(trim($content)),
+                'source' => $file,
+            ];
+        }
+
+        return $entries;
+    }
+
+    /**
      * Compose multiple files into a single string separated by blank lines.
      *
      * @param string[] $filenames Relative paths within the prompts directory.
@@ -135,6 +178,52 @@ final readonly class PromptLoader
     }
 
     /**
+     * Build the complete orchestrator system prompt as typed file sections.
+     *
+     * @return array<int, array{id: string, title: string, content: string, source: string}>
+     */
+    public function buildSystemPromptSections(): array
+    {
+        $sections = [];
+
+        $sections[] = [
+            'id' => 'base',
+            'title' => 'Base Prompt',
+            'content' => $this->load('base.md'),
+            'source' => $this->promptsDir . '/base.md',
+        ];
+
+        foreach ($this->discoverSectionEntries('tools') as $entry) {
+            $sections[] = [
+                'id' => 'tools.' . pathinfo($entry['filename'], PATHINFO_FILENAME),
+                'title' => 'Tool Prompt: ' . $entry['title'],
+                'content' => $entry['content'],
+                'source' => $entry['source'],
+            ];
+        }
+
+        if (is_file($this->promptsDir . '/security.md')) {
+            $sections[] = [
+                'id' => 'security',
+                'title' => 'Security Guardrails',
+                'content' => $this->load('security.md'),
+                'source' => $this->promptsDir . '/security.md',
+            ];
+        }
+
+        if (is_file($this->promptsDir . '/done.md')) {
+            $sections[] = [
+                'id' => 'done',
+                'title' => 'Completion Rules',
+                'content' => $this->load('done.md'),
+                'source' => $this->promptsDir . '/done.md',
+            ];
+        }
+
+        return $sections;
+    }
+
+    /**
      * Replace {{placeholder}} tokens with their configured values.
      */
     private function substitutePlaceholders(string $content): string
@@ -144,5 +233,10 @@ final readonly class PromptLoader
         }
 
         return $content;
+    }
+
+    private function humanizeName(string $name): string
+    {
+        return ucwords(str_replace(['-', '_'], ' ', $name));
     }
 }

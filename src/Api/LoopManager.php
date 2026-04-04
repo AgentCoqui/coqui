@@ -145,6 +145,7 @@ final class LoopManager
             maxIterations: min($stageResult->maxIterations ?? 48, 100),
             projectId: $stageResult->projectId,
             sprintId: $stageResult->sprintId,
+            metadata: $stageResult->handoffMetadata?->toArray(),
         );
 
         // Link the task to the stage record
@@ -152,6 +153,7 @@ final class LoopManager
             id: $stageResult->stageId,
             status: 'running',
             taskId: $taskId,
+            metadata: $stageResult->handoffMetadata?->toArray(),
         );
     }
 

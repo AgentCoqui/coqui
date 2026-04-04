@@ -44,4 +44,12 @@ final readonly class OrchestratorPrompt
     {
         return $this->loader->buildSystemPrompt();
     }
+
+    /**
+     * @return array<int, array{id: string, title: string, content: string, source: string}>
+     */
+    public function renderSections(): array
+    {
+        return $this->loader->buildSystemPromptSections();
+    }
 }

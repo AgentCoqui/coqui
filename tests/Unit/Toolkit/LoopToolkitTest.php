@@ -287,6 +287,31 @@ test('loop_status includes iteration and stage details', function () {
     expect($decoded['stages'][0]['summary'])->toBe('Stage result summary');
 });
 
+test('loop_status includes decoded stage metadata when present', function () {
+    $statusTool = $this->toolkit->tools()[2];
+
+    $loopId = $this->loopStore->createLoop('harness', 'Test goal', [], $this->sessionId, 'p1', 10);
+    $this->loopStore->updateLoopStatus($loopId, 'running');
+
+    $iterId = $this->loopStore->createIteration($loopId, 1, 'sprint-1');
+    $this->loopStore->updateIterationStatus($iterId, 'running');
+
+    $stageId = $this->loopStore->createStage($iterId, 0, 'plan');
+    $this->loopStore->updateStage(
+        $stageId,
+        'running',
+        metadata: ['loop_id' => $loopId, 'workflow_phase' => 'plan'],
+    );
+
+    $result = $statusTool->execute(['id' => $loopId]);
+    $decoded = json_decode($result->content, true);
+
+    expect($decoded['stages'][0]['metadata'])->toBe([
+        'loop_id' => $loopId,
+        'workflow_phase' => 'plan',
+    ]);
+});
+
 // ─── loop_pause ───
 
 test('loop_pause pauses a running loop', function () {
