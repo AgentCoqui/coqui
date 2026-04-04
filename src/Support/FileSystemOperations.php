@@ -425,7 +425,11 @@ final readonly class FileSystemOperations
     // ---------------------------------------------------------------
 
     /**
-     * Resolve a relative path to an absolute path within the sandbox.
+     * Resolve a path to an absolute path within the sandbox.
+     *
+     * Accepts both relative paths (resolved against the workspace root) and
+     * absolute paths. Absolute paths are validated directly against the sandbox
+     * boundaries — they must fall within the workspace root or an allowed mount.
      *
      * Prevents directory traversal by canonicalizing path segments
      * and verifying the result stays within the root or an allowed mount.
@@ -434,8 +438,15 @@ final readonly class FileSystemOperations
      */
     public function resolvePath(string $relativePath): string
     {
-        // Canonicalize relative path segments to prevent traversal
-        $segments = explode('/', str_replace('\\', '/', $relativePath));
+        $normalized = str_replace('\\', '/', $relativePath);
+
+        // Absolute path — validate directly against sandbox boundaries
+        if (str_starts_with($normalized, '/')) {
+            return $this->resolveAbsolutePath($normalized, $relativePath);
+        }
+
+        // Relative path — canonicalize segments to prevent traversal
+        $segments = explode('/', $normalized);
         $resolved = [];
         foreach ($segments as $segment) {
             if ($segment === '' || $segment === '.') {
@@ -450,6 +461,54 @@ final readonly class FileSystemOperations
         $canonicalized = implode('/', $resolved);
         $path = $this->rootPath . '/' . $canonicalized;
 
+        return $this->validateResolvedPath($path, $relativePath);
+    }
+
+    /**
+     * Validate an absolute path against sandbox boundaries.
+     *
+     * @throws FileSystemException If the path is outside the workspace and mounts.
+     */
+    private function resolveAbsolutePath(string $normalized, string $originalInput): string
+    {
+        // For existing paths — use realpath to resolve symlinks
+        $realPath = realpath($normalized);
+        if ($realPath !== false) {
+            if (str_starts_with($realPath, $this->realRoot)) {
+                return $realPath;
+            }
+            if ($this->isUnderAllowedPath($realPath)) {
+                return $realPath;
+            }
+
+            throw FileSystemException::absolutePathNotInSandbox($originalInput);
+        }
+
+        // Path doesn't exist yet — verify the deepest existing ancestor
+        $parentPath = dirname($normalized);
+        $realParent = realpath($parentPath);
+        if ($realParent !== false) {
+            if (str_starts_with($realParent, $this->realRoot)) {
+                return $normalized;
+            }
+            if ($this->isUnderAllowedPath($realParent)) {
+                return $normalized;
+            }
+
+            throw FileSystemException::absolutePathNotInSandbox($originalInput);
+        }
+
+        // No ancestor exists — reject
+        throw FileSystemException::absolutePathNotInSandbox($originalInput);
+    }
+
+    /**
+     * Validate a resolved relative path against sandbox boundaries.
+     *
+     * @throws FileSystemException If the path escapes the sandbox.
+     */
+    private function validateResolvedPath(string $path, string $originalInput): string
+    {
         // For existing paths — verify via realpath
         $realPath = realpath($path);
         if ($realPath !== false) {
@@ -460,7 +519,7 @@ final readonly class FileSystemOperations
                 return $realPath;
             }
 
-            throw FileSystemException::pathEscapesSandbox($relativePath);
+            throw FileSystemException::pathEscapesSandbox($originalInput);
         }
 
         // Path doesn't exist yet — verify the deepest existing ancestor
@@ -468,7 +527,7 @@ final readonly class FileSystemOperations
         $realParent = realpath($parentPath);
         if ($realParent !== false) {
             if (!str_starts_with($realParent, $this->realRoot) && !$this->isUnderAllowedPath($realParent)) {
-                throw FileSystemException::pathEscapesSandbox($relativePath);
+                throw FileSystemException::pathEscapesSandbox($originalInput);
             }
         }
 
