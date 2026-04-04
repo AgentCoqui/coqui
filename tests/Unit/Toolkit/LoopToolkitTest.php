@@ -324,6 +324,25 @@ test('loop_pause rejects non-running loop', function () {
     expect($result->content)->toContain('completed');
 });
 
+test('loop_pause pauses all running loops', function () {
+    $pauseTool = $this->toolkit->tools()[3];
+
+    $runningA = $this->loopStore->createLoop('harness', 'First', [], $this->sessionId, 'p1', 10);
+    $runningB = $this->loopStore->createLoop('harness', 'Second', [], $this->sessionId, 'p1', 10);
+    $done = $this->loopStore->createLoop('harness', 'Done', [], $this->sessionId, 'p1', 10);
+    $this->loopStore->updateLoopStatus($runningA, 'running');
+    $this->loopStore->updateLoopStatus($runningB, 'running');
+    $this->loopStore->updateLoopStatus($done, 'completed');
+
+    $result = $pauseTool->execute(['id' => 'all']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('Paused 2 loop(s)');
+    expect($this->loopStore->getLoop($runningA)['status'])->toBe('paused');
+    expect($this->loopStore->getLoop($runningB)['status'])->toBe('paused');
+    expect($this->loopStore->getLoop($done)['status'])->toBe('completed');
+});
+
 // ─── loop_resume ───
 
 test('loop_resume resumes a paused loop', function () {
@@ -359,6 +378,25 @@ test('loop_resume rejects nonexistent loop', function () {
     $result = $resumeTool->execute(['id' => 'missing']);
     expect($result->status)->toBe(ToolResultStatus::Error);
     expect($result->content)->toContain('not found');
+});
+
+test('loop_resume resumes all paused loops', function () {
+    $resumeTool = $this->toolkit->tools()[4];
+
+    $pausedA = $this->loopStore->createLoop('harness', 'Paused A', [], $this->sessionId, 'p1', 10);
+    $pausedB = $this->loopStore->createLoop('harness', 'Paused B', [], $this->sessionId, 'p1', 10);
+    $running = $this->loopStore->createLoop('harness', 'Running', [], $this->sessionId, 'p1', 10);
+    $this->loopStore->updateLoopStatus($pausedA, 'paused');
+    $this->loopStore->updateLoopStatus($pausedB, 'paused');
+    $this->loopStore->updateLoopStatus($running, 'running');
+
+    $result = $resumeTool->execute(['id' => 'all']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('Resumed 2 loop(s)');
+    expect($this->loopStore->getLoop($pausedA)['status'])->toBe('running');
+    expect($this->loopStore->getLoop($pausedB)['status'])->toBe('running');
+    expect($this->loopStore->getLoop($running)['status'])->toBe('running');
 });
 
 // ─── loop_stop ───
@@ -406,6 +444,25 @@ test('loop_stop rejects nonexistent loop', function () {
     $result = $stopTool->execute(['id' => 'nope']);
     expect($result->status)->toBe(ToolResultStatus::Error);
     expect($result->content)->toContain('not found');
+});
+
+test('loop_stop cancels all active loops', function () {
+    $stopTool = $this->toolkit->tools()[5];
+
+    $running = $this->loopStore->createLoop('harness', 'Running', [], $this->sessionId, 'p1', 10);
+    $paused = $this->loopStore->createLoop('harness', 'Paused', [], $this->sessionId, 'p1', 10);
+    $completed = $this->loopStore->createLoop('harness', 'Completed', [], $this->sessionId, 'p1', 10);
+    $this->loopStore->updateLoopStatus($running, 'running');
+    $this->loopStore->updateLoopStatus($paused, 'paused');
+    $this->loopStore->updateLoopStatus($completed, 'completed');
+
+    $result = $stopTool->execute(['id' => 'all']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('Cancelled 2 loop(s)');
+    expect($this->loopStore->getLoop($running)['status'])->toBe('cancelled');
+    expect($this->loopStore->getLoop($paused)['status'])->toBe('cancelled');
+    expect($this->loopStore->getLoop($completed)['status'])->toBe('completed');
 });
 
 // ─── loop_definitions ───

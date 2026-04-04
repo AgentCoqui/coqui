@@ -10,9 +10,9 @@ Use loops to run multi-role automated iteration cycles that execute without huma
 - `loop_start` — start a new loop from a named definition with a goal
 - `loop_list` — list running, paused, completed, or all loop instances
 - `loop_status` — get detailed status including current iteration and stage results
-- `loop_pause` — pause a running loop after the current stage completes
-- `loop_resume` — resume a paused loop
-- `loop_stop` — cancel a running or paused loop
+- `loop_pause` — pause a running loop after the current stage completes; pass `id: "all"` to pause every running loop
+- `loop_resume` — resume a paused loop; pass `id: "all"` to resume every paused loop
+- `loop_stop` — cancel a running or paused loop; pass `id: "all"` to cancel every active loop
 - `loop_definitions` — list available loop definitions with role sequences and termination conditions
 
 ### How Loops Work
@@ -44,8 +44,9 @@ Loop definitions support `{{placeholder}}` parameters that are substituted at st
 1. **Write clear goals.** The goal is passed to every role in every iteration. Be specific about what "done" looks like.
 2. **Monitor active loops.** Use `loop_status` to check progress, especially for evaluation-bound loops that may run many iterations.
 3. **Pause before modifying.** If you need to adjust something mid-loop, pause first, then resume after changes.
-4. **Use appropriate definitions.** Choose the definition that matches your workflow. Create custom definitions in `workspace/loops/` for specialized workflows.
-5. **Custom definitions.** Create a JSON file in `workspace/loops/` following the schema of built-in definitions. The loop will be auto-discovered.
+4. **Use `id: "all"` for reset workflows.** When preparing a clean test run, `loop_stop(id: "all")` is the fastest way to cancel outstanding active loops.
+5. **Use appropriate definitions.** Choose the definition that matches your workflow. Create custom definitions in `workspace/loops/` for specialized workflows.
+6. **Custom definitions.** Create a JSON file in `workspace/loops/` following the schema of built-in definitions. The loop will be auto-discovered.
 
 ### Artifact Contract Enforcement
 

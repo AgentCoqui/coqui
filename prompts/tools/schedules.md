@@ -12,10 +12,10 @@ Use schedules to automate recurring or deferred work without human intervention:
 - `schedule_list` — list all schedules with status, next run, and execution history
 - `schedule_get` — get detailed information about a specific schedule
 - `schedule_update` — modify a schedule's cron, prompt, role, or other properties
-- `schedule_delete` — permanently delete a schedule
-- `schedule_trigger` — immediately execute a schedule without waiting for the next tick
-- `schedule_enable` — re-enable a disabled schedule and reset its failure counter
-- `schedule_disable` — pause a schedule without deleting it
+- `schedule_delete` — permanently delete a schedule; pass `id: "all"` to delete all system schedules
+- `schedule_trigger` — immediately execute a schedule without waiting for the next tick; pass `id: "all"` to trigger all enabled schedules
+- `schedule_enable` — re-enable a disabled schedule and reset its failure counter; pass `id: "all"` to enable all system schedules
+- `schedule_disable` — pause a schedule without deleting it; pass `id: "all"` to disable all system schedules
 
 ### Cron Expression Format
 
@@ -39,3 +39,4 @@ All times are evaluated in the schedule's configured timezone (default: UTC).
 4. **Circuit breaker.** Schedules auto-disable after 3 consecutive failures (configurable via `max_failures`). Use `schedule_enable` to re-enable after fixing the issue.
 5. **Use `@once` for deferred work.** When you need to follow up on something later, create a one-shot schedule instead of asking the user to remind you.
 6. **Set appropriate iterations.** Match `max_iterations` to task complexity. Simple checks need 5-10; complex work may need 48.
+7. **Use `id: "all"` for cleanup.** Schedules already support bulk management through the normal tools, so you do not need separate `schedule_bulk_*` tools.

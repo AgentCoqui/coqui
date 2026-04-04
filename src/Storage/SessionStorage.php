@@ -385,6 +385,47 @@ final class SessionStorage
     }
 
     /**
+     * Clear active project references for all sessions pointing at a project.
+     *
+     * @return int Number of sessions updated.
+     */
+    public function clearActiveProjectReferences(string $projectId): int
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions
+            SET active_project_id = NULL, updated_at = :updated_at
+            WHERE active_project_id = :project_id
+        SQL);
+
+        $stmt->execute([
+            'updated_at' => date('c'),
+            'project_id' => $projectId,
+        ]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Clear all active project references across all sessions.
+     *
+     * @return int Number of sessions updated.
+     */
+    public function clearAllActiveProjects(): int
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions
+            SET active_project_id = NULL, updated_at = :updated_at
+            WHERE active_project_id IS NOT NULL
+        SQL);
+
+        $stmt->execute([
+            'updated_at' => date('c'),
+        ]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * Expose the PDO connection for shared-database consumers (e.g. ArtifactStore).
      */
     public function getPdo(): PDO

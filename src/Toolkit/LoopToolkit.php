@@ -85,8 +85,8 @@ final readonly class LoopToolkit implements ToolkitInterface
         - With parameters: `loop_start(definition: "research", goal: "Investigate auth", parameters: "{\"topic\": \"authentication\"}")`
         - Reuse a project: `loop_start(definition: "harness", goal: "Fix bugs", project_slug: "my-app")`
         - Monitor: `loop_status(id: "...")` or `loop_list()`
-        - Pause/resume: `loop_pause(id: "...")` / `loop_resume(id: "...")`
-        - Cancel: `loop_stop(id: "...")`
+        - Pause/resume: `loop_pause(id: "...")` / `loop_resume(id: "...")` or pass `id: "all"`
+        - Cancel: `loop_stop(id: "...")` or `loop_stop(id: "all")`
         GUIDELINES;
     }
 
@@ -312,10 +312,24 @@ final readonly class LoopToolkit implements ToolkitInterface
             name: 'loop_pause',
             description: 'Pause a running loop after the current stage completes.',
             parameters: [
-                new StringParameter(name: 'id', description: 'Loop ID', required: true),
+                new StringParameter(name: 'id', description: 'Loop ID or "all"', required: true),
             ],
             callback: function (array $input): ToolResult {
                 $id = (string) ($input['id'] ?? '');
+
+                if (strtolower($id) === 'all') {
+                    $running = $this->loopStore->listLoops('running');
+                    if ($running === []) {
+                        return ToolResult::success('No running loops to pause.');
+                    }
+
+                    foreach ($running as $loop) {
+                        $this->loopStore->updateLoopStatus((string) $loop['id'], 'paused');
+                    }
+
+                    return ToolResult::success(sprintf('Paused %d loop(s).', count($running)));
+                }
+
                 $loop = $this->loopStore->getLoop($id);
 
                 if ($loop === null) {
@@ -338,10 +352,24 @@ final readonly class LoopToolkit implements ToolkitInterface
             name: 'loop_resume',
             description: 'Resume a paused loop.',
             parameters: [
-                new StringParameter(name: 'id', description: 'Loop ID', required: true),
+                new StringParameter(name: 'id', description: 'Loop ID or "all"', required: true),
             ],
             callback: function (array $input): ToolResult {
                 $id = (string) ($input['id'] ?? '');
+
+                if (strtolower($id) === 'all') {
+                    $paused = $this->loopStore->listLoops('paused');
+                    if ($paused === []) {
+                        return ToolResult::success('No paused loops to resume.');
+                    }
+
+                    foreach ($paused as $loop) {
+                        $this->loopStore->updateLoopStatus((string) $loop['id'], 'running');
+                    }
+
+                    return ToolResult::success(sprintf('Resumed %d loop(s).', count($paused)));
+                }
+
                 $loop = $this->loopStore->getLoop($id);
 
                 if ($loop === null) {
@@ -364,10 +392,28 @@ final readonly class LoopToolkit implements ToolkitInterface
             name: 'loop_stop',
             description: 'Cancel a running or paused loop.',
             parameters: [
-                new StringParameter(name: 'id', description: 'Loop ID', required: true),
+                new StringParameter(name: 'id', description: 'Loop ID or "all"', required: true),
             ],
             callback: function (array $input): ToolResult {
                 $id = (string) ($input['id'] ?? '');
+
+                if (strtolower($id) === 'all') {
+                    $active = array_merge(
+                        $this->loopStore->listLoops('running'),
+                        $this->loopStore->listLoops('paused'),
+                    );
+
+                    if ($active === []) {
+                        return ToolResult::success('No active loops to cancel.');
+                    }
+
+                    foreach ($active as $loop) {
+                        $this->loopStore->updateLoopStatus((string) $loop['id'], 'cancelled');
+                    }
+
+                    return ToolResult::success(sprintf('Cancelled %d loop(s).', count($active)));
+                }
+
                 $loop = $this->loopStore->getLoop($id);
 
                 if ($loop === null) {
