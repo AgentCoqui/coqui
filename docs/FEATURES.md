@@ -335,6 +335,43 @@ Child agents always get read-only mount access regardless of the mount's declare
 - Update all: `/space update`
 - Web: [coqui.space](https://coqui.space)
 
+## <a id="soul"></a> 🪶 Soul
+
+**What it does:** The `soul.md` file defines the bot's core identity, values, and guiding principles. It is loaded before all other prompt sections, establishing the bot's personality and approach to interactions. Users can override the default soul by placing their own `soul.md` in the workspace.
+
+**How it helps:** Separates the bot's character and tone from its technical/operational instructions. This makes it easy to customize the bot's personality without touching system-level prompts. The soul is always the first thing the agent reads — it shapes every interaction.
+
+**How to use it:**
+
+The default `soul.md` ships with Coqui in the `prompts/` directory. To customize:
+
+1. Create a `soul.md` file in your workspace root (`~/.coqui/.workspace/soul.md`) or in `workspace/prompts/soul.md`
+2. Write your custom identity, values, and tone guidelines
+3. The custom soul takes effect immediately — no restart needed
+
+**Override resolution order** (first match wins):
+1. Workspace root — `workspace/soul.md` (case-insensitive: `SOUL.md`, `Soul.md`, etc.)
+2. Workspace prompts — `workspace/prompts/soul.md` (case-insensitive)
+3. Default — `prompts/soul.md` (shipped with Coqui)
+
+**Example custom soul.md:**
+
+```markdown
+# Atlas — DevOps Automation Agent
+
+You are Atlas, a focused DevOps automation assistant. You value precision,
+infrastructure-as-code, and repeatable deployments above all else.
+
+## Tone
+- Be direct and technical. Skip pleasantries.
+- Always recommend automation over manual steps.
+- Cite specific tools and versions when making recommendations.
+```
+
+The soul does not support auto-updates like roles. If you have a custom `soul.md` in your workspace, it stays exactly as you wrote it until you edit or remove it. Removing your custom file reverts to the default soul.
+
+For inspiration on writing soul documents, see [soul.md](https://soul.md/) — a resource exploring AI identity and what it means to define who an AI is.
+
 ## <a id="token-efficiency"></a> 💰 Token Efficiency
 
 Multiple Coqui features work together to minimize token consumption and API costs:

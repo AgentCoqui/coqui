@@ -1296,6 +1296,16 @@ final class OrchestratorAgent extends AbstractAgent
     private function classifyInstructionPromptSection(string $id, string $title, string $content, string $source): PromptSection
     {
         return match ($id) {
+            'soul' => new PromptSection(
+                id: 'prompt.soul',
+                title: $title,
+                content: $content,
+                priority: PromptSectionPriority::Critical,
+                rationale: 'The soul defines the bot\'s core identity, values, and personality — it must stay pinned at the highest priority.',
+                decision: 'pinned_critical',
+                group: 'identity',
+                source: $source,
+            ),
             'base' => new PromptSection(
                 id: 'prompt.base',
                 title: $title,
