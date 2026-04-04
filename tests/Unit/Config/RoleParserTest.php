@@ -188,5 +188,5 @@ test('parses orchestrator role file from config/roles', function () {
     expect($props->name)->toBe('orchestrator');
     expect($props->accessLevel)->toBe('full');
     expect($props->isBuiltin)->toBeTrue();
-    expect($props->toolkits)->toBe('+*, -SessionEvaluationToolkit, -LearningToolkit, -ToolkitGeneratorToolkit');
+    expect($props->toolkits)->toBe('+*, -SessionEvaluationToolkit, -LearningToolkit');
 });

@@ -43,4 +43,4 @@ php scripts/test-coverage.php --clover build/coverage/clover.xml
 
 The wrapper auto-enables PCOV when installed, or Xdebug coverage mode when Xdebug is available.
 
-See [docs/GITHUB-ACTIONS.md](../docs/GITHUB-ACTIONS.md) for full CI documentation including macOS/Ubuntu setup instructions.
+See [docs/TESTING.md](../docs/TESTING.md) for local test and coverage setup, and [docs/GITHUB-ACTIONS.md](../docs/GITHUB-ACTIONS.md) for CI workflow details.

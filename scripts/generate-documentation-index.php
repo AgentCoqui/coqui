@@ -19,6 +19,7 @@ $files = [
     ['path' => 'docs/GITHUB-ACTIONS.md', 'title' => 'GitHub Actions CI', 'description' => 'CI workflow overview, PHP version matrix, local testing instructions, and troubleshooting'],
     ['path' => 'docs/ROLES.md', 'title' => 'Roles Reference', 'description' => 'Built-in role definitions, access levels, role-to-model mapping, custom role creation, and frontmatter schema'],
     ['path' => 'docs/SKILLS.md', 'title' => 'Coqui Skills', 'description' => 'Skills system: SKILL.md format, creation workflow, discovery, validation, progressive disclosure, and examples'],
+    ['path' => 'docs/TESTING.md', 'title' => 'Testing', 'description' => 'Test layout, local commands, coverage workflow, and PCOV/Xdebug setup for Linux and macOS'],
     ['path' => 'docs/TOOLKITS.md', 'title' => 'Coqui Toolkits', 'description' => 'Toolkit development guide: anatomy, parameter types, credential management, auto-discovery, testing, and API reference'],
     ['path' => 'AGENTS.md', 'title' => 'Coqui Project Guidelines', 'description' => 'Internal architecture docs: php-agents foundation, credential system, tool gating, visibility, loops, schedules, webhooks, memory, safety, and coding standards'],
     ['path' => 'README.md', 'title' => 'Coqui Bot', 'description' => 'Project overview, installation, quick start, provider setup, built-in tools, extending Coqui, Docker, and performance'],

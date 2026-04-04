@@ -1136,12 +1136,12 @@ final class AgentRunner
                 if ($total > 0) {
                     $lines = ["Todos: {$stats['completed']}/{$total} completed"];
 
-                    $activeTodos = $this->todoStore->list($sessionId, 'in_progress');
+                    $activeTodos = $this->todoStore->list($sessionId, status: 'in_progress');
                     foreach ($activeTodos as $todo) {
                         $lines[] = "  - [in_progress] {$todo['title']}";
                     }
 
-                    $pendingTodos = $this->todoStore->list($sessionId, 'pending');
+                    $pendingTodos = $this->todoStore->list($sessionId, status: 'pending');
                     foreach (array_slice($pendingTodos, 0, 5) as $todo) {
                         $lines[] = "  - [pending] {$todo['title']}";
                     }
