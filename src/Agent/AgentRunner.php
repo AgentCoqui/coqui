@@ -1309,6 +1309,7 @@ final class AgentRunner
                     workDir: $this->projectRoot,
                     allowedCommands: \CoquiBot\Coqui\Config\ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
                     timeout: 60,
+                    rootPath: $this->projectRoot,
                 ),
                 new \CoquiBot\Coqui\Toolkit\CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ];
