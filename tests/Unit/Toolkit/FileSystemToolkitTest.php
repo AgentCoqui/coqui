@@ -486,6 +486,90 @@ test('move errors for missing source', function () {
 });
 
 // ---------------------------------------------------------------
+// Absolute path support
+// ---------------------------------------------------------------
+
+test('read_file accepts absolute path within workspace', function () {
+    file_put_contents($this->root . '/abs-test.txt', "hello absolute");
+    $tool = findToolByName($this->toolkit, 'read_file');
+    $result = $tool->execute(['path' => $this->root . '/abs-test.txt']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('hello absolute');
+});
+
+test('write_file accepts absolute path within workspace', function () {
+    $tool = findToolByName($this->toolkit, 'write_file');
+    $result = $tool->execute(['path' => $this->root . '/abs-write.txt', 'content' => 'written via absolute']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect(file_get_contents($this->root . '/abs-write.txt'))->toBe('written via absolute');
+});
+
+test('read_file rejects absolute path outside workspace', function () {
+    $tool = findToolByName($this->toolkit, 'read_file');
+    $result = $tool->execute(['path' => '/etc/passwd']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+});
+
+test('write_file rejects absolute path outside workspace', function () {
+    $tool = findToolByName($this->toolkit, 'write_file');
+    $result = $tool->execute(['path' => '/tmp/coqui-escape-test.txt', 'content' => 'should fail']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+    expect(file_exists('/tmp/coqui-escape-test.txt'))->toBeFalse();
+});
+
+test('absolute path to read-only mount allows read', function () {
+    $mountDir = sys_get_temp_dir() . '/coqui-mount-' . bin2hex(random_bytes(8));
+    mkdir($mountDir, 0755, true);
+    file_put_contents($mountDir . '/data.txt', 'mount content');
+    $mountDir = realpath($mountDir);
+
+    $tk = new FileSystemToolkit($this->root, false, [['realPath' => $mountDir, 'readOnly' => true]], $this->history);
+    $tool = findToolByName($tk, 'read_file');
+    $result = $tool->execute(['path' => $mountDir . '/data.txt']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('mount content');
+
+    unlink($mountDir . '/data.txt');
+    rmdir($mountDir);
+});
+
+test('absolute path to read-only mount blocks write', function () {
+    $mountDir = sys_get_temp_dir() . '/coqui-mount-' . bin2hex(random_bytes(8));
+    mkdir($mountDir, 0755, true);
+    $mountDir = realpath($mountDir);
+
+    $tk = new FileSystemToolkit($this->root, false, [['realPath' => $mountDir, 'readOnly' => true]], $this->history);
+    $tool = findToolByName($tk, 'write_file');
+    $result = $tool->execute(['path' => $mountDir . '/blocked.txt', 'content' => 'should fail']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+    expect(file_exists($mountDir . '/blocked.txt'))->toBeFalse();
+
+    rmdir($mountDir);
+});
+
+test('absolute path to rw mount allows write', function () {
+    $mountDir = sys_get_temp_dir() . '/coqui-mount-' . bin2hex(random_bytes(8));
+    mkdir($mountDir, 0755, true);
+    $mountDir = realpath($mountDir);
+
+    $tk = new FileSystemToolkit($this->root, false, [['realPath' => $mountDir, 'readOnly' => false]], $this->history);
+    $tool = findToolByName($tk, 'write_file');
+    $result = $tool->execute(['path' => $mountDir . '/allowed.txt', 'content' => 'mount write']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect(file_get_contents($mountDir . '/allowed.txt'))->toBe('mount write');
+
+    unlink($mountDir . '/allowed.txt');
+    rmdir($mountDir);
+});
+
+// ---------------------------------------------------------------
 // Helper — uses $this->toolkit via Pest closures
 // ---------------------------------------------------------------
 

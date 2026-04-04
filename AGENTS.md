@@ -72,12 +72,9 @@ Agents implement `SplSubject`. Coqui attaches `TerminalObserver` (REPL) and `Sse
 | `ShellToolkit` | `src/Toolkit/ShellToolkit.php` |
 | `WebToolkit` | `src/Toolkit/WebToolkit.php` |
 | `MemoryToolkit` | `src/Toolkit/MemoryToolkit.php` |
-| `MemoryEntry` | `src/Memory/MemoryEntry.php` |
+| `MemoryEntry` | a`src/Memory/MemoryEntry.php` |
 | `FileMemory` | `src/Memory/MemoryStore.php` (SQLite + FTS5) |
 | `MemoryInterface` | Removed — `MemoryStore` is standalone |
-| `FileAgent`, `WebAgent`, `CodeAgent` | Removed — use `AbstractAgent` + explicit toolkits |
-
-
 
 ## Credential System Architecture
 
@@ -1460,11 +1457,12 @@ Read tools are always registered. Write/edit/history tools are omitted when `rea
 
 All path resolution goes through `FileSystemOperations::resolvePath()`:
 
-1. Expands `~` to workspace root.
-2. Resolves relative paths against the workspace root.
-3. Canonicalizes via `realpath()` (or `dirname()` realpath for new files).
-4. Verifies the resolved path is under the workspace root **or** under an allowed mount path.
-5. Write operations additionally check `isReadOnlyMountPath()` to block writes to `ro` mounts.
+1. Detects **absolute paths** (leading `/`) and validates them directly against sandbox boundaries.
+2. Resolves **relative paths** against the workspace root with segment canonicalization (`.`, `..` handling).
+3. Verifies via `realpath()` (or `dirname()` realpath for new files) that the resolved path is under the workspace root **or** under an allowed mount path.
+4. Write operations additionally check `isReadOnlyMountPath()` to block writes to `ro` mounts.
+
+Absolute paths within the workspace or mounts work for both reads and writes. Absolute paths outside these boundaries throw `FileSystemException::absolutePathNotInSandbox()`. Relative paths that escape the sandbox throw `FileSystemException::pathEscapesSandbox()`.
 
 Symlinks are followed and verified — the real path must fall within allowed boundaries.
 
