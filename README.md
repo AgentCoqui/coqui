@@ -49,6 +49,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - 🌐 [**HTTP API**](docs/FEATURES.md#http-api) — async REST + SSE server for dashboards and headless automation
 - 💾 [**Persistent Sessions**](docs/FEATURES.md#persistent-sessions) — SQLite-backed conversations that survive restarts
 - 👁️ [**Vision Analysis**](docs/FEATURES.md#vision-analysis) — analyze images from URLs, files, or base64 data
+- 🪶 [**Soul**](docs/FEATURES.md#soul) — customizable core identity via `soul.md` with workspace override support
 
 See [docs/FEATURES.md](docs/FEATURES.md) for the full feature reference with usage examples and token efficiency strategies.
 

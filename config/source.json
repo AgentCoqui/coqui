@@ -10,7 +10,8 @@
         "toolkit": "Toolkits — groups of related tools with shared guidelines",
         "observer": "Observers — real-time event rendering for terminal output",
         "storage": "Storage — SQLite-backed session and audit persistence",
-        "coqui-space": "Coqui Space — marketplace integration for discovering, installing, and managing skills and toolkits"
+        "coqui-space": "Coqui Space — marketplace integration for discovering, installing, and managing skills and toolkits",
+        "prompt": "Prompt — system prompt composition, soul resolution, placeholder substitution"
     },
     "files": [
         {
@@ -1951,6 +1952,41 @@
                 "isAcceptedImageType(string $mime): bool — checks if MIME type is in ACCEPTED_IMAGE_TYPES",
                 "mimeFromExtension(string $path): string — guesses MIME type from file extension",
                 "buildErrorMessage(string $source, string $reason): string — builds descriptive error for file/URL failures"
+            ]
+        },
+        {
+            "path": "src/Agent/OrchestratorPrompt.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorPrompt",
+            "layer": "agent",
+            "description": "System prompt template for the OrchestratorAgent. Delegates to PromptLoader which composes the prompt from markdown files in the prompts/ directory. Injects workspace path, available roles, skills, storage map, and time-since-last-message as placeholders. Forwards workspacePath to PromptLoader for soul.md override resolution.",
+            "methods": [
+                "render(): string — returns the fully assembled system prompt string",
+                "renderSections(): array — returns typed prompt sections with id, title, content, and source"
+            ]
+        },
+        {
+            "path": "src/Prompt/PromptLoader.php",
+            "fqcn": "CoquiBot\\Coqui\\Prompt\\PromptLoader",
+            "layer": "prompt",
+            "description": "Discovers and composes system prompts from markdown files. Loads prompt sections from the prompts/ directory, supports placeholder substitution, and assembles the final system prompt. Soul resolution: soul.md defines the bot's core identity and is loaded before base.md. Users can override it by placing a soul.md (case-insensitive) in their workspace root or workspace/prompts/. Resolution order: workspace root → workspace/prompts/ → default prompts/soul.md.",
+            "methods": [
+                "load(string $filename): string — load and render a single prompt file with placeholder substitution",
+                "loadSection(string $section, string $filename): string — load a subsection file from a subdirectory",
+                "discoverSection(string $section): string[] — discover and load all markdown files in a subdirectory",
+                "discoverSectionEntries(string $section): array — discover section entries with metadata (id, title, filename, content, source)",
+                "compose(string[] $filenames): string — compose multiple files into a single string separated by blank lines",
+                "buildSystemPrompt(): string — build the complete orchestrator system prompt (soul.md → base.md → tools/* → security.md → done.md)",
+                "buildSystemPromptSections(): array — build the system prompt as typed file sections with metadata",
+                "resolveSoulPath(): ?string — resolve the soul.md file path with workspace override and case-insensitive lookup"
+            ]
+        },
+        {
+            "path": "src/Prompt/PromptNotFoundException.php",
+            "fqcn": "CoquiBot\\Coqui\\Prompt\\PromptNotFoundException",
+            "layer": "prompt",
+            "description": "Domain exception thrown when a required prompt file cannot be located during prompt discovery or loading.",
+            "methods": [
+                "forFile(string $filename, string $directory): self — static factory for missing prompt file errors"
             ]
         },
         {

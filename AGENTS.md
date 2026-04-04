@@ -1438,6 +1438,45 @@ Coqui provides image analysis via a dedicated `vision` role. The system uses a s
 
 
 
+## Soul Prompt Architecture
+
+Coqui defines the bot's core identity, values, and personality via a `soul.md` file that is loaded **before** all other prompt sections. This separates *who the bot is* from *what it can do*, making identity customization independent of operational instructions.
+
+### How It Works
+
+1. **`PromptLoader::resolveSoulPath()`** performs a case-insensitive file lookup across three locations (first match wins):
+   - **Workspace root** — e.g. `workspace/soul.md`, `workspace/SOUL.md`, `workspace/Soul.md`
+   - **Workspace prompts directory** — e.g. `workspace/prompts/soul.md`
+   - **Default** — `prompts/soul.md` (shipped with Coqui)
+2. **`PromptLoader::buildSystemPrompt()`** loads the resolved soul.md as the first section, before `base.md`. The full composition order is: **soul.md → base.md → tools/\* → security.md → done.md**.
+3. **`PromptLoader::buildSystemPromptSections()`** includes a `soul` section entry (id `soul`, title `Soul`) before the `base` section, with the resolved source path.
+4. **`OrchestratorAgent::classifyInstructionPromptSection()`** classifies the `soul` section as `PromptSectionPriority::Critical` with group `identity`, ensuring it is never deferred or pruned by the budget manager.
+
+### Case-Insensitive Lookup
+
+`PromptLoader::findCaseInsensitive()` scans `*.md` files in the target directory and compares `strtolower(basename())` against `soul.md`. This handles `soul.md`, `SOUL.md`, `Soul.md`, and any other casing variant.
+
+### No Auto-Update Tracking
+
+Unlike roles (`RoleUpdateTracker`) and loops (`LoopUpdateTracker`), soul.md has **no** update tracking. The user's workspace soul.md is permanent until they manually edit or remove it. Changes take effect immediately on the next agent turn (the prompt cache invalidates on every turn rebuild).
+
+### Separation of Concerns
+
+| File | Purpose |
+| --- | --- |
+| `prompts/soul.md` | Core identity, values, personality, tone — *who the bot is* |
+| `prompts/base.md` | Operational instructions, environment, delegation rules, self-extension — *what the bot does* |
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `prompts/soul.md` | Default soul: identity header, tone guidelines |
+| `src/Prompt/PromptLoader.php` | `resolveSoulPath()` — case-insensitive workspace override resolution; `buildSystemPrompt()` — loads soul before base |
+| `src/Agent/OrchestratorPrompt.php` | Forwards `workspacePath` to `PromptLoader` for soul override resolution |
+| `src/Agent/OrchestratorAgent.php` | `classifyInstructionPromptSection()` — classifies soul as Critical/identity |
+
+
 ## FileSystem Toolkit Architecture
 
 Coqui provides a unified `FileSystemToolkit` that replaces both the deprecated php-agents `FilesystemToolkit` and the external `coqui-toolkit-code-edit` package. It covers reading, writing, surgical editing, and edit history — all in one toolkit with consistent path sandboxing and mount awareness.

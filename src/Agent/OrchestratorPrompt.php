@@ -35,6 +35,7 @@ final readonly class OrchestratorPrompt
                 'current_datetime' => date('Y-m-d H:i:s (T)'),
                 'time_since_last_message' => $this->timeSinceLastMessage,
             ],
+            workspacePath: $this->workspacePath,
         );
     }
 

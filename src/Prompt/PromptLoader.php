@@ -10,16 +10,25 @@ namespace CoquiBot\Coqui\Prompt;
  * Loads prompt sections from the `prompts/` directory, supports
  * placeholder substitution, and assembles the final system prompt
  * for the orchestrator agent.
+ *
+ * Soul resolution: soul.md defines the bot's core identity, values, and
+ * personality. Users can override it by placing a soul.md (case-insensitive)
+ * in their workspace root or workspace/prompts/. The resolution order is:
+ *   1. Workspace root (e.g. workspace/soul.md, workspace/SOUL.md)
+ *   2. Workspace prompts dir (e.g. workspace/prompts/soul.md)
+ *   3. Default prompts/soul.md (shipped with Coqui)
  */
 final readonly class PromptLoader
 {
     /**
      * @param string $promptsDir Absolute path to the prompts/ directory.
      * @param array<string, string> $placeholders Map of {{key}} → value for substitution.
+     * @param ?string $workspacePath Absolute path to the workspace directory (for soul.md override resolution).
      */
     public function __construct(
         private string $promptsDir,
         private array $placeholders = [],
+        private ?string $workspacePath = null,
     ) {}
 
     /**
@@ -146,16 +155,85 @@ final readonly class PromptLoader
     }
 
     /**
+     * Resolve the soul.md file path with user-override support.
+     *
+     * Checks for a user-provided soul.md (case-insensitive) in the workspace
+     * root and workspace/prompts/ directory, falling back to the default
+     * prompts/soul.md. Returns null if no soul.md exists anywhere.
+     *
+     * @return ?string Absolute path to the resolved soul.md, or null if not found.
+     */
+    public function resolveSoulPath(): ?string
+    {
+        // Check workspace root for a user-override (case-insensitive)
+        if ($this->workspacePath !== null) {
+            $match = $this->findCaseInsensitive($this->workspacePath, 'soul.md');
+            if ($match !== null) {
+                return $match;
+            }
+
+            // Check workspace/prompts/ directory (case-insensitive)
+            $promptsDir = rtrim($this->workspacePath, '/') . '/prompts';
+            if (is_dir($promptsDir)) {
+                $match = $this->findCaseInsensitive($promptsDir, 'soul.md');
+                if ($match !== null) {
+                    return $match;
+                }
+            }
+        }
+
+        // Fall back to the default prompts/soul.md
+        $defaultPath = $this->promptsDir . '/soul.md';
+        if (is_file($defaultPath)) {
+            return $defaultPath;
+        }
+
+        return null;
+    }
+
+    /**
+     * Find a file by name (case-insensitive) in a directory.
+     *
+     * @return ?string Absolute path to the matched file, or null if not found.
+     */
+    private function findCaseInsensitive(string $directory, string $filename): ?string
+    {
+        $target = strtolower($filename);
+        $files = glob($directory . '/*.md');
+
+        if ($files === false || $files === []) {
+            return null;
+        }
+
+        foreach ($files as $file) {
+            if (strtolower(basename($file)) === $target) {
+                return $file;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Build the complete orchestrator system prompt.
      *
-     * Loads base.md first, then all tool prompts from tools/,
-     * then security.md, then done.md.
+     * Loads soul.md first (core identity), then base.md (operational instructions),
+     * then all tool prompts from tools/, then security.md, then done.md.
      */
     public function buildSystemPrompt(): string
     {
         $sections = [];
 
-        // Core identity and conversational behavior — always first
+        // Soul — core identity, values, and personality — always first
+        $soulPath = $this->resolveSoulPath();
+        if ($soulPath !== null) {
+            $content = file_get_contents($soulPath);
+            if ($content !== false) {
+                $sections[] = $this->substitutePlaceholders(trim($content));
+            }
+        }
+
+        // Base — operational instructions, environment, delegation rules
         $sections[] = $this->load('base.md');
 
         // Tool-specific sections (auto-discovered, alphabetical)
@@ -185,6 +263,20 @@ final readonly class PromptLoader
     public function buildSystemPromptSections(): array
     {
         $sections = [];
+
+        // Soul — core identity, values, personality (user-overridable)
+        $soulPath = $this->resolveSoulPath();
+        if ($soulPath !== null) {
+            $content = file_get_contents($soulPath);
+            if ($content !== false) {
+                $sections[] = [
+                    'id' => 'soul',
+                    'title' => 'Soul',
+                    'content' => $this->substitutePlaceholders(trim($content)),
+                    'source' => $soulPath,
+                ];
+            }
+        }
 
         $sections[] = [
             'id' => 'base',
