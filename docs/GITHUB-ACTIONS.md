@@ -2,6 +2,8 @@
 
 Coqui uses GitHub Actions for continuous integration. The workflow runs on every pull request targeting `main` and on direct pushes to `main`, ensuring tests and static analysis pass before code is merged. Coverage is reported on a dedicated lane, but it is not enforced as a merge gate yet.
 
+For local test and coverage setup, see [TESTING.md](TESTING.md).
+
 ## Workflow Overview
 
 The CI workflow (`.github/workflows/ci.yml`) runs four main jobs:

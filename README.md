@@ -450,6 +450,7 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 | [Configuration](docs/CONFIGURATION.md) | `openclaw.json` reference |
 | [API](docs/API.md) | HTTP API endpoints |
 | [Background Tasks](docs/BACKGROUND-TASKS.md) | Background task architecture and usage |
+| [Testing](docs/TESTING.md) | Test layout, local commands, coverage, and PCOV/Xdebug setup |
 | [Toolkits](docs/TOOLKITS.md) | Creating toolkit packages |
 | [Skills](docs/SKILLS.md) | Skills system and schema |
 | [GitHub Actions](docs/GITHUB-ACTIONS.md) | CI/CD integration |

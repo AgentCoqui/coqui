@@ -77,7 +77,7 @@ check_requirements() {
 
     if [[ $missing -ne 0 ]]; then
         echo ""
-        fail "Missing requirements. See docs/GITHUB-ACTIONS.md for setup instructions."
+        fail "Missing requirements. See docs/TESTING.md for local setup instructions."
         exit 1
     fi
 }

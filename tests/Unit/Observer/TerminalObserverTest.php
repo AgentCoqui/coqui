@@ -20,14 +20,14 @@ function makeTerminalObserver(): array
 /**
  * Create a TerminalObserver with an AnimatedTickCallback attached.
  *
- * Uses null stdin to avoid TTY checks. The tick callback writes to the
- * same BufferedOutput so we can verify spinner output is suppressed.
+ * The tick callback writes to the same BufferedOutput so we can verify
+ * spinner output is suppressed during streamed output.
  */
 function makeTerminalObserverWithTicker(): array
 {
     $output = new BufferedOutput();
     $observer = new TerminalObserver($output);
-    $ticker = new AnimatedTickCallback($output, stdin: null);
+    $ticker = new AnimatedTickCallback($output);
     $observer->setTickCallback($ticker);
 
     return [$observer, $output, $ticker];
