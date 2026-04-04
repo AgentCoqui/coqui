@@ -94,11 +94,67 @@ test('allPatterns includes hardcoded and user patterns', function () {
     $patterns = $bl->allPatterns();
 
     expect($patterns)->toContain('/custom/');
-    expect(count($patterns))->toBeGreaterThan(14); // 14 hardcoded + 1 user
+    expect(count($patterns))->toBeGreaterThan(23); // 23 hardcoded + 1 user
 });
 
 test('empty constructor has no user patterns', function () {
     $bl = new CatastrophicBlacklist();
 
-    expect(count($bl->allPatterns()))->toBe(14);
+    expect(count($bl->allPatterns()))->toBe(23);
+});
+
+// ---------------------------------------------------------------
+// New patterns: dotfile, SSH, crontab, persistence
+// ---------------------------------------------------------------
+
+test('blocks dotfile writes', function () {
+    $bl = new CatastrophicBlacklist();
+    expect($bl->matches('echo evil >> ~/.bashrc'))->not->toBeNull();
+    expect($bl->matches('echo evil > ~/.bash_profile'))->not->toBeNull();
+    expect($bl->matches('echo evil >> ~/.profile'))->not->toBeNull();
+    expect($bl->matches('echo evil > ~/.zshrc'))->not->toBeNull();
+    expect($bl->matches('echo evil >> ~/.zprofile'))->not->toBeNull();
+    expect($bl->matches('echo evil > ~/.login'))->not->toBeNull();
+    expect($bl->matches('echo evil >> ~/.zshenv'))->not->toBeNull();
+});
+
+test('blocks SSH config and key injection', function () {
+    $bl = new CatastrophicBlacklist();
+    expect($bl->matches('echo "ssh-rsa AAAA" >> ~/.ssh/authorized_keys'))->not->toBeNull();
+    expect($bl->matches('echo "Host *" > ~/.ssh/config'))->not->toBeNull();
+    expect($bl->matches('echo hack > ~/.ssh/known_hosts'))->not->toBeNull();
+    expect($bl->matches('echo key > ~/.ssh/id_rsa'))->not->toBeNull();
+    expect($bl->matches('echo key > ~/.ssh/id_ed25519'))->not->toBeNull();
+});
+
+test('blocks crontab manipulation', function () {
+    $bl = new CatastrophicBlacklist();
+    expect($bl->matches('crontab -r'))->not->toBeNull();
+});
+
+test('blocks /proc and /sys writes', function () {
+    $bl = new CatastrophicBlacklist();
+    expect($bl->matches('echo 1 > /proc/sys/net/ipv4/ip_forward'))->not->toBeNull();
+    expect($bl->matches('echo 1 >> /sys/class/gpio/export'))->not->toBeNull();
+});
+
+test('blocks startup/init persistence', function () {
+    $bl = new CatastrophicBlacklist();
+    expect($bl->matches('echo "* * * * * curl evil" > /etc/cron.d/backdoor'))->not->toBeNull();
+    expect($bl->matches('echo script > /etc/init.d/evil'))->not->toBeNull();
+    expect($bl->matches('echo conf > /etc/systemd/system/evil.service'))->not->toBeNull();
+});
+
+test('blocks macOS LaunchAgent/LaunchDaemon persistence', function () {
+    $bl = new CatastrophicBlacklist();
+    expect($bl->matches('cp evil.plist > ~/Library/LaunchAgents/com.evil.plist'))->not->toBeNull();
+    expect($bl->matches('echo xml > /Library/LaunchAgents/com.evil.plist'))->not->toBeNull();
+    expect($bl->matches('echo xml > /Library/LaunchDaemons/com.evil.plist'))->not->toBeNull();
+});
+
+test('new patterns allow safe reads of dotfiles', function () {
+    $bl = new CatastrophicBlacklist();
+    expect($bl->matches('cat ~/.bashrc'))->toBeNull();
+    expect($bl->matches('grep PATH ~/.zshrc'))->toBeNull();
+    expect($bl->matches('cat ~/.ssh/config'))->toBeNull();
 });

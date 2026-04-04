@@ -108,6 +108,8 @@ final class BackgroundToolExecutor implements ToolExecutorInterface
             unsafe: $this->unsafeMode,
             rootPath: $workspacePath,
             allowedPaths: $this->boot->mountManager()->allowedPaths(),
+            sandboxWrites: ShellConfigResolver::resolveSandboxWrites($config),
+            scrubEnvironment: ShellConfigResolver::resolveScrubEnvironment($config),
         ));
 
         // Web toolkit — HTTP requests with SSRF protection

@@ -293,6 +293,8 @@ final class OrchestratorAgent extends AbstractAgent
         // blacklist at the execution policy layer remains as the safety net).
         $shellAllowed = $this->unsafeMode ? [] : ShellConfigResolver::resolveAllowed($this->config);
         $shellDenied = $this->unsafeMode ? [] : ShellConfigResolver::resolveDenied($this->config);
+        $shellSandboxWrites = ShellConfigResolver::resolveSandboxWrites($this->config);
+        $shellScrubEnv = ShellConfigResolver::resolveScrubEnvironment($this->config);
         if ($effectiveAccessLevel === 'full') {
             $this->addToolkit(new ShellToolkit(
                 workDir: $this->workspacePath,
@@ -303,6 +305,8 @@ final class OrchestratorAgent extends AbstractAgent
                 cancellationToken: $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken ? $cancellationToken : null,
                 rootPath: $this->workspacePath,
                 allowedPaths: $this->mountManager?->allowedPaths() ?? [],
+                sandboxWrites: $shellSandboxWrites,
+                scrubEnvironment: $shellScrubEnv,
             ));
         } elseif ($effectiveAccessLevel === 'readonly-shell') {
             $this->addToolkit(new ShellToolkit(
@@ -312,6 +316,8 @@ final class OrchestratorAgent extends AbstractAgent
                 cancellationToken: $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken ? $cancellationToken : null,
                 rootPath: $this->workspacePath,
                 allowedPaths: $this->mountManager?->allowedPathsReadOnly() ?? [],
+                sandboxWrites: $shellSandboxWrites,
+                scrubEnvironment: $shellScrubEnv,
             ));
         }
 
