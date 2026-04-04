@@ -32,6 +32,32 @@ final class PhpExecuteTool implements ToolInterface
 {
     private const MAX_OUTPUT_BYTES = 32768;
 
+    /**
+     * Filesystem write functions blocked at the PHP engine level via disable_functions.
+     * This is defense-in-depth — ScriptSanitizer catches these in static analysis,
+     * but disable_functions enforces the restriction at runtime even if static
+     * analysis is bypassed (e.g. via variable indirection or eval).
+     */
+    private const DISABLED_WRITE_FUNCTIONS = [
+        'file_put_contents',
+        'fwrite',
+        'fputs',
+        'fopen',
+        'mkdir',
+        'rmdir',
+        'unlink',
+        'rename',
+        'copy',
+        'touch',
+        'chmod',
+        'chown',
+        'chgrp',
+        'symlink',
+        'link',
+        'tempnam',
+        'fputcsv',
+    ];
+
     private readonly ScriptSanitizer $sanitizer;
 
     public function __construct(
@@ -220,7 +246,12 @@ final class PhpExecuteTool implements ToolInterface
             $openBasedirDirective = '"' . $openBasedirDirective . '"';
         }
 
-        $commandLine = 'php -d ' . escapeshellarg($openBasedirDirective) . ' ' . escapeshellarg($scriptPath);
+        $disableFunctionsDirective = 'disable_functions=' . implode(',', self::DISABLED_WRITE_FUNCTIONS);
+
+        $commandLine = 'php'
+            . ' -d ' . escapeshellarg($openBasedirDirective)
+            . ' -d ' . escapeshellarg($disableFunctionsDirective)
+            . ' ' . escapeshellarg($scriptPath);
         $reactProcess = new ReactProcess($commandLine, $this->workspacePath);
         $deferred = new Deferred();
         $stdout = '';

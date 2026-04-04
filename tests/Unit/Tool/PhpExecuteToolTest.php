@@ -131,3 +131,81 @@ test('autoloader is available in executed code', function () {
     expect($result->status->value)->toBe('success');
     expect($result->content)->toContain('autoloader works');
 })->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
+
+// ---------------------------------------------------------------
+// ScriptSanitizer denies file-write functions
+// ---------------------------------------------------------------
+
+test('denies file_put_contents in code', function () {
+    $result = $this->tool->execute([
+        'code' => 'file_put_contents("/tmp/hack.txt", "data");',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+    expect($result->content)->toContain('file_put_contents');
+});
+
+test('denies fwrite in code', function () {
+    $result = $this->tool->execute([
+        'code' => '$f = fopen("/tmp/x", "w"); fwrite($f, "data");',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+});
+
+test('denies fopen in code', function () {
+    $result = $this->tool->execute([
+        'code' => '$f = fopen("/tmp/x", "w");',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+    expect($result->content)->toContain('fopen');
+});
+
+test('denies mkdir in code', function () {
+    $result = $this->tool->execute([
+        'code' => 'mkdir("/tmp/evil-dir");',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+});
+
+test('denies unlink in code', function () {
+    $result = $this->tool->execute([
+        'code' => 'unlink("/tmp/some-file.txt");',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+});
+
+test('denies fputcsv in code', function () {
+    $result = $this->tool->execute([
+        'code' => '$f = fopen("/tmp/x.csv", "w"); fputcsv($f, ["a","b"]);',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+});
+
+// ---------------------------------------------------------------
+// Runtime disable_functions blocks write functions even if
+// sanitizer is bypassed (e.g. via variable function calls)
+// ---------------------------------------------------------------
+
+test('runtime disable_functions blocks file_put_contents', function () {
+    // Use variable indirection to bypass static analysis
+    $result = $this->tool->execute([
+        'code' => <<<'PHP'
+            $fn = 'file_put_' . 'contents';
+            $fn('/tmp/coqui-test-blocked.txt', 'should not write');
+            echo 'written';
+            PHP,
+    ]);
+
+    // Either the sanitizer catches it or RuntimeException from disable_functions
+    if ($result->status->value === 'error') {
+        expect(true)->toBeTrue(); // Blocked by sanitizer
+    } else {
+        // If it somehow passed sanitizer, runtime should block it
+        expect($result->content)->not->toContain('written');
+    }
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');

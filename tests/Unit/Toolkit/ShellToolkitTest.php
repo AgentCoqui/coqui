@@ -175,3 +175,98 @@ test('exec terminates running command when cancellation token is triggered', fun
     expect($result->status)->toBe(ToolResultStatus::Error)
         ->and($result->content)->toContain('Command cancelled.');
 })->skip(PHP_OS_FAMILY === 'Windows', 'sleep command is intended for Unix environments');
+
+// ---------------------------------------------------------------
+// cwd sandbox enforcement (rootPath + allowedPaths)
+// ---------------------------------------------------------------
+
+test('cwd sandbox blocks escape above rootPath', function () {
+    $toolkit = new ShellToolkit(
+        workDir: $this->workDir,
+        rootPath: $this->workDir,
+    );
+    $tool = shellExecTool($toolkit);
+
+    $result = $tool->execute(['command' => 'pwd', 'cwd' => '/tmp']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+    expect($result->content)->toContain('Invalid working directory');
+})->skip(PHP_OS_FAMILY === 'Windows', 'Path resolution differs on Windows');
+
+test('cwd sandbox allows subdirectory of rootPath', function () {
+    $sub = $this->workDir . '/nested';
+    mkdir($sub, 0755, true);
+
+    $toolkit = new ShellToolkit(
+        workDir: $this->workDir,
+        rootPath: $this->workDir,
+    );
+    $tool = shellExecTool($toolkit);
+
+    $result = $tool->execute(['command' => 'pwd', 'cwd' => $sub]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $output = json_decode($result->content, true);
+    expect(trim($output['stdout']))->toBe(realpath($sub));
+})->skip(PHP_OS_FAMILY === 'Windows', 'pwd output format differs on Windows');
+
+test('cwd sandbox allows mount path', function () {
+    // Use /tmp as a simulated mount path
+    $mountDir = sys_get_temp_dir() . '/coqui-mount-' . bin2hex(random_bytes(4));
+    mkdir($mountDir, 0755, true);
+
+    $toolkit = new ShellToolkit(
+        workDir: $this->workDir,
+        rootPath: $this->workDir,
+        allowedPaths: [['realPath' => realpath($mountDir), 'readOnly' => true]],
+    );
+    $tool = shellExecTool($toolkit);
+
+    $result = $tool->execute(['command' => 'pwd', 'cwd' => $mountDir]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $output = json_decode($result->content, true);
+    expect(trim($output['stdout']))->toBe(realpath($mountDir));
+
+    rmdir($mountDir);
+})->skip(PHP_OS_FAMILY === 'Windows', 'Path resolution differs on Windows');
+
+test('cwd sandbox blocks path not in rootPath or mounts', function () {
+    $outsideDir = sys_get_temp_dir() . '/coqui-outside-' . bin2hex(random_bytes(4));
+    mkdir($outsideDir, 0755, true);
+
+    $toolkit = new ShellToolkit(
+        workDir: $this->workDir,
+        rootPath: $this->workDir,
+        allowedPaths: [], // no mounts
+    );
+    $tool = shellExecTool($toolkit);
+
+    $result = $tool->execute(['command' => 'pwd', 'cwd' => $outsideDir]);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+
+    rmdir($outsideDir);
+})->skip(PHP_OS_FAMILY === 'Windows', 'Path resolution differs on Windows');
+
+test('cwd sandbox is not enforced when rootPath is null', function () {
+    // Default behavior — no sandbox enforcement
+    $toolkit = new ShellToolkit(workDir: $this->workDir);
+    $tool = shellExecTool($toolkit);
+
+    $result = $tool->execute(['command' => 'pwd', 'cwd' => sys_get_temp_dir()]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+})->skip(PHP_OS_FAMILY === 'Windows', 'pwd output format differs on Windows');
+
+test('cwd sandbox blocks relative path that escapes via ..', function () {
+    $toolkit = new ShellToolkit(
+        workDir: $this->workDir,
+        rootPath: $this->workDir,
+    );
+    $tool = shellExecTool($toolkit);
+
+    $result = $tool->execute(['command' => 'pwd', 'cwd' => '../../../tmp']);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+})->skip(PHP_OS_FAMILY === 'Windows', 'Path resolution differs on Windows');
