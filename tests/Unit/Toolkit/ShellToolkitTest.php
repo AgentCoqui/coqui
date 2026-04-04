@@ -428,7 +428,7 @@ test('write sandbox blocks redirect to readonly mount', function () {
     $result = $tool->execute(['command' => "echo blocked > {$target}"]);
 
     expect($result->status)->toBe(ToolResultStatus::Error);
-    expect($result->content)->toContain('read-only');
+    expect($result->content)->toContain('read-only mount');
 
     rmdir($mountDir);
 })->skip(PHP_OS_FAMILY === 'Windows', 'ShellToolkit exec is designed for Unix environments');

@@ -30,13 +30,13 @@ loop_start(definition: "harness", goal: "Build a Redis caching layer for the API
 
 ### With Parameters
 
-The `research` definition supports template parameters that are substituted into role prompts:
+The `research` definition derives its subject from the goal. Optional parameters can tune the deliverable:
 
 ```
 loop_start(
     definition: "research",
     goal: "Deep investigation of WebSocket libraries",
-    parameters: '{"topic": "PHP WebSocket libraries", "output_format": "comparison matrix"}'
+  parameters: '{"output_format": "comparison matrix"}'
 )
 ```
 
@@ -187,19 +187,21 @@ Add a `parameters` array for template variable support:
 {
     "name": "investigate",
     "parameters": [
-        {"name": "topic", "description": "Subject to investigate", "required": true},
+    {"name": "subject", "description": "Subject to investigate", "required": true},
         {"name": "depth", "description": "How deep to go", "required": false, "default": "moderate"}
     ],
     "roles": [
         {
             "role": "explorer",
-            "prompt": "Investigate {{topic}} at {{depth}} depth..."
+      "prompt": "Investigate {{subject}} at {{depth}} depth..."
         }
     ]
 }
 ```
 
-Call with: `loop_start(definition: "investigate", goal: "...", parameters: '{"topic": "caching strategies"}')`.
+Call with: `loop_start(definition: "investigate", goal: "...", parameters: '{"subject": "caching strategies"}')`.
+
+Use the loop goal for the main subject matter. Parameters should refine behavior or supply additional structured inputs rather than act as loop identity.
 
 ## Monitoring and Control
 

@@ -82,7 +82,7 @@ final readonly class LoopToolkit implements ToolkitInterface
 
         ### Usage
         - Start a loop: `loop_start(definition: "harness", goal: "Build feature X")`
-        - With parameters: `loop_start(definition: "research", goal: "Investigate auth", parameters: "{\"topic\": \"authentication\"}")`
+        - With parameters: `loop_start(definition: "research", goal: "Investigate auth", parameters: "{\"output_format\": \"comparison matrix\"}")`
         - Reuse a project: `loop_start(definition: "harness", goal: "Fix bugs", project_slug: "my-app")`
         - Monitor: `loop_status(id: "...")` or `loop_list()`
         - Pause/resume: `loop_pause(id: "...")` / `loop_resume(id: "...")` or pass `id: "all"`
@@ -94,7 +94,7 @@ final readonly class LoopToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'loop_start',
-            description: 'Start a new automated loop workflow from a named definition. The loop runs multiple roles in sequence per iteration, evaluating termination conditions between cycles. Definitions may declare parameters — pass them as a JSON object to substitute {{variable}} placeholders in role prompts. Loops can reuse an existing project (by ID or slug) instead of auto-creating a new one.',
+            description: 'Start a new automated loop workflow from a named definition. The loop runs multiple roles in sequence per iteration, evaluating termination conditions between cycles. Use the goal to describe the subject matter; parameters should tune the definition rather than identify the loop. Loops can reuse an existing project (by ID or slug) instead of auto-creating a new one.',
             parameters: [
                 new StringParameter(
                     name: 'definition',
@@ -113,7 +113,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                 ),
                 new StringParameter(
                     name: 'parameters',
-                    description: 'JSON object of template parameter values (e.g. {"topic": "authentication", "language": "PHP"}). These substitute {{variable}} placeholders in the loop\'s role prompts.',
+                    description: 'JSON object of template parameter values (e.g. {"output_format": "comparison matrix", "language": "PHP"}). These substitute {{variable}} placeholders in the loop\'s role prompts.',
                     required: false,
                 ),
                 new StringParameter(
@@ -152,7 +152,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                 if (isset($input['parameters']) && $input['parameters'] !== '') {
                     $decoded = json_decode((string) $input['parameters'], true);
                     if (!is_array($decoded)) {
-                        return ToolResult::error('The "parameters" field must be a valid JSON object (e.g. {"topic": "auth"})');
+                        return ToolResult::error('The "parameters" field must be a valid JSON object (e.g. {"output_format": "report"})');
                     }
                     $parameters = array_map('strval', $decoded);
                 }

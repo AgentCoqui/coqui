@@ -533,10 +533,10 @@ test('loop_start passes parameters to executor', function () {
     file_put_contents($this->loopsDir . '/parameterized.json', json_encode([
         'name' => 'parameterized',
         'description' => 'Test parameterized loop',
-        'roles' => [['role' => 'coder', 'prompt' => 'Work on {{topic}}.']],
+        'roles' => [['role' => 'coder', 'prompt' => 'Work on {{subject}}.']],
         'termination_condition' => ['type' => 'manual'],
         'parameters' => [
-            ['name' => 'topic', 'description' => 'Subject', 'required' => true],
+            ['name' => 'subject', 'description' => 'Subject', 'required' => true],
         ],
     ]));
 
@@ -565,12 +565,12 @@ test('loop_start passes parameters to executor', function () {
     $result = $startTool->execute([
         'definition' => 'parameterized',
         'goal' => 'Test goal',
-        'parameters' => '{"topic": "authentication"}',
+        'parameters' => '{"subject": "authentication"}',
     ]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     $data = json_decode($result->content, true);
-    expect($data['parameters'])->toBe(['topic' => 'authentication']);
+    expect($data['parameters'])->toBe(['subject' => 'authentication']);
 
     // Clean up
     $it = new RecursiveIteratorIterator(
@@ -600,10 +600,10 @@ test('loop_definitions shows parameter info', function () {
     file_put_contents($this->loopsDir . '/parameterized.json', json_encode([
         'name' => 'parameterized',
         'description' => 'Test parameterized loop',
-        'roles' => [['role' => 'coder', 'prompt' => 'Work on {{topic}}.']],
+        'roles' => [['role' => 'coder', 'prompt' => 'Work on {{subject}}.']],
         'termination_condition' => ['type' => 'manual'],
         'parameters' => [
-            ['name' => 'topic', 'description' => 'Subject', 'required' => true],
+            ['name' => 'subject', 'description' => 'Subject', 'required' => true],
             ['name' => 'format', 'description' => 'Format', 'required' => false, 'default' => 'md'],
         ],
     ]));
@@ -614,7 +614,7 @@ test('loop_definitions shows parameter info', function () {
 
     $result = $defsTool->execute([]);
     expect($result->status)->toBe(ToolResultStatus::Success);
-    expect($result->content)->toContain('Parameters: topic, format?');
+    expect($result->content)->toContain('Parameters: subject, format?');
 });
 
 // ──────────────────────────────────────────────
