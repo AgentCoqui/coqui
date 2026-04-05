@@ -40,11 +40,14 @@ readonly MAX_CRASHES=3
 readonly API_DEFAULT_PORT=3300
 readonly PID_DIR="${PROJECT_DIR}/.workspace/pids"
 readonly DEFAULT_WORKSPACE='~/.coqui/.workspace'
+readonly API_READY_POLL_COUNT=8
+readonly API_READY_POLL_INTERVAL='0.25'
 
 launch_cwd="${PWD}"
 config_path=""
 workspace_override=""
 requested_workdir="${launch_cwd}"
+spawned_pid=""
 
 # ─── Parse arguments ─────────────────────────────────────────────────────────
 
@@ -115,6 +118,21 @@ warn() {
 command_for_pid() {
     local pid="$1"
     ps -o command= -p "$pid" 2>/dev/null | sed -e 's/^[[:space:]]*//'
+}
+
+list_coqui_processes() {
+    ps -axo pid=,pgid=,stat=,command= 2>/dev/null | awk -v coqui_bin="$COQUI_BIN" '
+        index($0, coqui_bin) > 0 {
+            pid = $1
+            pgid = $2
+            stat = $3
+            $1 = ""
+            $2 = ""
+            $3 = ""
+            sub(/^[[:space:]]+/, "")
+            printf "%s\t%s\t%s\t%s\n", pid, pgid, stat, $0
+        }
+    '
 }
 
 pgid_for_pid() {
@@ -388,6 +406,26 @@ port_in_use() {
     return 1
 }
 
+port_accepting_connections() {
+    local host="$1"
+    local port="$2"
+
+    if command -v nc &>/dev/null; then
+        nc -z -w 1 "$host" "$port" >/dev/null 2>&1
+        return $?
+    fi
+
+    if [[ -n "${BASH_VERSION:-}" ]]; then
+        (exec 3<>"/dev/tcp/${host}/${port}") >/dev/null 2>&1
+        local status=$?
+        exec 3>&- 2>/dev/null || true
+        exec 3<&- 2>/dev/null || true
+        return $status
+    fi
+
+    port_in_use "$port"
+}
+
 port_pids() {
     local port="$1"
 
@@ -437,17 +475,10 @@ cleanup_stale_coqui_processes() {
     local cleaned=0
     local seen_groups=" "
 
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-
-        local pid pgid stat command
-        pid=$(awk '{print $1}' <<<"$line")
-        pgid=$(awk '{print $2}' <<<"$line")
-        stat=$(awk '{print $3}' <<<"$line")
-        command=$(awk '{$1=""; $2=""; $3=""; sub(/^[[:space:]]+/, ""); print}' <<<"$line")
+    while IFS=$'\t' read -r pid pgid stat command; do
+        [[ -z "$pid" ]] && continue
 
         [[ -z "$pid" || "$pid" == "$$" ]] && continue
-        [[ "$command" != *"${COQUI_BIN}"* ]] && continue
 
         case " ${seen_groups} " in
             *" ${pgid} "*)
@@ -460,7 +491,7 @@ cleanup_stale_coqui_processes() {
             cleanup_tracked_pid "$pid" 'coqui'
             cleaned=1
         fi
-    done < <(ps -axo pid=,pgid=,stat=,command= 2>/dev/null || true)
+    done < <(list_coqui_processes || true)
 
     return $cleaned
 }
@@ -470,17 +501,10 @@ cleanup_workspace_conflicts() {
     local cleaned=0
     local seen_groups=" "
 
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-
-        local pid pgid stat command
-        pid=$(awk '{print $1}' <<<"$line")
-        pgid=$(awk '{print $2}' <<<"$line")
-        stat=$(awk '{print $3}' <<<"$line")
-        command=$(awk '{$1=""; $2=""; $3=""; sub(/^[[:space:]]+/, ""); print}' <<<"$line")
+    while IFS=$'\t' read -r pid pgid stat command; do
+        [[ -z "$pid" ]] && continue
 
         [[ -z "$pid" || "$pid" == "$$" ]] && continue
-        [[ "$command" != *"${COQUI_BIN}"* ]] && continue
 
         case " ${seen_groups} " in
             *" ${pgid} "*)
@@ -497,7 +521,7 @@ cleanup_workspace_conflicts() {
             cleanup_tracked_pid "$pid" 'coqui'
             cleaned=1
         fi
-    done < <(ps -axo pid=,pgid=,stat=,command= 2>/dev/null || true)
+    done < <(list_coqui_processes || true)
 
     return $cleaned
 }
@@ -551,7 +575,6 @@ print_api_start_warning() {
 
 spawn_api_supervisor() {
     local cmd=("${BASH:-/bin/bash}" "$0" --api-only --host "$api_host" --port "$api_port")
-    local pid
 
     if [[ "$verbose" == true ]]; then
         cmd+=(--verbose)
@@ -561,24 +584,21 @@ spawn_api_supervisor() {
 
     if command -v setsid &>/dev/null; then
         setsid "${cmd[@]}" </dev/null >/dev/null 2>&1 &
-        pid=$!
-        disown "$pid" 2>/dev/null || true
-        echo "$pid"
+        spawned_pid="$!"
+        disown "$spawned_pid" 2>/dev/null || true
         return 0
     fi
 
     if command -v perl &>/dev/null; then
         perl -e 'use POSIX qw(setsid); setsid() or die; exec(@ARGV)' -- "${cmd[@]}" </dev/null >/dev/null 2>&1 &
-        pid=$!
-        disown "$pid" 2>/dev/null || true
-        echo "$pid"
+        spawned_pid="$!"
+        disown "$spawned_pid" 2>/dev/null || true
         return 0
     fi
 
     "${cmd[@]}" </dev/null >/dev/null 2>&1 &
-    pid=$!
-    disown "$pid" 2>/dev/null || true
-    echo "$pid"
+    spawned_pid="$!"
+    disown "$spawned_pid" 2>/dev/null || true
 }
 
 wait_for_api_ready() {
@@ -586,8 +606,8 @@ wait_for_api_ready() {
     local port="$2"
     local waited=0
 
-    while [[ $waited -lt 60 ]]; do
-        if port_in_use "$port"; then
+    while [[ $waited -lt $API_READY_POLL_COUNT ]]; do
+        if port_accepting_connections "$api_host" "$port"; then
             return 0
         fi
 
@@ -595,13 +615,19 @@ wait_for_api_ready() {
             return 1
         fi
 
-        sleep 0.25
+        sleep "$API_READY_POLL_INTERVAL"
         waited=$((waited + 1))
     done
 
-    port_in_use "$port"
+    if port_accepting_connections "$api_host" "$port"; then
+        return 0
+    fi
 
-    return $?
+    if is_running "$pid"; then
+        return 2
+    fi
+
+    return 1
 }
 
 # Dim (muted) log helper for service details
@@ -645,9 +671,17 @@ stop_service() {
 show_status() {
     local name="$1"
     local pid
+    local port=""
+
+    case "$name" in
+        api) port="$api_port" ;;
+    esac
+
     pid=$(read_pid "$name")
     if [[ -z "$pid" ]]; then
         log "${name}: stopped"
+    elif is_running "$pid" && [[ -n "$port" ]] && ! port_accepting_connections "$api_host" "$port" ]]; then
+        log "${name}: starting (PID ${pid})"
     elif is_running "$pid"; then
         log "${name}: running (PID ${pid})"
     else
@@ -769,19 +803,26 @@ start_api_bg() {
 
     log_verbose "Starting API on ${api_host}:${api_port}..."
     local pid
-    pid=$(spawn_api_supervisor)
+    spawned_pid=""
+    spawn_api_supervisor
+    pid="$spawned_pid"
     write_pid "api" "$pid"
     session_services+=("api")
 
-    if wait_for_api_ready "$pid" "$api_port"; then
-        log "API: running on http://${api_host}:${api_port} (PID ${pid})"
-    elif ps -p "$pid" >/dev/null 2>&1; then
-        warn "API startup is taking longer than expected on port ${api_port}."
-        log_dim "The API supervisor is still running (PID ${pid}); leaving it in place while it finishes booting."
-    else
-        print_api_start_warning "$api_port" "The API supervisor process exited or the port never opened."
-        rm -f "${PID_DIR}/api.pid" 2>/dev/null || true
-    fi
+    wait_for_api_ready "$pid" "$api_port"
+    case $? in
+        0)
+            log "API: running on http://${api_host}:${api_port} (PID ${pid})"
+            ;;
+        2)
+            log "API: starting in background on http://${api_host}:${api_port} (PID ${pid})"
+            log_dim "Use ./bin/coqui-launcher status to confirm when the listener is fully ready."
+            ;;
+        *)
+            print_api_start_warning "$api_port" "The API supervisor process exited or the port never opened."
+            rm -f "${PID_DIR}/api.pid" 2>/dev/null || true
+            ;;
+    esac
 }
 
 # ─── REPL loop with crash recovery ───────────────────────────────────────────
