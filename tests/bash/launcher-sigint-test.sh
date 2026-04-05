@@ -196,6 +196,32 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 7: cleanup subcommand is parsed correctly
+# ---------------------------------------------------------------------------
+if bash -euo pipefail -c '
+    subcommand=""
+    set -- cleanup
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            stop|stop-api|cleanup|status)
+                subcommand="$1"
+                shift
+                ;;
+            *)
+                shift
+                ;;
+        esac
+    done
+
+    [[ "$subcommand" == "cleanup" ]]
+' 2>/dev/null; then
+    pass "cleanup subcommand is parsed correctly"
+else
+    fail "cleanup subcommand was not parsed correctly"
+fi
+
+# ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
 echo ""

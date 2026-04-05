@@ -126,7 +126,15 @@ The launcher starts the REPL (foreground) + API server (background on port 3300)
 - **Clean exit** (exit code 0) — `/quit` stops the launcher and all background services
 - **Restart** (exit code 10) — `/restart` or the `restart_coqui` tool triggers an immediate relaunch
 - **Crash recovery** — unexpected exits auto-relaunch up to 3 consecutive times
-- **Service management** — `./bin/coqui-launcher stop` / `status` to manage background services
+- **Service management** — `./bin/coqui-launcher stop`, `status`, and `cleanup` to manage background services and reclaim stale Coqui-owned processes
+
+If a previous session left stale Coqui processes behind, run:
+
+```bash
+./bin/coqui-launcher cleanup
+```
+
+`cleanup` only targets stale or conflicting Coqui-owned processes for this checkout. It does not blindly kill unrelated PHP processes.
 
 ```txt
  Coqui v0.1.0
@@ -408,6 +416,7 @@ ollama serve
 | `make start` | Start REPL + API (native) |
 | `make stop` | Stop all native services |
 | `make status` | Show service status |
+| `make cleanup` | Clean stale/conflicting native Coqui processes |
 | `make repl` | REPL only (native) |
 | `make api` | API only (native, `HOST=0.0.0.0` for network access) |
 | `make docker-start` | REPL + API (Docker) |

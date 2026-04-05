@@ -507,7 +507,8 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
             return $reflection->implementsInterface(ToolkitInterface::class)
                 && !$reflection->isAbstract()
                 && !$reflection->isInterface();
-        } catch (\ReflectionException) {
+        } catch (\Throwable) {
+            // Catches \ParseError (broken vendor files), \ReflectionException, and any other failure.
             return false;
         }
     }
@@ -522,11 +523,10 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
      */
     private function tryInstantiate(string $className): ?ToolkitInterface
     {
-        if (!class_exists($className, true)) {
-            return null;
-        }
-
         try {
+            if (!class_exists($className, true)) {
+                return null;
+            }
             /** @var \ReflectionClass<ToolkitInterface> $reflection */
             $reflection = new \ReflectionClass($className);
 
@@ -569,7 +569,14 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
             }
 
             return null;
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
+            error_log(sprintf(
+                '[ToolkitDiscovery] Failed to instantiate %s: %s in %s:%d',
+                $className,
+                $e->getMessage(),
+                $e->getFile(),
+                $e->getLine(),
+            ));
             return null;
         }
     }

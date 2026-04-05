@@ -1598,8 +1598,8 @@ final class SessionStorage
         foreach ($rows as $row) {
             $pid = (int) ($row['pid'] ?? 0);
 
-            // If the PID is alive, skip — the process is still running
-            if ($pid > 0 && function_exists('posix_kill') && posix_kill($pid, 0)) {
+            // Only keep the task if the PID is alive AND still belongs to Coqui task:run.
+            if ($this->isExpectedCoquiProcessAlive($pid, 'task:run')) {
                 continue;
             }
 
@@ -1877,8 +1877,8 @@ final class SessionStorage
         foreach ($rows as $row) {
             $pid = (int) ($row['pid'] ?? 0);
 
-            // If the PID is alive, skip — the process is still running
-            if ($pid > 0 && function_exists('posix_kill') && posix_kill($pid, 0)) {
+            // Only keep the turn if the PID is alive AND still belongs to Coqui turn:run.
+            if ($this->isExpectedCoquiProcessAlive($pid, 'turn:run')) {
                 continue;
             }
 
@@ -1887,5 +1887,20 @@ final class SessionStorage
         }
 
         return $count;
+    }
+
+    private function isExpectedCoquiProcessAlive(int $pid, string $subcommand): bool
+    {
+        if ($pid <= 0 || !function_exists('posix_kill') || !posix_kill($pid, 0)) {
+            return false;
+        }
+
+        $command = shell_exec(sprintf('ps -o command= -p %d 2>/dev/null', $pid));
+        if (!is_string($command) || trim($command) === '') {
+            return false;
+        }
+
+        return str_contains($command, 'bin/coqui')
+            && str_contains($command, $subcommand);
     }
 }
