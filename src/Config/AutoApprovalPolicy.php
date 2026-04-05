@@ -27,17 +27,21 @@ final class AutoApprovalPolicy implements ToolExecutionPolicyInterface
 
     public function shouldExecute(string $toolName, array $arguments): true|string
     {
-        // Build a single string from all arguments for pattern matching
-        $argumentsText = $this->flattenArguments($arguments);
+        // Check catastrophic blacklist for command-execution tools only.
+        // Data tools (write_file, memory, artifacts, etc.) are excluded because
+        // their content arguments commonly contain words like "shutdown" in
+        // legitimate contexts (documentation, plans, configs).
+        if (in_array($toolName, CatastrophicBlacklist::CHECKED_TOOLS, true)) {
+            $argumentsText = $this->flattenArguments($arguments);
 
-        // Check catastrophic blacklist — always enforced
-        $blocked = $this->blacklist->matches($argumentsText);
-        if ($blocked !== null) {
-            $reason = "CATASTROPHIC BLOCK: {$blocked}";
+            $blocked = $this->blacklist->matches($argumentsText);
+            if ($blocked !== null) {
+                $reason = "CATASTROPHIC BLOCK: {$blocked}";
 
-            $this->log($toolName, $arguments, 'blocked', $reason);
+                $this->log($toolName, $arguments, 'blocked', $reason);
 
-            return $reason;
+                return $reason;
+            }
         }
 
         // Auto-approve and log

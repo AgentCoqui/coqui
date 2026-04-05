@@ -158,3 +158,20 @@ test('new patterns allow safe reads of dotfiles', function () {
     expect($bl->matches('grep PATH ~/.zshrc'))->toBeNull();
     expect($bl->matches('cat ~/.ssh/config'))->toBeNull();
 });
+
+// ---------------------------------------------------------------
+// CHECKED_TOOLS constant
+// ---------------------------------------------------------------
+
+test('CHECKED_TOOLS contains exec and php_execute', function () {
+    expect(CatastrophicBlacklist::CHECKED_TOOLS)->toContain('exec');
+    expect(CatastrophicBlacklist::CHECKED_TOOLS)->toContain('php_execute');
+});
+
+test('CHECKED_TOOLS does not contain file-writing tools', function () {
+    $fileTools = ['write_file', 'replace_in_file', 'insert_before', 'insert_after', 'append_to_file', 'batch_replace'];
+
+    foreach ($fileTools as $tool) {
+        expect(CatastrophicBlacklist::CHECKED_TOOLS)->not->toContain($tool);
+    }
+});

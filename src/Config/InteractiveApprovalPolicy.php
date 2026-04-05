@@ -51,8 +51,11 @@ final class InteractiveApprovalPolicy implements ToolExecutionPolicyInterface
 
     public function shouldExecute(string $toolName, array $arguments): true|string
     {
-        // Check catastrophic blacklist first — always enforced, no prompt
-        if ($this->blacklist !== null) {
+        // Check catastrophic blacklist for command-execution tools only.
+        // Data tools (write_file, memory, artifacts, etc.) are excluded because
+        // their content arguments commonly contain words like "shutdown" in
+        // legitimate contexts (documentation, plans, configs).
+        if ($this->blacklist !== null && in_array($toolName, CatastrophicBlacklist::CHECKED_TOOLS, true)) {
             $argumentsText = $this->flattenArguments($arguments);
             $blocked = $this->blacklist->matches($argumentsText);
             if ($blocked !== null) {

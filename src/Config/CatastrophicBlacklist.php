@@ -16,6 +16,22 @@ use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 final class CatastrophicBlacklist
 {
     /**
+     * Tools whose arguments are checked against catastrophic patterns.
+     *
+     * Only tools that directly execute commands or code need this check.
+     * File-writing, memory, artifact, and other data tools are excluded
+     * because their content arguments commonly contain words like
+     * "shutdown" or "reboot" in legitimate contexts (documentation,
+     * plans, configuration files).
+     *
+     * @var string[]
+     */
+    public const CHECKED_TOOLS = [
+        'exec',
+        'php_execute',
+    ];
+
+    /**
      * Patterns that can never be bypassed — always checked regardless of mode.
      *
      * @var string[]
