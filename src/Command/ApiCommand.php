@@ -380,6 +380,9 @@ final class ApiCommand extends Command
         if (defined('SIGINT')) {
             Loop::addSignal(SIGINT, $shutdownHandler);
         }
+        if (defined('SIGHUP')) {
+            Loop::addSignal(SIGHUP, $shutdownHandler);
+        }
 
         $output->writeln('');
         $output->writeln(sprintf('Listening on <info>http://%s</info>', $listenAddress));
