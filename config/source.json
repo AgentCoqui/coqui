@@ -2528,10 +2528,10 @@
             "path": "src/Toolkit/FileSystemToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\FileSystemToolkit",
             "layer": "toolkit",
-            "description": "Unified filesystem toolkit providing 18 tools: 4 read (read_file, list_dir, search_files, file_info), 5 write (write_file, create_dir, delete_file, copy_file, move), 8 surgical edit (replace_in_file, insert_before, insert_after, replace_block, remove_lines, write_lines, batch_replace, indent_lines, append_to_file), and 1 history (edit_history). copy_file and move auto-detect files vs directories for recursive operations. list_dir accepts a max_depth parameter (1–10, default 3) when recursive=true. search_files supports ** for recursive glob (delegated to FileSystemOperations::resolveGlob). Supports readOnly mode, mount-aware path sandboxing, configurable edit history retention, and SQLite-backed edit history with unified diff and undo.",
+            "description": "Unified filesystem toolkit providing 20 tools: 4 read (read_file, list_dir, search_files, file_info), 5 write (write_file, create_dir, delete_file, copy_file, move), 9 surgical edit (replace_in_file, insert_before, insert_after, replace_block, remove_lines, write_lines, batch_replace, indent_lines, append_to_file), and 2 history/session (edit_history, edit_session). All surgical edit tools support dry_run (preview diff without writing), context_lines (diff context), and session_id (queue edits in a transactional EditSession). Binary and oversized file guards reject surgical edits on binary files or files exceeding MAX_EDIT_FILE_SIZE. batch_replace supports exclude patterns and auto-skips binary files by extension and content inspection. edit_session provides transactional multi-file edits with SHA-256 concurrent modification detection on commit. copy_file and move auto-detect files vs directories. list_dir accepts max_depth (1–10, default 3). search_files supports ** for recursive glob. Supports readOnly mode, mount-aware path sandboxing, configurable edit history retention, and SQLite-backed edit history with unified diff and undo.",
             "methods": [
-                "tools(): array — returns 4 read tools always, plus 14 write/edit/history tools when not readOnly",
-                "guidelines(): string — tool selection guide with best practices, mode-aware"
+                "tools(): array — returns 4 read tools always, plus 16 write/edit/history/session tools when not readOnly",
+                "guidelines(): string — tool selection guide with best practices, mode-aware; includes dry-run, transactional edits, and safety guard sections"
             ]
         },
         {
@@ -2568,7 +2568,7 @@
             "path": "src/Support/FileSystemOperations.php",
             "fqcn": "CoquiBot\\Coqui\\Support\\FileSystemOperations",
             "layer": "support",
-            "description": "Shared file I/O helpers with path sandboxing, atomic writes, and line ending detection. Combines path resolution (mount-aware sandbox) with atomic write via temp-file + rename. Used by FileSystemToolkit for all file operations.",
+            "description": "Shared file I/O helpers with path sandboxing, atomic writes, line ending detection, binary file detection, and file size queries. Combines path resolution (mount-aware sandbox) with atomic write via temp-file + rename. Used by FileSystemToolkit for all file operations.",
             "methods": [
                 "resolvePath(string): string — canonicalize and sandbox-check a relative path; throws FileSystemException::pathEscapesSandbox if realpath escapes root and all allowed mounts",
                 "resolveGlob(string): array — glob within sandbox boundaries; supports ** for recursive directory traversal (RecursiveIteratorIterator + fnmatch), capped at MAX_GLOB_RESULTS (500)",
@@ -2578,21 +2578,49 @@
                 "append(string, string): int — append with file creation",
                 "delete(string): void — unlink with mount read-only guard",
                 "isReadOnlyMountPath(string): bool — check if path is under a read-only mount",
-                "detectEol(string): string — detect dominant line ending style"
+                "detectEol(string): string — detect dominant line ending style",
+                "isBinaryFile(string): bool — detect binary files by checking first 8KB for null bytes",
+                "fileSize(string): int — get file size in bytes with sandbox enforcement"
+            ]
+        },
+        {
+            "path": "src/Support/DiffHelper.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\DiffHelper",
+            "layer": "support",
+            "description": "Standalone unified diff generator using a pure PHP Myers LCS algorithm. Decoupled from SQLite storage layer. Provides unifiedDiff() for computing diffs between strings, preview() for dry-run file change previews with metadata headers, and myersDiff() for raw line-level diff operations. Used by EditHistory (undo diffs) and FileSystemToolkit (dry-run previews, edit session queuing).",
+            "methods": [
+                "static unifiedDiff(string, string, string, string, int): string — compute unified diff between two strings with configurable context lines",
+                "static preview(string, string, string, array, int): string — generate preview header with file path, metadata, and unified diff",
+                "static myersDiff(array, array): array — pure PHP Myers LCS producing operation tags per line (equal/add/remove)"
+            ]
+        },
+        {
+            "path": "src/Support/EditSession.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\EditSession",
+            "layer": "support",
+            "description": "Transactional edit session value object for atomic multi-file edits. Generates a random hex session ID, queues edits with SHA-256 hash snapshots of original content, validates against concurrent modifications before commit, and provides immutable state transitions (active → committed/rolled_back/expired). Sessions expire after a configurable timeout (default 5 minutes). Used by FileSystemToolkit's edit_session tool.",
+            "methods": [
+                "addEdit(string, string, string, string, array): void — queue an edit with path, original, modified, operation, and metadata",
+                "validate(): array — re-read files and compare SHA-256 hashes, return conflicting paths",
+                "commit(): array — mark committed and return pending edits for caller to write",
+                "rollback(): void — discard all pending edits",
+                "isActive(): bool — session is active and within timeout",
+                "isExpired(): bool — timeout exceeded",
+                "status(): string — current state (active/committed/rolled_back/expired)"
             ]
         },
         {
             "path": "src/Support/FileSystemException.php",
             "fqcn": "CoquiBot\\Coqui\\Support\\FileSystemException",
             "layer": "support",
-            "description": "Domain exception for filesystem operations with static factories for common error types: fileNotFound, readFailed, writeFailed, readOnlyMount, pathEscapesSandbox, invalidRange, invalidRegex, copyFailed, moveFailed, cannotCopyToSelf, maxRecursiveItemsExceeded, deletionFailed.",
+            "description": "Domain exception for filesystem operations with static factories for common error types: fileNotFound, readFailed, writeFailed, readOnlyMount, pathEscapesSandbox, invalidRange, invalidRegex, copyFailed, moveFailed, cannotCopyToSelf, maxRecursiveItemsExceeded, deletionFailed, binaryFileNotEditable, fileTooLarge.",
             "methods": []
         },
         {
             "path": "src/Storage/EditHistory.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\EditHistory",
             "layer": "storage",
-            "description": "SQLite-backed edit history with file backups for undo support. Records each mutating edit with the original file content as a backup. Supports undo by edit ID, unified diff generation, listing recent edits, and pruning old entries. Used by FileSystemToolkit.",
+            "description": "SQLite-backed edit history with file backups for undo support. Records each mutating edit with the original file content as a backup. Supports undo by edit ID, unified diff generation (delegated to DiffHelper), listing recent edits, and pruning old entries. Used by FileSystemToolkit.",
             "methods": [
                 "record(string, string, string, array): int — record an edit with backup, returns edit ID",
                 "getBackup(int): array — retrieve backup content for a specific edit",

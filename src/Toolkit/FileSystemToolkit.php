@@ -14,6 +14,8 @@ use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\EditHistory;
+use CoquiBot\Coqui\Support\DiffHelper;
+use CoquiBot\Coqui\Support\EditSession;
 use CoquiBot\Coqui\Support\FileSystemException;
 use CoquiBot\Coqui\Support\FileSystemOperations;
 
@@ -27,6 +29,9 @@ use CoquiBot\Coqui\Support\FileSystemOperations;
 final class FileSystemToolkit implements ToolkitInterface
 {
     private readonly FileSystemOperations $fs;
+
+    /** @var array<string, EditSession> */
+    private array $editSessions = [];
 
     /**
      * @param string $workspacePath  Root workspace directory.
@@ -81,6 +86,7 @@ final class FileSystemToolkit implements ToolkitInterface
         // History tool
         if ($this->history !== null) {
             $tools[] = $this->editHistoryTool();
+            $tools[] = $this->editSessionTool();
         }
 
         return $tools;
@@ -121,6 +127,7 @@ final class FileSystemToolkit implements ToolkitInterface
             | Change indentation of lines | `indent_lines` |
             | Find-and-replace across files | `batch_replace` |
             | View/undo/diff edit history | `edit_history` |
+            | Atomic multi-file edits | `edit_session` |
 
             ### Best Practices
             - **Read before editing.** Always `read_file` first to understand file structure.
@@ -128,8 +135,24 @@ final class FileSystemToolkit implements ToolkitInterface
             - **Use line ranges** when possible: `read_file(path, from: 10, to: 30)` is cheaper than reading the whole file.
             - **Use anchors** (`replace_in_file`, `insert_before`, `insert_after`) for text-based targeting when line numbers are uncertain.
             - **Use `replace_block`** when replacing a region bounded by known start/end markers.
-            - **Use `batch_replace`** to apply the same change across many files efficiently.
+            - **Use `batch_replace`** to apply the same change across many files efficiently. Use `exclude` to skip directories.
             - All edits are recorded in history and can be undone with `edit_history(action: "undo", edit_id: N)`.
+
+            ### Dry-Run Preview
+            - Add `dry_run: true` to any surgical edit tool to preview changes as a unified diff without writing.
+            - Use `context_lines` to control how many surrounding lines appear in the diff (default 3).
+            - Dry runs are free — no history is recorded, no files are modified.
+
+            ### Transactional Edits
+            - Use `edit_session(action: "start")` to begin a session, then pass `session_id` to surgical edit tools.
+            - Edits are queued (not written) and previewed as diffs. Commit atomically with `edit_session(action: "commit")`.
+            - If any file was modified externally since queuing, the entire commit fails — no partial writes.
+            - Sessions expire after 5 minutes. Use `edit_session(action: "rollback")` to discard.
+
+            ### Safety Guards
+            - Binary files and files over 10 MB are automatically rejected by surgical edit tools.
+            - `batch_replace` auto-skips binary and oversized files silently.
+            - Use `write_file` for intentional full-file operations on any file type.
             GUIDELINES;
         }
 
@@ -561,6 +584,9 @@ final class FileSystemToolkit implements ToolkitInterface
                 new StringParameter('replace', 'Replacement text. Supports backreferences ($1, $2) when using regex.'),
                 new BoolParameter('is_regex', 'Treat search as a PCRE regex pattern. Default false.', required: false),
                 new StringParameter('flags', 'PCRE modifier flags (e.g. "i" for case-insensitive). Only used with is_regex.', required: false),
+                new BoolParameter('dry_run', 'Preview changes without writing. Returns a unified diff. Default false.', required: false),
+                new NumberParameter('context_lines', 'Lines of context in diff preview (dry_run only). Default 3.', integer: true, minimum: 0, required: false),
+                new StringParameter('session_id', 'Queue this edit in a transactional session instead of writing immediately.', required: false),
             ],
             callback: fn(array $args): ToolResult => $this->executeReplaceInFile($args),
         );
@@ -574,9 +600,17 @@ final class FileSystemToolkit implements ToolkitInterface
         $replace = $args['replace'] ?? '';
         $isRegex = (bool) ($args['is_regex'] ?? false);
         $flags = $args['flags'] ?? '';
+        $dryRun = (bool) ($args['dry_run'] ?? false);
+        $contextLines = (int) ($args['context_lines'] ?? 3);
+        $sessionId = (string) ($args['session_id'] ?? '');
 
         if ($search === '') {
             return ToolResult::error('Search pattern is required.');
+        }
+
+        $guard = $this->guardFileForEditing($path);
+        if ($guard !== null) {
+            return $guard;
         }
 
         try {
@@ -604,12 +638,13 @@ final class FileSystemToolkit implements ToolkitInterface
                 return ToolResult::error("No matches found for the search pattern in {$path}.");
             }
 
-            $this->recordAndWrite($path, $original, $content, 'replace_in_file', [
-                'search' => mb_substr($search, 0, 100),
-                'replacements' => $count,
-            ]);
-
-            return ToolResult::success("Replaced {$count} occurrence(s) in {$path}.");
+            return $this->commitOrPreview(
+                $path, $original, $content, 'replace_in_file',
+                ['search' => mb_substr($search, 0, 100), 'replacements' => $count],
+                $dryRun, $contextLines,
+                "Replaced {$count} occurrence(s) in {$path}.",
+                $sessionId,
+            );
         } catch (FileSystemException $e) {
             return ToolResult::error($e->getMessage());
         }
@@ -626,6 +661,9 @@ final class FileSystemToolkit implements ToolkitInterface
                 new StringParameter('content', 'Content to insert before each matched line. Trailing newline is added automatically.'),
                 new BoolParameter('is_regex', 'Treat anchor as a PCRE regex. Default false.', required: false),
                 new NumberParameter('occurrences', 'Number of matches to process (0 = all). Default 1.', integer: true, minimum: 0, required: false),
+                new BoolParameter('dry_run', 'Preview changes without writing. Returns a unified diff. Default false.', required: false),
+                new NumberParameter('context_lines', 'Lines of context in diff preview (dry_run only). Default 3.', integer: true, minimum: 0, required: false),
+                new StringParameter('session_id', 'Queue this edit in a transactional session instead of writing immediately.', required: false),
             ],
             callback: fn(array $args): ToolResult => $this->executeInsertBefore($args),
         );
@@ -648,6 +686,9 @@ final class FileSystemToolkit implements ToolkitInterface
                 new StringParameter('content', 'Content to insert after each matched line. Trailing newline is added automatically.'),
                 new BoolParameter('is_regex', 'Treat anchor as a PCRE regex. Default false.', required: false),
                 new NumberParameter('occurrences', 'Number of matches to process (0 = all). Default 1.', integer: true, minimum: 0, required: false),
+                new BoolParameter('dry_run', 'Preview changes without writing. Returns a unified diff. Default false.', required: false),
+                new NumberParameter('context_lines', 'Lines of context in diff preview (dry_run only). Default 3.', integer: true, minimum: 0, required: false),
+                new StringParameter('session_id', 'Queue this edit in a transactional session instead of writing immediately.', required: false),
             ],
             callback: fn(array $args): ToolResult => $this->executeInsertAfter($args),
         );
@@ -667,9 +708,17 @@ final class FileSystemToolkit implements ToolkitInterface
         $content = $args['content'] ?? '';
         $isRegex = (bool) ($args['is_regex'] ?? false);
         $occurrences = (int) ($args['occurrences'] ?? 1);
+        $dryRun = (bool) ($args['dry_run'] ?? false);
+        $contextLines = (int) ($args['context_lines'] ?? 3);
+        $sessionId = (string) ($args['session_id'] ?? '');
 
         if ($anchor === '') {
             return ToolResult::error('Anchor pattern is required.');
+        }
+
+        $guard = $this->guardFileForEditing($path);
+        if ($guard !== null) {
+            return $guard;
         }
 
         try {
@@ -707,13 +756,14 @@ final class FileSystemToolkit implements ToolkitInterface
 
             $newContent = implode($eol, $result);
             $toolName = "insert_{$position}";
-            $this->recordAndWrite($path, $original, $newContent, $toolName, [
-                'anchor' => mb_substr($anchor, 0, 100),
-                'matched' => $matched,
-                'position' => $position,
-            ]);
 
-            return ToolResult::success("Inserted {$position} {$matched} match(es) in {$path}.");
+            return $this->commitOrPreview(
+                $path, $original, $newContent, $toolName,
+                ['anchor' => mb_substr($anchor, 0, 100), 'matched' => $matched, 'position' => $position],
+                $dryRun, $contextLines,
+                "Inserted {$position} {$matched} match(es) in {$path}.",
+                $sessionId,
+            );
         } catch (FileSystemException $e) {
             return ToolResult::error($e->getMessage());
         }
@@ -730,6 +780,9 @@ final class FileSystemToolkit implements ToolkitInterface
                 new StringParameter('end_marker', 'Text or regex matching the end of the region.'),
                 new StringParameter('new_content', 'Replacement content for the entire region (markers inclusive).'),
                 new BoolParameter('is_regex', 'Treat markers as PCRE regex. Default false.', required: false),
+                new BoolParameter('dry_run', 'Preview changes without writing. Returns a unified diff. Default false.', required: false),
+                new NumberParameter('context_lines', 'Lines of context in diff preview (dry_run only). Default 3.', integer: true, minimum: 0, required: false),
+                new StringParameter('session_id', 'Queue this edit in a transactional session instead of writing immediately.', required: false),
             ],
             callback: fn(array $args): ToolResult => $this->executeReplaceBlock($args),
         );
@@ -743,9 +796,17 @@ final class FileSystemToolkit implements ToolkitInterface
         $endMarker = $args['end_marker'] ?? '';
         $newContent = $args['new_content'] ?? '';
         $isRegex = (bool) ($args['is_regex'] ?? false);
+        $dryRun = (bool) ($args['dry_run'] ?? false);
+        $contextLines = (int) ($args['context_lines'] ?? 3);
+        $sessionId = (string) ($args['session_id'] ?? '');
 
         if ($startMarker === '' || $endMarker === '') {
             return ToolResult::error('Both start_marker and end_marker are required.');
+        }
+
+        $guard = $this->guardFileForEditing($path);
+        if ($guard !== null) {
+            return $guard;
         }
 
         try {
@@ -780,14 +841,14 @@ final class FileSystemToolkit implements ToolkitInterface
 
             $removedCount = $endIdx - $startIdx + 1;
             $newContentStr = implode($eol, $result);
-            $this->recordAndWrite($path, $original, $newContentStr, 'replace_block', [
-                'start_line' => $startIdx + 1,
-                'end_line' => $endIdx + 1,
-                'lines_removed' => $removedCount,
-                'lines_added' => count($replacementLines),
-            ]);
 
-            return ToolResult::success("Replaced lines {$startIdx}–{$endIdx} ({$removedCount} lines → " . count($replacementLines) . " lines) in {$path}.");
+            return $this->commitOrPreview(
+                $path, $original, $newContentStr, 'replace_block',
+                ['start_line' => $startIdx + 1, 'end_line' => $endIdx + 1, 'lines_removed' => $removedCount, 'lines_added' => count($replacementLines)],
+                $dryRun, $contextLines,
+                "Replaced lines {$startIdx}–{$endIdx} ({$removedCount} lines → " . count($replacementLines) . " lines) in {$path}.",
+                $sessionId,
+            );
         } catch (FileSystemException $e) {
             return ToolResult::error($e->getMessage());
         }
@@ -802,6 +863,9 @@ final class FileSystemToolkit implements ToolkitInterface
                 new StringParameter('path', 'File path relative to workspace.'),
                 new NumberParameter('from', 'First line to remove (1-based).', integer: true, minimum: 1),
                 new NumberParameter('to', 'Last line to remove (1-based, inclusive).', integer: true, minimum: 1),
+                new BoolParameter('dry_run', 'Preview changes without writing. Returns a unified diff. Default false.', required: false),
+                new NumberParameter('context_lines', 'Lines of context in diff preview (dry_run only). Default 3.', integer: true, minimum: 0, required: false),
+                new StringParameter('session_id', 'Queue this edit in a transactional session instead of writing immediately.', required: false),
             ],
             callback: fn(array $args): ToolResult => $this->executeRemoveLines($args),
         );
@@ -813,9 +877,17 @@ final class FileSystemToolkit implements ToolkitInterface
         $path = $args['path'] ?? '';
         $from = (int) ($args['from'] ?? 0);
         $to = (int) ($args['to'] ?? 0);
+        $dryRun = (bool) ($args['dry_run'] ?? false);
+        $contextLines = (int) ($args['context_lines'] ?? 3);
+        $sessionId = (string) ($args['session_id'] ?? '');
 
         if ($from < 1 || $to < $from) {
             return ToolResult::error("Invalid range: from={$from} to={$to}");
+        }
+
+        $guard = $this->guardFileForEditing($path);
+        if ($guard !== null) {
+            return $guard;
         }
 
         try {
@@ -833,13 +905,14 @@ final class FileSystemToolkit implements ToolkitInterface
             array_splice($lines, $from - 1, $removed);
 
             $newContent = implode($eol, $lines);
-            $this->recordAndWrite($path, $original, $newContent, 'remove_lines', [
-                'from' => $from,
-                'to' => $to,
-                'lines_removed' => $removed,
-            ]);
 
-            return ToolResult::success("Removed {$removed} line(s) ({$from}–{$to}) from {$path}. File now has " . count($lines) . " lines.");
+            return $this->commitOrPreview(
+                $path, $original, $newContent, 'remove_lines',
+                ['from' => $from, 'to' => $to, 'lines_removed' => $removed],
+                $dryRun, $contextLines,
+                "Removed {$removed} line(s) ({$from}–{$to}) from {$path}. File now has " . count($lines) . " lines.",
+                $sessionId,
+            );
         } catch (FileSystemException $e) {
             return ToolResult::error($e->getMessage());
         }
@@ -855,6 +928,9 @@ final class FileSystemToolkit implements ToolkitInterface
                 new NumberParameter('from', 'First line to replace (1-based).', integer: true, minimum: 1),
                 new NumberParameter('to', 'Last line to replace (1-based, inclusive).', integer: true, minimum: 1),
                 new StringParameter('content', 'New content for the line range. Use newlines to span multiple lines.'),
+                new BoolParameter('dry_run', 'Preview changes without writing. Returns a unified diff. Default false.', required: false),
+                new NumberParameter('context_lines', 'Lines of context in diff preview (dry_run only). Default 3.', integer: true, minimum: 0, required: false),
+                new StringParameter('session_id', 'Queue this edit in a transactional session instead of writing immediately.', required: false),
             ],
             callback: fn(array $args): ToolResult => $this->executeWriteLines($args),
         );
@@ -867,9 +943,17 @@ final class FileSystemToolkit implements ToolkitInterface
         $from = (int) ($args['from'] ?? 0);
         $to = (int) ($args['to'] ?? 0);
         $content = $args['content'] ?? '';
+        $dryRun = (bool) ($args['dry_run'] ?? false);
+        $contextLines = (int) ($args['context_lines'] ?? 3);
+        $sessionId = (string) ($args['session_id'] ?? '');
 
         if ($from < 1 || $to < $from) {
             return ToolResult::error("Invalid range: from={$from} to={$to}");
+        }
+
+        $guard = $this->guardFileForEditing($path);
+        if ($guard !== null) {
+            return $guard;
         }
 
         try {
@@ -887,14 +971,14 @@ final class FileSystemToolkit implements ToolkitInterface
             array_splice($lines, $from - 1, $to - $from + 1, $newLines);
 
             $newContent = implode($eol, $lines);
-            $this->recordAndWrite($path, $original, $newContent, 'write_lines', [
-                'from' => $from,
-                'to' => $to,
-                'lines_replaced' => $to - $from + 1,
-                'lines_written' => count($newLines),
-            ]);
 
-            return ToolResult::success("Overwrote lines {$from}–{$to} with " . count($newLines) . " line(s) in {$path}. File now has " . count($lines) . " lines.");
+            return $this->commitOrPreview(
+                $path, $original, $newContent, 'write_lines',
+                ['from' => $from, 'to' => $to, 'lines_replaced' => $to - $from + 1, 'lines_written' => count($newLines)],
+                $dryRun, $contextLines,
+                "Overwrote lines {$from}–{$to} with " . count($newLines) . " line(s) in {$path}. File now has " . count($lines) . " lines.",
+                $sessionId,
+            );
         } catch (FileSystemException $e) {
             return ToolResult::error($e->getMessage());
         }
@@ -904,17 +988,29 @@ final class FileSystemToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'batch_replace',
-            description: 'Find and replace text or regex across multiple files matching a glob pattern. Returns total replacements per file.',
+            description: 'Find and replace text or regex across multiple files matching a glob pattern. Automatically skips binary and oversized files. Returns total replacements per file.',
             parameters: [
                 new StringParameter('glob', 'Glob pattern for target files (e.g. "src/**/*.php").'),
                 new StringParameter('search', 'Text or PCRE regex pattern to find.'),
                 new StringParameter('replace', 'Replacement text.'),
                 new BoolParameter('is_regex', 'Treat search as PCRE regex. Default false.', required: false),
                 new StringParameter('flags', 'PCRE modifier flags. Only used with is_regex.', required: false),
+                new StringParameter('exclude', 'Glob pattern(s) to exclude, comma-separated (e.g. "vendor/**,*.min.js").', required: false),
+                new BoolParameter('dry_run', 'Preview which files would be modified without writing. Default false.', required: false),
             ],
             callback: fn(array $args): ToolResult => $this->executeBatchReplace($args),
         );
     }
+
+    /** Common binary file extensions to auto-exclude from batch operations. */
+    private const array BINARY_EXTENSIONS = [
+        'png', 'jpg', 'jpeg', 'gif', 'ico', 'webp', 'bmp', 'svg',
+        'woff', 'woff2', 'ttf', 'eot', 'otf',
+        'pdf', 'zip', 'tar', 'gz', 'bz2', 'xz', '7z', 'rar',
+        'db', 'sqlite', 'sqlite3',
+        'exe', 'dll', 'so', 'dylib', 'bin',
+        'mp3', 'mp4', 'avi', 'mov', 'wav', 'flac',
+    ];
 
     /** @param array<string, mixed> $args */
     private function executeBatchReplace(array $args): ToolResult
@@ -924,6 +1020,8 @@ final class FileSystemToolkit implements ToolkitInterface
         $replace = $args['replace'] ?? '';
         $isRegex = (bool) ($args['is_regex'] ?? false);
         $flags = $args['flags'] ?? '';
+        $exclude = $args['exclude'] ?? '';
+        $dryRun = (bool) ($args['dry_run'] ?? false);
 
         if ($glob === '' || $search === '') {
             return ToolResult::error('Both glob and search are required.');
@@ -936,6 +1034,19 @@ final class FileSystemToolkit implements ToolkitInterface
             return ToolResult::error("No files found matching: {$glob}");
         }
 
+        // Apply exclude patterns
+        if ($exclude !== '') {
+            $excludePatterns = array_map('trim', explode(',', $exclude));
+            $excludeFiles = [];
+            foreach ($excludePatterns as $ep) {
+                if ($ep !== '') {
+                    $excludeFiles = array_merge($excludeFiles, $this->fs->resolveGlob($ep));
+                }
+            }
+            $excludeSet = array_flip($excludeFiles);
+            $files = array_filter($files, fn(string $f) => !isset($excludeSet[$f]));
+        }
+
         if ($isRegex) {
             $pattern = '/' . str_replace('/', '\\/', $search) . '/' . $flags;
             if (@preg_match($pattern, '') === false) {
@@ -946,11 +1057,33 @@ final class FileSystemToolkit implements ToolkitInterface
         $results = [];
         $totalReplacements = 0;
         $filesModified = 0;
+        $skippedBinary = 0;
+        $skippedOversized = 0;
 
         foreach ($files as $fullPath) {
             $relPath = $this->fs->makeRelative($fullPath);
 
+            // Auto-skip files with known binary extensions
+            $ext = strtolower(pathinfo($fullPath, PATHINFO_EXTENSION));
+            if (in_array($ext, self::BINARY_EXTENSIONS, true)) {
+                $skippedBinary++;
+                continue;
+            }
+
             try {
+                // Skip binary files detected by content inspection
+                if ($this->fs->isBinaryFile($relPath)) {
+                    $skippedBinary++;
+                    continue;
+                }
+
+                // Skip oversized files
+                $size = $this->fs->fileSize($relPath);
+                if ($size > CoquiDefaults::MAX_EDIT_FILE_SIZE) {
+                    $skippedOversized++;
+                    continue;
+                }
+
                 $content = $this->fs->read($relPath);
                 $original = $content;
 
@@ -967,11 +1100,16 @@ final class FileSystemToolkit implements ToolkitInterface
                 }
 
                 if ($count > 0) {
-                    $this->recordAndWrite($relPath, $original, $content, 'batch_replace', [
-                        'search' => mb_substr($search, 0, 100),
-                        'replacements' => $count,
-                    ]);
-                    $results[] = "{$relPath}: {$count} replacement(s)";
+                    if (!$dryRun) {
+                        $editId = $this->recordAndWrite($relPath, $original, $content, 'batch_replace', [
+                            'search' => mb_substr($search, 0, 100),
+                            'replacements' => $count,
+                        ]);
+                        $idSuffix = $editId !== null ? " [edit_id: {$editId}]" : '';
+                        $results[] = "{$relPath}: {$count} replacement(s){$idSuffix}";
+                    } else {
+                        $results[] = "{$relPath}: {$count} replacement(s) (dry run)";
+                    }
                     $totalReplacements += $count;
                     $filesModified++;
                 }
@@ -985,10 +1123,18 @@ final class FileSystemToolkit implements ToolkitInterface
             return ToolResult::error("No matches found across " . count($files) . " file(s).");
         }
 
-        return ToolResult::success(
-            implode("\n", $results) .
-            "\n\nTotal: {$totalReplacements} replacement(s) in {$filesModified} file(s).",
-        );
+        $summary = implode("\n", $results) .
+            "\n\nTotal: {$totalReplacements} replacement(s) in {$filesModified} file(s).";
+
+        if ($skippedBinary > 0 || $skippedOversized > 0) {
+            $summary .= "\nSkipped: {$skippedBinary} binary, {$skippedOversized} oversized.";
+        }
+
+        if ($dryRun) {
+            $summary = "[DRY RUN] Files that would be modified:\n\n" . $summary;
+        }
+
+        return ToolResult::success($summary);
     }
 
     private function indentLinesTool(): ToolInterface
@@ -1003,6 +1149,9 @@ final class FileSystemToolkit implements ToolkitInterface
                 new EnumParameter('direction', 'Whether to indent or outdent.', ['indent', 'outdent']),
                 new NumberParameter('size', 'Number of spaces per indent level. Default 4.', integer: true, minimum: 1, required: false),
                 new BoolParameter('use_tabs', 'Use tabs instead of spaces. Default false.', required: false),
+                new BoolParameter('dry_run', 'Preview changes without writing. Returns a unified diff. Default false.', required: false),
+                new NumberParameter('context_lines', 'Lines of context in diff preview (dry_run only). Default 3.', integer: true, minimum: 0, required: false),
+                new StringParameter('session_id', 'Queue this edit in a transactional session instead of writing immediately.', required: false),
             ],
             callback: fn(array $args): ToolResult => $this->executeIndentLines($args),
         );
@@ -1017,9 +1166,17 @@ final class FileSystemToolkit implements ToolkitInterface
         $direction = $args['direction'] ?? 'indent';
         $size = (int) ($args['size'] ?? 4);
         $useTabs = (bool) ($args['use_tabs'] ?? false);
+        $dryRun = (bool) ($args['dry_run'] ?? false);
+        $contextLines = (int) ($args['context_lines'] ?? 3);
+        $sessionId = (string) ($args['session_id'] ?? '');
 
         if ($from < 1 || $to < $from) {
             return ToolResult::error("Invalid range: from={$from} to={$to}");
+        }
+
+        $guard = $this->guardFileForEditing($path);
+        if ($guard !== null) {
+            return $guard;
         }
 
         try {
@@ -1058,14 +1215,14 @@ final class FileSystemToolkit implements ToolkitInterface
             }
 
             $newContent = implode($eol, $lines);
-            $this->recordAndWrite($path, $original, $newContent, 'indent_lines', [
-                'from' => $from,
-                'to' => $to,
-                'direction' => $direction,
-                'lines_modified' => $modified,
-            ]);
 
-            return ToolResult::success("{$direction} {$modified} line(s) ({$from}–{$to}) in {$path}.");
+            return $this->commitOrPreview(
+                $path, $original, $newContent, 'indent_lines',
+                ['from' => $from, 'to' => $to, 'direction' => $direction, 'lines_modified' => $modified],
+                $dryRun, $contextLines,
+                "{$direction} {$modified} line(s) ({$from}–{$to}) in {$path}.",
+                $sessionId,
+            );
         } catch (FileSystemException $e) {
             return ToolResult::error($e->getMessage());
         }
@@ -1263,6 +1420,162 @@ final class FileSystemToolkit implements ToolkitInterface
     }
 
     // =======================================================================
+    // Edit Session tool
+    // =======================================================================
+
+    private function editSessionTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'edit_session',
+            description: 'Manage transactional edit sessions for atomic multi-file edits. Start a session, make edits with session_id to queue them, then commit (all-or-nothing) or rollback. Sessions expire after 5 minutes.',
+            parameters: [
+                new EnumParameter('action', 'Action to perform.', ['start', 'commit', 'rollback', 'status']),
+                new StringParameter('session_id', 'Session ID (required for commit, rollback, status).', required: false),
+            ],
+            callback: fn(array $args): ToolResult => $this->executeEditSession($args),
+        );
+    }
+
+    /** @param array<string, mixed> $args */
+    private function executeEditSession(array $args): ToolResult
+    {
+        $action = $args['action'] ?? '';
+
+        return match ($action) {
+            'start' => $this->sessionStart(),
+            'commit' => $this->sessionCommit($args),
+            'rollback' => $this->sessionRollback($args),
+            'status' => $this->sessionStatus($args),
+            default => ToolResult::error("Unknown action: {$action}"),
+        };
+    }
+
+    private function sessionStart(): ToolResult
+    {
+        $session = new EditSession();
+        $this->editSessions[$session->id] = $session;
+
+        return ToolResult::success("Edit session started. session_id: {$session->id}\n\nUse session_id with surgical edit tools to queue changes, then commit or rollback.");
+    }
+
+    /** @param array<string, mixed> $args */
+    private function sessionCommit(array $args): ToolResult
+    {
+        $session = $this->resolveSession($args);
+        if ($session instanceof ToolResult) {
+            return $session;
+        }
+
+        if ($session->pendingCount() === 0) {
+            return ToolResult::error("Session {$session->id} has no pending edits.");
+        }
+
+        // Validate all files are unmodified since the edits were queued
+        $conflicts = $session->validate();
+        if ($conflicts !== []) {
+            return ToolResult::error(
+                "Commit aborted — concurrent modification detected in:\n" .
+                implode("\n", array_map(fn(string $p) => "  • {$this->fs->makeRelative($p)}", $conflicts)) .
+                "\n\nUse edit_session(action: \"rollback\") and retry.",
+            );
+        }
+
+        $edits = $session->commit();
+        $editIds = [];
+
+        foreach ($edits as $edit) {
+            $relPath = $this->fs->makeRelative($edit['path']);
+            $editId = $this->recordAndWrite(
+                $relPath,
+                $edit['original'],
+                $edit['modified'],
+                $edit['operation'],
+                $edit['metadata'],
+            );
+            if ($editId !== null) {
+                $editIds[] = $editId;
+            }
+        }
+
+        unset($this->editSessions[$session->id]);
+
+        $idList = $editIds !== [] ? ' [edit_ids: ' . implode(', ', $editIds) . ']' : '';
+
+        return ToolResult::success(
+            "Session {$session->id} committed: " . count($edits) . " edit(s) applied atomically.{$idList}",
+        );
+    }
+
+    /** @param array<string, mixed> $args */
+    private function sessionRollback(array $args): ToolResult
+    {
+        $session = $this->resolveSession($args);
+        if ($session instanceof ToolResult) {
+            return $session;
+        }
+
+        $count = $session->pendingCount();
+        $session->rollback();
+        unset($this->editSessions[$session->id]);
+
+        return ToolResult::success("Session rolled back. {$count} pending edit(s) discarded.");
+    }
+
+    /** @param array<string, mixed> $args */
+    private function sessionStatus(array $args): ToolResult
+    {
+        $session = $this->resolveSession($args);
+        if ($session instanceof ToolResult) {
+            return $session;
+        }
+
+        $pending = $session->pendingEdits();
+        $lines = [
+            "Session: {$session->id}",
+            "Status: {$session->status()}",
+            "Pending edits: {$session->pendingCount()}",
+        ];
+
+        if ($pending !== []) {
+            $lines[] = '';
+            foreach ($pending as $i => $edit) {
+                $relPath = $this->fs->makeRelative($edit['path']);
+                $lines[] = sprintf('  %d. [%s] %s', $i + 1, $edit['operation'], $relPath);
+            }
+        }
+
+        return ToolResult::success(implode("\n", $lines));
+    }
+
+    /**
+     * Resolve an edit session from args, returning the session or an error result.
+     *
+     * @param array<string, mixed> $args
+     */
+    private function resolveSession(array $args): EditSession|ToolResult
+    {
+        $sessionId = $args['session_id'] ?? '';
+
+        if ($sessionId === '') {
+            return ToolResult::error('session_id is required.');
+        }
+
+        $session = $this->editSessions[$sessionId] ?? null;
+
+        if ($session === null) {
+            return ToolResult::error("Session not found: {$sessionId}");
+        }
+
+        if ($session->isExpired()) {
+            unset($this->editSessions[$sessionId]);
+
+            return ToolResult::error("Session {$sessionId} has expired.");
+        }
+
+        return $session;
+    }
+
+    // =======================================================================
     // Internal helpers
     // =======================================================================
 
@@ -1270,6 +1583,7 @@ final class FileSystemToolkit implements ToolkitInterface
      * Record original content in history and write new content to disk.
      *
      * @param array<string, mixed> $metadata
+     * @return ?int Edit ID from history, or null if history is disabled.
      */
     private function recordAndWrite(
         string $path,
@@ -1277,9 +1591,11 @@ final class FileSystemToolkit implements ToolkitInterface
         string $newContent,
         string $operation,
         array $metadata = [],
-    ): void {
+    ): ?int {
+        $editId = null;
+
         if ($this->history !== null) {
-            $this->history->record(
+            $editId = $this->history->record(
                 $this->fs->resolvePath($path),
                 $operation,
                 $originalContent,
@@ -1288,6 +1604,89 @@ final class FileSystemToolkit implements ToolkitInterface
         }
 
         $this->fs->write($path, $newContent);
+
+        return $editId;
+    }
+
+    /**
+     * Guard a file against surgical editing if it's binary or exceeds size limit.
+     *
+     * @return ?ToolResult Error result if the file should not be edited, null if OK.
+     */
+    private function guardFileForEditing(string $path): ?ToolResult
+    {
+        try {
+            if ($this->fs->isBinaryFile($path)) {
+                return ToolResult::error(
+                    FileSystemException::binaryFileNotEditable($path)->getMessage(),
+                );
+            }
+
+            $size = $this->fs->fileSize($path);
+            if ($size > CoquiDefaults::MAX_EDIT_FILE_SIZE) {
+                return ToolResult::error(
+                    FileSystemException::fileTooLarge($path, $size, CoquiDefaults::MAX_EDIT_FILE_SIZE)->getMessage(),
+                );
+            }
+        } catch (FileSystemException) {
+            // File doesn't exist yet — allow (e.g. append_to_file creating a new file)
+        }
+
+        return null;
+    }
+
+    /**
+     * Either commit the edit to disk, queue it in a session, or return a dry-run diff preview.
+     *
+     * @param array<string, mixed> $metadata
+     */
+    private function commitOrPreview(
+        string $path,
+        string $originalContent,
+        string $newContent,
+        string $operation,
+        array $metadata,
+        bool $dryRun,
+        int $contextLines,
+        string $successMessage,
+        string $sessionId = '',
+    ): ToolResult {
+        if ($dryRun) {
+            $diff = DiffHelper::preview($originalContent, $newContent, $path, [], $contextLines);
+
+            return ToolResult::success("[DRY RUN] Preview of changes:\n\n" . $diff);
+        }
+
+        // Queue in session if session_id is active
+        if ($sessionId !== '') {
+            $session = $this->editSessions[$sessionId] ?? null;
+
+            if ($session === null) {
+                return ToolResult::error("Edit session not found: {$sessionId}");
+            }
+
+            if (!$session->isActive()) {
+                return ToolResult::error("Edit session {$sessionId} is {$session->status()}.");
+            }
+
+            try {
+                $resolvedPath = $this->fs->resolvePath($path);
+                $session->addEdit($resolvedPath, $originalContent, $newContent, $operation, $metadata);
+            } catch (\RuntimeException $e) {
+                return ToolResult::error($e->getMessage());
+            }
+
+            $diff = DiffHelper::preview($originalContent, $newContent, $path, [], $contextLines);
+
+            return ToolResult::success(
+                "[QUEUED in session {$sessionId}] Edit #{$session->pendingCount()} queued.\n\n" . $diff,
+            );
+        }
+
+        $editId = $this->recordAndWrite($path, $originalContent, $newContent, $operation, $metadata);
+        $idSuffix = $editId !== null ? " [edit_id: {$editId}]" : '';
+
+        return ToolResult::success($successMessage . $idSuffix);
     }
 
     /**

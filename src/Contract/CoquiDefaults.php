@@ -65,6 +65,9 @@ final class CoquiDefaults
     /** Safety cap on recursive copy/move operations to prevent runaway traversals. */
     public const int MAX_RECURSIVE_ITEMS = 10_000;
 
+    /** Maximum file size in bytes for surgical edit operations (10 MB). */
+    public const int MAX_EDIT_FILE_SIZE = 10_485_760;
+
     /** Default max execution time in seconds for background tasks (config: agents.defaults.backgroundTaskMaxExecutionSeconds). */
     public const int BACKGROUND_TASK_MAX_EXECUTION_SECONDS = 3600;
 
