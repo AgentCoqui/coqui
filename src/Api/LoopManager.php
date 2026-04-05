@@ -57,7 +57,11 @@ final class LoopManager
                 continue;
             }
 
-            $this->advanceLoop($loopId);
+            try {
+                $this->advanceLoop($loopId);
+            } catch (\Throwable $e) {
+                $this->failLoop($loopId, 'advance', $e);
+            }
         }
     }
 
@@ -72,7 +76,12 @@ final class LoopManager
 
         foreach ($runningLoops as $loop) {
             $loopId = (string) $loop['id'];
-            $this->reconcileLoop($loopId);
+
+            try {
+                $this->reconcileLoop($loopId);
+            } catch (\Throwable $e) {
+                $this->failLoop($loopId, 'reconcile', $e);
+            }
         }
 
         // Clear the advancing set each reconciliation cycle
@@ -226,7 +235,12 @@ final class LoopManager
      */
     private function evaluateAndAdvance(string $loopId): void
     {
-        $outcome = $this->executor->evaluateIteration($loopId);
+        try {
+            $outcome = $this->executor->evaluateIteration($loopId);
+        } catch (\Throwable $e) {
+            $this->failLoop($loopId, 'evaluate', $e);
+            return;
+        }
 
         // LoopExecutor handles status updates and iteration advancement internally.
         // Complete, LimitReached, and Failed all update the loop status.
@@ -239,6 +253,26 @@ final class LoopManager
             if ($loop !== null && $loop['status'] === 'running') {
                 $this->loopStore->updateLoopStatus($loopId, 'failed');
             }
+        }
+    }
+
+    /**
+     * Mark a loop as failed and log the error. Never throws.
+     */
+    private function failLoop(string $loopId, string $phase, \Throwable $e): void
+    {
+        try {
+            $this->loopStore->updateLoopStatus($loopId, 'failed');
+            error_log(sprintf(
+                '[LoopManager] Loop %s failed during %s: %s in %s:%d',
+                $loopId,
+                $phase,
+                $e->getMessage(),
+                $e->getFile(),
+                $e->getLine(),
+            ));
+        } catch (\Throwable) {
+            // Last resort — never crash the API server
         }
     }
 

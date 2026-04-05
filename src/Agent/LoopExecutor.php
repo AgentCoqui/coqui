@@ -583,17 +583,25 @@ final class LoopExecutor
                 // Sprint may already be in_progress — non-fatal
             }
         } elseif ($projectId !== null) {
-            $sprintTitle = sprintf('%s — iteration %d', $definition->name, $nextNumber);
-            $criteria = $definition->terminationCondition->criteria;
+            // Verify the project still exists — it may have been deleted
+            // (e.g. concurrent project_delete + loop_start race condition).
+            $project = $this->projectStore->getProject($projectId);
+            if ($project === null) {
+                // Project gone — continue without sprint tracking
+                $projectId = null;
+            } else {
+                $sprintTitle = sprintf('%s — iteration %d', $definition->name, $nextNumber);
+                $criteria = $definition->terminationCondition->criteria;
 
-            $sprintId = $this->projectStore->createSprint(
-                projectId: $projectId,
-                title: $sprintTitle,
-                acceptanceCriteria: $criteria,
-            );
+                $sprintId = $this->projectStore->createSprint(
+                    projectId: $projectId,
+                    title: $sprintTitle,
+                    acceptanceCriteria: $criteria,
+                );
 
-            // Auto-transition: planned → in_progress when the iteration starts executing
-            $this->projectStore->transitionSprint($sprintId, 'in_progress');
+                // Auto-transition: planned → in_progress when the iteration starts executing
+                $this->projectStore->transitionSprint($sprintId, 'in_progress');
+            }
         }
 
         $iterationId = $this->loopStore->createIteration(
