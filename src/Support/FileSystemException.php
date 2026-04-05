@@ -88,4 +88,17 @@ final class FileSystemException extends \RuntimeException
     {
         return new self(sprintf('Failed to delete: %s', $path));
     }
+
+    public static function binaryFileNotEditable(string $path): self
+    {
+        return new self(sprintf('Cannot perform surgical edit on binary file: %s — use write_file for full replacement.', $path));
+    }
+
+    public static function fileTooLarge(string $path, int $sizeBytes, int $limitBytes): self
+    {
+        $sizeMb = round($sizeBytes / 1_048_576, 1);
+        $limitMb = round($limitBytes / 1_048_576, 1);
+
+        return new self(sprintf('File too large for surgical edit: %s (%s MB, limit %s MB) — use write_file for full replacement.', $path, $sizeMb, $limitMb));
+    }
 }

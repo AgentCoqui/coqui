@@ -99,6 +99,54 @@ final readonly class FileSystemOperations
         return is_dir($this->resolvePath($relativePath));
     }
 
+    /**
+     * Get the size of a file in bytes.
+     *
+     * @throws FileSystemException If the file does not exist.
+     */
+    public function fileSize(string $relativePath): int
+    {
+        $path = $this->resolvePath($relativePath);
+
+        if (!is_file($path)) {
+            throw FileSystemException::fileNotFound($relativePath);
+        }
+
+        $size = @filesize($path);
+
+        return $size !== false ? $size : 0;
+    }
+
+    /**
+     * Detect whether a file is likely binary by checking for null bytes.
+     *
+     * Reads the first 8 KB and checks for the presence of null bytes (\x00).
+     * This is the same heuristic used by git and file(1). Returns false for
+     * files that don't exist or can't be read.
+     */
+    public function isBinaryFile(string $relativePath): bool
+    {
+        $path = $this->resolvePath($relativePath);
+
+        if (!is_file($path)) {
+            return false;
+        }
+
+        $handle = @fopen($path, 'rb');
+        if ($handle === false) {
+            return false;
+        }
+
+        $chunk = fread($handle, 8192);
+        fclose($handle);
+
+        if ($chunk === false || $chunk === '') {
+            return false;
+        }
+
+        return str_contains($chunk, "\x00");
+    }
+
     // ---------------------------------------------------------------
     // Write operations (all check mount read-only status)
     // ---------------------------------------------------------------
