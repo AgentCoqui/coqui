@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Agent\LoopExecutor;
+use CoquiBot\Coqui\Api\ApiHealthCheck;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Storage\LoopStore;
 
@@ -155,6 +156,13 @@ final readonly class LoopToolkit implements ToolkitInterface
                         return ToolResult::error('The "parameters" field must be a valid JSON object (e.g. {"output_format": "report"})');
                     }
                     $parameters = array_map('strval', $decoded);
+                }
+
+                // Verify API server is reachable before creating the loop —
+                // loops depend on LoopManager (API) to advance stages via background tasks.
+                $health = ApiHealthCheck::check();
+                if (!$health['ok']) {
+                    return ToolResult::error($health['error']);
                 }
 
                 // Use LoopExecutor to actually start the loop when available

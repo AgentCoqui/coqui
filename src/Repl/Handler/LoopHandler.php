@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl\Handler;
 
 use CoquiBot\Coqui\Agent\LoopExecutor;
+use CoquiBot\Coqui\Api\ApiHealthCheck;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Repl\TimeFormatter;
 use CoquiBot\Coqui\Storage\LoopStore;
@@ -90,6 +91,13 @@ final class LoopHandler
             sprintf('<fg=gray>Goal:</> %s', $goal),
         ]);
         $io->newLine();
+
+        // Verify API server is reachable — loops depend on LoopManager (API) to advance stages.
+        $health = ApiHealthCheck::check();
+        if (!$health['ok']) {
+            $io->error($health['error']);
+            return;
+        }
 
         try {
             $loopId = $this->loopExecutor->startLoop(

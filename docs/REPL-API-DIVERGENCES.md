@@ -26,13 +26,14 @@ Background tasks **require the API server to be running** for execution. The REP
 
 | Concern | REPL | API |
 |---------|------|-----|
-| Orchestrator | `LoopExecutor` — synchronous, blocking | `LoopManager` — async 5-second ReactPHP timer |
-| Session model | **Parent session shared** across all stages — artifacts, todos, and sprints flow continuously | **New session per stage** — each stage runs as an independent background task |
-| Stage execution | Child agent runs in-process (same as `SpawnAgentTool`) | Stage spawned as background task via `BackgroundTaskManager` |
-| Artifact continuity | Stage outputs stored as `loop_output` artifacts in the parent session | Stage outputs stored in per-stage sessions; linked via loop store only |
-| Cancellation | Ctrl+C cancels the current stage agent | `POST /api/v1/loops/{id}/stop` sets status; manager stops on next tick |
+| Loop creation | Agent calls `loop_start` tool; `/loops start` REPL command | Same tools, plus `POST /api/v1/loops` |
+| Stage advancement | **Not executed by REPL** — loop records are created but stages remain pending until the API server picks them up | `LoopManager` advances stages on a 5-second ReactPHP timer, creating background tasks via `BackgroundTaskManager` |
+| Session model | N/A (REPL doesn't execute stages) | **New session per stage** — each stage runs as an independent background task; artifacts shared via work-scope session |
+| Artifact continuity | N/A | Stage outputs stored as `loop_output` artifacts in the work-scope session |
+| Monitoring | Agent polls with `loop_status` tool; user checks `/loops` REPL command | Same tools, plus `GET /api/v1/loops/{id}` |
+| Cancellation | `/loops stop <id>` sets status; manager stops on next tick | `POST /api/v1/loops/{id}/stop` sets status; manager stops on next tick |
 
-Loop execution is **REPL-only**. The API provides read-only inspection of loop status, definitions, and iteration history but does not orchestrate loop execution.
+Loop stage advancement **requires the API server to be running**. The REPL can create loops (writing records to SQLite) and monitor their progress, but only the API server's `LoopManager` creates background tasks for each stage and advances the loop state machine.
 
 ## Schedules
 
@@ -66,8 +67,9 @@ Webhooks **require the API server to be running** to receive incoming deliveries
 The REPL provides the full-featured, interactive experience. The API provides:
 
 1. **Background task execution** — the only way to run tasks in separate processes
-2. **Schedule evaluation** — cron-driven task spawning
-3. **Webhook reception** — incoming event processing
-4. **Monitoring** — read-only inspection of sessions, tasks, artifacts, todos, loops, schedules, and webhooks
+2. **Loop stage advancement** — the only way loop stages progress (via `LoopManager`)
+3. **Schedule evaluation** — cron-driven task spawning
+4. **Webhook reception** — incoming event processing
+5. **Monitoring** — read-only inspection of sessions, tasks, artifacts, todos, loops, schedules, and webhooks
 
 When in doubt, use the REPL. The API is designed to complement it, not replace it.
