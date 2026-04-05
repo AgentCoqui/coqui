@@ -323,7 +323,11 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Web toolkit — HTTP requests with SSRF protection
         if ($effectiveAccessLevel === 'full') {
-            $this->addToolkit(new WebToolkit());
+            $this->addToolkit(new WebToolkit(
+                storage: $this->storage,
+                parentSessionId: $this->sessionId,
+                workspacePath: $this->workspacePath,
+            ));
         }
 
         // Memory toolkit — SQLite-backed with optional vector search

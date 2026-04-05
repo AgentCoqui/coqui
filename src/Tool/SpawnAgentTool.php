@@ -252,7 +252,11 @@ final class SpawnAgentTool implements ToolInterface
                     sandboxWrites: ShellConfigResolver::resolveSandboxWrites($this->config),
                     scrubEnvironment: ShellConfigResolver::resolveScrubEnvironment($this->config),
                 ),
-                new WebToolkit(),
+                new WebToolkit(
+                    storage: $this->storage,
+                    parentSessionId: $this->sessionId,
+                    workspacePath: $this->workspacePath,
+                ),
                 new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],
 

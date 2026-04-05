@@ -2548,9 +2548,9 @@
             "path": "src/Toolkit/WebToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\WebToolkit",
             "layer": "toolkit",
-            "description": "HTTP requests and optional web search. Provides http_request tool (GET/POST/PUT/DELETE with SSRF protection) and optional web_search tool (when searchEndpoint is configured). Blocks private/internal network addresses by default. Truncates responses to 10K chars. Ported from php-agents.",
+            "description": "HTTP requests, async-first downloads, and optional web search. Provides http_request with configurable method, headers, query params, structured/raw request bodies, timeout, retries, and response modes; http_download queues background downloads when session storage is available and otherwise saves directly into workspace/downloads; and optional web_search when searchEndpoint is configured. Blocks private/internal network addresses by default and truncates inline response previews to 10K chars.",
             "methods": [
-                "tools(): array — returns [http_request] always, plus [web_search] when search endpoint configured",
+                "tools(): array — returns [http_request, http_download] always, plus [web_search] when search endpoint configured",
                 "guidelines(): string — web usage guidelines"
             ]
         },

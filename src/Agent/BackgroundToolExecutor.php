@@ -113,7 +113,7 @@ final class BackgroundToolExecutor implements ToolExecutorInterface
         ));
 
         // Web toolkit — HTTP requests with SSRF protection
-        $this->registerToolkit(new WebToolkit());
+        $this->registerToolkit(new WebToolkit(workspacePath: $workspacePath));
 
         // Memory toolkit
         $memoryStore = $this->boot->memoryStore();

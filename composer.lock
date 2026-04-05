@@ -4,21 +4,15 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "2054e32e90e1c4da0f9093333715b8af",
+    "content-hash": "d2fab66ecc626a7f30977966d316850e",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "v0.12.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "0908b836f2ee60bd4ba9e24bd59f8d8f70ceff9f"
-            },
+            "version": "dev-main",
             "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/0908b836f2ee60bd4ba9e24bd59f8d8f70ceff9f",
-                "reference": "0908b836f2ee60bd4ba9e24bd59f8d8f70ceff9f",
-                "shasum": ""
+                "type": "path",
+                "url": "../php-agents",
+                "reference": "0908b836f2ee60bd4ba9e24bd59f8d8f70ceff9f"
             },
             "require": {
                 "php": "^8.4",
@@ -42,7 +36,19 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "autoload-dev": {
+                "psr-4": {
+                    "Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "pest"
+                ],
+                "analyse": [
+                    "phpstan analyse --memory-limit=512M"
+                ]
+            },
             "license": [
                 "MIT"
             ],
@@ -59,11 +65,10 @@
                 "php-agents",
                 "tools"
             ],
-            "support": {
-                "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.12.0"
-            },
-            "time": "2026-04-02T13:14:22+00:00"
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "dflydev/dot-access-data",
@@ -5694,7 +5699,9 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {},
+    "stability-flags": {
+        "carmelosantana/php-agents": 20
+    },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
