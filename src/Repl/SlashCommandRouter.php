@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Repl;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Renderer\MarkdownRenderer;
+use CoquiBot\Coqui\Renderer\PromptUsageBar;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
@@ -237,6 +238,10 @@ final class SlashCommandRouter
             '<fg=gray>Tool schema tokens:</> ' . number_format($preview['tool_tokens']),
             '<fg=gray>Estimated total:</> ' . number_format($preview['total_tokens']),
         ]);
+        $io->newLine();
+        PromptUsageBar::renderSectionBreakdown($io, $preview['budget_snapshot']);
+        $io->newLine();
+        PromptUsageBar::renderContextImpact($io, $preview['budget_snapshot']);
         return RouteResult::continue();
     }
 
