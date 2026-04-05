@@ -8,11 +8,20 @@
     {
       "name": "Carmelo Santana"
     }
-  ], 
+  ],
+  "repositories": {
+    "php-agents": {
+      "type": "path",
+      "url": "../php-agents",
+      "options": {
+        "symlink": true
+      }
+    }
+  },  
   "require": {
     "php": "^8.4",
     "ext-pdo_sqlite": "*",
-    "carmelosantana/php-agents": "^0.12",
+    "carmelosantana/php-agents": "@dev",
     "dragonmantank/cron-expression": "^3.0",
     "league/commonmark": "^2.8",
     "react/async": "^4",
