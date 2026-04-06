@@ -36,8 +36,8 @@ final class NotificationPresenter
 
         $count = count($notifications);
         $badge = $count === 1
-            ? '<fg=cyan>✸ 1 notification</>'
-            : sprintf('<fg=cyan>✸ %d notifications</>', $count);
+            ? '<fg=cyan>☀︎ 1 notification</>'
+            : sprintf('<fg=cyan>☀︎ %d notifications</>', $count);
         $lines[] = $badge;
 
         foreach ($notifications as $notification) {
@@ -68,7 +68,7 @@ final class NotificationPresenter
         // \001 and \002 are readline's RL_PROMPT_START_IGNORE / RL_PROMPT_END_IGNORE
         // markers. Without them, readline miscounts the prompt width and cursor
         // positioning breaks on line-wrap and history recall.
-        return sprintf(" \001\033[36m\002[%d✸]\001\033[0m\002", $unreadCount);
+        return sprintf(" \001\033[36m\002[%d☀︎]\001\033[0m\002", $unreadCount);
     }
 
     /**
@@ -208,7 +208,7 @@ final class NotificationPresenter
             'loop.completed'          => ['✔', 'cyan'],
             'loop.failed'             => ['✘', 'red'],
             'loop.cancelled'          => ['⏹', 'yellow'],
-            default                   => ['✸', 'gray'],
+            default                   => ['☀︎', 'gray'],
         };
 
         return "<fg={$color}>{$icon}</>";

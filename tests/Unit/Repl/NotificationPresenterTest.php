@@ -69,8 +69,8 @@ test('returns empty badge for zero count', function () {
 test('formats badge with count and ANSI codes', function () {
     $badge = $this->presenter->formatBadge(5);
     expect($badge)->toContain('5');
-    // Uses ✸ glyph instead of emoji, with raw ANSI escape codes for readline
-    expect($badge)->toContain('✸');
+    // Uses ☀︎ glyph instead of emoji, with raw ANSI escape codes for readline
+    expect($badge)->toContain('☀︎');
     // Must NOT contain Symfony Console tags (readline renders them as literal text)
     expect($badge)->not->toContain('<fg=');
     // Must contain raw ANSI escape for cyan (ESC[36m)

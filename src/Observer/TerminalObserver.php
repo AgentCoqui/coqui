@@ -372,7 +372,7 @@ final class TerminalObserver implements SplObserver
 
         $label = $count === 1 ? 'notification' : 'notifications';
         $this->output->writeln(
-            "{$indent}<fg=cyan>✸ {$count} {$label} injected ({$source})</>",
+            "{$indent}<fg=cyan>☀︎ {$count} {$label} injected ({$source})</>",
         );
     }
 
