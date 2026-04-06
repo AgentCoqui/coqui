@@ -335,7 +335,7 @@ final class TerminalObserver implements SplObserver
         $auto = ($data['auto'] ?? false) ? ' (auto)' : '';
 
         $this->output->writeln(
-            "{$indent}<fg=yellow>📋 Conversation summarized{$auto}: {$count} messages compressed, {$saved} tokens saved</>",
+            "{$indent}<fg=yellow>❇ Conversation summarized{$auto}: {$count} messages compressed, {$saved} tokens saved</>",
         );
     }
 
@@ -353,7 +353,7 @@ final class TerminalObserver implements SplObserver
         }
 
         $this->output->writeln(
-            "{$indent}<fg=yellow>🧠 Memory extraction ({$source}): {$count} " . ($count === 1 ? 'memory' : 'memories') . ' saved</>',
+            "{$indent}<fg=yellow>✱ Memory extraction ({$source}): {$count} " . ($count === 1 ? 'memory' : 'memories') . ' saved</>',
         );
     }
 

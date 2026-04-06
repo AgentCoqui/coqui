@@ -35,10 +35,7 @@ final class NotificationPresenter
         $lines[] = '';
 
         $count = count($notifications);
-        $badge = $count === 1
-            ? '<fg=cyan>☀︎ 1 notification</>'
-            : sprintf('<fg=cyan>☀︎ %d notifications</>', $count);
-        $lines[] = $badge;
+        $lines[] = sprintf(' <fg=cyan>Notifications</> <fg=yellow>[%d☀︎]</>:', $count);
 
         foreach ($notifications as $notification) {
             $lines[] = $this->formatSingleNotification($notification);
@@ -61,14 +58,9 @@ final class NotificationPresenter
      */
     public function formatBadge(int $unreadCount): string
     {
-        if ($unreadCount === 0) {
-            return '';
-        }
-
-        // \001 and \002 are readline's RL_PROMPT_START_IGNORE / RL_PROMPT_END_IGNORE
-        // markers. Without them, readline miscounts the prompt width and cursor
-        // positioning breaks on line-wrap and history recall.
-        return sprintf(" \001\033[36m\002[%d☀︎]\001\033[0m\002", $unreadCount);
+        // Count is now shown in the Notifications header instead of the
+        // readline prompt — readline cannot render ANSI colors reliably.
+        return '';
     }
 
     /**
@@ -137,7 +129,8 @@ final class NotificationPresenter
             $priority = $notification['priority'] ?? 'normal';
             $createdAt = $notification['created_at'] ?? '';
 
-            $header = "{$num}. [{$kind}] {$title}";
+            $kindLabel = str_replace('_', ' ', str_replace(['task.', 'tool.', 'loop.'], '', (string) $kind));
+            $header = "{$num}. [{$kindLabel}] {$title}";
             if ($priority === 'urgent' || $priority === 'high') {
                 $header .= " (priority: {$priority})";
             }
@@ -179,23 +172,26 @@ final class NotificationPresenter
             ? mb_substr($title, 0, self::MAX_TITLE_LENGTH) . '...'
             : $title;
 
-        $kindTag = $this->colorizeKind($kind);
+        [$icon, $color] = $this->resolveKindStyle($kind);
         $priorityTag = $this->colorizePriority($priority);
         $timeTag = $createdAt !== '' ? sprintf(' <fg=gray>%s</>', $this->relativeTime($createdAt)) : '';
+        $coloredTitle = $this->colorizeTitle($truncatedTitle, $color);
 
-        return "  {$priorityTag}{$kindTag} {$truncatedTitle}{$timeTag}";
+        return "  {$priorityTag}<fg={$color}>{$icon}</> {$coloredTitle}{$timeTag}";
     }
 
     /**
-     * Colorize a notification kind for terminal display.
+     * Resolve icon and color for a notification kind.
      *
      * Colors are assigned by outcome status (completed=green, failed=red,
      * cancelled=yellow, stage=blue, loop=cyan) rather than by source
      * category so users can scan by result at a glance.
+     *
+     * @return array{string, string} [icon, color]
      */
-    private function colorizeKind(string $kind): string
+    private function resolveKindStyle(string $kind): array
     {
-        [$icon, $color] = match ($kind) {
+        return match ($kind) {
             'task.completed'          => ['✔', 'green'],
             'task.failed'             => ['✘', 'red'],
             'task.cancelled'          => ['⏹', 'yellow'],
@@ -210,8 +206,30 @@ final class NotificationPresenter
             'loop.cancelled'          => ['⏹', 'yellow'],
             default                   => ['☀︎', 'gray'],
         };
+    }
 
-        return "<fg={$color}>{$icon}</>";
+    /**
+     * Color a title string with gray for bracketed/parenthesized metadata.
+     */
+    private function colorizeTitle(string $title, string $color): string
+    {
+        $parts = preg_split('/(\[[^\]]*\]|\([^)]*\))/', $title, -1, PREG_SPLIT_DELIM_CAPTURE);
+
+        if ($parts === false) {
+            return "<fg={$color}>{$title}</>";
+        }
+
+        $result = '';
+        foreach ($parts as $i => $part) {
+            if ($part === '') {
+                continue;
+            }
+            $result .= $i % 2 === 1
+                ? "<fg=gray>{$part}</>"
+                : "<fg={$color}>{$part}</>";
+        }
+
+        return $result;
     }
 
     /**
