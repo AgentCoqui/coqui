@@ -62,6 +62,21 @@ final class CoquiDefaults
     /** Default edit history retention in days for prune operations (config: agents.defaults.editHistory.retentionDays). */
     public const int EDIT_HISTORY_RETENTION_DAYS = 7;
 
+    /** Whether the notification system is enabled (config: agents.defaults.notifications.enabled). */
+    public const bool NOTIFICATION_ENABLED = true;
+
+    /** Maximum notifications to display in REPL idle rendering (config: agents.defaults.notifications.replDisplayLimit). */
+    public const int NOTIFICATION_REPL_DISPLAY_LIMIT = 5;
+
+    /** Maximum notifications to inject into agent turn context (config: agents.defaults.notifications.promptInjectionLimit). */
+    public const int NOTIFICATION_PROMPT_INJECTION_LIMIT = 10;
+
+    /** Retention hours for informational notifications before auto-prune (config: agents.defaults.notifications.retentionHours.informational). */
+    public const int NOTIFICATION_RETENTION_INFORMATIONAL_HOURS = 24;
+
+    /** Retention hours for actionable notifications before auto-prune (config: agents.defaults.notifications.retentionHours.actionable). */
+    public const int NOTIFICATION_RETENTION_ACTIONABLE_HOURS = 72;
+
     /** Safety cap on recursive copy/move operations to prevent runaway traversals. */
     public const int MAX_RECURSIVE_ITEMS = 10_000;
 

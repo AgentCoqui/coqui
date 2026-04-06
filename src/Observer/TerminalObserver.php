@@ -122,6 +122,8 @@ final class TerminalObserver implements SplObserver
 
             'agent.memory_extraction' => $this->handleMemoryExtraction($data, $indent),
 
+            'agent.notification' => $this->handleNotification($data, $indent),
+
             'child.start' => $this->handleChildStart($data, $indent),
 
             'child.end' => $this->handleChildEnd($indent),
@@ -352,6 +354,25 @@ final class TerminalObserver implements SplObserver
 
         $this->output->writeln(
             "{$indent}<fg=yellow>🧠 Memory extraction ({$source}): {$count} " . ($count === 1 ? 'memory' : 'memories') . ' saved</>',
+        );
+    }
+
+    private function handleNotification(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $count = (int) ($data['count'] ?? 0);
+        $source = (string) ($data['source'] ?? 'turn_inject');
+
+        if ($count === 0) {
+            return;
+        }
+
+        $label = $count === 1 ? 'notification' : 'notifications';
+        $this->output->writeln(
+            "{$indent}<fg=cyan>🔔 {$count} {$label} injected ({$source})</>",
         );
     }
 

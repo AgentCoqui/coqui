@@ -182,6 +182,30 @@ final class OpenClawConfig implements ConfigInterface
         return $this->modelDefinitions[$model] ?? null;
     }
 
+    /**
+     * Get notification system configuration.
+     *
+     * @return array{enabled: bool, replDisplayLimit: int, promptInjectionLimit: int, retentionHours: array{informational: int, actionable: int}}
+     */
+    public function getNotificationConfig(): array
+    {
+        $enabled = $this->get('agents.defaults.notifications.enabled');
+        $replLimit = $this->get('agents.defaults.notifications.replDisplayLimit');
+        $promptLimit = $this->get('agents.defaults.notifications.promptInjectionLimit');
+        $retInfoHours = $this->get('agents.defaults.notifications.retentionHours.informational');
+        $retActionHours = $this->get('agents.defaults.notifications.retentionHours.actionable');
+
+        return [
+            'enabled' => is_bool($enabled) ? $enabled : CoquiDefaults::NOTIFICATION_ENABLED,
+            'replDisplayLimit' => is_int($replLimit) && $replLimit >= 1 ? $replLimit : CoquiDefaults::NOTIFICATION_REPL_DISPLAY_LIMIT,
+            'promptInjectionLimit' => is_int($promptLimit) && $promptLimit >= 1 ? $promptLimit : CoquiDefaults::NOTIFICATION_PROMPT_INJECTION_LIMIT,
+            'retentionHours' => [
+                'informational' => is_int($retInfoHours) && $retInfoHours >= 1 ? $retInfoHours : CoquiDefaults::NOTIFICATION_RETENTION_INFORMATIONAL_HOURS,
+                'actionable' => is_int($retActionHours) && $retActionHours >= 1 ? $retActionHours : CoquiDefaults::NOTIFICATION_RETENTION_ACTIONABLE_HOURS,
+            ],
+        ];
+    }
+
     private function buildAliasMap(): void
     {
         $models = $this->get('agents.defaults.models', []);
