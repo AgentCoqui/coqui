@@ -60,6 +60,7 @@ final class AgentRunnerFactory
             httpClient: $httpClient ?? new ReactHttpClientAdapter(),
             loadingRegistry: $includeLoadingData ? $boot->loadingRegistry() : null,
             usageTracker: $includeLoadingData ? $boot->usageTracker() : null,
+            notificationStore: $boot->notificationStore(),
         );
     }
 }

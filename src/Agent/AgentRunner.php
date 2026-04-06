@@ -44,8 +44,10 @@ use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\EditHistory;
+use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
+use CoquiBot\Coqui\Repl\NotificationPresenter;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
@@ -94,6 +96,7 @@ final class AgentRunner
         private readonly ?HttpClientInterface $httpClient = null,
         private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
         private readonly ?ToolUsageTracker $usageTracker = null,
+        private readonly ?NotificationStore $notificationStore = null,
     ) {}
 
     /**
@@ -251,6 +254,19 @@ final class AgentRunner
             // This preserves important context via LLM summarization instead of
             // silently dropping oldest turns via fitWithinBudget().
             $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer);
+
+            // Snapshot unread notifications and inject as ephemeral UserMessage.
+            // The message is added to the in-memory Conversation only — NOT persisted
+            // to the database — so the agent sees pending notifications for this turn
+            // without polluting the permanent conversation history.
+            $notificationSnapshot = [];
+            if ($this->notificationStore !== null && $workScopeSessionId === null) {
+                $notificationSnapshot = $this->injectNotificationSnapshot(
+                    $history,
+                    $sessionId,
+                    $agent,
+                );
+            }
 
             // Per-iteration pruning is handled by AbstractAgent using the
             // model-aware ContextWindow passed to OrchestratorAgent.
@@ -1116,6 +1132,62 @@ final class AgentRunner
         );
 
         return $result->conversation;
+    }
+
+    /**
+     * Snapshot unread informational notifications and inject as an ephemeral UserMessage.
+     *
+     * Atomically reads and marks notifications as read, formats them via
+     * NotificationPresenter, and appends a synthetic UserMessage to the
+     * in-memory Conversation. The message is NOT persisted to the database.
+     *
+     * @return list<array<string, mixed>> The snapshotted notifications (empty if none).
+     */
+    private function injectNotificationSnapshot(
+        Conversation $history,
+        string $sessionId,
+        OrchestratorAgent $agent,
+    ): array {
+        if ($this->notificationStore === null) {
+            return [];
+        }
+
+        $limit = CoquiDefaults::NOTIFICATION_PROMPT_INJECTION_LIMIT;
+        if ($this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig) {
+            $notifConfig = $this->config->getNotificationConfig();
+            $limit = $notifConfig['promptInjectionLimit'];
+        }
+
+        try {
+            $notifications = $this->notificationStore->snapshotAndClear($sessionId, $limit);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        if ($notifications === []) {
+            return [];
+        }
+
+        $presenter = new NotificationPresenter();
+        $content = $presenter->formatForPromptInjection($notifications);
+
+        if ($content === '') {
+            return [];
+        }
+
+        // Inject as ephemeral UserMessage — same pattern as ConversationSummarizer.
+        // AbstractAgent::run() skips SystemMessages from history, so UserMessage
+        // is required for the agent to see the content.
+        $history->add(new UserMessage($content));
+
+        // Emit observer event for REPL/SSE transparency
+        $agent->notify('agent.notification', [
+            'count' => count($notifications),
+            'source' => 'turn_injection',
+            'notifications' => $notifications,
+        ]);
+
+        return $notifications;
     }
 
     /**
