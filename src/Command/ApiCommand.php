@@ -42,6 +42,7 @@ use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
+use CoquiBot\Coqui\Notification\NotificationPublisher;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
@@ -160,6 +161,10 @@ final class ApiCommand extends Command
         $coquiBinPath = realpath(dirname(__DIR__, 2) . '/bin/coqui') ?: dirname(__DIR__, 2) . '/bin/coqui';
         $maxConcurrentTasks = (int) ($boot->config()->get('api.tasks.maxConcurrent') ?? CoquiDefaults::MAX_CONCURRENT_TASKS);
 
+        // Notification publisher for background task / loop lifecycle events
+        $notificationStore = $boot->notificationStore();
+        $notificationPublisher = $notificationStore !== null ? new NotificationPublisher($notificationStore) : null;
+
         $taskManager = new BackgroundTaskManager(
             storage: $storage,
             coquiBinPath: $coquiBinPath,
@@ -168,6 +173,7 @@ final class ApiCommand extends Command
             workspacePath: $boot->workspacePath(),
             maxConcurrent: max(1, $maxConcurrentTasks),
             unsafeMode: $unsafeMode,
+            publisher: $notificationPublisher,
         );
 
         $turnManager = new AgentTurnManager(
@@ -296,7 +302,7 @@ final class ApiCommand extends Command
                 goalEvaluator: $goalEvaluator,
                 toolBoundEvaluator: $toolBoundEvaluator,
             );
-            $loopManager = new LoopManager($storage, $loopStore, $loopExecutor, $artifactStore);
+            $loopManager = new LoopManager($storage, $loopStore, $loopExecutor, $artifactStore, $notificationPublisher);
         }
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)

@@ -13,8 +13,10 @@ use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Notification\NotificationPublisher;
 use CoquiBot\Coqui\Observer\BackgroundTaskObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
+use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -87,6 +89,10 @@ final class TaskRunCommand extends Command
         $evaluationStore = new \CoquiBot\Coqui\Storage\EvaluationStore($storage->getPdo());
         $learnerOutcomeTracker = new LearnerOutcomeTracker($evaluationStore, new SkillLifecycleStore($storage->getPdo()));
 
+        // Initialize notification publisher for task outcome notifications
+        $notificationStore = $boot->notificationStore();
+        $publisher = $notificationStore !== null ? new NotificationPublisher($notificationStore) : null;
+
         // Load task definition
         $task = $storage->getTask($taskId);
 
@@ -104,7 +110,7 @@ final class TaskRunCommand extends Command
         $toolName = $task['tool_name'] ?? null;
 
         if (is_string($toolName) && $toolName !== '') {
-            return $this->executeToolTask($taskId, $task, $boot, $storage, $workDir, $unsafeMode, $output);
+            return $this->executeToolTask($taskId, $task, $boot, $storage, $workDir, $unsafeMode, $output, $publisher);
         }
 
         $sessionId = $task['session_id'];
@@ -183,6 +189,7 @@ final class TaskRunCommand extends Command
             );
 
             if ($cancellationToken->isCancelled()) {
+                $this->publishTaskNotification($publisher, $task, $taskId, 'cancelled', 'Task cancelled');
                 $storage->updateTaskStatus($taskId, 'cancelled', [
                     'result' => $turnResult->content,
                 ]);
@@ -195,6 +202,7 @@ final class TaskRunCommand extends Command
             }
 
             if ($turnResult->error !== null) {
+                $this->publishTaskNotification($publisher, $task, $taskId, 'failed', 'Task failed', $turnResult->error);
                 $storage->updateTaskStatus($taskId, 'failed', [
                     'error' => $turnResult->error,
                     'result' => $turnResult->content,
@@ -208,6 +216,7 @@ final class TaskRunCommand extends Command
                 return Command::FAILURE;
             }
 
+            $this->publishTaskNotification($publisher, $task, $taskId, 'completed', 'Task completed');
             $storage->updateTaskStatus($taskId, 'completed', [
                 'result' => $turnResult->content,
             ]);
@@ -221,6 +230,7 @@ final class TaskRunCommand extends Command
 
             return Command::SUCCESS;
         } catch (\Throwable $e) {
+            $this->publishTaskNotification($publisher, $task, $taskId, 'failed', 'Task failed', $e->getMessage());
             $storage->updateTaskStatus($taskId, 'failed', [
                 'error' => $e->getMessage(),
             ]);
@@ -246,6 +256,7 @@ final class TaskRunCommand extends Command
         string $workDir,
         bool $unsafeMode,
         OutputInterface $output,
+        ?NotificationPublisher $publisher = null,
     ): int {
         $toolName = (string) $task['tool_name'];
         $argumentsJson = (string) ($task['tool_arguments'] ?? '{}');
@@ -289,6 +300,7 @@ final class TaskRunCommand extends Command
         try {
             // Check cancellation before execution
             if ($cancellationToken->isCancelled()) {
+                $this->publishTaskNotification($publisher, $task, $taskId, 'cancelled', 'Tool task cancelled');
                 $storage->updateTaskStatus($taskId, 'cancelled');
                 $storage->appendTaskEvent($taskId, 'cancelled', [
                     'message' => 'Cancelled before tool execution started',
@@ -308,6 +320,7 @@ final class TaskRunCommand extends Command
 
             // Check cancellation after execution (token is set by SIGTERM signal handler)
             if ($cancellationToken->isCancelled()) { // @phpstan-ignore if.alwaysFalse
+                $this->publishTaskNotification($publisher, $task, $taskId, 'cancelled', 'Tool task cancelled');
                 $storage->updateTaskStatus($taskId, 'cancelled', [
                     'result' => $toolResult->content,
                 ]);
@@ -320,6 +333,7 @@ final class TaskRunCommand extends Command
             }
 
             if ($toolResult->status === \CarmeloSantana\PHPAgents\Enum\ToolResultStatus::Error) {
+                $this->publishTaskNotification($publisher, $task, $taskId, 'failed', 'Tool task failed', $toolResult->content);
                 $storage->updateTaskStatus($taskId, 'failed', [
                     'error' => $toolResult->content,
                 ]);
@@ -332,6 +346,7 @@ final class TaskRunCommand extends Command
                 return Command::FAILURE;
             }
 
+            $this->publishTaskNotification($publisher, $task, $taskId, 'completed', 'Tool task completed');
             $storage->updateTaskStatus($taskId, 'completed', [
                 'result' => $toolResult->content,
             ]);
@@ -344,6 +359,7 @@ final class TaskRunCommand extends Command
             return Command::SUCCESS;
         } catch (\Throwable $e) {
             $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
+            $this->publishTaskNotification($publisher, $task, $taskId, 'failed', 'Tool task failed', $e->getMessage());
             $storage->updateTaskStatus($taskId, 'failed', [
                 'error' => $e->getMessage(),
             ]);
@@ -357,4 +373,61 @@ final class TaskRunCommand extends Command
         }
     }
 
+    /**
+     * Publish a task outcome notification to the parent session.
+     *
+     * Routes the notification to the user-facing conversation session
+     * (via parent_session_id) and uses fingerprinting to prevent duplicates.
+     * Failures are silently swallowed — notifications must never break task execution.
+     *
+     * @param array<string, mixed> $task
+     */
+    private function publishTaskNotification(
+        ?NotificationPublisher $publisher,
+        array $task,
+        string $taskId,
+        string $outcome,
+        string $title,
+        ?string $error = null,
+    ): void {
+        if ($publisher === null) {
+            return;
+        }
+
+        try {
+            $targetSession = NotificationPublisher::resolveTargetSession(
+                sessionId: (string) ($task['session_id'] ?? ''),
+                parentSessionId: $task['parent_session_id'] ?? null,
+            );
+
+            $taskTitle = $task['title'] ?? $task['prompt'] ?? '';
+            $displayTitle = mb_strlen((string) $taskTitle) > 80
+                ? mb_substr((string) $taskTitle, 0, 77) . '...'
+                : (string) $taskTitle;
+
+            $notifTitle = $displayTitle !== '' ? "{$title}: {$displayTitle}" : $title;
+
+            $kind = match ($outcome) {
+                'completed' => 'task.completed',
+                'cancelled' => 'task.cancelled',
+                default => 'task.failed',
+            };
+
+            $priority = $outcome === 'failed' ? 'high' : 'normal';
+
+            $publisher->publish(
+                sessionId: $targetSession,
+                kind: $kind,
+                title: $notifTitle,
+                message: $error !== null ? mb_substr($error, 0, 200) : null,
+                class: 'informational',
+                priority: $priority,
+                fingerprint: NotificationPublisher::taskFingerprint($taskId, $outcome),
+                sourceType: 'background_task',
+                sourceId: $taskId,
+            );
+        } catch (\Throwable) {
+            // Never break task execution for notification failures
+        }
+    }
 }
