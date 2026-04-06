@@ -146,6 +146,7 @@ final class OrchestratorAgent extends AbstractAgent
     private ?string $cachedInstructionsRole = null;
     private ?string $cachedMemoryHash = null;
     private ?string $cachedProjectId = null;
+    private ?string $notificationPromptSection = null;
 
     private readonly RoleToolkitResolver $roleToolkitResolver;
 
@@ -756,6 +757,12 @@ final class OrchestratorAgent extends AbstractAgent
         return $this;
     }
 
+    public function setNotificationPromptSection(?string $notificationPromptSection): void
+    {
+        $trimmed = $notificationPromptSection !== null ? trim($notificationPromptSection) : null;
+        $this->notificationPromptSection = $trimmed !== '' ? $trimmed : null;
+    }
+
     public function instructions(): string
     {
         // Cache key: active role + memory summary hash + active project ID.
@@ -772,7 +779,7 @@ final class OrchestratorAgent extends AbstractAgent
             && $this->cachedMemoryHash === $currentMemoryHash
             && $this->cachedProjectId === $currentProjectId
         ) {
-            return $this->cachedInstructions;
+            return $this->injectNotificationContext($this->cachedInstructions);
         }
 
         // When a non-orchestrator role is active, use the role's instructions
@@ -805,7 +812,7 @@ final class OrchestratorAgent extends AbstractAgent
         $this->cachedMemoryHash = $currentMemoryHash;
         $this->cachedProjectId = $currentProjectId;
 
-        return $rendered;
+        return $this->injectNotificationContext($rendered);
     }
 
     /**
@@ -844,6 +851,15 @@ final class OrchestratorAgent extends AbstractAgent
         );
 
         return $prompt->render();
+    }
+
+    private function injectNotificationContext(string $rendered): string
+    {
+        if ($this->notificationPromptSection === null || $this->notificationPromptSection === '') {
+            return $rendered;
+        }
+
+        return rtrim($rendered) . "\n\n" . $this->notificationPromptSection;
     }
 
     /**
@@ -1232,6 +1248,10 @@ final class OrchestratorAgent extends AbstractAgent
             $sections[] = $project;
         }
 
+        if (($notifications = $this->buildNotificationPromptSection()) !== null) {
+            $sections[] = $notifications;
+        }
+
         if (($iteration = $this->buildIterationBudgetPromptSection()) !== null) {
             $sections[] = $iteration;
         }
@@ -1507,6 +1527,23 @@ final class OrchestratorAgent extends AbstractAgent
             rationale: 'Deferred toolkit hints improve discoverability, but they are more deferrable than pinned identity and workflow state.',
             decision: 'included_volatile',
             group: 'tool_discovery',
+        );
+    }
+
+    private function buildNotificationPromptSection(): ?PromptSection
+    {
+        if ($this->notificationPromptSection === null || $this->notificationPromptSection === '') {
+            return null;
+        }
+
+        return new PromptSection(
+            id: 'context.pending-notifications',
+            title: 'Pending Notifications',
+            content: $this->notificationPromptSection,
+            priority: PromptSectionPriority::Workflow,
+            rationale: 'Pending notifications are turn-scoped workflow context that can affect how the agent responds to completed background work.',
+            decision: 'pinned_workflow',
+            group: 'notifications',
         );
     }
 

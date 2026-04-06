@@ -1372,6 +1372,38 @@ final class SessionStorage
     }
 
     /**
+     * Find the most recent task created by a specific automation notification.
+     *
+     * @param list<string> $statuses
+     * @return array<string, mixed>|null
+     */
+    public function findTaskByAutomationNotificationId(
+        string $notificationId,
+        array $statuses = ['pending', 'running', 'completed'],
+    ): ?array {
+        if ($statuses === []) {
+            return null;
+        }
+
+        $statusPlaceholders = implode(', ', array_fill(0, count($statuses), '?'));
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT *
+            FROM background_tasks
+            WHERE metadata IS NOT NULL
+              AND json_extract(metadata, '$.automation.notification_id') = ?
+              AND status IN ({$statusPlaceholders})
+            ORDER BY created_at DESC
+            LIMIT 1
+        SQL);
+
+        $params = [$notificationId, ...$statuses];
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    /**
      * Find the most recent task with a given title, optionally filtered by role and status.
      *
      * @param list<string> $statuses

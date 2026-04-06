@@ -36,8 +36,8 @@ final class NotificationPresenter
 
         $count = count($notifications);
         $badge = $count === 1
-            ? '<fg=cyan>🔔 1 notification</>'
-            : sprintf('<fg=cyan>🔔 %d notifications</>', $count);
+            ? '<fg=cyan>✸ 1 notification</>'
+            : sprintf('<fg=cyan>✸ %d notifications</>', $count);
         $lines[] = $badge;
 
         foreach ($notifications as $notification) {
@@ -52,6 +52,11 @@ final class NotificationPresenter
     /**
      * Format a compact badge showing unread count for the prompt line.
      *
+     * Uses raw ANSI escape codes instead of Symfony Console tags because
+     * readline does not interpret `<fg=...>` formatting — it renders them
+     * as literal text. The \001/\002 wrappers tell readline these are
+     * non-printing characters so cursor positioning stays correct.
+     *
      * Returns empty string if count is zero.
      */
     public function formatBadge(int $unreadCount): string
@@ -60,7 +65,30 @@ final class NotificationPresenter
             return '';
         }
 
-        return sprintf(' <fg=cyan>[%d🔔]</>', $unreadCount);
+        // \001 and \002 are readline's RL_PROMPT_START_IGNORE / RL_PROMPT_END_IGNORE
+        // markers. Without them, readline miscounts the prompt width and cursor
+        // positioning breaks on line-wrap and history recall.
+        return sprintf(" \001\033[36m\002[%d✸]\001\033[0m\002", $unreadCount);
+    }
+
+    /**
+     * Format a sticky actionable automation summary line.
+     */
+    public function formatActionableSummary(int $pendingCount, int $activeCount): string
+    {
+        if ($pendingCount <= 0 && $activeCount <= 0) {
+            return '';
+        }
+
+        $parts = [];
+        if ($pendingCount > 0) {
+            $parts[] = sprintf('%d pending', $pendingCount);
+        }
+        if ($activeCount > 0) {
+            $parts[] = sprintf('%d active', $activeCount);
+        }
+
+        return sprintf('<fg=yellow>⚙ Automation:</> <fg=gray>%s</>', implode(', ', $parts));
     }
 
     /**
@@ -160,33 +188,30 @@ final class NotificationPresenter
 
     /**
      * Colorize a notification kind for terminal display.
+     *
+     * Colors are assigned by outcome status (completed=green, failed=red,
+     * cancelled=yellow, stage=blue, loop=cyan) rather than by source
+     * category so users can scan by result at a glance.
      */
     private function colorizeKind(string $kind): string
     {
-        $color = match (true) {
-            str_starts_with($kind, 'task.') => 'magenta',
-            str_starts_with($kind, 'tool.') => 'yellow',
-            str_starts_with($kind, 'loop.') => 'blue',
-            default => 'gray',
+        [$icon, $color] = match ($kind) {
+            'task.completed'          => ['✔', 'green'],
+            'task.failed'             => ['✘', 'red'],
+            'task.cancelled'          => ['⏹', 'yellow'],
+            'task.stale_killed'       => ['✘', 'red'],
+            'task.timed_out'          => ['✘', 'red'],
+            'tool.completed'          => ['✔', 'green'],
+            'tool.failed'             => ['✘', 'red'],
+            'loop.stage_completed'    => ['⛮', 'blue'],
+            'loop.iteration_approved' => ['✔', 'green'],
+            'loop.completed'          => ['✔', 'cyan'],
+            'loop.failed'             => ['✘', 'red'],
+            'loop.cancelled'          => ['⏹', 'yellow'],
+            default                   => ['✸', 'gray'],
         };
 
-        $shortKind = match ($kind) {
-            'task.completed' => '✅ task',
-            'task.failed' => '❌ task',
-            'task.cancelled' => '⏹ task',
-            'task.stale_killed' => '💀 task',
-            'task.timed_out' => '⏰ task',
-            'tool.completed' => '✅ tool',
-            'tool.failed' => '❌ tool',
-            'loop.stage_completed' => '📋 stage',
-            'loop.iteration_approved' => '✅ iteration',
-            'loop.completed' => '🏁 loop',
-            'loop.failed' => '❌ loop',
-            'loop.cancelled' => '⏹ loop',
-            default => "📌 {$kind}",
-        };
-
-        return "<fg={$color}>{$shortKind}</>";
+        return "<fg={$color}>{$icon}</>";
     }
 
     /**

@@ -336,6 +336,8 @@ test('claims an actionable notification', function () {
     expect($notification['claim_status'])->toBe('claimed');
     expect($notification['claimed_by'])->toBe('automation_runner');
     expect($notification['claimed_at'])->not->toBeNull();
+    expect($notification['claim_expires_at'])->not->toBeNull();
+    expect($notification['read_at'])->toBeNull();
 });
 
 test('cannot claim an already claimed notification', function () {
@@ -364,7 +366,8 @@ test('completes a claimed notification', function () {
 
     $notification = $this->store->get($id);
     expect($notification['claim_status'])->toBe('completed');
-    expect($notification['read_at'])->not->toBeNull();
+    expect($notification['completed_at'])->not->toBeNull();
+    expect($notification['read_at'])->toBeNull();
 });
 
 test('fails a claimed notification', function () {
@@ -376,10 +379,32 @@ test('fails a claimed notification', function () {
     );
 
     $this->store->claim($id, 'runner');
-    $this->store->failClaim($id);
+    $this->store->failClaim($id, 'Retry budget exhausted');
 
     $notification = $this->store->get($id);
     expect($notification['claim_status'])->toBe('failed');
+    expect($notification['failed_at'])->not->toBeNull();
+    expect($notification['last_error'])->toBe('Retry budget exhausted');
+});
+
+test('retryClaim releases a claimed notification back to pending with backoff', function () {
+    $id = $this->store->create(
+        sessionId: $this->sessionId,
+        class: 'actionable',
+        kind: 'task.failed',
+        title: 'Retry task',
+    );
+
+    $this->store->claim($id, 'runner');
+    $this->store->retryClaim($id, 'Temporary failure', 120);
+
+    $notification = $this->store->get($id);
+    expect($notification['claim_status'])->toBe('pending');
+    expect($notification['attempt_count'])->toBe(1);
+    expect($notification['next_attempt_at'])->not->toBeNull();
+    expect($notification['last_error'])->toBe('Temporary failure');
+    expect($notification['claimed_by'])->toBeNull();
+    expect($notification['claim_expires_at'])->toBeNull();
 });
 
 test('gets unclaimed actionable notifications', function () {
@@ -425,6 +450,95 @@ test('filters unclaimed actionable by kind', function () {
     $taskOnly = $this->store->getUnclaimedActionable($this->sessionId, kinds: ['task.failed']);
     expect($taskOnly)->toHaveCount(1);
     expect($taskOnly[0]['title'])->toBe('Failed task');
+});
+
+test('gets pending actionable notifications globally', function () {
+    $session2 = $this->storage->createSession('orchestrator', 'test/model');
+
+    $this->store->create(
+        sessionId: $this->sessionId,
+        class: 'actionable',
+        kind: 'task.failed',
+        title: 'First actionable',
+    );
+    $this->store->create(
+        sessionId: $session2,
+        class: 'actionable',
+        kind: 'loop.failed',
+        title: 'Second actionable',
+    );
+
+    $global = $this->store->getPendingActionableGlobal(['task.failed', 'loop.failed']);
+    expect($global)->toHaveCount(2);
+});
+
+test('gets open actionable summary for a session', function () {
+    $this->store->create(
+        sessionId: $this->sessionId,
+        class: 'actionable',
+        kind: 'task.failed',
+        title: 'Pending actionable',
+    );
+    $claimedId = $this->store->create(
+        sessionId: $this->sessionId,
+        class: 'actionable',
+        kind: 'loop.failed',
+        title: 'Claimed actionable',
+    );
+    $this->store->claim($claimedId, 'runner');
+
+    $summary = $this->store->getOpenActionableSummary($this->sessionId);
+
+    expect($summary['pending'])->toBe(1);
+    expect($summary['claimed'])->toBe(1);
+});
+
+test('reclaimExpiredClaims requeues expired actionable notifications', function () {
+    $id = $this->store->create(
+        sessionId: $this->sessionId,
+        class: 'actionable',
+        kind: 'task.failed',
+        title: 'Lease expires',
+    );
+
+    $this->store->claim($id, 'runner', 1);
+
+    $pdo = $this->storage->getPdo();
+    $expired = (new DateTimeImmutable('-10 minutes'))->format('Y-m-d\TH:i:s\Z');
+    $pdo->prepare('UPDATE notifications SET claim_expires_at = ? WHERE id = ?')->execute([$expired, $id]);
+
+    $result = $this->store->reclaimExpiredClaims(maxAttempts: 3, retryDelaySeconds: 90);
+    $notification = $this->store->get($id);
+
+    expect($result['requeued'])->toBe(1);
+    expect($result['failed'])->toBe(0);
+    expect($notification['claim_status'])->toBe('pending');
+    expect($notification['attempt_count'])->toBe(1);
+    expect($notification['next_attempt_at'])->not->toBeNull();
+});
+
+test('reclaimExpiredClaims terminally fails notifications that exhaust retries', function () {
+    $id = $this->store->create(
+        sessionId: $this->sessionId,
+        class: 'actionable',
+        kind: 'task.failed',
+        title: 'Lease expires repeatedly',
+    );
+
+    $this->store->claim($id, 'runner', 1);
+
+    $pdo = $this->storage->getPdo();
+    $expired = (new DateTimeImmutable('-10 minutes'))->format('Y-m-d\TH:i:s\Z');
+    $pdo->prepare('UPDATE notifications SET claim_expires_at = ?, attempt_count = 2 WHERE id = ?')->execute([$expired, $id]);
+
+    $result = $this->store->reclaimExpiredClaims(maxAttempts: 3, retryDelaySeconds: 90);
+    $notification = $this->store->get($id);
+
+    expect($result['requeued'])->toBe(0);
+    expect($result['failed'])->toBe(1);
+    expect($notification['claim_status'])->toBe('failed');
+    expect($notification['attempt_count'])->toBe(3);
+    expect($notification['failed_at'])->not->toBeNull();
 });
 
 // --- Delete ---

@@ -66,10 +66,27 @@ test('returns empty badge for zero count', function () {
     expect($this->presenter->formatBadge(0))->toBe('');
 });
 
-test('formats badge with count', function () {
+test('formats badge with count and ANSI codes', function () {
     $badge = $this->presenter->formatBadge(5);
     expect($badge)->toContain('5');
-    expect($badge)->toContain('🔔');
+    // Uses ✸ glyph instead of emoji, with raw ANSI escape codes for readline
+    expect($badge)->toContain('✸');
+    // Must NOT contain Symfony Console tags (readline renders them as literal text)
+    expect($badge)->not->toContain('<fg=');
+    // Must contain raw ANSI escape for cyan (ESC[36m)
+    expect($badge)->toContain("\033[36m");
+});
+
+test('formats actionable summary with pending and active counts', function () {
+    $summary = $this->presenter->formatActionableSummary(2, 1);
+
+    expect($summary)->toContain('Automation');
+    expect($summary)->toContain('2 pending');
+    expect($summary)->toContain('1 active');
+});
+
+test('returns empty actionable summary when no actionable notifications are open', function () {
+    expect($this->presenter->formatActionableSummary(0, 0))->toBe('');
 });
 
 // --- formatTurnAcknowledgment ---
@@ -174,22 +191,54 @@ test('high priority gets yellow indicator', function () {
 
 // --- Kind colorization ---
 
-test('task kinds get magenta color', function () {
+test('completed task kinds get green color', function () {
     $notifications = [
         ['kind' => 'task.completed', 'title' => 'Done', 'priority' => 'normal', 'created_at' => ''],
     ];
 
     $lines = $this->presenter->formatIdleNotifications($notifications);
-    expect($lines[2])->toContain('<fg=magenta>');
+    expect($lines[2])->toContain('<fg=green>');
+    expect($lines[2])->toContain('✔');
 });
 
-test('loop kinds get blue color', function () {
+test('failed task kinds get red color', function () {
+    $notifications = [
+        ['kind' => 'task.failed', 'title' => 'Oops', 'priority' => 'normal', 'created_at' => ''],
+    ];
+
+    $lines = $this->presenter->formatIdleNotifications($notifications);
+    expect($lines[2])->toContain('<fg=red>');
+    expect($lines[2])->toContain('✘');
+});
+
+test('completed loop kinds get cyan color', function () {
     $notifications = [
         ['kind' => 'loop.completed', 'title' => 'Done', 'priority' => 'normal', 'created_at' => ''],
     ];
 
     $lines = $this->presenter->formatIdleNotifications($notifications);
+    expect($lines[2])->toContain('<fg=cyan>');
+    expect($lines[2])->toContain('✔');
+});
+
+test('stage completed kinds get blue color', function () {
+    $notifications = [
+        ['kind' => 'loop.stage_completed', 'title' => 'Stage done', 'priority' => 'normal', 'created_at' => ''],
+    ];
+
+    $lines = $this->presenter->formatIdleNotifications($notifications);
     expect($lines[2])->toContain('<fg=blue>');
+    expect($lines[2])->toContain('⛮');
+});
+
+test('cancelled kinds get yellow color', function () {
+    $notifications = [
+        ['kind' => 'task.cancelled', 'title' => 'Stopped', 'priority' => 'normal', 'created_at' => ''],
+    ];
+
+    $lines = $this->presenter->formatIdleNotifications($notifications);
+    expect($lines[2])->toContain('<fg=yellow>');
+    expect($lines[2])->toContain('⏹');
 });
 
 // --- Relative time ---

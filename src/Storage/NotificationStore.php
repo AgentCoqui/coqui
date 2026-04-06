@@ -23,6 +23,7 @@ final class NotificationStore
         private readonly PDO $db,
     ) {
         $this->createTables();
+        $this->migrateColumns();
         $this->createIndexes();
     }
 
@@ -47,9 +48,43 @@ final class NotificationStore
                 claim_status TEXT CHECK(claim_status IN ('pending', 'claimed', 'completed', 'failed')),
                 claimed_by TEXT,
                 claimed_at TEXT,
+                claim_expires_at TEXT,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at TEXT,
+                last_error TEXT,
+                completed_at TEXT,
+                failed_at TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             )
         SQL);
+    }
+
+    private function migrateColumns(): void
+    {
+        $this->migrateAddColumn('claim_expires_at', 'TEXT');
+        $this->migrateAddColumn('attempt_count', 'INTEGER NOT NULL DEFAULT 0');
+        $this->migrateAddColumn('next_attempt_at', 'TEXT');
+        $this->migrateAddColumn('last_error', 'TEXT');
+        $this->migrateAddColumn('completed_at', 'TEXT');
+        $this->migrateAddColumn('failed_at', 'TEXT');
+    }
+
+    private function migrateAddColumn(string $column, string $definition): void
+    {
+        $stmt = $this->db->query('PRAGMA table_info(notifications)');
+
+        if ($stmt === false) {
+            return;
+        }
+
+        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($columns as $existing) {
+            if (($existing['name'] ?? null) === $column) {
+                return;
+            }
+        }
+
+        $this->db->exec("ALTER TABLE notifications ADD COLUMN {$column} {$definition}");
     }
 
     private function createIndexes(): void
@@ -67,6 +102,16 @@ final class NotificationStore
         $this->db->exec(<<<'SQL'
             CREATE INDEX IF NOT EXISTS idx_notifications_created
                 ON notifications(created_at)
+        SQL);
+
+        $this->db->exec(<<<'SQL'
+            CREATE INDEX IF NOT EXISTS idx_notifications_actionable_schedule
+                ON notifications(class, claim_status, next_attempt_at, created_at)
+        SQL);
+
+        $this->db->exec(<<<'SQL'
+            CREATE INDEX IF NOT EXISTS idx_notifications_claim_expiry
+                ON notifications(claim_status, claim_expires_at)
         SQL);
 
         // Partial unique index: at most one unread notification per fingerprint per session.
@@ -320,6 +365,7 @@ final class NotificationStore
             WHERE session_id = :session_id
                 AND class = 'actionable'
                 AND claim_status = 'pending'
+                AND (next_attempt_at IS NULL OR next_attempt_at <= :now)
                 AND (expires_at IS NULL OR expires_at > :now)
                 {$kindFilter}
             ORDER BY
@@ -334,21 +380,98 @@ final class NotificationStore
     }
 
     /**
+     * Get processable actionable notifications across all sessions.
+     *
+     * @param list<string>|null $kinds
+     * @return list<array<string, mixed>>
+     */
+    public function getPendingActionableGlobal(?array $kinds = null, int $limit = 10): array
+    {
+        $kindFilter = '';
+        $params = [
+            ':now' => gmdate('Y-m-d\TH:i:s\Z'),
+        ];
+
+        if ($kinds !== null && $kinds !== []) {
+            $placeholders = [];
+            foreach ($kinds as $i => $kind) {
+                $key = ":kind_{$i}";
+                $placeholders[] = $key;
+                $params[$key] = $kind;
+            }
+            $kindFilter = 'AND kind IN (' . implode(',', $placeholders) . ')';
+        }
+
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, class, kind, source_type, source_id, title, message, metadata,
+                   priority, fingerprint, created_at, claim_status, claimed_by, claimed_at,
+                   claim_expires_at, attempt_count, next_attempt_at, last_error
+            FROM notifications
+            WHERE class = 'actionable'
+                AND claim_status = 'pending'
+                AND (next_attempt_at IS NULL OR next_attempt_at <= :now)
+                AND (expires_at IS NULL OR expires_at > :now)
+                {$kindFilter}
+            ORDER BY
+                CASE priority WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'normal' THEN 2 ELSE 3 END,
+                created_at ASC
+            LIMIT {$limit}
+        SQL);
+
+        $stmt->execute($params);
+
+        return array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Count open actionable notifications for a session.
+     *
+     * @return array{pending: int, claimed: int}
+     */
+    public function getOpenActionableSummary(string $sessionId): array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT
+                SUM(CASE WHEN claim_status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
+                SUM(CASE WHEN claim_status = 'claimed' THEN 1 ELSE 0 END) AS claimed_count
+            FROM notifications
+            WHERE session_id = :session_id
+                AND class = 'actionable'
+                AND claim_status IN ('pending', 'claimed')
+                AND (expires_at IS NULL OR expires_at > :now)
+        SQL);
+
+        $stmt->execute([
+            ':session_id' => $sessionId,
+            ':now' => gmdate('Y-m-d\TH:i:s\Z'),
+        ]);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return [
+            'pending' => (int) ($row['pending_count'] ?? 0),
+            'claimed' => (int) ($row['claimed_count'] ?? 0),
+        ];
+    }
+
+    /**
      * Atomically claim an actionable notification for processing.
      *
      * Returns true if the claim succeeded (notification was still pending).
      * Uses optimistic locking — only updates if claim_status is still 'pending'.
      */
-    public function claim(string $id, string $claimedBy): bool
+    public function claim(string $id, string $claimedBy, int $leaseSeconds = 300): bool
     {
         $now = gmdate('Y-m-d\TH:i:s\Z');
+        $leaseExpiresAt = gmdate('Y-m-d\TH:i:s\Z', time() + max(1, $leaseSeconds));
 
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE notifications
             SET claim_status = 'claimed',
                 claimed_by = :claimed_by,
                 claimed_at = :claimed_at,
-                read_at = COALESCE(read_at, :read_at)
+                claim_expires_at = :claim_expires_at,
+                last_error = NULL
             WHERE id = :id AND claim_status = 'pending'
         SQL);
 
@@ -356,7 +479,7 @@ final class NotificationStore
             ':id' => $id,
             ':claimed_by' => $claimedBy,
             ':claimed_at' => $now,
-            ':read_at' => $now,
+            ':claim_expires_at' => $leaseExpiresAt,
         ]);
 
         return $stmt->rowCount() > 0;
@@ -367,27 +490,144 @@ final class NotificationStore
      */
     public function completeClaim(string $id): void
     {
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE notifications
-            SET claim_status = 'completed'
+            SET claim_status = 'completed',
+                claim_expires_at = NULL,
+                next_attempt_at = NULL,
+                completed_at = :completed_at
             WHERE id = :id AND claim_status = 'claimed'
         SQL);
 
-        $stmt->execute([':id' => $id]);
+        $stmt->execute([
+            ':id' => $id,
+            ':completed_at' => $now,
+        ]);
     }
 
     /**
      * Mark a claimed notification as failed.
      */
-    public function failClaim(string $id): void
+    public function failClaim(string $id, ?string $lastError = null): void
     {
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE notifications
-            SET claim_status = 'failed'
+            SET claim_status = 'failed',
+                claim_expires_at = NULL,
+                failed_at = :failed_at,
+                last_error = COALESCE(:last_error, last_error)
             WHERE id = :id AND claim_status = 'claimed'
         SQL);
 
-        $stmt->execute([':id' => $id]);
+        $stmt->execute([
+            ':id' => $id,
+            ':failed_at' => $now,
+            ':last_error' => $lastError,
+        ]);
+    }
+
+    /**
+     * Release a claimed notification back to pending with retry state.
+     */
+    public function retryClaim(string $id, string $lastError, int $retryDelaySeconds = 60): void
+    {
+        $nextAttemptAt = gmdate('Y-m-d\TH:i:s\Z', time() + max(1, $retryDelaySeconds));
+
+        $stmt = $this->db->prepare(<<<'SQL'
+            UPDATE notifications
+            SET claim_status = 'pending',
+                claimed_by = NULL,
+                claimed_at = NULL,
+                claim_expires_at = NULL,
+                next_attempt_at = :next_attempt_at,
+                last_error = :last_error,
+                attempt_count = attempt_count + 1
+            WHERE id = :id AND claim_status = 'claimed'
+        SQL);
+
+        $stmt->execute([
+            ':id' => $id,
+            ':next_attempt_at' => $nextAttemptAt,
+            ':last_error' => $lastError,
+        ]);
+    }
+
+    /**
+     * Reclaim expired claimed notifications.
+     *
+     * @return array{requeued: int, failed: int}
+     */
+    public function reclaimExpiredClaims(int $maxAttempts = 3, int $retryDelaySeconds = 60): array
+    {
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $expired = $this->db->prepare(<<<'SQL'
+            SELECT id, attempt_count
+            FROM notifications
+            WHERE class = 'actionable'
+                AND claim_status = 'claimed'
+                AND claim_expires_at IS NOT NULL
+                AND claim_expires_at <= :now
+        SQL);
+        $expired->execute([':now' => $now]);
+
+        $requeued = 0;
+        $failed = 0;
+
+        foreach ($expired->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $id = (string) ($row['id'] ?? '');
+            $attemptCount = (int) ($row['attempt_count'] ?? 0);
+
+            if ($id === '') {
+                continue;
+            }
+
+            if (($attemptCount + 1) >= max(1, $maxAttempts)) {
+                $stmt = $this->db->prepare(<<<'SQL'
+                    UPDATE notifications
+                    SET claim_status = 'failed',
+                        claimed_by = NULL,
+                        claimed_at = NULL,
+                        claim_expires_at = NULL,
+                        attempt_count = attempt_count + 1,
+                        failed_at = :failed_at,
+                        last_error = COALESCE(last_error, 'Automation lease expired')
+                    WHERE id = :id AND claim_status = 'claimed'
+                SQL);
+                $stmt->execute([
+                    ':id' => $id,
+                    ':failed_at' => $now,
+                ]);
+                $failed += $stmt->rowCount() > 0 ? 1 : 0;
+                continue;
+            }
+
+            $nextAttemptAt = gmdate('Y-m-d\TH:i:s\Z', time() + max(1, $retryDelaySeconds));
+            $stmt = $this->db->prepare(<<<'SQL'
+                UPDATE notifications
+                SET claim_status = 'pending',
+                    claimed_by = NULL,
+                    claimed_at = NULL,
+                    claim_expires_at = NULL,
+                    attempt_count = attempt_count + 1,
+                    next_attempt_at = :next_attempt_at,
+                    last_error = COALESCE(last_error, 'Automation lease expired')
+                WHERE id = :id AND claim_status = 'claimed'
+            SQL);
+            $stmt->execute([
+                ':id' => $id,
+                ':next_attempt_at' => $nextAttemptAt,
+            ]);
+            $requeued += $stmt->rowCount() > 0 ? 1 : 0;
+        }
+
+        return [
+            'requeued' => $requeued,
+            'failed' => $failed,
+        ];
     }
 
     // ──────────────────────────────────────────────

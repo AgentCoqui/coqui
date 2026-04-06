@@ -405,7 +405,20 @@ final class TaskRunCommand extends Command
                 ? mb_substr((string) $taskTitle, 0, 77) . '...'
                 : (string) $taskTitle;
 
-            $notifTitle = $displayTitle !== '' ? "{$title}: {$displayTitle}" : $title;
+            // For loop-linked tasks the title is "Loop stage: role (iter N, stage M)".
+            // Combine with the outcome verb directly ("Loop stage completed: role ...")
+            // instead of the redundant "Task completed: Loop stage: role ...".
+            if (str_starts_with($displayTitle, 'Loop stage:')) {
+                $stageDetail = mb_substr($displayTitle, mb_strlen('Loop stage:'));
+                $verb = match ($outcome) {
+                    'completed' => 'completed',
+                    'cancelled' => 'cancelled',
+                    default => 'failed',
+                };
+                $notifTitle = "Loop stage {$verb}:{$stageDetail}";
+            } else {
+                $notifTitle = $displayTitle !== '' ? "{$title}: {$displayTitle}" : $title;
+            }
 
             $kind = match ($outcome) {
                 'completed' => 'task.completed',
@@ -414,17 +427,41 @@ final class TaskRunCommand extends Command
             };
 
             $priority = $outcome === 'failed' ? 'high' : 'normal';
+            $message = $error !== null ? mb_substr($error, 0, 200) : null;
+            $metadata = [
+                'task_id' => $taskId,
+                'task_session_id' => (string) ($task['session_id'] ?? ''),
+                'parent_session_id' => isset($task['parent_session_id']) ? (string) $task['parent_session_id'] : null,
+                'role' => (string) ($task['role'] ?? 'orchestrator'),
+                'title' => $displayTitle,
+            ];
 
-            $publisher->publish(
+            if ($outcome === 'failed') {
+                $publisher->actionable(
+                    sessionId: $targetSession,
+                    kind: $kind,
+                    title: $notifTitle,
+                    message: $message,
+                    priority: $priority,
+                    fingerprint: NotificationPublisher::taskFingerprint($taskId, $outcome),
+                    sourceType: 'background_task',
+                    sourceId: $taskId,
+                    metadata: $metadata,
+                );
+
+                return;
+            }
+
+            $publisher->info(
                 sessionId: $targetSession,
                 kind: $kind,
                 title: $notifTitle,
-                message: $error !== null ? mb_substr($error, 0, 200) : null,
-                class: 'informational',
-                priority: $priority,
+                message: $message,
                 fingerprint: NotificationPublisher::taskFingerprint($taskId, $outcome),
                 sourceType: 'background_task',
                 sourceId: $taskId,
+                metadata: $metadata,
+                priority: $priority,
             );
         } catch (\Throwable) {
             // Never break task execution for notification failures

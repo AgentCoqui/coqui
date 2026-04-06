@@ -20,6 +20,7 @@ use CoquiBot\Coqui\Renderer\JsonRenderer;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Repl\AgentTurnExecutor;
 use CoquiBot\Coqui\Repl\ExecutionPolicyFactory;
+use CoquiBot\Coqui\Repl\NotificationPresenter;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
@@ -39,6 +40,7 @@ use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\TabCompletion;
 use CoquiBot\Coqui\Repl\TerminalStateManager;
 use CoquiBot\Coqui\Storage\EvaluationStore;
+use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -54,6 +56,8 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 )]
 final class RunCommand extends Command
 {
+    private const float NOTIFICATION_IDLE_POLL_INTERVAL_SECONDS = 0.5;
+
     /**
      * Exit code that signals the launcher script to restart the process.
      * Chosen to avoid collision with Symfony Console reserved codes (0, 1, 2)
@@ -329,6 +333,12 @@ final class RunCommand extends Command
             $this->animatedTickCallback,
         );
 
+        $notificationConfig = $this->boot->config()->getNotificationConfig();
+        $notificationsEnabled = $notificationConfig['enabled'];
+        $notificationStore = $notificationsEnabled ? $this->boot->notificationStore() : null;
+        $notificationPresenter = new NotificationPresenter();
+        $notificationLimit = $notificationConfig['replDisplayLimit'];
+
         $router = new SlashCommandRouter(
             session: $sessionHandler,
             task: new TaskHandler($this->storage),
@@ -381,7 +391,14 @@ final class RunCommand extends Command
                 }
             }
 
-            $readlinePrompt = ' › ';
+            $initialNotifications = $this->getIdleNotifications($notificationStore, $notificationLimit);
+            $initialActionableSummary = $this->getActionableSummary($notificationStore);
+            if ($initialNotifications !== []) {
+                $this->renderIdleNotifications($io, $notificationPresenter, $initialNotifications);
+            }
+            $this->renderActionableSummary($io, $notificationPresenter, $initialActionableSummary);
+
+            $readlinePrompt = $this->buildReadlinePrompt($notificationPresenter, $notificationStore);
 
             // Read input using readline's callback API for non-blocking signal handling.
             $line = null;
@@ -391,10 +408,11 @@ final class RunCommand extends Command
             $hasReadline = function_exists('readline_callback_handler_install');
 
             if ($hasReadline) {
-                readline_callback_handler_install($readlinePrompt, static function (?string $input) use (&$line, &$lineReady): void {
+                $readlineCallback = static function (?string $input) use (&$line, &$lineReady): void {
                     $line = $input;
                     $lineReady = true;
-                });
+                };
+                readline_callback_handler_install($readlinePrompt, $readlineCallback);
 
                 if ($hasSignals) {
                     pcntl_signal(SIGINT, static function () use (&$ctrlCPressed, &$lineReady): void {
@@ -403,6 +421,11 @@ final class RunCommand extends Command
                     });
                 }
 
+                $typingStarted = false;
+                $lastNotificationSignature = $this->notificationSignature($initialNotifications);
+                $lastActionableSummarySignature = $this->actionableSummarySignature($initialActionableSummary);
+                $nextNotificationPollAt = microtime(true) + self::NOTIFICATION_IDLE_POLL_INTERVAL_SECONDS;
+
                 while (!$lineReady) {
                     $read = [STDIN];
                     $write = $except = [];
@@ -410,7 +433,37 @@ final class RunCommand extends Command
                     $ready = @stream_select($read, $write, $except, 0, 200000);
 
                     if ($ready > 0) {
+                        $typingStarted = true;
                         readline_callback_read_char();
+                        continue;
+                    }
+
+                    if (
+                        $ready === 0
+                        && !$typingStarted
+                        && $notificationStore !== null
+                        && microtime(true) >= $nextNotificationPollAt
+                    ) {
+                        $nextNotificationPollAt = microtime(true) + self::NOTIFICATION_IDLE_POLL_INTERVAL_SECONDS;
+                        $notifications = $this->getIdleNotifications($notificationStore, $notificationLimit);
+                        $actionableSummary = $this->getActionableSummary($notificationStore);
+                        $signature = $this->notificationSignature($notifications);
+                        $actionableSignature = $this->actionableSummarySignature($actionableSummary);
+
+                        if ($signature !== $lastNotificationSignature || $actionableSignature !== $lastActionableSummarySignature) {
+                            readline_callback_handler_remove();
+
+                            if ($notifications !== []) {
+                                $this->renderIdleNotifications($io, $notificationPresenter, $notifications);
+                            }
+
+                            $this->renderActionableSummary($io, $notificationPresenter, $actionableSummary);
+
+                            $readlinePrompt = $this->buildReadlinePrompt($notificationPresenter, $notificationStore);
+                            readline_callback_handler_install($readlinePrompt, $readlineCallback);
+                            $lastNotificationSignature = $signature;
+                            $lastActionableSummarySignature = $actionableSignature;
+                        }
                     }
                 }
 
@@ -616,6 +669,104 @@ final class RunCommand extends Command
 
         $this->activeProjectId = $project['id'];
         $this->activeProjectSlug = $project['slug'];
+    }
+
+    private function buildReadlinePrompt(NotificationPresenter $presenter, ?NotificationStore $notificationStore): string
+    {
+        if ($notificationStore === null) {
+            return ' › ';
+        }
+
+        try {
+            $badge = $presenter->formatBadge($notificationStore->countUnread($this->sessionId));
+        } catch (\Throwable) {
+            return ' › ';
+        }
+
+        return ' ›' . $badge . ' ';
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function getIdleNotifications(?NotificationStore $notificationStore, int $limit): array
+    {
+        if ($notificationStore === null) {
+            return [];
+        }
+
+        try {
+            return $notificationStore->getUnreadInformational($this->sessionId, $limit);
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * @return array{pending: int, claimed: int}
+     */
+    private function getActionableSummary(?NotificationStore $notificationStore): array
+    {
+        if ($notificationStore === null) {
+            return ['pending' => 0, 'claimed' => 0];
+        }
+
+        try {
+            return $notificationStore->getOpenActionableSummary($this->sessionId);
+        } catch (\Throwable) {
+            return ['pending' => 0, 'claimed' => 0];
+        }
+    }
+
+    /**
+     * @param list<array<string, mixed>> $notifications
+     */
+    private function renderIdleNotifications(SymfonyStyle $io, NotificationPresenter $presenter, array $notifications): void
+    {
+        foreach ($presenter->formatIdleNotifications($notifications) as $line) {
+            $io->writeln($line);
+        }
+    }
+
+    /**
+     * @param array{pending: int, claimed: int} $summary
+     */
+    private function renderActionableSummary(SymfonyStyle $io, NotificationPresenter $presenter, array $summary): void
+    {
+        $line = $presenter->formatActionableSummary($summary['pending'], $summary['claimed']);
+        if ($line !== '') {
+            $io->writeln($line);
+        }
+    }
+
+    /**
+     * @param list<array<string, mixed>> $notifications
+     */
+    private function notificationSignature(array $notifications): string
+    {
+        if ($notifications === []) {
+            return '';
+        }
+
+        return implode(
+            '|',
+            array_map(
+                static fn(array $notification): string => implode(':', [
+                    (string) ($notification['id'] ?? ''),
+                    (string) ($notification['priority'] ?? ''),
+                    (string) ($notification['created_at'] ?? ''),
+                ]),
+                $notifications,
+            ),
+        );
+    }
+
+    /**
+     * @param array{pending: int, claimed: int} $summary
+     */
+    private function actionableSummarySignature(array $summary): string
+    {
+        return sprintf('%d:%d', $summary['pending'], $summary['claimed']);
     }
 
     /**
