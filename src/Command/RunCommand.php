@@ -270,8 +270,7 @@ final class RunCommand extends Command
         if ($this->hintsEnabled) {
             $io->section('REPL');
             $bannerLines[] = '';
-            $bannerLines[] = '<fg=gray>Commands: /new, /history, /sessions, /tasks, /todos, /roles, /config, /update, /restart, /quit</>';
-            $bannerLines[] = '<fg=gray>Press ESC or Ctrl+C to cancel agent</>';
+            $bannerLines[] = '<fg=gray>Commands: /config, /new, /sessions, /roles, /tasks, /help, /update, /restart, /quit</>';
         }
 
         $io->text($bannerLines);
@@ -425,6 +424,15 @@ final class RunCommand extends Command
                 $lastNotificationSignature = $this->notificationSignature($initialNotifications);
                 $lastActionableSummarySignature = $this->actionableSummarySignature($initialActionableSummary);
                 $nextNotificationPollAt = microtime(true) + self::NOTIFICATION_IDLE_POLL_INTERVAL_SECONDS;
+                $lastNotificationLineCount = 0;
+
+                // Count initial notification lines so the first update can clear them
+                if ($initialNotifications !== []) {
+                    $lastNotificationLineCount += count($notificationPresenter->formatIdleNotifications($initialNotifications));
+                }
+                if (($initialActionableSummary['pending'] ?? 0) > 0 || ($initialActionableSummary['claimed'] ?? 0) > 0) {
+                    $lastNotificationLineCount++;
+                }
 
                 while (!$lineReady) {
                     $read = [STDIN];
@@ -453,11 +461,33 @@ final class RunCommand extends Command
                         if ($signature !== $lastNotificationSignature || $actionableSignature !== $lastActionableSummarySignature) {
                             readline_callback_handler_remove();
 
+                            // Clear the current readline prompt line to prevent stacking `›` symbols
+                            $io->write("\r\033[K");
+
+                            // Erase the previous notification block so it doesn't stack
+                            if ($lastNotificationLineCount > 0) {
+                                // Move up N lines, clearing each one
+                                for ($i = 0; $i < $lastNotificationLineCount; $i++) {
+                                    $io->write("\033[A\033[K");
+                                }
+                                $io->write("\r");
+                            }
+
+                            $newLineCount = 0;
+
                             if ($notifications !== []) {
+                                $formattedLines = $notificationPresenter->formatIdleNotifications($notifications);
+                                $newLineCount += count($formattedLines);
                                 $this->renderIdleNotifications($io, $notificationPresenter, $notifications);
                             }
 
+                            $actionableLine = $notificationPresenter->formatActionableSummary($actionableSummary['pending'], $actionableSummary['claimed']);
+                            if ($actionableLine !== '') {
+                                $newLineCount++;
+                            }
                             $this->renderActionableSummary($io, $notificationPresenter, $actionableSummary);
+
+                            $lastNotificationLineCount = $newLineCount;
 
                             $readlinePrompt = $this->buildReadlinePrompt($notificationPresenter, $notificationStore);
                             readline_callback_handler_install($readlinePrompt, $readlineCallback);
