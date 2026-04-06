@@ -138,6 +138,18 @@ test('startLoop with iteration_bound definition', function () {
     expect($loop['termination_criteria'])->toBeNull();
 });
 
+test('startLoop applies max_iterations override', function () {
+    $loopId = $this->executor->startLoop(
+        $this->harnessDefinition,
+        'Override iteration limit',
+        $this->sessionId,
+        maxIterationsOverride: 3,
+    );
+
+    $loop = $this->loopStore->getLoop($loopId);
+    expect((int) $loop['max_iterations'])->toBe(3);
+});
+
 test('startLoop with time_bound definition', function () {
     $def = [
         'name' => 'time-test',

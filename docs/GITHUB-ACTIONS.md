@@ -9,7 +9,7 @@ For local test and coverage setup, see [TESTING.md](TESTING.md).
 The CI workflow (`.github/workflows/ci.yml`) runs four main jobs:
 
 - **Tests** — `composer test` across the full matrix
-- **Coverage** — `composer test:coverage:ci` on one stable lane, uploading Clover XML
+- **Coverage** — `composer test:coverage -- --clover build/coverage/clover.xml` on one stable lane, uploading Clover XML
 - **PHPStan** — `composer analyse` at level 8 with bleeding edge rules
 - **Bash Tests** — `bash tests/bash/launcher-sigint-test.sh` for launcher signal-handling behavior
 
@@ -167,7 +167,7 @@ See [scripts/ci-test.sh](../scripts/ci-test.sh) for details.
 
 ## Coverage Reporting
 
-Coverage is currently reporting-only. The dedicated CI coverage lane runs on Ubuntu with PHP 8.4 and uploads a Clover XML artifact at `build/coverage/clover.xml`.
+Coverage is currently reporting-only. The CI coverage lane runs on Ubuntu with PHP 8.4 and uses the same wrapper command as local coverage runs, adding `--clover build/coverage/clover.xml` to upload a Clover XML artifact.
 
 For local detailed reporting, use one of these:
 
@@ -178,6 +178,11 @@ make test-coverage
 ```
 
 `composer test -- --coverage` works when your PHP process is already configured for coverage. `composer test:coverage` uses the repository wrapper script to auto-enable PCOV or Xdebug when available.
+
+The wrapper also accepts local environment overrides for active development:
+
+- `COQUI_TEST_COVERAGE_DRIVER=pcov|xdebug|auto` to force a specific driver or keep auto-detection.
+- `COQUI_TEST_COVERAGE_MEMORY_LIMIT=512M` or higher to raise the PHP CLI memory ceiling for coverage runs.
 
 ## Workflow File Reference
 
@@ -216,6 +221,7 @@ If you are contributing primarily from Windows, use WSL2 (Windows Subsystem for 
 - Install either PCOV or Xdebug.
 - `composer test:coverage` auto-enables PCOV or Xdebug coverage mode when the extension is present.
 - `composer test -- --coverage` requires your PHP process to already be configured for coverage, for example with `XDEBUG_MODE=coverage`.
+- In active refactors, keep `composer test` and `composer analyse` as the default local gate and run coverage on demand rather than on every edit cycle.
 
 ### Missing ext-pdo_sqlite
 

@@ -52,6 +52,7 @@ beforeEach(function () {
 
     $this->loopDiscovery = new LoopDiscovery($this->workspacePath);
     $this->toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery);
+    $this->healthyLoopHealthCheck = static fn(): array => ['ok' => true, 'error' => null];
 });
 
 afterEach(function () {
@@ -559,7 +560,7 @@ test('loop_start passes parameters to executor', function () {
         projectStore: $projectStore,
     );
 
-    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor);
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, null, $this->healthyLoopHealthCheck);
     $startTool = toolFromToolkit($toolkit, 'loop_start');
 
     $result = $startTool->execute([
@@ -594,6 +595,31 @@ test('loop_start rejects invalid parameters JSON', function () {
 
     expect($result->status)->toBe(ToolResultStatus::Error);
     expect($result->content)->toContain('valid JSON object');
+});
+
+test('loop_start passes max_iterations override to executor', function () {
+    $pdo = $this->storage->getPdo();
+    $projectStore = new \CoquiBot\Coqui\Storage\ProjectStore($pdo);
+    $executor = new \CoquiBot\Coqui\Agent\LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $projectStore,
+    );
+
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, null, $this->healthyLoopHealthCheck);
+    $startTool = toolFromToolkit($toolkit, 'loop_start');
+
+    $result = $startTool->execute([
+        'definition' => 'harness',
+        'goal' => 'Test override persistence',
+        'max_iterations' => 3,
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $data = json_decode($result->content, true);
+    expect($data['max_iterations'])->toBe(3);
+
+    $loop = $this->loopStore->getLoop($data['loop_id']);
+    expect((int) $loop['max_iterations'])->toBe(3);
 });
 
 test('loop_definitions shows parameter info', function () {
@@ -639,7 +665,7 @@ test('loop_start passes sessionId from toolkit to executor', function () {
     );
 
     // Create toolkit WITH sessionId
-    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, $this->sessionId);
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, $this->sessionId, $this->healthyLoopHealthCheck);
     $startTool = toolFromToolkit($toolkit, 'loop_start');
 
     $result = $startTool->execute([
@@ -684,7 +710,7 @@ test('loop_start without sessionId stores null in loop record', function () {
     );
 
     // Create toolkit WITHOUT sessionId (null)
-    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor);
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, null, $this->healthyLoopHealthCheck);
     $startTool = toolFromToolkit($toolkit, 'loop_start');
 
     $result = $startTool->execute([
@@ -728,7 +754,7 @@ test('prepareNextStage propagates sessionId into LoopStageResult', function () {
     );
 
     // Start loop with sessionId
-    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, $this->sessionId);
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, $this->sessionId, $this->healthyLoopHealthCheck);
     $startTool = toolFromToolkit($toolkit, 'loop_start');
     $result = $startTool->execute([
         'definition' => 'harness',

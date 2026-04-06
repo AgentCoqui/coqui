@@ -95,7 +95,7 @@ final class LoopHandler
         // Verify API server is reachable — loops depend on LoopManager (API) to advance stages.
         $health = ApiHealthCheck::check();
         if (!$health['ok']) {
-            $io->error($health['error']);
+            $io->error($health['error'] ?? 'API health check failed.');
             return;
         }
 

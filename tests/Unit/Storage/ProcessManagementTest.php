@@ -191,15 +191,19 @@ test('markOrphanedTasksFailed marks tasks with no PID as orphaned', function () 
 });
 
 test('markOrphanedTasksFailed preserves tasks with live PIDs', function () {
-    $taskId = $this->storage->createTask($this->sessionId, 'test prompt');
-    // Use our own PID — which is definitely alive
-    $this->storage->updateTaskStatus($taskId, 'running', ['pid' => getmypid()]);
+    $storage = new SessionStorage(
+        $this->dbPath,
+        static fn(int $pid, string $subcommand): bool => $pid === getmypid() && $subcommand === 'task:run',
+    );
+    $sessionId = $storage->createSession('orchestrator', 'test/model');
+    $taskId = $storage->createTask($sessionId, 'test prompt');
+    $storage->updateTaskStatus($taskId, 'running', ['pid' => getmypid()]);
 
-    $count = $this->storage->markOrphanedTasksFailed();
+    $count = $storage->markOrphanedTasksFailed();
 
     expect($count)->toBe(0);
 
-    $task = $this->storage->getTask($taskId);
+    $task = $storage->getTask($taskId);
     expect($task['status'])->toBe('running');
 })->skip(PHP_OS_FAMILY === 'Windows', 'PID liveness check relies on posix_kill; wmic is unavailable on modern Windows');
 
@@ -246,13 +250,18 @@ test('markOrphanedTurnProcessesFailed marks processes with dead PIDs', function 
 });
 
 test('markOrphanedTurnProcessesFailed preserves processes with live PIDs', function () {
-    $turnId = $this->storage->createTurnProcess($this->sessionId, 'test prompt');
-    $this->storage->updateTurnProcessStatus($turnId, 'running', ['pid' => getmypid()]);
+    $storage = new SessionStorage(
+        $this->dbPath,
+        static fn(int $pid, string $subcommand): bool => $pid === getmypid() && $subcommand === 'turn:run',
+    );
+    $sessionId = $storage->createSession('orchestrator', 'test/model');
+    $turnId = $storage->createTurnProcess($sessionId, 'test prompt');
+    $storage->updateTurnProcessStatus($turnId, 'running', ['pid' => getmypid()]);
 
-    $count = $this->storage->markOrphanedTurnProcessesFailed();
+    $count = $storage->markOrphanedTurnProcessesFailed();
 
     expect($count)->toBe(0);
 
-    $turn = $this->storage->getTurnProcess($turnId);
+    $turn = $storage->getTurnProcess($turnId);
     expect($turn['status'])->toBe('running');
 })->skip(PHP_OS_FAMILY === 'Windows', 'PID liveness check relies on posix_kill; wmic is unavailable on modern Windows');

@@ -37,10 +37,21 @@ Cross-platform coverage wrapper for Pest.
 # Terminal coverage summary
 php scripts/test-coverage.php
 
-# Save Clover XML for CI tooling
+# Save Clover XML with the same wrapper command shape used in CI
 php scripts/test-coverage.php --clover build/coverage/clover.xml
 ```
 
 The wrapper auto-enables PCOV when installed, or Xdebug coverage mode when Xdebug is available.
+
+It also supports optional environment overrides:
+
+```bash
+COQUI_TEST_COVERAGE_MEMORY_LIMIT=768M php scripts/test-coverage.php
+COQUI_TEST_COVERAGE_DRIVER=pcov php scripts/test-coverage.php
+COQUI_TEST_COVERAGE_DRIVER=xdebug php scripts/test-coverage.php
+```
+
+- `COQUI_TEST_COVERAGE_MEMORY_LIMIT` defaults to `512M`.
+- `COQUI_TEST_COVERAGE_DRIVER` defaults to `auto`, preferring `pcov` before `xdebug`.
 
 See [docs/TESTING.md](../docs/TESTING.md) for local test and coverage setup, and [docs/GITHUB-ACTIONS.md](../docs/GITHUB-ACTIONS.md) for CI workflow details.

@@ -121,8 +121,8 @@ final class PromptUsageBar
             return;
         }
 
-        $maxTokens = (int) ($contextWindow['max_tokens'] ?? 0);
-        $reservedTokens = (int) ($contextWindow['reserved_tokens'] ?? 0);
+        $maxTokens = $contextWindow['max_tokens'];
+        $reservedTokens = $contextWindow['reserved_tokens'];
         $effectiveBudget = max(0, $maxTokens - $reservedTokens);
 
         if ($effectiveBudget <= 0) {
@@ -178,11 +178,8 @@ final class PromptUsageBar
         $categories = [];
 
         foreach ($sections as $section) {
-            $category = self::resolveCategory(
-                (string) ($section['id'] ?? ''),
-                (string) ($section['group'] ?? ''),
-            );
-            $tokens = (int) ($section['tokens'] ?? 0);
+            $category = self::resolveCategory($section['id'], $section['group']);
+            $tokens = $section['tokens'];
             $categories[$category] = ($categories[$category] ?? 0) + $tokens;
         }
 
