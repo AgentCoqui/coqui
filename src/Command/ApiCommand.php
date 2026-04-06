@@ -43,6 +43,9 @@ use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Notification\NotificationPublisher;
+use CoquiBot\Coqui\Notification\NotificationAutomationRunner;
+use CoquiBot\Coqui\Notification\RetryBackgroundTaskAction;
+use CoquiBot\Coqui\Notification\EscalateLoopFailureAction;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
@@ -247,6 +250,8 @@ final class ApiCommand extends Command
         $loopStore = $boot->loopStore();
         $loopDiscovery = $boot->loopDiscovery();
         $projectStore = $boot->projectStore();
+        $notificationConfig = $boot->config()->getNotificationConfig();
+        $notificationAutomationConfig = $notificationConfig['automation'];
 
         $scheduleManager = new ScheduleManager($storage, $scheduleStore);
         $qualityAutomation = new QualityAutomationCoordinator(
@@ -273,6 +278,26 @@ final class ApiCommand extends Command
         }
         $watcher->register(new ScheduleFileWatchJob($schedulesDir, $scheduleStore));
         $watcher->initialSync();
+
+        $notificationAutomationRunner = null;
+        if ($notificationStore !== null && $notificationAutomationConfig['enabled']) {
+            $automationHandlers = [
+                new RetryBackgroundTaskAction($storage),
+            ];
+
+            if ($loopStore !== null) {
+                $automationHandlers[] = new EscalateLoopFailureAction($storage, $loopStore);
+            }
+
+            $notificationAutomationRunner = new NotificationAutomationRunner(
+                store: $notificationStore,
+                handlers: $automationHandlers,
+                leaseSeconds: $notificationAutomationConfig['leaseSeconds'],
+                batchSize: $notificationAutomationConfig['batchSize'],
+                maxAttempts: $notificationAutomationConfig['maxAttempts'],
+                retryDelaySeconds: $notificationAutomationConfig['retryDelaySeconds'],
+            );
+        }
 
         $loopManager = null;
         if ($loopStore !== null && $projectStore !== null) {
@@ -415,6 +440,16 @@ final class ApiCommand extends Command
         Loop::addPeriodicTimer(1.0, static function () use ($turnManager): void {
             $turnManager->tick();
         });
+
+        if ($notificationAutomationRunner !== null) {
+            Loop::addPeriodicTimer((float) $notificationAutomationConfig['processTickSeconds'], static function () use ($notificationAutomationRunner): void {
+                $notificationAutomationRunner->tick();
+            });
+
+            Loop::addPeriodicTimer((float) $notificationAutomationConfig['reclaimTickSeconds'], static function () use ($notificationAutomationRunner): void {
+                $notificationAutomationRunner->reclaim();
+            });
+        }
 
         // Periodic timer: purge old webhook delivery logs daily (3600s check)
         Loop::addPeriodicTimer(3600.0, static function () use ($webhookStore): void {

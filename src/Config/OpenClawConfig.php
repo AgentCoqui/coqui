@@ -185,7 +185,13 @@ final class OpenClawConfig implements ConfigInterface
     /**
      * Get notification system configuration.
      *
-     * @return array{enabled: bool, replDisplayLimit: int, promptInjectionLimit: int, retentionHours: array{informational: int, actionable: int}}
+     * @return array{
+     *     enabled: bool,
+     *     replDisplayLimit: int,
+     *     promptInjectionLimit: int,
+     *     retentionHours: array{informational: int, actionable: int},
+     *     automation: array{enabled: bool, processTickSeconds: int, reclaimTickSeconds: int, leaseSeconds: int, batchSize: int, maxAttempts: int, retryDelaySeconds: int}
+     * }
      */
     public function getNotificationConfig(): array
     {
@@ -194,6 +200,13 @@ final class OpenClawConfig implements ConfigInterface
         $promptLimit = $this->get('agents.defaults.notifications.promptInjectionLimit');
         $retInfoHours = $this->get('agents.defaults.notifications.retentionHours.informational');
         $retActionHours = $this->get('agents.defaults.notifications.retentionHours.actionable');
+        $automationEnabled = $this->get('agents.defaults.notifications.automation.enabled');
+        $processTickSeconds = $this->get('agents.defaults.notifications.automation.processTickSeconds');
+        $reclaimTickSeconds = $this->get('agents.defaults.notifications.automation.reclaimTickSeconds');
+        $leaseSeconds = $this->get('agents.defaults.notifications.automation.leaseSeconds');
+        $batchSize = $this->get('agents.defaults.notifications.automation.batchSize');
+        $maxAttempts = $this->get('agents.defaults.notifications.automation.maxAttempts');
+        $retryDelaySeconds = $this->get('agents.defaults.notifications.automation.retryDelaySeconds');
 
         return [
             'enabled' => is_bool($enabled) ? $enabled : CoquiDefaults::NOTIFICATION_ENABLED,
@@ -202,6 +215,15 @@ final class OpenClawConfig implements ConfigInterface
             'retentionHours' => [
                 'informational' => is_int($retInfoHours) && $retInfoHours >= 1 ? $retInfoHours : CoquiDefaults::NOTIFICATION_RETENTION_INFORMATIONAL_HOURS,
                 'actionable' => is_int($retActionHours) && $retActionHours >= 1 ? $retActionHours : CoquiDefaults::NOTIFICATION_RETENTION_ACTIONABLE_HOURS,
+            ],
+            'automation' => [
+                'enabled' => is_bool($automationEnabled) ? $automationEnabled : CoquiDefaults::NOTIFICATION_AUTOMATION_ENABLED,
+                'processTickSeconds' => is_int($processTickSeconds) && $processTickSeconds >= 1 ? $processTickSeconds : CoquiDefaults::NOTIFICATION_AUTOMATION_PROCESS_TICK_SECONDS,
+                'reclaimTickSeconds' => is_int($reclaimTickSeconds) && $reclaimTickSeconds >= 1 ? $reclaimTickSeconds : CoquiDefaults::NOTIFICATION_AUTOMATION_RECLAIM_TICK_SECONDS,
+                'leaseSeconds' => is_int($leaseSeconds) && $leaseSeconds >= 1 ? $leaseSeconds : CoquiDefaults::NOTIFICATION_AUTOMATION_LEASE_SECONDS,
+                'batchSize' => is_int($batchSize) && $batchSize >= 1 ? $batchSize : CoquiDefaults::NOTIFICATION_AUTOMATION_BATCH_SIZE,
+                'maxAttempts' => is_int($maxAttempts) && $maxAttempts >= 1 ? $maxAttempts : CoquiDefaults::NOTIFICATION_AUTOMATION_MAX_ATTEMPTS,
+                'retryDelaySeconds' => is_int($retryDelaySeconds) && $retryDelaySeconds >= 1 ? $retryDelaySeconds : CoquiDefaults::NOTIFICATION_AUTOMATION_RETRY_DELAY_SECONDS,
             ],
         ];
     }

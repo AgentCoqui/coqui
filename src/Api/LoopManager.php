@@ -430,7 +430,9 @@ final class LoopManager
                 sessionId: (string) ($loop['session_id'] ?? ''),
             );
 
-            $loopName = $loop['name'] ?? '';
+            $loopName = is_string($loop['name'] ?? null) && $loop['name'] !== ''
+                ? $loop['name']
+                : (is_string($loop['definition_name'] ?? null) ? $loop['definition_name'] : '');
             $notifTitle = $loopName !== '' ? "{$title} [{$loopName}]" : $title;
 
             $fingerprint = NotificationPublisher::loopFingerprint(
@@ -444,17 +446,40 @@ final class LoopManager
                 str_starts_with($outcome, 'stage_') => "loop.{$outcome}",
                 default => "loop.{$outcome}",
             };
+            $metadata = [
+                'loop_id' => $loopId,
+                'loop_name' => $loopName,
+                'iteration_number' => $iterationNumber,
+                'stage_index' => $stageIndex,
+                'outcome' => $outcome,
+            ];
 
-            $this->publisher->publish(
+            if ($kind === 'loop.failed') {
+                $this->publisher->actionable(
+                    sessionId: $targetSession,
+                    kind: $kind,
+                    title: $notifTitle,
+                    message: $detail,
+                    fingerprint: $fingerprint,
+                    sourceType: 'loop',
+                    sourceId: $loopId,
+                    metadata: $metadata,
+                    priority: $priority,
+                );
+
+                return;
+            }
+
+            $this->publisher->info(
                 sessionId: $targetSession,
                 kind: $kind,
                 title: $notifTitle,
                 message: $detail,
-                class: 'informational',
-                priority: $priority,
                 fingerprint: $fingerprint,
                 sourceType: 'loop',
                 sourceId: $loopId,
+                metadata: $metadata,
+                priority: $priority,
             );
         } catch (\Throwable) {
             // Never break loop execution for notification failures

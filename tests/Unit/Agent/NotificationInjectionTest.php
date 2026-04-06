@@ -2,9 +2,6 @@
 
 declare(strict_types=1);
 
-use CarmeloSantana\PHPAgents\Enum\Role;
-use CarmeloSantana\PHPAgents\Message\Conversation;
-use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CoquiBot\Coqui\Repl\NotificationPresenter;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -183,56 +180,9 @@ test('formatForPromptInjection includes review instruction footer', function () 
     expect($content)->toContain('incorporate');
 });
 
-// --- Ephemeral UserMessage injection ---
+// --- Turn-scoped prompt section pipeline ---
 
-test('ephemeral UserMessage is added to conversation from snapshot', function () {
-    $this->store->create(
-        sessionId: $this->sessionId,
-        class: 'informational',
-        kind: 'task.completed',
-        title: 'Build finished',
-        message: 'Success.',
-        priority: 'normal',
-    );
-
-    $history = new Conversation();
-    $history->add(new UserMessage('Hello'));
-
-    // Simulate what AgentRunner::injectNotificationSnapshot does
-    $snapshot = $this->store->snapshotAndClear($this->sessionId, 10);
-    $content = $this->presenter->formatForPromptInjection($snapshot);
-
-    expect($content)->not->toBe('');
-
-    $history->add(new UserMessage($content));
-
-    // The conversation should now have 2 user messages
-    $userMessages = $history->filter(Role::User);
-    expect($userMessages)->toHaveCount(2);
-
-    // The last message should contain the notification content
-    $lastMessage = $history->last();
-    expect($lastMessage)->toBeInstanceOf(UserMessage::class);
-    expect($lastMessage->content())->toContain('[PENDING NOTIFICATIONS]');
-    expect($lastMessage->content())->toContain('Build finished');
-});
-
-test('no UserMessage added when no notifications exist', function () {
-    $history = new Conversation();
-    $history->add(new UserMessage('Hello'));
-
-    $snapshot = $this->store->snapshotAndClear($this->sessionId, 10);
-
-    expect($snapshot)->toHaveCount(0);
-
-    $content = $this->presenter->formatForPromptInjection($snapshot);
-    expect($content)->toBe('');
-
-    // History should remain unchanged
-    expect($history->count())->toBe(1);
-});
-
-test('ephemeral UserMessage is not persisted to database', function () {
+test('snapshot and format produce turn-scoped prompt section content', function () {
     $this->store->create(
         sessionId: $this->sessionId,
         class: 'informational',
@@ -241,19 +191,14 @@ test('ephemeral UserMessage is not persisted to database', function () {
         priority: 'normal',
     );
 
-    // Snapshot and format
     $snapshot = $this->store->snapshotAndClear($this->sessionId, 10);
     $content = $this->presenter->formatForPromptInjection($snapshot);
 
-    // Add to in-memory conversation
-    $history = new Conversation();
-    $history->add(new UserMessage($content));
+    expect($content)->toContain('[PENDING NOTIFICATIONS]');
+    expect($content)->toContain('Build finished');
 
-    // The database should NOT have this message — it was only in-memory
-    // Verify by loading conversation from storage (which only has DB messages)
+    // Prompt sections are turn-scoped only and do not create conversation messages.
     $dbHistory = $this->storage->loadConversation($this->sessionId);
-
-    // Database history should be empty (no messages added via storage->addMessage)
     expect($dbHistory->count())->toBe(0);
 });
 
@@ -299,15 +244,7 @@ test('complete notification injection pipeline', function () {
     expect($content)->toContain('Harness loop finished');
     expect($content)->not->toContain('Deploy needs retry');
 
-    // Step 3: Inject into conversation
-    $history = new Conversation();
-    $history->add(new UserMessage('Continue working on the feature.'));
-    $history->add(new UserMessage($content));
-
-    // The agent would see 2 user messages
-    expect($history->count())->toBe(2);
-
-    // Step 4: Verify atomicity — second snapshot is empty
+    // Step 3: Verify atomicity — second snapshot is empty
     $secondSnapshot = $this->store->snapshotAndClear($this->sessionId, 10);
     expect($secondSnapshot)->toHaveCount(0);
 });

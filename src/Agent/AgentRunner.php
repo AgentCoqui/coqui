@@ -255,17 +255,18 @@ final class AgentRunner
             // silently dropping oldest turns via fitWithinBudget().
             $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer);
 
-            // Snapshot unread notifications and inject as ephemeral UserMessage.
-            // The message is added to the in-memory Conversation only — NOT persisted
-            // to the database — so the agent sees pending notifications for this turn
-            // without polluting the permanent conversation history.
-            $notificationSnapshot = [];
+            // Snapshot unread informational notifications and pass them into the
+            // turn as a dedicated prompt section. This keeps notification context
+            // visible to the model without polluting conversation history.
             if ($this->notificationStore !== null && $workScopeSessionId === null) {
-                $notificationSnapshot = $this->injectNotificationSnapshot(
-                    $history,
+                $notificationPromptSection = $this->snapshotNotificationPromptSection(
                     $sessionId,
                     $agent,
                 );
+
+                if ($notificationPromptSection !== null) {
+                    $agent->setNotificationPromptSection($notificationPromptSection);
+                }
             }
 
             // Per-iteration pruning is handled by AbstractAgent using the
@@ -1135,21 +1136,15 @@ final class AgentRunner
     }
 
     /**
-     * Snapshot unread informational notifications and inject as an ephemeral UserMessage.
-     *
-     * Atomically reads and marks notifications as read, formats them via
-     * NotificationPresenter, and appends a synthetic UserMessage to the
-     * in-memory Conversation. The message is NOT persisted to the database.
-     *
-     * @return list<array<string, mixed>> The snapshotted notifications (empty if none).
+     * Snapshot unread informational notifications and format them into a
+     * per-turn prompt section.
      */
-    private function injectNotificationSnapshot(
-        Conversation $history,
+    private function snapshotNotificationPromptSection(
         string $sessionId,
         OrchestratorAgent $agent,
-    ): array {
+    ): ?string {
         if ($this->notificationStore === null) {
-            return [];
+            return null;
         }
 
         $limit = CoquiDefaults::NOTIFICATION_PROMPT_INJECTION_LIMIT;
@@ -1161,33 +1156,28 @@ final class AgentRunner
         try {
             $notifications = $this->notificationStore->snapshotAndClear($sessionId, $limit);
         } catch (\Throwable) {
-            return [];
+            return null;
         }
 
         if ($notifications === []) {
-            return [];
+            return null;
         }
 
         $presenter = new NotificationPresenter();
         $content = $presenter->formatForPromptInjection($notifications);
 
         if ($content === '') {
-            return [];
+            return null;
         }
-
-        // Inject as ephemeral UserMessage — same pattern as ConversationSummarizer.
-        // AbstractAgent::run() skips SystemMessages from history, so UserMessage
-        // is required for the agent to see the content.
-        $history->add(new UserMessage($content));
 
         // Emit observer event for REPL/SSE transparency
         $agent->notify('agent.notification', [
             'count' => count($notifications),
-            'source' => 'turn_injection',
+            'source' => 'prompt_section',
             'notifications' => $notifications,
         ]);
 
-        return $notifications;
+        return $content;
     }
 
     /**

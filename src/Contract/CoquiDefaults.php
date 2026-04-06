@@ -77,6 +77,27 @@ final class CoquiDefaults
     /** Retention hours for actionable notifications before auto-prune (config: agents.defaults.notifications.retentionHours.actionable). */
     public const int NOTIFICATION_RETENTION_ACTIONABLE_HOURS = 72;
 
+    /** Whether actionable notification automation is enabled in API mode (config: agents.defaults.notifications.automation.enabled). */
+    public const bool NOTIFICATION_AUTOMATION_ENABLED = true;
+
+    /** Seconds between actionable notification processing ticks (config: agents.defaults.notifications.automation.processTickSeconds). */
+    public const int NOTIFICATION_AUTOMATION_PROCESS_TICK_SECONDS = 10;
+
+    /** Seconds between actionable notification reclaim ticks (config: agents.defaults.notifications.automation.reclaimTickSeconds). */
+    public const int NOTIFICATION_AUTOMATION_RECLAIM_TICK_SECONDS = 30;
+
+    /** Lease duration for claimed actionable notifications (config: agents.defaults.notifications.automation.leaseSeconds). */
+    public const int NOTIFICATION_AUTOMATION_LEASE_SECONDS = 300;
+
+    /** Max actionable notifications to process per tick (config: agents.defaults.notifications.automation.batchSize). */
+    public const int NOTIFICATION_AUTOMATION_BATCH_SIZE = 5;
+
+    /** Max automation retry attempts before terminal failure (config: agents.defaults.notifications.automation.maxAttempts). */
+    public const int NOTIFICATION_AUTOMATION_MAX_ATTEMPTS = 3;
+
+    /** Retry delay after a recoverable automation failure or reclaimed lease (config: agents.defaults.notifications.automation.retryDelaySeconds). */
+    public const int NOTIFICATION_AUTOMATION_RETRY_DELAY_SECONDS = 60;
+
     /** Safety cap on recursive copy/move operations to prevent runaway traversals. */
     public const int MAX_RECURSIVE_ITEMS = 10_000;
 

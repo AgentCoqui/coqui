@@ -18,8 +18,9 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, toolkit_list). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Also builds prompt-section telemetry with pinned-versus-deferrable classification and rationale for budget inspection surfaces. Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, toolkit_list). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Also builds prompt-section telemetry with pinned-versus-deferrable classification and rationale for budget inspection surfaces. Supports a per-turn notification prompt section injected outside the cached base instructions so transient background-work notifications remain visible to the model without polluting persisted conversation history. Constructed fresh on every REPL turn.",
             "methods": [
+                "setNotificationPromptSection(?string): void — install or clear the turn-scoped notification prompt section",
                 "instructions(): string — returns the full system prompt with role descriptions, security rules, and operational guidelines",
                 "tools(): ToolInterface[] — returns standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, toolkit_list)",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
@@ -47,7 +48,7 @@
             "path": "src/Agent/AgentRunner.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunner",
             "layer": "agent",
-            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Includes autoSummarizeIfNeeded() for pre-turn budget checks with workflow context injection, and autoExtractMemories() which runs LLM-based memory extraction after each successful turn (configurable via agents.defaults.memory.autoExtract). Also builds prompt-preview and prompt-budget snapshots used by the REPL and API inspection surfaces, including prompt-section rationale and pinning metadata. Accepts optional TodoStore and ArtifactStore to build workflow context for summarization.",
+            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Includes autoSummarizeIfNeeded() for pre-turn budget checks with workflow context injection, and autoExtractMemories() which runs LLM-based memory extraction after each successful turn (configurable via agents.defaults.memory.autoExtract). Snapshots unread informational notifications into a transient prompt section and applies it to the live OrchestratorAgent for the current turn instead of injecting synthetic transcript messages. Also builds prompt-preview and prompt-budget snapshots used by the REPL and API inspection surfaces, including prompt-section rationale and pinning metadata. Accepts optional TodoStore and ArtifactStore to build workflow context for summarization.",
             "methods": [
                 "run(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy): AgentTurnResult — runs a single agent turn using the default observer",
                 "runWithObserver(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy, SplObserver $observer): AgentTurnResult — runs a turn with a per-turn observer override",
@@ -162,24 +163,27 @@
             "path": "src/Api/LoopManager.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\LoopManager",
             "layer": "agent",
-            "description": "ReactPHP timer-based async loop coordinator. 5-second tick checks running loops, starts pending stages as background tasks with work-scope session propagation (parentSessionId), and persists typed LoopStageHandoffMetadata onto both the stage row and spawned background task. 3-second reconciliation checks completed tasks, auto-creates loop_output artifacts in the parent session, and advances loop state. Propagates active project context from parent session to stage tasks.",
+            "description": "ReactPHP timer-based async loop coordinator. 5-second tick checks running loops, starts pending stages as background tasks with work-scope session propagation (parentSessionId), and persists typed LoopStageHandoffMetadata onto both the stage row and spawned background task. 3-second reconciliation checks completed tasks, auto-creates loop_output artifacts in the parent session, and advances loop state. Propagates active project context from parent session to stage tasks. Publishes loop lifecycle notifications through NotificationPublisher, upgrading terminal loop failures to actionable notifications for the API-side automation runner while keeping stage/complete milestones informational.",
             "methods": [
                 "tick(): void — process all running loops on timer",
                 "advanceLoop(string $loopId): void — prepare next stage, create task with parentSessionId propagation",
                 "reconcileLoop(string $loopId): void — check completed tasks, create loop_output artifacts, advance state",
-                "createStageArtifact(string $loopId, array $stage, array $task, string $output, array $state): ?string — create loop_output artifact in work-scope session"
+                "createStageArtifact(string $loopId, array $stage, array $task, string $output, array $state): ?string — create loop_output artifact in work-scope session",
+                "publishLoopNotification(...): void — route informational vs actionable loop notifications to the user-facing session"
             ]
         },
         {
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface into REPL handlers. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system, resolves session, enters REPL or headless mode",
                 "runRepl(SymfonyStyle, bool): int — interactive REPL loop with readline, signal handling, slash command routing, and agent turn execution",
                 "runHeadless(InputInterface, OutputInterface): int — single-prompt execution without REPL",
-                "resolveWorkspaceOverride(?string): ?string — resolves --workdir flag to absolute path"
+                "resolveWorkspaceOverride(?string): ?string — resolves --workdir flag to absolute path",
+                "getIdleNotifications(?NotificationStore, int): array — read-only idle fetch for unread informational notifications",
+                "getActionableSummary(?NotificationStore): array — sticky per-session actionable status counts for REPL rendering"
             ]
         },
         {
@@ -814,7 +818,7 @@
             "path": "src/Contract/CoquiDefaults.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\CoquiDefaults",
             "layer": "contract",
-            "description": "Centralized default values for Coqui configuration. Single source of truth for all default limits and thresholds (maxIterations, maxConcurrent, keepRecentTurns, autoSummarizeKeepRecent, autoSummarizeThreshold, context window fallbacks, editHistoryRetentionDays, maxRecursiveItems). All config fallbacks reference these constants instead of hardcoding values.",
+            "description": "Centralized default values for Coqui configuration. Single source of truth for all default limits and thresholds (maxIterations, maxConcurrent, keepRecentTurns, autoSummarizeKeepRecent, autoSummarizeThreshold, context window fallbacks, notification display/retention/automation timings, editHistoryRetentionDays, maxRecursiveItems). All config fallbacks reference these constants instead of hardcoding values.",
             "methods": []
         },
         {
@@ -1680,7 +1684,7 @@
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, and prompt-inspection surfaces, configures CORS (with PATCH support) and optional API key auth, and enters the ReactPHP event loop.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, and prompt-inspection surfaces, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers, and enters the ReactPHP event loop.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
                 "registerRoutes(Router, ...handlers): void — registers all API routes including evaluation, prompt, budget, and loop endpoints",
@@ -1691,14 +1695,14 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, session title management, and background task queries. child_runs and background_tasks include structured metadata columns for typed coordination and provenance. Idempotent migrations add turn_id FK columns, title column, and metadata columns.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, session title management, and background task queries. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title column, and metadata columns.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
                 "listSessions(int $limit): array — lists recent sessions (includes title)",
                 "getSession(string $id): ?array — retrieves session details (includes title)",
                 "updateSessionTitle(string $sessionId, string $title): void — updates session title",
-            "setActiveProject(string $sessionId, ?string $projectId): void — sets or clears the active project for a session",
-            "getActiveProjectId(string $sessionId): ?string — returns the active project ID for a session, or null",
+                "setActiveProject(string $sessionId, ?string $projectId): void — sets or clears the active project for a session",
+                "getActiveProjectId(string $sessionId): ?string — returns the active project ID for a session, or null",
                 "addMessage(string $sessionId, ..., ?string $turnId): string — persists a message with optional turn linkage",
                 "loadConversation(string $sessionId): Conversation — rebuilds full conversation history",
                 "logChildRun(...): string — logs a child agent execution",
@@ -1708,6 +1712,7 @@
                 "completeTurn(string $turnId, ...): void — updates turn with response, tokens, duration, tools used",
                 "getTurns(string $sessionId, int $limit): array — returns turns ordered by turn_number ASC",
                 "getTurnWithMessages(string $turnId): ?array — returns turn with nested messages",
+                "findTaskByAutomationNotificationId(string $notificationId, array $statuses = ['pending', 'running', 'completed']): ?array — finds the newest follow-up task spawned for a notification automation action",
                 "findRecentTaskByTitle(string $title, ?string $role, array $statuses, int $lookbackHours): ?array — finds the newest matching background task for dedupe/orchestration",
                 "getTasksByStatus(string $status): array — returns all tasks with a given status",
                 "purgeOldTaskEvents(int $maxAgeDays): int — deletes old events for terminal tasks, returns count"
@@ -2185,16 +2190,6 @@
             ]
         },
         {
-            "path": "src/Api/LoopManager.php",
-            "fqcn": "CoquiBot\\Coqui\\Api\\LoopManager",
-            "layer": "api",
-            "description": "Advances running loops by creating background tasks for each stage. Ticked every 5 seconds by a ReactPHP periodic timer. For each running loop, checks if the current stage needs a background task, creates one via SessionStorage, and links it to the stage record. A 3-second reconciliation timer checks running stages whose linked tasks have completed, calls LoopExecutor::completeStage() or failStage(), and evaluates the iteration to decide whether to continue or stop.",
-            "methods": [
-                "tick(): void — advance running loops by preparing next stages and spawning background tasks",
-                "reconcile(): void — check running stages for completed tasks and advance loop state"
-            ]
-        },
-        {
             "path": "src/Api/Handler/TaskHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\TaskHandler",
             "layer": "command",
@@ -2231,7 +2226,7 @@
             "path": "src/Command/TaskRunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\TaskRunCommand",
             "layer": "command",
-            "description": "Hidden Symfony Console command that executes a single background task in a child process. Boots the full agent stack, reads role and max_iterations from the task record, registers SIGTERM handler. Branches on tool_name presence: agent tasks use AgentRunner, tool tasks use BackgroundToolExecutor for direct execution without LLM. Updates task status on completion.",
+            "description": "Hidden Symfony Console command that executes a single background task in a child process. Boots the full agent stack, reads role and max_iterations from the task record, registers SIGTERM handler. Branches on tool_name presence: agent tasks use AgentRunner, tool tasks use BackgroundToolExecutor for direct execution without LLM. Updates task status on completion and publishes user-facing notifications, promoting failed task outcomes to actionable notifications that the API-side automation runner can claim for retry handling.",
             "methods": [
                 "execute(input, output): int — run task by ID with role/maxIterations from DB, exit 0=completed, 1=failed, 2=cancelled",
                 "executeToolTask(taskId, task, boot, storage, workDir, unsafeMode, output): int — direct tool execution path for background tool tasks"
@@ -2273,7 +2268,7 @@
             "path": "src/Config/OpenClawConfig.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\OpenClawConfig",
             "layer": "config",
-            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, utility model, provider config, and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
+            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, utility model, provider config, notification system settings (including automation lease/retry timers), and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
             "methods": [
                 "fromFile(string): self — load and parse openclaw.json file",
                 "fromArray(array): self — create from pre-parsed array",
@@ -2282,6 +2277,7 @@
                 "getPrimaryModel(): string — resolve primary model string",
                 "getFallbacks(): array — return ordered fallback model strings",
                 "getImageModel(): string — resolve image generation model",
+                "getNotificationConfig(): array — resolve notification display, retention, and automation settings with defaults",
                 "getUtilityModel(): string — resolve utility model from config or COQUI_UTILITY_MODEL env",
                 "resolveModel(string): string — resolve alias to full model string",
                 "getModelDefinition(string): ModelDefinition — build ModelDefinition for a model string"
@@ -2628,6 +2624,116 @@
                 "getEditsSince(string): array — edits since a timestamp (for REPL summary)",
                 "generateDiff(int): string — unified diff between backup and current file",
                 "prune(int): int — remove old entries and backup files"
+            ]
+        },
+        {
+            "path": "src/Storage/NotificationStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\NotificationStore",
+            "layer": "storage",
+            "description": "SQLite-backed notification persistence for transient informational and actionable notifications. Shares the main coqui.db PDO connection, performs idempotent schema migration for lease/retry columns, enforces unread fingerprint deduplication, and supports both user-facing notification reads and API-side actionable claim/reclaim workflows.",
+            "methods": [
+                "create(string $sessionId, string $kind, string $title, ?string $message = null, string $class = 'informational', string $priority = 'normal', ?string $fingerprint = null, ?string $sourceType = null, ?string $sourceId = null, ?array $metadata = null, ?string $expiresAt = null): ?string — create a notification unless an unread fingerprint duplicate blocks insertion",
+                "getUnreadInformational(string $sessionId, int $limit = 10): array — list unread informational notifications for a session",
+                "snapshotAndClear(string $sessionId, int $limit = 10): array — atomically read and mark unread informational notifications as read",
+                "countUnread(string $sessionId): int — count unread informational notifications",
+                "getPendingActionableGlobal(?array $kinds = null, int $limit = 10): array — list actionable notifications eligible for automation across all sessions",
+                "getOpenActionableSummary(string $sessionId): array — count pending and claimed actionable notifications for REPL status rendering",
+                "claim(string $id, string $claimedBy, int $leaseSeconds = 300): bool — acquire a lease on a pending actionable notification",
+                "completeClaim(string $id): void — mark a claimed actionable notification completed",
+                "retryClaim(string $id, string $lastError, int $retryDelaySeconds = 60): void — requeue a claimed actionable notification with backoff",
+                "failClaim(string $id, ?string $lastError = null): void — mark a claimed actionable notification permanently failed",
+                "reclaimExpiredClaims(int $maxAttempts = 3, int $retryDelaySeconds = 60): array — reclaim or fail expired actionable leases",
+                "prune(int $informationalRetentionHours = 24, int $actionableRetentionHours = 72): int — delete old read/terminal notifications by class-specific retention",
+                "getRecent(string $sessionId, int $limit = 20): array — list recent notifications regardless of class/state",
+                "get(string $id): ?array — fetch a notification by ID"
+            ]
+        },
+        {
+            "path": "src/Notification/NotificationPublisher.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\NotificationPublisher",
+            "layer": "agent",
+            "description": "Centralized notification publishing facade. Resolves the correct user-facing session from execution, parent, and work-scope session chains; routes informational versus actionable notifications into NotificationStore; and provides standard fingerprint helpers so producers can deduplicate task and loop events consistently.",
+            "methods": [
+                "publish(string $sessionId, string $kind, string $title, ?string $message = null, string $class = 'informational', string $priority = 'normal', ?string $fingerprint = null, ?string $sourceType = null, ?string $sourceId = null, ?array $metadata = null, ?string $expiresAt = null): ?string — publish a notification through NotificationStore",
+                "info(string $sessionId, string $kind, string $title, ?string $message = null, ?string $fingerprint = null, ?string $sourceType = null, ?string $sourceId = null, ?array $metadata = null, string $priority = 'normal'): ?string — convenience wrapper for informational notifications",
+                "actionable(string $sessionId, string $kind, string $title, ?string $message = null, ?string $fingerprint = null, ?string $sourceType = null, ?string $sourceId = null, ?array $metadata = null, string $priority = 'high'): ?string — convenience wrapper for actionable notifications",
+                "resolveTargetSession(string $sessionId, ?string $parentSessionId = null, ?string $workScopeSessionId = null): string — choose the user-visible session for a notification",
+                "taskFingerprint(string $taskId, string $outcome): string — build a standard task-event fingerprint",
+                "loopFingerprint(string $loopId, int $iterationNumber, ?int $stageIndex = null, ?string $outcome = null): string — build a standard loop-event fingerprint",
+                "existsByFingerprint(string $sessionId, string $fingerprint): bool — check whether a notification fingerprint already exists"
+            ]
+        },
+        {
+            "path": "src/Notification/NotificationAutomationHandlerInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\NotificationAutomationHandlerInterface",
+            "layer": "contract",
+            "description": "Contract for actionable notification handlers. Each handler owns one notification kind and returns a typed NotificationAutomationResult telling the runner whether to complete, retry, fail, or skip the claimed notification.",
+            "methods": [
+                "kind(): string — actionable notification kind this handler processes",
+                "handle(array $notification): NotificationAutomationResult — execute automation for a claimed notification"
+            ]
+        },
+        {
+            "path": "src/Notification/NotificationAutomationOutcome.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\NotificationAutomationOutcome",
+            "layer": "contract",
+            "description": "Backed enum defining the four actionable notification handler outcomes: completed, retry, failed, and skipped.",
+            "methods": []
+        },
+        {
+            "path": "src/Notification/NotificationAutomationResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\NotificationAutomationResult",
+            "layer": "contract",
+            "description": "Readonly result wrapper returned by actionable notification handlers. Carries a NotificationAutomationOutcome plus an optional human-readable message and optional retry delay override for the runner.",
+            "methods": [
+                "completed(?string $message = null): self — build a completed result",
+                "retry(string $message, ?int $retryDelaySeconds = null): self — build a retry result with optional delay override",
+                "failed(string $message): self — build a terminal failure result",
+                "skipped(?string $message = null): self — build a skipped result"
+            ]
+        },
+        {
+            "path": "src/Notification/NotificationAutomationRunner.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\NotificationAutomationRunner",
+            "layer": "agent",
+            "description": "API-only automation coordinator for actionable notifications. Pulls pending notifications from NotificationStore, claims them with leases, dispatches by notification kind to registered handlers, and records per-kind/process metrics for completions, retries, failures, reclaim activity, and skips.",
+            "methods": [
+                "tick(): void — claim and process a batch of actionable notifications",
+                "reclaim(): void — reclaim or fail expired claims based on retry policy",
+                "stats(): array — return cumulative runner counters and per-kind metrics"
+            ]
+        },
+        {
+            "path": "src/Notification/RetryBackgroundTaskAction.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\RetryBackgroundTaskAction",
+            "layer": "agent",
+            "description": "Actionable notification handler for task.failed events. Verifies that the original background task still exists and is failed, deduplicates follow-up work using automation.notification_id metadata, propagates the active project to the new execution session, and spawns a retry task in the user-facing parent session.",
+            "methods": [
+                "kind(): string — returns task.failed",
+                "handle(array $notification): NotificationAutomationResult — create a retry background task or return skipped/failed state"
+            ]
+        },
+        {
+            "path": "src/Notification/EscalateLoopFailureAction.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\EscalateLoopFailureAction",
+            "layer": "agent",
+            "description": "Actionable notification handler for loop.failed events. Verifies the loop is still failed, deduplicates by automation.notification_id metadata, creates a fresh orchestrator execution session, and queues an investigation task with the failed loop context back into the parent conversation session.",
+            "methods": [
+                "kind(): string — returns loop.failed",
+                "handle(array $notification): NotificationAutomationResult — create a follow-up loop investigation task or return skipped/failed state"
+            ]
+        },
+        {
+            "path": "src/Repl/NotificationPresenter.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\NotificationPresenter",
+            "layer": "command",
+            "description": "Pure formatting helper for notification-related REPL UI. Produces the idle stacked informational notification block, compact unread badge, sticky actionable automation summary line, post-turn acknowledgment copy, and plain-text prompt-section content used by AgentRunner.",
+            "methods": [
+                "formatIdleNotifications(array $notifications): array — render stacked idle notification lines for the REPL",
+                "formatBadge(int $unreadCount): string — render the compact unread prompt badge",
+                "formatActionableSummary(int $pendingCount, int $activeCount): string — render the sticky actionable automation summary line",
+                "formatTurnAcknowledgment(array $notifications): array — render post-turn acknowledgment copy",
+                "formatForPromptInjection(array $notifications): string — render plain-text notification context for the model prompt"
             ]
         }
     ],
