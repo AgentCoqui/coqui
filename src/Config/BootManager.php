@@ -15,6 +15,7 @@ use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
+use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
@@ -60,6 +61,7 @@ final class BootManager
     private ?LoopUpdateTracker $loopUpdateTracker = null;
     /** @var list<LoopUpdateInfo> */
     private array $pendingLoopUpdates = [];
+    private ?NotificationStore $notificationStore = null;
     private ?ToolUsageTracker $usageTracker = null;
     private ?ToolkitLoadingRegistry $loadingRegistry = null;
 
@@ -265,6 +267,11 @@ final class BootManager
     public function loadingRegistry(): ?ToolkitLoadingRegistry
     {
         return $this->loadingRegistry;
+    }
+
+    public function notificationStore(): ?NotificationStore
+    {
+        return $this->notificationStore;
     }
 
     private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
@@ -509,6 +516,7 @@ final class BootManager
         $this->todoStore = new TodoStore($pdo);
         $this->projectStore = new ProjectStore($pdo);
         $this->loopStore = new LoopStore($pdo);
+        $this->notificationStore = new NotificationStore($pdo);
         $this->usageTracker = new ToolUsageTracker($pdo);
         $this->loadingRegistry = new ToolkitLoadingRegistry($this->workspacePath);
 
@@ -517,6 +525,12 @@ final class BootManager
             $this->todoStore->cleanupOrphaned();
             $this->todoStore->cleanupStale();
             $this->todoStore->cleanupUnlinked();
+
+            $notifConfig = $this->config->getNotificationConfig();
+            $this->notificationStore->prune(
+                $notifConfig['retentionHours']['informational'],
+                $notifConfig['retentionHours']['actionable'],
+            );
         }
     }
 

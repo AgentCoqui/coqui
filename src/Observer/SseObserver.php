@@ -89,6 +89,8 @@ final class SseObserver implements SplObserver
 
             'agent.memory_extraction' => $this->writeEvent('memory_extraction', is_array($data) ? $data : []),
 
+            'agent.notification' => $this->writeEvent('notification', is_array($data) ? $data : []),
+
             'child.start' => $this->handleChildStart($data),
 
             'child.end' => $this->handleChildEnd(),
