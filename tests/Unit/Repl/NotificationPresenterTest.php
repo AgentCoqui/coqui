@@ -30,8 +30,9 @@ test('formats single notification for idle display', function () {
     // First and last lines are empty (spacing)
     expect($lines[0])->toBe('');
     expect($lines[count($lines) - 1])->toBe('');
-    // Badge line says "1 notification"
-    expect($lines[1])->toContain('1 notification');
+    // Header line
+    expect($lines[1])->toContain('Notifications');
+    expect($lines[1])->toContain('[1☀︎]:');
     // Notification line contains the title
     expect($lines[2])->toContain('Background task finished');
 });
@@ -45,7 +46,7 @@ test('formats multiple notifications with correct count', function () {
 
     $lines = $this->presenter->formatIdleNotifications($notifications);
 
-    expect($lines[1])->toContain('3 notifications');
+    expect($lines[1])->toContain('[3☀︎]:');
 });
 
 test('truncates long titles', function () {
@@ -62,19 +63,9 @@ test('truncates long titles', function () {
 
 // --- formatBadge ---
 
-test('returns empty badge for zero count', function () {
+test('badge always returns empty since count is in header', function () {
     expect($this->presenter->formatBadge(0))->toBe('');
-});
-
-test('formats badge with count and ANSI codes', function () {
-    $badge = $this->presenter->formatBadge(5);
-    expect($badge)->toContain('5');
-    // Uses ☀︎ glyph instead of emoji, with raw ANSI escape codes for readline
-    expect($badge)->toContain('☀︎');
-    // Must NOT contain Symfony Console tags (readline renders them as literal text)
-    expect($badge)->not->toContain('<fg=');
-    // Must contain raw ANSI escape for cyan (ESC[36m)
-    expect($badge)->toContain("\033[36m");
+    expect($this->presenter->formatBadge(5))->toBe('');
 });
 
 test('formats actionable summary with pending and active counts', function () {
@@ -133,7 +124,7 @@ test('formats prompt injection with header and items', function () {
     $output = $this->presenter->formatForPromptInjection($notifications);
 
     expect($output)->toContain('[PENDING NOTIFICATIONS]');
-    expect($output)->toContain('1. [task.completed] Background task done');
+    expect($output)->toContain('1. [completed] Background task done');
     expect($output)->toContain('All steps passed.');
     expect($output)->toContain('Time: 2025-01-15T10:00:00Z');
     expect($output)->toContain('background work');
@@ -191,14 +182,14 @@ test('high priority gets yellow indicator', function () {
 
 // --- Kind colorization ---
 
-test('completed task kinds get green color', function () {
+test('completed task kinds get green color on icon and title', function () {
     $notifications = [
         ['kind' => 'task.completed', 'title' => 'Done', 'priority' => 'normal', 'created_at' => ''],
     ];
 
     $lines = $this->presenter->formatIdleNotifications($notifications);
-    expect($lines[2])->toContain('<fg=green>');
-    expect($lines[2])->toContain('✔');
+    expect($lines[2])->toContain('<fg=green>✔</>');
+    expect($lines[2])->toContain('<fg=green>Done</>');
 });
 
 test('failed task kinds get red color', function () {
@@ -221,14 +212,13 @@ test('completed loop kinds get cyan color', function () {
     expect($lines[2])->toContain('✔');
 });
 
-test('stage completed kinds get blue color', function () {
+test('bracketed content in title renders as gray', function () {
     $notifications = [
-        ['kind' => 'loop.stage_completed', 'title' => 'Stage done', 'priority' => 'normal', 'created_at' => ''],
+        ['kind' => 'loop.stage_completed', 'title' => 'Stage completed: explorer [research]', 'priority' => 'normal', 'created_at' => ''],
     ];
 
     $lines = $this->presenter->formatIdleNotifications($notifications);
-    expect($lines[2])->toContain('<fg=blue>');
-    expect($lines[2])->toContain('⛮');
+    expect($lines[2])->toContain('<fg=gray>[research]</>');
 });
 
 test('cancelled kinds get yellow color', function () {
