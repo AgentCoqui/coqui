@@ -47,8 +47,8 @@ final class LoopExecutor
      * Accepts a raw definition array so template parameters can be substituted into ALL fields
      * (including termination conditions) before parsing into typed value objects.
      *
-     * @param array<string, mixed>  $rawDefinition Raw decoded JSON from the loop definition file
-     * @param array<string, string> $parameters    Template parameter values for {{variable}} substitution
+     * @param array<string, mixed>  $rawDefinition        Raw decoded JSON from the loop definition file
+     * @param array<string, string> $parameters           Template parameter values for {{variable}} substitution
      * @return string Loop ID
      */
     public function startLoop(
@@ -59,6 +59,7 @@ final class LoopExecutor
         ?string $projectId = null,
         ?string $projectSlug = null,
         ?string $sprintId = null,
+        ?int $maxIterationsOverride = null,
     ): string {
         // Extract declared parameters from the raw definition
         $declaredParams = [];
@@ -115,8 +116,13 @@ final class LoopExecutor
             $configuration['resolved_parameters'] = $resolvedParameters;
         }
 
+        if ($maxIterationsOverride !== null && $maxIterationsOverride < 1) {
+            throw new \InvalidArgumentException('max_iterations must be greater than 0');
+        }
+
         // Determine termination parameters
-        $maxIterations = match ($definition->terminationCondition->type) {
+        /** @var int|null $maxIterations */
+        $maxIterations = $maxIterationsOverride ?? match ($definition->terminationCondition->type) {
             TerminationType::IterationBound,
             TerminationType::GoalBound,
             TerminationType::ToolBound => $definition->terminationCondition->maxIterations,
@@ -414,15 +420,19 @@ final class LoopExecutor
 
         $iterationNumber = (int) $iteration['iteration_number'];
 
-        // Evaluate based on termination type
-        $outcome = match ($definition->terminationCondition->type) {
-            TerminationType::EvaluationBound => $this->evaluateEvaluationBound($stages, $iterationNumber, $loop),
-            TerminationType::IterationBound => $this->evaluateIterationBound($iterationNumber, $loop),
-            TerminationType::TimeBound => $this->evaluateTimeBound($loop),
-            TerminationType::GoalBound => $this->evaluateGoalBound($definition, $stages, $iterationNumber, $loop),
-            TerminationType::ToolBound => $this->evaluateToolBound($definition, $iterationNumber, $loop),
-            TerminationType::Manual => IterationOutcome::Continue,
-        };
+        if ($this->hasReachedIterationLimit($loop, $iterationNumber)) {
+            $outcome = IterationOutcome::LimitReached;
+        } else {
+            // Evaluate based on termination type
+            $outcome = match ($definition->terminationCondition->type) {
+                TerminationType::EvaluationBound => $this->evaluateEvaluationBound($stages, $iterationNumber, $loop),
+                TerminationType::IterationBound => $this->evaluateIterationBound($iterationNumber, $loop),
+                TerminationType::TimeBound => $this->evaluateTimeBound($loop),
+                TerminationType::GoalBound => $this->evaluateGoalBound($definition, $stages, $iterationNumber, $loop),
+                TerminationType::ToolBound => $this->evaluateToolBound($definition, $iterationNumber, $loop),
+                TerminationType::Manual => IterationOutcome::Continue,
+            };
+        }
 
         // Update iteration status based on outcome
         $iterationStatus = match ($outcome) {
@@ -638,12 +648,6 @@ final class LoopExecutor
      */
     private function evaluateEvaluationBound(array $stages, int $iterationNumber, array $loop): IterationOutcome
     {
-        // Check iteration limit for evaluation_bound (max_review_rounds)
-        $maxIterations = $loop['max_iterations'] !== null ? (int) $loop['max_iterations'] : null;
-        if ($maxIterations !== null && $iterationNumber >= $maxIterations) {
-            return IterationOutcome::LimitReached;
-        }
-
         // The last stage is the evaluator — check its output for approval
         $lastStage = end($stages);
         if ($lastStage === false || $lastStage['result_summary'] === null) {
@@ -723,12 +727,6 @@ final class LoopExecutor
         int $iterationNumber,
         array $loop,
     ): IterationOutcome {
-        // Check iteration limit first
-        $maxIterations = $loop['max_iterations'] !== null ? (int) $loop['max_iterations'] : null;
-        if ($maxIterations !== null && $iterationNumber >= $maxIterations) {
-            return IterationOutcome::LimitReached;
-        }
-
         // If no evaluator available, act as manual (continue indefinitely)
         if ($this->goalEvaluator === null) {
             return IterationOutcome::Continue;
@@ -766,12 +764,6 @@ final class LoopExecutor
         int $iterationNumber,
         array $loop,
     ): IterationOutcome {
-        // Check iteration limit first
-        $maxIterations = $loop['max_iterations'] !== null ? (int) $loop['max_iterations'] : null;
-        if ($maxIterations !== null && $iterationNumber >= $maxIterations) {
-            return IterationOutcome::LimitReached;
-        }
-
         // If no evaluator available, act as manual
         if ($this->toolBoundEvaluator === null) {
             return IterationOutcome::Continue;
@@ -792,6 +784,16 @@ final class LoopExecutor
         return $result->met
             ? IterationOutcome::Complete
             : IterationOutcome::Continue;
+    }
+
+    /**
+     * @param array<string, mixed> $loop
+     */
+    private function hasReachedIterationLimit(array $loop, int $iterationNumber): bool
+    {
+        $maxIterations = $loop['max_iterations'] !== null ? (int) $loop['max_iterations'] : null;
+
+        return $maxIterations !== null && $iterationNumber >= $maxIterations;
     }
 
     // ──────────────────────────────────────────────

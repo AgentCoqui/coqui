@@ -84,7 +84,7 @@ dev: ## Start REPL + API in dev mode
 test: ## Run Pest test suite
 	@composer test $(ARGS)
 
-test-coverage: ## Run Pest with coverage reporting
+test-coverage: ## Run coverage via the repository Pest wrapper
 	@composer test:coverage $(ARGS)
 
 analyse: ## Run PHPStan static analysis

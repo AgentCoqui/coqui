@@ -5,6 +5,21 @@ declare(strict_types=1);
 
 $projectRoot = dirname(__DIR__);
 $pestBinary = $projectRoot . '/vendor/bin/pest';
+$coverageMemoryLimit = getenv('COQUI_TEST_COVERAGE_MEMORY_LIMIT');
+$coverageDriver = getenv('COQUI_TEST_COVERAGE_DRIVER');
+
+if ($coverageMemoryLimit === false || $coverageMemoryLimit === '') {
+    $coverageMemoryLimit = '512M';
+}
+
+if ($coverageDriver === false || $coverageDriver === '') {
+    $coverageDriver = 'auto';
+}
+
+if (!in_array($coverageDriver, ['auto', 'pcov', 'xdebug'], true)) {
+    fwrite(STDERR, "Coverage runner error: COQUI_TEST_COVERAGE_DRIVER must be one of auto, pcov, or xdebug.\n");
+    exit(1);
+}
 
 if (!file_exists($pestBinary)) {
     fwrite(STDERR, "Coverage runner error: vendor/bin/pest not found. Run composer install first.\n");
@@ -43,18 +58,27 @@ while ($arguments !== []) {
     $coverageArgs[] = $argument;
 }
 
-$environment = $_ENV;
+$environment = null;
 $command = [PHP_BINARY];
 
-if (extension_loaded('pcov')) {
+$command[] = '-d';
+$command[] = 'memory_limit=' . $coverageMemoryLimit;
+
+if (($coverageDriver === 'auto' || $coverageDriver === 'pcov') && extension_loaded('pcov')) {
     $command[] = '-d';
     $command[] = 'pcov.enabled=1';
     $command[] = '-d';
     $command[] = 'pcov.directory=' . $projectRoot . '/src';
-} elseif (extension_loaded('xdebug')) {
-    $environment['XDEBUG_MODE'] = 'coverage';
+} elseif (($coverageDriver === 'auto' || $coverageDriver === 'xdebug') && extension_loaded('xdebug')) {
+    putenv('XDEBUG_MODE=coverage');
+} elseif ($coverageDriver === 'pcov') {
+    fwrite(STDERR, "Coverage runner error: COQUI_TEST_COVERAGE_DRIVER=pcov was requested, but the pcov extension is not loaded.\n");
+    exit(1);
+} elseif ($coverageDriver === 'xdebug') {
+    fwrite(STDERR, "Coverage runner error: COQUI_TEST_COVERAGE_DRIVER=xdebug was requested, but the xdebug extension is not loaded.\n");
+    exit(1);
 } else {
-    fwrite(STDERR, "Coverage runner error: install PCOV or Xdebug to collect coverage.\n");
+    fwrite(STDERR, "Coverage runner error: install PCOV or Xdebug to collect coverage, or run plain composer test without coverage.\n");
     exit(1);
 }
 

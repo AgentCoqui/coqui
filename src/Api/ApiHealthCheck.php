@@ -51,12 +51,10 @@ final class ApiHealthCheck
 
         // Check HTTP status from response headers
         $status = 0;
-        if (isset($http_response_header) && is_array($http_response_header)) {
-            foreach ($http_response_header as $header) {
-                if (preg_match('/^HTTP\/[\d.]+ (\d{3})/', $header, $matches)) {
-                    $status = (int) $matches[1];
-                    break;
-                }
+        foreach ($http_response_header as $header) {
+            if (preg_match('/^HTTP\/[\d.]+ (\d{3})/', $header, $matches)) {
+                $status = (int) $matches[1];
+                break;
             }
         }
 

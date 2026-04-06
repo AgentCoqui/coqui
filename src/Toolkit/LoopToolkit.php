@@ -28,6 +28,7 @@ final readonly class LoopToolkit implements ToolkitInterface
         private LoopDiscovery $loopDiscovery,
         private ?LoopExecutor $executor = null,
         private ?string $sessionId = null,
+        private ?\Closure $healthCheck = null,
     ) {}
 
     public function tools(): array
@@ -158,15 +159,23 @@ final readonly class LoopToolkit implements ToolkitInterface
                     $parameters = array_map('strval', $decoded);
                 }
 
-                // Verify API server is reachable before creating the loop —
-                // loops depend on LoopManager (API) to advance stages via background tasks.
-                $health = ApiHealthCheck::check();
-                if (!$health['ok']) {
-                    return ToolResult::error($health['error']);
+                $maxIterations = null;
+                if (isset($input['max_iterations']) && $input['max_iterations'] !== '') {
+                    $maxIterations = (int) $input['max_iterations'];
+                    if ($maxIterations < 1) {
+                        return ToolResult::error('The "max_iterations" field must be greater than 0');
+                    }
                 }
 
                 // Use LoopExecutor to actually start the loop when available
                 if ($this->executor !== null) {
+                    // Verify API server is reachable before creating the loop —
+                    // loops depend on LoopManager (API) to advance stages via background tasks.
+                    $health = ($this->healthCheck ?? static fn(): array => ApiHealthCheck::check())();
+                    if (!$health['ok']) {
+                        return ToolResult::error($health['error'] ?? 'Cannot reach the API server required for loop execution.');
+                    }
+
                     try {
                         // Resolve project input
                         $projectId = isset($input['project_id']) && $input['project_id'] !== ''
@@ -191,6 +200,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                             projectId: $projectId,
                             projectSlug: $projectSlug,
                             sprintId: $sprintId,
+                            maxIterationsOverride: $maxIterations,
                         );
 
                         // Parse the definition for display (doesn't need substitution for metadata)
@@ -200,6 +210,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                             'loop_id' => $loopId,
                             'definition' => $defName,
                             'goal' => $goal,
+                            'max_iterations' => $maxIterations,
                             'parameters' => $parameters !== [] ? $parameters : null,
                             'roles' => array_map(fn($r) => $r->role, $definition->roles),
                             'termination' => $definition->terminationCondition->type->value,
@@ -216,7 +227,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                     'action' => 'start_loop',
                     'definition' => $defName,
                     'goal' => $goal,
-                    'max_iterations' => $input['max_iterations'] ?? null,
+                    'max_iterations' => $maxIterations,
                     'roles' => array_map(fn($r) => $r->role, $definition->roles),
                     'termination' => $definition->terminationCondition->type->value,
                     'message' => "Loop \"{$defName}\" is ready to start. Stages will execute as background tasks via the API server.",

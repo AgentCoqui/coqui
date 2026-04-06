@@ -24,9 +24,12 @@ use PDO;
 final class SessionStorage
 {
     private PDO $db;
+    private ?\Closure $expectedCoquiProcessChecker;
 
-    public function __construct(string $dbPath)
+    public function __construct(string $dbPath, ?\Closure $expectedCoquiProcessChecker = null)
     {
+        $this->expectedCoquiProcessChecker = $expectedCoquiProcessChecker;
+
         $dir = dirname($dbPath);
         if ($dir !== '' && $dir !== '.' && !is_dir($dir)) {
             mkdir($dir, 0755, true);
@@ -1891,6 +1894,10 @@ final class SessionStorage
 
     private function isExpectedCoquiProcessAlive(int $pid, string $subcommand): bool
     {
+        if ($this->expectedCoquiProcessChecker !== null) {
+            return (bool) ($this->expectedCoquiProcessChecker)($pid, $subcommand);
+        }
+
         if ($pid <= 0 || !function_exists('posix_kill') || !posix_kill($pid, 0)) {
             return false;
         }

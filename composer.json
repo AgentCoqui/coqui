@@ -62,7 +62,6 @@
   "scripts": {
     "test": "pest",
     "test:coverage": "@php scripts/test-coverage.php",
-    "test:coverage:ci": "@php scripts/test-coverage.php --clover build/coverage/clover.xml",
     "test-bash": "bash tests/bash/launcher-sigint-test.sh",
     "lint-bash": "shellcheck bin/coqui-launcher tests/bash/launcher-sigint-test.sh scripts/build.sh scripts/ci-test.sh scripts/sync-workspace-toolkits.sh",
     "analyse": "phpstan analyse --memory-limit=512M"

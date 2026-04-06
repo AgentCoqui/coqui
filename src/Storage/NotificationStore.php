@@ -161,7 +161,7 @@ final class NotificationStore
             ':limit' => $limit,
         ]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -330,7 +330,7 @@ final class NotificationStore
 
         $stmt->execute($params);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -469,7 +469,7 @@ final class NotificationStore
             ':limit' => $limit,
         ]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**

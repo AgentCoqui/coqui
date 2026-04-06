@@ -41,6 +41,19 @@ composer test-bash
 make test-launcher
 ```
 
+## Developer Policy
+
+During active development, the default local gate is:
+
+```bash
+composer test
+composer analyse
+```
+
+Local coverage is optional and should be run on demand when you need coverage data or when you are working on the coverage workflow itself. CI coverage is still required: the GitHub Actions coverage lane must continue to pass and produce `build/coverage/clover.xml`.
+
+This keeps local iteration fast during large refactors while preserving a real end-to-end coverage check in CI.
+
 ## Coverage Commands
 
 Coverage is opt-in locally and reporting-only in CI right now.
@@ -56,10 +69,21 @@ make test-coverage
 
 Use `composer test:coverage` when you want the repository wrapper to auto-enable a coverage driver when possible. Use `composer test -- --coverage` when your PHP process is already configured for coverage.
 
-CI uses:
+The wrapper also supports two environment overrides:
 
 ```bash
-composer test:coverage:ci
+COQUI_TEST_COVERAGE_MEMORY_LIMIT=768M composer test:coverage
+COQUI_TEST_COVERAGE_DRIVER=pcov composer test:coverage
+COQUI_TEST_COVERAGE_DRIVER=xdebug composer test:coverage
+```
+
+- `COQUI_TEST_COVERAGE_MEMORY_LIMIT` defaults to `512M` for coverage runs.
+- `COQUI_TEST_COVERAGE_DRIVER` defaults to `auto`, which prefers `pcov` and falls back to `xdebug`.
+
+The coverage lane uses the same wrapper command shape with a Clover output path:
+
+```bash
+composer test:coverage -- --clover build/coverage/clover.xml
 ```
 
 That command writes Clover XML to `build/coverage/clover.xml`.
@@ -128,6 +152,20 @@ php -v
 
 Then install a coverage driver with PECL.
 
+For Apple Silicon Homebrew PHP, the most reliable setup is:
+
+```bash
+mkdir -p /opt/homebrew/lib/php/pecl/20240924
+printf '\n' | pecl install -f xdebug
+CPPFLAGS='-I/opt/homebrew/opt/pcre2/include' \
+CFLAGS='-I/opt/homebrew/opt/pcre2/include' \
+CPATH='/opt/homebrew/opt/pcre2/include' \
+printf '\n' | pecl install -f pcov
+php -m | grep -Ei '^(pcov|xdebug)$'
+```
+
+If both are installed, leave `composer test` as your default day-to-day command and use `composer test:coverage` only when you actually need coverage data.
+
 Install PCOV:
 
 ```bash
@@ -195,6 +233,8 @@ If `composer test:coverage` fails with a coverage-driver error:
 - Install PCOV or Xdebug for the active PHP CLI.
 - Re-run `php -m | grep -Ei '^(pcov|xdebug)$'`.
 - Re-run `php --ini` and confirm the extension is loaded from the CLI config, not just FPM or Apache.
+- If you need to force one driver while debugging the environment, run `COQUI_TEST_COVERAGE_DRIVER=pcov composer test:coverage` or `COQUI_TEST_COVERAGE_DRIVER=xdebug composer test:coverage`.
+- If the coverage run needs more headroom, run `COQUI_TEST_COVERAGE_MEMORY_LIMIT=768M composer test:coverage`.
 
 If `composer test -- --coverage` fails while Xdebug is installed:
 
