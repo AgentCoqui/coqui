@@ -117,7 +117,16 @@ final class ConversationSummarizer
         $rawMessages = $this->storage->getMessages($sessionId);
         $conversation = $this->storage->loadConversation($sessionId);
 
-        // Extract memories before summarization marks older messages
+        $result = $this->summarize($conversation, $provider, $keepRecentTurns, $focus, $workflowContext);
+
+        if ($result->messagesSummarized === 0) {
+            return $result;
+        }
+
+        // Extract memories from the messages being summarized — these are about to
+        // be compressed, so this is the last chance to capture noteworthy facts.
+        // Only runs when summarization actually compressed messages (avoids wasteful
+        // extraction on every turn that crosses the token threshold).
         if ($this->memoryStore !== null) {
             try {
                 $extractor = new MemoryExtractor($this->memoryStore);
@@ -127,14 +136,8 @@ final class ConversationSummarizer
                     $onExtraction($saved, 'summarization');
                 }
             } catch (\Throwable) {
-                // Extraction failure should never block summarization
+                // Extraction failure should never block summarization persistence
             }
-        }
-
-        $result = $this->summarize($conversation, $provider, $keepRecentTurns, $focus, $workflowContext);
-
-        if ($result->messagesSummarized === 0) {
-            return $result;
         }
 
         // Mark summarized messages as soft-deleted in the database.

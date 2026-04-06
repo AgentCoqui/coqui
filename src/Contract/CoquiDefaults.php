@@ -27,7 +27,7 @@ final class CoquiDefaults
     public const int KEEP_RECENT_TURNS = 24;
 
     /** Default recent turns preserved during auto-summarization (config: agents.defaults.context.autoSummarizeKeepRecent). */
-    public const int AUTO_SUMMARIZE_KEEP_RECENT = 32;
+    public const int AUTO_SUMMARIZE_KEEP_RECENT = 15;
 
     /** Token usage percentage threshold that triggers auto-summarization (config: agents.defaults.context.autoSummarizeThreshold). */
     public const float AUTO_SUMMARIZE_THRESHOLD = 64.0;

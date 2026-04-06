@@ -253,12 +253,16 @@ final class AgentRunner
             // Auto-summarize when conversation history is nearing the context limit.
             // This preserves important context via LLM summarization instead of
             // silently dropping oldest turns via fitWithinBudget().
+            if ($history->count() > 0) {
+                $agent->notify('agent.status', ['label' => 'Checking context budget']);
+            }
             $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer);
 
             // Snapshot unread informational notifications and pass them into the
             // turn as a dedicated prompt section. This keeps notification context
             // visible to the model without polluting conversation history.
             if ($this->notificationStore !== null && $workScopeSessionId === null) {
+                $agent->notify('agent.status', ['label' => 'Processing notifications']);
                 $notificationPromptSection = $this->snapshotNotificationPromptSection(
                     $sessionId,
                     $agent,
@@ -338,12 +342,10 @@ final class AgentRunner
                     $utilityModel = $this->roleResolver->resolveUtility();
                     if ($utilityModel !== '') {
                         $utilityProvider = $factory->create($utilityModel);
-                        $summarizer->summarizeAndPersist(
+                        $pruneResult = $summarizer->summarizeAndPersist(
                             sessionId: $sessionId,
                             provider: $utilityProvider,
-                            keepRecentTurns: $pruningStrategy->sessionId() !== null
-                                ? CoquiDefaults::KEEP_RECENT_TURNS
-                                : CoquiDefaults::KEEP_RECENT_TURNS,
+                            keepRecentTurns: CoquiDefaults::KEEP_RECENT_TURNS,
                             workflowContext: $this->buildWorkflowContext($sessionId),
                             onExtraction: function (int $saved, string $source) use ($agent): void {
                                 $agent->notify('agent.memory_extraction', [
@@ -353,6 +355,16 @@ final class AgentRunner
                                 ]);
                             },
                         );
+
+                        if ($pruneResult->wasSummarized()) {
+                            $agent->notify('agent.summary', [
+                                'messages_summarized' => $pruneResult->messagesSummarized,
+                                'tokens_before' => $pruneResult->tokensBefore,
+                                'tokens_after' => $pruneResult->tokensAfter,
+                                'tokens_saved' => $pruneResult->tokensSaved(),
+                                'auto' => true,
+                            ]);
+                        }
                     }
                 } catch (\Throwable) {
                     // Deferred persistence failure is non-fatal
@@ -1037,7 +1049,20 @@ final class AgentRunner
                 $historyTokens = $history->estimateTokens();
                 $systemPromptTokens = (int) (strlen($agent->getSystemPromptText()) / 4);
                 $userPromptTokens = (int) (strlen($prompt) / 4);
-                $estimatedTokens = (int) (($historyTokens + $systemPromptTokens + $userPromptTokens) * 1.15);
+
+                // Estimate pending notification tokens — notifications are injected
+                // after this check but still consume context window budget.
+                $notificationTokenEstimate = 0;
+                if ($this->notificationStore !== null) {
+                    try {
+                        $pendingCount = $this->notificationStore->countUnread($sessionId);
+                        $notificationTokenEstimate = $pendingCount * 40;
+                    } catch (\Throwable) {
+                        // Non-critical — skip if store errors
+                    }
+                }
+
+                $estimatedTokens = (int) (($historyTokens + $systemPromptTokens + $userPromptTokens + $notificationTokenEstimate) * 1.15);
 
                 $maxTokens = $contextWindow->maxTokens();
                 $reserved = $contextWindow->reservedTokens();

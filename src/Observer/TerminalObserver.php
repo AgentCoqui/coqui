@@ -78,7 +78,8 @@ final class TerminalObserver implements SplObserver
         // Clear the in-place status line before writing any new output.
         // Text streaming and reasoning are excluded — they write inline
         // and the status line is already cleared before their first chunk.
-        if (!in_array($event, ['agent.text_delta', 'agent.reasoning'], true)) {
+        // Status updates drive the spinner directly without clearing first.
+        if (!in_array($event, ['agent.text_delta', 'agent.reasoning', 'agent.status'], true)) {
             $this->clearStatusLine();
         }
 
@@ -123,6 +124,8 @@ final class TerminalObserver implements SplObserver
             'agent.memory_extraction' => $this->handleMemoryExtraction($data, $indent),
 
             'agent.notification' => $this->handleNotification($data, $indent),
+
+            'agent.status' => $this->handleStatus($data),
 
             'child.start' => $this->handleChildStart($data, $indent),
 
@@ -337,6 +340,7 @@ final class TerminalObserver implements SplObserver
         $this->output->writeln(
             "{$indent}<fg=yellow>❇ Conversation summarized{$auto}: {$count} messages compressed, {$saved} tokens saved</>",
         );
+        $this->showStatusLine();
     }
 
     private function handleMemoryExtraction(mixed $data, string $indent): void
@@ -355,6 +359,7 @@ final class TerminalObserver implements SplObserver
         $this->output->writeln(
             "{$indent}<fg=yellow>✱ Memory extraction ({$source}): {$count} " . ($count === 1 ? 'memory' : 'memories') . ' saved</>',
         );
+        $this->showStatusLine();
     }
 
     private function handleNotification(mixed $data, string $indent): void
@@ -372,8 +377,19 @@ final class TerminalObserver implements SplObserver
 
         $label = $count === 1 ? 'notification' : 'notifications';
         $this->output->writeln(
-            "{$indent}<fg=cyan>☀︎ {$count} {$label} injected ({$source})</>",
+            "{$indent}<fg=yellow>☀︎ {$count} {$label} injected ({$source})</>",
         );
+        $this->showStatusLine();
+    }
+
+    private function handleStatus(mixed $data): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $label = (string) ($data['label'] ?? '');
+        $this->showStatusLine($label);
     }
 
     /**
