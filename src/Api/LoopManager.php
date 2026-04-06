@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api;
 
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Contract\IterationOutcome;
+use CoquiBot\Coqui\Notification\NotificationPublisher;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -38,6 +39,7 @@ final class LoopManager
         private readonly LoopStore $loopStore,
         private readonly LoopExecutor $executor,
         private readonly ArtifactStore $artifactStore,
+        private readonly ?NotificationPublisher $publisher = null,
     ) {}
 
     /**
@@ -214,11 +216,28 @@ final class LoopManager
                     taskId: $taskId,
                     artifactId: $artifactId,
                 );
+
+                $this->publishLoopNotification(
+                    loopId: $loopId,
+                    iterationNumber: (int) ($state['iteration']['iteration_number'] ?? 0),
+                    stageIndex: (int) ($stage['stage_index'] ?? 0),
+                    outcome: 'stage_completed',
+                    title: sprintf('Stage completed: %s', $stage['role'] ?? 'unknown'),
+                );
             } elseif ($taskStatus === 'failed' || $taskStatus === 'cancelled') {
                 $error = $task['error'] ?? 'Task ' . $taskStatus;
                 $this->executor->failStage(
                     stageId: (string) $stage['id'],
                     error: (string) $error,
+                );
+
+                $this->publishLoopNotification(
+                    loopId: $loopId,
+                    iterationNumber: (int) ($state['iteration']['iteration_number'] ?? 0),
+                    stageIndex: (int) ($stage['stage_index'] ?? 0),
+                    outcome: 'stage_failed',
+                    title: sprintf('Stage failed: %s', $stage['role'] ?? 'unknown'),
+                    detail: mb_substr((string) $error, 0, 200),
                 );
             } else {
                 // Still running or pending — skip
@@ -253,6 +272,19 @@ final class LoopManager
             if ($loop !== null && $loop['status'] === 'running') {
                 $this->loopStore->updateLoopStatus($loopId, 'failed');
             }
+            $this->publishLoopNotification(
+                loopId: $loopId,
+                outcome: 'failed',
+                title: 'Loop failed',
+                priority: 'high',
+            );
+        } elseif ($outcome === IterationOutcome::Complete || $outcome === IterationOutcome::LimitReached) {
+            $label = $outcome === IterationOutcome::Complete ? 'Loop completed' : 'Loop completed (iteration limit reached)';
+            $this->publishLoopNotification(
+                loopId: $loopId,
+                outcome: 'completed',
+                title: $label,
+            );
         }
     }
 
@@ -263,6 +295,13 @@ final class LoopManager
     {
         try {
             $this->loopStore->updateLoopStatus($loopId, 'failed');
+            $this->publishLoopNotification(
+                loopId: $loopId,
+                outcome: 'failed',
+                title: sprintf('Loop failed during %s', $phase),
+                detail: mb_substr($e->getMessage(), 0, 200),
+                priority: 'high',
+            );
             error_log(sprintf(
                 '[LoopManager] Loop %s failed during %s: %s in %s:%d',
                 $loopId,
@@ -360,5 +399,65 @@ final class LoopManager
         }
 
         return $lastAssistant !== '' ? $lastAssistant : ($task['result'] ?? '(no output)');
+    }
+
+    /**
+     * Publish a loop lifecycle notification to the parent session.
+     *
+     * Uses fingerprint deduplication via loopFingerprint().
+     * Failures are silently swallowed — notifications must never break loop execution.
+     */
+    private function publishLoopNotification(
+        string $loopId,
+        ?int $iterationNumber = null,
+        ?int $stageIndex = null,
+        string $outcome = '',
+        string $title = '',
+        ?string $detail = null,
+        string $priority = 'normal',
+    ): void {
+        if ($this->publisher === null) {
+            return;
+        }
+
+        try {
+            $loop = $this->loopStore->getLoop($loopId);
+            if ($loop === null) {
+                return;
+            }
+
+            $targetSession = NotificationPublisher::resolveTargetSession(
+                sessionId: (string) ($loop['session_id'] ?? ''),
+            );
+
+            $loopName = $loop['name'] ?? '';
+            $notifTitle = $loopName !== '' ? "{$title} [{$loopName}]" : $title;
+
+            $fingerprint = NotificationPublisher::loopFingerprint(
+                loopId: $loopId,
+                iterationNumber: $iterationNumber ?? 0,
+                stageIndex: $stageIndex,
+                outcome: $outcome !== '' ? $outcome : null,
+            );
+
+            $kind = match (true) {
+                str_starts_with($outcome, 'stage_') => "loop.{$outcome}",
+                default => "loop.{$outcome}",
+            };
+
+            $this->publisher->publish(
+                sessionId: $targetSession,
+                kind: $kind,
+                title: $notifTitle,
+                message: $detail,
+                class: 'informational',
+                priority: $priority,
+                fingerprint: $fingerprint,
+                sourceType: 'loop',
+                sourceId: $loopId,
+            );
+        } catch (\Throwable) {
+            // Never break loop execution for notification failures
+        }
     }
 }
