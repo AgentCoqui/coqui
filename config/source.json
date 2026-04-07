@@ -80,6 +80,15 @@
             ]
         },
         {
+            "path": "src/Agent/CompositePendingInputProvider.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\CompositePendingInputProvider",
+            "layer": "agent",
+            "description": "Composes multiple PendingInputProviderInterface implementations into a single provider. consumePendingInputs() merges results from all inner providers in registration order. Used to combine BudgetExitObserver with API-mode PendingInputProvider so both can inject messages into the agent loop.",
+            "methods": [
+                "consumePendingInputs(): array — returns merged pending messages from all composed providers"
+            ]
+        },
+        {
             "path": "src/Agent/QualityAutomationCoordinator.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\QualityAutomationCoordinator",
             "layer": "agent",
@@ -1241,6 +1250,16 @@
             "layer": "config",
             "description": "Domain exception thrown when a skill name cannot be resolved. Includes the requested name in the message.",
             "methods": []
+        },
+        {
+            "path": "src/Observer/BudgetExitObserver.php",
+            "fqcn": "CoquiBot\\Coqui\\Observer\\BudgetExitObserver",
+            "layer": "observer",
+            "description": "Implements both SplObserver and PendingInputProviderInterface. Listens for agent.budget_warning events and queues a workflow-aware wrap-up instruction as a UserMessage. The instruction includes current context budget usage, remaining wrap-up iterations, and workflow context (todos, artifacts, sprints) from an optional closure. CompositePendingInputProvider consumes the queued message on the next agent iteration.",
+            "methods": [
+                "update(SplSubject $subject): void — listens for agent.budget_warning and queues wrap-up instruction",
+                "consumePendingInputs(): array — returns and clears queued wrap-up messages"
+            ]
         },
         {
             "path": "src/Observer/TerminalObserver.php",

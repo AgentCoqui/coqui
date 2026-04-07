@@ -47,6 +47,12 @@ final class CoquiDefaults
     /** Safety margin percentage applied by fitWithinBudget to account for token estimation inaccuracy (config: agents.defaults.context.budgetSafetyMarginPercent). */
     public const int BUDGET_SAFETY_MARGIN_PERCENT = 20;
 
+    /** Context window usage threshold (0.0–1.0) that triggers budget-based exit with wrap-up (config: agents.defaults.context.budgetExitThreshold). 0.0 = disabled. */
+    public const float BUDGET_EXIT_THRESHOLD = 0.85;
+
+    /** Number of iterations allowed after budget threshold for the agent to wrap up (config: agents.defaults.context.budgetExitWrapUpIterations). */
+    public const int BUDGET_EXIT_WRAP_UP_ITERATIONS = 2;
+
     /** Whether automated code review is enabled globally (config: agents.defaults.codeReview.enabled). */
     public const bool CODE_REVIEW_ENABLED = true;
 

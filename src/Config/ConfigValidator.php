@@ -38,6 +38,7 @@ final class ConfigValidator
         $errors = [...$errors, ...$this->validateQuality($data)];
         $errors = [...$errors, ...$this->validateApi($data)];
         $errors = [...$errors, ...$this->validateEditHistory($data)];
+        $errors = [...$errors, ...$this->validateContext($data)];
 
         return $errors;
     }
@@ -516,7 +517,6 @@ final class ConfigValidator
     }
 
     /**
-    /**
      * @param array<string, mixed> $data
      * @return string[]
      */
@@ -537,6 +537,82 @@ final class ConfigValidator
         if (isset($editHistory['retentionDays'])) {
             if (!is_int($editHistory['retentionDays']) || $editHistory['retentionDays'] < 1) {
                 $errors[] = 'agents.defaults.editHistory.retentionDays must be a positive integer';
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
+    private function validateContext(array $data): array
+    {
+        $context = $data['agents']['defaults']['context'] ?? null;
+        if ($context === null) {
+            return [];
+        }
+
+        if (!is_array($context)) {
+            return ['agents.defaults.context must be an object'];
+        }
+
+        $errors = [];
+
+        if (isset($context['budgetExitThreshold'])) {
+            $threshold = $context['budgetExitThreshold'];
+            if ((!is_int($threshold) && !is_float($threshold)) || $threshold < 0.0 || $threshold > 1.0) {
+                $errors[] = 'agents.defaults.context.budgetExitThreshold must be a number between 0.0 and 1.0';
+            }
+        }
+
+        if (isset($context['budgetExitWrapUpIterations'])) {
+            $iterations = $context['budgetExitWrapUpIterations'];
+            if (!is_int($iterations) || $iterations < 1) {
+                $errors[] = 'agents.defaults.context.budgetExitWrapUpIterations must be a positive integer';
+            }
+        }
+
+        if (isset($context['autoSummarizeMode'])) {
+            $mode = $context['autoSummarizeMode'];
+            if (!is_string($mode) || !in_array($mode, ['token', 'turn', 'manual'], true)) {
+                $errors[] = 'agents.defaults.context.autoSummarizeMode must be "token", "turn", or "manual"';
+            }
+        }
+
+        if (isset($context['autoSummarizeThreshold'])) {
+            $threshold = $context['autoSummarizeThreshold'];
+            if ((!is_int($threshold) && !is_float($threshold)) || $threshold < 0 || $threshold > 100) {
+                $errors[] = 'agents.defaults.context.autoSummarizeThreshold must be a number between 0 and 100';
+            }
+        }
+
+        if (isset($context['autoSummarizeTurnThreshold'])) {
+            $turns = $context['autoSummarizeTurnThreshold'];
+            if (!is_int($turns) || $turns < 1) {
+                $errors[] = 'agents.defaults.context.autoSummarizeTurnThreshold must be a positive integer';
+            }
+        }
+
+        if (isset($context['autoSummarizeKeepRecent'])) {
+            $keep = $context['autoSummarizeKeepRecent'];
+            if (!is_int($keep) || $keep < 1 || $keep > 20) {
+                $errors[] = 'agents.defaults.context.autoSummarizeKeepRecent must be an integer between 1 and 20';
+            }
+        }
+
+        if (isset($context['keepRecentTurns'])) {
+            $keep = $context['keepRecentTurns'];
+            if (!is_int($keep) || $keep < 1) {
+                $errors[] = 'agents.defaults.context.keepRecentTurns must be a positive integer';
+            }
+        }
+
+        if (isset($context['budgetSafetyMarginPercent'])) {
+            $margin = $context['budgetSafetyMarginPercent'];
+            if (!is_int($margin) || $margin < 0 || $margin > 50) {
+                $errors[] = 'agents.defaults.context.budgetSafetyMarginPercent must be an integer between 0 and 50';
             }
         }
 

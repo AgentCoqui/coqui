@@ -274,4 +274,38 @@ final class OpenClawConfig implements ConfigInterface
             }
         }
     }
+
+    /**
+     * Get the budget exit threshold (0.0–1.0).
+     *
+     * When context window usage reaches this percentage, the agent enters
+     * a wrap-up window and exits with BudgetExhausted. 0.0 = disabled.
+     */
+    public function getBudgetExitThreshold(): float
+    {
+        $value = $this->get('agents.defaults.context.budgetExitThreshold');
+
+        if (is_numeric($value)) {
+            $float = (float) $value;
+            if ($float >= 0.0 && $float <= 1.0) {
+                return $float;
+            }
+        }
+
+        return CoquiDefaults::BUDGET_EXIT_THRESHOLD;
+    }
+
+    /**
+     * Get the number of wrap-up iterations after budget threshold is reached.
+     */
+    public function getBudgetExitWrapUpIterations(): int
+    {
+        $value = $this->get('agents.defaults.context.budgetExitWrapUpIterations');
+
+        if (is_int($value) && $value >= 1) {
+            return $value;
+        }
+
+        return CoquiDefaults::BUDGET_EXIT_WRAP_UP_ITERATIONS;
+    }
 }

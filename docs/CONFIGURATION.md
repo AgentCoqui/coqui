@@ -98,7 +98,9 @@ The simplest valid config only needs a primary model:
                 "autoSummarizeTurnThreshold": 20,
                 "autoSummarizeKeepRecent": 15,
                 "keepRecentTurns": 10,
-                "budgetSafetyMarginPercent": 20
+                "budgetSafetyMarginPercent": 20,
+                "budgetExitThreshold": 0.85,
+                "budgetExitWrapUpIterations": 2
             },
             "evaluation": {
                 "lookbackHours": 24,
@@ -341,6 +343,8 @@ Configure automatic conversation summarization behavior.
 | `autoSummarizeKeepRecent` | int | `15` | Turns preserved during auto-summarization (clamped 1–20) |
 | `keepRecentTurns` | int | `10` | Default turns preserved during on-demand summarization (`/summarize`) |
 | `budgetSafetyMarginPercent` | int | `20` | Safety margin percentage applied by per-iteration budget pruning to account for token estimation inaccuracy (0–50) |
+| `budgetExitThreshold` | float | `0.85` | Context window usage ratio (0.0–1.0) that triggers a graceful wrap-up sequence. When crossed, the agent receives a wrap-up instruction and has `budgetExitWrapUpIterations` iterations to call `done()` before being force-exited. Set to `0.0` to disable |
+| `budgetExitWrapUpIterations` | int | `2` | Number of iterations the agent has to wrap up after the budget exit threshold is crossed. Must be ≥ 1 |
 
 ```json
 {
@@ -360,6 +364,10 @@ Configure automatic conversation summarization behavior.
 - **`manual`** — Disables all automatic pre-turn summarization. Use the `/summarize` REPL command, the `summarize_conversation` agent tool, or the API endpoint to summarize on demand. The per-iteration `SummarizePruningStrategy` safety net still fires to prevent context window overflow during agent execution.
 
 Regardless of mode, the per-iteration budget pruning strategy always runs as a safety net to prevent the conversation from exceeding the model's context window within a single turn.
+
+**Budget-based exit:**
+
+When `budgetExitThreshold` is set (default `0.85`), the agent monitors its cumulative token usage as a percentage of the context window. When usage crosses the threshold, the agent receives a workflow-aware wrap-up instruction (preserving todos, artifacts, and sprint state) and has `budgetExitWrapUpIterations` iterations to call `done()`. If the agent doesn't exit gracefully within the wrap-up window, it is force-exited with a `budget_exhausted` finish reason. This replaces iteration-count-based exits with a token-budget-aware mechanism that adapts to the actual context window size.
 
 ### `evaluation`
 

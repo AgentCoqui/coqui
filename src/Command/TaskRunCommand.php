@@ -228,6 +228,14 @@ final class TaskRunCommand extends Command
                 'tools_used' => $turnResult->toolsUsed,
             ]);
 
+            // Record budget exhaustion as a separate event for tracking/evaluation
+            if ($turnResult->budgetExhausted) {
+                $storage->appendTaskEvent($taskId, 'budget_exhausted', [
+                    'iterations' => $turnResult->iterations,
+                    'total_tokens' => $turnResult->totalTokens,
+                ]);
+            }
+
             return Command::SUCCESS;
         } catch (\Throwable $e) {
             $this->publishTaskNotification($publisher, $task, $taskId, 'failed', 'Task failed', $e->getMessage());

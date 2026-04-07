@@ -191,6 +191,8 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?string $workScopeSessionId = null,
         private readonly ?string $defaultProjectId = null,
         private readonly ?string $defaultSprintId = null,
+        private readonly float $budgetExitThreshold = 0.0,
+        private readonly int $budgetExitWrapUpIterations = 2,
     ) {
         $this->childToolExecutor = $toolExecutor;
 
@@ -251,7 +253,7 @@ final class OrchestratorAgent extends AbstractAgent
         $safetyMarginCfg = $config->get('agents.defaults.context.budgetSafetyMarginPercent');
         $safetyMarginPercent = is_numeric($safetyMarginCfg) ? max(0, min(50, (int) $safetyMarginCfg)) : CoquiDefaults::BUDGET_SAFETY_MARGIN_PERCENT;
 
-        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow, $pruningStrategy, $safetyMarginPercent, $toolExecutor, $tickCallback);
+        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow, $pruningStrategy, $safetyMarginPercent, $this->budgetExitThreshold, $this->budgetExitWrapUpIterations, $toolExecutor, $tickCallback);
 
         // Use injected resolver or create one (backward compat for standalone use)
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);

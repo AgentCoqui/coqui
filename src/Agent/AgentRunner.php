@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\TickCallbackInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
+use CarmeloSantana\PHPAgents\Enum\FinishReason;
 use CarmeloSantana\PHPAgents\Enum\Role;
 use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Agent\Output;
@@ -54,6 +55,7 @@ use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\PromptBudgetSnapshot;
 use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
+use CoquiBot\Coqui\Observer\BudgetExitObserver;
 use CoquiBot\Coqui\Renderer\ContextUsageBar;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
 
@@ -287,6 +289,9 @@ final class AgentRunner
             $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole);
             $iterationLimitReached = $resolvedMaxIterations > 0 && $output->iterations >= $resolvedMaxIterations;
 
+            // Detect whether the agent exited due to context budget exhaustion
+            $budgetExhausted = $output->finishReason === FinishReason::BudgetExhausted;
+
             // Batch all post-turn DB writes in a single transaction to reduce fsync overhead
             $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
             $toolsUsed = $this->extractToolsUsed($output->conversation, $history->count());
@@ -442,6 +447,7 @@ final class AgentRunner
                 childAgentCount: $childAgentCount,
                 restartRequested: $restartRequested,
                 iterationLimitReached: $iterationLimitReached,
+                budgetExhausted: $budgetExhausted,
                 contextUsage: $contextUsage,
                 fileEdits: $fileEdits,
                 reviewFeedback: $reviewFeedback,
@@ -504,7 +510,32 @@ final class AgentRunner
         $factory = $this->providerFactory ?? new ProviderFactory($this->config, $httpClient);
         $provider = $factory->create($modelString);
 
-        return new OrchestratorAgent(
+        // Resolve budget exit configuration
+        $budgetExitThreshold = CoquiDefaults::BUDGET_EXIT_THRESHOLD;
+        $budgetExitWrapUpIterations = CoquiDefaults::BUDGET_EXIT_WRAP_UP_ITERATIONS;
+        if ($this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig) {
+            $budgetExitThreshold = $this->config->getBudgetExitThreshold();
+            $budgetExitWrapUpIterations = $this->config->getBudgetExitWrapUpIterations();
+        }
+
+        // Create BudgetExitObserver with workflow context builder.
+        // When the agent crosses the budget threshold, this observer queues
+        // a wrap-up instruction with current todo/artifact/sprint state.
+        $budgetExitObserver = null;
+        $effectivePendingInputProvider = $pendingInputProvider;
+
+        if ($budgetExitThreshold > 0.0) {
+            $capturedSessionId = $sessionId;
+            $budgetExitObserver = new BudgetExitObserver(
+                workflowContextBuilder: fn(): string => $this->buildWorkflowContext($capturedSessionId),
+            );
+
+            $effectivePendingInputProvider = $pendingInputProvider !== null
+                ? new CompositePendingInputProvider($pendingInputProvider, $budgetExitObserver)
+                : $budgetExitObserver;
+        }
+
+        $agent = new OrchestratorAgent(
             provider: $provider,
             roleResolver: $this->roleResolver,
             config: $this->config,
@@ -523,7 +554,7 @@ final class AgentRunner
             skillDiscovery: $this->skillDiscovery,
             roleDiscovery: $this->roleDiscovery,
             cancellationToken: $cancellationToken,
-            pendingInputProvider: $pendingInputProvider,
+            pendingInputProvider: $effectivePendingInputProvider,
             backgroundTaskToolkit: ($enableBackgroundTasks && $this->backgroundTasksEnabled)
                 ? new BackgroundTaskToolkit(
                     storage: $this->storage,
@@ -556,7 +587,16 @@ final class AgentRunner
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
             defaultSprintId: $defaultSprintId,
+            budgetExitThreshold: $budgetExitThreshold,
+            budgetExitWrapUpIterations: $budgetExitWrapUpIterations,
         );
+
+        // Attach the budget exit observer so it receives agent.budget_warning events
+        if ($budgetExitObserver !== null) {
+            $agent->attach($budgetExitObserver);
+        }
+
+        return $agent;
     }
 
     /**
