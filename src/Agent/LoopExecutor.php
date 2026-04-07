@@ -850,7 +850,24 @@ final class LoopExecutor
                         $artifactRef = "\n> **Artifact ID:** `{$cs['artifact_id']}` — use `artifact_get` to read the full output.";
                     }
                 }
-                $stageLines[] = "### Stage " . ((int) $cs['stage_index'] + 1) . ": {$cs['role']}\n{$stageSummary}{$artifactRef}";
+
+                // Check if the previous stage was budget-exhausted
+                $budgetNote = '';
+                if ($this->sessionStorage !== null && isset($cs['task_id']) && $cs['task_id'] !== '') {
+                    try {
+                        $events = $this->sessionStorage->getTaskEvents($cs['task_id']);
+                        foreach ($events as $event) {
+                            if (($event['event_type'] ?? '') === 'budget_exhausted') {
+                                $budgetNote = "\n> ⚠️ **This stage reached its context budget limit.** Its summary may be incomplete — verify the actual state of the work before proceeding.";
+                                break;
+                            }
+                        }
+                    } catch (\Throwable) {
+                        // Non-fatal — proceed without budget note
+                    }
+                }
+
+                $stageLines[] = "### Stage " . ((int) $cs['stage_index'] + 1) . ": {$cs['role']}\n{$stageSummary}{$artifactRef}{$budgetNote}";
             }
             $sections[] = "## Previous Stages This Cycle\n" . implode("\n\n", $stageLines);
         }

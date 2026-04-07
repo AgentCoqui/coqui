@@ -141,9 +141,10 @@ final class AgentTurnExecutor
             return new AgentTurnResult(exitCode: self::RESTART_EXIT_CODE);
         }
 
-        // Offer continuation when iteration limit was reached and an active sprint exists
+        // Offer continuation when iteration limit or budget was reached and an active sprint exists
         $continuationPrompt = null;
-        if ($result->iterationLimitReached && $this->boot->projectStore() !== null) {
+        $shouldOfferContinuation = $result->iterationLimitReached || $result->budgetExhausted;
+        if ($shouldOfferContinuation && $this->boot->projectStore() !== null) {
             $sprints = $this->boot->projectStore()->getActiveSprintsForSession($sessionId);
             if ($sprints !== []) {
                 $sprint = $sprints[0];
@@ -158,8 +159,10 @@ final class AgentTurnExecutor
                 $io->newLine();
                 $prompter = new InterruptiblePrompt($io, $this->terminalState);
                 try {
-                    if ($prompter->confirm("Sprint '{$title}' is {$pct}% complete ({$done}/{$total} todos). Continue?", true)) {
-                        $continuationPrompt = "Continue working on sprint '{$title}'. Check todo_list for remaining items.";
+                    $reason = $result->budgetExhausted ? 'Context budget reached' : 'Iteration limit reached';
+                    if ($prompter->confirm("{$reason}. Sprint '{$title}' is {$pct}% complete ({$done}/{$total} todos). Continue?", true)) {
+                        $continuationPrompt = "Continue working on sprint '{$title}'. Check todo_list for remaining items."
+                            . " Review the summary above for what was accomplished and what remains.";
                     }
                 } catch (InteractionCancelledException) {
                     return new AgentTurnResult();

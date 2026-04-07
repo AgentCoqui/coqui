@@ -119,6 +119,8 @@ final class TerminalObserver implements SplObserver
 
             'agent.warning' => $this->output->writeln("{$indent}<fg=yellow>⚠ {$data}</>"),
 
+            'agent.budget_warning' => $this->handleBudgetWarning($data, $indent),
+
             'agent.summary' => $this->handleSummary($data, $indent),
 
             'agent.memory_extraction' => $this->handleMemoryExtraction($data, $indent),
@@ -325,6 +327,20 @@ final class TerminalObserver implements SplObserver
             $verdict = is_array($data) ? ($data['verdict'] ?? 'needs_changes') : 'needs_changes';
             $this->output->writeln("{$newIndent}<fg=yellow>⟳ {$verdict}</>");
         }
+    }
+
+    private function handleBudgetWarning(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $usagePercent = $data['usagePercent'] ?? 0;
+        $wrapUpIterations = $data['wrapUpIterations'] ?? 2;
+        $this->output->writeln(
+            "{$indent}<fg=yellow;options=bold>⚠ Context budget {$usagePercent}% consumed — "
+            . "{$wrapUpIterations} wrap-up iteration(s) before exit</>",
+        );
     }
 
     private function handleSummary(mixed $data, string $indent): void

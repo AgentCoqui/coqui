@@ -2030,6 +2030,96 @@ Users and agents can trigger summarization manually:
 | `src/Agent/OrchestratorAgent.php` | `resolveContextWindow()` — ContextWindow from ModelDefinition; creates SummarizePruningStrategy |
 
 
+## Budget-Based Exit Architecture
+
+Coqui provides automatic, token-budget-aware agent exit when the context window is filling up. Instead of relying solely on iteration counts, the system monitors cumulative token usage and triggers a graceful wrap-up sequence when a configurable threshold is crossed. This gives the agent a chance to save progress, update todos, and produce a useful response before being force-exited.
+
+### How It Works
+
+1. **`AbstractAgent::run()`** (php-agents) tracks token usage via `ContextWindow::usagePercent()` after every iteration. When usage crosses `budgetExitThreshold × 100`, it sets a `$budgetExitTriggered` flag, starts a wrap-up countdown, and emits an `agent.budget_warning` event with usage details.
+2. **`BudgetExitObserver`** (Coqui) listens for the `agent.budget_warning` event. It builds a workflow-aware wrap-up instruction (including current todo progress, active artifacts, and sprint state) and queues it as a `UserMessage` via the `PendingInputProviderInterface`.
+3. **`CompositePendingInputProvider`** composes the `BudgetExitObserver` with any existing `PendingInputProvider` (e.g. API mode's `PendingInputProvider`), ensuring both can inject messages into the agent loop.
+4. **Wrap-up countdown** — the agent has `budgetExitWrapUpIterations` iterations (default: 2) to call `done()`. On each iteration, the countdown decrements. If the agent doesn't exit gracefully, `AbstractAgent` force-exits with `FinishReason::BudgetExhausted`.
+5. **Post-exit handling** — `AgentRunner::doRun()` detects `FinishReason::BudgetExhausted` on the `Output` object and sets `budgetExhausted: true` on `AgentTurnResult`. Downstream consumers (REPL continuation, background tasks, loops) use this flag to provide appropriate UX.
+
+### Event Flow
+
+```
+Iteration N:
+  → ContextWindow reports usage ≥ threshold
+  → AbstractAgent emits agent.budget_warning {usagePercent, threshold, wrapUpIterations}
+  → BudgetExitObserver queues wrap-up instruction (UserMessage)
+  → TerminalObserver renders yellow warning banner
+  → SseObserver emits budget_warning SSE event
+
+Iteration N+1:
+  → PendingInputProvider consumed → wrap-up instruction enters conversation
+  → Agent sees: "Context budget at X%. You have N iterations left. Save progress and call done()."
+  → Agent should: update todos, save artifacts, call done(response: "summary of progress")
+
+Iteration N+wrapUpIterations (if agent didn't done()):
+  → Countdown exhausted → force exit with FinishReason::BudgetExhausted
+  → Output.finishReason = BudgetExhausted
+```
+
+### Configuration
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "context": {
+                "budgetExitThreshold": 0.85,
+                "budgetExitWrapUpIterations": 2
+            }
+        }
+    }
+}
+```
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `budgetExitThreshold` | float | `0.85` | Context window usage ratio (0.0–1.0) that triggers wrap-up. Set to `0.0` to disable |
+| `budgetExitWrapUpIterations` | int | `2` | Iterations allowed for graceful wrap-up after threshold is crossed |
+
+### Integration Points
+
+| Context | Behavior |
+| --- | --- |
+| REPL | `AgentTurnExecutor` offers continuation with budget-aware prompt ("Context budget reached. Sprint X is Y% complete. Continue?") |
+| Background tasks | `TaskRunCommand` appends `budget_exhausted` task event for loop/schedule visibility |
+| Loop stages | `LoopExecutor::buildStagePrompt()` detects budget-exhausted prior stages and warns the next stage that output may be incomplete |
+| Observer (terminal) | Yellow banner: "⚠ Context budget X% consumed — N wrap-up iteration(s) before exit" |
+| Observer (SSE) | `budget_warning` event with usage data |
+
+### Relationship to Other Context Management
+
+- **Auto-summarization** (`autoSummarizeMode`) runs *before* each turn to compress history. Budget exit runs *during* the agent loop when cumulative usage (including the current turn's tool calls and responses) approaches the limit.
+- **`SummarizePruningStrategy`** is the per-iteration safety net that prunes conversation when the context window overflows mid-loop. Budget exit fires *before* the context window actually overflows, giving the agent a chance to exit gracefully.
+- **Iteration limits** (`maxIterations`) still apply as a backstop. Budget exit typically fires before iteration limits for long-running turns on constrained context windows.
+
+### Key Source Files
+
+| File | Purpose |
+| --- | --- |
+| `php-agents: src/Agent/AbstractAgent.php` | Budget detection, countdown, forced exit, `agent.budget_warning` event |
+| `php-agents: src/Enum/FinishReason.php` | `BudgetExhausted` enum case |
+| `php-agents: src/Agent/Output.php` | `finishReason` field on agent output |
+| `src/Observer/BudgetExitObserver.php` | Listens for warning event, builds workflow-aware wrap-up instruction, queues via PendingInputProvider |
+| `src/Agent/CompositePendingInputProvider.php` | Composes multiple PendingInputProviders |
+| `src/Agent/AgentRunner.php` | Creates BudgetExitObserver, wires CompositePendingInputProvider, detects BudgetExhausted in doRun() |
+| `src/Agent/OrchestratorAgent.php` | Passes budget config to AbstractAgent constructor |
+| `src/Contract/AgentTurnResult.php` | `budgetExhausted` flag |
+| `src/Contract/CoquiDefaults.php` | `BUDGET_EXIT_THRESHOLD`, `BUDGET_EXIT_WRAP_UP_ITERATIONS` constants |
+| `src/Config/OpenClawConfig.php` | `getBudgetExitThreshold()`, `getBudgetExitWrapUpIterations()` config readers |
+| `src/Config/ConfigValidator.php` | `validateContext()` — validates budget exit config values |
+| `src/Observer/TerminalObserver.php` | `handleBudgetWarning()` — yellow warning banner |
+| `src/Observer/SseObserver.php` | `budget_warning` SSE event |
+| `src/Command/TaskRunCommand.php` | `budget_exhausted` task event for background tasks |
+| `src/Agent/LoopExecutor.php` | Budget-exhausted stage detection in `buildStagePrompt()` |
+| `src/Repl/AgentTurnExecutor.php` | Budget-aware continuation prompt |
+
+
 ## Language & Runtime
 
 - **PHP 8.4** — use all modern features including readonly properties, enums, fibers, typed class constants, intersection types, `#[\Override]`, DNF types, property hooks, asymmetric visibility.
