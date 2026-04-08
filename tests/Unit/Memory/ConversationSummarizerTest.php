@@ -12,6 +12,7 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\Response;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\ConversationSummaryResult;
+use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
 beforeEach(function () {
@@ -210,6 +211,42 @@ test('summarizeAndPersist stores a summary message in the session', function () 
     );
 
     expect(count($summaryMessages))->toBe(1);
+});
+
+test('summarizeAndPersist does not save session summaries into MemoryStore', function () {
+    $memoryDbPath = sys_get_temp_dir() . '/coqui-test-memory-' . bin2hex(random_bytes(8)) . '.db';
+    $memoryStore = new MemoryStore($memoryDbPath);
+    $summarizer = new ConversationSummarizer(
+        storage: $this->storage,
+        memoryStore: $memoryStore,
+    );
+
+    $sessionId = $this->storage->createSession('orchestrator', 'test/model');
+    for ($i = 1; $i <= 8; $i++) {
+        $this->storage->addMessage($sessionId, 'user', "Question {$i}");
+        $this->storage->addMessage($sessionId, 'assistant', "Answer {$i}");
+    }
+
+    $provider = createFakeProvider('Summary of the conversation.');
+
+    $summarizer->summarizeAndPersist(
+        sessionId: $sessionId,
+        provider: $provider,
+        keepRecentTurns: 3,
+    );
+
+    expect($memoryStore->count('session_summary'))->toBe(0);
+
+    unset($summarizer, $memoryStore);
+    if (file_exists($memoryDbPath)) {
+        unlink($memoryDbPath);
+    }
+    foreach (['-wal', '-shm'] as $suffix) {
+        $path = $memoryDbPath . $suffix;
+        if (file_exists($path)) {
+            unlink($path);
+        }
+    }
 });
 
 test('summarizeAndPersist returns unchanged result for short conversations', function () {

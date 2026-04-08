@@ -492,6 +492,7 @@ final class BootManager
         $embeddingProvider = $this->resolveEmbeddingProvider();
 
         $this->memoryStore = new MemoryStore($dbPath, $embeddingProvider);
+        $this->memoryStore->deleteArea('session_summary');
         $this->memorySummarizer = new MemorySummarizer($this->memoryStore);
 
         // Run boot-time decay sweep — archives stale, low-value memories

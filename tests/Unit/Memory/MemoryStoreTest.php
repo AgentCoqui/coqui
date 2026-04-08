@@ -224,6 +224,39 @@ test('listAll respects limit parameter', function () {
     expect($results)->toHaveCount(5);
 });
 
+test('getCoreSummary excludes legacy session summary memories', function () {
+    $this->store->save(new MemoryEntry(content: 'Durable preference', area: 'preferences'));
+    $this->store->save(new MemoryEntry(content: 'Legacy session summary', area: 'session_summary'));
+
+    $summary = $this->store->getCoreSummary();
+
+    expect($summary)->toContain('Durable preference');
+    expect($summary)->not->toContain('Legacy session summary');
+});
+
+test('getTopImportantMemories excludes legacy session summary memories', function () {
+    $this->store->save(new MemoryEntry(content: 'Top durable memory', area: 'preferences'));
+    $this->store->save(new MemoryEntry(content: 'Legacy session summary', area: 'session_summary'));
+
+    $entries = $this->store->getTopImportantMemories(10);
+    $contents = array_map(fn(MemoryEntry $entry) => $entry->content, $entries);
+
+    expect($contents)->toContain('Top durable memory');
+    expect($contents)->not->toContain('Legacy session summary');
+});
+
+test('deleteArea removes all memories in an area', function () {
+    $this->store->save(new MemoryEntry(content: 'Legacy summary 1', area: 'session_summary'));
+    $this->store->save(new MemoryEntry(content: 'Legacy summary 2', area: 'session_summary'));
+    $this->store->save(new MemoryEntry(content: 'Durable memory', area: 'facts'));
+
+    $deleted = $this->store->deleteArea('session_summary');
+
+    expect($deleted)->toBe(2);
+    expect($this->store->count('session_summary'))->toBe(0);
+    expect($this->store->count('facts'))->toBe(1);
+});
+
 // --- listByTags ---
 
 test('listByTags finds entries matching tag substrings', function () {

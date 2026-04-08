@@ -395,9 +395,12 @@ final class AgentRunner
             $contextUsage = null;
             try {
                 $finalConversation = $output->conversation ?? $history;
+                $promptCounter = TokenCounterFactory::forModel($modelString);
+                $promptSections = $agent->getPromptSectionBreakdown($promptCounter);
                 $contextUsage = ContextUsageBar::buildSnapshot(
                     $finalConversation,
                     $agent->getContextWindow(),
+                    $promptSections,
                 );
             } catch (\Throwable) {
                 // Non-fatal — progress bar is optional
@@ -527,7 +530,7 @@ final class AgentRunner
         if ($budgetExitThreshold > 0.0) {
             $capturedSessionId = $sessionId;
             $budgetExitObserver = new BudgetExitObserver(
-                workflowContextBuilder: fn(): string => $this->buildWorkflowContext($capturedSessionId),
+                workflowContextBuilder: fn(): string => $this->buildWorkflowContext($capturedSessionId) ?? '',
             );
 
             $effectivePendingInputProvider = $pendingInputProvider !== null

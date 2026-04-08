@@ -15,6 +15,7 @@ use CoquiBot\Coqui\Renderer\ProgressBarSegment;
  *
  * Categories:
  * - system:    System prompt and instructions (blue)
+ * - memory:    Prompt memory sections injected into the current turn (green)
  * - user:      User messages (green)
  * - assistant: Assistant/LLM responses (cyan)
  * - tool:      Tool call results (yellow)
@@ -28,6 +29,7 @@ final readonly class ContextUsageSnapshot
     /** @var array<string, string> Default color styles per category. */
     private const array CATEGORY_STYLES = [
         'system' => 'fg=#5f87ff',
+        'memory' => 'fg=#7fd87f',
         'user' => 'fg=#87d787',
         'assistant' => 'fg=#5fd7ff',
         'tool' => 'fg=#d7af5f',
@@ -37,6 +39,7 @@ final readonly class ContextUsageSnapshot
     /** @var array<string, string> Human-readable labels per category. */
     private const array CATEGORY_LABELS = [
         'system' => 'System',
+        'memory' => 'Memory',
         'user' => 'User',
         'assistant' => 'Assistant',
         'tool' => 'Tools',

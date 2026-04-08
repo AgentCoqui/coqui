@@ -18,7 +18,7 @@ use CoquiBot\Coqui\Contract\CoquiDefaults;
  *
  * Takes a Conversation and compresses it into a structured summary using a cheap
  * LLM provider. The summary replaces older messages, keeping the most recent turns
- * intact. Summaries can optionally be stored as session-scoped memories.
+ * intact. Summaries are persisted back into the session transcript only.
  */
 final class ConversationSummarizer
 {
@@ -146,22 +146,6 @@ final class ConversationSummarizer
         $idsToMark = $this->identifySummarizedMessageIds($rawMessages, $keepRecentTurns);
         if ($idsToMark !== []) {
             $this->storage->markMessagesAsSummarized($idsToMark);
-        }
-
-        // Store summary as a session-scoped memory if memory store is available
-        if ($this->memoryStore !== null && $result->summary !== '') {
-            $this->memoryStore->save(new MemoryEntry(
-                content: $result->summary,
-                area: 'session_summary',
-                metadata: [
-                    'tags' => "session:{$sessionId},auto_summary",
-                    'session_id' => $sessionId,
-                    'messages_summarized' => $result->messagesSummarized,
-                    'tokens_before' => $result->tokensBefore,
-                    'tokens_after' => $result->tokensAfter,
-                    'created_at' => date('c'),
-                ],
-            ));
         }
 
         // Persist summary as a user message (not system — AbstractAgent

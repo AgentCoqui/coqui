@@ -20,6 +20,8 @@ use PDO;
  */
 final class MemoryStore
 {
+    private const string LEGACY_SESSION_SUMMARY_AREA = 'session_summary';
+
     private const AREA_DEFAULT_IMPORTANCE = [
         'preferences' => 0.8,
         'solutions' => 0.7,
@@ -163,6 +165,31 @@ final class MemoryStore
         // Clean up lookup and embeddings
         $this->db->prepare('DELETE FROM memories_fts_lookup WHERE memory_id = :id')->execute([':id' => $id]);
         $this->db->prepare('DELETE FROM memory_embeddings WHERE memory_id = :id')->execute([':id' => $id]);
+    }
+
+    /**
+     * Delete all memories in a specific area.
+     *
+     * @return int Number of deleted entries
+     */
+    public function deleteArea(string $area): int
+    {
+        $this->ensureTables();
+
+        $ids = $this->db->prepare('SELECT id FROM memories WHERE area = :area');
+        $ids->execute([':area' => $area]);
+
+        $deleted = 0;
+        foreach ($ids->fetchAll(PDO::FETCH_COLUMN) as $id) {
+            if (!is_string($id) || $id === '') {
+                continue;
+            }
+
+            $this->delete($id);
+            $deleted++;
+        }
+
+        return $deleted;
     }
 
     /**
@@ -391,11 +418,12 @@ final class MemoryStore
             SELECT id, content, area, tags, metadata, created_at, updated_at,
                    importance, access_count, last_accessed_at
             FROM memories
-            WHERE archived_at IS NULL
+            WHERE archived_at IS NULL AND area != :excluded_area
             ORDER BY importance DESC, access_count DESC, updated_at DESC
             LIMIT :limit
         SQL);
 
+        $stmt->bindValue(':excluded_area', self::LEGACY_SESSION_SUMMARY_AREA);
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
 
@@ -505,11 +533,12 @@ final class MemoryStore
             SELECT id, content, area, tags, metadata, created_at, updated_at,
                    importance, access_count, last_accessed_at
             FROM memories
-            WHERE archived_at IS NULL
+            WHERE archived_at IS NULL AND area != :excluded_area
             ORDER BY importance DESC, access_count DESC, updated_at DESC
             LIMIT :limit
         SQL);
 
+        $stmt->bindValue(':excluded_area', self::LEGACY_SESSION_SUMMARY_AREA);
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
 

@@ -11,7 +11,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *
  * Two visualizations:
  * 1. Section breakdown — proportional token usage by prompt category
- *    (soul, base, tools, context, project, toolkit guidelines)
+ *    (soul, base, tools, memory, discovery, project, toolkit guidelines)
  * 2. Context impact — prompt footprint against the model's context window
  *
  * Works from the plain array returned by PromptBudgetSnapshot::toArray(),
@@ -24,7 +24,8 @@ final class PromptUsageBar
         'soul' => 'fg=#d787d7',
         'base' => 'fg=#5f87ff',
         'tools' => 'fg=#d7af5f',
-        'context' => 'fg=#87d787',
+        'memory' => 'fg=#7fd87f',
+        'discovery' => 'fg=#87d787',
         'project' => 'fg=#5fd7ff',
         'toolkit' => 'fg=#ff8700',
         'budget' => 'fg=#af87ff',
@@ -35,7 +36,8 @@ final class PromptUsageBar
         'soul' => 'Soul',
         'base' => 'Base',
         'tools' => 'Tools',
-        'context' => 'Context',
+        'memory' => 'Memory',
+        'discovery' => 'Discovery',
         'project' => 'Project',
         'toolkit' => 'Toolkit',
         'budget' => 'Budget',
@@ -207,7 +209,8 @@ final class PromptUsageBar
         return match ($group) {
             'identity' => 'base',
             'tool_prompts' => 'tools',
-            'memory', 'tool_discovery' => 'context',
+            'memory' => 'memory',
+            'tool_discovery' => 'discovery',
             'project' => 'project',
             'toolkit_guidelines' => 'toolkit',
             'iteration_budget' => 'budget',
