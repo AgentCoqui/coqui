@@ -51,9 +51,9 @@ final class SummarizeConversationTool implements ToolInterface
             - You want to preserve key context before older messages get pruned
             - The user asks you to summarize the conversation
 
-            The summary replaces older messages with a compact overview while keeping
-            recent turns intact. This preserves important context (decisions, file changes,
-            preferences) while significantly reducing token usage.
+            The summary replaces older messages in the current session with a compact
+            overview while keeping recent turns intact. This preserves important context
+            (decisions, file changes, preferences) while significantly reducing token usage.
 
             After summarization, older messages are condensed into a summary. The most
             recent turns remain in full detail for continuity.

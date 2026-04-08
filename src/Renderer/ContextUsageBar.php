@@ -17,7 +17,8 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  *
  * This is the bridge between the agent data model (Conversation, ContextWindow)
  * and the generic ProgressBar renderer. It knows how to categorize messages
- * by role, detect summary messages, and estimate per-category token usage.
+ * by role, detect summary messages, merge prompt-section tokens, and estimate
+ * per-category token usage.
  */
 final class ContextUsageBar
 {
@@ -26,21 +27,40 @@ final class ContextUsageBar
     /**
      * Build a context usage snapshot from a conversation and context window.
      *
-     * Categorizes every message into system/user/assistant/tool/summary
-     * and estimates token counts using the same heuristic as
+     * Categorizes every message into system/memory/user/assistant/tool/summary,
+     * folds prompt-section tokens into system or memory, and estimates token
+     * counts using the same heuristic as
      * Conversation::estimateTokens() (1 token ≈ 4 chars).
+     *
+     * @param array<int, array{group?: string, tokens?: int}> $promptSections
      */
     public static function buildSnapshot(
         Conversation $conversation,
         ?ContextWindowInterface $contextWindow = null,
+        array $promptSections = [],
     ): ContextUsageSnapshot {
         $breakdown = [
             'system' => 0,
+            'memory' => 0,
             'user' => 0,
             'assistant' => 0,
             'tool' => 0,
             'summary' => 0,
         ];
+
+        foreach ($promptSections as $section) {
+            $tokens = (int) ($section['tokens'] ?? 0);
+            if ($tokens <= 0) {
+                continue;
+            }
+
+            if (($section['group'] ?? '') === 'memory') {
+                $breakdown['memory'] += $tokens;
+                continue;
+            }
+
+            $breakdown['system'] += $tokens;
+        }
 
         foreach ($conversation->messages() as $message) {
             $content = $message->content();
@@ -72,7 +92,7 @@ final class ContextUsageBar
         } else {
             $maxTokens = CoquiDefaults::CONTEXT_WINDOW_FALLBACK;
             $reservedTokens = CoquiDefaults::CONTEXT_WINDOW_RESERVED;
-            $usedTokens = $conversation->estimateTokens();
+            $usedTokens = array_sum($breakdown);
             $effective = $maxTokens - $reservedTokens;
             /** @phpstan-ignore greater.alwaysTrue */
             $usagePercent = $effective > 0
@@ -123,8 +143,7 @@ final class ContextUsageBar
      */
     private static function categorizeMessage(Role $role, string|array $content): string
     {
-        // Summary messages are system messages containing the summary marker
-        if ($role === Role::System && is_string($content) && str_contains($content, self::SUMMARY_MARKER)) {
+        if (is_string($content) && str_starts_with(ltrim($content), self::SUMMARY_MARKER)) {
             return 'summary';
         }
 

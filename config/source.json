@@ -1364,9 +1364,9 @@
             "path": "src/Renderer/ContextUsageBar.php",
             "fqcn": "CoquiBot\\Coqui\\Renderer\\ContextUsageBar",
             "layer": "observer",
-            "description": "Bridge between agent data model (Conversation, ContextWindow) and the generic ProgressBar renderer. Categorizes messages by role, detects summary messages via [CONVERSATION SUMMARY] marker, estimates per-category token usage, and delegates to ProgressBar for rendering.",
+            "description": "Bridge between agent data model (Conversation, ContextWindow) and the generic ProgressBar renderer. Categorizes conversation messages by role, detects persisted conversation summaries via the [CONVERSATION SUMMARY] marker regardless of message role, folds prompt-section token telemetry into system versus memory buckets, and delegates to ProgressBar for rendering.",
             "methods": [
-                "buildSnapshot(Conversation, ?ContextWindowInterface): ContextUsageSnapshot — categorize messages and build usage snapshot",
+                "buildSnapshot(Conversation, ?ContextWindowInterface, array $promptSections): ContextUsageSnapshot — categorize conversation messages, merge prompt-section token buckets, and build usage snapshot",
                 "render(SymfonyStyle $io, ContextUsageSnapshot $snapshot, bool $showLegend, int $width): void — render context usage bar"
             ]
         },
@@ -1374,7 +1374,7 @@
             "path": "src/Contract/ContextUsageSnapshot.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\ContextUsageSnapshot",
             "layer": "contract",
-            "description": "Immutable snapshot of context window usage broken down by message category (system, user, assistant, tool, summary). Built from conversation messages and context window limits. Converts to ProgressBarSegment[] with predefined colors for rendering.",
+            "description": "Immutable snapshot of context window usage broken down by category (system, memory, user, assistant, tool, summary). Built from conversation messages, prompt-section telemetry, and context window limits. Converts to ProgressBarSegment[] with predefined colors for rendering.",
             "methods": [
                 "effectiveBudget(): int — max tokens minus reserved",
                 "availableTokens(): int — remaining budget",
@@ -1841,19 +1841,20 @@
             "path": "src/Memory/MemoryStore.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\MemoryStore",
             "layer": "storage",
-            "description": "SQLite-backed memory store with FTS5 full-text search, optional vector embeddings, importance scoring, composite relevance ranking, and automatic decay/archival. Stores memories in workspace/data/memory.db with area classification, tag-based organization, and per-entry importance scores. Hybrid search merges vector+FTS candidates, deduplicates by ID, and applies composite scoring (0.4*similarity + 0.2*recency + 0.25*importance + 0.15*access). Memories decay over time — inactive low-importance entries are archived (soft-deleted). Pinned memories (importance >= 0.9) never decay.",
+            "description": "SQLite-backed memory store with FTS5 full-text search, optional vector embeddings, importance scoring, composite relevance ranking, and automatic decay/archival. Stores memories in workspace/data/memory.db with area classification, tag-based organization, and per-entry importance scores. Hybrid search merges vector+FTS candidates, deduplicates by ID, and applies composite scoring (0.4*similarity + 0.2*recency + 0.25*importance + 0.15*access). Memories decay over time — inactive low-importance entries are archived (soft-deleted). Legacy session_summary memories are explicitly purgeable and excluded from prompt-memory recap helpers so cross-session conversation summaries cannot leak into new sessions.",
             "methods": [
                 "save(MemoryEntry $entry): string — saves memory with importance scoring and optional embedding, returns ID",
                 "search(string $query, int $limit, float $threshold): array — composite-scored hybrid search (vector + FTS5 + LIKE fallback)",
                 "update(string $id, ?string $content, ?string $area, ?array $tags, ?float $importance): bool — updates memory fields including importance",
                 "delete(string $id): bool — deletes memory, embedding, and FTS entry",
+                "deleteArea(string $area): int — deletes all memories in the given area, including embeddings and FTS rows",
                 "getById(string $id): ?MemoryEntry — retrieves single memory by ID",
                 "listAll(int $limit, int $offset, ?string $area, ?array $tags): array — filtered listing with pagination (excludes archived)",
                 "count(): int — total active memory count",
-                "getCoreSummary(): string — importance-sorted summary grouped by area for system prompt injection",
+                "getCoreSummary(): string — importance-sorted summary grouped by area for system prompt injection, excluding legacy session summaries",
                 "decayAndArchive(): int — scans memories, computes effective score, archives those below threshold",
                 "restoreMemory(string $id): bool — un-archives a memory",
-                "getTopImportantMemories(int $limit): array — returns top N by importance+access+recency for recapitulation",
+                "getTopImportantMemories(int $limit): array — returns top N by importance+access+recency for recapitulation, excluding legacy session summaries",
                 "hasVectorSearch(): bool — whether embedding provider is available"
             ]
         },
@@ -1880,10 +1881,10 @@
             "path": "src/Memory/ConversationSummarizer.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\ConversationSummarizer",
             "layer": "storage",
-            "description": "Summarizes conversation history to reduce token usage while preserving context. Runs automatic memory extraction before summarization to preserve facts before they are compressed. Splits conversations into a segment to summarize and recent turns to keep, compresses the older segment via a cheap LLM provider, and rebuilds the conversation with a summary SystemMessage. Accepts optional workflowContext parameter to inject active todo/artifact state into the LLM compression prompt.",
+            "description": "Summarizes conversation history to reduce token usage while preserving context. Runs automatic memory extraction before summarization to preserve facts before they are compressed. Splits conversations into a segment to summarize and recent turns to keep, compresses the older segment via a cheap LLM provider, and rebuilds the conversation with a summary marker persisted back into the session transcript as a user message so it survives provider replay. Accepts optional workflowContext parameter to inject active todo/artifact state into the LLM compression prompt.",
             "methods": [
                 "summarize(Conversation, ProviderInterface, keepRecentTurns, ?focus, ?workflowContext): ConversationSummaryResult — compresses older messages into a structured summary, preserving workflow context",
-                "summarizeAndPersist(sessionId, provider, keepRecentTurns, ?focus, ?workflowContext): ConversationSummaryResult — extracts memories, summarizes with workflow context, stores in MemoryStore, and persists summary SystemMessage to session"
+                "summarizeAndPersist(sessionId, provider, keepRecentTurns, ?focus, ?workflowContext): ConversationSummaryResult — extracts durable memories, summarizes with workflow context, marks older session rows summarized, and persists the summary marker back into the session transcript"
             ]
         },
         {
