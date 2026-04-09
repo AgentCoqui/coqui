@@ -140,6 +140,8 @@ Auto-summarization can fire before the turn when either of these thresholds is c
 
 There is also an in-loop fallback through `SummarizePruningStrategy` if the conversation still exceeds budget during the agent loop.
 
+This is separate from the budget-exit threshold. Auto-summarization decides whether to compress history before or during the turn; budget exit decides whether the current iteration is close enough to the context window that the agent should wrap up. The budget-exit check uses the latest provider-reported usage for the current iteration, not a cumulative session-total counter, and it coexists with the normal `maxIterations` limit.
+
 ### Split behavior
 
 The summarizer does not keep the last N raw messages. It keeps the last N user turns.

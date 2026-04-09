@@ -14,6 +14,8 @@ use CoquiBot\Coqui\Storage\EditHistory;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
+use CarmeloSantana\PHPAgents\Agent\Output;
+use CarmeloSantana\PHPAgents\Enum\FinishReason;
 
 function makeTestCredentialResolver(string $workspacePath): CredentialResolverInterface
 {
@@ -298,6 +300,44 @@ test('autoExtractMemories returns early when auto extraction is disabled', funct
 
         expect($memoryStore->count())->toBe(0);
         expect($notifications)->toBe([]);
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
+test('resolveExitFlags distinguishes max-iteration exits from budget exhaustion', function () {
+    $fixture = createAgentRunnerFixture();
+
+    try {
+        $runner = makeAgentRunnerFixture(
+            config: $fixture['config'],
+            storage: $fixture['storage'],
+            workspacePath: $fixture['workspacePath'],
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+        );
+
+        $method = new ReflectionMethod($runner, 'resolveExitFlags');
+
+        $maxIterationFlags = $method->invoke(
+            $runner,
+            new Output(content: 'max', iterations: 3, finishReason: FinishReason::MaxTokens),
+            3,
+        );
+
+        $budgetFlags = $method->invoke(
+            $runner,
+            new Output(content: 'budget', iterations: 3, finishReason: FinishReason::BudgetExhausted),
+            3,
+        );
+
+        expect($maxIterationFlags)->toBe([
+            'iterationLimitReached' => true,
+            'budgetExhausted' => false,
+        ])->and($budgetFlags)->toBe([
+            'iterationLimitReached' => false,
+            'budgetExhausted' => true,
+        ]);
     } finally {
         cleanupAgentRunnerFixture($fixture);
     }
