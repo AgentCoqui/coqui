@@ -57,7 +57,6 @@ final class AgentTurnExecutor
     ): AgentTurnResult {
         $executionPolicy = $this->policyFactory->buildInteractive($sessionId, $io, $autoApprove);
         $cancellationToken = new ProcessCancellationToken();
-        $this->escObserver->setToken($cancellationToken);
         $sigintCount = 0;
         $shutdownRequested = false;
         if ($hasSignals) {
@@ -78,7 +77,7 @@ final class AgentTurnExecutor
         $stty = $this->terminalState->saveState();
         $savedStty = $stty;
         $this->terminalState->enterRawMode();
-        $this->escObserver->active = true;
+        $this->escObserver->beginTurn($cancellationToken);
 
         // Start animated spinner (tick callback drives animation between blocking calls)
         $this->tickCallback?->start();
@@ -91,7 +90,12 @@ final class AgentTurnExecutor
             $cb = $this->tickCallback;
             $escObserver = $this->escObserver;
             $timer = Loop::addPeriodicTimer(0.05, static function () use ($cb, $escObserver): void {
+                if (!$escObserver->active) {
+                    return;
+                }
+
                 $escObserver->poll();
+
                 $cb->tick();
             });
         }
@@ -105,11 +109,11 @@ final class AgentTurnExecutor
                 role: $activeRole !== 'orchestrator' ? $activeRole : null,
             );
         } finally {
+            $this->escObserver->endTurn();
+            $this->tickCallback?->stop();
             if ($timer !== null) {
                 Loop::cancelTimer($timer);
             }
-            $this->tickCallback?->stop();
-            $this->escObserver->active = false;
             $this->terminalState->drainStdin();
             $this->terminalState->restoreState($stty);
             $savedStty = null;
