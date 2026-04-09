@@ -285,12 +285,9 @@ final class AgentRunner
                 ? $output->usage
                 : $this->estimateUsage($output, $modelString);
 
-            // Detect whether the agent exhausted its iteration budget
             $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole);
-            $iterationLimitReached = $resolvedMaxIterations > 0 && $output->iterations >= $resolvedMaxIterations;
-
-            // Detect whether the agent exited due to context budget exhaustion
-            $budgetExhausted = $output->finishReason === FinishReason::BudgetExhausted;
+            ['iterationLimitReached' => $iterationLimitReached, 'budgetExhausted' => $budgetExhausted] =
+                $this->resolveExitFlags($output, $resolvedMaxIterations);
 
             // Batch all post-turn DB writes in a single transaction to reduce fsync overhead
             $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
@@ -1037,6 +1034,22 @@ final class AgentRunner
             completionTokens: $completionTokens,
             totalTokens: $promptTokens + $completionTokens,
         );
+    }
+
+    /**
+     * @return array{iterationLimitReached: bool, budgetExhausted: bool}
+     */
+    private function resolveExitFlags(Output $output, int $resolvedMaxIterations): array
+    {
+        $budgetExhausted = $output->finishReason === FinishReason::BudgetExhausted;
+        $iterationLimitReached = $output->finishReason === FinishReason::MaxTokens
+            && $resolvedMaxIterations > 0
+            && $output->iterations >= $resolvedMaxIterations;
+
+        return [
+            'iterationLimitReached' => $iterationLimitReached,
+            'budgetExhausted' => $budgetExhausted,
+        ];
     }
 
     /**
