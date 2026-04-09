@@ -248,6 +248,32 @@ test('getPdo returns working connection', function () {
     expect($row['id'])->toBe($sessionId);
 });
 
+test('checkTablesExist includes turn process tables', function () {
+    $result = $this->storage->checkTablesExist();
+
+    expect($result['ok'])->toBeTrue();
+    expect($result['missing'])->toBe([]);
+});
+
+test('appendTurnEvent stores and retrieves turn process events', function () {
+    $sessionId = $this->storage->createSession('test', 'model');
+    $turnProcessId = $this->storage->createTurnProcess($sessionId, 'Hello');
+
+    $this->storage->appendTurnEvent($turnProcessId, 'complete', [
+        'content' => 'Done',
+        'error' => null,
+    ]);
+
+    $events = $this->storage->getTurnEvents($turnProcessId);
+
+    expect($events)->toHaveCount(1);
+    expect($events[0]['event_type'])->toBe('complete');
+    expect(json_decode((string) $events[0]['data'], true))->toBe([
+        'content' => 'Done',
+        'error' => null,
+    ]);
+});
+
 test('findRecentTaskByTitle returns most recent matching task', function () {
     $sessionId = $this->storage->createSession('learner', 'quality-automation');
 

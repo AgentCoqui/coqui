@@ -10,8 +10,8 @@ use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
-use CoquiBot\Coqui\Observer\BackgroundTaskObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
+use CoquiBot\Coqui\Observer\TurnProcessObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -25,7 +25,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * Spawned by AgentTurnManager via proc_open. Reads the turn process
  * definition from SQLite, executes the agent loop, persists events
- * to the task_events table for SSE streaming, and updates the turn
+ * to the turn_events table for SSE streaming, and updates the turn
  * process record on completion.
  *
  * Exit codes:
@@ -126,9 +126,8 @@ final class TurnRunCommand extends Command
             pcntl_async_signals(true);
         }
 
-        // Create observer that persists events to task_events table.
-        // Uses the turn process ID as the "task ID" — same table, same format.
-        $turnObserver = new BackgroundTaskObserver($storage, $turnProcessId);
+        // Create observer that persists events to the turn_events table.
+        $turnObserver = new TurnProcessObserver($storage, $turnProcessId);
 
         // Create agent runner
         $agentRunner = AgentRunnerFactory::create(
@@ -171,7 +170,7 @@ final class TurnRunCommand extends Command
                     'error' => 'Cancelled via SIGTERM',
                     'result' => $turnResult->content,
                 ]);
-                $storage->appendTaskEvent($turnProcessId, 'complete', [
+                $storage->appendTurnEvent($turnProcessId, 'complete', [
                     'error' => 'Cancelled',
                     'content' => $turnResult->content,
                 ]);
@@ -184,7 +183,7 @@ final class TurnRunCommand extends Command
                     'error' => $turnResult->error,
                     'result' => $turnResult->content,
                 ]);
-                $storage->appendTaskEvent($turnProcessId, 'complete', [
+                $storage->appendTurnEvent($turnProcessId, 'complete', [
                     'error' => $turnResult->error,
                     'content' => $turnResult->content,
                 ]);
@@ -193,7 +192,7 @@ final class TurnRunCommand extends Command
             }
 
             // Write the final "complete" event with full metadata
-            $storage->appendTaskEvent($turnProcessId, 'complete', $turnResult->toArray());
+            $storage->appendTurnEvent($turnProcessId, 'complete', $turnResult->toArray());
 
             // Generate title if needed (best-effort, runs in same process)
             $this->maybeGenerateTitle($sessionId, $prompt, $turnProcessId, $boot, $storage);
@@ -207,10 +206,10 @@ final class TurnRunCommand extends Command
             $storage->updateTurnProcessStatus($turnProcessId, 'failed', [
                 'error' => $e->getMessage(),
             ]);
-            $storage->appendTaskEvent($turnProcessId, 'error', [
+            $storage->appendTurnEvent($turnProcessId, 'error', [
                 'message' => 'Internal error',
             ]);
-            $storage->appendTaskEvent($turnProcessId, 'complete', [
+            $storage->appendTurnEvent($turnProcessId, 'complete', [
                 'error' => 'Internal error',
                 'content' => '',
             ]);
@@ -245,7 +244,7 @@ final class TurnRunCommand extends Command
 
             $title = $titleGenerator->generate($prompt);
             if ($title === null) {
-                $storage->appendTaskEvent($turnProcessId, 'warning', [
+                $storage->appendTurnEvent($turnProcessId, 'warning', [
                     'message' => 'Title generation returned no result',
                 ]);
 
@@ -253,7 +252,7 @@ final class TurnRunCommand extends Command
             }
 
             $storage->updateSessionTitle($sessionId, $title);
-            $storage->appendTaskEvent($turnProcessId, 'title', ['title' => $title]);
+            $storage->appendTurnEvent($turnProcessId, 'title', ['title' => $title]);
         } catch (\Throwable $e) {
             // Best-effort — do not let title generation failures affect the turn
             error_log(sprintf(
@@ -265,7 +264,7 @@ final class TurnRunCommand extends Command
             ));
 
             try {
-                $storage->appendTaskEvent($turnProcessId, 'warning', [
+                $storage->appendTurnEvent($turnProcessId, 'warning', [
                     'message' => 'Title generation failed: ' . $e->getMessage(),
                 ]);
             } catch (\Throwable) {
