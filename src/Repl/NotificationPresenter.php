@@ -15,6 +15,7 @@ final class NotificationPresenter
 {
     private const int MAX_TITLE_LENGTH = 80;
     private const int MAX_MESSAGE_LENGTH = 120;
+    private const int MAX_METADATA_LENGTH = 160;
 
     /**
      * Format notifications for idle REPL display.
@@ -35,7 +36,7 @@ final class NotificationPresenter
         $lines[] = '';
 
         $count = count($notifications);
-        $lines[] = sprintf(' <fg=cyan>Notifications</> <fg=yellow>[%d☀︎]</>:', $count);
+        $lines[] = sprintf(' <fg=cyan>Notifications</> [%d☀︎]:', $count);
 
         foreach ($notifications as $notification) {
             $lines[] = $this->formatSingleNotification($notification);
@@ -129,10 +130,14 @@ final class NotificationPresenter
             $priority = $notification['priority'] ?? 'normal';
             $createdAt = $notification['created_at'] ?? '';
 
-            $kindLabel = str_replace('_', ' ', str_replace(['task.', 'tool.', 'loop.'], '', (string) $kind));
+            $kindValue = (string) $kind;
+            $kindLabel = $this->kindLabelForPromptInjection($kindValue);
             $header = "{$num}. [{$kindLabel}] {$title}";
             if ($priority === 'urgent' || $priority === 'high') {
                 $header .= " (priority: {$priority})";
+            }
+            if ($kindValue !== '') {
+                $header .= " [kind: {$kindValue}]";
             }
 
             $lines[] = $header;
@@ -146,6 +151,11 @@ final class NotificationPresenter
 
             if ($createdAt !== '') {
                 $lines[] = "   Time: {$createdAt}";
+            }
+
+            $metadataLine = $this->formatMetadataForPromptInjection($notification['metadata'] ?? null);
+            if ($metadataLine !== null) {
+                $lines[] = "   Metadata: {$metadataLine}";
             }
 
             $lines[] = '';
@@ -199,6 +209,7 @@ final class NotificationPresenter
             'task.timed_out'          => ['✘', 'red'],
             'tool.completed'          => ['✔', 'green'],
             'tool.failed'             => ['✘', 'red'],
+            'loop.iteration',
             'loop.stage_completed'    => ['⛮', 'blue'],
             'loop.iteration_approved' => ['✔', 'green'],
             'loop.completed'          => ['✔', 'cyan'],
@@ -242,6 +253,51 @@ final class NotificationPresenter
             'high' => '<fg=yellow>▲ </>',
             default => '  ',
         };
+    }
+
+    private function kindLabelForPromptInjection(string $kind): string
+    {
+        if ($kind === '') {
+            return 'unknown';
+        }
+
+        return str_replace('_', ' ', str_replace(['task.', 'tool.', 'loop.'], '', $kind));
+    }
+
+    private function formatMetadataForPromptInjection(mixed $metadata): ?string
+    {
+        if ($metadata === null || $metadata === '') {
+            return null;
+        }
+
+        $normalized = $metadata;
+
+        if (is_string($metadata)) {
+            try {
+                $decoded = json_decode($metadata, true, 8, JSON_THROW_ON_ERROR);
+                if (is_array($decoded)) {
+                    $normalized = $decoded;
+                }
+            } catch (\JsonException) {
+                $normalized = $metadata;
+            }
+        }
+
+        if (is_array($normalized)) {
+            try {
+                $normalized = json_encode($normalized, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+            } catch (\JsonException) {
+                return null;
+            }
+        }
+
+        if (!is_string($normalized) || $normalized === '') {
+            return null;
+        }
+
+        return mb_strlen($normalized) > self::MAX_METADATA_LENGTH
+            ? mb_substr($normalized, 0, self::MAX_METADATA_LENGTH) . '...'
+            : $normalized;
     }
 
     /**

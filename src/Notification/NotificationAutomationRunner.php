@@ -67,8 +67,8 @@ final class NotificationAutomationRunner
     public function reclaim(): void
     {
         $result = $this->store->reclaimExpiredClaims($this->maxAttempts, $this->retryDelaySeconds);
-        $this->stats['reclaimed'] += (int) ($result['requeued'] ?? 0);
-        $this->stats['failed'] += (int) ($result['failed'] ?? 0);
+        $this->stats['reclaimed'] += $result['requeued'];
+        $this->stats['failed'] += $result['failed'];
     }
 
     /**

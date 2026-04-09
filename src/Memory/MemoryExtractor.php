@@ -79,9 +79,10 @@ final class MemoryExtractor
             $importance = max(0.0, min(1.0, (float) ($candidate['importance'])));
             $area = $this->validateArea($candidate['area']);
             $tags = $candidate['tags'];
-            $type = $candidate['type'] ?? 'knowledge';
-            $validUntil = isset($candidate['valid_until']) && $candidate['valid_until'] !== null
-                ? new \DateTimeImmutable($candidate['valid_until'])
+            $type = $candidate['type'];
+            $validUntilValue = $candidate['valid_until'];
+            $validUntil = is_string($validUntilValue) && $validUntilValue !== ''
+                ? new \DateTimeImmutable($validUntilValue)
                 : null;
 
             $this->memoryStore->save(new MemoryEntry(
@@ -112,7 +113,7 @@ final class MemoryExtractor
     private function shouldExtract(): bool
     {
         try {
-            $db = $this->getDb();
+            $db = $this->memoryStore->getPdo();
             $stmt = $db->query('SELECT last_extraction_at FROM memory_summary WHERE id = 1');
 
             if ($stmt === false) {
@@ -137,7 +138,7 @@ final class MemoryExtractor
     private function recordExtractionTime(): void
     {
         try {
-            $db = $this->getDb();
+            $db = $this->memoryStore->getPdo();
             $now = (new \DateTimeImmutable())->format('Y-m-d\TH:i:s');
 
             // Ensure row exists, then update
@@ -219,7 +220,7 @@ final class MemoryExtractor
     /**
      * Use LLM to extract structured memory candidates from transcript.
      *
-     * @return list<array{content: string, area: string, importance: float, tags: string}>
+    * @return list<array{content: string, area: string, importance: float, tags: string, type: string, valid_until: ?string}>
      */
     private function extractCandidates(ProviderInterface $provider, string $transcript): array
     {
@@ -300,7 +301,7 @@ final class MemoryExtractor
                 if ($type === 'task') {
                     if (is_string($item['valid_until'] ?? null) && $item['valid_until'] !== '' && $item['valid_until'] !== 'null') {
                         try {
-                            $validUntil = $item['valid_until'];
+                            $validUntil = (new \DateTimeImmutable($item['valid_until']))->format('Y-m-d\TH:i:s');
                         } catch (\Throwable) {
                             // Default to 7 days
                             $validUntil = (new \DateTimeImmutable('+7 days'))->format('Y-m-d\TH:i:s');
@@ -352,16 +353,5 @@ final class MemoryExtractor
         $allowed = ['preferences', 'facts', 'solutions', 'context'];
 
         return in_array($area, $allowed, true) ? $area : 'context';
-    }
-
-    /**
-     * Access the same DB as MemoryStore via reflection.
-     */
-    private function getDb(): \PDO
-    {
-        $reflection = new \ReflectionClass($this->memoryStore);
-        $property = $reflection->getProperty('db');
-
-        return $property->getValue($this->memoryStore);
     }
 }

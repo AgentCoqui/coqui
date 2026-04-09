@@ -72,6 +72,8 @@ test('runner creates a retry task for failed background task notifications', fun
     expect($followUp['title'])->toBe('Retry: Deploy app');
     expect($stats['claimed'])->toBe(1);
     expect($stats['completed'])->toBe(1);
+    expect($stats['perKind']['task.failed']['claimed'])->toBe(1);
+    expect($stats['perKind']['task.failed']['completed'])->toBe(1);
 });
 
 test('runner skips retry when the source task is no longer failed', function () {
