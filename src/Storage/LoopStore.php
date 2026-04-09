@@ -422,6 +422,55 @@ final class LoopStore
     }
 
     /**
+     * Get timing data for each iteration of a loop (for sparkline visualization).
+     *
+     * @return list<array{iteration: int, duration_seconds: float, stage_count: int, completed_stages: int}>
+     */
+    public function getIterationTimings(string $loopId): array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT
+                i.iteration_number,
+                i.started_at,
+                i.completed_at,
+                COUNT(s.id) AS stage_count,
+                SUM(CASE WHEN s.status = 'completed' THEN 1 ELSE 0 END) AS completed_stages
+            FROM loop_iterations i
+            LEFT JOIN loop_stages s ON s.iteration_id = i.id
+            WHERE i.loop_id = ?
+            GROUP BY i.id
+            ORDER BY i.iteration_number ASC
+        SQL);
+        $stmt->execute([$loopId]);
+        $rows = $stmt->fetchAll(\PDO::FETCH_ASSOC);
+
+        $timings = [];
+        foreach ($rows as $row) {
+            $duration = 0.0;
+            if ($row['started_at'] !== null) {
+                try {
+                    $start = new \DateTimeImmutable($row['started_at']);
+                    $end = $row['completed_at'] !== null
+                        ? new \DateTimeImmutable($row['completed_at'])
+                        : new \DateTimeImmutable('now');
+                    $duration = max(0.0, (float) ($end->getTimestamp() - $start->getTimestamp()));
+                } catch (\Throwable) {
+                    // Invalid timestamp — leave duration at 0
+                }
+            }
+
+            $timings[] = [
+                'iteration' => (int) $row['iteration_number'],
+                'duration_seconds' => $duration,
+                'stage_count' => (int) $row['stage_count'],
+                'completed_stages' => (int) $row['completed_stages'],
+            ];
+        }
+
+        return $timings;
+    }
+
+    /**
      * Count active (running) loops.
      */
     public function countActive(): int
