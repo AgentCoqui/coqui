@@ -7,9 +7,12 @@ namespace CoquiBot\Coqui\Repl\Handler;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Api\ApiHealthCheck;
 use CoquiBot\Coqui\Config\LoopDiscovery;
+use CoquiBot\Coqui\Repl\TerminalStateManager;
 use CoquiBot\Coqui\Repl\TimeFormatter;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Tui\LoopDashboardScreen;
+use CoquiBot\Coqui\Tui\ScreenRunner;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -17,10 +20,15 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  */
 final class LoopHandler
 {
+    /**
+     * @param array<string, mixed> $config Runtime config values for the TUI dashboard display.
+     */
     public function __construct(
         private readonly SessionStorage $storage,
         private readonly ?LoopDiscovery $loopDiscovery,
         private readonly ?LoopExecutor $loopExecutor = null,
+        private readonly ?TerminalStateManager $terminalState = null,
+        private readonly array $config = [],
     ) {}
 
     public function handle(SymfonyStyle $io, string $arg, string $sessionId = ''): void
@@ -119,6 +127,14 @@ final class LoopHandler
 
     private function handleList(SymfonyStyle $io, LoopStore $store, string $statusFilter): void
     {
+        // Launch interactive TUI when on an interactive terminal with no status filter
+        if ($statusFilter === '' && $this->terminalState?->isInteractiveTty()) {
+            $screen = new LoopDashboardScreen($store, $this->config);
+            $runner = new ScreenRunner($this->terminalState, $io);
+            $runner->run($screen);
+            return;
+        }
+
         $filter = in_array($statusFilter, ['running', 'paused', 'completed', 'failed', 'cancelled'], true)
             ? $statusFilter
             : null;

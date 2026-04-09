@@ -361,7 +361,18 @@ final class RunCommand extends Command
             conversation: new ConversationHandler($this->boot, $this->storage),
             webhook: new WebhookHandler($this->storage),
             evaluation: new EvaluationHandler($this->storage),
-            loop: new LoopHandler($this->storage, $this->boot->loopDiscovery(), $this->loopExecutor),
+            loop: new LoopHandler(
+                $this->storage,
+                $this->boot->loopDiscovery(),
+                $this->loopExecutor,
+                $terminalState,
+                [
+                    'maxIterations' => $this->boot->config()->get('agents.defaults.maxIterations'),
+                    'budgetExitThreshold' => $this->boot->config()->get('agents.defaults.context.budgetExitThreshold'),
+                    'autoSummarizeThreshold' => $this->boot->config()->get('agents.defaults.context.autoSummarizeThreshold'),
+                    'autoSummarizeKeepRecent' => $this->boot->config()->get('agents.defaults.context.autoSummarizeKeepRecent'),
+                ],
+            ),
             agentRunner: $this->agentRunner,
             onHintsToggle: function () use ($io): void {
                 $this->hintsEnabled = !$this->hintsEnabled;
