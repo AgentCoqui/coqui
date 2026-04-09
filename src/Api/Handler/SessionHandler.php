@@ -14,12 +14,12 @@ use React\Http\Message\Response;
 /**
  * Session CRUD endpoints.
  *
- * GET    /api/sessions                    — list sessions
- * POST   /api/sessions                    — create session
- * GET    /api/sessions/{id}               — get session detail
- * PATCH  /api/sessions/{id}               — update session (title)
- * DELETE /api/sessions/{id}               — delete session
- * GET    /api/sessions/{id}/child-runs    — list child agent runs
+ * GET    /api/v1/sessions                    — list sessions
+ * POST   /api/v1/sessions                    — create session
+ * GET    /api/v1/sessions/{id}               — get session detail
+ * PATCH  /api/v1/sessions/{id}               — update session (title)
+ * DELETE /api/v1/sessions/{id}               — delete session
+ * GET    /api/v1/sessions/{id}/child-runs    — list child agent runs
  */
 final readonly class SessionHandler
 {
@@ -29,7 +29,7 @@ final readonly class SessionHandler
     ) {}
 
     /**
-     * GET /api/sessions?limit=50
+     * GET /api/v1/sessions?limit=50
      */
     public function list(ServerRequestInterface $request): Response
     {
@@ -45,7 +45,7 @@ final readonly class SessionHandler
     }
 
     /**
-     * POST /api/sessions  { "model_role"?: "orchestrator" }
+     * POST /api/v1/sessions  { "model_role"?: "orchestrator" }
      */
     public function create(ServerRequestInterface $request): Response
     {
@@ -58,7 +58,7 @@ final readonly class SessionHandler
         if (!$this->roleResolver->hasRole($modelRole)) {
             return Router::errorResponse(
                 ApiErrorCode::VALIDATION_ERROR,
-                sprintf('Unknown role "%s". Use GET /api/config/roles to see available roles.', $modelRole),
+                sprintf('Unknown role "%s". Use GET /api/v1/config/roles to see available roles.', $modelRole),
             );
         }
 
@@ -73,7 +73,7 @@ final readonly class SessionHandler
     }
 
     /**
-     * GET /api/sessions/{id}
+     * GET /api/v1/sessions/{id}
      */
     public function get(ServerRequestInterface $request, string $id): Response
     {
@@ -87,7 +87,7 @@ final readonly class SessionHandler
     }
 
     /**
-     * PATCH /api/sessions/{id}  { "title": "..." }
+     * PATCH /api/v1/sessions/{id}  { "title": "..." }
      */
     public function update(ServerRequestInterface $request, string $id): Response
     {
@@ -126,7 +126,7 @@ final readonly class SessionHandler
     }
 
     /**
-     * DELETE /api/sessions/{id}
+     * DELETE /api/v1/sessions/{id}
      */
     public function delete(ServerRequestInterface $request, string $id): Response
     {
@@ -142,7 +142,7 @@ final readonly class SessionHandler
     }
 
     /**
-     * GET /api/sessions/{id}/child-runs
+     * GET /api/v1/sessions/{id}/child-runs
      */
     public function childRuns(ServerRequestInterface $request, string $id): Response
     {

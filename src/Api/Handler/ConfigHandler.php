@@ -14,12 +14,12 @@ use React\Http\Message\Response;
 /**
  * Configuration read-only endpoints.
  *
- * GET  /api/config           — get full config (sanitized)
- * POST /api/config/validate  — dry-run validation
- * GET  /api/config/models    — list available models
+ * GET  /api/v1/config           — get full config (sanitized)
+ * POST /api/v1/config/validate  — dry-run validation
+ * GET  /api/v1/config/models    — list available models
  *
- * Config updates (PUT /api/config) are REPL-only.
- * Role management moved to RoleHandler (/api/config/roles/*).
+ * Config updates (PUT /api/v1/config) are REPL-only.
+ * Role management moved to RoleHandler (/api/v1/config/roles/*).
  */
 final readonly class ConfigHandler
 {
@@ -29,7 +29,7 @@ final readonly class ConfigHandler
     ) {}
 
     /**
-     * GET /api/config — return sanitized configuration.
+     * GET /api/v1/config — return sanitized configuration.
      *
      * Strips all apiKey values to prevent credential leakage.
      */
@@ -44,7 +44,7 @@ final readonly class ConfigHandler
     }
 
     /**
-     * POST /api/config/validate — dry-run validation without saving.
+     * POST /api/v1/config/validate — dry-run validation without saving.
      */
     public function validate(ServerRequestInterface $request): Response
     {
@@ -80,7 +80,7 @@ final readonly class ConfigHandler
     }
 
     /**
-     * GET /api/config/models — list available models with metadata.
+     * GET /api/v1/config/models — list available models with metadata.
      */
     public function models(ServerRequestInterface $request): Response
     {

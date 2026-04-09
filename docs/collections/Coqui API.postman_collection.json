@@ -50,9 +50,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/health",
+							"raw": "{{base_url}}/api/v1/health",
 							"host": ["{{base_url}}"],
-							"path": ["api", "health"]
+							"path": ["api", "v1", "health"]
 						},
 						"description": "Server liveness check. Returns status, version, uptime, and the number of currently active agent sessions. Does not require authentication."
 					},
@@ -82,9 +82,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/sessions?limit=50",
+							"raw": "{{base_url}}/api/v1/sessions?limit=50",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions"],
+							"path": ["api", "v1", "sessions"],
 							"query": [
 								{
 									"key": "limit",
@@ -140,9 +140,9 @@
 							"raw": "{\n  \"model_role\": \"orchestrator\"\n}"
 						},
 						"url": {
-							"raw": "{{base_url}}/api/sessions",
+							"raw": "{{base_url}}/api/v1/sessions",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions"]
+							"path": ["api", "v1", "sessions"]
 						},
 						"description": "Create a new session. The model_role field is optional and defaults to \"orchestrator\". The session ID is automatically saved to the session_id collection variable."
 					},
@@ -167,9 +167,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/sessions/{{session_id}}",
+							"raw": "{{base_url}}/api/v1/sessions/{{session_id}}",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions", "{{session_id}}"]
+							"path": ["api", "v1", "sessions", "{{session_id}}"]
 						},
 						"description": "Get details for a specific session."
 					},
@@ -206,9 +206,9 @@
 						"method": "DELETE",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/sessions/{{session_id}}",
+							"raw": "{{base_url}}/api/v1/sessions/{{session_id}}",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions", "{{session_id}}"]
+							"path": ["api", "v1", "sessions", "{{session_id}}"]
 						},
 						"description": "Delete a session and all its associated messages, turns, and data."
 					},
@@ -250,9 +250,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/sessions/{{session_id}}/messages",
+							"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/messages",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions", "{{session_id}}", "messages"]
+							"path": ["api", "v1", "sessions", "{{session_id}}", "messages"]
 						},
 						"description": "List all messages in a session, ordered chronologically. Messages include user prompts, assistant responses, and tool call/result records."
 					},
@@ -290,9 +290,9 @@
 							"raw": "{\n  \"prompt\": \"What files are in the src directory?\"\n}"
 						},
 						"url": {
-							"raw": "{{base_url}}/api/sessions/{{session_id}}/messages",
+							"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/messages",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions", "{{session_id}}", "messages"]
+							"path": ["api", "v1", "sessions", "{{session_id}}", "messages"]
 						},
 						"description": "Send a prompt to the agent. Returns a Server-Sent Event (SSE) stream with real-time updates: tool calls, tool results, child agent activity, and the final response.\n\nSSE Event Types:\n- agent_start: Agent turn has begun\n- iteration: Agent loop iteration number\n- tool_call: Agent is invoking a tool (includes tool name and arguments)\n- tool_result: Tool execution result\n- child_start / child_end: Child agent lifecycle\n- done: Agent content is ready\n- error: An error occurred\n- complete: Final event with full turn result (tokens, duration, tools used)\n\nNote: Postman's built-in SSE support will show the event stream. For programmatic use, parse each event block separated by blank lines."
 					},
@@ -358,9 +358,9 @@
 							"raw": "{\n  \"prompt\": \"What is 2 + 2?\"\n}"
 						},
 						"url": {
-							"raw": "{{base_url}}/api/sessions/{{session_id}}/messages?stream=false",
+							"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/messages?stream=false",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions", "{{session_id}}", "messages"],
+							"path": ["api", "v1", "sessions", "{{session_id}}", "messages"],
 							"query": [
 								{
 									"key": "stream",
@@ -408,9 +408,9 @@
 							]
 						},
 						"url": {
-							"raw": "{{base_url}}/api/sessions/{{session_id}}/files",
+							"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/files",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions", "{{session_id}}", "files"]
+							"path": ["api", "v1", "sessions", "{{session_id}}", "files"]
 						},
 						"description": "Upload one or more files to a session. Uses multipart/form-data. Supports images (JPEG, PNG, GIF, WebP) and documents (text, JSON, XML, PDF, YAML, etc.). Max 50 MiB per file, 20 files per request."
 					},
@@ -431,9 +431,9 @@
 									]
 								},
 								"url": {
-									"raw": "{{base_url}}/api/sessions/{{session_id}}/files",
+									"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/files",
 									"host": ["{{base_url}}"],
-									"path": ["api", "sessions", "{{session_id}}", "files"]
+									"path": ["api", "v1", "sessions", "{{session_id}}", "files"]
 								}
 							},
 							"status": "Created",
@@ -449,9 +449,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/sessions/{{session_id}}/files",
+							"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/files",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions", "{{session_id}}", "files"]
+							"path": ["api", "v1", "sessions", "{{session_id}}", "files"]
 						},
 						"description": "List all uploaded files for a session."
 					},
@@ -462,9 +462,9 @@
 								"method": "GET",
 								"header": [],
 								"url": {
-									"raw": "{{base_url}}/api/sessions/{{session_id}}/files",
+									"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/files",
 									"host": ["{{base_url}}"],
-									"path": ["api", "sessions", "{{session_id}}", "files"]
+									"path": ["api", "v1", "sessions", "{{session_id}}", "files"]
 								}
 							},
 							"status": "OK",
@@ -480,9 +480,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/sessions/{{session_id}}/files/{{file_id}}",
+							"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/files/{{file_id}}",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions", "{{session_id}}", "files", "{{file_id}}"]
+							"path": ["api", "v1", "sessions", "{{session_id}}", "files", "{{file_id}}"]
 						},
 						"description": "Download a specific uploaded file. Returns raw file content with appropriate Content-Type header."
 					},
@@ -493,9 +493,9 @@
 								"method": "GET",
 								"header": [],
 								"url": {
-									"raw": "{{base_url}}/api/sessions/{{session_id}}/files/nonexistent",
+									"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/files/nonexistent",
 									"host": ["{{base_url}}"],
-									"path": ["api", "sessions", "{{session_id}}", "files", "nonexistent"]
+									"path": ["api", "v1", "sessions", "{{session_id}}", "files", "nonexistent"]
 								}
 							},
 							"status": "Not Found",
@@ -511,9 +511,9 @@
 						"method": "DELETE",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/sessions/{{session_id}}/files/{{file_id}}",
+							"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/files/{{file_id}}",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions", "{{session_id}}", "files", "{{file_id}}"]
+							"path": ["api", "v1", "sessions", "{{session_id}}", "files", "{{file_id}}"]
 						},
 						"description": "Delete a specific uploaded file from a session."
 					},
@@ -524,9 +524,9 @@
 								"method": "DELETE",
 								"header": [],
 								"url": {
-									"raw": "{{base_url}}/api/sessions/{{session_id}}/files/{{file_id}}",
+									"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/files/{{file_id}}",
 									"host": ["{{base_url}}"],
-									"path": ["api", "sessions", "{{session_id}}", "files", "{{file_id}}"]
+									"path": ["api", "v1", "sessions", "{{session_id}}", "files", "{{file_id}}"]
 								}
 							},
 							"status": "OK",
@@ -540,9 +540,9 @@
 								"method": "DELETE",
 								"header": [],
 								"url": {
-									"raw": "{{base_url}}/api/sessions/{{session_id}}/files/nonexistent",
+									"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/files/nonexistent",
 									"host": ["{{base_url}}"],
-									"path": ["api", "sessions", "{{session_id}}", "files", "nonexistent"]
+									"path": ["api", "v1", "sessions", "{{session_id}}", "files", "nonexistent"]
 								}
 							},
 							"status": "Not Found",
@@ -563,9 +563,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/sessions/{{session_id}}/turns?limit=50",
+							"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/turns?limit=50",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions", "{{session_id}}", "turns"],
+							"path": ["api", "v1", "sessions", "{{session_id}}", "turns"],
 							"query": [
 								{
 									"key": "limit",
@@ -609,9 +609,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/sessions/{{session_id}}/turns/{{turn_id}}",
+							"raw": "{{base_url}}/api/v1/sessions/{{session_id}}/turns/{{turn_id}}",
 							"host": ["{{base_url}}"],
-							"path": ["api", "sessions", "{{session_id}}", "turns", "{{turn_id}}"]
+							"path": ["api", "v1", "sessions", "{{session_id}}", "turns", "{{turn_id}}"]
 						},
 						"description": "Get a single turn with its full list of associated messages. The messages array includes user prompts, assistant responses, and tool call/result records for this turn."
 					},
@@ -653,9 +653,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/config",
+							"raw": "{{base_url}}/api/v1/config",
 							"host": ["{{base_url}}"],
-							"path": ["api", "config"]
+							"path": ["api", "v1", "config"]
 						},
 						"description": "Returns the full Coqui configuration. API keys in provider configs are masked as \"***\" to prevent credential leakage."
 					},
@@ -680,9 +680,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/config/roles",
+							"raw": "{{base_url}}/api/v1/config/roles",
 							"host": ["{{base_url}}"],
-							"path": ["api", "config", "roles"]
+							"path": ["api", "v1", "config", "roles"]
 						},
 						"description": "Returns all roles with full metadata. Merges system roles (orchestrator), config-defined roles, and custom file-based roles. System roles have is_system=true and editable=false."
 					},
@@ -707,9 +707,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/config/roles/coder",
+							"raw": "{{base_url}}/api/v1/config/roles/coder",
 							"host": ["{{base_url}}"],
-							"path": ["api", "config", "roles", "coder"]
+							"path": ["api", "v1", "config", "roles", "coder"]
 						},
 						"description": "Get a single role with full details. System roles return metadata with editable=false. Custom roles include the full instruction text."
 					},
@@ -741,101 +741,14 @@
 					]
 				},
 				{
-					"name": "Create Role",
-					"request": {
-						"method": "POST",
-						"header": [
-							{
-								"key": "Content-Type",
-								"value": "application/json"
-							}
-						],
-						"body": {
-							"mode": "raw",
-							"raw": "{\n  \"name\": \"debugger\",\n  \"display_name\": \"Debugger\",\n  \"description\": \"Specializes in finding and fixing bugs\",\n  \"access_level\": \"full\",\n  \"instructions\": \"You are a debugging specialist...\"\n}"
-						},
-						"url": {
-							"raw": "{{base_url}}/api/config/roles",
-							"host": ["{{base_url}}"],
-							"path": ["api", "config", "roles"]
-						},
-						"description": "Create a new custom role. The name cannot be a reserved name (e.g. 'orchestrator')."
-					},
-					"response": [
-						{
-							"name": "Create Role — Success",
-							"status": "Created",
-							"code": 201,
-							"header": [
-								{
-									"key": "Content-Type",
-									"value": "application/json"
-								}
-							],
-							"body": "{\n  \"name\": \"debugger\",\n  \"display_name\": \"Debugger\",\n  \"description\": \"Specializes in finding and fixing bugs\",\n  \"version\": 1,\n  \"access_level\": \"full\",\n  \"is_builtin\": false,\n  \"is_system\": false,\n  \"editable\": true,\n  \"instructions\": \"You are a debugging specialist...\"\n}"
-						},
-						{
-							"name": "Create Role — Reserved Name",
-							"status": "Conflict",
-							"code": 409,
-							"header": [
-								{
-									"key": "Content-Type",
-									"value": "application/json"
-								}
-							],
-							"body": "{\n  \"error\": \"Role name 'orchestrator' is reserved and cannot be created\",\n  \"code\": \"role_reserved\"\n}"
-						}
-					]
-				},
-				{
-					"name": "Delete Role",
-					"request": {
-						"method": "DELETE",
-						"header": [],
-						"url": {
-							"raw": "{{base_url}}/api/config/roles/debugger",
-							"host": ["{{base_url}}"],
-							"path": ["api", "config", "roles", "debugger"]
-						},
-						"description": "Delete a custom role. System and built-in roles cannot be deleted."
-					},
-					"response": [
-						{
-							"name": "Delete Role — Success",
-							"status": "OK",
-							"code": 200,
-							"header": [
-								{
-									"key": "Content-Type",
-									"value": "application/json"
-								}
-							],
-							"body": "{\n  \"deleted\": true,\n  \"name\": \"debugger\"\n}"
-						},
-						{
-							"name": "Delete Role — System Role",
-							"status": "Conflict",
-							"code": 409,
-							"header": [
-								{
-									"key": "Content-Type",
-									"value": "application/json"
-								}
-							],
-							"body": "{\n  \"error\": \"System role 'orchestrator' cannot be deleted\",\n  \"code\": \"role_builtin\"\n}"
-						}
-					]
-				},
-				{
 					"name": "List Models",
 					"request": {
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/config/models",
+							"raw": "{{base_url}}/api/v1/config/models",
 							"host": ["{{base_url}}"],
-							"path": ["api", "config", "models"]
+							"path": ["api", "v1", "config", "models"]
 						},
 						"description": "Lists all available models from all configured providers, with metadata (reasoning capability, input types)."
 					},
@@ -865,9 +778,9 @@
 						"method": "GET",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/credentials",
+							"raw": "{{base_url}}/api/v1/credentials",
 							"host": ["{{base_url}}"],
-							"path": ["api", "credentials"]
+							"path": ["api", "v1", "credentials"]
 						},
 						"description": "List all stored credential keys. Values are never exposed — only key names and existence are returned."
 					},
@@ -901,9 +814,9 @@
 							"raw": "{\n  \"key\": \"BRAVE_API_KEY\",\n  \"value\": \"BSA1234567890abcdef\"\n}"
 						},
 						"url": {
-							"raw": "{{base_url}}/api/credentials",
+							"raw": "{{base_url}}/api/v1/credentials",
 							"host": ["{{base_url}}"],
-							"path": ["api", "credentials"]
+							"path": ["api", "v1", "credentials"]
 						},
 						"description": "Set or update a credential. The key must be UPPER_SNAKE_CASE. The value is stored in the workspace .env file and made available immediately via putenv() — no restart needed."
 					},
@@ -952,9 +865,9 @@
 						"method": "DELETE",
 						"header": [],
 						"url": {
-							"raw": "{{base_url}}/api/credentials/BRAVE_API_KEY",
+							"raw": "{{base_url}}/api/v1/credentials/BRAVE_API_KEY",
 							"host": ["{{base_url}}"],
-							"path": ["api", "credentials", "BRAVE_API_KEY"]
+							"path": ["api", "v1", "credentials", "BRAVE_API_KEY"]
 						},
 						"description": "Delete a credential by key name. The key is automatically uppercased."
 					},
