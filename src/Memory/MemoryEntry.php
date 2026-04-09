@@ -18,6 +18,8 @@ final readonly class MemoryEntry
         public ?string $id = null,
         public ?float $score = null,
         public ?DateTimeImmutable $createdAt = null,
+        public string $type = 'knowledge',
+        public ?DateTimeImmutable $validUntil = null,
     ) {}
 
     public function withId(string $id): self
@@ -29,6 +31,8 @@ final readonly class MemoryEntry
             $id,
             $this->score,
             $this->createdAt,
+            $this->type,
+            $this->validUntil,
         );
     }
 
@@ -41,6 +45,8 @@ final readonly class MemoryEntry
             $this->id,
             $score,
             $this->createdAt,
+            $this->type,
+            $this->validUntil,
         );
     }
 }

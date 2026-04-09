@@ -1,10 +1,15 @@
 ## Memory
 
-You have a persistent memory system backed by SQLite with importance scoring, composite relevance ranking, and automatic decay. Memories survive across sessions, are organized by area and tags, and ranked by a multi-dimensional score (similarity, recency, importance, access frequency). A summary of your core memories is injected at the start of your context; a key context reminder appears at the end.
+You have a persistent memory system backed by SQLite with importance scoring, composite relevance ranking, and automatic decay. Memories survive across sessions, are organized by area and tags, and ranked by a multi-dimensional score (similarity, recency, importance, access frequency). A summary of your core knowledge memories is injected as background context in your system prompt.
+
+### Memory Types
+
+- **`knowledge`** (default) — persistent background facts, preferences, and reference material. Knowledge memories are summarized and injected into your system prompt as background context. They are NOT active tasks.
+- **`task`** — actionable items with optional expiry. Task memories are NOT injected into the system prompt. They remain searchable via `memory_search` and can have a `valid_until` date for automatic expiry.
 
 ### Tools
 
-- `memory_save` — Save a new memory. Assign an **area** (`preferences`, `facts`, `solutions`, `context`), optional **tags** (comma-separated), and an **importance** score (0.0–1.0). Be specific and concise — write memories as standalone facts, not conversation fragments.
+- `memory_save` — Save a new memory. Assign an **area** (`preferences`, `facts`, `solutions`, `context`), optional **tags** (comma-separated), an **importance** score (0.0–1.0), a **type** (`knowledge` or `task`), and optional **valid_until** for task expiry. Be specific and concise — write memories as standalone facts, not conversation fragments.
 - `memory_search` — Hybrid search (vector similarity + full-text) with composite ranking. Results are scored by similarity, recency, importance, and access frequency. Use this to recall information before asking the user to repeat themselves.
 - `memory_update` — Update an existing memory by ID. Can also update importance. Prefer updating over creating duplicates.
 - `memory_delete` — Delete a single memory by ID.

@@ -79,6 +79,10 @@ final class MemoryExtractor
             $importance = max(0.0, min(1.0, (float) ($candidate['importance'])));
             $area = $this->validateArea($candidate['area']);
             $tags = $candidate['tags'];
+            $type = $candidate['type'] ?? 'knowledge';
+            $validUntil = isset($candidate['valid_until']) && $candidate['valid_until'] !== null
+                ? new \DateTimeImmutable($candidate['valid_until'])
+                : null;
 
             $this->memoryStore->save(new MemoryEntry(
                 content: $candidate['content'],
@@ -88,6 +92,8 @@ final class MemoryExtractor
                     'importance' => $importance,
                     'source' => 'auto_extraction',
                 ],
+                type: $type,
+                validUntil: $validUntil,
             ));
 
             $saved++;
@@ -238,8 +244,14 @@ final class MemoryExtractor
             "content": "Concise fact in one or two sentences",
             "area": "preferences|facts|solutions|context",
             "importance": 0.0-1.0,
-            "tags": "comma,separated,tags"
+            "tags": "comma,separated,tags",
+            "type": "knowledge|task",
+            "valid_until": "ISO 8601 date or null"
         }
+
+        **Type classification:**
+        - `knowledge` — persistent background facts, preferences, reference material (e.g. "User prefers dark mode", "Project uses PostgreSQL 16")
+        - `task` — actionable items the user wants to remember to do (e.g. "Remember to update the API docs", "Need to check the weather"). Set `valid_until` to an appropriate expiry date (default: 7 days from now if not obvious).
 
         Importance guide: 0.9+ = critical user preference or identity, 0.7-0.8 = important project fact, 0.5-0.6 = useful context, 0.3-0.4 = minor detail.
 
@@ -279,11 +291,33 @@ final class MemoryExtractor
                 if (mb_strlen($item['content']) < 10 || mb_strlen($item['content']) > 500) {
                     continue;
                 }
+
+                $type = is_string($item['type'] ?? null) && in_array($item['type'], ['knowledge', 'task'], true)
+                    ? $item['type']
+                    : 'knowledge';
+
+                $validUntil = null;
+                if ($type === 'task') {
+                    if (is_string($item['valid_until'] ?? null) && $item['valid_until'] !== '' && $item['valid_until'] !== 'null') {
+                        try {
+                            $validUntil = $item['valid_until'];
+                        } catch (\Throwable) {
+                            // Default to 7 days
+                            $validUntil = (new \DateTimeImmutable('+7 days'))->format('Y-m-d\TH:i:s');
+                        }
+                    } else {
+                        // Default task expiry: 7 days
+                        $validUntil = (new \DateTimeImmutable('+7 days'))->format('Y-m-d\TH:i:s');
+                    }
+                }
+
                 $valid[] = [
                     'content' => $item['content'],
                     'area' => is_string($item['area'] ?? null) ? $item['area'] : 'context',
                     'importance' => is_numeric($item['importance'] ?? null) ? (float) $item['importance'] : 0.5,
                     'tags' => is_string($item['tags'] ?? null) ? $item['tags'] : '',
+                    'type' => $type,
+                    'valid_until' => $validUntil,
                 ];
             }
 
