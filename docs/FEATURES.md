@@ -96,7 +96,7 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 **How to use it:**
 - The agent calls `schedule_create(name: "nightly-eval", expression: "0 2 * * *", prompt: "...", role: "evaluator")`.
 - Manage via REPL: `/schedules` to list all schedules.
-- Manage via API: `POST /api/v1/schedules`.
+- Inspect via API: `GET /api/v1/schedules`.
 - Failed schedules are automatically disabled after 3 consecutive failures (circuit breaker). Re-enable after investigating.
 
 ## <a id="webhooks"></a> 🔗 Webhooks

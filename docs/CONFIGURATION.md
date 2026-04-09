@@ -33,7 +33,7 @@ Config changes require a restart to take effect. Coqui loads configuration once 
 |---------------|-------------------|
 | `coqui --wizard` / `coqui -w` | Edit config without starting the REPL — changes apply on next launch |
 | `/config edit` (setup wizard) | Coqui prompts: "Restart now to apply?" — confirm to restart immediately |
-| API (`PUT /api/config`) | The API server restarts automatically after saving |
+| API (`POST /api/v1/config/validate`) | Validation only — apply changes through the REPL or a manual edit, then restart |
 | Manual edit in your editor | Use `/restart` in the REPL, or the `restart_coqui` agent tool |
 | Agent `config` tool (set/switch_model) | Agent can call `restart_coqui`, or you can use `/restart` |
 

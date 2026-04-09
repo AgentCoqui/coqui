@@ -1,5 +1,6 @@
 # Coqui Bot
 
+<!-- markdownlint-disable MD033 -->
 <p align="center">
     <picture>
         <img src="https://raw.githubusercontent.com/AgentCoqui/coqui/main/assets/coqui.webp" alt="Coqui" width="256" />
@@ -21,6 +22,7 @@
   <a href="https://coqui.space">Toolkits</a> ·
   <a href="https://github.com/sponsors/carmelosantana">Sponsor</a>
 </p>
+<!-- markdownlint-enable MD033 -->
 
 > **Book a 1:1 call** — paid sessions for real-time implementation help, AI agent consulting, or just to support Coqui's active development. [Schedule time →](https://cal.com/carmelosantana/coqui-1:1)
 
@@ -125,6 +127,7 @@ For automatic crash recovery and restart support, use the launcher:
 ```
 
 The launcher starts the REPL (foreground) + API server (background on port 3300) by default. It also handles:
+
 - **Clean exit** (exit code 0) — `/quit` stops the launcher and all background services
 - **Restart** (exit code 10) — `/restart` or the `restart_coqui` tool triggers an immediate relaunch
 - **Crash recovery** — unexpected exits auto-relaunch up to 3 consecutive times
@@ -172,7 +175,7 @@ See [docs/ROLES.md](docs/ROLES.md) for all built-in roles and [docs/COMMANDS.md]
 ### CLI Options
 
 | Option | Short | Description |
-|--------|-------|-------------|
+| --- | --- | --- |
 | `--config` | `-c` | Path to `openclaw.json` config file |
 | `--wizard` | `-w` | Run the setup wizard |
 | `--new` | | Start a fresh session |
@@ -189,7 +192,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full CLI reference including `a
 ## REPL Commands
 
 | Command | Description |
-|---------|-------------|
+| --- | --- |
 | `/new` | Start a new session |
 | `/sessions` | List all saved sessions |
 | `/resume <id>` | Resume a session by ID |
@@ -217,7 +220,7 @@ For the full config reference, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md
 ### Supported Providers
 
 | Provider | Protocol | API Key Env Var |
-|----------|----------|----------------|
+| --- | --- | --- |
 | Ollama (local) | `openai-completions` | — |
 | OpenAI | `openai-completions` | `OPENAI_API_KEY` |
 | OpenAI Responses | `openai-responses` | `OPENAI_API_KEY` |
@@ -315,7 +318,7 @@ Define short aliases for quick reference:
 Coqui ships with a rich set of tools organized into toolkits:
 
 | Category | Key Tools | Description |
-|----------|-----------|-------------|
+| --- | --- | --- |
 | **Agent** | `spawn_agent`, `restart_coqui` | Delegate to child agents, restart Coqui |
 | **Filesystem** | `read_file`, `write_file`, `replace_in_file`, `edit_history` | Sandboxed file I/O, surgical edits, undo history |
 | **Shell** | `exec` | Run shell commands (open by default; opt-in allowlist via `shellAllowedCommands`, `cwd` support) |
@@ -342,7 +345,7 @@ See [docs/TOOLKITS.md](docs/TOOLKITS.md) for the full walkthrough with examples.
 Coqui is optimized for low-latency agent loops. Key design decisions:
 
 | Metric | Value | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Cold boot | ~78 ms | Autoload + BootManager + workspace init |
 | Memory at boot | ~4 MB | Before toolkit discovery |
 | Memory with toolkits | ~8 MB | 44 tools, 7 packages |
@@ -414,7 +417,7 @@ ollama serve
 ### Useful Commands
 
 | Command | Description |
-|---------|-------------|
+| --- | --- |
 | `make start` | Start REPL + API (native) |
 | `make stop` | Stop all native services |
 | `make status` | Show service status |
@@ -444,7 +447,7 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 ### File Overview
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `Dockerfile` | PHP 8.4 CLI + extensions + Composer |
 | `compose.yaml` | Base service with workspace volume + host Ollama access |
 | `compose.api.yaml` | API server service (port 3300) — runs alongside REPL |
@@ -455,7 +458,7 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 ## Documentation
 
 | Document | Description |
-|----------|-------------|
+| --- | --- |
 | [Features](docs/FEATURES.md) | Complete feature reference with usage examples |
 | [Commands](docs/COMMANDS.md) | REPL slash commands and CLI reference |
 | [Roles](docs/ROLES.md) | Built-in roles, access levels, and custom role creation |
