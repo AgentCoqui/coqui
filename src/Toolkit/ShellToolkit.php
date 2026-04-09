@@ -113,6 +113,7 @@ final class ShellToolkit implements ToolkitInterface
             "Allowed commands: {$allowed}",
             "Timeout: {$this->timeout}s",
             '- Use shell commands for build, test, and system operations.',
+            '- Do not use shell just to run ad hoc PHP snippets or quick PHP validation; prefer php_execute for inline PHP execution.',
             '- Prefer specific commands over broad ones.',
             '- Always check exit codes and stderr.',
         ];
