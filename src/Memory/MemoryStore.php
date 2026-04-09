@@ -56,10 +56,12 @@ final class MemoryStore
         $tags = $entry->metadata['tags'] ?? '';
         $importance = (float) ($entry->metadata['importance'] ?? self::AREA_DEFAULT_IMPORTANCE[$entry->area] ?? 0.5);
         $metadata = json_encode($entry->metadata, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        $memoryType = $entry->type;
+        $validUntil = $entry->validUntil?->format('Y-m-d\TH:i:s');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO memories (id, content, area, tags, metadata, importance, created_at, updated_at)
-            VALUES (:id, :content, :area, :tags, :metadata, :importance, :created_at, :updated_at)
+            INSERT INTO memories (id, content, area, tags, metadata, importance, memory_type, valid_until, created_at, updated_at)
+            VALUES (:id, :content, :area, :tags, :metadata, :importance, :memory_type, :valid_until, :created_at, :updated_at)
         SQL);
 
         $stmt->execute([
@@ -69,6 +71,8 @@ final class MemoryStore
             ':tags' => $tags,
             ':metadata' => $metadata,
             ':importance' => $importance,
+            ':memory_type' => $memoryType,
+            ':valid_until' => $validUntil,
             ':created_at' => $now,
             ':updated_at' => $now,
         ]);
@@ -78,6 +82,8 @@ final class MemoryStore
 
         // Generate embedding if provider available
         $this->embedMemory($id, $entry->content);
+
+        $this->incrementCacheVersion();
 
         return $id;
     }
@@ -165,6 +171,8 @@ final class MemoryStore
         // Clean up lookup and embeddings
         $this->db->prepare('DELETE FROM memories_fts_lookup WHERE memory_id = :id')->execute([':id' => $id]);
         $this->db->prepare('DELETE FROM memory_embeddings WHERE memory_id = :id')->execute([':id' => $id]);
+
+        $this->incrementCacheVersion();
     }
 
     /**
@@ -282,6 +290,8 @@ final class MemoryStore
         // Regenerate embedding
         $this->db->prepare('DELETE FROM memory_embeddings WHERE memory_id = :id')->execute([':id' => $id]);
         $this->embedMemory($id, $content);
+
+        $this->incrementCacheVersion();
 
         return true;
     }
@@ -413,17 +423,23 @@ final class MemoryStore
     {
         $this->ensureTables();
 
-        // Fetch active memories ordered by importance for priority-sorted summaries
+        $now = (new DateTimeImmutable())->format('Y-m-d\TH:i:s');
+
+        // Fetch active knowledge memories — exclude task-type and expired memories
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
                    importance, access_count, last_accessed_at
             FROM memories
-            WHERE archived_at IS NULL AND area != :excluded_area
+            WHERE archived_at IS NULL
+              AND area != :excluded_area
+              AND memory_type != 'task'
+              AND (valid_until IS NULL OR valid_until > :now)
             ORDER BY importance DESC, access_count DESC, updated_at DESC
             LIMIT :limit
         SQL);
 
         $stmt->bindValue(':excluded_area', self::LEGACY_SESSION_SUMMARY_AREA);
+        $stmt->bindValue(':now', $now);
         $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
 
@@ -554,6 +570,46 @@ final class MemoryStore
     }
 
     /**
+     * Get the current cache version counter.
+     *
+     * Used by MemorySummarizer to detect content changes that don't alter count.
+     */
+    public function getCacheVersion(): int
+    {
+        $this->ensureTables();
+
+        try {
+            $stmt = $this->db->query('SELECT cache_version FROM memory_summary WHERE id = 1');
+
+            if ($stmt === false) {
+                return 0;
+            }
+
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            return $row !== false ? (int) ($row['cache_version'] ?? 0) : 0;
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    /**
+     * Increment the cache version counter after any mutation.
+     */
+    private function incrementCacheVersion(): void
+    {
+        try {
+            $now = (new DateTimeImmutable())->format('Y-m-d\TH:i:s');
+
+            // Ensure summary row exists, then increment
+            $this->db->exec("INSERT OR IGNORE INTO memory_summary (id, summary, memory_count, generated_at, cache_version) VALUES (1, '', 0, '{$now}', 0)");
+            $this->db->exec('UPDATE memory_summary SET cache_version = cache_version + 1 WHERE id = 1');
+        } catch (\Throwable) {
+            // Cache version failure is non-fatal
+        }
+    }
+
+    /**
      * Import entries from the legacy FileMemory MEMORY.md file.
      *
      * @param MemoryEntry[] $entries
@@ -665,6 +721,8 @@ final class MemoryStore
             'ALTER TABLE memories ADD COLUMN access_count INTEGER NOT NULL DEFAULT 0',
             'ALTER TABLE memories ADD COLUMN last_accessed_at TEXT',
             'ALTER TABLE memories ADD COLUMN archived_at TEXT',
+            'ALTER TABLE memories ADD COLUMN memory_type TEXT NOT NULL DEFAULT \'knowledge\'',
+            'ALTER TABLE memories ADD COLUMN valid_until TEXT',
         ];
 
         foreach ($migrations as $sql) {
@@ -678,12 +736,20 @@ final class MemoryStore
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_importance ON memories(importance)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_archived ON memories(archived_at)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_last_accessed ON memories(last_accessed_at)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_type ON memories(memory_type)');
 
-        // Migrate summary table for extraction tracking
-        try {
-            $this->db->exec('ALTER TABLE memory_summary ADD COLUMN last_extraction_at TEXT');
-        } catch (\PDOException) {
-            // Column already exists
+        // Migrate summary table for extraction tracking and cache versioning
+        $summaryMigrations = [
+            'ALTER TABLE memory_summary ADD COLUMN last_extraction_at TEXT',
+            'ALTER TABLE memory_summary ADD COLUMN cache_version INTEGER NOT NULL DEFAULT 0',
+        ];
+
+        foreach ($summaryMigrations as $sql) {
+            try {
+                $this->db->exec($sql);
+            } catch (\PDOException) {
+                // Column already exists
+            }
         }
 
         $this->tablesCreated = true;
@@ -1067,6 +1133,10 @@ final class MemoryStore
             metadata: $metadata,
             id: is_string($id) ? $id : null,
             createdAt: isset($row['created_at']) ? new DateTimeImmutable($row['created_at']) : null,
+            type: $row['memory_type'] ?? 'knowledge',
+            validUntil: isset($row['valid_until']) && $row['valid_until'] !== null
+                ? new DateTimeImmutable($row['valid_until'])
+                : null,
         );
     }
 

@@ -72,6 +72,10 @@ final class MemoryToolkit implements ToolkitInterface
         - `facts` (0.6) — key facts about the user, their environment, accounts, or setup
         - `context` (0.5) — project knowledge, architecture decisions, important codebase details
 
+        **Memory types:**
+        - `knowledge` (default) — persistent background facts, preferences, and reference material. Injected into system prompt as background knowledge.
+        - `task` — actionable items with optional expiry. NOT injected into the system prompt. Searchable via `memory_search`. Set `valid_until` for auto-expiry.
+
         **Importance scoring (0.0–1.0):**
         - Each memory has an importance score that affects retrieval ranking and decay
         - Defaults are assigned by area, but you can override with the `importance` parameter
@@ -109,6 +113,13 @@ final class MemoryToolkit implements ToolkitInterface
                 ),
                 new StringParameter('tags', 'Comma-separated tags for discoverability (e.g. "php, coding-style, preferences")', required: false),
                 new NumberParameter('importance', 'Importance score 0.0–1.0 (default: based on area). Set ≥ 0.9 to pin (exempt from decay)', required: false),
+                new EnumParameter(
+                    'type',
+                    'Memory type: knowledge (persistent background fact, injected into prompt) or task (actionable item, NOT injected into prompt)',
+                    ['knowledge', 'task'],
+                    required: false,
+                ),
+                new StringParameter('valid_until', 'Optional expiry date for task memories (ISO 8601, e.g. "2025-01-15T00:00:00"). Expired memories are automatically excluded from results.', required: false),
             ],
             callback: function (array $input): ToolResult {
                 $content = trim($input['content'] ?? '');
@@ -122,15 +133,30 @@ final class MemoryToolkit implements ToolkitInterface
                     $metadata['importance'] = max(0.0, min(1.0, (float) $input['importance']));
                 }
 
+                $type = $input['type'] ?? 'knowledge';
+                $validUntil = null;
+                if (isset($input['valid_until']) && $input['valid_until'] !== '') {
+                    try {
+                        $validUntil = new \DateTimeImmutable($input['valid_until']);
+                    } catch (\Throwable) {
+                        return ToolResult::error('Invalid valid_until date format. Use ISO 8601 (e.g. "2025-01-15T00:00:00").');
+                    }
+                }
+
                 $entry = new MemoryEntry(
                     content: $content,
                     area: $input['area'] ?? 'facts',
                     metadata: $metadata,
+                    type: $type,
+                    validUntil: $validUntil,
                 );
 
                 $id = $this->memoryStore->save($entry);
 
-                return ToolResult::success("Memory saved (id: {$id}, area: {$entry->area})");
+                $typeLabel = $type === 'task' ? ', type: task' : '';
+                $expiryLabel = $validUntil !== null ? ', expires: ' . $validUntil->format('Y-m-d') : '';
+
+                return ToolResult::success("Memory saved (id: {$id}, area: {$entry->area}{$typeLabel}{$expiryLabel})");
             },
         );
     }
