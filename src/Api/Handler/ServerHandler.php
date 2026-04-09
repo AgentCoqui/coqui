@@ -15,8 +15,8 @@ use React\Http\Message\Response;
 /**
  * Server status and control endpoints.
  *
- * GET  /api/server/info   — version, uptime, active sessions/tasks
- * GET  /api/server/stats  — database-level statistics
+ * GET  /api/v1/server/info   — version, uptime, active sessions/tasks
+ * GET  /api/v1/server/stats  — database-level statistics
  */
 final readonly class ServerHandler
 {
@@ -29,7 +29,7 @@ final readonly class ServerHandler
     ) {}
 
     /**
-     * GET /api/server/info — runtime info (version, uptime, load).
+     * GET /api/v1/server/info — runtime info (version, uptime, load).
      */
     public function info(ServerRequestInterface $request): Response
     {
@@ -62,7 +62,7 @@ final readonly class ServerHandler
     }
 
     /**
-     * GET /api/server/quality — detailed quality automation state.
+     * GET /api/v1/server/quality — detailed quality automation state.
      */
     public function quality(ServerRequestInterface $request): Response
     {
@@ -74,7 +74,7 @@ final readonly class ServerHandler
     }
 
     /**
-     * GET /api/server/stats — persistent database statistics.
+     * GET /api/v1/server/stats — persistent database statistics.
      */
     public function stats(ServerRequestInterface $request): Response
     {

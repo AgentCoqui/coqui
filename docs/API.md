@@ -186,6 +186,34 @@ The `code` field is a stable machine-readable string that clients can branch on 
 
 HTTP status codes follow standard conventions.
 
+## Client Workflow
+
+Use this document as the canonical HTTP API reference. The current API is best suited for three client patterns:
+
+1. Create or resume a session.
+2. Send prompts over SSE for live progress, or use `?stream=false` for a blocking JSON response.
+3. Inspect session state, turns, tasks, artifacts, todos, schedules, loops, and server status through read-oriented endpoints.
+
+### Conversation Model
+
+- **Session** — the durable conversation container.
+- **Turn** — one prompt/response cycle within a session.
+- **Message** — the stored user, assistant, and tool records produced during a turn.
+
+### Recommended Integration Flow
+
+1. Call `POST /api/v1/sessions` to create a session.
+2. Call `POST /api/v1/sessions/{id}/messages` to send prompts.
+3. Prefer SSE for interactive clients so you can surface iterations, tool calls, warnings, and completion metadata in real time.
+4. Use `GET /api/v1/sessions/{id}/messages` and `GET /api/v1/sessions/{id}/turns` for history and audit views.
+5. Treat loops, schedules, role editing, and most workflow mutations as REPL-first operations even if read APIs exist.
+
+### Streaming vs Blocking
+
+- Default behavior is `text/event-stream` with an initial `connected` event followed by agent lifecycle events and a final `complete` event.
+- Add `?stream=false` when your client wants one blocking JSON response instead of incremental updates.
+- Only one active run is allowed per session; concurrent prompts to the same session return `409 agent_busy`.
+
 ## Endpoints
 
 ### Health
@@ -374,36 +402,7 @@ Compress older conversation history into a concise summary, preserving recent tu
 }
 ```
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `keep_recent` | int | No | Config value or `10` | Number of recent turns to preserve (clamped 1–20) |
-| `focus` | string | No | — | Optional topic to emphasize in the summary |
-
-**Response `200`**
-
-```json
-{
-  "summarized": true,
-  "messages_summarized": 42,
-  "tokens_before": 24000,
-  "tokens_after": 8500,
-  "tokens_saved": 15500,
-  "summary": "Conversation summary text..."
-}
-```
-
-**Response `200`** — conversation too short:
-
-```json
-{
-  "summarized": false,
-  "reason": "Conversation too short to summarize."
-}
-```
-
-### Messages
-
-Messages are the conversation records within a session. Each message has a role (`user`, `assistant`, or `tool`).
+Conversation summarization is currently REPL-first and agent-tool driven. The HTTP API does not expose a summarize endpoint in the current router.
 
 #### `GET /api/v1/sessions/{id}/messages`
 
@@ -841,6 +840,8 @@ Get a single turn with its associated messages.
 
 ### Configuration
 
+The HTTP API exposes configuration inspection plus dry-run validation. Mutating config and role definitions remains REPL-only.
+
 #### `GET /api/v1/config`
 
 Returns the full Coqui configuration. API keys in provider configs are masked as `"***"`.
@@ -873,61 +874,6 @@ Returns the full Coqui configuration. API keys in provider configs are masked as
       }
     }
   }
-}
-```
-
-#### `PUT /api/v1/config`
-
-Write the full `openclaw.json` configuration. The body must be valid JSON. The file is pretty-printed before writing. Config changes require a restart because Coqui constructs long-lived providers, resolvers, and toolkits at boot.
-
-**Request Body**
-
-The complete `openclaw.json` content:
-
-```json
-{
-  "agents": {
-    "defaults": {
-      "model": {
-        "primary": "openai/gpt-5"
-      },
-      "roles": {
-        "orchestrator": "openai/gpt-5",
-        "coder": "anthropic/claude-sonnet-4-20250514"
-      }
-    }
-  }
-}
-```
-
-**Response `200`**
-
-```json
-{
-  "success": true,
-  "path": "/path/to/openclaw.json"
-}
-```
-
-**Response `400`** — invalid JSON:
-
-```json
-{
-  "error": "Invalid JSON",
-  "details": "Syntax error"
-}
-```
-
-**Response `400`** — validation errors:
-
-```json
-{
-  "error": "Config validation failed",
-  "code": "validation_error",
-  "details": [
-    "agents.defaults.model.primary must be in \"provider/model\" format, got: invalid",
-    "agents.defaults.mounts[0].alias must not contain path separators"
-  ]
 }
 ```
 
@@ -1027,97 +973,7 @@ Get a single role with full details. System roles return metadata without instru
 }
 ```
 
-#### `POST /api/v1/config/roles`
-
-Create a new custom role.
-
-**Request Body**
-
-```json
-{
-  "name": "debugger",
-  "display_name": "Debugger",
-  "description": "Specializes in finding and fixing bugs",
-  "access_level": "full",
-  "model": "anthropic/claude-sonnet-4-20250514",
-  "instructions": "You are a debugging specialist..."
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `name` | string | Yes | Unique role name (cannot be a reserved name) |
-| `instructions` | string | Yes | System prompt for the role |
-| `display_name` | string | No | Human-readable name (defaults to capitalized name) |
-| `description` | string | No | Brief description |
-| `access_level` | string | No | `full`, `readonly`, or `minimal` (default: `readonly`) |
-| `model` | string | No | Model override for this role |
-
-**Response `201`**
-
-Returns the created role properties with instructions.
-
-**Response `409`** — reserved name:
-
-```json
-{
-  "error": "Role name 'orchestrator' is reserved and cannot be created",
-  "code": "role_reserved"
-}
-```
-
-**Response `409`** — already exists:
-
-```json
-{
-  "error": "Role 'coder' already exists",
-  "code": "conflict"
-}
-```
-
-#### `PATCH /api/v1/config/roles/{name}`
-
-Update an existing custom role. All fields are optional — only provided fields are changed.
-
-**Request Body**
-
-```json
-{
-  "description": "Updated description",
-  "instructions": "Updated system prompt..."
-}
-```
-
-System roles cannot be modified:
-
-```json
-{
-  "error": "System role 'orchestrator' cannot be modified",
-  "code": "role_builtin"
-}
-```
-
-#### `DELETE /api/v1/config/roles/{name}`
-
-Delete a custom role.
-
-**Response `200`**
-
-```json
-{
-  "deleted": true,
-  "name": "debugger"
-}
-```
-
-System and built-in roles cannot be deleted:
-
-```json
-{
-  "error": "System role 'orchestrator' cannot be deleted",
-  "code": "role_builtin"
-}
-```
+Role creation, updates, and deletion are REPL-only operations in the current API design.
 
 #### `GET /api/v1/config/models`
 
@@ -1870,6 +1726,8 @@ Delete a todo and all its subtasks.
 
 Artifacts are versioned content objects scoped to a session. They support a lifecycle (`draft` → `review` → `final`) and are used for structured planning, code generation, and handoff between roles.
 
+The HTTP API currently exposes artifacts as read-only inspection resources. Artifact creation and mutation happen through the REPL or agent tools.
+
 #### `GET /api/v1/sessions/{id}/artifacts`
 
 List artifacts for a session with optional filters.
@@ -1904,34 +1762,6 @@ List artifacts for a session with optional filters.
 }
 ```
 
-#### `POST /api/v1/sessions/{id}/artifacts`
-
-Create a new artifact.
-
-**Request Body**
-
-```json
-{
-  "title": "API refactor plan",
-  "content": "## Steps\n1. Extract handlers...",
-  "type": "plan",
-  "language": "markdown",
-  "filepath": null
-}
-```
-
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `title` | string | Yes | — | Artifact title |
-| `content` | string | No | `""` | Initial content |
-| `type` | string | No | `"code"` | Artifact type (`code`, `plan`, `document`, etc.) |
-| `language` | string | No | `null` | Programming language (for code artifacts) |
-| `filepath` | string | No | `null` | Associated file path |
-
-**Response `201`**
-
-Returns the created artifact object.
-
 #### `GET /api/v1/sessions/{id}/artifacts/{artifactId}`
 
 Get a specific artifact with its current content.
@@ -1946,45 +1776,6 @@ Returns the full artifact object including content.
 {
   "error": "Artifact not found",
   "code": "not_found"
-}
-```
-
-#### `PATCH /api/v1/sessions/{id}/artifacts/{artifactId}`
-
-Update an artifact's content, title, or stage. If only `stage` is provided (no `content`), performs a stage-only transition.
-
-**Request Body**
-
-```json
-{
-  "content": "## Updated Steps\n1. ...",
-  "title": "Revised plan",
-  "stage": "review",
-  "change_summary": "Added error handling steps"
-}
-```
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `content` | string | No | New artifact content (creates new version) |
-| `title` | string | No | Updated title |
-| `stage` | string | No | Lifecycle stage transition (`draft`, `review`, `final`) |
-| `change_summary` | string | No | Description of changes for version history |
-
-**Response `200`**
-
-Returns the updated artifact object.
-
-#### `DELETE /api/v1/sessions/{id}/artifacts/{artifactId}`
-
-Delete an artifact and all its version history.
-
-**Response `200`**
-
-```json
-{
-  "deleted": true,
-  "id": "art_1a2b3c4d"
 }
 ```
 
@@ -2020,6 +1811,8 @@ List all versions of an artifact.
 ### Schedules
 
 Schedules enable autonomous, timer-driven execution via cron-style expressions. The API server evaluates due schedules every 60 seconds and creates background tasks automatically. A circuit breaker auto-disables schedules after consecutive failures.
+
+The HTTP API currently exposes schedules as read-only monitoring resources. Create, update, delete, trigger, enable, and disable actions are REPL-first.
 
 #### `GET /api/v1/schedules`
 
@@ -2066,40 +1859,6 @@ List all schedules with optional filters.
 }
 ```
 
-#### `POST /api/v1/schedules`
-
-Create a new schedule.
-
-**Request Body**
-
-```json
-{
-  "name": "daily-review",
-  "schedule_expression": "0 9 * * 1-5",
-  "prompt": "Review recent changes in the codebase",
-  "role": "coder",
-  "max_iterations": 30,
-  "timezone": "America/New_York",
-  "description": "Weekday code review",
-  "max_failures": 5
-}
-```
-
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `name` | string | Yes | — | Unique name (lowercase, hyphens, underscores, max 100 chars) |
-| `schedule_expression` | string | Yes | — | 5-field cron expression or `@once` |
-| `prompt` | string | Yes | — | Task prompt (max 50,000 chars) |
-| `role` | string | No | `"orchestrator"` | Agent role for the task |
-| `max_iterations` | int | No | `48` | Max iterations per run (1–100) |
-| `timezone` | string | No | `"UTC"` | IANA timezone for cron evaluation |
-| `description` | string | No | `null` | Human-readable description |
-| `max_failures` | int | No | `3` | Circuit breaker threshold (1–100) |
-
-**Response `201`** — schedule created with computed `next_run_at`.
-
-**Response `400`** — validation error (invalid cron, duplicate name, invalid timezone).
-
 #### `GET /api/v1/schedules/{id}`
 
 Get a schedule by ID.
@@ -2108,74 +1867,14 @@ Get a schedule by ID.
 
 **Response `404`** — schedule not found.
 
-#### `PATCH /api/v1/schedules/{id}`
 
-Update a schedule. Only provided fields are changed.
-
-**Request Body** — any subset of: `schedule_expression`, `prompt`, `role`, `max_iterations`, `enabled`, `timezone`, `description`, `max_failures`.
-
-**Response `200`** — updated schedule object.
-
-**Response `400`** — validation error.
-
-**Response `404`** — schedule not found.
-
-#### `DELETE /api/v1/schedules/{id}`
-
-Delete a schedule permanently.
-
-**Response `200`**
-
-```json
-{
-  "deleted": true
-}
-```
-
-**Response `404`** — schedule not found.
-
-#### `POST /api/v1/schedules/{id}/trigger`
-
-Immediately execute a schedule, creating a background task without waiting for the next cron tick.
-
-**Response `200`**
-
-```json
-{
-  "triggered": true,
-  "task_id": "t1a2b3c4d5e6f7g8"
-}
-```
-
-**Response `404`** — schedule not found.
-
-#### `POST /api/v1/schedules/{id}/enable`
-
-Enable a disabled schedule and reset its failure counter.
-
-**Response `200`**
-
-```json
-{
-  "enabled": true
-}
-```
-
-#### `POST /api/v1/schedules/{id}/disable`
-
-Disable a schedule. The schedule is preserved and can be re-enabled later.
-
-**Response `200`**
-
-```json
-{
-  "disabled": true
-}
-```
+Schedule mutation endpoints are not part of the current HTTP surface.
 
 ### Loops
 
 Loops are fully automated, multi-iteration workflows that string together existing agent roles in sequence. Each role processes the output of the previous one, repeating until a termination condition is met.
+
+The HTTP API currently exposes loops as read-only monitoring resources. Loop creation and lifecycle control stay in the REPL or agent-tool workflow.
 
 #### `GET /api/v1/loops`
 
@@ -2204,37 +1903,6 @@ List all loops with optional status filter.
     }
   ],
   "count": 1
-}
-```
-
-#### `POST /api/v1/loops`
-
-Create and start a new loop from a definition.
-
-**Request Body**
-
-```json
-{
-  "definition": "harness",
-  "goal": "Implement a new caching layer with Redis support",
-  "session_id": "optional-session-id"
-}
-```
-
-| Field | Type | Required | Description |
-| --- | --- | --- | --- |
-| `definition` | string | Yes | Name of a loop definition (e.g. `harness`, `research`) |
-| `goal` | string | Yes | The goal prompt for the loop |
-| `session_id` | string | No | Session to associate with (auto-created if omitted) |
-
-**Response `201`**
-
-```json
-{
-  "id": "abc123",
-  "definition": "harness",
-  "goal": "Implement a new caching layer with Redis support",
-  "status": "running"
 }
 ```
 
@@ -2281,53 +1949,8 @@ Get detailed loop status including current iteration and stage information.
 }
 ```
 
-#### `DELETE /api/v1/loops/{id}`
 
-Delete a loop and all its iteration/stage records.
-
-**Response `200`**
-
-```json
-{
-  "deleted": true
-}
-```
-
-#### `POST /api/v1/loops/{id}/pause`
-
-Pause a running loop. The loop preserves its current position and can be resumed.
-
-**Response `200`**
-
-```json
-{
-  "status": "paused"
-}
-```
-
-#### `POST /api/v1/loops/{id}/resume`
-
-Resume a paused loop from where it left off.
-
-**Response `200`**
-
-```json
-{
-  "status": "running"
-}
-```
-
-#### `POST /api/v1/loops/{id}/stop`
-
-Stop/cancel a running or paused loop.
-
-**Response `200`**
-
-```json
-{
-  "status": "cancelled"
-}
-```
+Loop mutation endpoints are not part of the current HTTP surface.
 
 #### `GET /api/v1/loops/{id}/iterations`
 
@@ -2819,35 +2442,31 @@ Each prompt submission runs inside a PHP Fiber. The ReactPHP event loop remains 
 
 ## REPL Command Mapping
 
-Every REPL slash command has an API equivalent, allowing dashboards and client apps to provide the same functionality.
+The API overlaps with the REPL, but it does **not** mirror every slash command. The current HTTP surface focuses on session execution plus read-heavy inspection.
 
 | REPL Command | API Equivalent | Notes |
 |---|---|---|
 | `/new` | `POST /api/v1/sessions` | Creates a new session |
 | `/sessions` | `GET /api/v1/sessions` | Lists all sessions |
-| `/resume <id>` | `POST /api/v1/sessions/{id}/messages` | Send a message to an existing session |
 | `/history` | `GET /api/v1/sessions/{id}/messages` | Lists all messages in a session |
 | `/model` | `GET /api/v1/config/models` | Lists available models and current config |
-| `/config show` | `GET /api/v1/config` | Returns current configuration (sanitized) |
-| `/config edit` | `PUT /api/v1/config` | Writes the full configuration |
+| `/config` | `GET /api/v1/config` | Returns current configuration (sanitized) |
 | `/tasks` | `GET /api/v1/tasks` | Lists background tasks |
 | `/task <id>` | `GET /api/v1/tasks/{id}` | Gets task detail |
 | `/task-cancel <id>` | `POST /api/v1/tasks/{id}/cancel` | Cancels a running or pending task |
-| `/restart` | `POST /api/v1/server/restart` | Triggers a graceful server restart |
-| `/update` | `POST /api/v1/server/update` | Checks for and applies dependency updates |
-| `/quit` | — | N/A — the API server is managed by the launcher or process manager |
 | `/help` | `GET /api/v1/server/info` | Returns available commands and server capabilities |
 | `/toolkits` | `GET /api/v1/toolkits` | Lists all toolkit packages and tools with visibility |
 | `/toolkits enable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to enabled |
 | `/toolkits stub <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to stub |
 | `/toolkits disable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to disabled |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
+| `/budget` | `GET /api/v1/server/budget` | Returns prompt and toolkit budget info |
 | `/loops` | `GET /api/v1/loops` | Lists all loops with status and progress |
 | `/loops definitions` | `GET /api/v1/loops/definitions` | Shows available loop definitions |
 | `/loops status <id>` | `GET /api/v1/loops/{id}` | Detailed status of a specific loop |
-| `/loops pause <id\|all>` | `POST /api/v1/loops/{id}/pause` | Pauses running loop(s) |
-| `/loops resume <id\|all>` | `POST /api/v1/loops/{id}/resume` | Resumes paused loop(s) |
-| `/loops stop <id\|all>` | `POST /api/v1/loops/{id}/stop` | Stops/cancels loop(s) |
+| `/schedules` | `GET /api/v1/schedules` | Lists schedules |
+
+Mutating REPL workflows such as `/config edit`, `/roles update`, `/loops pause`, `/loops resume`, `/loops stop`, and most schedule management remain REPL-first by design. See [REPL-API-DIVERGENCES.md](REPL-API-DIVERGENCES.md) for the current boundary.
 
 ## Quick Reference
 
@@ -2860,7 +2479,7 @@ Every REPL slash command has an API equivalent, allowing dashboards and client a
 | `PATCH` | `/api/v1/sessions/{id}` | Yes | Update session (title) |
 | `DELETE` | `/api/v1/sessions/{id}` | Yes | Delete session |
 | `GET` | `/api/v1/sessions/{id}/messages` | Yes | List messages |
-| `POST` | `/api/v1/sessions/{id}/messages` | Yes | Send prompt (SSE stream) |
+| `POST` | `/api/v1/sessions/{id}/messages` | Yes | Send prompt (`SSE` by default, `?stream=false` for blocking) |
 | `DELETE` | `/api/v1/sessions/{id}/messages/{messageId}` | Yes | Delete a message |
 | `POST` | `/api/v1/sessions/{id}/files` | Yes | Upload files (multipart) |
 | `GET` | `/api/v1/sessions/{id}/files` | Yes | List uploaded files |
@@ -2870,14 +2489,12 @@ Every REPL slash command has an API equivalent, allowing dashboards and client a
 | `GET` | `/api/v1/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
 | `GET` | `/api/v1/sessions/{id}/child-runs` | Yes | List child agent runs |
 | `GET` | `/api/v1/config` | Yes | Get config (sanitized) |
-| `PUT` | `/api/v1/config` | Yes | Update config (full write) |
+| `POST` | `/api/v1/config/validate` | Yes | Validate a candidate config payload |
 | `GET` | `/api/v1/config/roles` | Yes | List all roles |
 | `GET` | `/api/v1/config/roles/{name}` | Yes | Get role detail |
-| `POST` | `/api/v1/config/roles` | Yes | Create custom role |
-| `PATCH` | `/api/v1/config/roles/{name}` | Yes | Update custom role |
-| `DELETE` | `/api/v1/config/roles/{name}` | Yes | Delete custom role |
 | `GET` | `/api/v1/config/models` | Yes | List available models |
 | `GET` | `/api/v1/credentials` | Yes | List credential keys |
+| `GET` | `/api/v1/credentials/requirements` | Yes | List declared credential requirements |
 | `POST` | `/api/v1/credentials` | Yes | Set a credential |
 | `DELETE` | `/api/v1/credentials/{key}` | Yes | Delete a credential |
 | `POST` | `/api/v1/tasks` | Yes | Create background task |
@@ -2886,29 +2503,21 @@ Every REPL slash command has an API equivalent, allowing dashboards and client a
 | `GET` | `/api/v1/tasks/{id}/events` | Yes | Stream task events (SSE) |
 | `POST` | `/api/v1/tasks/{id}/input` | Yes | Inject input into running task |
 | `POST` | `/api/v1/tasks/{id}/cancel` | Yes | Cancel a task |
-| `POST` | `/api/v1/server/restart` | Yes | Trigger graceful restart |
-| `POST` | `/api/v1/server/update` | Yes | Check and apply updates |
+| `GET` | `/api/v1/evaluations` | Yes | List saved evaluation reports |
+| `GET` | `/api/v1/evaluations/stats` | Yes | Get evaluation aggregates |
+| `GET` | `/api/v1/evaluations/{id}` | Yes | Get evaluation detail |
 | `GET` | `/api/v1/server/stats` | Yes | Database and server statistics |
+| `GET` | `/api/v1/server/quality` | Yes | Quality and health summary |
 | `GET` | `/api/v1/server/info` | Yes | Server capabilities and commands |
+| `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt |
+| `GET` | `/api/v1/server/budget` | Yes | Get prompt and toolkit budget state |
 | `GET` | `/api/v1/toolkits` | Yes | List toolkits and tools with visibility |
 | `POST` | `/api/v1/toolkits/visibility` | Yes | Set package or tool visibility |
-| `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt |
 | `GET` | `/api/v1/schedules` | Yes | List schedules |
-| `POST` | `/api/v1/schedules` | Yes | Create schedule |
 | `GET` | `/api/v1/schedules/{id}` | Yes | Get schedule |
-| `PATCH` | `/api/v1/schedules/{id}` | Yes | Update schedule |
-| `DELETE` | `/api/v1/schedules/{id}` | Yes | Delete schedule |
-| `POST` | `/api/v1/schedules/{id}/trigger` | Yes | Trigger schedule immediately |
-| `POST` | `/api/v1/schedules/{id}/enable` | Yes | Enable schedule |
-| `POST` | `/api/v1/schedules/{id}/disable` | Yes | Disable schedule |
 | `GET` | `/api/v1/loops` | Yes | List loops |
-| `POST` | `/api/v1/loops` | Yes | Create/start loop |
 | `GET` | `/api/v1/loops/definitions` | Yes | List loop definitions |
 | `GET` | `/api/v1/loops/{id}` | Yes | Get loop details |
-| `DELETE` | `/api/v1/loops/{id}` | Yes | Delete loop |
-| `POST` | `/api/v1/loops/{id}/pause` | Yes | Pause loop |
-| `POST` | `/api/v1/loops/{id}/resume` | Yes | Resume loop |
-| `POST` | `/api/v1/loops/{id}/stop` | Yes | Stop/cancel loop |
 | `GET` | `/api/v1/loops/{id}/iterations` | Yes | List loop iterations |
 | `GET` | `/api/v1/loops/{id}/iterations/{iterationId}` | Yes | Get iteration with stages |
 | `POST` | `/api/v1/webhooks/incoming/{name}` | No* | Receive webhook (signature-verified) |
@@ -2919,10 +2528,11 @@ Every REPL slash command has an API equivalent, allowing dashboards and client a
 | `DELETE` | `/api/v1/webhooks/{id}` | Yes | Delete webhook |
 | `POST` | `/api/v1/webhooks/{id}/rotate` | Yes | Rotate signing secret |
 | `GET` | `/api/v1/webhooks/{id}/deliveries` | Yes | List delivery logs |
-| `POST` | `/api/v1/sessions/{id}/summarize` | Yes | Summarize conversation |
 | `GET` | `/api/v1/sessions/{id}/artifacts` | Yes | List artifacts |
-| `POST` | `/api/v1/sessions/{id}/artifacts` | Yes | Create artifact |
 | `GET` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Get artifact |
-| `PATCH` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Update artifact |
-| `DELETE` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Delete artifact |
 | `GET` | `/api/v1/sessions/{id}/artifacts/{artifactId}/versions` | Yes | List artifact versions |
+| `GET` | `/api/v1/sessions/{id}/todos` | Yes | List todos |
+| `GET` | `/api/v1/sessions/{id}/todos/stats` | Yes | Get todo statistics |
+| `GET` | `/api/v1/sessions/{id}/todos/{todoId}` | Yes | Get todo detail |
+
+Mutation-heavy workflows for roles, schedules, loops, artifacts, todos, summarization, restart, and update continue to live in the REPL and agent tool layer rather than the HTTP API.

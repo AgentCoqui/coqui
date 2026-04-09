@@ -14,7 +14,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
 /**
- * GET /api/health — liveness check with uptime and active session count.
+ * GET /api/v1/health — liveness check with uptime and active session count.
  */
 final readonly class HealthHandler
 {

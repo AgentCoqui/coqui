@@ -65,6 +65,8 @@ Or use **Docker** — no local PHP required. See [Docker](#docker) below.
 
 The installer detects your OS, installs PHP 8.4+ and required extensions if missing, downloads the latest Coqui release, verifies the SHA-256 checksum, and adds `coqui` to your PATH — no Git or Composer required.
 
+Platform expectations are straightforward: Linux and macOS are fully supported, WSL2 is the recommended Windows development path, and native Windows currently targets basic installer and REPL usage.
+
 ### Linux / macOS / WSL2
 
 ```bash
@@ -458,8 +460,13 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 | [Commands](docs/COMMANDS.md) | REPL slash commands and CLI reference |
 | [Roles](docs/ROLES.md) | Built-in roles, access levels, and custom role creation |
 | [Configuration](docs/CONFIGURATION.md) | `openclaw.json` reference |
-| [API](docs/API.md) | HTTP API endpoints |
+| [API](docs/API.md) | Canonical HTTP API reference |
+| [App API Usage](docs/APP-API-USAGE.md) | Client integration patterns for apps and dashboards |
+| [REPL/API Divergences](docs/REPL-API-DIVERGENCES.md) | Features intentionally kept out of the HTTP surface |
 | [Background Tasks](docs/BACKGROUND-TASKS.md) | Background task architecture and usage |
+| [Loops](docs/LOOPS.md) | Loop definitions, runtime model, and inspection |
+| [Todos](docs/TODOS.md) | Planning and todo workflow |
+| [Artifacts](docs/ARTIFACTS.md) | Artifact lifecycle and versioning |
 | [Testing](docs/TESTING.md) | Test layout, local commands, coverage, and PCOV/Xdebug setup |
 | [Toolkits](docs/TOOLKITS.md) | Creating toolkit packages |
 | [Skills](docs/SKILLS.md) | Skills system and schema |

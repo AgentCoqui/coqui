@@ -207,6 +207,23 @@ coqui doctor --json       # Output results as JSON
 | `--repair` | | Automatically fix detected issues |
 | `--json` | | Output results as JSON |
 
+### `coqui benchmark`
+
+Run lightweight performance benchmarks against key Coqui subsystems such as boot, token estimation, SQLite setup, and autoloader hot paths.
+
+```bash
+coqui benchmark
+coqui benchmark --iterations 250
+coqui benchmark --json
+```
+
+| Option | Short | Description |
+| --- | --- | --- |
+| `--iterations <n>` | `-i` | Number of iterations per benchmark. Default: `100` |
+| `--json` | | Output machine-readable JSON instead of console tables |
+| `--config <path>` | `-c` | Path to `openclaw.json` |
+| `--workdir <path>` | `-w` | Working directory used for boot benchmarking |
+
 ## Launcher
 
 The `coqui-launcher` script manages the REPL and API as co-processes with crash recovery and restart support.

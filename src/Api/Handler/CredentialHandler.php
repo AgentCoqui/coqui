@@ -14,9 +14,9 @@ use React\Http\Message\Response;
 /**
  * Credential management endpoints.
  *
- * GET    /api/credentials       — list credential keys (values hidden)
- * POST   /api/credentials       — set a credential
- * DELETE /api/credentials/{key} — delete a credential
+ * GET    /api/v1/credentials       — list credential keys (values hidden)
+ * POST   /api/v1/credentials       — set a credential
+ * DELETE /api/v1/credentials/{key} — delete a credential
  */
 final readonly class CredentialHandler
 {
@@ -26,7 +26,7 @@ final readonly class CredentialHandler
     ) {}
 
     /**
-     * GET /api/credentials — list all credential keys.
+     * GET /api/v1/credentials — list all credential keys.
      *
      * Values are never exposed — only existence is returned.
      */
@@ -49,7 +49,7 @@ final readonly class CredentialHandler
     }
 
     /**
-     * POST /api/credentials  { "key": "NAME", "value": "secret" }
+     * POST /api/v1/credentials  { "key": "NAME", "value": "secret" }
      */
     public function set(ServerRequestInterface $request): Response
     {
@@ -81,7 +81,7 @@ final readonly class CredentialHandler
     }
 
     /**
-     * DELETE /api/credentials/{key}
+     * DELETE /api/v1/credentials/{key}
      */
     public function delete(ServerRequestInterface $request, string $key): Response
     {
@@ -100,7 +100,7 @@ final readonly class CredentialHandler
     }
 
     /**
-     * GET /api/credentials/requirements — list all credential requirements from installed packages.
+     * GET /api/v1/credentials/requirements — list all credential requirements from installed packages.
      *
      * Returns credential metadata (name, description, optional) merged with
      * current set-status so clients see the full picture in one call.

@@ -17,12 +17,12 @@ use React\Stream\ThroughStream;
 /**
  * Background task API endpoints.
  *
- * POST   /api/tasks              — create a new background task
- * GET    /api/tasks              — list tasks
- * GET    /api/tasks/{id}         — get task detail
- * GET    /api/tasks/{id}/events  — SSE event stream (long-poll)
- * POST   /api/tasks/{id}/input   — inject user input into running task
- * POST   /api/tasks/{id}/cancel  — cancel a task
+ * POST   /api/v1/tasks              — create a new background task
+ * GET    /api/v1/tasks              — list tasks
+ * GET    /api/v1/tasks/{id}         — get task detail
+ * GET    /api/v1/tasks/{id}/events  — SSE event stream (long-poll)
+ * POST   /api/v1/tasks/{id}/input   — inject user input into running task
+ * POST   /api/v1/tasks/{id}/cancel  — cancel a task
  */
 final readonly class TaskHandler
 {
@@ -36,7 +36,7 @@ final readonly class TaskHandler
     ) {}
 
     /**
-     * POST /api/tasks
+     * POST /api/v1/tasks
      *
      * Body: { "prompt": "...", "role"?: "orchestrator", "title"?: "...",
      *         "parent_session_id"?: "...", "max_iterations"?: 25 }
@@ -63,7 +63,7 @@ final readonly class TaskHandler
         if (!$this->roleResolver->hasRole($role)) {
             return Router::errorResponse(
                 ApiErrorCode::ROLE_NOT_FOUND,
-                sprintf('Unknown role "%s". Use GET /api/config/roles to see available roles.', $role),
+                sprintf('Unknown role "%s". Use GET /api/v1/config/roles to see available roles.', $role),
             );
         }
 
@@ -110,7 +110,7 @@ final readonly class TaskHandler
     }
 
     /**
-     * GET /api/tasks?status=running&limit=50
+     * GET /api/v1/tasks?status=running&limit=50
      */
     public function list(ServerRequestInterface $request): Response
     {
@@ -129,7 +129,7 @@ final readonly class TaskHandler
     }
 
     /**
-     * GET /api/tasks/{id}
+     * GET /api/v1/tasks/{id}
      */
     public function get(ServerRequestInterface $request, string $id): Response
     {
@@ -172,7 +172,7 @@ final readonly class TaskHandler
     }
 
     /**
-     * GET /api/tasks/{id}/events?since_id=0
+     * GET /api/v1/tasks/{id}/events?since_id=0
      *
      * Returns an SSE stream that delivers task events in real time.
      * Uses long-polling: the stream checks for new events every second
@@ -263,7 +263,7 @@ final readonly class TaskHandler
     }
 
     /**
-     * POST /api/tasks/{id}/input  { "content": "..." }
+     * POST /api/v1/tasks/{id}/input  { "content": "..." }
      *
      * Inject user input into a running task's conversation.
      */
@@ -300,7 +300,7 @@ final readonly class TaskHandler
     }
 
     /**
-     * POST /api/tasks/{id}/cancel
+     * POST /api/v1/tasks/{id}/cancel
      */
     public function cancel(ServerRequestInterface $request, string $id): Response
     {
