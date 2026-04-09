@@ -389,7 +389,7 @@ Delete a session and all its associated data.
 }
 ```
 
-#### `POST /api/v1/sessions/{id}/summarize`
+#### Conversation Summarization
 
 Compress older conversation history into a concise summary, preserving recent turns and workflow state (todos, artifacts).
 
@@ -883,7 +883,7 @@ Dry-run validation of a config object without saving. Use this to validate confi
 
 **Request Body**
 
-The complete `openclaw.json` content (same format as `PUT /api/v1/config`).
+The complete `openclaw.json` content.
 
 **Response `200`** — valid:
 

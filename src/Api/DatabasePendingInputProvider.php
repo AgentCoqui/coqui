@@ -12,7 +12,7 @@ use CoquiBot\Coqui\Storage\SessionStorage;
  * Reads pending user input from the task_inputs table.
  *
  * Used by background task processes to receive mid-run input
- * injected via the API (POST /api/tasks/{id}/input).
+ * injected via the API (POST /api/v1/tasks/{id}/input).
  *
  * Each call to consumePendingInputs() atomically consumes all
  * unconsumed inputs and converts them to UserMessage objects.

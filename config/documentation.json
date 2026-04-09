@@ -163,7 +163,7 @@
                     "line_end": 391
                 },
                 {
-                    "heading": "`POST /api/v1/sessions/{id}/summarize`",
+                    "heading": "Conversation Summarization",
                     "level": 4,
                     "line_start": 392,
                     "line_end": 406
@@ -2626,205 +2626,205 @@
                     "heading": "Coqui Bot",
                     "level": 1,
                     "line_start": 1,
-                    "line_end": 34
+                    "line_end": 36
                 },
                 {
                     "heading": "Features",
                     "level": 2,
-                    "line_start": 35,
-                    "line_end": 55
+                    "line_start": 37,
+                    "line_end": 57
                 },
                 {
                     "heading": "Requirements",
                     "level": 2,
-                    "line_start": 56,
-                    "line_end": 63
+                    "line_start": 58,
+                    "line_end": 65
                 },
                 {
                     "heading": "Installation",
                     "level": 2,
-                    "line_start": 64,
-                    "line_end": 69
+                    "line_start": 66,
+                    "line_end": 71
                 },
                 {
                     "heading": "Linux / macOS / WSL2",
                     "level": 3,
-                    "line_start": 70,
-                    "line_end": 75
+                    "line_start": 72,
+                    "line_end": 77
                 },
                 {
                     "heading": "Windows (PowerShell)",
                     "level": 3,
-                    "line_start": 76,
-                    "line_end": 83
+                    "line_start": 78,
+                    "line_end": 85
                 },
                 {
                     "heading": "Update",
                     "level": 3,
-                    "line_start": 84,
-                    "line_end": 87
+                    "line_start": 86,
+                    "line_end": 89
                 },
                 {
                     "heading": "Inspect before running",
                     "level": 3,
-                    "line_start": 88,
-                    "line_end": 92
+                    "line_start": 90,
+                    "line_end": 94
                 },
                 {
                     "heading": "Development Install",
                     "level": 3,
-                    "line_start": 93,
-                    "line_end": 112
+                    "line_start": 95,
+                    "line_end": 114
                 },
                 {
                     "heading": "Quick Start",
                     "level": 2,
-                    "line_start": 113,
-                    "line_end": 159
+                    "line_start": 115,
+                    "line_end": 162
                 },
                 {
                     "heading": "Getting Started",
                     "level": 3,
-                    "line_start": 160,
-                    "line_end": 171
+                    "line_start": 163,
+                    "line_end": 174
                 },
                 {
                     "heading": "CLI Options",
                     "level": 3,
-                    "line_start": 172,
-                    "line_end": 188
+                    "line_start": 175,
+                    "line_end": 191
                 },
                 {
                     "heading": "REPL Commands",
                     "level": 2,
-                    "line_start": 189,
-                    "line_end": 208
+                    "line_start": 192,
+                    "line_end": 211
                 },
                 {
                     "heading": "Providers & OpenClaw Config",
                     "level": 2,
-                    "line_start": 209,
-                    "line_end": 216
+                    "line_start": 212,
+                    "line_end": 219
                 },
                 {
                     "heading": "Supported Providers",
                     "level": 3,
-                    "line_start": 217,
-                    "line_end": 234
+                    "line_start": 220,
+                    "line_end": 237
                 },
                 {
                     "heading": "Provider Setup",
                     "level": 3,
-                    "line_start": 235,
-                    "line_end": 274
+                    "line_start": 238,
+                    "line_end": 277
                 },
                 {
                     "heading": "Role-Based Model Routing",
                     "level": 3,
-                    "line_start": 275,
-                    "line_end": 298
+                    "line_start": 278,
+                    "line_end": 301
                 },
                 {
                     "heading": "Model Aliases",
                     "level": 3,
-                    "line_start": 299,
-                    "line_end": 312
+                    "line_start": 302,
+                    "line_end": 315
                 },
                 {
                     "heading": "Built-in Tools",
                     "level": 2,
-                    "line_start": 313,
-                    "line_end": 333
+                    "line_start": 316,
+                    "line_end": 336
                 },
                 {
                     "heading": "Extending Coqui",
                     "level": 2,
-                    "line_start": 334,
-                    "line_end": 339
+                    "line_start": 337,
+                    "line_end": 342
                 },
                 {
                     "heading": "Performance",
                     "level": 2,
-                    "line_start": 340,
-                    "line_end": 351
+                    "line_start": 343,
+                    "line_end": 354
                 },
                 {
                     "heading": "OPcache & JIT",
                     "level": 3,
-                    "line_start": 352,
-                    "line_end": 363
+                    "line_start": 355,
+                    "line_end": 366
                 },
                 {
                     "heading": "Benchmarking",
                     "level": 3,
-                    "line_start": 364,
-                    "line_end": 373
+                    "line_start": 367,
+                    "line_end": 376
                 },
                 {
                     "heading": "SQLite Tuning",
                     "level": 3,
-                    "line_start": 374,
-                    "line_end": 377
+                    "line_start": 377,
+                    "line_end": 380
                 },
                 {
                     "heading": "Docker",
                     "level": 2,
-                    "line_start": 378,
-                    "line_end": 383
+                    "line_start": 381,
+                    "line_end": 386
                 },
                 {
                     "heading": "Quick Start (Docker)",
                     "level": 3,
-                    "line_start": 384,
-                    "line_end": 405
+                    "line_start": 387,
+                    "line_end": 408
                 },
                 {
                     "heading": "Connect to Ollama",
                     "level": 3,
-                    "line_start": 406,
-                    "line_end": 413
+                    "line_start": 409,
+                    "line_end": 416
                 },
                 {
                     "heading": "Useful Commands",
                     "level": 3,
-                    "line_start": 414,
-                    "line_end": 431
+                    "line_start": 417,
+                    "line_end": 434
                 },
                 {
                     "heading": "Configuration",
                     "level": 3,
-                    "line_start": 432,
-                    "line_end": 443
+                    "line_start": 435,
+                    "line_end": 446
                 },
                 {
                     "heading": "File Overview",
                     "level": 3,
-                    "line_start": 444,
-                    "line_end": 454
+                    "line_start": 447,
+                    "line_end": 457
                 },
                 {
                     "heading": "Documentation",
                     "level": 2,
-                    "line_start": 455,
-                    "line_end": 474
+                    "line_start": 458,
+                    "line_end": 477
                 },
                 {
                     "heading": "Community",
                     "level": 2,
-                    "line_start": 475,
-                    "line_end": 481
+                    "line_start": 478,
+                    "line_end": 484
                 },
                 {
                     "heading": "Contributing",
                     "level": 2,
-                    "line_start": 482,
-                    "line_end": 493
+                    "line_start": 485,
+                    "line_end": 496
                 },
                 {
                     "heading": "License",
                     "level": 2,
-                    "line_start": 494,
-                    "line_end": 496
+                    "line_start": 497,
+                    "line_end": 499
                 }
             ]
         }

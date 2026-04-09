@@ -26,12 +26,12 @@ Background tasks **require the API server to be running** for execution. The REP
 
 | Concern | REPL | API |
 |---------|------|-----|
-| Loop creation | Agent calls `loop_start` tool; `/loops start` REPL command | Same tools, plus `POST /api/v1/loops` |
+| Loop creation | Agent calls `loop_start` tool; `/loops` REPL workflow manages loop lifecycle | Read-only inspection via `GET /api/v1/loops` and related endpoints |
 | Stage advancement | **Not executed by REPL** — loop records are created but stages remain pending until the API server picks them up | `LoopManager` advances stages on a 5-second ReactPHP timer, creating background tasks via `BackgroundTaskManager` |
 | Session model | N/A (REPL doesn't execute stages) | **New session per stage** — each stage runs as an independent background task; artifacts shared via work-scope session |
 | Artifact continuity | N/A | Stage outputs stored as `loop_output` artifacts in the work-scope session |
 | Monitoring | Agent polls with `loop_status` tool; user checks `/loops` REPL command | Same tools, plus `GET /api/v1/loops/{id}` |
-| Cancellation | `/loops stop <id>` sets status; manager stops on next tick | `POST /api/v1/loops/{id}/stop` sets status; manager stops on next tick |
+| Cancellation | `/loops stop <id>` sets status; manager stops on next tick | No HTTP mutation endpoint; use REPL or agent tools, then inspect loop state over HTTP |
 
 Loop stage advancement **requires the API server to be running**. The REPL can create loops (writing records to SQLite) and monitor their progress, but only the API server's `LoopManager` creates background tasks for each stage and advances the loop state machine.
 
@@ -39,7 +39,7 @@ Loop stage advancement **requires the API server to be running**. The REPL can c
 
 | Concern | REPL | API |
 |---------|------|-----|
-| Schedule creation | Agent calls `schedule_create` tool; `/schedules` REPL command for management | Same tools, plus REST endpoints |
+| Schedule creation | Agent calls `schedule_create` tool; `/schedules` REPL command for management | Read-only inspection via `GET /api/v1/schedules` and `GET /api/v1/schedules/{id}` |
 | Schedule evaluation | **Not evaluated by REPL** — cron expressions are not checked during REPL idle | `ScheduleManager` evaluates cron on a 60-second ReactPHP timer |
 | Task spawning | N/A | Ready schedules create background tasks automatically |
 
