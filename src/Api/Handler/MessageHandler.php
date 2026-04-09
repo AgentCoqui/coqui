@@ -192,7 +192,7 @@ final readonly class MessageHandler
             &$timer,
         ): void {
             try {
-                $events = $this->storage->getTaskEvents($turnProcessId, $lastEventId);
+                $events = $this->storage->getTurnEvents($turnProcessId, $lastEventId);
 
                 foreach ($events as $event) {
                     $this->writeSseEvent($stream, $event);
@@ -204,7 +204,7 @@ final readonly class MessageHandler
 
                 if ($turnProcess !== null && in_array($turnProcess['status'], ['completed', 'failed'], true)) {
                     // Final poll to ensure all events are flushed
-                    $finalEvents = $this->storage->getTaskEvents($turnProcessId, $lastEventId);
+                    $finalEvents = $this->storage->getTurnEvents($turnProcessId, $lastEventId);
                     foreach ($finalEvents as $event) {
                         $this->writeSseEvent($stream, $event);
                     }
@@ -283,7 +283,7 @@ final readonly class MessageHandler
         ): void {
             try {
                 // Advance the event cursor so we can find the complete event
-                $events = $this->storage->getTaskEvents($turnProcessId, $lastEventId);
+                $events = $this->storage->getTurnEvents($turnProcessId, $lastEventId);
                 foreach ($events as $event) {
                     $lastEventId = (int) $event['id'];
                 }
@@ -353,7 +353,7 @@ final readonly class MessageHandler
     private function extractCompleteResult(string $turnProcessId): ?array
     {
         // Read all events and find the last "complete" event
-        $events = $this->storage->getTaskEvents($turnProcessId, limit: 500);
+        $events = $this->storage->getTurnEvents($turnProcessId, limit: 500);
 
         for ($i = count($events) - 1; $i >= 0; $i--) {
             if (($events[$i]['event_type'] ?? '') === 'complete') {

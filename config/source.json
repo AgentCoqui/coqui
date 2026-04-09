@@ -1714,7 +1714,7 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, session title management, and background task queries. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title column, and metadata columns.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, background task queries, and dedicated event streams for both background tasks and turn processes. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title column, and metadata columns.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
                 "listSessions(int $limit): array — lists recent sessions (includes title)",
@@ -1731,6 +1731,9 @@
                 "completeTurn(string $turnId, ...): void — updates turn with response, tokens, duration, tools used",
                 "getTurns(string $sessionId, int $limit): array — returns turns ordered by turn_number ASC",
                 "getTurnWithMessages(string $turnId): ?array — returns turn with nested messages",
+                "createTurnProcess(string $sessionId, string $prompt, ?array $filePaths): string — creates an API turn-process record for child execution",
+                "appendTurnEvent(string $turnProcessId, string $eventType, mixed $data): void — persists turn process stream events to turn_events",
+                "getTurnEvents(string $turnProcessId, ?int $sinceId, int $limit): array — returns streamed events for an API turn process",
                 "findTaskByAutomationNotificationId(string $notificationId, array $statuses = ['pending', 'running', 'completed']): ?array — finds the newest follow-up task spawned for a notification automation action",
                 "findRecentTaskByTitle(string $title, ?string $role, array $statuses, int $lookbackHours): ?array — finds the newest matching background task for dedupe/orchestration",
                 "getTasksByStatus(string $status): array — returns all tasks with a given status",
@@ -2256,9 +2259,18 @@
             "path": "src/Observer/BackgroundTaskObserver.php",
             "fqcn": "CoquiBot\\Coqui\\Observer\\BackgroundTaskObserver",
             "layer": "observer",
-            "description": "SplObserver that persists agent events to the task_events SQLite table. Used by TaskRunCommand to stream events from background task agent execution.",
+            "description": "SplObserver that persists agent events to the task_events SQLite table and emits throttled heartbeats for stale-task detection. Used by TaskRunCommand to stream events from background task agent execution.",
             "methods": [
                 "update(subject): void — handle agent events, persist to task_events"
+            ]
+        },
+        {
+            "path": "src/Observer/TurnProcessObserver.php",
+            "fqcn": "CoquiBot\\Coqui\\Observer\\TurnProcessObserver",
+            "layer": "observer",
+            "description": "SplObserver that persists interactive API turn events to the turn_events SQLite table. Mirrors the task event payload shape without reusing background-task heartbeats or task-specific storage.",
+            "methods": [
+                "update(subject): void — handle agent events, persist to turn_events"
             ]
         },
         {

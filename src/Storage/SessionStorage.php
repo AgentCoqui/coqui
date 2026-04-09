@@ -234,8 +234,20 @@ final class SessionStorage
             )
         SQL);
 
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS turn_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                turn_process_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                data TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (turn_process_id) REFERENCES turn_processes(id) ON DELETE CASCADE
+            )
+        SQL);
+
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turn_processes_session ON turn_processes(session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turn_processes_status ON turn_processes(status)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turn_events_turn_process ON turn_events(turn_process_id)');
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
@@ -789,7 +801,7 @@ final class SessionStorage
      */
     public function checkTablesExist(): array
     {
-        $expected = ['sessions', 'messages', 'turns', 'audit_log', 'child_runs', 'background_tasks', 'task_events', 'task_inputs'];
+        $expected = ['sessions', 'messages', 'turns', 'audit_log', 'child_runs', 'background_tasks', 'task_events', 'task_inputs', 'turn_processes', 'turn_events'];
         $missing = [];
 
         foreach ($expected as $table) {
@@ -1531,6 +1543,56 @@ final class SessionStorage
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, event_type, data, created_at
             FROM task_events
+            WHERE {$where}
+            ORDER BY id ASC
+            LIMIT :limit
+        SQL);
+
+        foreach ($params as $key => $val) {
+            $stmt->bindValue($key, $val);
+        }
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Append an event to the turn process event log.
+     */
+    public function appendTurnEvent(string $turnProcessId, string $eventType, mixed $data = null): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO turn_events (turn_process_id, event_type, data, created_at)
+            VALUES (:turn_process_id, :event_type, :data, :created_at)
+        SQL);
+
+        $stmt->execute([
+            'turn_process_id' => $turnProcessId,
+            'event_type' => $eventType,
+            'data' => json_encode($data ?? new \stdClass(), JSON_UNESCAPED_SLASHES) ?: '{}',
+            'created_at' => date('c'),
+        ]);
+    }
+
+    /**
+     * Get turn process events, optionally starting after a given event ID.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getTurnEvents(string $turnProcessId, ?int $sinceId = null, int $limit = 100): array
+    {
+        $where = 'turn_process_id = :turn_process_id';
+        $params = ['turn_process_id' => $turnProcessId];
+
+        if ($sinceId !== null) {
+            $where .= ' AND id > :since_id';
+            $params['since_id'] = $sinceId;
+        }
+
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, event_type, data, created_at
+            FROM turn_events
             WHERE {$where}
             ORDER BY id ASC
             LIMIT :limit
