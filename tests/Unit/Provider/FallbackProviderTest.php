@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Provider\Response;
-use CarmeloSantana\PHPAgents\Enum\FinishReason;
+use CarmeloSantana\PHPAgents\Enum\ProviderFinishReason;
 use CoquiBot\Coqui\Provider\FallbackProvider;
 
 /**
@@ -20,12 +20,12 @@ function stubProvider(string $model, string $content = 'ok'): ProviderInterface
 
         public function chat(array $messages, array $tools = [], array $options = []): Response
         {
-            return new Response(content: $this->content, finishReason: FinishReason::Stop, model: $this->model);
+            return new Response(content: $this->content, finishReason: ProviderFinishReason::Stop, model: $this->model);
         }
 
         public function stream(array $messages, array $tools = [], array $options = []): iterable
         {
-            yield new Response(content: $this->content, finishReason: FinishReason::Stop, model: $this->model);
+            yield new Response(content: $this->content, finishReason: ProviderFinishReason::Stop, model: $this->model);
         }
 
         public function structured(array $messages, string $schema, array $options = []): mixed

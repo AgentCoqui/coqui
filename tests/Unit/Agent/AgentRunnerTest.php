@@ -15,7 +15,7 @@ use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CarmeloSantana\PHPAgents\Agent\Output;
-use CarmeloSantana\PHPAgents\Enum\FinishReason;
+use CarmeloSantana\PHPAgents\Enum\AgentFinishReason;
 
 function makeTestCredentialResolver(string $workspacePath): CredentialResolverInterface
 {
@@ -321,13 +321,13 @@ test('resolveExitFlags distinguishes max-iteration exits from budget exhaustion'
 
         $maxIterationFlags = $method->invoke(
             $runner,
-            new Output(content: 'max', iterations: 3, finishReason: FinishReason::MaxIterations),
+            new Output(content: 'max', iterations: 3, finishReason: AgentFinishReason::MaxIterations),
             3,
         );
 
         $budgetFlags = $method->invoke(
             $runner,
-            new Output(content: 'budget', iterations: 3, finishReason: FinishReason::BudgetExhausted),
+            new Output(content: 'budget', iterations: 3, finishReason: AgentFinishReason::BudgetExhausted),
             3,
         );
 

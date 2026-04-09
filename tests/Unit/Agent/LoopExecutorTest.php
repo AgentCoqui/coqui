@@ -972,7 +972,7 @@ function makeLoopGoalProvider(string $responseContent): ProviderInterface
 
         public function chat(array $messages, array $tools = [], array $options = []): Response
         {
-            return new Response(content: $this->responseContent, finishReason: \CarmeloSantana\PHPAgents\Enum\FinishReason::Stop);
+            return new Response(content: $this->responseContent, finishReason: \CarmeloSantana\PHPAgents\Enum\ProviderFinishReason::Stop);
         }
 
         public function stream(array $messages, array $tools = [], array $options = []): iterable { return []; }
@@ -1140,7 +1140,7 @@ test('evaluateIteration goal_bound multi-iteration lifecycle', function () {
             $content = $this->callCount >= 2
                 ? "ACHIEVED\nGoal met on second iteration."
                 : "NOT_ACHIEVED\nNot yet.";
-            return new Response(content: $content, finishReason: \CarmeloSantana\PHPAgents\Enum\FinishReason::Stop);
+            return new Response(content: $content, finishReason: \CarmeloSantana\PHPAgents\Enum\ProviderFinishReason::Stop);
         }
 
         public function stream(array $messages, array $tools = [], array $options = []): iterable { return []; }

@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
-use CarmeloSantana\PHPAgents\Enum\FinishReason;
+use CarmeloSantana\PHPAgents\Enum\ProviderFinishReason;
 use CarmeloSantana\PHPAgents\Enum\Role;
 use CarmeloSantana\PHPAgents\Message\AssistantMessage;
 use CarmeloSantana\PHPAgents\Message\Conversation;
@@ -60,18 +60,18 @@ function createFakeProvider(string $summaryResponse): ProviderInterface
         {
             return new Response(
                 content: $this->response,
-                finishReason: FinishReason::Stop,
+                finishReason: ProviderFinishReason::Stop,
             );
         }
 
         public function stream(array $messages, array $tools = [], array $options = []): iterable
         {
-            yield new Response(content: $this->response, finishReason: FinishReason::Stop);
+            yield new Response(content: $this->response, finishReason: ProviderFinishReason::Stop);
         }
 
         public function structured(array $messages, string $schema, array $options = []): mixed
         {
-            return new Response(content: $this->response, finishReason: FinishReason::Stop);
+            return new Response(content: $this->response, finishReason: ProviderFinishReason::Stop);
         }
 
         public function models(): array { return []; }
@@ -285,18 +285,18 @@ function createCapturingProvider(string $response): object
 
             return new Response(
                 content: $this->response,
-                finishReason: FinishReason::Stop,
+                finishReason: ProviderFinishReason::Stop,
             );
         }
 
         public function stream(array $messages, array $tools = [], array $options = []): iterable
         {
-            yield new Response(content: $this->response, finishReason: FinishReason::Stop);
+            yield new Response(content: $this->response, finishReason: ProviderFinishReason::Stop);
         }
 
         public function structured(array $messages, string $schema, array $options = []): mixed
         {
-            return new Response(content: $this->response, finishReason: FinishReason::Stop);
+            return new Response(content: $this->response, finishReason: ProviderFinishReason::Stop);
         }
 
         public function models(): array { return []; }
