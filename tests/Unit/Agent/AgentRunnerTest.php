@@ -321,7 +321,7 @@ test('resolveExitFlags distinguishes max-iteration exits from budget exhaustion'
 
         $maxIterationFlags = $method->invoke(
             $runner,
-            new Output(content: 'max', iterations: 3, finishReason: FinishReason::MaxTokens),
+            new Output(content: 'max', iterations: 3, finishReason: FinishReason::MaxIterations),
             3,
         );
 

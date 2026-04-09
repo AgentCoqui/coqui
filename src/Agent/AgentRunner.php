@@ -1042,7 +1042,7 @@ final class AgentRunner
     private function resolveExitFlags(Output $output, int $resolvedMaxIterations): array
     {
         $budgetExhausted = $output->finishReason === FinishReason::BudgetExhausted;
-        $iterationLimitReached = $output->finishReason === FinishReason::MaxTokens
+        $iterationLimitReached = $output->finishReason === FinishReason::MaxIterations
             && $resolvedMaxIterations > 0
             && $output->iterations >= $resolvedMaxIterations;
 
