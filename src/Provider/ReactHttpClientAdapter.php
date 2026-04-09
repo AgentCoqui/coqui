@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Provider;
 
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
+use React\EventLoop\Loop;
 use React\Http\Browser;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
@@ -89,7 +90,13 @@ final class ReactHttpClientAdapter implements HttpClientInterface
         );
 
         $this->cancellationToken?->onCancel(static function () use ($response): void {
-            $response->cancel();
+            // Cancellation may be requested from a signal handler or a timer callback
+            // while the current Fiber is suspended inside await(). Deferring the
+            // actual promise cancellation onto the event loop avoids switching Fibers
+            // from the wrong execution context during shutdown.
+            Loop::futureTick(static function () use ($response): void {
+                $response->cancel();
+            });
         });
 
         return $response;

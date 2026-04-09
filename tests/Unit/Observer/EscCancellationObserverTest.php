@@ -146,6 +146,28 @@ test('setToken replaces the token and resets message flag', function () {
     expect($output->fetch())->toContain('Cancellation requested');
 });
 
+test('endTurn drains stale ESC bytes so the next turn starts clean', function () {
+    $stdin = makeStdin("\x1B\x1B");
+    $token1 = new ProcessCancellationToken();
+    [$observer, $output] = makeEscObserver($token1, $stdin);
+
+    $observer->setToken($token1);
+    $observer->active = true;
+    $observer->update(makeSubject());
+
+    expect($token1->isCancelled())->toBeTrue();
+    expect($output->fetch())->toContain('Cancellation requested');
+
+    $observer->endTurn();
+
+    $token2 = new ProcessCancellationToken();
+    $observer->beginTurn($token2);
+    $observer->update(makeSubject());
+
+    expect($token2->isCancelled())->toBeFalse();
+    expect($output->fetch())->not->toContain('Cancellation requested');
+});
+
 // --- Delegation to inner observer ---
 
 test('inner TerminalObserver update() is called without throwing', function () {

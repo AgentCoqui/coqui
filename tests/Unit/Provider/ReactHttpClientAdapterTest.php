@@ -6,6 +6,7 @@ use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Provider\ReactHttpResponse;
 use CoquiBot\Coqui\Provider\ReactResponseStream;
+use React\EventLoop\Loop;
 use React\Http\Browser;
 use React\Promise\PromiseInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -216,7 +217,7 @@ test('withOptions() merges default options into requests', function () {
     expect($captured['headers']['Authorization'])->toBe('Bearer default-token');
 });
 
-test('request is cancelled when the cancellation token is triggered', function () {
+test('request cancellation is deferred onto the event loop when the token is triggered', function () {
     $captured = new ArrayObject();
 
     $browser = new class ($captured) extends Browser {
@@ -247,6 +248,11 @@ test('request is cancelled when the cancellation token is triggered', function (
 
     $response = $adapter->request('GET', 'http://example.com/cancel');
     $token->cancel();
+
+    expect($response->getInfo('canceled'))->toBeFalse()
+        ->and($captured['cancelled'] ?? false)->toBeFalse();
+
+    Loop::run();
 
     expect($response->getInfo('canceled'))->toBeTrue()
         ->and($captured['cancelled'] ?? false)->toBeTrue();

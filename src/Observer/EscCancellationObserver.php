@@ -62,17 +62,40 @@ final class EscCancellationObserver implements SplObserver
         $this->messageShown = false;
     }
 
+    /**
+     * Begin a fresh REPL turn.
+     *
+     * Resets per-turn state, drains any stale pending input from the prior turn,
+     * and enables ESC polling for the new token.
+     */
+    public function beginTurn(ProcessCancellationToken $token): void
+    {
+        $this->token = $token;
+        $this->messageShown = false;
+        $this->drainPendingInput();
+        $this->active = true;
+    }
+
+    /**
+     * End the current REPL turn.
+     *
+     * Disables polling first so queued timer callbacks become no-ops, then
+     * drains any leftover bytes to prevent false cancellation on the next turn.
+     */
+    public function endTurn(): void
+    {
+        $this->active = false;
+        $this->messageShown = false;
+        $this->drainPendingInput();
+    }
+
     public function poll(): void
     {
         if (!$this->active || !$this->isTty || $this->token->isCancelled()) {
             return;
         }
 
-        /** @var false|array<string, mixed> $meta */
-        $meta = @stream_get_meta_data($this->stdin);
-        $isSelectable = is_array($meta) && empty($meta['seekable']);
-
-        if ($isSelectable) {
+        if ($this->isSelectableStream()) {
             $read = [$this->stdin];
             $write = $except = [];
             $available = @stream_select($read, $write, $except, 0, 0);
@@ -104,5 +127,44 @@ final class EscCancellationObserver implements SplObserver
         $this->poll();
 
         $this->inner->update($subject);
+    }
+
+    private function drainPendingInput(): void
+    {
+        if (!$this->isTty) {
+            return;
+        }
+
+        if ($this->isSelectableStream()) {
+            $read = [$this->stdin];
+            $write = $except = [];
+
+            while (@stream_select($read, $write, $except, 0, 0) > 0) {
+                $chunk = @fread($this->stdin, 128);
+                if ($chunk === false || $chunk === '') {
+                    break;
+                }
+
+                $read = [$this->stdin];
+                $write = $except = [];
+            }
+
+            return;
+        }
+
+        while (true) {
+            $chunk = @fread($this->stdin, 128);
+            if ($chunk === false || $chunk === '') {
+                return;
+            }
+        }
+    }
+
+    private function isSelectableStream(): bool
+    {
+        /** @var false|array<string, mixed> $meta */
+        $meta = @stream_get_meta_data($this->stdin);
+
+        return is_array($meta) && empty($meta['seekable']);
     }
 }
