@@ -41,6 +41,11 @@ final class MemoryStore
         $this->db = $this->connect();
     }
 
+    public function getPdo(): PDO
+    {
+        return $this->db;
+    }
+
     /**
      * Save a new memory entry.
      *
@@ -1134,7 +1139,7 @@ final class MemoryStore
             id: is_string($id) ? $id : null,
             createdAt: isset($row['created_at']) ? new DateTimeImmutable($row['created_at']) : null,
             type: $row['memory_type'] ?? 'knowledge',
-            validUntil: isset($row['valid_until']) && $row['valid_until'] !== null
+            validUntil: is_string($row['valid_until'] ?? null) && $row['valid_until'] !== ''
                 ? new DateTimeImmutable($row['valid_until'])
                 : null,
         );

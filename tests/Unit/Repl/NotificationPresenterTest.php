@@ -125,9 +125,27 @@ test('formats prompt injection with header and items', function () {
 
     expect($output)->toContain('[PENDING NOTIFICATIONS]');
     expect($output)->toContain('1. [completed] Background task done');
+    expect($output)->toContain('kind: task.completed');
     expect($output)->toContain('All steps passed.');
     expect($output)->toContain('Time: 2025-01-15T10:00:00Z');
     expect($output)->toContain('background work');
+});
+
+test('includes metadata in prompt injection when available', function () {
+    $notifications = [
+        [
+            'kind' => 'task.failed',
+            'title' => 'Background task failed',
+            'message' => 'Exited with code 1.',
+            'priority' => 'high',
+            'created_at' => '2025-01-15T10:00:00Z',
+            'metadata' => json_encode(['task_id' => 'task-123', 'exit_code' => 1], JSON_THROW_ON_ERROR),
+        ],
+    ];
+
+    $output = $this->presenter->formatForPromptInjection($notifications);
+
+    expect($output)->toContain('Metadata: {"task_id":"task-123","exit_code":1}');
 });
 
 test('includes priority for high/urgent notifications', function () {
@@ -251,4 +269,15 @@ test('handles invalid timestamp gracefully', function () {
     // Should not throw — graceful fallback
     $lines = $this->presenter->formatIdleNotifications($notifications);
     expect($lines)->not->toBeEmpty();
+});
+
+test('unknown kinds fall back to gray sun icon', function () {
+    $notifications = [
+        ['kind' => 'custom.event', 'title' => 'Unknown event', 'priority' => 'normal', 'created_at' => ''],
+    ];
+
+    $lines = $this->presenter->formatIdleNotifications($notifications);
+
+    expect($lines[2])->toContain('<fg=gray>☀︎</>');
+    expect($lines[2])->toContain('<fg=gray>Unknown event</>');
 });

@@ -35,7 +35,7 @@ test('snapshotAndClear returns unread informational notifications', function () 
     $this->store->create(
         sessionId: $this->sessionId,
         class: 'informational',
-        kind: 'loop.iteration',
+        kind: 'loop.stage_completed',
         title: 'Loop iteration 3 complete',
         priority: 'normal',
     );
@@ -141,7 +141,25 @@ test('formatForPromptInjection returns PENDING NOTIFICATIONS header', function (
     expect($content)->toContain('[PENDING NOTIFICATIONS]');
     expect($content)->toContain('Build finished');
     expect($content)->toContain('All tests passed.');
-    expect($content)->toContain('task.completed');
+    expect($content)->toContain('kind: task.completed');
+});
+
+test('formatForPromptInjection includes metadata for diagnosis when present', function () {
+    $notifications = [
+        [
+            'kind' => 'task.failed',
+            'title' => 'Deploy failed',
+            'message' => 'Exited with an error.',
+            'priority' => 'high',
+            'created_at' => '2025-01-15T10:00:00Z',
+            'metadata' => json_encode(['task_id' => 'task-123', 'exit_code' => 1], JSON_THROW_ON_ERROR),
+        ],
+    ];
+
+    $content = $this->presenter->formatForPromptInjection($notifications);
+
+    expect($content)->toContain('kind: task.failed');
+    expect($content)->toContain('Metadata: {"task_id":"task-123","exit_code":1}');
 });
 
 test('formatForPromptInjection returns empty string for no notifications', function () {
@@ -242,6 +260,8 @@ test('complete notification injection pipeline', function () {
     expect($content)->toContain('[PENDING NOTIFICATIONS]');
     expect($content)->toContain('Unit tests passed');
     expect($content)->toContain('Harness loop finished');
+    expect($content)->toContain('kind: task.completed');
+    expect($content)->toContain('kind: loop.completed');
     expect($content)->not->toContain('Deploy needs retry');
 
     // Step 3: Verify atomicity — second snapshot is empty

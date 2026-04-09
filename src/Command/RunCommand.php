@@ -57,6 +57,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 final class RunCommand extends Command
 {
     private const float NOTIFICATION_IDLE_POLL_INTERVAL_SECONDS = 0.5;
+    private const string DEFAULT_READLINE_PROMPT = ' › ';
 
     /**
      * Exit code that signals the launcher script to restart the process.
@@ -411,7 +412,7 @@ final class RunCommand extends Command
                     $line = $input;
                     $lineReady = true;
                 };
-                readline_callback_handler_install($readlinePrompt, $readlineCallback);
+                $this->installReadlineHandler($readlinePrompt, $readlineCallback);
 
                 if ($hasSignals) {
                     pcntl_signal(SIGINT, static function () use (&$ctrlCPressed, &$lineReady): void {
@@ -430,7 +431,7 @@ final class RunCommand extends Command
                 if ($initialNotifications !== []) {
                     $lastNotificationLineCount += count($notificationPresenter->formatIdleNotifications($initialNotifications));
                 }
-                if (($initialActionableSummary['pending'] ?? 0) > 0 || ($initialActionableSummary['claimed'] ?? 0) > 0) {
+                if ($initialActionableSummary['pending'] > 0 || $initialActionableSummary['claimed'] > 0) {
                     $lastNotificationLineCount++;
                 }
 
@@ -442,7 +443,7 @@ final class RunCommand extends Command
 
                     if ($ready > 0) {
                         $typingStarted = true;
-                        readline_callback_read_char();
+                        $this->readReadlineChar();
                         continue;
                     }
 
@@ -459,7 +460,7 @@ final class RunCommand extends Command
                         $actionableSignature = $this->actionableSummarySignature($actionableSummary);
 
                         if ($signature !== $lastNotificationSignature || $actionableSignature !== $lastActionableSummarySignature) {
-                            readline_callback_handler_remove();
+                            $this->removeReadlineHandler();
 
                             // Clear the current readline prompt line to prevent stacking `›` symbols
                             $io->write("\r\033[K");
@@ -490,14 +491,14 @@ final class RunCommand extends Command
                             $lastNotificationLineCount = $newLineCount;
 
                             $readlinePrompt = $this->buildReadlinePrompt($notificationPresenter, $notificationStore);
-                            readline_callback_handler_install($readlinePrompt, $readlineCallback);
+                            $this->installReadlineHandler($readlinePrompt, $readlineCallback);
                             $lastNotificationSignature = $signature;
                             $lastActionableSummarySignature = $actionableSignature;
                         }
                     }
                 }
 
-                readline_callback_handler_remove();
+                $this->removeReadlineHandler();
             } else {
                 $io->write($readlinePrompt);
                 $raw = fgets(STDIN);
@@ -704,16 +705,43 @@ final class RunCommand extends Command
     private function buildReadlinePrompt(NotificationPresenter $presenter, ?NotificationStore $notificationStore): string
     {
         if ($notificationStore === null) {
-            return ' › ';
+            return self::DEFAULT_READLINE_PROMPT;
         }
 
         try {
             $badge = $presenter->formatBadge($notificationStore->countUnread($this->sessionId));
         } catch (\Throwable) {
-            return ' › ';
+            return self::DEFAULT_READLINE_PROMPT;
         }
 
         return ' ›' . $badge . ' ';
+    }
+
+    private function installReadlineHandler(string $prompt, callable $callback): void
+    {
+        if (!function_exists('readline_callback_handler_install')) {
+            return;
+        }
+
+        readline_callback_handler_install($prompt, $callback);
+    }
+
+    private function readReadlineChar(): void
+    {
+        if (!function_exists('readline_callback_read_char')) {
+            return;
+        }
+
+        readline_callback_read_char();
+    }
+
+    private function removeReadlineHandler(): void
+    {
+        if (!function_exists('readline_callback_handler_remove')) {
+            return;
+        }
+
+        readline_callback_handler_remove();
     }
 
     /**

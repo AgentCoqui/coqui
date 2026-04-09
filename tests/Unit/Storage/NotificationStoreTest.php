@@ -319,6 +319,21 @@ test('snapshotAndClear respects limit', function () {
     expect($this->store->countUnread($this->sessionId))->toBe(2);
 });
 
+test('snapshotAndClear preserves metadata for prompt diagnostics', function () {
+    $this->store->create(
+        sessionId: $this->sessionId,
+        class: 'informational',
+        kind: 'task.failed',
+        title: 'Snapshot me',
+        metadata: ['task_id' => 'task-123', 'exit_code' => 1],
+    );
+
+    $snapshot = $this->store->snapshotAndClear($this->sessionId);
+
+    expect($snapshot)->toHaveCount(1);
+    expect($snapshot[0]['metadata'])->toBe('{"task_id":"task-123","exit_code":1}');
+});
+
 // --- Claim Semantics ---
 
 test('claims an actionable notification', function () {
