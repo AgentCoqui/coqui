@@ -31,6 +31,8 @@ use function React\Async\await;
 final class PhpExecuteTool implements ToolInterface
 {
     private const MAX_OUTPUT_BYTES = 32768;
+    private const LINT_FILE_PREFIX = 'lint_';
+    private const EXECUTION_FILE_PREFIX = 'exec_';
 
     /**
      * Filesystem write functions blocked at the PHP engine level via disable_functions.
@@ -80,19 +82,22 @@ final class PhpExecuteTool implements ToolInterface
     public function description(): string
     {
         return <<<'DESC'
-            Execute PHP code to interact with installed SDK packages.
+            Execute inline PHP code for quick calculations, debugging, data inspection, snippet validation, and SDK interactions.
             
             The code runs in a subprocess with:
             - strict_types=1 enabled
             - Composer autoloader loaded automatically
             - Workspace .env file loaded (credentials available via getenv())
+            - An automatic syntax check before execution
             
-            Use this for quick SDK interactions like API calls, data processing, etc.
-            For complex multi-file scripts, prefer writing files and running via shell.
+            Prefer this over shell exec when the task is "run some PHP".
+            Use shell or composer tools for repository-wide commands such as composer test, composer analyse, pest, or phpstan.
+            For complex multi-file scripts, prefer writing files and then using the right workspace or shell tools.
             
             IMPORTANT:
             - Access credentials via getenv('KEY_NAME') — never hardcode secrets
             - The code is validated for safety before execution
+            - Syntax failures are reported before runtime execution starts
             - Output is truncated to ~32KB
             - Functions like eval(), exec(), system() are not allowed
             - Filesystem write functions (file_put_contents, fwrite, mkdir, etc.) are blocked
@@ -137,33 +142,74 @@ final class PhpExecuteTool implements ToolInterface
             $issueList = implode("\n- ", $issues);
 
             return ToolResult::error(
-                "Code failed safety validation:\n- {$issueList}\n\n"
+                "**Phase:** safety-check\n"
+                . "**Summary:** PHP snippet rejected before execution.\n\n"
+                . "**Issues:**\n- {$issueList}\n\n"
                 . 'Rewrite the code without using denied functions or patterns.',
             );
         }
 
-        // Build the full script with bootstrap preamble
-        $script = $this->buildScript($code);
-
-        // Write to temp file
-        $tmpDir = PathHelper::trimTrailingSlash($this->workspacePath) . '/tmp';
-        if (!is_dir($tmpDir)) {
-            mkdir($tmpDir, 0755, true);
-        }
-
-        $tmpFile = $tmpDir . '/exec_' . bin2hex(random_bytes(8)) . '.php';
-        file_put_contents($tmpFile, $script);
+        $lintFile = null;
+        $executionFile = null;
 
         try {
-            $result = $this->runScript($tmpFile, $timeout);
-        } finally {
-            // Always clean up
-            if (file_exists($tmpFile)) {
-                unlink($tmpFile);
-            }
+            $tmpDir = $this->ensureTempDirectory();
+            $identifier = bin2hex(random_bytes(8));
+            $lintFile = $this->writeTempScript($tmpDir, self::LINT_FILE_PREFIX, $identifier, $this->buildLintScript($code));
+            $executionFile = $this->writeTempScript($tmpDir, self::EXECUTION_FILE_PREFIX, $identifier, $this->buildScript($code));
+        } catch (\RuntimeException $e) {
+            return ToolResult::error($e->getMessage());
         }
 
-        return $result;
+        try {
+            $lintResult = $this->lintScript($lintFile, $timeout);
+            if ($lintResult !== null) {
+                return $lintResult;
+            }
+
+            return $this->runScript($executionFile, $timeout);
+        } finally {
+            $this->deleteIfExists($lintFile);
+            $this->deleteIfExists($executionFile);
+        }
+    }
+
+    private function ensureTempDirectory(): string
+    {
+        $tmpDir = PathHelper::trimTrailingSlash($this->workspacePath) . '/tmp';
+
+        if (is_dir($tmpDir)) {
+            return $tmpDir;
+        }
+
+        if (!mkdir($tmpDir, 0755, true) && !is_dir($tmpDir)) {
+            throw new \RuntimeException('Failed to create php_execute temp directory.');
+        }
+
+        return $tmpDir;
+    }
+
+    private function writeTempScript(string $tmpDir, string $prefix, string $identifier, string $content): string
+    {
+        $path = sprintf('%s/%s%s.php', $tmpDir, $prefix, $identifier);
+
+        if (file_put_contents($path, $content) === false) {
+            throw new \RuntimeException(sprintf('Failed to write temporary PHP script: %s', basename($path)));
+        }
+
+        return $path;
+    }
+
+    private function deleteIfExists(?string $path): void
+    {
+        if ($path !== null && file_exists($path)) {
+            unlink($path);
+        }
+    }
+
+    private function buildLintScript(string $code): string
+    {
+        return "<?php\n" . $code . "\n";
     }
 
     private function buildScript(string $code): string
@@ -214,6 +260,51 @@ final class PhpExecuteTool implements ToolInterface
         $preamble .= "\n// --- User code begins ---\n\n";
 
         return $preamble . $code . "\n";
+    }
+
+    private function lintScript(string $scriptPath, int $timeout): ?ToolResult
+    {
+        $result = $this->runPhpProcess($this->buildPhpCommandLine($scriptPath, lintOnly: true), $timeout);
+
+        if ($result['timedOut']) {
+            return ToolResult::error(
+                $this->formatProcessOutput(
+                    phase: 'syntax-check',
+                    summary: "PHP syntax check timed out after {$timeout}s.",
+                    stdout: $result['stdout'],
+                    stderr: $result['stderr'],
+                    exitCode: $result['exitCode'],
+                    note: 'Shorten the snippet or increase the timeout, then rerun php_execute.',
+                ),
+            );
+        }
+
+        if ($result['startError'] !== null) {
+            return ToolResult::error(
+                $this->formatProcessOutput(
+                    phase: 'syntax-check',
+                    summary: 'Failed to start the PHP syntax check subprocess.',
+                    stdout: '',
+                    stderr: $result['startError'],
+                    exitCode: $result['exitCode'],
+                ),
+            );
+        }
+
+        if ($result['exitCode'] === 0) {
+            return null;
+        }
+
+        return ToolResult::error(
+            $this->formatProcessOutput(
+                phase: 'syntax-check',
+                summary: 'PHP syntax check failed before execution.',
+                stdout: $this->normalizeLintStream($result['stdout'], $scriptPath),
+                stderr: $this->normalizeLintStream($result['stderr'], $scriptPath),
+                exitCode: $result['exitCode'],
+                note: 'Fix the syntax error and rerun php_execute.',
+            ),
+        );
     }
 
     private function buildRuntimeGuardPreamble(): string
@@ -297,10 +388,56 @@ final class PhpExecuteTool implements ToolInterface
         return array_values(array_unique($paths));
     }
 
-    /**
-     * @return ToolResult
-     */
     private function runScript(string $scriptPath, int $timeout): ToolResult
+    {
+        $result = $this->runPhpProcess($this->buildPhpCommandLine($scriptPath), $timeout);
+
+        if ($result['timedOut']) {
+            return ToolResult::error(
+                $this->formatProcessOutput(
+                    phase: 'execution',
+                    summary: "PHP execution timed out after {$timeout}s.",
+                    stdout: $result['stdout'],
+                    stderr: $result['stderr'],
+                    exitCode: $result['exitCode'],
+                    note: 'Inspect the snippet for blocking work or increase the timeout before rerunning php_execute.',
+                ),
+            );
+        }
+
+        if ($result['startError'] !== null) {
+            return ToolResult::error(
+                $this->formatProcessOutput(
+                    phase: 'execution',
+                    summary: 'Failed to start the PHP execution subprocess.',
+                    stdout: '',
+                    stderr: $result['startError'],
+                    exitCode: $result['exitCode'],
+                ),
+            );
+        }
+
+        $summary = $result['exitCode'] === 0
+            ? 'PHP snippet executed successfully after syntax check.'
+            : $this->classifyExecutionFailure($result['stderr']);
+
+        $content = $this->formatProcessOutput(
+            phase: 'execution',
+            summary: $summary,
+            stdout: $result['stdout'],
+            stderr: $result['stderr'],
+            exitCode: $result['exitCode'],
+            note: $result['exitCode'] === 0
+                ? null
+                : 'Inspect stderr, adjust the snippet, and rerun php_execute. Use shell for repository-wide commands, not ad hoc PHP execution.',
+        );
+
+        return $result['exitCode'] === 0
+            ? ToolResult::success($content)
+            : ToolResult::error($content);
+    }
+
+    private function buildPhpCommandLine(string $scriptPath, bool $lintOnly = false): string
     {
         $openBasedirDirective = 'open_basedir=' . $this->buildOpenBasedir();
         if (PHP_OS_FAMILY === 'Windows') {
@@ -311,8 +448,20 @@ final class PhpExecuteTool implements ToolInterface
 
         $commandLine = 'php'
             . ' -d ' . escapeshellarg($openBasedirDirective)
-            . ' -d ' . escapeshellarg($disableFunctionsDirective)
-            . ' ' . escapeshellarg($scriptPath);
+            . ' -d ' . escapeshellarg($disableFunctionsDirective);
+
+        if ($lintOnly) {
+            $commandLine .= ' -l';
+        }
+
+        return $commandLine . ' ' . escapeshellarg($scriptPath);
+    }
+
+    /**
+     * @return array{exitCode: int, stdout: string, stderr: string, timedOut: bool, startError: ?string}
+     */
+    private function runPhpProcess(string $commandLine, int $timeout): array
+    {
         $reactProcess = new ReactProcess($commandLine, $this->workspacePath);
         $deferred = new Deferred();
         $stdout = '';
@@ -322,7 +471,13 @@ final class PhpExecuteTool implements ToolInterface
         try {
             $reactProcess->start();
         } catch (\Throwable $e) {
-            return ToolResult::error('Failed to start PHP process: ' . $e->getMessage());
+            return [
+                'exitCode' => 1,
+                'stdout' => '',
+                'stderr' => '',
+                'timedOut' => false,
+                'startError' => 'Failed to start PHP process: ' . $e->getMessage(),
+            ];
         }
 
         $reactProcess->stdout?->on('data', static function (string $chunk) use (&$stdout): void {
@@ -345,20 +500,64 @@ final class PhpExecuteTool implements ToolInterface
 
         $exitCode = (int) await($deferred->promise());
 
-        if ($timedOut) {
-            return ToolResult::error("Script timed out after {$timeout}s.");
+        return [
+            'exitCode' => $exitCode,
+            'stdout' => $this->truncateStream($stdout, 'output truncated'),
+            'stderr' => $this->truncateStream($stderr, 'stderr truncated'),
+            'timedOut' => $timedOut,
+            'startError' => null,
+        ];
+    }
+
+    private function truncateStream(string $stream, string $label): string
+    {
+        if (strlen($stream) <= self::MAX_OUTPUT_BYTES) {
+            return $stream;
         }
 
-        // Truncate output
-        if (strlen($stdout) > self::MAX_OUTPUT_BYTES) {
-            $stdout = substr($stdout, 0, self::MAX_OUTPUT_BYTES) . "\n--- output truncated ---";
+        return substr($stream, 0, self::MAX_OUTPUT_BYTES) . "\n--- {$label} ---";
+    }
+
+    private function normalizeLintStream(string $stream, string $scriptPath): string
+    {
+        if ($stream === '') {
+            return '';
         }
 
-        if (strlen($stderr) > self::MAX_OUTPUT_BYTES) {
-            $stderr = substr($stderr, 0, self::MAX_OUTPUT_BYTES) . "\n--- stderr truncated ---";
+        $normalized = str_replace($scriptPath, 'snippet', $stream);
+
+        $adjusted = preg_replace_callback(
+            '/line (\d+)/i',
+            static function (array $matches): string {
+                $line = max(1, ((int) $matches[1]) - 1);
+
+                return 'line ' . $line;
+            },
+            $normalized,
+        );
+
+        return $adjusted ?? $normalized;
+    }
+
+    private function classifyExecutionFailure(string $stderr): string
+    {
+        if (str_contains($stderr, self::RUNTIME_GUARD_PREFIX)) {
+            return 'PHP execution failed before user code ran because the runtime safety bootstrap rejected the environment.';
         }
 
-        $output = '';
+        return 'PHP execution failed while running the snippet.';
+    }
+
+    private function formatProcessOutput(
+        string $phase,
+        string $summary,
+        string $stdout,
+        string $stderr,
+        int $exitCode,
+        ?string $note = null,
+    ): string {
+        $output = "**Phase:** {$phase}\n";
+        $output .= "**Summary:** {$summary}\n\n";
 
         if ($stdout !== '') {
             $output .= "**stdout:**\n```\n{$stdout}\n```\n\n";
@@ -370,9 +569,11 @@ final class PhpExecuteTool implements ToolInterface
 
         $output .= "**Exit code:** {$exitCode}";
 
-        return $exitCode === 0
-            ? ToolResult::success($output)
-            : ToolResult::error($output);
+        if ($note !== null) {
+            $output .= "\n\n{$note}";
+        }
+
+        return $output;
     }
 
     public function toFunctionSchema(): array
@@ -387,11 +588,11 @@ final class PhpExecuteTool implements ToolInterface
                     'properties' => [
                         'code' => [
                             'type' => 'string',
-                            'description' => 'PHP code to execute (without <?php tag).',
+                            'description' => 'PHP code to execute (without <?php tag). A syntax check runs automatically before execution.',
                         ],
                         'description' => [
                             'type' => 'string',
-                            'description' => 'Brief description of what this code does.',
+                            'description' => 'Brief description of what this code does. Use this to say what you are validating or debugging.',
                         ],
                         'timeout' => [
                             'type' => 'integer',

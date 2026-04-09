@@ -43,6 +43,7 @@ test('executes simple PHP code', function () {
     ]);
 
     expect($result->status->value)->toBe('success');
+    expect($result->content)->toContain('**Phase:** execution');
     expect($result->content)->toContain('Hello from Coqui!');
 })->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
 
@@ -52,7 +53,18 @@ test('captures stderr on error', function () {
     ]);
 
     // Division by zero produces a warning/error
+    expect($result->content)->toContain('**Phase:** execution');
     expect($result->content)->toContain('stderr');
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
+
+test('fails syntax check before execution', function () {
+    $result = $this->tool->execute([
+        'code' => 'if (true) {',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+    expect($result->content)->toContain('**Phase:** syntax-check');
+    expect($result->content)->toContain('Fix the syntax error and rerun php_execute.');
 })->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
 
 test('denies eval in code', function () {
@@ -61,6 +73,7 @@ test('denies eval in code', function () {
     ]);
 
     expect($result->status->value)->toBe('error');
+    expect($result->content)->toContain('**Phase:** safety-check');
     expect($result->content)->toContain('eval');
 });
 
@@ -102,7 +115,12 @@ test('cleans up temp files after execution', function () {
     ]);
 
     $tmpDir = $this->tmpDir . '/tmp';
-    $files = is_dir($tmpDir) ? (glob($tmpDir . '/exec_*.php') ?: []) : [];
+    $files = is_dir($tmpDir)
+        ? array_merge(
+            glob($tmpDir . '/exec_*.php') ?: [],
+            glob($tmpDir . '/lint_*.php') ?: [],
+        )
+        : [];
 
     expect($files)->toBeEmpty();
 })->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');

@@ -6,13 +6,13 @@ You can install PHP packages to gain new capabilities:
 2. **Install**: Use `composer` tool with action `require` to install a package
 3. **Inspect**: Use `package_info` tool to read the package's README and explore its API
 4. **Configure**: If the SDK needs API keys, use `credentials` tool to store them
-5. **Execute**: Use `php_execute` to run PHP code that uses the installed SDK
+5. **Execute**: Use `php_execute` to run PHP code that uses the installed SDK or to validate an inline PHP snippet before you reach for shell
 
 ### Package Guidelines
 
 - Always inspect a package with `package_info` before writing code that uses it
 - Never hardcode API keys — use `getenv('KEY_NAME')` in generated code
-- The `php_execute` tool auto-loads the Composer autoloader and workspace .env
+- The `php_execute` tool auto-loads the Composer autoloader and workspace .env, and it performs a syntax check before execution
 - Some packages (full frameworks) are blocked by a denylist
 - Functions like eval(), exec(), system() are not allowed in generated code
 

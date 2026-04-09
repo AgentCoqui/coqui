@@ -29,7 +29,7 @@ Activate: This is the default role. Switch back with `/role orchestrator` or `/r
 
 ### coder
 
-Expert developer that translates intent into working, tested code. Searches the codebase before building, verifies everything, and ships fast.
+Expert developer that translates intent into working, tested code. Searches the codebase before building, verifies everything, ships fast, and prefers `php_execute` for ad hoc PHP validation instead of shelling out.
 
 | Property | Value |
 | --- | --- |
@@ -38,6 +38,8 @@ Expert developer that translates intent into working, tested code. Searches the 
 | Toolkits | All enabled |
 
 Activate: `/role coder` or delegated via `spawn_agent(role: "coder")`.
+
+Behavior note: use `php_execute` for inline PHP experiments, quick calculations, debugging, and snippet validation. Use shell or composer tools for repository-wide commands such as `composer test`, `composer analyse`, Pest, and PHPStan.
 
 ### assistant
 
