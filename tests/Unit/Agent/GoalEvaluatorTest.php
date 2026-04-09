@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 use CarmeloSantana\PHPAgents\Config\ModelDefinition;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
-use CarmeloSantana\PHPAgents\Enum\FinishReason;
+use CarmeloSantana\PHPAgents\Enum\ProviderFinishReason;
 use CarmeloSantana\PHPAgents\Provider\Response;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
 
@@ -22,7 +22,7 @@ function makeGoalProvider(string $responseContent, ?array &$capturedMessages = n
         public function chat(array $messages, array $tools = [], array $options = []): Response
         {
             $this->capturedMessages = $messages;
-            return new Response(content: $this->responseContent, finishReason: FinishReason::Stop);
+            return new Response(content: $this->responseContent, finishReason: ProviderFinishReason::Stop);
         }
 
         public function stream(array $messages, array $tools = [], array $options = []): iterable { return []; }

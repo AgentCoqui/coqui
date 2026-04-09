@@ -10,7 +10,7 @@ use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\TickCallbackInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
-use CarmeloSantana\PHPAgents\Enum\FinishReason;
+use CarmeloSantana\PHPAgents\Enum\AgentFinishReason;
 use CarmeloSantana\PHPAgents\Enum\Role;
 use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Agent\Output;
@@ -1041,8 +1041,8 @@ final class AgentRunner
      */
     private function resolveExitFlags(Output $output, int $resolvedMaxIterations): array
     {
-        $budgetExhausted = $output->finishReason === FinishReason::BudgetExhausted;
-        $iterationLimitReached = $output->finishReason === FinishReason::MaxIterations
+        $budgetExhausted = $output->finishReason === AgentFinishReason::BudgetExhausted;
+        $iterationLimitReached = $output->finishReason === AgentFinishReason::MaxIterations
             && $resolvedMaxIterations > 0
             && $output->iterations >= $resolvedMaxIterations;
 

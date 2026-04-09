@@ -6,7 +6,7 @@ use CarmeloSantana\PHPAgents\Agent\Output;
 use CarmeloSantana\PHPAgents\Contract\AgentInterface;
 use CarmeloSantana\PHPAgents\Contract\MessageInterface;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
-use CarmeloSantana\PHPAgents\Enum\FinishReason;
+use CarmeloSantana\PHPAgents\Enum\ProviderFinishReason;
 use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Provider\Response;
 use CoquiBot\Coqui\Observer\TurnProcessObserver;
@@ -33,7 +33,7 @@ function makeTurnAgentStub(string $event, mixed $data): AgentInterface
             return new class implements ProviderInterface {
                 public function chat(array $messages, array $tools = [], array $options = []): Response
                 {
-                    return new Response(content: '', finishReason: FinishReason::Stop, model: 'test');
+                    return new Response(content: '', finishReason: ProviderFinishReason::Stop, model: 'test');
                 }
                 public function stream(array $messages, array $tools = [], array $options = []): iterable { return []; }
                 public function structured(array $messages, string $schema, array $options = []): mixed { return null; }
