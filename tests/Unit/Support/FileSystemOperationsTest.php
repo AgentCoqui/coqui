@@ -160,7 +160,11 @@ test('resolvePath stays within root', function () {
     file_put_contents($this->root . '/ok.txt', '');
 
     $resolved = $this->fs->resolvePath('ok.txt');
-    $realRoot = realpath($this->root);
+    $rawRoot = realpath($this->root);
+    // Normalize to forward slashes with lowercase drive letter (matches resolvePath output)
+    $realRoot = $rawRoot !== false
+        ? strtolower(substr(str_replace('\\', '/', $rawRoot), 0, 2)) . substr(str_replace('\\', '/', $rawRoot), 2)
+        : str_replace('\\', '/', $this->root);
 
     expect(str_starts_with($resolved, $realRoot))->toBeTrue();
 });
