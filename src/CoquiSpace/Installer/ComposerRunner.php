@@ -113,21 +113,25 @@ final class ComposerRunner
             return $envBin;
         }
 
-        $candidates = PHP_OS_FAMILY === 'Windows'
-            ? [
-                getenv('APPDATA') . '\\Composer\\vendor\\bin\\composer.bat',
-                getenv('USERPROFILE') . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer.bat',
-                getenv('APPDATA') . '\\Composer\\vendor\\bin\\composer',
-                getenv('USERPROFILE') . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer',
-            ]
-            : [
+        if (PHP_OS_FAMILY === 'Windows') {
+            $appData = getenv('APPDATA') ?: null;
+            $userProfile = getenv('USERPROFILE') ?: null;
+            $candidates = array_values(array_filter([
+                $appData !== null ? $appData . '\\Composer\\vendor\\bin\\composer.bat' : null,
+                $userProfile !== null ? $userProfile . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer.bat' : null,
+                $appData !== null ? $appData . '\\Composer\\vendor\\bin\\composer' : null,
+                $userProfile !== null ? $userProfile . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer' : null,
+            ]));
+        } else {
+            $candidates = [
                 '/opt/homebrew/bin/composer',   // macOS ARM (Homebrew)
                 '/usr/local/bin/composer',      // macOS Intel / Linux
                 '/usr/bin/composer',            // System-wide
             ];
+        }
 
         foreach ($candidates as $path) {
-            if ($path !== false && $path !== '' && file_exists($path) && is_executable($path)) {
+            if (file_exists($path) && is_executable($path)) {
                 return $path;
             }
         }
