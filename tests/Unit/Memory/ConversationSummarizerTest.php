@@ -533,3 +533,113 @@ test('identifySummarizedMessageIds never includes system messages', function () 
     expect($systemId)->not->toBeNull();
     expect(in_array($systemId, $ids, true))->toBeFalse();
 });
+
+// --- Bug fix: identifySummarizedMessageIds must use active messages only ---
+
+test('identifySummarizedMessageIds excludes summary marker messages from user turn count', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    // Simulate a post-summarization state: summary message + 3 recent user turns
+    $this->storage->addMessage($sessionId, 'user', "[CONVERSATION SUMMARY - 2026-04-10 12:00] (5 messages condensed)\n\nSummary of older turns.\n\nFocus on the most recent messages below for the user's current intent. This summary provides background context only.");
+    for ($i = 1; $i <= 3; $i++) {
+        $this->storage->addMessage($sessionId, 'user', "Recent question {$i}");
+        $this->storage->addMessage($sessionId, 'assistant', "Recent answer {$i}");
+    }
+
+    $rawMessages = $this->storage->getActiveMessages($sessionId);
+
+    $reflection = new ReflectionClass($this->summarizer);
+    $method = $reflection->getMethod('identifySummarizedMessageIds');
+
+    // With keepRecentTurns=3 and only 3 real user turns (summary excluded),
+    // nothing should be marked for deletion
+    $ids = $method->invoke($this->summarizer, $rawMessages, 3);
+
+    expect($ids)->toBe([]);
+});
+
+test('second-round summarization does not mark already-summarized messages again', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    // First round: 8 turns, summarize keeping 3
+    for ($i = 1; $i <= 8; $i++) {
+        $this->storage->addMessage($sessionId, 'user', "Question {$i}");
+        $this->storage->addMessage($sessionId, 'assistant', "Answer {$i}");
+    }
+
+    $provider = createFakeProvider('First round summary.');
+    $result1 = $this->summarizer->summarizeAndPersist(
+        sessionId: $sessionId,
+        provider: $provider,
+        keepRecentTurns: 3,
+    );
+    expect($result1->wasSummarized())->toBeTrue();
+
+    // Verify active messages after first round: summary + 3 recent turns (7 messages)
+    $activeAfterRound1 = $this->storage->getActiveMessages($sessionId);
+    $activeUserCount = count(array_filter($activeAfterRound1, fn($m) =>
+        $m['role'] === 'user' && !str_starts_with(ltrim($m['content'] ?? ''), '[CONVERSATION SUMMARY'),
+    ));
+    expect($activeUserCount)->toBe(3);
+
+    // Add more turns to trigger a second summarization
+    for ($i = 9; $i <= 16; $i++) {
+        $this->storage->addMessage($sessionId, 'user', "Question {$i}");
+        $this->storage->addMessage($sessionId, 'assistant', "Answer {$i}");
+    }
+
+    // Second round summarization
+    $provider2 = createFakeProvider('Second round summary.');
+    $result2 = $this->summarizer->summarizeAndPersist(
+        sessionId: $sessionId,
+        provider: $provider2,
+        keepRecentTurns: 3,
+    );
+    expect($result2->wasSummarized())->toBeTrue();
+
+    // After second round: loadConversation should still have recent messages
+    $conversation = $this->storage->loadConversation($sessionId);
+    expect($conversation->count())->toBeGreaterThan(1);
+
+    // The most recent 3 real user turns should be intact
+    $loadedMessages = $conversation->messages();
+    $nonSummaryUser = array_filter($loadedMessages, fn($m) =>
+        $m->role() === Role::User && !str_contains($m->content(), '[CONVERSATION SUMMARY'),
+    );
+    expect(count($nonSummaryUser))->toBe(3);
+});
+
+test('summarizeAndPersist preserves recent messages across multiple rounds', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'test/model');
+
+    // Build initial conversation
+    for ($i = 1; $i <= 6; $i++) {
+        $this->storage->addMessage($sessionId, 'user', "Question {$i}");
+        $this->storage->addMessage($sessionId, 'assistant', "Answer {$i}");
+    }
+
+    $provider = createFakeProvider('Round 1 summary.');
+    $this->summarizer->summarizeAndPersist(
+        sessionId: $sessionId,
+        provider: $provider,
+        keepRecentTurns: 2,
+    );
+
+    // Verify restart scenario: loadConversation should return usable history
+    $conversation = $this->storage->loadConversation($sessionId);
+    expect($conversation->count())->toBeGreaterThanOrEqual(3); // summary + at least 2 user turns + their responses
+
+    // Simulate restart: the loaded conversation should contain the last 2 user turns
+    $userMessages = array_filter(
+        $conversation->messages(),
+        fn($m) => $m->role() === Role::User && !str_contains($m->content(), '[CONVERSATION SUMMARY'),
+    );
+    expect(count($userMessages))->toBe(2);
+
+    // There should be exactly one summary message
+    $summaryMessages = array_filter(
+        $conversation->messages(),
+        fn($m) => $m->role() === Role::User && str_contains($m->content(), '[CONVERSATION SUMMARY'),
+    );
+    expect(count($summaryMessages))->toBe(1);
+});

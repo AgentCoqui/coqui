@@ -16,6 +16,12 @@ use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CarmeloSantana\PHPAgents\Agent\Output;
 use CarmeloSantana\PHPAgents\Enum\AgentFinishReason;
+use CarmeloSantana\PHPAgents\Enum\Role;
+use CarmeloSantana\PHPAgents\Message\AssistantMessage;
+use CarmeloSantana\PHPAgents\Message\Conversation;
+use CarmeloSantana\PHPAgents\Message\SystemMessage;
+use CarmeloSantana\PHPAgents\Message\UserMessage;
+use CarmeloSantana\PHPAgents\Provider\Usage;
 
 function makeTestCredentialResolver(string $workspacePath): CredentialResolverInterface
 {
@@ -338,6 +344,128 @@ test('resolveExitFlags distinguishes max-iteration exits from budget exhaustion'
             'iterationLimitReached' => false,
             'budgetExhausted' => true,
         ]);
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
+// --- sanitizeUsage: clamp implausible provider-reported prompt tokens ---
+
+test('sanitizeUsage returns provider usage when prompt tokens are reasonable', function () {
+    $fixture = createAgentRunnerFixture();
+
+    try {
+        $runner = makeAgentRunnerFixture(
+            config: $fixture['config'],
+            storage: $fixture['storage'],
+            workspacePath: $fixture['workspacePath'],
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+        );
+
+        // Build a conversation with enough content that 200 prompt tokens is plausible
+        $conversation = new Conversation();
+        $conversation->add(new SystemMessage(str_repeat('You are a helpful assistant that provides detailed answers. ', 20)));
+        $conversation->add(new UserMessage(str_repeat('Can you explain the details of PHP 8.4 property hooks and how they work in practice? ', 10)));
+        $conversation->add(new AssistantMessage('PHP 8.4 introduces property hooks.'));
+
+        $output = new Output(
+            content: 'PHP 8.4 introduces property hooks.',
+            iterations: 1,
+            conversation: $conversation,
+            usage: new Usage(promptTokens: 200, completionTokens: 20, totalTokens: 220),
+        );
+
+        // Provider says 200 prompt tokens, heuristic estimates ~similar — should pass through
+        $method = new ReflectionMethod($runner, 'sanitizeUsage');
+        $sanitized = $method->invoke(
+            $runner,
+            $output->usage,
+            $output,
+            'ollama/qwen3:latest',
+        );
+
+        expect($sanitized->promptTokens)->toBe(200);
+        expect($sanitized->completionTokens)->toBe(20);
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
+test('sanitizeUsage clamps implausibly high prompt tokens from Ollama num_ctx', function () {
+    $fixture = createAgentRunnerFixture();
+
+    try {
+        $runner = makeAgentRunnerFixture(
+            config: $fixture['config'],
+            storage: $fixture['storage'],
+            workspacePath: $fixture['workspacePath'],
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+        );
+
+        // Build a small conversation (~50 tokens)
+        $conversation = new Conversation();
+        $conversation->add(new SystemMessage('You are a helper.'));
+        $conversation->add(new UserMessage('Hello'));
+        $conversation->add(new AssistantMessage('Hi'));
+
+        $output = new Output(
+            content: 'Hi',
+            iterations: 1,
+            conversation: $conversation,
+            usage: new Usage(promptTokens: 32768, completionTokens: 10, totalTokens: 32778),
+        );
+
+        // Provider reports 32768 (Ollama num_ctx) but real content is ~50 tokens
+        $method = new ReflectionMethod($runner, 'sanitizeUsage');
+        $sanitized = $method->invoke(
+            $runner,
+            $output->usage,
+            $output,
+            'ollama/qwen3:latest',
+        );
+
+        // Should be clamped to heuristic estimate, NOT 32768
+        expect($sanitized->promptTokens)->toBeLessThan(500);
+        // Completion tokens from provider are preserved
+        expect($sanitized->completionTokens)->toBe(10);
+        // Total should be recalculated
+        expect($sanitized->totalTokens)->toBe($sanitized->promptTokens + 10);
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
+test('sanitizeUsage trusts provider when conversation is null', function () {
+    $fixture = createAgentRunnerFixture();
+
+    try {
+        $runner = makeAgentRunnerFixture(
+            config: $fixture['config'],
+            storage: $fixture['storage'],
+            workspacePath: $fixture['workspacePath'],
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+        );
+
+        $output = new Output(
+            content: 'response',
+            iterations: 1,
+            conversation: null,
+            usage: new Usage(promptTokens: 32768, completionTokens: 10, totalTokens: 32778),
+        );
+
+        $method = new ReflectionMethod($runner, 'sanitizeUsage');
+        $sanitized = $method->invoke(
+            $runner,
+            $output->usage,
+            $output,
+            'ollama/qwen3:latest',
+        );
+
+        // No conversation to estimate from — trust provider as-is
+        expect($sanitized->promptTokens)->toBe(32768);
     } finally {
         cleanupAgentRunnerFixture($fixture);
     }

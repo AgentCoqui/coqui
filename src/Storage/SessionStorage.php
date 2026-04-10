@@ -505,6 +505,30 @@ final class SessionStorage
     }
 
     /**
+     * Get only active (non-summarized) messages for a session.
+     *
+     * Same as getMessages() but excludes rows already marked is_summarized=1.
+     * Use this when identifying which messages to mark during summarization —
+     * it ensures the ID-marking logic operates on the same message set that
+     * loadConversation() returns to the agent.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getActiveMessages(string $sessionId): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, role, content, tool_calls, tool_call_id, created_at
+            FROM messages
+            WHERE session_id = :session_id AND is_summarized = 0
+            ORDER BY created_at ASC
+        SQL);
+
+        $stmt->execute(['session_id' => $sessionId]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
      * Rebuild a Conversation object from persisted messages.
      *
      * Each row is wrapped in a try/catch so a single corrupted message
