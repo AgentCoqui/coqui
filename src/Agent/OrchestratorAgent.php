@@ -188,6 +188,7 @@ final class OrchestratorAgent extends AbstractAgent
         ?TickCallbackInterface $tickCallback = null,
         private readonly ?HttpClientInterface $httpClient = null,
         private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
+        private readonly ?ProviderFactory $providerFactory = null,
         private readonly ?ToolUsageTracker $usageTracker = null,
         private readonly ?string $workScopeSessionId = null,
         private readonly ?string $defaultProjectId = null,
@@ -204,14 +205,16 @@ final class OrchestratorAgent extends AbstractAgent
         // Build role toolkit resolver from the active role's frontmatter
         $this->roleToolkitResolver = $this->buildRoleToolkitResolver($this->activeRole, $this->roleDiscovery);
 
+        // Resolve the shared ProviderFactory — prefer injected, fall back to config+httpClient
+        $sharedFactory = $this->providerFactory ?? new ProviderFactory($config, $this->httpClient);
+
         // Wrap primary provider with FallbackProvider when fallback models are configured
         $effectiveProvider = $provider;
         if ($config instanceof OpenClawConfig) {
             $fallbacks = $config->getFallbacks();
             if (!empty($fallbacks)) {
-                $factory = new ProviderFactory($config, $this->httpClient);
                 $fallbackProviders = array_map(
-                    fn(string $model) => $factory->create($model),
+                    fn(string $model) => $sharedFactory->create($model),
                     $fallbacks,
                 );
                 $effectiveProvider = new FallbackProvider($provider, $fallbackProviders);
@@ -227,10 +230,9 @@ final class OrchestratorAgent extends AbstractAgent
         $pruningStrategy = null;
         if ($this->storage !== null) {
             try {
-                $utilityFactory = new ProviderFactory($config, $this->httpClient);
                 $utilityModel = $this->roleResolver->resolveUtility();
                 if ($utilityModel !== '') {
-                    $utilityProvider = $utilityFactory->create($utilityModel);
+                    $utilityProvider = $sharedFactory->create($utilityModel);
 
                     $keepRecentCfg = $config->get('agents.defaults.context.keepRecentTurns');
                     $keepRecent = is_numeric($keepRecentCfg) ? max(1, min(20, (int) $keepRecentCfg)) : CoquiDefaults::KEEP_RECENT_TURNS;
@@ -365,6 +367,7 @@ final class OrchestratorAgent extends AbstractAgent
                 config: $this->config,
                 todoStore: $todoStore,
                 roleDiscovery: $this->roleDiscovery,
+                providerFactory: $sharedFactory,
             );
 
             $this->addToolkit(new ArtifactToolkit(
@@ -595,6 +598,7 @@ final class OrchestratorAgent extends AbstractAgent
             shellDeniedCommands: $shellDenied,
             unsafeMode: $this->unsafeMode,
             toolExecutor: $this->childToolExecutor,
+            providerFactory: $sharedFactory,
         );
 
         // Create credential tool for API key management
@@ -625,7 +629,7 @@ final class OrchestratorAgent extends AbstractAgent
             roleResolver: $this->roleResolver,
             config: $this->config,
             roleDiscovery: $this->roleDiscovery,
-            providerFactory: new ProviderFactory($this->config, $this->httpClient),
+            providerFactory: $sharedFactory,
         );
 
         // Create vision tool for image analysis
@@ -657,6 +661,7 @@ final class OrchestratorAgent extends AbstractAgent
                 sessionId: $this->sessionId,
                 todoStore: $todoStore ?? null,
                 artifactStore: $artifactStore ?? null,
+                providerFactory: $sharedFactory,
             );
         }
 
@@ -668,6 +673,7 @@ final class OrchestratorAgent extends AbstractAgent
                 sessionId: $this->sessionId,
                 roleResolver: $this->roleResolver,
                 config: $this->config,
+                providerFactory: $sharedFactory,
             );
         }
 
@@ -1682,7 +1688,7 @@ final class OrchestratorAgent extends AbstractAgent
     private function resolveUtilityProvider(): ?\CarmeloSantana\PHPAgents\Contract\ProviderInterface
     {
         try {
-            $factory = new ProviderFactory($this->config, $this->httpClient);
+            $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
             $utilityModel = $this->roleResolver->resolveUtility();
 
             if ($utilityModel !== '') {

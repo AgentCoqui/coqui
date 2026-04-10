@@ -9,10 +9,11 @@ test('non-repl agent entrypoints inject ReactHttpClientAdapter', function () {
     $taskRunSource = file_get_contents(__DIR__ . '/../../../src/Command/TaskRunCommand.php');
 
     expect($apiCommandSource)->toContain('use CoquiBot\\Coqui\\Provider\\ReactHttpClientAdapter;')
-        ->and($apiCommandSource)->toContain('new ProviderFactory($boot->config(), new ReactHttpClientAdapter())');
+        ->and($apiCommandSource)->toContain('$boot->providerFactory(new ReactHttpClientAdapter())');
 
     expect($factorySource)->toContain('use CoquiBot\\Coqui\\Provider\\ReactHttpClientAdapter;')
-        ->and($factorySource)->toContain('httpClient: $httpClient ?? new ReactHttpClientAdapter()');
+        ->and($factorySource)->toContain('$httpClient = $httpClient ?? new ReactHttpClientAdapter()')
+        ->and($factorySource)->toContain('$boot->providerFactory($httpClient)');
 
     expect($turnRunSource)->toContain('AgentRunnerFactory::create(');
     expect($taskRunSource)->toContain('AgentRunnerFactory::create(');

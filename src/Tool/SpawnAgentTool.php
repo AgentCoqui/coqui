@@ -80,6 +80,7 @@ final class SpawnAgentTool implements ToolInterface
         private readonly array $shellDeniedCommands = ['sudo'],
         private readonly bool $unsafeMode = false,
         private readonly ?ToolExecutorInterface $toolExecutor = null,
+        private readonly ?ProviderFactory $providerFactory = null,
     ) {}
 
     public function name(): string
@@ -157,7 +158,8 @@ final class SpawnAgentTool implements ToolInterface
 
         try {
             // Create provider for child agent
-            $provider = ProviderFactory::fromModelString($modelString, $this->config);
+            $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+            $provider = $factory->create($modelString);
 
             // Build toolkits based on role
             $toolkits = $this->buildToolkits($role);
@@ -531,6 +533,7 @@ final class SpawnAgentTool implements ToolInterface
                 roleDiscovery: $this->roleDiscovery,
                 observer: $this->observer,
                 toolExecutor: $this->toolExecutor,
+                providerFactory: $this->providerFactory,
             );
 
             $reviewerToolkits = $this->buildToolkits(SystemRole::Reviewer->value);

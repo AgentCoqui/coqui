@@ -31,6 +31,7 @@ final class ExtractMemoriesTool implements ToolInterface
         private readonly string $sessionId,
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
+        private readonly ?ProviderFactory $providerFactory = null,
     ) {}
 
     public function name(): string
@@ -132,7 +133,7 @@ final class ExtractMemoriesTool implements ToolInterface
 
     private function resolveProvider(): ?ProviderInterface
     {
-        $factory = new ProviderFactory($this->config);
+        $factory = $this->providerFactory ?? new ProviderFactory($this->config);
 
         $utilityModel = $this->roleResolver->resolveUtility();
         if ($utilityModel !== '') {
