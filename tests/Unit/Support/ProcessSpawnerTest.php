@@ -133,7 +133,7 @@ test('killProcessGroup sends signal to process group', function () {
     proc_close($result['process']);
 
     expect(ProcessSpawner::isProcessAlive($pid))->toBeFalse();
-});
+})->skip(PHP_OS_FAMILY === 'Windows', 'SIGTERM constant is not defined on Windows');
 
 test('spawn wraps command with setsid on unix', function () {
     if (PHP_OS_FAMILY === 'Windows') {
