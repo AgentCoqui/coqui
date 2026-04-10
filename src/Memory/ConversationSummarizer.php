@@ -113,8 +113,11 @@ final class ConversationSummarizer
         ?string $workflowContext = null,
         ?\Closure $onExtraction = null,
     ): ConversationSummaryResult {
-        // Load raw message rows (with DB IDs) for cleanup after summarization
-        $rawMessages = $this->storage->getMessages($sessionId);
+        // Load active (non-summarized) message rows for cleanup after summarization.
+        // Uses getActiveMessages() so the ID-marking logic operates on the same
+        // message set that loadConversation() returns — preventing already-summarized
+        // rows from inflating the user-turn count and shifting the cut-point.
+        $rawMessages = $this->storage->getActiveMessages($sessionId);
         $conversation = $this->storage->loadConversation($sessionId);
 
         $result = $this->summarize($conversation, $provider, $keepRecentTurns, $focus, $workflowContext);
@@ -349,9 +352,11 @@ final class ConversationSummarizer
      */
     private function identifySummarizedMessageIds(array $rawMessages, int $keepRecentTurns): array
     {
+        // Count only real user turns — summary messages (stored as role=user)
+        // must not displace actual user turns in the keepRecent calculation.
         $userIndices = [];
         foreach ($rawMessages as $i => $row) {
-            if ($row['role'] === 'user') {
+            if ($row['role'] === 'user' && !$this->isSummaryMessage($row['content'] ?? '')) {
                 $userIndices[] = $i;
             }
         }
@@ -376,5 +381,13 @@ final class ConversationSummarizer
         }
 
         return $ids;
+    }
+
+    /**
+     * Check if a message is a conversation summary marker.
+     */
+    private function isSummaryMessage(string $content): bool
+    {
+        return str_starts_with(ltrim($content), '[CONVERSATION SUMMARY');
     }
 }

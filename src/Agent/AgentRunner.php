@@ -280,9 +280,12 @@ final class AgentRunner
 
             $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $history);
 
-            // Resolve usage: prefer provider-reported tokens, fall back to local estimation
+            // Resolve usage: prefer provider-reported tokens, fall back to local estimation.
+            // Some providers (notably Ollama) report their num_ctx as prompt_tokens
+            // rather than actual evaluated tokens. Sanity-check against a heuristic
+            // estimate and fall back when the provider value is implausibly high.
             $usage = ($output->usage !== null && $output->usage->totalTokens > 0)
-                ? $output->usage
+                ? $this->sanitizeUsage($output->usage, $output, $modelString)
                 : $this->estimateUsage($output, $modelString);
 
             $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole);
@@ -1028,6 +1031,41 @@ final class AgentRunner
                 $promptTokens += $tokens;
             }
         }
+
+        return new Usage(
+            promptTokens: $promptTokens,
+            completionTokens: $completionTokens,
+            totalTokens: $promptTokens + $completionTokens,
+        );
+    }
+
+    /**
+     * Sanity-check provider-reported usage against a heuristic estimate.
+     *
+     * Some providers (notably Ollama) report their configured context window
+     * size (num_ctx) as prompt_tokens instead of the actual evaluated count.
+     * When the provider's prompt_tokens exceeds the heuristic estimate by more
+     * than 2.5×, replace it with the heuristic value. Completion tokens are
+     * trusted since they reflect actual generation.
+     */
+    private function sanitizeUsage(Usage $reported, Output $output, string $modelString): Usage
+    {
+        $heuristic = $this->estimateUsage($output, $modelString);
+
+        // If we can't estimate (no conversation), trust the provider
+        if ($heuristic->totalTokens === 0) {
+            return $reported;
+        }
+
+        // Provider prompt tokens look reasonable — use as-is
+        if ($heuristic->promptTokens === 0 || $reported->promptTokens <= $heuristic->promptTokens * 2.5) {
+            return $reported;
+        }
+
+        // Provider prompt tokens are implausibly high — use heuristic for prompt,
+        // keep provider's completion tokens (those reflect actual generation).
+        $promptTokens = $heuristic->promptTokens;
+        $completionTokens = $reported->completionTokens;
 
         return new Usage(
             promptTokens: $promptTokens,
