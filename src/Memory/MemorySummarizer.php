@@ -8,6 +8,8 @@ use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Message\SystemMessage;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
+
 /**
  * Generates compressed summaries of core memories for system prompt injection.
  *
@@ -19,6 +21,8 @@ final class MemorySummarizer
 {
     public function __construct(
         private readonly MemoryStore $memoryStore,
+        private readonly int $maxTokens = CoquiDefaults::MEMORY_CORE_SUMMARY_MAX_TOKENS,
+        private readonly int $entryLimit = CoquiDefaults::MEMORY_CORE_SUMMARY_ENTRY_LIMIT,
     ) {}
 
     /**
@@ -28,8 +32,9 @@ final class MemorySummarizer
      * generates a fresh one from the raw entries. If no provider is
      * available, returns the raw compact summary from MemoryStore.
      */
-    public function getSummary(?ProviderInterface $provider = null, int $maxTokens = 500): string
+    public function getSummary(?ProviderInterface $provider = null, int $maxTokens = 0): string
     {
+        $effectiveMaxTokens = $maxTokens > 0 ? $maxTokens : $this->maxTokens;
         $currentCount = $this->memoryStore->count();
 
         if ($currentCount === 0) {
@@ -45,7 +50,7 @@ final class MemorySummarizer
         }
 
         // Generate new summary
-        $rawSummary = $this->memoryStore->getCoreSummary(limit: 50);
+        $rawSummary = $this->memoryStore->getCoreSummary(limit: $this->entryLimit);
 
         if ($rawSummary === '') {
             return '';
@@ -53,7 +58,7 @@ final class MemorySummarizer
 
         // If a provider is available, use LLM to compress the summary
         if ($provider !== null) {
-            $compressed = $this->compressWithLlm($provider, $rawSummary, $maxTokens);
+            $compressed = $this->compressWithLlm($provider, $rawSummary, $effectiveMaxTokens);
 
             if ($compressed !== '') {
                 $this->cacheSummary($compressed, $currentCount, $currentVersion);
@@ -73,7 +78,7 @@ final class MemorySummarizer
     public function invalidate(): void
     {
         $this->memoryStore->count(); // ensure tables exist
-        $rawSummary = $this->memoryStore->getCoreSummary(limit: 50);
+        $rawSummary = $this->memoryStore->getCoreSummary(limit: $this->entryLimit);
         $this->cacheSummary($rawSummary, $this->memoryStore->count(), $this->memoryStore->getCacheVersion());
     }
 

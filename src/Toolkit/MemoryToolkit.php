@@ -28,16 +28,18 @@ use CoquiBot\Coqui\Memory\MemoryStore;
  * - memory_delete: Remove a specific memory by ID
  * - memory_forget: Bulk remove memories matching a query
  * - memory_list: List memories, optionally filtered by area or tags
+ * - memory_import: Import a document into memory as chunked entries
  */
 final class MemoryToolkit implements ToolkitInterface
 {
     public function __construct(
         private readonly MemoryStore $memoryStore,
+        private readonly ?string $workspacePath = null,
     ) {}
 
     public function tools(): array
     {
-        return [
+        $tools = [
             $this->memorySaveTool(),
             $this->memorySearchTool(),
             $this->memoryUpdateTool(),
@@ -46,6 +48,12 @@ final class MemoryToolkit implements ToolkitInterface
             $this->memoryListTool(),
             $this->memoryRestoreTool(),
         ];
+
+        if ($this->workspacePath !== null) {
+            $tools[] = $this->memoryImportTool();
+        }
+
+        return $tools;
     }
 
     public function guidelines(): string
@@ -86,6 +94,12 @@ final class MemoryToolkit implements ToolkitInterface
         - Memories that are rarely accessed and low-importance will be automatically archived over time
         - Archived memories can be recovered with `memory_restore`
         - Use `memory_list` with `include_archived: true` to see archived memories
+
+        **Bulk import:**
+        - Use `memory_import` to import a document file into memory as chunked entries
+        - Supports markdown heading-based or paragraph-based chunking strategies
+        - Ideal for importing identity scaffolds, research documents, or large knowledge bases
+        - All imported entries get a source tag for easy identification and management
 
         **Best practices:**
         - Use descriptive content — "User prefers dark mode and Vim keybindings" not "dark mode"
@@ -384,5 +398,159 @@ final class MemoryToolkit implements ToolkitInterface
                     : ToolResult::error("Memory {$id} not found or is not archived.");
             },
         );
+    }
+
+    private function memoryImportTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'memory_import',
+            description: 'Import a document file into persistent memory as chunked entries. '
+                . 'Splits the document by markdown headings (## sections) or blank-line-separated paragraphs, '
+                . 'then saves each chunk as a separate memory entry. Ideal for importing identity scaffolds, '
+                . 'research documents, or large knowledge bases into searchable memory.',
+            parameters: [
+                new StringParameter('path', 'Relative path to the file within the workspace to import', required: true),
+                new EnumParameter(
+                    'area',
+                    'Memory area for all imported entries',
+                    ['preferences', 'facts', 'solutions', 'context'],
+                    required: false,
+                ),
+                new StringParameter('tags', 'Comma-separated tags applied to all imported entries (e.g. "identity, continuity")', required: false),
+                new NumberParameter('importance', 'Importance score 0.0–1.0 for all entries (default: 0.8). Set ≥ 0.9 to pin (exempt from decay)', required: false),
+                new EnumParameter(
+                    'chunk_strategy',
+                    'How to split the document: "heading" splits on ## markdown headings, "paragraph" splits on blank lines',
+                    ['heading', 'paragraph'],
+                    required: false,
+                ),
+            ],
+            callback: function (array $input): ToolResult {
+                $relativePath = trim($input['path'] ?? '');
+                if ($relativePath === '' || $this->workspacePath === null) {
+                    return ToolResult::error('File path is required.');
+                }
+
+                $fullPath = $this->workspacePath . '/' . ltrim($relativePath, '/');
+                $realPath = realpath($fullPath);
+
+                if ($realPath === false || !is_file($realPath)) {
+                    return ToolResult::error("File not found: {$relativePath}");
+                }
+
+                // Sandbox check — must be within workspace
+                $realWorkspace = realpath($this->workspacePath);
+                if ($realWorkspace === false || !str_starts_with($realPath, $realWorkspace . '/')) {
+                    return ToolResult::error('File must be within the workspace directory.');
+                }
+
+                $content = file_get_contents($realPath);
+                if ($content === false || trim($content) === '') {
+                    return ToolResult::error('File is empty or could not be read.');
+                }
+
+                $area = $input['area'] ?? 'context';
+                $tags = $input['tags'] ?? basename($relativePath, '.md');
+                $importance = isset($input['importance'])
+                    ? max(0.0, min(1.0, (float) $input['importance']))
+                    : 0.8;
+                $strategy = $input['chunk_strategy'] ?? 'heading';
+
+                $chunks = $strategy === 'heading'
+                    ? $this->chunkByHeading($content)
+                    : $this->chunkByParagraph($content);
+
+                if (empty($chunks)) {
+                    return ToolResult::error('No content chunks could be extracted from the file.');
+                }
+
+                $sourceTag = 'import:' . basename($relativePath);
+                $combinedTags = trim($tags) !== '' ? "{$tags}, {$sourceTag}" : $sourceTag;
+
+                $imported = 0;
+                $skipped = 0;
+
+                foreach ($chunks as $chunk) {
+                    $trimmed = trim($chunk);
+                    if ($trimmed === '' || mb_strlen($trimmed) < 20) {
+                        $skipped++;
+                        continue;
+                    }
+
+                    $entry = new MemoryEntry(
+                        content: $trimmed,
+                        area: $area,
+                        metadata: [
+                            'tags' => $combinedTags,
+                            'importance' => $importance,
+                            'source' => $relativePath,
+                        ],
+                        type: 'knowledge',
+                    );
+
+                    $this->memoryStore->save($entry);
+                    $imported++;
+                }
+
+                $pinLabel = $importance >= 0.9 ? ' (pinned — exempt from decay)' : '';
+
+                return ToolResult::success(
+                    "Imported {$imported} memory entries from {$relativePath} "
+                    . "(area: {$area}, importance: {$importance}{$pinLabel}, strategy: {$strategy}). "
+                    . ($skipped > 0 ? "Skipped {$skipped} empty/tiny chunks." : '')
+                );
+            },
+        );
+    }
+
+    /**
+     * Split content by markdown headings (## level 2+).
+     *
+     * Each section includes its heading as the first line. Content before
+     * the first heading is included as a separate chunk.
+     *
+     * @return string[]
+     */
+    private function chunkByHeading(string $content): array
+    {
+        // Split on ## headings (level 2+), keeping the heading with the content
+        $parts = preg_split('/^(#{2,}\s+.+)$/m', $content, -1, PREG_SPLIT_DELIM_CAPTURE);
+
+        if ($parts === false || $parts === []) {
+            return [$content];
+        }
+
+        $chunks = [];
+        $current = '';
+
+        foreach ($parts as $i => $part) {
+            if (preg_match('/^#{2,}\s+/', $part)) {
+                // This is a heading — flush previous chunk and start new one
+                if (trim($current) !== '') {
+                    $chunks[] = $current;
+                }
+                $current = $part;
+            } else {
+                $current .= $part;
+            }
+        }
+
+        if (trim($current) !== '') {
+            $chunks[] = $current;
+        }
+
+        return $chunks;
+    }
+
+    /**
+     * Split content by blank lines (double newline).
+     *
+     * @return string[]
+     */
+    private function chunkByParagraph(string $content): array
+    {
+        $parts = preg_split('/\n\s*\n/', $content);
+
+        return $parts !== false ? $parts : [$content];
     }
 }

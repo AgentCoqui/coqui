@@ -288,7 +288,7 @@ final class SpawnAgentTool implements ToolInterface
 
         // Memory toolkit — gives child agents access to persistent cross-session memory.
         if ($this->memoryStore !== null && $accessLevel === 'full') {
-            $toolkits[] = new MemoryToolkit($this->memoryStore);
+            $toolkits[] = new MemoryToolkit($this->memoryStore, $this->workspacePath);
         }
 
         // Skill toolkit — gives child agents access to discovered Agent Skills.

@@ -65,6 +65,12 @@ final class CoquiDefaults
     /** Whether automatic memory extraction runs after every turn (config: agents.defaults.memory.autoExtract). */
     public const bool MEMORY_AUTO_EXTRACT = false;
 
+    /** Maximum token budget for compressed core memory summary in system prompt (config: agents.defaults.memory.coreSummaryMaxTokens). */
+    public const int MEMORY_CORE_SUMMARY_MAX_TOKENS = 500;
+
+    /** Maximum number of memory entries fetched for core summary generation (config: agents.defaults.memory.coreSummaryEntryLimit). */
+    public const int MEMORY_CORE_SUMMARY_ENTRY_LIMIT = 50;
+
     /** Default edit history retention in days for prune operations (config: agents.defaults.editHistory.retentionDays). */
     public const int EDIT_HISTORY_RETENTION_DAYS = 7;
 

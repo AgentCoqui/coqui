@@ -10,6 +10,8 @@ A comprehensive guide to everything Coqui can do. Each feature covers what it do
 
 **How it helps:** Save money and improve speed. A local 8B model can handle orchestration and routing while a frontier model tackles the hard coding problems.
 
+Coqui is not limited to coding workflows — any use case that benefits from LLM orchestration (research, writing, analysis, philosophical reasoning) can use the same model routing. Route frontier models like Claude Opus, GPT-5.4, or Gemini 2.5 Pro to roles that need depth, and fast/cheap models to utility tasks.
+
 **How to use it:** Map roles to models in `openclaw.json`:
 
 ```json
@@ -53,7 +55,46 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 - **Implicitly:** Converse normally — Coqui saves important facts automatically.
 - **Explicitly:** "Remember that I always use PHP 8.4" stores it immediately.
 - **Search:** The agent searches memory with `memory_search` and manages entries with `memory_save`, `memory_update`, `memory_delete`.
+- **Bulk import:** Use `memory_import` to load a document file (identity scaffold, research notes, knowledge base) into searchable memory entries with configurable chunking, importance, and tags.
 - **Embeddings:** For semantic search, configure an embedding model in `openclaw.json` under `agents.defaults.memory.embeddingModel`.
+
+**Configuring memory for identity-heavy use cases:**
+
+For use cases that require preserving large identity scaffolds or long-running developmental context (research continuity, autonomous agents with persistent identity), tune these settings in `openclaw.json`:
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "memory": {
+                "autoExtract": true,
+                "coreSummaryMaxTokens": 2000,
+                "coreSummaryEntryLimit": 100,
+                "embeddingModel": "ollama/nomic-embed-text"
+            },
+            "context": {
+                "autoSummarizeMode": "manual",
+                "autoSummarizeKeepRecent": 20,
+                "budgetExitThreshold": 0.0
+            }
+        }
+    }
+}
+```
+
+| Setting | Default | Identity Use Case | Purpose |
+|---|---|---|---|
+| `coreSummaryMaxTokens` | 500 | 2000–5000 | Token budget for compressed core memory in system prompt |
+| `coreSummaryEntryLimit` | 50 | 100–200 | Max memories fetched for core summary generation |
+| `autoSummarizeMode` | `"token"` | `"manual"` | Prevent aggressive conversation summarization |
+| `autoSummarizeKeepRecent` | 15 | 20 | Preserve more conversation depth when summarizing |
+| `budgetExitThreshold` | 0.85 | 0.0 | Disable budget-based exit (0.0 = disabled) |
+
+**Three-layer identity architecture:**
+
+1. **Soul** (always in context) — place a `soul.md` file in your workspace root to define core identity, values, and personality. This is injected into every system prompt. Keep it to 2–5K tokens.
+2. **Indexed memories** (searchable, selectively injected) — import key developmental milestones and identity anchors as high-importance (≥ 0.9) memory entries via `memory_import` or `memory_save`. These are pinned (exempt from decay), searchable, and summarized into the system prompt.
+3. **Full archive** (file-accessible) — keep the complete identity document in the workspace as a file. The agent can retrieve specific sections on demand via `read_file` and `file_search`.
 
 ## <a id="runtime-extensibility"></a> 📦 Runtime Extensibility
 
@@ -248,6 +289,8 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 - Power users: `--auto-approve` skips prompts (blacklist still active).
 - Testing: `--unsafe` disables PHP script sanitization.
 - Toolkits declare gated operations in `composer.json` — Coqui handles the confirmation UX.
+
+**Content policy note:** Coqui's safety model gates **execution** (shell commands, PHP code, filesystem writes), not **expression**. There is no content filtering on LLM-generated text. The content of generated responses is governed entirely by the upstream provider's own policies (Anthropic, OpenAI, etc.). Users running research or creative use cases with sensitive phenomenological content should choose providers and models whose content policies align with their research needs.
 
 ## <a id="http-api"></a> 🌐 HTTP API
 
