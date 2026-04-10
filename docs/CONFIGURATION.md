@@ -33,7 +33,7 @@ Config changes require a restart to take effect. Coqui loads configuration once 
 |---------------|-------------------|
 | `coqui --wizard` / `coqui -w` | Edit config without starting the REPL — changes apply on next launch |
 | `/config edit` (setup wizard) | Coqui prompts: "Restart now to apply?" — confirm to restart immediately |
-| API (`PUT /api/config`) | The API server restarts automatically after saving |
+| API (`POST /api/v1/config/validate`) | Validation only — apply changes through the REPL or a manual edit, then restart |
 | Manual edit in your editor | Use `/restart` in the REPL, or the `restart_coqui` agent tool |
 | Agent `config` tool (set/switch_model) | Agent can call `restart_coqui`, or you can use `/restart` |
 
@@ -75,8 +75,8 @@ The simplest valid config only needs a primary model:
                 "vision": "gemini/gemini-2.5-flash"
             },
             "workspace": "~/.coqui/.workspace",
-            "maxIterations": 48,
-            "backgroundTaskMaxIterations": 100,
+            "maxIterations": 256,
+            "backgroundTaskMaxIterations": 512,
             "childBackgroundTasks": false,
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
             "allowSudo": false,
@@ -94,11 +94,13 @@ The simplest valid config only needs a primary model:
             },
             "context": {
                 "autoSummarizeMode": "token",
-                "autoSummarizeThreshold": 70,
+                "autoSummarizeThreshold": 64,
                 "autoSummarizeTurnThreshold": 20,
                 "autoSummarizeKeepRecent": 15,
                 "keepRecentTurns": 10,
-                "budgetSafetyMarginPercent": 20
+                "budgetSafetyMarginPercent": 20,
+                "budgetExitThreshold": 0.85,
+                "budgetExitWrapUpIterations": 2
             },
             "evaluation": {
                 "lookbackHours": 24,
@@ -189,7 +191,7 @@ The sandboxed directory where Coqui reads and writes files. Supports `~` (home d
 
 ### `maxIterations`
 
-Global limit on agent loop iterations per turn. Each iteration is one LLM call that may include tool use. Default: `25`.
+Global limit on agent loop iterations per turn. Each iteration is one LLM call that may include tool use. Default: `256`.
 
 Set to `0` for unlimited iterations (the agent runs until it calls the `done` tool or encounters an error). Background tasks are clamped separately via `backgroundTaskMaxIterations`.
 
@@ -197,13 +199,13 @@ Per-role overrides are configured in role `.md` files via the `max_iterations` f
 
 ### `backgroundTaskMaxIterations`
 
-Maximum iterations any single background task can run. This is a per-task safety limit that prevents unattended tasks from running indefinitely. Default: `100`.
+Maximum iterations any single background task can run. This is a per-task safety limit that prevents unattended tasks from running indefinitely. Default: `512`.
 
 ```json
 {
     "agents": {
         "defaults": {
-            "backgroundTaskMaxIterations": 100
+            "backgroundTaskMaxIterations": 512
         }
     }
 }
@@ -336,19 +338,21 @@ Configure automatic conversation summarization behavior.
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `autoSummarizeMode` | string | `"token"` | Summarization trigger mode: `"token"` (trigger on context window usage), `"turn"` (trigger after N user turns), or `"manual"` (no auto-summarization; use `/summarize` on demand) |
-| `autoSummarizeThreshold` | int/float | `70` | Token usage percentage that triggers auto-summarization (used when mode is `"token"`). Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
+| `autoSummarizeThreshold` | int/float | `64` | Token usage percentage that triggers auto-summarization (used when mode is `"token"`). Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
 | `autoSummarizeTurnThreshold` | int | `20` | Number of user turns that triggers auto-summarization (used when mode is `"turn"`) |
 | `autoSummarizeKeepRecent` | int | `15` | Turns preserved during auto-summarization (clamped 1–20) |
 | `keepRecentTurns` | int | `10` | Default turns preserved during on-demand summarization (`/summarize`) |
 | `budgetSafetyMarginPercent` | int | `20` | Safety margin percentage applied by per-iteration budget pruning to account for token estimation inaccuracy (0–50) |
+| `budgetExitThreshold` | float | `0.85` | Context window usage ratio (0.0–1.0) based on the latest provider-reported usage for the current iteration. When crossed, Coqui injects a wrap-up instruction and the agent has `budgetExitWrapUpIterations` iterations to call `done()` before it is force-exited. Set to `0.0` to disable |
+| `budgetExitWrapUpIterations` | int | `2` | Number of iterations the agent has to wrap up after the budget exit threshold is crossed. Must be ≥ 1 |
 
 ```json
 {
     "context": {
         "autoSummarizeMode": "token",
-        "autoSummarizeThreshold": 70,
-        "autoSummarizeKeepRecent": 15,
-        "keepRecentTurns": 10
+        "autoSummarizeThreshold": 64,
+        "autoSummarizeKeepRecent": 32,
+        "keepRecentTurns": 24
     }
 }
 ```
@@ -360,6 +364,12 @@ Configure automatic conversation summarization behavior.
 - **`manual`** — Disables all automatic pre-turn summarization. Use the `/summarize` REPL command, the `summarize_conversation` agent tool, or the API endpoint to summarize on demand. The per-iteration `SummarizePruningStrategy` safety net still fires to prevent context window overflow during agent execution.
 
 Regardless of mode, the per-iteration budget pruning strategy always runs as a safety net to prevent the conversation from exceeding the model's context window within a single turn.
+
+**Budget-based exit:**
+
+When `budgetExitThreshold` is set (default `0.85`), the agent monitors the latest provider-reported context usage for each iteration as a percentage of the effective context window. When usage crosses the threshold, php-agents emits a generic budget warning event and Coqui reacts by injecting a workflow-aware wrap-up instruction that preserves todos, artifacts, and sprint state. The agent then has `budgetExitWrapUpIterations` iterations to call `done()`. If it does not exit gracefully within that wrap-up window, the turn ends with a `budget_exhausted` finish reason.
+
+This budget-based exit complements `maxIterations`; it does not replace the iteration limit. A turn can still stop because the configured iteration cap was reached before or after any budget warning.
 
 ### `evaluation`
 

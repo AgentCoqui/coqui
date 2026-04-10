@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\RoleUpdateTracker;
 use CoquiBot\Coqui\Contract\RoleProperties;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -47,11 +48,11 @@ final class RoleHandler
 
         $roleName = strtolower(trim($arg));
 
-        if ($roleName === 'reset' || $roleName === 'orchestrator') {
-            $modelString = $this->boot->roleResolver()->resolve('orchestrator');
-            $this->storage->updateSessionRole($sessionId, 'orchestrator', $modelString);
+        if ($roleName === 'reset' || $roleName === SystemRole::Orchestrator->value) {
+            $modelString = $this->boot->roleResolver()->resolve(SystemRole::Orchestrator->value);
+            $this->storage->updateSessionRole($sessionId, SystemRole::Orchestrator->value, $modelString);
             $io->success('Switched back to orchestrator.');
-            return 'orchestrator';
+            return SystemRole::Orchestrator->value;
         }
 
         if (!$roleDiscovery->roleExists($roleName)) {

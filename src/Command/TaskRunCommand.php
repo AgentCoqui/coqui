@@ -4,18 +4,22 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Command;
 
-use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
+use CoquiBot\Coqui\Agent\LearnerOutcomeTracker;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Api\DatabasePendingInputProvider;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Notification\NotificationPublisher;
 use CoquiBot\Coqui\Observer\BackgroundTaskObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
-use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
+use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputArgument;
@@ -70,10 +74,10 @@ final class TaskRunCommand extends Command
         $configOption = $input->getOption('config');
         $configPath = is_string($configOption) ? $configOption : null;
 
-        $workspaceOverride = $this->resolveWorkspaceOverride($input);
+        $workspaceOverride = WorkspaceOverrideResolver::resolve($input);
 
         $boot = new BootManager($workDir, $workspaceOverride);
-        $result = $boot->boot(io: null, configPath: $configPath);
+        $result = $boot->boot(io: null, configPath: $configPath, skipMaintenance: true);
 
         if (!$result) {
             $output->writeln('<error>Boot failed</error>');
@@ -83,6 +87,12 @@ final class TaskRunCommand extends Command
         // Initialize storage
         $dbPath = $boot->workspacePath() . '/data/coqui.db';
         $storage = new SessionStorage($dbPath);
+        $evaluationStore = new \CoquiBot\Coqui\Storage\EvaluationStore($storage->getPdo());
+        $learnerOutcomeTracker = new LearnerOutcomeTracker($evaluationStore, new SkillLifecycleStore($storage->getPdo()));
+
+        // Initialize notification publisher for task outcome notifications
+        $notificationStore = $boot->notificationStore();
+        $publisher = $notificationStore !== null ? new NotificationPublisher($notificationStore) : null;
 
         // Load task definition
         $task = $storage->getTask($taskId);
@@ -101,12 +111,24 @@ final class TaskRunCommand extends Command
         $toolName = $task['tool_name'] ?? null;
 
         if (is_string($toolName) && $toolName !== '') {
-            return $this->executeToolTask($taskId, $task, $boot, $storage, $workDir, $unsafeMode, $output);
+            return $this->executeToolTask($taskId, $task, $boot, $storage, $workDir, $unsafeMode, $output, $publisher);
         }
 
         $sessionId = $task['session_id'];
         $prompt = $task['prompt'];
-        $role = $task['role'] ?? 'orchestrator';
+        $role = $task['role'] ?? SystemRole::Orchestrator->value;
+        $workScopeSessionId = $task['parent_session_id'] ?? null;
+        if ($workScopeSessionId === '') {
+            $workScopeSessionId = null;
+        }
+        $taskProjectId = $task['project_id'] ?? null;
+        if ($taskProjectId === '') {
+            $taskProjectId = null;
+        }
+        $taskSprintId = $task['sprint_id'] ?? null;
+        if ($taskSprintId === '') {
+            $taskSprintId = null;
+        }
         $resolvedMax = $boot->roleResolver()->resolveMaxIterations($role);
         $dbMax = isset($task['max_iterations']) ? (int) $task['max_iterations'] : $resolvedMax;
         // Background tasks are always clamped for safety (even if role allows unlimited)
@@ -131,29 +153,13 @@ final class TaskRunCommand extends Command
         $inputProvider = new DatabasePendingInputProvider($storage, $taskId);
 
         // Create agent runner (no restart tool — onRestart is never set for tasks)
-        $agentRunner = new AgentRunner(
-            roleResolver: $boot->roleResolver(),
-            config: $boot->config(),
+        $agentRunner = AgentRunnerFactory::create(
+            boot: $boot,
             projectRoot: $workDir,
-            workspacePath: $boot->workspacePath(),
             storage: $storage,
             observer: new NullObserver(),
-            discovery: $boot->discovery(),
-            blacklist: $boot->blacklist(),
-            credentialResolver: $boot->credentialResolver(),
-            skillDiscovery: $boot->skillDiscovery(),
-            roleDiscovery: $boot->roleDiscovery(),
             unsafeMode: $unsafeMode,
-            memoryStore: $boot->memoryStore(),
-            memorySummarizer: $boot->memorySummarizer(),
-            mountManager: $boot->mountManager(),
-            spaceToolkit: $boot->spaceToolkit(),
-            todoStore: $boot->todoStore(),
-            artifactStore: $boot->artifactStore(),
-            projectStore: $boot->projectStore(),
-            defaultsLoader: $boot->defaultsLoader(),
             toolExecutor: new ConcurrentToolExecutor(),
-            httpClient: new ReactHttpClientAdapter(),
         );
 
         // Create execution policy (auto-approve — no human in the loop)
@@ -178,12 +184,17 @@ final class TaskRunCommand extends Command
                 pendingInputProvider: $inputProvider,
                 role: $role,
                 maxIterations: $maxIterations,
+                workScopeSessionId: $workScopeSessionId,
+                defaultProjectId: $taskProjectId,
+                defaultSprintId: $taskSprintId,
             );
 
             if ($cancellationToken->isCancelled()) {
+                $this->publishTaskNotification($publisher, $task, $taskId, 'cancelled', 'Task cancelled');
                 $storage->updateTaskStatus($taskId, 'cancelled', [
                     'result' => $turnResult->content,
                 ]);
+                $learnerOutcomeTracker->recordFromTask($task, 'cancelled', $turnResult->content, null);
                 $storage->appendTaskEvent($taskId, 'cancelled', [
                     'message' => 'Task was cancelled via SIGTERM',
                 ]);
@@ -192,10 +203,12 @@ final class TaskRunCommand extends Command
             }
 
             if ($turnResult->error !== null) {
+                $this->publishTaskNotification($publisher, $task, $taskId, 'failed', 'Task failed', $turnResult->error);
                 $storage->updateTaskStatus($taskId, 'failed', [
                     'error' => $turnResult->error,
                     'result' => $turnResult->content,
                 ]);
+                $learnerOutcomeTracker->recordFromTask($task, 'failed', $turnResult->content, $turnResult->error);
                 $storage->appendTaskEvent($taskId, 'failed', [
                     'error' => $turnResult->error,
                     'duration_ms' => $turnResult->durationMs,
@@ -204,9 +217,11 @@ final class TaskRunCommand extends Command
                 return Command::FAILURE;
             }
 
+            $this->publishTaskNotification($publisher, $task, $taskId, 'completed', 'Task completed');
             $storage->updateTaskStatus($taskId, 'completed', [
                 'result' => $turnResult->content,
             ]);
+            $learnerOutcomeTracker->recordFromTask($task, 'completed', $turnResult->content, null);
             $storage->appendTaskEvent($taskId, 'completed', [
                 'duration_ms' => $turnResult->durationMs,
                 'iterations' => $turnResult->iterations,
@@ -214,11 +229,21 @@ final class TaskRunCommand extends Command
                 'tools_used' => $turnResult->toolsUsed,
             ]);
 
+            // Record budget exhaustion as a separate event for tracking/evaluation
+            if ($turnResult->budgetExhausted) {
+                $storage->appendTaskEvent($taskId, 'budget_exhausted', [
+                    'iterations' => $turnResult->iterations,
+                    'total_tokens' => $turnResult->totalTokens,
+                ]);
+            }
+
             return Command::SUCCESS;
         } catch (\Throwable $e) {
+            $this->publishTaskNotification($publisher, $task, $taskId, 'failed', 'Task failed', $e->getMessage());
             $storage->updateTaskStatus($taskId, 'failed', [
                 'error' => $e->getMessage(),
             ]);
+            $learnerOutcomeTracker->recordFromTask($task, 'failed', null, $e->getMessage());
             $storage->appendTaskEvent($taskId, 'failed', [
                 'error' => $e->getMessage(),
             ]);
@@ -240,6 +265,7 @@ final class TaskRunCommand extends Command
         string $workDir,
         bool $unsafeMode,
         OutputInterface $output,
+        ?NotificationPublisher $publisher = null,
     ): int {
         $toolName = (string) $task['tool_name'];
         $argumentsJson = (string) ($task['tool_arguments'] ?? '{}');
@@ -283,6 +309,7 @@ final class TaskRunCommand extends Command
         try {
             // Check cancellation before execution
             if ($cancellationToken->isCancelled()) {
+                $this->publishTaskNotification($publisher, $task, $taskId, 'cancelled', 'Tool task cancelled');
                 $storage->updateTaskStatus($taskId, 'cancelled');
                 $storage->appendTaskEvent($taskId, 'cancelled', [
                     'message' => 'Cancelled before tool execution started',
@@ -302,6 +329,7 @@ final class TaskRunCommand extends Command
 
             // Check cancellation after execution (token is set by SIGTERM signal handler)
             if ($cancellationToken->isCancelled()) { // @phpstan-ignore if.alwaysFalse
+                $this->publishTaskNotification($publisher, $task, $taskId, 'cancelled', 'Tool task cancelled');
                 $storage->updateTaskStatus($taskId, 'cancelled', [
                     'result' => $toolResult->content,
                 ]);
@@ -314,6 +342,7 @@ final class TaskRunCommand extends Command
             }
 
             if ($toolResult->status === \CarmeloSantana\PHPAgents\Enum\ToolResultStatus::Error) {
+                $this->publishTaskNotification($publisher, $task, $taskId, 'failed', 'Tool task failed', $toolResult->content);
                 $storage->updateTaskStatus($taskId, 'failed', [
                     'error' => $toolResult->content,
                 ]);
@@ -326,6 +355,7 @@ final class TaskRunCommand extends Command
                 return Command::FAILURE;
             }
 
+            $this->publishTaskNotification($publisher, $task, $taskId, 'completed', 'Tool task completed');
             $storage->updateTaskStatus($taskId, 'completed', [
                 'result' => $toolResult->content,
             ]);
@@ -338,6 +368,7 @@ final class TaskRunCommand extends Command
             return Command::SUCCESS;
         } catch (\Throwable $e) {
             $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
+            $this->publishTaskNotification($publisher, $task, $taskId, 'failed', 'Tool task failed', $e->getMessage());
             $storage->updateTaskStatus($taskId, 'failed', [
                 'error' => $e->getMessage(),
             ]);
@@ -351,20 +382,98 @@ final class TaskRunCommand extends Command
         }
     }
 
-    private function resolveWorkspaceOverride(InputInterface $input): ?string
-    {
-        $option = $input->getOption('workspace');
-
-        if (is_string($option) && $option !== '') {
-            return $option;
+    /**
+     * Publish a task outcome notification to the parent session.
+     *
+     * Routes the notification to the user-facing conversation session
+     * (via parent_session_id) and uses fingerprinting to prevent duplicates.
+     * Failures are silently swallowed — notifications must never break task execution.
+     *
+     * @param array<string, mixed> $task
+     */
+    private function publishTaskNotification(
+        ?NotificationPublisher $publisher,
+        array $task,
+        string $taskId,
+        string $outcome,
+        string $title,
+        ?string $error = null,
+    ): void {
+        if ($publisher === null) {
+            return;
         }
 
-        $env = getenv('COQUI_WORKSPACE');
+        try {
+            $targetSession = NotificationPublisher::resolveTargetSession(
+                sessionId: (string) ($task['session_id'] ?? ''),
+                parentSessionId: $task['parent_session_id'] ?? null,
+            );
 
-        if (is_string($env) && $env !== '') {
-            return $env;
+            $taskTitle = $task['title'] ?? $task['prompt'] ?? '';
+            $displayTitle = mb_strlen((string) $taskTitle) > 80
+                ? mb_substr((string) $taskTitle, 0, 77) . '...'
+                : (string) $taskTitle;
+
+            // For loop-linked tasks the title is "Loop stage: role (iter N, stage M)".
+            // Combine with the outcome verb directly ("Loop stage completed: role ...")
+            // instead of the redundant "Task completed: Loop stage: role ...".
+            if (str_starts_with($displayTitle, 'Loop stage:')) {
+                $stageDetail = mb_substr($displayTitle, mb_strlen('Loop stage:'));
+                $verb = match ($outcome) {
+                    'completed' => 'completed',
+                    'cancelled' => 'cancelled',
+                    default => 'failed',
+                };
+                $notifTitle = "Loop stage {$verb}:{$stageDetail}";
+            } else {
+                $notifTitle = $displayTitle !== '' ? "{$title}: {$displayTitle}" : $title;
+            }
+
+            $kind = match ($outcome) {
+                'completed' => 'task.completed',
+                'cancelled' => 'task.cancelled',
+                default => 'task.failed',
+            };
+
+            $priority = $outcome === 'failed' ? 'high' : 'normal';
+            $message = $error !== null ? mb_substr($error, 0, 200) : null;
+            $metadata = [
+                'task_id' => $taskId,
+                'task_session_id' => (string) ($task['session_id'] ?? ''),
+                'parent_session_id' => isset($task['parent_session_id']) ? (string) $task['parent_session_id'] : null,
+                'role' => (string) ($task['role'] ?? SystemRole::Orchestrator->value),
+                'title' => $displayTitle,
+            ];
+
+            if ($outcome === 'failed') {
+                $publisher->actionable(
+                    sessionId: $targetSession,
+                    kind: $kind,
+                    title: $notifTitle,
+                    message: $message,
+                    priority: $priority,
+                    fingerprint: NotificationPublisher::taskFingerprint($taskId, $outcome),
+                    sourceType: 'background_task',
+                    sourceId: $taskId,
+                    metadata: $metadata,
+                );
+
+                return;
+            }
+
+            $publisher->info(
+                sessionId: $targetSession,
+                kind: $kind,
+                title: $notifTitle,
+                message: $message,
+                fingerprint: NotificationPublisher::taskFingerprint($taskId, $outcome),
+                sourceType: 'background_task',
+                sourceId: $taskId,
+                metadata: $metadata,
+                priority: $priority,
+            );
+        } catch (\Throwable) {
+            // Never break task execution for notification failures
         }
-
-        return null;
     }
 }

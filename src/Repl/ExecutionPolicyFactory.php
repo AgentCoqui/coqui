@@ -22,12 +22,21 @@ final class ExecutionPolicyFactory
 {
     /** Tool names that require user confirmation in interactive mode. */
     private const GATED_TOOLS = [
+        'artifact_bulk_delete' => ['*'],
+        'artifact_delete' => ['*'],
         'batch_replace' => ['*'],
-        'composer' => ['require', 'remove', 'update'],
+        'composer' => ['add', 'remove', 'update', 'install'],
         'exec' => ['*'],
+        'loop_stop' => ['*'],
         'move' => ['*'],
         'php_execute' => ['*'],
+        'project_delete' => ['*'],
         'restart_coqui' => ['*'],
+        'schedule_delete' => ['*'],
+        'sprint_delete' => ['*'],
+        'todo_bulk_delete' => ['*'],
+        'todo_clear' => ['*'],
+        'todo_delete' => ['*'],
     ];
 
     public function __construct(

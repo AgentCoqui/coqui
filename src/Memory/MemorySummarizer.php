@@ -8,6 +8,8 @@ use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Message\SystemMessage;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
+
 /**
  * Generates compressed summaries of core memories for system prompt injection.
  *
@@ -19,6 +21,8 @@ final class MemorySummarizer
 {
     public function __construct(
         private readonly MemoryStore $memoryStore,
+        private readonly int $maxTokens = CoquiDefaults::MEMORY_CORE_SUMMARY_MAX_TOKENS,
+        private readonly int $entryLimit = CoquiDefaults::MEMORY_CORE_SUMMARY_ENTRY_LIMIT,
     ) {}
 
     /**
@@ -28,8 +32,9 @@ final class MemorySummarizer
      * generates a fresh one from the raw entries. If no provider is
      * available, returns the raw compact summary from MemoryStore.
      */
-    public function getSummary(?ProviderInterface $provider = null, int $maxTokens = 500): string
+    public function getSummary(?ProviderInterface $provider = null, int $maxTokens = 0): string
     {
+        $effectiveMaxTokens = $maxTokens > 0 ? $maxTokens : $this->maxTokens;
         $currentCount = $this->memoryStore->count();
 
         if ($currentCount === 0) {
@@ -38,13 +43,14 @@ final class MemorySummarizer
 
         // Check cached summary
         $cached = $this->getCachedSummary();
+        $currentVersion = $this->memoryStore->getCacheVersion();
 
-        if ($cached !== null && $cached['memory_count'] === $currentCount) {
+        if ($cached !== null && $cached['memory_count'] === $currentCount && $cached['cache_version'] === $currentVersion) {
             return $cached['summary'];
         }
 
         // Generate new summary
-        $rawSummary = $this->memoryStore->getCoreSummary(limit: 50);
+        $rawSummary = $this->memoryStore->getCoreSummary(limit: $this->entryLimit);
 
         if ($rawSummary === '') {
             return '';
@@ -52,16 +58,16 @@ final class MemorySummarizer
 
         // If a provider is available, use LLM to compress the summary
         if ($provider !== null) {
-            $compressed = $this->compressWithLlm($provider, $rawSummary, $maxTokens);
+            $compressed = $this->compressWithLlm($provider, $rawSummary, $effectiveMaxTokens);
 
             if ($compressed !== '') {
-                $this->cacheSummary($compressed, $currentCount);
+                $this->cacheSummary($compressed, $currentCount, $currentVersion);
                 return $compressed;
             }
         }
 
         // Fall back to the raw summary (no LLM compression)
-        $this->cacheSummary($rawSummary, $currentCount);
+        $this->cacheSummary($rawSummary, $currentCount, $currentVersion);
 
         return $rawSummary;
     }
@@ -72,8 +78,8 @@ final class MemorySummarizer
     public function invalidate(): void
     {
         $this->memoryStore->count(); // ensure tables exist
-        $rawSummary = $this->memoryStore->getCoreSummary(limit: 50);
-        $this->cacheSummary($rawSummary, $this->memoryStore->count());
+        $rawSummary = $this->memoryStore->getCoreSummary(limit: $this->entryLimit);
+        $this->cacheSummary($rawSummary, $this->memoryStore->count(), $this->memoryStore->getCacheVersion());
     }
 
     /**
@@ -105,13 +111,13 @@ final class MemorySummarizer
     }
 
     /**
-     * @return array{summary: string, memory_count: int}|null
+     * @return array{summary: string, memory_count: int, cache_version: int}|null
      */
     private function getCachedSummary(): ?array
     {
         try {
             $db = $this->getDb();
-            $stmt = $db->query('SELECT summary, memory_count FROM memory_summary WHERE id = 1');
+            $stmt = $db->query('SELECT summary, memory_count, cache_version FROM memory_summary WHERE id = 1');
 
             if ($stmt === false) {
                 return null;
@@ -122,24 +128,26 @@ final class MemorySummarizer
             return $row !== false ? [
                 'summary' => $row['summary'],
                 'memory_count' => (int) $row['memory_count'],
+                'cache_version' => (int) ($row['cache_version'] ?? 0),
             ] : null;
         } catch (\Throwable) {
             return null;
         }
     }
 
-    private function cacheSummary(string $summary, int $memoryCount): void
+    private function cacheSummary(string $summary, int $memoryCount, int $cacheVersion): void
     {
         try {
             $db = $this->getDb();
             $now = (new \DateTimeImmutable())->format('Y-m-d\TH:i:s');
 
             $db->prepare(<<<SQL
-                INSERT OR REPLACE INTO memory_summary (id, summary, memory_count, generated_at)
-                VALUES (1, :summary, :count, :generated_at)
+                INSERT OR REPLACE INTO memory_summary (id, summary, memory_count, cache_version, generated_at)
+                VALUES (1, :summary, :count, :cache_version, :generated_at)
             SQL)->execute([
                 ':summary' => $summary,
                 ':count' => $memoryCount,
+                ':cache_version' => $cacheVersion,
                 ':generated_at' => $now,
             ]);
         } catch (\Throwable) {

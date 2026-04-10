@@ -52,6 +52,7 @@ beforeEach(function () {
 
     $this->loopDiscovery = new LoopDiscovery($this->workspacePath);
     $this->toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery);
+    $this->healthyLoopHealthCheck = static fn(): array => ['ok' => true, 'error' => null];
 });
 
 afterEach(function () {
@@ -126,7 +127,7 @@ test('guidelines() shows active loop count and details', function () {
 // ─── loop_start ───
 
 test('loop_start validates required parameters', function () {
-    $tool = $this->toolkit->tools()[0];
+    $tool = toolFromToolkit($this->toolkit, 'loop_start');
     expect($tool->name())->toBe('loop_start');
 
     $result = $tool->execute(['definition' => '', 'goal' => '']);
@@ -135,7 +136,7 @@ test('loop_start validates required parameters', function () {
 });
 
 test('loop_start rejects missing definition', function () {
-    $tool = $this->toolkit->tools()[0];
+    $tool = toolFromToolkit($this->toolkit, 'loop_start');
 
     $result = $tool->execute(['definition' => '', 'goal' => 'Do something']);
     expect($result->status)->toBe(ToolResultStatus::Error);
@@ -143,7 +144,7 @@ test('loop_start rejects missing definition', function () {
 });
 
 test('loop_start rejects nonexistent definition', function () {
-    $tool = $this->toolkit->tools()[0];
+    $tool = toolFromToolkit($this->toolkit, 'loop_start');
 
     $result = $tool->execute(['definition' => 'nonexistent', 'goal' => 'Do something']);
     expect($result->status)->toBe(ToolResultStatus::Error);
@@ -153,7 +154,7 @@ test('loop_start rejects nonexistent definition', function () {
 });
 
 test('loop_start returns action payload for valid definition', function () {
-    $tool = $this->toolkit->tools()[0];
+    $tool = toolFromToolkit($this->toolkit, 'loop_start');
 
     $result = $tool->execute(['definition' => 'harness', 'goal' => 'Build feature X']);
     expect($result->status)->toBe(ToolResultStatus::Success);
@@ -170,7 +171,7 @@ test('loop_start returns action payload for valid definition', function () {
 });
 
 test('loop_start passes max_iterations override', function () {
-    $tool = $this->toolkit->tools()[0];
+    $tool = toolFromToolkit($this->toolkit, 'loop_start');
 
     $result = $tool->execute(['definition' => 'harness', 'goal' => 'Test', 'max_iterations' => 20]);
     $decoded = json_decode($result->content, true);
@@ -179,7 +180,7 @@ test('loop_start passes max_iterations override', function () {
 });
 
 test('loop_start passes null max_iterations when not provided', function () {
-    $tool = $this->toolkit->tools()[0];
+    $tool = toolFromToolkit($this->toolkit, 'loop_start');
 
     $result = $tool->execute(['definition' => 'harness', 'goal' => 'Test']);
     $decoded = json_decode($result->content, true);
@@ -190,8 +191,7 @@ test('loop_start passes null max_iterations when not provided', function () {
 // ─── loop_list ───
 
 test('loop_list returns empty message when no loops exist', function () {
-    $tools = $this->toolkit->tools();
-    $listTool = $tools[1];
+    $listTool = toolFromToolkit($this->toolkit, 'loop_list');
     expect($listTool->name())->toBe('loop_list');
 
     $result = $listTool->execute([]);
@@ -200,7 +200,7 @@ test('loop_list returns empty message when no loops exist', function () {
 });
 
 test('loop_list returns all loops', function () {
-    $listTool = $this->toolkit->tools()[1];
+    $listTool = toolFromToolkit($this->toolkit, 'loop_list');
 
     $id1 = $this->loopStore->createLoop('harness', 'Goal A', [], $this->sessionId, 'p1', 10);
     $this->loopStore->updateLoopStatus($id1, 'running');
@@ -219,7 +219,7 @@ test('loop_list returns all loops', function () {
 });
 
 test('loop_list filters by status', function () {
-    $listTool = $this->toolkit->tools()[1];
+    $listTool = toolFromToolkit($this->toolkit, 'loop_list');
 
     $id1 = $this->loopStore->createLoop('harness', 'Running loop', [], $this->sessionId, 'p1', 10);
     $this->loopStore->updateLoopStatus($id1, 'running');
@@ -235,7 +235,7 @@ test('loop_list filters by status', function () {
 // ─── loop_status ───
 
 test('loop_status returns error for nonexistent loop', function () {
-    $statusTool = $this->toolkit->tools()[2];
+    $statusTool = toolFromToolkit($this->toolkit, 'loop_status');
     expect($statusTool->name())->toBe('loop_status');
 
     $result = $statusTool->execute(['id' => 'nonexistent']);
@@ -244,7 +244,7 @@ test('loop_status returns error for nonexistent loop', function () {
 });
 
 test('loop_status returns structured JSON for valid loop', function () {
-    $statusTool = $this->toolkit->tools()[2];
+    $statusTool = toolFromToolkit($this->toolkit, 'loop_status');
 
     $loopId = $this->loopStore->createLoop('harness', 'Test goal', [
         'type' => 'evaluation_bound',
@@ -266,7 +266,7 @@ test('loop_status returns structured JSON for valid loop', function () {
 });
 
 test('loop_status includes iteration and stage details', function () {
-    $statusTool = $this->toolkit->tools()[2];
+    $statusTool = toolFromToolkit($this->toolkit, 'loop_status');
 
     $loopId = $this->loopStore->createLoop('harness', 'Test goal', [], $this->sessionId, 'p1', 10);
     $this->loopStore->updateLoopStatus($loopId, 'running');
@@ -287,10 +287,35 @@ test('loop_status includes iteration and stage details', function () {
     expect($decoded['stages'][0]['summary'])->toBe('Stage result summary');
 });
 
+test('loop_status includes decoded stage metadata when present', function () {
+    $statusTool = toolFromToolkit($this->toolkit, 'loop_status');
+
+    $loopId = $this->loopStore->createLoop('harness', 'Test goal', [], $this->sessionId, 'p1', 10);
+    $this->loopStore->updateLoopStatus($loopId, 'running');
+
+    $iterId = $this->loopStore->createIteration($loopId, 1, 'sprint-1');
+    $this->loopStore->updateIterationStatus($iterId, 'running');
+
+    $stageId = $this->loopStore->createStage($iterId, 0, 'plan');
+    $this->loopStore->updateStage(
+        $stageId,
+        'running',
+        metadata: ['loop_id' => $loopId, 'workflow_phase' => 'plan'],
+    );
+
+    $result = $statusTool->execute(['id' => $loopId]);
+    $decoded = json_decode($result->content, true);
+
+    expect($decoded['stages'][0]['metadata'])->toBe([
+        'loop_id' => $loopId,
+        'workflow_phase' => 'plan',
+    ]);
+});
+
 // ─── loop_pause ───
 
 test('loop_pause pauses a running loop', function () {
-    $pauseTool = $this->toolkit->tools()[3];
+    $pauseTool = toolFromToolkit($this->toolkit, 'loop_pause');
     expect($pauseTool->name())->toBe('loop_pause');
 
     $loopId = $this->loopStore->createLoop('harness', 'Test', [], $this->sessionId, 'p1', 10);
@@ -305,7 +330,7 @@ test('loop_pause pauses a running loop', function () {
 });
 
 test('loop_pause rejects nonexistent loop', function () {
-    $pauseTool = $this->toolkit->tools()[3];
+    $pauseTool = toolFromToolkit($this->toolkit, 'loop_pause');
 
     $result = $pauseTool->execute(['id' => 'bad-id']);
     expect($result->status)->toBe(ToolResultStatus::Error);
@@ -313,7 +338,7 @@ test('loop_pause rejects nonexistent loop', function () {
 });
 
 test('loop_pause rejects non-running loop', function () {
-    $pauseTool = $this->toolkit->tools()[3];
+    $pauseTool = toolFromToolkit($this->toolkit, 'loop_pause');
 
     $loopId = $this->loopStore->createLoop('harness', 'Test', [], $this->sessionId, 'p1', 10);
     $this->loopStore->updateLoopStatus($loopId, 'completed');
@@ -324,10 +349,29 @@ test('loop_pause rejects non-running loop', function () {
     expect($result->content)->toContain('completed');
 });
 
+test('loop_pause pauses all running loops', function () {
+    $pauseTool = toolFromToolkit($this->toolkit, 'loop_pause');
+
+    $runningA = $this->loopStore->createLoop('harness', 'First', [], $this->sessionId, 'p1', 10);
+    $runningB = $this->loopStore->createLoop('harness', 'Second', [], $this->sessionId, 'p1', 10);
+    $done = $this->loopStore->createLoop('harness', 'Done', [], $this->sessionId, 'p1', 10);
+    $this->loopStore->updateLoopStatus($runningA, 'running');
+    $this->loopStore->updateLoopStatus($runningB, 'running');
+    $this->loopStore->updateLoopStatus($done, 'completed');
+
+    $result = $pauseTool->execute(['id' => 'all']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('Paused 2 loop(s)');
+    expect($this->loopStore->getLoop($runningA)['status'])->toBe('paused');
+    expect($this->loopStore->getLoop($runningB)['status'])->toBe('paused');
+    expect($this->loopStore->getLoop($done)['status'])->toBe('completed');
+});
+
 // ─── loop_resume ───
 
 test('loop_resume resumes a paused loop', function () {
-    $resumeTool = $this->toolkit->tools()[4];
+    $resumeTool = toolFromToolkit($this->toolkit, 'loop_resume');
     expect($resumeTool->name())->toBe('loop_resume');
 
     $loopId = $this->loopStore->createLoop('harness', 'Test', [], $this->sessionId, 'p1', 10);
@@ -342,7 +386,7 @@ test('loop_resume resumes a paused loop', function () {
 });
 
 test('loop_resume rejects non-paused loop', function () {
-    $resumeTool = $this->toolkit->tools()[4];
+    $resumeTool = toolFromToolkit($this->toolkit, 'loop_resume');
 
     $loopId = $this->loopStore->createLoop('harness', 'Test', [], $this->sessionId, 'p1', 10);
     $this->loopStore->updateLoopStatus($loopId, 'running');
@@ -354,17 +398,36 @@ test('loop_resume rejects non-paused loop', function () {
 });
 
 test('loop_resume rejects nonexistent loop', function () {
-    $resumeTool = $this->toolkit->tools()[4];
+    $resumeTool = toolFromToolkit($this->toolkit, 'loop_resume');
 
     $result = $resumeTool->execute(['id' => 'missing']);
     expect($result->status)->toBe(ToolResultStatus::Error);
     expect($result->content)->toContain('not found');
 });
 
+test('loop_resume resumes all paused loops', function () {
+    $resumeTool = toolFromToolkit($this->toolkit, 'loop_resume');
+
+    $pausedA = $this->loopStore->createLoop('harness', 'Paused A', [], $this->sessionId, 'p1', 10);
+    $pausedB = $this->loopStore->createLoop('harness', 'Paused B', [], $this->sessionId, 'p1', 10);
+    $running = $this->loopStore->createLoop('harness', 'Running', [], $this->sessionId, 'p1', 10);
+    $this->loopStore->updateLoopStatus($pausedA, 'paused');
+    $this->loopStore->updateLoopStatus($pausedB, 'paused');
+    $this->loopStore->updateLoopStatus($running, 'running');
+
+    $result = $resumeTool->execute(['id' => 'all']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('Resumed 2 loop(s)');
+    expect($this->loopStore->getLoop($pausedA)['status'])->toBe('running');
+    expect($this->loopStore->getLoop($pausedB)['status'])->toBe('running');
+    expect($this->loopStore->getLoop($running)['status'])->toBe('running');
+});
+
 // ─── loop_stop ───
 
 test('loop_stop cancels a running loop', function () {
-    $stopTool = $this->toolkit->tools()[5];
+    $stopTool = toolFromToolkit($this->toolkit, 'loop_stop');
     expect($stopTool->name())->toBe('loop_stop');
 
     $loopId = $this->loopStore->createLoop('harness', 'Test', [], $this->sessionId, 'p1', 10);
@@ -379,7 +442,7 @@ test('loop_stop cancels a running loop', function () {
 });
 
 test('loop_stop cancels a paused loop', function () {
-    $stopTool = $this->toolkit->tools()[5];
+    $stopTool = toolFromToolkit($this->toolkit, 'loop_stop');
 
     $loopId = $this->loopStore->createLoop('harness', 'Test', [], $this->sessionId, 'p1', 10);
     $this->loopStore->updateLoopStatus($loopId, 'paused');
@@ -390,7 +453,7 @@ test('loop_stop cancels a paused loop', function () {
 });
 
 test('loop_stop rejects completed loop', function () {
-    $stopTool = $this->toolkit->tools()[5];
+    $stopTool = toolFromToolkit($this->toolkit, 'loop_stop');
 
     $loopId = $this->loopStore->createLoop('harness', 'Test', [], $this->sessionId, 'p1', 10);
     $this->loopStore->updateLoopStatus($loopId, 'completed');
@@ -401,17 +464,36 @@ test('loop_stop rejects completed loop', function () {
 });
 
 test('loop_stop rejects nonexistent loop', function () {
-    $stopTool = $this->toolkit->tools()[5];
+    $stopTool = toolFromToolkit($this->toolkit, 'loop_stop');
 
     $result = $stopTool->execute(['id' => 'nope']);
     expect($result->status)->toBe(ToolResultStatus::Error);
     expect($result->content)->toContain('not found');
 });
 
+test('loop_stop cancels all active loops', function () {
+    $stopTool = toolFromToolkit($this->toolkit, 'loop_stop');
+
+    $running = $this->loopStore->createLoop('harness', 'Running', [], $this->sessionId, 'p1', 10);
+    $paused = $this->loopStore->createLoop('harness', 'Paused', [], $this->sessionId, 'p1', 10);
+    $completed = $this->loopStore->createLoop('harness', 'Completed', [], $this->sessionId, 'p1', 10);
+    $this->loopStore->updateLoopStatus($running, 'running');
+    $this->loopStore->updateLoopStatus($paused, 'paused');
+    $this->loopStore->updateLoopStatus($completed, 'completed');
+
+    $result = $stopTool->execute(['id' => 'all']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('Cancelled 2 loop(s)');
+    expect($this->loopStore->getLoop($running)['status'])->toBe('cancelled');
+    expect($this->loopStore->getLoop($paused)['status'])->toBe('cancelled');
+    expect($this->loopStore->getLoop($completed)['status'])->toBe('completed');
+});
+
 // ─── loop_definitions ───
 
 test('loop_definitions lists all available definitions', function () {
-    $defsTool = $this->toolkit->tools()[6];
+    $defsTool = toolFromToolkit($this->toolkit, 'loop_definitions');
     expect($defsTool->name())->toBe('loop_definitions');
 
     $result = $defsTool->execute([]);
@@ -434,7 +516,7 @@ test('loop_definitions returns message when no definitions exist', function () {
 
     $emptyDiscovery = new LoopDiscovery($emptyDir);
     $toolkit = new LoopToolkit($this->loopStore, $emptyDiscovery);
-    $defsTool = $toolkit->tools()[6];
+    $defsTool = toolFromToolkit($toolkit, 'loop_definitions');
 
     $result = $defsTool->execute([]);
     expect($result->status)->toBe(ToolResultStatus::Success);
@@ -452,10 +534,10 @@ test('loop_start passes parameters to executor', function () {
     file_put_contents($this->loopsDir . '/parameterized.json', json_encode([
         'name' => 'parameterized',
         'description' => 'Test parameterized loop',
-        'roles' => [['role' => 'coder', 'prompt' => 'Work on {{topic}}.']],
+        'roles' => [['role' => 'coder', 'prompt' => 'Work on {{subject}}.']],
         'termination_condition' => ['type' => 'manual'],
         'parameters' => [
-            ['name' => 'topic', 'description' => 'Subject', 'required' => true],
+            ['name' => 'subject', 'description' => 'Subject', 'required' => true],
         ],
     ]));
 
@@ -478,18 +560,18 @@ test('loop_start passes parameters to executor', function () {
         projectStore: $projectStore,
     );
 
-    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor);
-    $startTool = $toolkit->tools()[0];
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, null, $this->healthyLoopHealthCheck);
+    $startTool = toolFromToolkit($toolkit, 'loop_start');
 
     $result = $startTool->execute([
         'definition' => 'parameterized',
         'goal' => 'Test goal',
-        'parameters' => '{"topic": "authentication"}',
+        'parameters' => '{"subject": "authentication"}',
     ]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     $data = json_decode($result->content, true);
-    expect($data['parameters'])->toBe(['topic' => 'authentication']);
+    expect($data['parameters'])->toBe(['subject' => 'authentication']);
 
     // Clean up
     $it = new RecursiveIteratorIterator(
@@ -503,7 +585,7 @@ test('loop_start passes parameters to executor', function () {
 });
 
 test('loop_start rejects invalid parameters JSON', function () {
-    $startTool = $this->toolkit->tools()[0];
+    $startTool = toolFromToolkit($this->toolkit, 'loop_start');
 
     $result = $startTool->execute([
         'definition' => 'harness',
@@ -515,25 +597,50 @@ test('loop_start rejects invalid parameters JSON', function () {
     expect($result->content)->toContain('valid JSON object');
 });
 
+test('loop_start passes max_iterations override to executor', function () {
+    $pdo = $this->storage->getPdo();
+    $projectStore = new \CoquiBot\Coqui\Storage\ProjectStore($pdo);
+    $executor = new \CoquiBot\Coqui\Agent\LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $projectStore,
+    );
+
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, null, $this->healthyLoopHealthCheck);
+    $startTool = toolFromToolkit($toolkit, 'loop_start');
+
+    $result = $startTool->execute([
+        'definition' => 'harness',
+        'goal' => 'Test override persistence',
+        'max_iterations' => 3,
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $data = json_decode($result->content, true);
+    expect($data['max_iterations'])->toBe(3);
+
+    $loop = $this->loopStore->getLoop($data['loop_id']);
+    expect((int) $loop['max_iterations'])->toBe(3);
+});
+
 test('loop_definitions shows parameter info', function () {
     file_put_contents($this->loopsDir . '/parameterized.json', json_encode([
         'name' => 'parameterized',
         'description' => 'Test parameterized loop',
-        'roles' => [['role' => 'coder', 'prompt' => 'Work on {{topic}}.']],
+        'roles' => [['role' => 'coder', 'prompt' => 'Work on {{subject}}.']],
         'termination_condition' => ['type' => 'manual'],
         'parameters' => [
-            ['name' => 'topic', 'description' => 'Subject', 'required' => true],
+            ['name' => 'subject', 'description' => 'Subject', 'required' => true],
             ['name' => 'format', 'description' => 'Format', 'required' => false, 'default' => 'md'],
         ],
     ]));
 
     $this->loopDiscovery->invalidateCache();
     $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery);
-    $defsTool = $toolkit->tools()[6];
+    $defsTool = toolFromToolkit($toolkit, 'loop_definitions');
 
     $result = $defsTool->execute([]);
     expect($result->status)->toBe(ToolResultStatus::Success);
-    expect($result->content)->toContain('Parameters: topic, format?');
+    expect($result->content)->toContain('Parameters: subject, format?');
 });
 
 // ──────────────────────────────────────────────
@@ -558,8 +665,8 @@ test('loop_start passes sessionId from toolkit to executor', function () {
     );
 
     // Create toolkit WITH sessionId
-    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, $this->sessionId);
-    $startTool = $toolkit->tools()[0];
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, $this->sessionId, $this->healthyLoopHealthCheck);
+    $startTool = toolFromToolkit($toolkit, 'loop_start');
 
     $result = $startTool->execute([
         'definition' => 'harness',
@@ -603,8 +710,8 @@ test('loop_start without sessionId stores null in loop record', function () {
     );
 
     // Create toolkit WITHOUT sessionId (null)
-    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor);
-    $startTool = $toolkit->tools()[0];
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, null, $this->healthyLoopHealthCheck);
+    $startTool = toolFromToolkit($toolkit, 'loop_start');
 
     $result = $startTool->execute([
         'definition' => 'harness',
@@ -647,8 +754,8 @@ test('prepareNextStage propagates sessionId into LoopStageResult', function () {
     );
 
     // Start loop with sessionId
-    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, $this->sessionId);
-    $startTool = $toolkit->tools()[0];
+    $toolkit = new LoopToolkit($this->loopStore, $this->loopDiscovery, $executor, $this->sessionId, $this->healthyLoopHealthCheck);
+    $startTool = toolFromToolkit($toolkit, 'loop_start');
     $result = $startTool->execute([
         'definition' => 'harness',
         'goal' => 'Test stage session propagation',

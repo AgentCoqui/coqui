@@ -12,6 +12,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\CoquiSpace\SpaceClient;
 use CoquiBot\Coqui\CoquiSpace\SpaceRegistry;
 use CoquiBot\Coqui\CoquiSpace\Installer\ToolkitInstaller;
+use CoquiBot\Coqui\Support\StringHelper;
 
 /**
  * Agent-facing tool for discovering and managing toolkits on Coqui Space.
@@ -185,7 +186,7 @@ final class SpaceToolkitsTool implements ToolInterface
             $downloads = $this->formatNumber((int) ($item['downloads'] ?? 0));
             $favers = $this->formatNumber((int) ($item['favers'] ?? 0));
             $verified = !empty($item['verified_publisher']) ? '✓' : '—';
-            $desc = $this->truncate((string) ($item['description'] ?? ''), 60);
+            $desc = StringHelper::truncate((string) ($item['description'] ?? ''), 60);
 
             $lines[] = "| `{$name}` | {$downloads} | {$favers} | {$verified} | {$desc} |";
         }
@@ -230,7 +231,7 @@ final class SpaceToolkitsTool implements ToolInterface
             $downloads = $this->formatNumber((int) ($item['downloads'] ?? 0));
             $favers = $this->formatNumber((int) ($item['favers'] ?? 0));
             $verified = !empty($item['verified_publisher']) ? '✓' : '—';
-            $desc = $this->truncate((string) ($item['description'] ?? ''), 50);
+            $desc = StringHelper::truncate((string) ($item['description'] ?? ''), 50);
 
             $lines[] = "| {$rank} | `{$name}` | {$downloads} | {$favers} | {$verified} | {$desc} |";
         }
@@ -305,7 +306,7 @@ final class SpaceToolkitsTool implements ToolInterface
 
                 $lines[] = "**{$stars}** " . ($title !== '' ? "— {$title}" : '');
                 if ($body !== '') {
-                    $lines[] = $this->truncate($body, 200);
+                    $lines[] = StringHelper::truncate($body, 200);
                 }
                 $lines[] = '';
             }
@@ -370,7 +371,7 @@ final class SpaceToolkitsTool implements ToolInterface
 
         $lines = ["## {$name}"];
         $lines[] = '';
-        $lines[] = $this->truncate($description, 300);
+        $lines[] = StringHelper::truncate($description, 300);
         $lines[] = '';
         $lines[] = "**Type:** {$type}";
         $lines[] = "**Repository:** {$repository}";
@@ -428,7 +429,7 @@ final class SpaceToolkitsTool implements ToolInterface
 
         $lines = ["## {$displayName}"];
         $lines[] = '';
-        $lines[] = $this->truncate($description, 300);
+        $lines[] = StringHelper::truncate($description, 300);
         $lines[] = '';
         $ownerDisplay = (string) ($ownerInfo['displayName'] ?? $owner);
         $ownerHandle = (string) ($ownerInfo['handle'] ?? $owner);
@@ -485,12 +486,4 @@ final class SpaceToolkitsTool implements ToolInterface
         return (string) $value;
     }
 
-    private function truncate(string $value, int $max): string
-    {
-        if (strlen($value) <= $max) {
-            return $value;
-        }
-
-        return substr($value, 0, $max - 1) . '…';
-    }
 }

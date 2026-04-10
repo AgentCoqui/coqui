@@ -45,6 +45,7 @@ final readonly class PromptHandler
                 'tool_tokens'       => $preview['tool_tokens'],
                 'total_tokens'      => $preview['total_tokens'],
                 'toolkit_breakdown' => $preview['toolkit_breakdown'],
+                'budget'            => $preview['budget_snapshot'],
             ]);
         } catch (\Throwable $e) {
             return Router::errorResponse(

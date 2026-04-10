@@ -13,8 +13,11 @@ use CoquiBot\Coqui\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Contract\ToolExecutorInterface;
+use CoquiBot\Coqui\Toolkit\ComposerToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
+use CoquiBot\Coqui\Toolkit\PackagistToolkit;
 use CoquiBot\Coqui\Tool\PhpExecuteTool;
 
 /**
@@ -26,7 +29,7 @@ use CoquiBot\Coqui\Tool\PhpExecuteTool;
  *
  * Used by TaskRunCommand when a task record has tool_name set.
  */
-final class BackgroundToolExecutor
+final class BackgroundToolExecutor implements ToolExecutorInterface
 {
     /** @var array<string, ToolInterface> */
     private array $tools = [];
@@ -93,27 +96,38 @@ final class BackgroundToolExecutor
             allowedPaths: $this->boot->mountManager()->allowedPaths(),
         ));
 
-        // Shell toolkit — runs in project root.
+        // Shell toolkit — runs in workspace, sandboxed to workspace + mounts.
         // In unsafe mode, bypass all command restrictions.
         $shellAllowed = $this->unsafeMode ? [] : ShellConfigResolver::resolveAllowed($config);
         $shellDenied = $this->unsafeMode ? [] : ShellConfigResolver::resolveDenied($config);
         $this->registerToolkit(new ShellToolkit(
-            workDir: $this->projectRoot,
+            workDir: $workspacePath,
             allowedCommands: $shellAllowed,
             deniedCommands: $shellDenied,
             timeout: 60,
             unsafe: $this->unsafeMode,
+            rootPath: $workspacePath,
+            allowedPaths: $this->boot->mountManager()->allowedPaths(),
+            sandboxWrites: ShellConfigResolver::resolveSandboxWrites($config),
+            scrubEnvironment: ShellConfigResolver::resolveScrubEnvironment($config),
         ));
 
         // Web toolkit — HTTP requests with SSRF protection
-        $this->registerToolkit(new WebToolkit());
+        $this->registerToolkit(new WebToolkit(workspacePath: $workspacePath));
 
         // Memory toolkit
         $memoryStore = $this->boot->memoryStore();
-        $this->registerToolkit(new MemoryToolkit($memoryStore));
+        $this->registerToolkit(new MemoryToolkit($memoryStore, $workspacePath));
 
         // Project source toolkit
         $this->registerToolkit(new CoquiSourceToolkit(projectRoot: $this->projectRoot));
+
+        // Composer & Packagist toolkits — workspace package management
+        $this->registerToolkit(new ComposerToolkit(
+            workspacePath: $workspacePath,
+            listener: $this->boot->discovery(),
+        ));
+        $this->registerToolkit(new PackagistToolkit());
 
         // PHP execution tool
         $sanitizer = new ScriptSanitizer(

@@ -18,10 +18,10 @@ use React\Stream\ThroughStream;
 /**
  * Message endpoints — including the core SSE streaming endpoint.
  *
- * GET    /api/sessions/{id}/messages             — list messages
- * POST   /api/sessions/{id}/messages             — send prompt (SSE stream)
- * POST   /api/sessions/{id}/messages?stream=false — send prompt (JSON response)
- * DELETE /api/sessions/{id}/messages/{messageId}  — delete a single message
+ * GET    /api/v1/sessions/{id}/messages             — list messages
+ * POST   /api/v1/sessions/{id}/messages             — send prompt (SSE stream)
+ * POST   /api/v1/sessions/{id}/messages?stream=false — send prompt (JSON response)
+ * DELETE /api/v1/sessions/{id}/messages/{messageId}  — delete a single message
  *
  * Agent turns run in child processes via AgentTurnManager. Events are polled
  * from SQLite and streamed to the client, keeping the ReactPHP event loop
@@ -42,7 +42,7 @@ final readonly class MessageHandler
     ) {}
 
     /**
-     * GET /api/sessions/{id}/messages
+     * GET /api/v1/sessions/{id}/messages
      */
     public function list(ServerRequestInterface $request, string $id): Response
     {
@@ -62,13 +62,13 @@ final readonly class MessageHandler
     }
 
     /**
-     * POST /api/sessions/{id}/messages  { "prompt": "...", "files": ["file-id-1", ...] }
+     * POST /api/v1/sessions/{id}/messages  { "prompt": "...", "files": ["file-id-1", ...] }
      *
      * Default: returns an SSE stream.
      * With ?stream=false: blocks and returns JSON with the final result.
      *
      * The optional "files" array references file IDs from prior uploads
-     * via POST /api/sessions/{id}/files. Images are sent to the LLM as
+     * via POST /api/v1/sessions/{id}/files. Images are sent to the LLM as
      * vision content; text files are injected as context in the prompt.
      */
     public function send(ServerRequestInterface $request, string $id): Response
@@ -192,7 +192,7 @@ final readonly class MessageHandler
             &$timer,
         ): void {
             try {
-                $events = $this->storage->getTaskEvents($turnProcessId, $lastEventId);
+                $events = $this->storage->getTurnEvents($turnProcessId, $lastEventId);
 
                 foreach ($events as $event) {
                     $this->writeSseEvent($stream, $event);
@@ -204,7 +204,7 @@ final readonly class MessageHandler
 
                 if ($turnProcess !== null && in_array($turnProcess['status'], ['completed', 'failed'], true)) {
                     // Final poll to ensure all events are flushed
-                    $finalEvents = $this->storage->getTaskEvents($turnProcessId, $lastEventId);
+                    $finalEvents = $this->storage->getTurnEvents($turnProcessId, $lastEventId);
                     foreach ($finalEvents as $event) {
                         $this->writeSseEvent($stream, $event);
                     }
@@ -283,7 +283,7 @@ final readonly class MessageHandler
         ): void {
             try {
                 // Advance the event cursor so we can find the complete event
-                $events = $this->storage->getTaskEvents($turnProcessId, $lastEventId);
+                $events = $this->storage->getTurnEvents($turnProcessId, $lastEventId);
                 foreach ($events as $event) {
                     $lastEventId = (int) $event['id'];
                 }
@@ -353,7 +353,7 @@ final readonly class MessageHandler
     private function extractCompleteResult(string $turnProcessId): ?array
     {
         // Read all events and find the last "complete" event
-        $events = $this->storage->getTaskEvents($turnProcessId, limit: 500);
+        $events = $this->storage->getTurnEvents($turnProcessId, limit: 500);
 
         for ($i = count($events) - 1; $i >= 0; $i--) {
             if (($events[$i]['event_type'] ?? '') === 'complete') {
@@ -396,7 +396,7 @@ final readonly class MessageHandler
     }
 
     /**
-     * DELETE /api/sessions/{id}/messages/{messageId}
+     * DELETE /api/v1/sessions/{id}/messages/{messageId}
      */
     public function delete(ServerRequestInterface $request, string $id, string $messageId): Response
     {

@@ -11,7 +11,7 @@ use React\Http\Message\Response;
  * Simple pattern-matching HTTP router for the API server.
  *
  * Maps method + path patterns to handler callables. Supports path parameters
- * via {name} placeholders (e.g. /api/sessions/{id}).
+ * via {name} placeholders (e.g. /api/v1/sessions/{id}).
  *
  * No framework dependency — built on ReactPHP request/response objects.
  */

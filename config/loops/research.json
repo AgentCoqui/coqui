@@ -3,42 +3,51 @@
     "description": "Research-and-synthesize loop for deep investigation. An explorer gathers information from the codebase and documentation, a coder synthesizes findings into a structured deliverable, and a reviewer evaluates completeness. Ideal for documentation, architecture analysis, and knowledge extraction.",
     "parameters": [
         {
-            "name": "topic",
-            "description": "The subject or area to investigate (e.g. 'authentication', 'database schema', 'API design')",
-            "required": true
-        },
-        {
             "name": "output_format",
             "description": "The type of deliverable to produce",
             "required": false,
             "default": "markdown document"
+        },
+        {
+            "name": "max_review_rounds",
+            "description": "Maximum number of review iterations before the loop stops",
+            "required": false,
+            "default": "3"
+        },
+        {
+            "name": "termination_criteria",
+            "description": "Criteria the reviewer uses to decide approval",
+            "required": false,
+            "default": "The reviewer must approve the deliverable as complete, accurate, and meeting the stated research goal. All major topics must be covered with verified references."
         }
     ],
     "roles": [
         {
             "name": "investigate",
             "role": "explorer",
-            "prompt": "Investigate {{topic}} thoroughly. Search the codebase, read relevant files, and gather all pertinent information about {{topic}}. If this is a rework iteration, focus on the gaps identified by the reviewer. Produce a comprehensive research summary with specific file references and code excerpts.",
+            "prompt": "Investigate the loop goal thoroughly. Search the codebase, read relevant files, and gather all pertinent information needed to satisfy the goal. If this is a rework iteration, focus on the gaps identified by the reviewer. Produce a comprehensive research summary with specific file references and code excerpts.",
             "order": 0
         },
         {
             "name": "synthesize",
             "role": "coder",
-            "prompt": "Synthesize the research findings about {{topic}} from the previous stage into a structured, polished {{output_format}}. Ensure all claims are backed by the research findings.",
-            "order": 1
+            "prompt": "Synthesize the research findings from the previous stage into a structured, polished {{output_format}} that satisfies the loop goal. Write the deliverable directly to the project directory as a file (e.g. markdown document). Ensure all claims are backed by the research findings. Summarize what was produced and where it was written.",
+            "order": 1,
+            "requires_artifact_from": 0
         },
         {
             "name": "evaluate",
             "role": "reviewer",
-            "prompt": "Evaluate the {{output_format}} about {{topic}} for completeness, accuracy, and clarity. Verify that all claims match the research findings. Check for missing topics, inaccurate references, or unclear sections. Approve if the deliverable meets the goal, or provide specific feedback on what needs more investigation or better synthesis.",
-            "order": 2
+            "prompt": "Evaluate the {{output_format}} produced for the loop goal for completeness, accuracy, and clarity. Verify the actual deliverable file in the project directory using shell tools (ls, cat, grep, find). Verify that all claims match the research findings. Check for missing areas, inaccurate references, or unclear sections. Approve if the deliverable meets the goal, or provide specific feedback on what needs more investigation or better synthesis.",
+            "order": 2,
+            "requires_artifact_from": 1
         }
     ],
     "termination_condition": {
         "type": "evaluation_bound",
         "value": {
-            "criteria": "The reviewer must approve the deliverable as complete, accurate, and meeting the stated research goal. All major topics must be covered with verified references.",
-            "max_review_rounds": 3
+            "criteria": "{{termination_criteria}}",
+            "max_review_rounds": "{{max_review_rounds}}"
         }
     }
 }

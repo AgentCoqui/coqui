@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\OpenClawConfig;
+use CarmeloSantana\PHPAgents\Context\HeuristicCounter;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Provider\Response;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
@@ -234,6 +235,40 @@ test('instructions include mount storage map when mounts exist', function () {
     expect($instructions)->toContain('datasets');
 
     rmdir($mountDir);
+});
+
+test('instructions include pending notifications section when set', function () {
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+    );
+
+    $agent->setNotificationPromptSection("[PENDING NOTIFICATIONS]\n\n1. [task.completed] Build finished");
+
+    $instructions = $agent->instructions();
+
+    expect($instructions)->toContain('[PENDING NOTIFICATIONS]');
+    expect($instructions)->toContain('Build finished');
+});
+
+test('prompt section breakdown includes pending notifications when set', function () {
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+    );
+
+    $agent->setNotificationPromptSection("[PENDING NOTIFICATIONS]\n\n1. [task.completed] Build finished");
+
+    $breakdown = $agent->getPromptSectionBreakdown(new HeuristicCounter());
+    $ids = array_column($breakdown, 'id');
+
+    expect($ids)->toContain('context.pending-notifications');
 });
 
 test('getSpawnTool returns SpawnAgentTool', function () {

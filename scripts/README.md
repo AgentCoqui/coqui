@@ -6,7 +6,7 @@ Utility scripts for development and maintenance of the Coqui project.
 
 Mirrors the GitHub Actions CI pipeline locally. Runs Pest tests and PHPStan static analysis in sequence, exiting on the first failure.
 
-### Usage
+### Direct Usage
 
 ```bash
 # Run tests + PHPStan (vendor/ must already exist)
@@ -14,6 +14,9 @@ Mirrors the GitHub Actions CI pipeline locally. Runs Pest tests and PHPStan stat
 
 # Install dependencies first, then run checks
 ./scripts/ci-test.sh --install
+
+# Include a coverage report in the Pest step
+./scripts/ci-test.sh --coverage
 ```
 
 ### What it does
@@ -21,7 +24,34 @@ Mirrors the GitHub Actions CI pipeline locally. Runs Pest tests and PHPStan stat
 1. Checks PHP version (8.4+ required) and verifies required extensions (`pdo_sqlite`, `mbstring`, `curl`, `xml`)
 2. Warns about optional extensions (`pcntl`, `zip`) if missing
 3. Optionally runs `composer install`
-4. Runs `composer test` (Pest)
+4. Runs `composer test` (Pest) or `composer test:coverage` when `--coverage` is set
 5. Runs `composer analyse` (PHPStan level 8, bleeding edge)
 
-See [docs/GITHUB-ACTIONS.md](../docs/GITHUB-ACTIONS.md) for full CI documentation including macOS/Ubuntu setup instructions.
+## test-coverage.php
+
+Cross-platform coverage wrapper for Pest.
+
+### Usage
+
+```bash
+# Terminal coverage summary
+php scripts/test-coverage.php
+
+# Save Clover XML with the same wrapper command shape used in CI
+php scripts/test-coverage.php --clover build/coverage/clover.xml
+```
+
+The wrapper auto-enables PCOV when installed, or Xdebug coverage mode when Xdebug is available.
+
+It also supports optional environment overrides:
+
+```bash
+COQUI_TEST_COVERAGE_MEMORY_LIMIT=768M php scripts/test-coverage.php
+COQUI_TEST_COVERAGE_DRIVER=pcov php scripts/test-coverage.php
+COQUI_TEST_COVERAGE_DRIVER=xdebug php scripts/test-coverage.php
+```
+
+- `COQUI_TEST_COVERAGE_MEMORY_LIMIT` defaults to `512M`.
+- `COQUI_TEST_COVERAGE_DRIVER` defaults to `auto`, preferring `pcov` before `xdebug`.
+
+See [docs/TESTING.md](../docs/TESTING.md) for local test and coverage setup, and [docs/GITHUB-ACTIONS.md](../docs/GITHUB-ACTIONS.md) for CI workflow details.

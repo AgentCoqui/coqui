@@ -7,26 +7,28 @@ namespace CoquiBot\Coqui\Command;
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\LoopExecutor;
-use CoquiBot\Coqui\Agent\LoopRunner;
+use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
-use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\RoleUpdateInfo;
-use CoquiBot\Coqui\Config\ShellConfigResolver;
+use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Observer\NullObserver;
-use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Observer\TerminalObserver;
 use CoquiBot\Coqui\Renderer\JsonRenderer;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Repl\AgentTurnExecutor;
 use CoquiBot\Coqui\Repl\ExecutionPolicyFactory;
+use CoquiBot\Coqui\Repl\NotificationPresenter;
+use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
+use CoquiBot\Coqui\Repl\Handler\QualityHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
@@ -38,6 +40,9 @@ use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\TabCompletion;
 use CoquiBot\Coqui\Repl\TerminalStateManager;
+use CoquiBot\Coqui\Storage\EvaluationStore;
+use CoquiBot\Coqui\Storage\NotificationStore;
+use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -52,6 +57,9 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 )]
 final class RunCommand extends Command
 {
+    private const float NOTIFICATION_IDLE_POLL_INTERVAL_SECONDS = 0.5;
+    private const string DEFAULT_READLINE_PROMPT = ' › ';
+
     /**
      * Exit code that signals the launcher script to restart the process.
      * Chosen to avoid collision with Symfony Console reserved codes (0, 1, 2)
@@ -61,7 +69,7 @@ final class RunCommand extends Command
 
     private BootManager $boot;
     private AgentRunner $agentRunner;
-    private ?LoopRunner $loopRunner = null;
+    private ?LoopExecutor $loopExecutor = null;
     private EscCancellationObserver $escObserver;
     private ?AnimatedTickCallback $animatedTickCallback = null;
     private SessionStorage $storage;
@@ -72,7 +80,7 @@ final class RunCommand extends Command
     private bool $restartRequested = false;
     private bool $continueMode = false;
     private bool $hintsEnabled = true;
-    private string $activeRole = 'orchestrator';
+    private string $activeRole = 'orchestrator'; // property default must be string literal
     private ?string $activeProjectId = null;
     private ?string $activeProjectSlug = null;
 
@@ -116,7 +124,7 @@ final class RunCommand extends Command
         $configOption = $input->getOption('config');
         $configPath = is_string($configOption) ? $configOption : null;
 
-        $workspaceOverride = $this->resolveWorkspaceOverride($input);
+        $workspaceOverride = WorkspaceOverrideResolver::resolve($input);
 
         // Handle --wizard: lightweight boot + setup wizard, then exit
         if ((bool) $input->getOption('wizard')) {
@@ -168,36 +176,18 @@ final class RunCommand extends Command
         );
 
         // Initialize agent runner
-        $this->agentRunner = new AgentRunner(
-            roleResolver: $this->boot->roleResolver(),
-            config: $this->boot->config(),
+        $this->agentRunner = AgentRunnerFactory::create(
+            boot: $this->boot,
             projectRoot: $this->workDir,
-            workspacePath: $this->boot->workspacePath(),
             storage: $this->storage,
             observer: $this->escObserver,
-            discovery: $this->boot->discovery(),
-            blacklist: $this->boot->blacklist(),
-            credentialResolver: $this->boot->credentialResolver(),
-            skillDiscovery: $this->boot->skillDiscovery(),
-            roleDiscovery: $this->boot->roleDiscovery(),
             unsafeMode: $this->unsafeMode,
             backgroundTasksEnabled: true,
-            memoryStore: $this->boot->memoryStore(),
-            memorySummarizer: $this->boot->memorySummarizer(),
-            mountManager: $this->boot->mountManager(),
-            configManager: $this->boot->configManager(),
-            configGuard: new ConfigGuard(),
-            visibilityRegistry: $this->boot->visibilityRegistry(),
-            spaceToolkit: $this->boot->spaceToolkit(),
-            todoStore: $this->boot->todoStore(),
-            artifactStore: $this->boot->artifactStore(),
-            projectStore: $this->boot->projectStore(),
-            defaultsLoader: $this->boot->defaultsLoader(),
+            includeConfigManager: true,
+            includeVisibilityRegistry: true,
+            includeLoadingData: true,
             tickCallback: $this->animatedTickCallback,
             toolExecutor: new ConcurrentToolExecutor(),
-            httpClient: new ReactHttpClientAdapter(),
-            loadingRegistry: $this->boot->loadingRegistry(),
-            usageTracker: $this->boot->usageTracker(),
         );
 
         // Initialize loop execution pipeline (requires stores from boot)
@@ -207,35 +197,12 @@ final class RunCommand extends Command
         $loopDiscovery = $this->boot->loopDiscovery();
 
         if ($loopStore !== null && $projectStore !== null && $artifactStore !== null && $loopDiscovery !== null) {
-            $loopExecutor = new LoopExecutor(
+            $this->loopExecutor = new LoopExecutor(
                 loopStore: $loopStore,
                 projectStore: $projectStore,
-            );
-
-            $shellAllowed = ShellConfigResolver::resolveAllowed($this->boot->config());
-            $shellDenied = ShellConfigResolver::resolveDenied($this->boot->config());
-
-            $this->loopRunner = new LoopRunner(
-                executor: $loopExecutor,
-                loopStore: $loopStore,
-                roleResolver: $this->boot->roleResolver(),
-                roleDiscovery: $this->boot->roleDiscovery(),
-                config: $this->boot->config(),
-                projectRoot: $this->workDir,
-                workspacePath: $this->boot->workspacePath(),
-                storage: $this->storage,
-                artifactStore: $artifactStore,
+                sessionStorage: $this->storage,
                 todoStore: $this->boot->todoStore(),
-                projectStore: $projectStore,
-                memoryStore: $this->boot->memoryStore(),
-                skillDiscovery: $this->boot->skillDiscovery(),
-                discovery: $this->boot->discovery(),
-                visibilityRegistry: $this->boot->visibilityRegistry(),
-                mountManager: $this->boot->mountManager(),
-                observer: $this->escObserver,
-                unsafeMode: $this->unsafeMode,
-                shellAllowedCommands: $shellAllowed,
-                shellDeniedCommands: $shellDenied,
+                artifactStore: $artifactStore,
             );
         }
 
@@ -297,7 +264,7 @@ final class RunCommand extends Command
 
         $bannerLines = [
             '<fg=gray>Session:</> ' . substr($this->sessionId, 0, 8) . '...',
-            '<fg=gray>Model:</> ' . $this->boot->roleResolver()->resolve('orchestrator'),
+            '<fg=gray>Model:</> ' . $this->boot->roleResolver()->resolve(SystemRole::Orchestrator->value),
             '<fg=gray>Project root:</> ' . $this->workDir,
             '<fg=gray>Workspace:</> ' . $this->boot->workspacePath(),
         ];
@@ -305,8 +272,7 @@ final class RunCommand extends Command
         if ($this->hintsEnabled) {
             $io->section('REPL');
             $bannerLines[] = '';
-            $bannerLines[] = '<fg=gray>Commands: /new, /history, /sessions, /tasks, /todos, /roles, /config, /update, /restart, /quit</>';
-            $bannerLines[] = '<fg=gray>Press ESC or Ctrl+C to cancel agent</>';
+            $bannerLines[] = '<fg=gray>Commands: /config, /new, /sessions, /roles, /tasks, /help, /update, /restart, /quit</>';
         }
 
         $io->text($bannerLines);
@@ -368,11 +334,26 @@ final class RunCommand extends Command
             $this->animatedTickCallback,
         );
 
+        $notificationConfig = $this->boot->config()->getNotificationConfig();
+        $notificationsEnabled = $notificationConfig['enabled'];
+        $notificationStore = $notificationsEnabled ? $this->boot->notificationStore() : null;
+        $notificationPresenter = new NotificationPresenter();
+        $notificationLimit = $notificationConfig['replDisplayLimit'];
+
         $router = new SlashCommandRouter(
             session: $sessionHandler,
             task: new TaskHandler($this->storage),
             todo: new TodoHandler($this->boot->todoStore()),
             schedule: new ScheduleHandler($this->storage),
+            budget: new BudgetHandler($this->agentRunner),
+            quality: new QualityHandler(
+                new QualityAutomationStatusService(
+                    config: $this->boot->config(),
+                    storage: $this->storage,
+                    evaluationStore: new EvaluationStore($this->storage->getPdo()),
+                    scheduleStore: new ScheduleStore($this->storage->getPdo()),
+                ),
+            ),
             project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
@@ -381,7 +362,18 @@ final class RunCommand extends Command
             conversation: new ConversationHandler($this->boot, $this->storage),
             webhook: new WebhookHandler($this->storage),
             evaluation: new EvaluationHandler($this->storage),
-            loop: new LoopHandler($this->storage, $this->boot->loopDiscovery(), $this->loopRunner),
+            loop: new LoopHandler(
+                $this->storage,
+                $this->boot->loopDiscovery(),
+                $this->loopExecutor,
+                $terminalState,
+                [
+                    'maxIterations' => $this->boot->config()->get('agents.defaults.maxIterations'),
+                    'budgetExitThreshold' => $this->boot->config()->get('agents.defaults.context.budgetExitThreshold'),
+                    'autoSummarizeThreshold' => $this->boot->config()->get('agents.defaults.context.autoSummarizeThreshold'),
+                    'autoSummarizeKeepRecent' => $this->boot->config()->get('agents.defaults.context.autoSummarizeKeepRecent'),
+                ],
+            ),
             agentRunner: $this->agentRunner,
             onHintsToggle: function () use ($io): void {
                 $this->hintsEnabled = !$this->hintsEnabled;
@@ -404,17 +396,21 @@ final class RunCommand extends Command
                 $projectTag = $this->activeProjectSlug !== null
                     ? sprintf(' <fg=magenta>[%s]</>', $this->activeProjectSlug)
                     : '';
-                if ($this->activeRole !== 'orchestrator') {
+                if ($this->activeRole !== SystemRole::Orchestrator->value) {
                     $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>%s:', $this->activeRole, $projectTag));
                 } else {
                     $io->writeln(sprintf(' <fg=cyan>You</>%s:', $projectTag));
                 }
             }
 
-            // Build readline prompt with optional project slug
-            $readlinePrompt = $this->activeProjectSlug !== null
-                ? sprintf(' [%s] › ', $this->activeProjectSlug)
-                : ' › ';
+            $initialNotifications = $this->getIdleNotifications($notificationStore, $notificationLimit);
+            $initialActionableSummary = $this->getActionableSummary($notificationStore);
+            if ($initialNotifications !== []) {
+                $this->renderIdleNotifications($io, $notificationPresenter, $initialNotifications);
+            }
+            $this->renderActionableSummary($io, $notificationPresenter, $initialActionableSummary);
+
+            $readlinePrompt = $this->buildReadlinePrompt($notificationPresenter, $notificationStore);
 
             // Read input using readline's callback API for non-blocking signal handling.
             $line = null;
@@ -424,16 +420,31 @@ final class RunCommand extends Command
             $hasReadline = function_exists('readline_callback_handler_install');
 
             if ($hasReadline) {
-                readline_callback_handler_install($readlinePrompt, static function (?string $input) use (&$line, &$lineReady): void {
+                $readlineCallback = static function (?string $input) use (&$line, &$lineReady): void {
                     $line = $input;
                     $lineReady = true;
-                });
+                };
+                $this->installReadlineHandler($readlinePrompt, $readlineCallback);
 
                 if ($hasSignals) {
                     pcntl_signal(SIGINT, static function () use (&$ctrlCPressed, &$lineReady): void {
                         $ctrlCPressed = true;
                         $lineReady = true;
                     });
+                }
+
+                $typingStarted = false;
+                $lastNotificationSignature = $this->notificationSignature($initialNotifications);
+                $lastActionableSummarySignature = $this->actionableSummarySignature($initialActionableSummary);
+                $nextNotificationPollAt = microtime(true) + self::NOTIFICATION_IDLE_POLL_INTERVAL_SECONDS;
+                $lastNotificationLineCount = 0;
+
+                // Count initial notification lines so the first update can clear them
+                if ($initialNotifications !== []) {
+                    $lastNotificationLineCount += count($notificationPresenter->formatIdleNotifications($initialNotifications));
+                }
+                if ($initialActionableSummary['pending'] > 0 || $initialActionableSummary['claimed'] > 0) {
+                    $lastNotificationLineCount++;
                 }
 
                 while (!$lineReady) {
@@ -443,11 +454,63 @@ final class RunCommand extends Command
                     $ready = @stream_select($read, $write, $except, 0, 200000);
 
                     if ($ready > 0) {
-                        readline_callback_read_char();
+                        $typingStarted = true;
+                        $this->readReadlineChar();
+                        continue;
+                    }
+
+                    if (
+                        $ready === 0
+                        && !$typingStarted
+                        && $notificationStore !== null
+                        && microtime(true) >= $nextNotificationPollAt
+                    ) {
+                        $nextNotificationPollAt = microtime(true) + self::NOTIFICATION_IDLE_POLL_INTERVAL_SECONDS;
+                        $notifications = $this->getIdleNotifications($notificationStore, $notificationLimit);
+                        $actionableSummary = $this->getActionableSummary($notificationStore);
+                        $signature = $this->notificationSignature($notifications);
+                        $actionableSignature = $this->actionableSummarySignature($actionableSummary);
+
+                        if ($signature !== $lastNotificationSignature || $actionableSignature !== $lastActionableSummarySignature) {
+                            $this->removeReadlineHandler();
+
+                            // Clear the current readline prompt line to prevent stacking `›` symbols
+                            $io->write("\r\033[K");
+
+                            // Erase the previous notification block so it doesn't stack
+                            if ($lastNotificationLineCount > 0) {
+                                // Move up N lines, clearing each one
+                                for ($i = 0; $i < $lastNotificationLineCount; $i++) {
+                                    $io->write("\033[A\033[K");
+                                }
+                                $io->write("\r");
+                            }
+
+                            $newLineCount = 0;
+
+                            if ($notifications !== []) {
+                                $formattedLines = $notificationPresenter->formatIdleNotifications($notifications);
+                                $newLineCount += count($formattedLines);
+                                $this->renderIdleNotifications($io, $notificationPresenter, $notifications);
+                            }
+
+                            $actionableLine = $notificationPresenter->formatActionableSummary($actionableSummary['pending'], $actionableSummary['claimed']);
+                            if ($actionableLine !== '') {
+                                $newLineCount++;
+                            }
+                            $this->renderActionableSummary($io, $notificationPresenter, $actionableSummary);
+
+                            $lastNotificationLineCount = $newLineCount;
+
+                            $readlinePrompt = $this->buildReadlinePrompt($notificationPresenter, $notificationStore);
+                            $this->installReadlineHandler($readlinePrompt, $readlineCallback);
+                            $lastNotificationSignature = $signature;
+                            $lastActionableSummarySignature = $actionableSignature;
+                        }
                     }
                 }
 
-                readline_callback_handler_remove();
+                $this->removeReadlineHandler();
             } else {
                 $io->write($readlinePrompt);
                 $raw = fgets(STDIN);
@@ -521,6 +584,7 @@ final class RunCommand extends Command
                 $shutdownStty,
             );
             $shutdownGuard($shutdownStty);
+            $this->restoreActiveProject();
 
             if ($turnResult->shouldExit()) {
                 return $turnResult->exitCode ?? Command::SUCCESS;
@@ -540,6 +604,7 @@ final class RunCommand extends Command
                     $shutdownStty,
                 );
                 $shutdownGuard($shutdownStty);
+                $this->restoreActiveProject();
 
                 if ($turnResult->shouldExit()) {
                     return $turnResult->exitCode ?? Command::SUCCESS;
@@ -575,31 +640,14 @@ final class RunCommand extends Command
         $this->autoApprove = true;
 
         // Initialize agent runner with NullObserver (no terminal output during execution)
-        $this->agentRunner = new AgentRunner(
-            roleResolver: $this->boot->roleResolver(),
-            config: $this->boot->config(),
+        $this->agentRunner = AgentRunnerFactory::create(
+            boot: $this->boot,
             projectRoot: $this->workDir,
-            workspacePath: $this->boot->workspacePath(),
             storage: $this->storage,
             observer: new NullObserver(),
-            discovery: $this->boot->discovery(),
-            blacklist: $this->boot->blacklist(),
-            credentialResolver: $this->boot->credentialResolver(),
-            skillDiscovery: $this->boot->skillDiscovery(),
-            roleDiscovery: $this->boot->roleDiscovery(),
             unsafeMode: $this->unsafeMode,
-            memoryStore: $this->boot->memoryStore(),
-            memorySummarizer: $this->boot->memorySummarizer(),
-            mountManager: $this->boot->mountManager(),
-            configManager: $this->boot->configManager(),
-            configGuard: new ConfigGuard(),
-            spaceToolkit: $this->boot->spaceToolkit(),
-            todoStore: $this->boot->todoStore(),
-            artifactStore: $this->boot->artifactStore(),
-            projectStore: $this->boot->projectStore(),
-            defaultsLoader: $this->boot->defaultsLoader(),
-            loadingRegistry: $this->boot->loadingRegistry(),
-            usageTracker: $this->boot->usageTracker(),
+            includeConfigManager: true,
+            includeLoadingData: true,
         );
 
         // Handle session
@@ -611,8 +659,8 @@ final class RunCommand extends Command
                 return Command::FAILURE;
             }
         } else {
-            $modelString = $this->boot->roleResolver()->resolve('orchestrator');
-            $this->sessionId = $this->storage->createSession('orchestrator', $modelString);
+            $modelString = $this->boot->roleResolver()->resolve(SystemRole::Orchestrator->value);
+            $this->sessionId = $this->storage->createSession(SystemRole::Orchestrator->value, $modelString);
         }
 
         // Build policy and run
@@ -634,23 +682,6 @@ final class RunCommand extends Command
         $renderer->render($result);
 
         return $result->isError() ? Command::FAILURE : Command::SUCCESS;
-    }
-
-    private function resolveWorkspaceOverride(InputInterface $input): ?string
-    {
-        $option = $input->getOption('workspace');
-
-        if (is_string($option) && $option !== '') {
-            return $option;
-        }
-
-        $env = getenv('COQUI_WORKSPACE');
-
-        if (is_string($env) && $env !== '') {
-            return $env;
-        }
-
-        return null;
     }
 
     /**
@@ -681,6 +712,131 @@ final class RunCommand extends Command
 
         $this->activeProjectId = $project['id'];
         $this->activeProjectSlug = $project['slug'];
+    }
+
+    private function buildReadlinePrompt(NotificationPresenter $presenter, ?NotificationStore $notificationStore): string
+    {
+        if ($notificationStore === null) {
+            return self::DEFAULT_READLINE_PROMPT;
+        }
+
+        try {
+            $badge = $presenter->formatBadge($notificationStore->countUnread($this->sessionId));
+        } catch (\Throwable) {
+            return self::DEFAULT_READLINE_PROMPT;
+        }
+
+        return ' ›' . $badge . ' ';
+    }
+
+    private function installReadlineHandler(string $prompt, callable $callback): void
+    {
+        if (!function_exists('readline_callback_handler_install')) {
+            return;
+        }
+
+        readline_callback_handler_install($prompt, $callback);
+    }
+
+    private function readReadlineChar(): void
+    {
+        if (!function_exists('readline_callback_read_char')) {
+            return;
+        }
+
+        readline_callback_read_char();
+    }
+
+    private function removeReadlineHandler(): void
+    {
+        if (!function_exists('readline_callback_handler_remove')) {
+            return;
+        }
+
+        readline_callback_handler_remove();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function getIdleNotifications(?NotificationStore $notificationStore, int $limit): array
+    {
+        if ($notificationStore === null) {
+            return [];
+        }
+
+        try {
+            return $notificationStore->getUnreadInformational($this->sessionId, $limit);
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * @return array{pending: int, claimed: int}
+     */
+    private function getActionableSummary(?NotificationStore $notificationStore): array
+    {
+        if ($notificationStore === null) {
+            return ['pending' => 0, 'claimed' => 0];
+        }
+
+        try {
+            return $notificationStore->getOpenActionableSummary($this->sessionId);
+        } catch (\Throwable) {
+            return ['pending' => 0, 'claimed' => 0];
+        }
+    }
+
+    /**
+     * @param list<array<string, mixed>> $notifications
+     */
+    private function renderIdleNotifications(SymfonyStyle $io, NotificationPresenter $presenter, array $notifications): void
+    {
+        foreach ($presenter->formatIdleNotifications($notifications) as $line) {
+            $io->writeln($line);
+        }
+    }
+
+    /**
+     * @param array{pending: int, claimed: int} $summary
+     */
+    private function renderActionableSummary(SymfonyStyle $io, NotificationPresenter $presenter, array $summary): void
+    {
+        $line = $presenter->formatActionableSummary($summary['pending'], $summary['claimed']);
+        if ($line !== '') {
+            $io->writeln($line);
+        }
+    }
+
+    /**
+     * @param list<array<string, mixed>> $notifications
+     */
+    private function notificationSignature(array $notifications): string
+    {
+        if ($notifications === []) {
+            return '';
+        }
+
+        return implode(
+            '|',
+            array_map(
+                static fn(array $notification): string => implode(':', [
+                    (string) ($notification['id'] ?? ''),
+                    (string) ($notification['priority'] ?? ''),
+                    (string) ($notification['created_at'] ?? ''),
+                ]),
+                $notifications,
+            ),
+        );
+    }
+
+    /**
+     * @param array{pending: int, claimed: int} $summary
+     */
+    private function actionableSummarySignature(array $summary): string
+    {
+        return sprintf('%d:%d', $summary['pending'], $summary['claimed']);
     }
 
     /**

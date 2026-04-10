@@ -9,6 +9,7 @@
 #   --wizard / -w        Run setup wizard directly (no REPL, no API)
 #   stop                 Stop all background services
 #   stop-api             Stop just the API
+#   cleanup              Stop stale/conflicting Coqui processes for this checkout
 #   status               Show which services are running
 #
 # Flags:
@@ -38,6 +39,15 @@ readonly RESTART_EXIT_CODE=10
 readonly MAX_CRASHES=3
 readonly API_DEFAULT_PORT=3300
 readonly PID_DIR="${PROJECT_DIR}/.workspace/pids"
+readonly DEFAULT_WORKSPACE="${HOME}/.coqui/.workspace"
+readonly API_READY_POLL_COUNT=8
+readonly API_READY_POLL_INTERVAL='0.25'
+
+launch_cwd="${PWD}"
+config_path=""
+workspace_override=""
+requested_workdir="${launch_cwd}"
+spawned_pid=""
 
 # ─── Parse arguments ─────────────────────────────────────────────────────────
 
@@ -52,7 +62,7 @@ verbose=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
-        stop|stop-api|status)
+        stop|stop-api|cleanup|status)
             subcommand="$1"; shift ;;
         --repl-only)
             mode="repl-only"; shift ;;
@@ -73,12 +83,15 @@ while [[ $# -gt 0 ]]; do
         --unsafe)
             coqui_args+=("--unsafe"); api_args+=("--unsafe"); shift ;;
         --config|-c)
+            config_path="$2"
             coqui_args+=("--config" "$2"); api_args+=("--config" "$2"); shift 2 ;;
         --wizard|-w)
             mode="wizard"; shift ;;
         --workdir)
+            requested_workdir="$2"
             coqui_args+=("--workdir" "$2"); api_args+=("--workdir" "$2"); shift 2 ;;
         --workspace)
+            workspace_override="$2"
             coqui_args+=("--workspace" "$2"); api_args+=("--workspace" "$2"); shift 2 ;;
         *)
             coqui_args+=("$1"); shift ;;
@@ -95,6 +108,196 @@ log_verbose() {
     if [[ "$verbose" == true ]]; then
         echo "  [verbose] $*"
     fi
+    return 0
+}
+
+warn() {
+    echo "  WARNING: $*"
+}
+
+command_for_pid() {
+    local pid="$1"
+    ps -o command= -p "$pid" 2>/dev/null | sed -e 's/^[[:space:]]*//'
+}
+
+list_coqui_processes() {
+    ps -axo pid=,pgid=,stat=,command= 2>/dev/null | awk -v coqui_bin="$COQUI_BIN" '
+        index($0, coqui_bin) > 0 {
+            pid = $1
+            pgid = $2
+            stat = $3
+            $1 = ""
+            $2 = ""
+            $3 = ""
+            sub(/^[[:space:]]+/, "")
+            printf "%s\t%s\t%s\t%s\n", pid, pgid, stat, $0
+        }
+    '
+}
+
+pgid_for_pid() {
+    local pid="$1"
+    ps -o pgid= -p "$pid" 2>/dev/null | tr -d '[:space:]'
+}
+
+state_for_pid() {
+    local pid="$1"
+    ps -o stat= -p "$pid" 2>/dev/null | tr -d '[:space:]'
+}
+
+extract_cli_arg() {
+    local command="$1"
+    local flag="$2"
+
+    awk -v target="$flag" '
+        {
+            for (i = 1; i <= NF; i++) {
+                if ($i == target && i < NF) {
+                    print $(i + 1)
+                    exit
+                }
+            }
+        }
+    ' <<<"$command"
+}
+
+expand_path() {
+    local path="$1"
+    local base_dir="$2"
+
+    if [[ -z "$path" ]]; then
+        return 0
+    fi
+
+    case "$path" in
+        ~)
+            printf '%s\n' "${HOME}"
+            return 0 ;;
+        ~/*)
+            printf '%s\n' "${HOME}/${path#~/}"
+            return 0 ;;
+        /*)
+            printf '%s\n' "$path"
+            return 0 ;;
+        *)
+            printf '%s\n' "${base_dir%/}/${path}"
+            return 0 ;;
+    esac
+}
+
+resolve_requested_workspace() {
+    local override="$workspace_override"
+    local config_candidate="$config_path"
+    local configured_workspace=""
+
+    if [[ -z "$override" && -n "${COQUI_WORKSPACE:-}" ]]; then
+        override="$COQUI_WORKSPACE"
+    fi
+
+    if [[ -z "$config_candidate" ]]; then
+        config_candidate="${requested_workdir%/}/openclaw.json"
+    fi
+
+    if [[ -z "$override" && -f "$config_candidate" ]]; then
+        # shellcheck disable=SC2016
+        configured_workspace=$(php -r '
+            $path = $argv[1] ?? "";
+            $json = @file_get_contents($path);
+            if (!is_string($json) || $json === "") {
+                exit(0);
+            }
+            $data = json_decode($json, true);
+            if (!is_array($data)) {
+                exit(0);
+            }
+            $workspace = $data["agents"]["defaults"]["workspace"] ?? "";
+            if (is_string($workspace) && $workspace !== "") {
+                echo $workspace;
+            }
+        ' "$config_candidate" 2>/dev/null || true)
+    fi
+
+    if [[ -n "$override" ]]; then
+        expand_path "$override" "$requested_workdir"
+        return 0
+    fi
+
+    if [[ -n "$configured_workspace" ]]; then
+        expand_path "$configured_workspace" "$requested_workdir"
+        return 0
+    fi
+
+    expand_path "$DEFAULT_WORKSPACE" "$requested_workdir"
+}
+
+process_uses_workspace() {
+    local command="$1"
+    local target_workspace="$2"
+    local explicit_workspace
+    local explicit_config
+
+    if [[ -z "$target_workspace" || "$command" != *"${COQUI_BIN}"* ]]; then
+        return 1
+    fi
+
+    explicit_workspace=$(extract_cli_arg "$command" '--workspace')
+    if [[ -n "$explicit_workspace" ]]; then
+        [[ "$(expand_path "$explicit_workspace" "$requested_workdir")" == "$target_workspace" ]]
+        return $?
+    fi
+
+    explicit_config=$(extract_cli_arg "$command" '--config')
+    if [[ -n "$config_path" && -n "$explicit_config" && "$explicit_config" != "$config_path" ]]; then
+        return 1
+    fi
+
+    return 0
+}
+
+is_coqui_pid() {
+    local pid="$1"
+    local command
+
+    command=$(command_for_pid "$pid")
+    [[ "$command" == *"${COQUI_BIN}"* ]]
+}
+
+is_coqui_api_pid() {
+    local pid="$1"
+    local command
+
+    command=$(command_for_pid "$pid")
+    [[ "$command" == *"${COQUI_BIN}"* && "$command" == *' api '* ]]
+}
+
+kill_process_tree() {
+    local pid="$1"
+    local signal="${2:-TERM}"
+    local pgid
+
+    if [[ -z "$pid" ]]; then
+        return 1
+    fi
+
+    pgid=$(pgid_for_pid "$pid")
+
+    case "$signal" in
+        KILL)
+            if [[ -n "$pgid" ]]; then
+                kill -9 -- "-${pgid}" 2>/dev/null || kill -9 "$pid" 2>/dev/null || return 1
+            else
+                kill -9 "$pid" 2>/dev/null || return 1
+            fi
+            ;;
+        *)
+            if [[ -n "$pgid" ]]; then
+                kill -- "-${pgid}" 2>/dev/null || kill "$pid" 2>/dev/null || return 1
+            else
+                kill "$pid" 2>/dev/null || return 1
+            fi
+            ;;
+    esac
+
     return 0
 }
 
@@ -131,7 +334,14 @@ read_pid() {
 
 is_running() {
     local pid="$1"
-    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null || return 1
+    local stat
+
+    [[ -n "$pid" ]] || return 1
+
+    stat=$(state_for_pid "$pid") || return 1
+    [[ -z "$stat" || "$stat" == T* || "$stat" == Z* ]] && return 1
+
+    return 0
 }
 
 # Find and kill any process listening on a given port.
@@ -197,6 +407,230 @@ port_in_use() {
     return 1
 }
 
+port_accepting_connections() {
+    local host="$1"
+    local port="$2"
+
+    if command -v nc &>/dev/null; then
+        nc -z -w 1 "$host" "$port" >/dev/null 2>&1
+        return $?
+    fi
+
+    if [[ -n "${BASH_VERSION:-}" ]]; then
+        (exec 3<>"/dev/tcp/${host}/${port}") >/dev/null 2>&1
+        local status=$?
+        exec 3>&- 2>/dev/null || true
+        exec 3<&- 2>/dev/null || true
+        return $status
+    fi
+
+    port_in_use "$port"
+}
+
+port_pids() {
+    local port="$1"
+
+    if command -v lsof &>/dev/null; then
+        lsof -ti "tcp:${port}" 2>/dev/null || true
+        return 0
+    fi
+
+    if command -v ss &>/dev/null; then
+        ss -tlnp "sport = :${port}" 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 || true
+    fi
+}
+
+cleanup_tracked_pid() {
+    local pid="$1"
+    local label="$2"
+    local initial_state
+
+    if [[ -z "$pid" ]]; then
+        return 0
+    fi
+
+    initial_state=$(state_for_pid "$pid")
+
+    if [[ "$initial_state" == T* || "$initial_state" == Z* ]]; then
+        log_dim "${label}: force-killing stale process group for PID ${pid}"
+        kill_process_tree "$pid" KILL || true
+        return 0
+    fi
+
+    log_dim "${label}: stopping process group for PID ${pid}"
+    kill_process_tree "$pid" TERM || true
+
+    local waited=0
+    while is_running "$pid" && [[ $waited -lt 50 ]]; do
+        sleep 0.1
+        waited=$((waited + 1))
+    done
+
+    if is_running "$pid"; then
+        log_dim "${label}: force-killing process group for PID ${pid}"
+        kill_process_tree "$pid" KILL || true
+    fi
+}
+
+cleanup_stale_coqui_processes() {
+    local cleaned=0
+    local seen_groups=" "
+
+    while IFS=$'\t' read -r pid pgid stat command; do
+        [[ -z "$pid" ]] && continue
+
+        [[ -z "$pid" || "$pid" == "$$" ]] && continue
+
+        case " ${seen_groups} " in
+            *" ${pgid} "*)
+                continue ;;
+        esac
+
+        if [[ "$stat" == T* || "$stat" == Z* ]]; then
+            seen_groups+="${pgid} "
+            log_dim "coqui: cleaning stale process group ${pgid} (PID ${pid}, state ${stat})"
+            cleanup_tracked_pid "$pid" 'coqui'
+            cleaned=1
+        fi
+    done < <(list_coqui_processes || true)
+
+    return $cleaned
+}
+
+cleanup_workspace_conflicts() {
+    local target_workspace="$1"
+    local cleaned=0
+    local seen_groups=" "
+
+    while IFS=$'\t' read -r pid pgid stat command; do
+        [[ -z "$pid" ]] && continue
+
+        [[ -z "$pid" || "$pid" == "$$" ]] && continue
+
+        case " ${seen_groups} " in
+            *" ${pgid} "*)
+                continue ;;
+        esac
+
+        if [[ "$stat" == T* || "$stat" == Z* ]]; then
+            continue
+        fi
+
+        if process_uses_workspace "$command" "$target_workspace"; then
+            seen_groups+="${pgid} "
+            log_dim "coqui: stopping conflicting workspace process group ${pgid} (PID ${pid})"
+            cleanup_tracked_pid "$pid" 'coqui'
+            cleaned=1
+        fi
+    done < <(list_coqui_processes || true)
+
+    return $cleaned
+}
+
+cleanup_conflicting_port_owner() {
+    local port="$1"
+    local cleaned_any=0
+    local pids
+
+    pids=$(port_pids "$port")
+    if [[ -z "$pids" ]]; then
+        return 0
+    fi
+
+    for pid in $pids; do
+        local command
+        command=$(command_for_pid "$pid")
+
+        if [[ "$command" == *'bin/coqui'* && "$command" == *' api '* ]]; then
+            log_dim "api: reclaiming Coqui-owned port ${port} from PID ${pid}"
+            cleanup_tracked_pid "$pid" 'api'
+            cleaned_any=1
+            continue
+        fi
+
+        warn "API port ${port} is already in use by a non-Coqui process (PID ${pid})."
+        log_dim "port ${port} owner: ${command}"
+        return 1
+    done
+
+    if [[ $cleaned_any -eq 1 ]]; then
+        sleep 0.2
+    fi
+
+    return 0
+}
+
+print_api_start_warning() {
+    local port="$1"
+    local detail="$2"
+
+    warn "API failed to start cleanly on port ${port}."
+    if [[ -n "$detail" ]]; then
+        log_dim "$detail"
+    fi
+    log_dim "Next steps:"
+    log_dim "  1. Run ./bin/coqui-launcher status"
+    log_dim "  2. Run ./bin/coqui-launcher cleanup"
+    log_dim "  3. Inspect the port owner with: lsof -nP -iTCP:${port} -sTCP:LISTEN"
+}
+
+spawn_api_supervisor() {
+    local cmd=("${BASH:-/bin/bash}" "$0" --api-only --host "$api_host" --port "$api_port")
+
+    if [[ "$verbose" == true ]]; then
+        cmd+=(--verbose)
+    fi
+
+    cmd+=("${api_args[@]+"${api_args[@]}"}")
+
+    if command -v setsid &>/dev/null; then
+        setsid "${cmd[@]}" </dev/null >/dev/null 2>&1 &
+        spawned_pid="$!"
+        disown "$spawned_pid" 2>/dev/null || true
+        return 0
+    fi
+
+    if command -v perl &>/dev/null; then
+        perl -e 'use POSIX qw(setsid); setsid() or die; exec(@ARGV)' -- "${cmd[@]}" </dev/null >/dev/null 2>&1 &
+        spawned_pid="$!"
+        disown "$spawned_pid" 2>/dev/null || true
+        return 0
+    fi
+
+    "${cmd[@]}" </dev/null >/dev/null 2>&1 &
+    spawned_pid="$!"
+    disown "$spawned_pid" 2>/dev/null || true
+}
+
+wait_for_api_ready() {
+    local pid="$1"
+    local port="$2"
+    local waited=0
+
+    while [[ $waited -lt $API_READY_POLL_COUNT ]]; do
+        if port_accepting_connections "$api_host" "$port"; then
+            return 0
+        fi
+
+        if ! is_running "$pid"; then
+            return 1
+        fi
+
+        sleep "$API_READY_POLL_INTERVAL"
+        waited=$((waited + 1))
+    done
+
+    if port_accepting_connections "$api_host" "$port"; then
+        return 0
+    fi
+
+    if is_running "$pid"; then
+        return 2
+    fi
+
+    return 1
+}
+
 # Dim (muted) log helper for service details
 log_dim() {
     printf '  \e[2m%s\e[0m\n' "$*"
@@ -218,42 +652,37 @@ stop_service() {
         # No PID file — try port-level cleanup as fallback
         if [[ -n "$port" ]] && port_in_use "$port"; then
             log_dim "${name}: cleaning up port ${port}"
-            kill_port "$port"
+            cleanup_conflicting_port_owner "$port" || true
         fi
         return 0
     fi
     if is_running "$pid"; then
         [[ "$quiet" != true ]] && log_dim "Stopping ${name} (PID ${pid})"
-
-        # Kill the entire process group (catches child task processes)
-        kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
-
-        # Wait up to 5 seconds for graceful shutdown
-        local waited=0
-        while is_running "$pid" && [[ $waited -lt 50 ]]; do
-            sleep 0.1
-            waited=$((waited + 1))
-        done
-        if is_running "$pid"; then
-            log_dim "${name}: force-killing process group (PID ${pid})"
-            kill -9 -- -"$pid" 2>/dev/null || kill -9 "$pid" 2>/dev/null || true
-        fi
+        cleanup_tracked_pid "$pid" "$name"
     fi
     rm -f "${PID_DIR}/${name}.pid" 2>/dev/null || true
 
     # Verify port is actually free after PID-based stop
     if [[ -n "$port" ]] && port_in_use "$port"; then
         log_verbose "${name}: port ${port} still occupied after PID stop — cleaning up"
-        kill_port "$port"
+        cleanup_conflicting_port_owner "$port" || true
     fi
 }
 
 show_status() {
     local name="$1"
     local pid
+    local port=""
+
+    case "$name" in
+        api) port="$api_port" ;;
+    esac
+
     pid=$(read_pid "$name")
     if [[ -z "$pid" ]]; then
         log "${name}: stopped"
+    elif is_running "$pid" && [[ -n "$port" ]] && ! port_accepting_connections "$api_host" "$port"; then
+        log "${name}: starting (PID ${pid})"
     elif is_running "$pid"; then
         log "${name}: running (PID ${pid})"
     else
@@ -288,14 +717,19 @@ if [[ -n "$subcommand" ]]; then
             stop_service "api"
             exit 0 ;;
         cleanup)
-            log "Cleaning up orphaned task processes..."
-            # Kill any lingering task:run or turn:run child processes
+            log "Cleaning up stale Coqui processes..."
             count=0
             while IFS= read -r pid; do
                 if [[ -n "$pid" ]]; then
-                    kill "$pid" 2>/dev/null && log_dim "  Killed PID $pid" && count=$((count + 1))
+                    cleanup_tracked_pid "$pid" 'cleanup' && log_dim "  Killed PID $pid" && count=$((count + 1))
                 fi
-            done < <(pgrep -f 'task:run|turn:run' 2>/dev/null || true)
+            done < <(ps -axo pid=,stat=,command= 2>/dev/null | awk -v coqui_bin="$COQUI_BIN" '
+                $0 ~ coqui_bin {
+                    if ($2 ~ /^T/ || $2 ~ /^Z/ || $0 ~ /task:run/ || $0 ~ /turn:run/) {
+                        print $1
+                    }
+                }
+            ' || true)
             if [[ $count -eq 0 ]]; then
                 log "  No orphaned processes found"
             else
@@ -337,7 +771,13 @@ run_api_loop() {
     done
 }
 start_api_bg() {
+    local requested_workspace
     local existing_pid
+
+    requested_workspace=$(resolve_requested_workspace)
+    cleanup_stale_coqui_processes || true
+    cleanup_workspace_conflicts "$requested_workspace" || true
+
     existing_pid=$(read_pid "api")
     if [[ -n "$existing_pid" ]] && is_running "$existing_pid"; then
         log "API: already running (PID ${existing_pid})"
@@ -351,30 +791,39 @@ start_api_bg() {
 
     # Check if port is already occupied (orphaned process from a previous crash)
     if port_in_use "$api_port"; then
-        log "API: port ${api_port} is already in use — cleaning up stale process"
-        kill_port "$api_port"
-        sleep 0.2
+        log "API: port ${api_port} is already in use — checking for conflicting Coqui process"
+        if ! cleanup_conflicting_port_owner "$api_port"; then
+            print_api_start_warning "$api_port" "Automated cleanup did not stop the existing listener."
+            return 0
+        fi
         if port_in_use "$api_port"; then
-            log "API: could not free port ${api_port} — skipping API start"
-            log "     Another service may be using this port. Try: make api-stop"
+            print_api_start_warning "$api_port" "Port ${api_port} is still occupied after cleanup."
             return 0
         fi
     fi
 
     log_verbose "Starting API on ${api_host}:${api_port}..."
-    run_api_loop </dev/null &
-    local pid=$!
+    local pid
+    spawned_pid=""
+    spawn_api_supervisor
+    pid="$spawned_pid"
     write_pid "api" "$pid"
     session_services+=("api")
 
-    # Brief pause to verify it started
-    sleep 0.5
-    if is_running "$pid"; then
-        log "API: running on http://${api_host}:${api_port} (PID ${pid})"
-    else
-        log "API: failed to start"
-        rm -f "${PID_DIR}/api.pid" 2>/dev/null || true
-    fi
+    wait_for_api_ready "$pid" "$api_port"
+    case $? in
+        0)
+            log "API: running on http://${api_host}:${api_port} (PID ${pid})"
+            ;;
+        2)
+            log "API: starting in background on http://${api_host}:${api_port} (PID ${pid})"
+            log_dim "Use ./bin/coqui-launcher status to confirm when the listener is fully ready."
+            ;;
+        *)
+            print_api_start_warning "$api_port" "The API supervisor process exited or the port never opened."
+            rm -f "${PID_DIR}/api.pid" 2>/dev/null || true
+            ;;
+    esac
 }
 
 # ─── REPL loop with crash recovery ───────────────────────────────────────────
@@ -438,7 +887,7 @@ case "${mode}" in
     *)
         # Default: REPL + API
         export COQUI_LAUNCHER=1
-        trap cleanup_session INT TERM EXIT
+        trap cleanup_session HUP INT TERM EXIT
         start_api_bg
         echo ""
         run_repl

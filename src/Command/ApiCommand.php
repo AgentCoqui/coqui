@@ -6,10 +6,18 @@ namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
-use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Api\LoopManager;
+use CoquiBot\Coqui\Api\ScheduleManager;
+use CoquiBot\Coqui\Api\WatchJob\ScheduleFileWatchJob;
+use CoquiBot\Coqui\Api\WorkspaceWatcher;
+use CoquiBot\Coqui\Agent\LoopExecutor;
+use CoquiBot\Coqui\Agent\QualityAutomationCoordinator;
+use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
+use CoquiBot\Coqui\Api\Handler\BudgetHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
+use CoquiBot\Coqui\Api\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler as ApiLoopHandler;
@@ -33,8 +41,17 @@ use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
+use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
+use CoquiBot\Coqui\Notification\NotificationPublisher;
+use CoquiBot\Coqui\Notification\NotificationAutomationRunner;
+use CoquiBot\Coqui\Notification\RetryBackgroundTaskAction;
+use CoquiBot\Coqui\Notification\EscalateLoopFailureAction;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
+use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
+use CoquiBot\Coqui\Agent\GoalEvaluator;
+use CoquiBot\Coqui\Agent\ToolBoundEvaluator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -97,7 +114,7 @@ final class ApiCommand extends Command
         $configOption = $input->getOption('config');
         $configPath = is_string($configOption) ? $configOption : null;
 
-        $workspaceOverride = $this->resolveWorkspaceOverride($input);
+        $workspaceOverride = WorkspaceOverrideResolver::resolve($input);
 
         $boot = new BootManager($workDir, $workspaceOverride);
         $result = $boot->boot(io: null, configPath: $configPath);
@@ -146,6 +163,10 @@ final class ApiCommand extends Command
         $coquiBinPath = realpath(dirname(__DIR__, 2) . '/bin/coqui') ?: dirname(__DIR__, 2) . '/bin/coqui';
         $maxConcurrentTasks = (int) ($boot->config()->get('api.tasks.maxConcurrent') ?? CoquiDefaults::MAX_CONCURRENT_TASKS);
 
+        // Notification publisher for background task / loop lifecycle events
+        $notificationStore = $boot->notificationStore();
+        $notificationPublisher = $notificationStore !== null ? new NotificationPublisher($notificationStore) : null;
+
         $taskManager = new BackgroundTaskManager(
             storage: $storage,
             coquiBinPath: $coquiBinPath,
@@ -154,6 +175,7 @@ final class ApiCommand extends Command
             workspacePath: $boot->workspacePath(),
             maxConcurrent: max(1, $maxConcurrentTasks),
             unsafeMode: $unsafeMode,
+            publisher: $notificationPublisher,
         );
 
         $turnManager = new AgentTurnManager(
@@ -180,7 +202,15 @@ final class ApiCommand extends Command
         $webhookStore = new WebhookStore($storage->getPdo());
 
         // Create handlers
-        $healthHandler = new HealthHandler($startTime, $turnManager, $taskManager, $scheduleStore, $webhookStore);
+        $evaluationStore = new EvaluationStore($storage->getPdo());
+        $qualityStatus = new QualityAutomationStatusService(
+            config: $boot->config(),
+            storage: $storage,
+            evaluationStore: $evaluationStore,
+            scheduleStore: $scheduleStore,
+        );
+
+        $healthHandler = new HealthHandler($startTime, $turnManager, $taskManager, $scheduleStore, $webhookStore, $qualityStatus);
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
         $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
@@ -192,32 +222,19 @@ final class ApiCommand extends Command
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
-        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $taskManager);
+        $evaluationHandler = new EvaluationHandler($evaluationStore);
+        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $taskManager, $qualityStatus);
 
-        $previewRunner = new AgentRunner(
-            roleResolver: $boot->roleResolver(),
-            config: $boot->config(),
+        $previewRunner = AgentRunnerFactory::create(
+            boot: $boot,
             projectRoot: $workDir,
-            workspacePath: $boot->workspacePath(),
             storage: $storage,
-            observer: null,
-            discovery: $boot->discovery(),
-            blacklist: $boot->blacklist(),
-            credentialResolver: $boot->credentialResolver(),
-            skillDiscovery: $boot->skillDiscovery(),
-            roleDiscovery: $boot->roleDiscovery(),
-            memoryStore: $boot->memoryStore(),
-            memorySummarizer: $boot->memorySummarizer(),
-            mountManager: $boot->mountManager(),
-            configManager: $boot->configManager(),
-            visibilityRegistry: $boot->visibilityRegistry(),
-            spaceToolkit: $boot->spaceToolkit(),
-            projectStore: $boot->projectStore(),
-            defaultsLoader: $boot->defaultsLoader(),
-            httpClient: new ReactHttpClientAdapter(),
+            includeConfigManager: true,
+            includeVisibilityRegistry: true,
         );
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($previewRunner);
+        $budgetHandler = new BudgetHandler($previewRunner);
         $artifactStore = new ArtifactStore($storage->getPdo());
         $artifactHandler = new ArtifactHandler($artifactStore);
         $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($storage->getPdo());
@@ -228,9 +245,89 @@ final class ApiCommand extends Command
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
         $webhookMgmtHandler = new WebhookManagementHandler($webhookStore);
 
-        // Loop read-only handler (no LoopManager — loops are REPL-only)
+        // Loop + Schedule managers (autonomous execution engines)
         $loopStore = $boot->loopStore();
         $loopDiscovery = $boot->loopDiscovery();
+        $projectStore = $boot->projectStore();
+        $notificationConfig = $boot->config()->getNotificationConfig();
+        $notificationAutomationConfig = $notificationConfig['automation'];
+
+        $scheduleManager = new ScheduleManager($storage, $scheduleStore);
+        $qualityAutomation = new QualityAutomationCoordinator(
+            config: $boot->config(),
+            storage: $storage,
+            scheduleStore: $scheduleStore,
+        );
+        $createdQualitySchedules = $qualityAutomation->ensureDefaultSchedules();
+        if ($createdQualitySchedules !== []) {
+            $output->writeln(
+                sprintf(
+                    '<fg=gray>Bootstrapped quality schedules: %s</>',
+                    implode(', ', $createdQualitySchedules),
+                ),
+                OutputInterface::VERBOSITY_VERBOSE,
+            );
+        }
+
+        // Workspace file watcher — polls directories for changes
+        $watcher = new WorkspaceWatcher();
+        $schedulesDir = $boot->workspacePath() . '/schedules';
+        if (!is_dir($schedulesDir)) {
+            @mkdir($schedulesDir, 0755, true);
+        }
+        $watcher->register(new ScheduleFileWatchJob($schedulesDir, $scheduleStore));
+        $watcher->initialSync();
+
+        $notificationAutomationRunner = null;
+        if ($notificationStore !== null && $notificationAutomationConfig['enabled']) {
+            $automationHandlers = [
+                new RetryBackgroundTaskAction($storage),
+            ];
+
+            if ($loopStore !== null) {
+                $automationHandlers[] = new EscalateLoopFailureAction($storage, $loopStore);
+            }
+
+            $notificationAutomationRunner = new NotificationAutomationRunner(
+                store: $notificationStore,
+                handlers: $automationHandlers,
+                leaseSeconds: $notificationAutomationConfig['leaseSeconds'],
+                batchSize: $notificationAutomationConfig['batchSize'],
+                maxAttempts: $notificationAutomationConfig['maxAttempts'],
+                retryDelaySeconds: $notificationAutomationConfig['retryDelaySeconds'],
+            );
+        }
+
+        $loopManager = null;
+        if ($loopStore !== null && $projectStore !== null) {
+            // Resolve utility model provider for goal_bound evaluation
+            $goalEvaluator = null;
+            try {
+                $factory = $boot->providerFactory(new ReactHttpClientAdapter());
+                $utilityModel = $boot->roleResolver()->resolveUtility();
+                if ($utilityModel !== '') {
+                    $goalEvaluator = new GoalEvaluator($factory->create($utilityModel));
+                }
+            } catch (\Throwable) {
+                // Goal evaluation degrades gracefully — loops fall back to manual
+            }
+
+            // Build tool executor for tool_bound evaluation
+            $toolBoundEvaluator = new ToolBoundEvaluator(
+                new BackgroundToolExecutor($boot, $workDir, $unsafeMode),
+            );
+
+            $loopExecutor = new LoopExecutor(
+                loopStore: $loopStore,
+                projectStore: $projectStore,
+                sessionStorage: $storage,
+                todoStore: $todoStore,
+                artifactStore: $artifactStore,
+                goalEvaluator: $goalEvaluator,
+                toolBoundEvaluator: $toolBoundEvaluator,
+            );
+            $loopManager = new LoopManager($storage, $loopStore, $loopExecutor, $artifactStore, $notificationPublisher);
+        }
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
             ? new ApiLoopHandler($loopStore, $loopDiscovery)
@@ -238,7 +335,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -313,6 +410,9 @@ final class ApiCommand extends Command
         if (defined('SIGINT')) {
             Loop::addSignal(SIGINT, $shutdownHandler);
         }
+        if (defined('SIGHUP')) {
+            Loop::addSignal(SIGHUP, $shutdownHandler);
+        }
 
         $output->writeln('');
         $output->writeln(sprintf('Listening on <info>http://%s</info>', $listenAddress));
@@ -340,10 +440,47 @@ final class ApiCommand extends Command
             $turnManager->tick();
         });
 
+        if ($notificationAutomationRunner !== null) {
+            Loop::addPeriodicTimer((float) $notificationAutomationConfig['processTickSeconds'], static function () use ($notificationAutomationRunner): void {
+                $notificationAutomationRunner->tick();
+            });
+
+            Loop::addPeriodicTimer((float) $notificationAutomationConfig['reclaimTickSeconds'], static function () use ($notificationAutomationRunner): void {
+                $notificationAutomationRunner->reclaim();
+            });
+        }
+
         // Periodic timer: purge old webhook delivery logs daily (3600s check)
         Loop::addPeriodicTimer(3600.0, static function () use ($webhookStore): void {
             $webhookStore->purgeOldDeliveries();
         });
+
+        // Periodic timer: evaluate due schedules every 60 seconds
+        Loop::addPeriodicTimer(60.0, static function () use ($scheduleManager): void {
+            $scheduleManager->tick();
+        });
+
+        // Periodic timer: reconcile completed schedule tasks every 10 seconds
+        Loop::addPeriodicTimer(10.0, static function () use ($scheduleManager): void {
+            $scheduleManager->reconcile();
+        });
+
+        // Periodic timer: workspace file watcher every 10 seconds
+        Loop::addPeriodicTimer(10.0, static function () use ($watcher): void {
+            $watcher->tick();
+        });
+
+        // Periodic timer: advance running loops every 5 seconds
+        if ($loopManager !== null) {
+            Loop::addPeriodicTimer(5.0, static function () use ($loopManager): void {
+                $loopManager->tick();
+            });
+
+            // Periodic timer: reconcile completed loop stage tasks every 3 seconds
+            Loop::addPeriodicTimer(3.0, static function () use ($loopManager): void {
+                $loopManager->reconcile();
+            });
+        }
 
         return Command::SUCCESS;
     }
@@ -365,9 +502,11 @@ final class ApiCommand extends Command
         RoleHandler $role,
         TaskHandler $task,
         FileUploadHandler $fileUpload,
+        EvaluationHandler $evaluation,
         ServerHandler $server,
         ToolkitHandler $toolkit,
         PromptHandler $prompt,
+        BudgetHandler $budget,
         ArtifactHandler $artifact,
         \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
         ScheduleHandler $schedule,
@@ -428,10 +567,17 @@ final class ApiCommand extends Command
         // Child runs
         $router->get($v1 . '/sessions/{id}/child-runs', [$session, 'childRuns']);
 
+        // Evaluations (read-only — creation is evaluator-role/tool driven)
+        $router->get($v1 . '/evaluations', [$evaluation, 'list']);
+        $router->get($v1 . '/evaluations/stats', [$evaluation, 'stats']);
+        $router->get($v1 . '/evaluations/{id}', [$evaluation, 'get']);
+
         // Server
         $router->get($v1 . '/server/info', [$server, 'info']);
         $router->get($v1 . '/server/stats', [$server, 'stats']);
+        $router->get($v1 . '/server/quality', [$server, 'quality']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
+        $router->get($v1 . '/server/budget', [$budget, 'get']);
 
         // Artifacts (read-only — create/update/delete are REPL-only)
         $router->get($v1 . '/sessions/{id}/artifacts', [$artifact, 'list']);
@@ -488,20 +634,4 @@ final class ApiCommand extends Command
         return null;
     }
 
-    private function resolveWorkspaceOverride(InputInterface $input): ?string
-    {
-        $option = $input->getOption('workspace');
-
-        if (is_string($option) && $option !== '') {
-            return $option;
-        }
-
-        $env = getenv('COQUI_WORKSPACE');
-
-        if (is_string($env) && $env !== '') {
-            return $env;
-        }
-
-        return null;
-    }
 }

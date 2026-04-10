@@ -8,8 +8,11 @@ use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Exception\InteractionCancelledException;
+use CoquiBot\Coqui\Exception\ShutdownRequestedException;
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use React\EventLoop\Loop;
@@ -55,7 +58,6 @@ final class AgentTurnExecutor
     ): AgentTurnResult {
         $executionPolicy = $this->policyFactory->buildInteractive($sessionId, $io, $autoApprove);
         $cancellationToken = new ProcessCancellationToken();
-        $this->escObserver->setToken($cancellationToken);
         $sigintCount = 0;
         $shutdownRequested = false;
         if ($hasSignals) {
@@ -76,10 +78,9 @@ final class AgentTurnExecutor
         $stty = $this->terminalState->saveState();
         $savedStty = $stty;
         $this->terminalState->enterRawMode();
-        $this->escObserver->active = true;
+        $this->escObserver->beginTurn($cancellationToken);
 
         // Start animated spinner (tick callback drives animation between blocking calls)
-        $this->tickCallback?->setCancellationToken($cancellationToken);
         $this->tickCallback?->start();
 
         // Periodic event-loop timer drives the spinner DURING blocking ReactPHP I/O.
@@ -88,7 +89,14 @@ final class AgentTurnExecutor
         $timer = null;
         if ($this->tickCallback !== null) {
             $cb = $this->tickCallback;
-            $timer = Loop::addPeriodicTimer(0.05, static function () use ($cb): void {
+            $escObserver = $this->escObserver;
+            $timer = Loop::addPeriodicTimer(0.05, static function () use ($cb, $escObserver): void {
+                if (!$escObserver->active) {
+                    return;
+                }
+
+                $escObserver->poll();
+
                 $cb->tick();
             });
         }
@@ -99,14 +107,14 @@ final class AgentTurnExecutor
                 $sessionId,
                 $executionPolicy,
                 $cancellationToken,
-                role: $activeRole !== 'orchestrator' ? $activeRole : null,
+                role: $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null,
             );
         } finally {
+            $this->escObserver->endTurn();
+            $this->tickCallback?->stop();
             if ($timer !== null) {
                 Loop::cancelTimer($timer);
             }
-            $this->tickCallback?->stop();
-            $this->escObserver->active = false;
             $this->terminalState->drainStdin();
             $this->terminalState->restoreState($stty);
             $savedStty = null;
@@ -119,6 +127,10 @@ final class AgentTurnExecutor
         // Ctrl+C during execution → graceful shutdown (skip deferred work, exit REPL)
         if ($shutdownRequested) {
             return new AgentTurnResult(exitCode: 0);
+        }
+
+        if ($cancellationToken->isCancelled()) {
+            return new AgentTurnResult();
         }
 
         // Enqueue title generation as deferred work (first-turn LLM call)
@@ -134,9 +146,10 @@ final class AgentTurnExecutor
             return new AgentTurnResult(exitCode: self::RESTART_EXIT_CODE);
         }
 
-        // Offer continuation when iteration limit was reached and an active sprint exists
+        // Offer continuation when iteration limit or budget was reached and an active sprint exists
         $continuationPrompt = null;
-        if ($result->iterationLimitReached && $this->boot->projectStore() !== null) {
+        $shouldOfferContinuation = $result->iterationLimitReached || $result->budgetExhausted;
+        if ($shouldOfferContinuation && $this->boot->projectStore() !== null) {
             $sprints = $this->boot->projectStore()->getActiveSprintsForSession($sessionId);
             if ($sprints !== []) {
                 $sprint = $sprints[0];
@@ -149,8 +162,17 @@ final class AgentTurnExecutor
                 $done = $progress['completed'];
                 $total = $progress['total'];
                 $io->newLine();
-                if ($io->confirm("Sprint '{$title}' is {$pct}% complete ({$done}/{$total} todos). Continue?", true)) {
-                    $continuationPrompt = "Continue working on sprint '{$title}'. Check todo_list for remaining items.";
+                $prompter = new InterruptiblePrompt($io, $this->terminalState);
+                try {
+                    $reason = $result->budgetExhausted ? 'Context budget reached' : 'Iteration limit reached';
+                    if ($prompter->confirm("{$reason}. Sprint '{$title}' is {$pct}% complete ({$done}/{$total} todos). Continue?", true)) {
+                        $continuationPrompt = "Continue working on sprint '{$title}'. Check todo_list for remaining items."
+                            . " Review the summary above for what was accomplished and what remains.";
+                    }
+                } catch (InteractionCancelledException) {
+                    return new AgentTurnResult();
+                } catch (ShutdownRequestedException) {
+                    return new AgentTurnResult(exitCode: 0);
                 }
             }
         }
@@ -170,6 +192,7 @@ final class AgentTurnExecutor
                 roleResolver: $this->boot->roleResolver(),
                 config: $this->boot->config(),
                 roleDiscovery: $this->boot->roleDiscovery(),
+                providerFactory: $this->boot->providerFactory(),
             );
 
             $title = $titleGenerator->generate($prompt);

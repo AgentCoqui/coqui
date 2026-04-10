@@ -13,6 +13,7 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
+use CoquiBot\Coqui\Support\ProcessSpawner;
 use PDO;
 
 /**
@@ -24,9 +25,12 @@ use PDO;
 final class SessionStorage
 {
     private PDO $db;
+    private ?\Closure $expectedCoquiProcessChecker;
 
-    public function __construct(string $dbPath)
+    public function __construct(string $dbPath, ?\Closure $expectedCoquiProcessChecker = null)
     {
+        $this->expectedCoquiProcessChecker = $expectedCoquiProcessChecker;
+
         $dir = dirname($dbPath);
         if ($dir !== '' && $dir !== '.' && !is_dir($dir)) {
             mkdir($dir, 0755, true);
@@ -79,6 +83,7 @@ final class SessionStorage
                 prompt TEXT NOT NULL,
                 result TEXT NOT NULL,
                 token_count INTEGER DEFAULT 0,
+                metadata TEXT,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             )
@@ -144,6 +149,7 @@ final class SessionStorage
                 title TEXT,
                 prompt TEXT NOT NULL,
                 role TEXT NOT NULL DEFAULT 'orchestrator',
+                metadata TEXT,
                 result TEXT,
                 error TEXT,
                 max_iterations INTEGER DEFAULT 25,
@@ -180,6 +186,7 @@ final class SessionStorage
         // Migration: add tool columns for background tool execution
         $this->migrateAddColumn('background_tasks', 'tool_name', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('background_tasks', 'tool_arguments', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('background_tasks', 'metadata', 'TEXT DEFAULT NULL');
 
         // Migration: add schedule_id for scheduled task tracking
         $this->migrateAddColumn('background_tasks', 'schedule_id', 'TEXT DEFAULT NULL');
@@ -190,11 +197,18 @@ final class SessionStorage
         // Migration: per-task max execution time (seconds, 0 = no limit)
         $this->migrateAddColumn('background_tasks', 'max_execution_seconds', 'INTEGER DEFAULT 3600');
 
+        // Migration: project/sprint context for loop stage tasks (artifact auto-scoping)
+        $this->migrateAddColumn('background_tasks', 'project_id', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('background_tasks', 'sprint_id', 'TEXT DEFAULT NULL');
+
         // Migration: soft-delete flag for summarized messages
         $this->migrateAddColumn('messages', 'is_summarized', 'INTEGER NOT NULL DEFAULT 0');
 
         // Migration: active project tracking per session
         $this->migrateAddColumn('sessions', 'active_project_id', 'TEXT DEFAULT NULL');
+
+        // Migration: child-run metadata for typed handoffs and provenance
+        $this->migrateAddColumn('child_runs', 'metadata', 'TEXT DEFAULT NULL');
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_status ON background_tasks(status)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_background_tasks_session ON background_tasks(session_id)');
@@ -221,8 +235,20 @@ final class SessionStorage
             )
         SQL);
 
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS turn_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                turn_process_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                data TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (turn_process_id) REFERENCES turn_processes(id) ON DELETE CASCADE
+            )
+        SQL);
+
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turn_processes_session ON turn_processes(session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turn_processes_status ON turn_processes(status)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turn_events_turn_process ON turn_events(turn_process_id)');
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
@@ -381,6 +407,47 @@ final class SessionStorage
     }
 
     /**
+     * Clear active project references for all sessions pointing at a project.
+     *
+     * @return int Number of sessions updated.
+     */
+    public function clearActiveProjectReferences(string $projectId): int
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions
+            SET active_project_id = NULL, updated_at = :updated_at
+            WHERE active_project_id = :project_id
+        SQL);
+
+        $stmt->execute([
+            'updated_at' => date('c'),
+            'project_id' => $projectId,
+        ]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Clear all active project references across all sessions.
+     *
+     * @return int Number of sessions updated.
+     */
+    public function clearAllActiveProjects(): int
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions
+            SET active_project_id = NULL, updated_at = :updated_at
+            WHERE active_project_id IS NOT NULL
+        SQL);
+
+        $stmt->execute([
+            'updated_at' => date('c'),
+        ]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
      * Expose the PDO connection for shared-database consumers (e.g. ArtifactStore).
      */
     public function getPdo(): PDO
@@ -430,6 +497,30 @@ final class SessionStorage
             SELECT id, role, content, tool_calls, tool_call_id, created_at
             FROM messages
             WHERE session_id = :session_id
+            ORDER BY created_at ASC
+        SQL);
+
+        $stmt->execute(['session_id' => $sessionId]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Get only active (non-summarized) messages for a session.
+     *
+     * Same as getMessages() but excludes rows already marked is_summarized=1.
+     * Use this when identifying which messages to mark during summarization —
+     * it ensures the ID-marking logic operates on the same message set that
+     * loadConversation() returns to the agent.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getActiveMessages(string $sessionId): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, role, content, tool_calls, tool_call_id, created_at
+            FROM messages
+            WHERE session_id = :session_id AND is_summarized = 0
             ORDER BY created_at ASC
         SQL);
 
@@ -735,7 +826,7 @@ final class SessionStorage
      */
     public function checkTablesExist(): array
     {
-        $expected = ['sessions', 'messages', 'turns', 'audit_log', 'child_runs', 'background_tasks', 'task_events', 'task_inputs'];
+        $expected = ['sessions', 'messages', 'turns', 'audit_log', 'child_runs', 'background_tasks', 'task_events', 'task_inputs', 'turn_processes', 'turn_events'];
         $missing = [];
 
         foreach ($expected as $table) {
@@ -751,6 +842,9 @@ final class SessionStorage
         return ['ok' => empty($missing), 'missing' => $missing];
     }
 
+    /**
+     * @param array<string, mixed>|null $metadata
+     */
     public function logChildRun(
         string $sessionId,
         int $parentIteration,
@@ -759,13 +853,14 @@ final class SessionStorage
         string $prompt,
         string $result,
         int $tokenCount = 0,
+        ?array $metadata = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO child_runs (id, session_id, parent_iteration, agent_role, model, prompt, result, token_count, created_at)
-            VALUES (:id, :session_id, :parent_iteration, :agent_role, :model, :prompt, :result, :token_count, :created_at)
+            INSERT INTO child_runs (id, session_id, parent_iteration, agent_role, model, prompt, result, token_count, metadata, created_at)
+            VALUES (:id, :session_id, :parent_iteration, :agent_role, :model, :prompt, :result, :token_count, :metadata, :created_at)
         SQL);
 
         $stmt->execute([
@@ -777,6 +872,7 @@ final class SessionStorage
             'prompt' => $prompt,
             'result' => $result,
             'token_count' => $tokenCount,
+            'metadata' => $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
             'created_at' => $now,
         ]);
 
@@ -789,7 +885,7 @@ final class SessionStorage
     public function getChildRuns(string $sessionId): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, parent_iteration, agent_role, model, prompt, result, token_count, created_at
+            SELECT id, parent_iteration, agent_role, model, prompt, result, token_count, metadata, created_at
             FROM child_runs
             WHERE session_id = :session_id
             ORDER BY created_at ASC
@@ -1082,6 +1178,8 @@ final class SessionStorage
 
     /**
      * Create a new background task record.
+     *
+     * @param array<string, mixed>|null $metadata
      */
     public function createTask(
         string $sessionId,
@@ -1094,13 +1192,16 @@ final class SessionStorage
         ?string $toolArguments = null,
         ?string $scheduleId = null,
         int $maxExecutionSeconds = 3600,
+        ?string $projectId = null,
+        ?string $sprintId = null,
+        ?array $metadata = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, max_iterations, tool_name, tool_arguments, schedule_id, max_execution_seconds, created_at)
-            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :max_iterations, :tool_name, :tool_arguments, :schedule_id, :max_execution_seconds, :created_at)
+            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, metadata, max_iterations, tool_name, tool_arguments, schedule_id, max_execution_seconds, project_id, sprint_id, created_at)
+            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :metadata, :max_iterations, :tool_name, :tool_arguments, :schedule_id, :max_execution_seconds, :project_id, :sprint_id, :created_at)
         SQL);
 
         $stmt->execute([
@@ -1110,11 +1211,14 @@ final class SessionStorage
             'title' => $title,
             'prompt' => $prompt,
             'role' => $role,
+            'metadata' => $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
             'max_iterations' => $maxIterations,
             'tool_name' => $toolName,
             'tool_arguments' => $toolArguments,
             'schedule_id' => $scheduleId,
             'max_execution_seconds' => $maxExecutionSeconds,
+            'project_id' => $projectId,
+            'sprint_id' => $sprintId,
             'created_at' => $now,
         ]);
 
@@ -1305,6 +1409,81 @@ final class SessionStorage
     }
 
     /**
+     * Find the most recent task created by a specific automation notification.
+     *
+     * @param list<string> $statuses
+     * @return array<string, mixed>|null
+     */
+    public function findTaskByAutomationNotificationId(
+        string $notificationId,
+        array $statuses = ['pending', 'running', 'completed'],
+    ): ?array {
+        if ($statuses === []) {
+            return null;
+        }
+
+        $statusPlaceholders = implode(', ', array_fill(0, count($statuses), '?'));
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT *
+            FROM background_tasks
+            WHERE metadata IS NOT NULL
+              AND json_extract(metadata, '$.automation.notification_id') = ?
+              AND status IN ({$statusPlaceholders})
+            ORDER BY created_at DESC
+            LIMIT 1
+        SQL);
+
+        $params = [$notificationId, ...$statuses];
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    /**
+     * Find the most recent task with a given title, optionally filtered by role and status.
+     *
+     * @param list<string> $statuses
+     * @return array<string, mixed>|null
+     */
+    public function findRecentTaskByTitle(
+        string $title,
+        ?string $role = null,
+        array $statuses = ['pending', 'running', 'completed'],
+        int $lookbackHours = 24,
+    ): ?array {
+        if ($statuses === []) {
+            return null;
+        }
+
+        $cutoff = date('c', time() - ($lookbackHours * 3600));
+        $statusPlaceholders = implode(', ', array_fill(0, count($statuses), '?'));
+        $roleClause = $role !== null ? 'AND role = ?' : '';
+
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT *
+            FROM background_tasks
+            WHERE title = ?
+              {$roleClause}
+              AND status IN ({$statusPlaceholders})
+              AND created_at >= ?
+            ORDER BY created_at DESC
+            LIMIT 1
+        SQL);
+
+        $params = [$title];
+        if ($role !== null) {
+            $params[] = $role;
+        }
+        $params = [...$params, ...$statuses, $cutoff];
+
+        $stmt->execute($params);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    /**
      * Get all tasks with a specific status.
      *
      * @return array<array<string, mixed>>
@@ -1337,7 +1516,7 @@ final class SessionStorage
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, session_id, parent_session_id, pid, status, title, prompt, role,
-                   max_iterations, created_at, started_at, completed_at, cancelled_at
+                   metadata, max_iterations, created_at, started_at, completed_at, cancelled_at
             FROM background_tasks
             {$where}
             ORDER BY created_at DESC
@@ -1389,6 +1568,56 @@ final class SessionStorage
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, event_type, data, created_at
             FROM task_events
+            WHERE {$where}
+            ORDER BY id ASC
+            LIMIT :limit
+        SQL);
+
+        foreach ($params as $key => $val) {
+            $stmt->bindValue($key, $val);
+        }
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * Append an event to the turn process event log.
+     */
+    public function appendTurnEvent(string $turnProcessId, string $eventType, mixed $data = null): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO turn_events (turn_process_id, event_type, data, created_at)
+            VALUES (:turn_process_id, :event_type, :data, :created_at)
+        SQL);
+
+        $stmt->execute([
+            'turn_process_id' => $turnProcessId,
+            'event_type' => $eventType,
+            'data' => json_encode($data ?? new \stdClass(), JSON_UNESCAPED_SLASHES) ?: '{}',
+            'created_at' => date('c'),
+        ]);
+    }
+
+    /**
+     * Get turn process events, optionally starting after a given event ID.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function getTurnEvents(string $turnProcessId, ?int $sinceId = null, int $limit = 100): array
+    {
+        $where = 'turn_process_id = :turn_process_id';
+        $params = ['turn_process_id' => $turnProcessId];
+
+        if ($sinceId !== null) {
+            $where .= ' AND id > :since_id';
+            $params['since_id'] = $sinceId;
+        }
+
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, event_type, data, created_at
+            FROM turn_events
             WHERE {$where}
             ORDER BY id ASC
             LIMIT :limit
@@ -1491,8 +1720,8 @@ final class SessionStorage
         foreach ($rows as $row) {
             $pid = (int) ($row['pid'] ?? 0);
 
-            // If the PID is alive, skip — the process is still running
-            if ($pid > 0 && function_exists('posix_kill') && posix_kill($pid, 0)) {
+            // Only keep the task if the PID is alive AND still belongs to Coqui task:run.
+            if ($this->isExpectedCoquiProcessAlive($pid, 'task:run')) {
                 continue;
             }
 
@@ -1770,8 +1999,8 @@ final class SessionStorage
         foreach ($rows as $row) {
             $pid = (int) ($row['pid'] ?? 0);
 
-            // If the PID is alive, skip — the process is still running
-            if ($pid > 0 && function_exists('posix_kill') && posix_kill($pid, 0)) {
+            // Only keep the turn if the PID is alive AND still belongs to Coqui turn:run.
+            if ($this->isExpectedCoquiProcessAlive($pid, 'turn:run')) {
                 continue;
             }
 
@@ -1780,5 +2009,55 @@ final class SessionStorage
         }
 
         return $count;
+    }
+
+    private function isExpectedCoquiProcessAlive(int $pid, string $subcommand): bool
+    {
+        if ($this->expectedCoquiProcessChecker !== null) {
+            return (bool) ($this->expectedCoquiProcessChecker)($pid, $subcommand);
+        }
+
+        if ($pid <= 0 || !ProcessSpawner::isProcessAlive($pid)) {
+            return false;
+        }
+
+        $command = PHP_OS_FAMILY === 'Windows'
+            ? $this->windowsProcessCommandLine($pid)
+            : shell_exec(sprintf('ps -o command= -p %d 2>/dev/null', $pid));
+
+        if (!is_string($command) || trim($command) === '') {
+            return false;
+        }
+
+        return str_contains($command, 'bin/coqui')
+            && str_contains($command, $subcommand);
+    }
+
+    private function windowsProcessCommandLine(int $pid): ?string
+    {
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        $process = @proc_open([
+            'powershell',
+            '-NoProfile',
+            '-Command',
+            sprintf('(Get-CimInstance Win32_Process -Filter "ProcessId = %d" -ErrorAction SilentlyContinue).CommandLine', $pid),
+        ], $descriptors, $pipes, null, null);
+
+        if (!is_resource($process)) {
+            return null;
+        }
+
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($process);
+
+        return $stdout === false ? null : trim($stdout);
     }
 }

@@ -30,7 +30,7 @@ final readonly class FileSystemOperations
         private array $allowedPaths = [],
     ) {
         $real = realpath($this->rootPath);
-        $this->realRoot = $real !== false ? $real : $this->rootPath;
+        $this->realRoot = $this->normalizePath($real !== false ? $real : $this->rootPath);
     }
 
     // ---------------------------------------------------------------
@@ -97,6 +97,54 @@ final readonly class FileSystemOperations
     public function isDir(string $relativePath): bool
     {
         return is_dir($this->resolvePath($relativePath));
+    }
+
+    /**
+     * Get the size of a file in bytes.
+     *
+     * @throws FileSystemException If the file does not exist.
+     */
+    public function fileSize(string $relativePath): int
+    {
+        $path = $this->resolvePath($relativePath);
+
+        if (!is_file($path)) {
+            throw FileSystemException::fileNotFound($relativePath);
+        }
+
+        $size = @filesize($path);
+
+        return $size !== false ? $size : 0;
+    }
+
+    /**
+     * Detect whether a file is likely binary by checking for null bytes.
+     *
+     * Reads the first 8 KB and checks for the presence of null bytes (\x00).
+     * This is the same heuristic used by git and file(1). Returns false for
+     * files that don't exist or can't be read.
+     */
+    public function isBinaryFile(string $relativePath): bool
+    {
+        $path = $this->resolvePath($relativePath);
+
+        if (!is_file($path)) {
+            return false;
+        }
+
+        $handle = @fopen($path, 'rb');
+        if ($handle === false) {
+            return false;
+        }
+
+        $chunk = fread($handle, 8192);
+        fclose($handle);
+
+        if ($chunk === false || $chunk === '') {
+            return false;
+        }
+
+        return str_contains($chunk, "\x00");
     }
 
     // ---------------------------------------------------------------
@@ -425,7 +473,11 @@ final readonly class FileSystemOperations
     // ---------------------------------------------------------------
 
     /**
-     * Resolve a relative path to an absolute path within the sandbox.
+     * Resolve a path to an absolute path within the sandbox.
+     *
+     * Accepts both relative paths (resolved against the workspace root) and
+     * absolute paths. Absolute paths are validated directly against the sandbox
+     * boundaries — they must fall within the workspace root or an allowed mount.
      *
      * Prevents directory traversal by canonicalizing path segments
      * and verifying the result stays within the root or an allowed mount.
@@ -434,8 +486,15 @@ final readonly class FileSystemOperations
      */
     public function resolvePath(string $relativePath): string
     {
-        // Canonicalize relative path segments to prevent traversal
-        $segments = explode('/', str_replace('\\', '/', $relativePath));
+        $normalized = $this->normalizePath($relativePath);
+
+        // Absolute path — validate directly against sandbox boundaries
+        if ($this->isAbsolutePath($normalized)) {
+            return $this->resolveAbsolutePath($normalized, $relativePath);
+        }
+
+        // Relative path — canonicalize segments to prevent traversal
+        $segments = explode('/', $normalized);
         $resolved = [];
         foreach ($segments as $segment) {
             if ($segment === '' || $segment === '.') {
@@ -448,27 +507,79 @@ final readonly class FileSystemOperations
             }
         }
         $canonicalized = implode('/', $resolved);
-        $path = $this->rootPath . '/' . $canonicalized;
+        $path = rtrim($this->normalizePath($this->rootPath), '/') . '/' . $canonicalized;
 
-        // For existing paths — verify via realpath
-        $realPath = realpath($path);
+        return $this->validateResolvedPath($path, $relativePath);
+    }
+
+    /**
+     * Validate an absolute path against sandbox boundaries.
+     *
+     * @throws FileSystemException If the path is outside the workspace and mounts.
+     */
+    private function resolveAbsolutePath(string $normalized, string $originalInput): string
+    {
+        // For existing paths — use realpath to resolve symlinks
+        $realPath = realpath($normalized);
         if ($realPath !== false) {
-            if (str_starts_with($realPath, $this->realRoot)) {
+            $realPath = $this->normalizePath($realPath);
+            if ($this->isWithinBasePath($realPath, $this->realRoot)) {
                 return $realPath;
             }
             if ($this->isUnderAllowedPath($realPath)) {
                 return $realPath;
             }
 
-            throw FileSystemException::pathEscapesSandbox($relativePath);
+            throw FileSystemException::absolutePathNotInSandbox($originalInput);
+        }
+
+        // Path doesn't exist yet — verify the deepest existing ancestor
+        $parentPath = dirname($normalized);
+        $realParent = realpath($parentPath);
+        if ($realParent !== false) {
+            $realParent = $this->normalizePath($realParent);
+            if ($this->isWithinBasePath($realParent, $this->realRoot)) {
+                return $normalized;
+            }
+            if ($this->isUnderAllowedPath($realParent)) {
+                return $normalized;
+            }
+
+            throw FileSystemException::absolutePathNotInSandbox($originalInput);
+        }
+
+        // No ancestor exists — reject
+        throw FileSystemException::absolutePathNotInSandbox($originalInput);
+    }
+
+    /**
+     * Validate a resolved relative path against sandbox boundaries.
+     *
+     * @throws FileSystemException If the path escapes the sandbox.
+     */
+    private function validateResolvedPath(string $path, string $originalInput): string
+    {
+        // For existing paths — verify via realpath
+        $realPath = realpath($path);
+        if ($realPath !== false) {
+            $realPath = $this->normalizePath($realPath);
+            if ($this->isWithinBasePath($realPath, $this->realRoot)) {
+                return $realPath;
+            }
+            if ($this->isUnderAllowedPath($realPath)) {
+                return $realPath;
+            }
+
+            throw FileSystemException::pathEscapesSandbox($originalInput);
         }
 
         // Path doesn't exist yet — verify the deepest existing ancestor
         $parentPath = dirname($path);
         $realParent = realpath($parentPath);
         if ($realParent !== false) {
-            if (!str_starts_with($realParent, $this->realRoot) && !$this->isUnderAllowedPath($realParent)) {
-                throw FileSystemException::pathEscapesSandbox($relativePath);
+            $realParent = $this->normalizePath($realParent);
+            if (!$this->isWithinBasePath($realParent, $this->realRoot) && !$this->isUnderAllowedPath($realParent)) {
+                throw FileSystemException::pathEscapesSandbox($originalInput);
             }
         }
 
@@ -498,7 +609,7 @@ final readonly class FileSystemOperations
         }
 
         // Standard glob — no ** present
-        $globPattern = $this->rootPath . '/' . $pattern;
+        $globPattern = rtrim($this->normalizePath($this->rootPath), '/') . '/' . $pattern;
         $matches = glob($globPattern, GLOB_NOSORT | GLOB_BRACE) ?: [];
 
         return array_values(array_filter(
@@ -518,11 +629,11 @@ final readonly class FileSystemOperations
     private function resolveGlobRecursive(string $pattern): array
     {
         $matches = [];
-        $searchRoots = [$this->rootPath];
+        $searchRoots = [$this->normalizePath($this->rootPath)];
 
         // Also search mounted directories
         foreach ($this->allowedPaths as $allowed) {
-            $searchRoots[] = $allowed['realPath'];
+            $searchRoots[] = $this->normalizePath($allowed['realPath']);
         }
 
         foreach ($searchRoots as $searchRoot) {
@@ -571,6 +682,8 @@ final readonly class FileSystemOperations
             return false;
         }
 
+        $real = $this->normalizePath($real);
+
         return str_starts_with($real, $this->realRoot) || $this->isUnderAllowedPath($real);
     }
 
@@ -579,15 +692,17 @@ final readonly class FileSystemOperations
      */
     public function makeRelative(string $absolutePath): string
     {
-        if (str_starts_with($absolutePath, $this->rootPath . '/')) {
-            return substr($absolutePath, strlen($this->rootPath) + 1);
+        $normalized = $this->normalizePath($absolutePath);
+
+        if ($this->isWithinBasePath($normalized, $this->rootPath)) {
+            return ltrim(substr($normalized, strlen(rtrim($this->rootPath, '/'))), '/');
         }
 
-        if (str_starts_with($absolutePath, $this->realRoot . '/')) {
-            return substr($absolutePath, strlen($this->realRoot) + 1);
+        if ($this->isWithinBasePath($normalized, $this->realRoot)) {
+            return ltrim(substr($normalized, strlen(rtrim($this->realRoot, '/'))), '/');
         }
 
-        return $absolutePath;
+        return $normalized;
     }
 
     /**
@@ -595,8 +710,10 @@ final readonly class FileSystemOperations
      */
     public function isUnderAllowedPath(string $realPath): bool
     {
+        $normalized = $this->normalizePath($realPath);
+
         foreach ($this->allowedPaths as $allowed) {
-            if (str_starts_with($realPath, $allowed['realPath'])) {
+            if ($this->isWithinBasePath($normalized, $allowed['realPath'])) {
                 return true;
             }
         }
@@ -622,14 +739,16 @@ final readonly class FileSystemOperations
             return false;
         }
 
+        $realPath = $this->normalizePath($realPath);
+
         // Path under the primary root is never a read-only mount
-        if (str_starts_with($realPath, $this->realRoot)) {
+        if ($this->isWithinBasePath($realPath, $this->realRoot)) {
             return false;
         }
 
         // Path is outside root — check if it's under a read-only mount
         foreach ($this->allowedPaths as $allowed) {
-            if (str_starts_with($realPath, $allowed['realPath'])) {
+            if ($this->isWithinBasePath($realPath, $allowed['realPath'])) {
                 return $allowed['readOnly'];
             }
         }
@@ -676,5 +795,30 @@ final readonly class FileSystemOperations
         if ($this->isReadOnlyMountPath($absolutePath)) {
             throw FileSystemException::readOnlyMount($displayPath);
         }
+    }
+
+    private function normalizePath(string $path): string
+    {
+        $normalized = str_replace('\\', '/', $path);
+
+        if (preg_match('/^[A-Z]:/i', $normalized) === 1) {
+            $normalized = strtolower($normalized[0]) . substr($normalized, 1);
+        }
+
+        return $normalized;
+    }
+
+    private function isAbsolutePath(string $path): bool
+    {
+        return str_starts_with($path, '/') || preg_match('/^[a-z]:\//i', $path) === 1;
+    }
+
+    private function isWithinBasePath(string $path, string $basePath): bool
+    {
+        $normalizedPath = rtrim($this->normalizePath($path), '/');
+        $normalizedBase = rtrim($this->normalizePath($basePath), '/');
+
+        return $normalizedPath === $normalizedBase
+            || str_starts_with($normalizedPath, $normalizedBase . '/');
     }
 }

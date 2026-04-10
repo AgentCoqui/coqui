@@ -69,7 +69,7 @@ test('isProcessAlive returns true for running process', function () {
 
     $pid = ProcessSpawner::getPid($result['process']);
     expect(ProcessSpawner::isProcessAlive($pid))->toBeTrue();
-})->skip(PHP_OS_FAMILY === 'Windows', 'Process liveness check uses posix_kill which is unavailable on Windows');
+});
 
 test('isProcessAlive returns false for dead process', function () {
     $result = ProcessSpawner::spawn(['php', '-r', 'exit(0);'], sys_get_temp_dir());
@@ -113,7 +113,7 @@ test('terminateGracefully stops a process', function () {
         }
     }
     proc_close($result['process']);
-})->skip(PHP_OS_FAMILY === 'Windows', 'SIGTERM and posix_kill are not available on Windows');
+});
 
 test('killProcessGroup sends signal to process group', function () {
     $result = ProcessSpawner::spawn(['php', '-r', 'sleep(60);'], sys_get_temp_dir());
@@ -133,7 +133,7 @@ test('killProcessGroup sends signal to process group', function () {
     proc_close($result['process']);
 
     expect(ProcessSpawner::isProcessAlive($pid))->toBeFalse();
-})->skip(PHP_OS_FAMILY === 'Windows', 'SIGTERM and posix_kill are not available on Windows');
+})->skip(PHP_OS_FAMILY === 'Windows', 'SIGTERM constant is not defined on Windows');
 
 test('spawn wraps command with setsid on unix', function () {
     if (PHP_OS_FAMILY === 'Windows') {

@@ -304,3 +304,82 @@ test('ensureLoopsDir creates directory if missing', function () {
 
     expect(is_dir($this->loopsDir))->toBeTrue();
 });
+
+// ──────────────────────────────────────────────
+//  getRawDefinition
+// ──────────────────────────────────────────────
+
+test('getRawDefinition returns raw array for existing definition', function () {
+    $data = [
+        'name' => 'harness',
+        'description' => 'Generator-evaluator',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => ['type' => 'manual'],
+    ];
+    file_put_contents($this->loopsDir . '/harness.json', json_encode($data));
+
+    $discovery = new LoopDiscovery($this->workspacePath);
+    $raw = $discovery->getRawDefinition('harness');
+
+    expect($raw)->toBe($data);
+    expect($raw['name'])->toBe('harness');
+    expect($raw['termination_condition']['type'])->toBe('manual');
+});
+
+test('getRawDefinition throws for unknown name', function () {
+    $discovery = new LoopDiscovery($this->workspacePath);
+
+    $discovery->getRawDefinition('nonexistent');
+})->throws(\RuntimeException::class, 'Loop definition not found: "nonexistent"');
+
+test('getRawDefinition preserves goal_bound with all fields', function () {
+    $data = [
+        'name' => 'goal-test',
+        'description' => 'Goal bound',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => [
+            'type' => 'goal_bound',
+            'value' => [
+                'goal_prompt' => 'Is the API complete?',
+                'max_iterations' => 5,
+            ],
+        ],
+    ];
+    file_put_contents($this->loopsDir . '/goal-test.json', json_encode($data));
+
+    $discovery = new LoopDiscovery($this->workspacePath);
+    $raw = $discovery->getRawDefinition('goal-test');
+
+    expect($raw['termination_condition']['type'])->toBe('goal_bound');
+    expect($raw['termination_condition']['value']['goal_prompt'])->toBe('Is the API complete?');
+    expect($raw['termination_condition']['value']['max_iterations'])->toBe(5);
+});
+
+test('getRawDefinition preserves tool_bound with all fields', function () {
+    $data = [
+        'name' => 'tool-test',
+        'description' => 'Tool bound',
+        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
+        'termination_condition' => [
+            'type' => 'tool_bound',
+            'value' => [
+                'tool' => 'test_coverage',
+                'arguments' => ['suite' => 'unit'],
+                'operator' => '>=',
+                'threshold' => 80,
+                'max_iterations' => 10,
+            ],
+        ],
+    ];
+    file_put_contents($this->loopsDir . '/tool-test.json', json_encode($data));
+
+    $discovery = new LoopDiscovery($this->workspacePath);
+    $raw = $discovery->getRawDefinition('tool-test');
+
+    expect($raw['termination_condition']['type'])->toBe('tool_bound');
+    expect($raw['termination_condition']['value']['tool'])->toBe('test_coverage');
+    expect($raw['termination_condition']['value']['arguments'])->toBe(['suite' => 'unit']);
+    expect($raw['termination_condition']['value']['operator'])->toBe('>=');
+    expect($raw['termination_condition']['value']['threshold'])->toBe(80);
+    expect($raw['termination_condition']['value']['max_iterations'])->toBe(10);
+});

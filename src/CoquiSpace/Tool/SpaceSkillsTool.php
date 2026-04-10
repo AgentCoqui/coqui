@@ -13,6 +13,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\CoquiSpace\SpaceClient;
 use CoquiBot\Coqui\CoquiSpace\SpaceRegistry;
 use CoquiBot\Coqui\CoquiSpace\Installer\SkillInstaller;
+use CoquiBot\Coqui\Support\StringHelper;
 
 /**
  * Agent-facing tool for discovering and managing skills on Coqui Space.
@@ -258,7 +259,7 @@ final class SpaceSkillsTool implements ToolInterface
         $lines[] = '';
         $lines[] = '### Description';
         $lines[] = '';
-        $lines[] = $this->truncate($description, 300);
+        $lines[] = StringHelper::truncate($description, 300);
 
         $lines[] = '';
         $lines[] = '### Quick Actions';
@@ -299,7 +300,7 @@ final class SpaceSkillsTool implements ToolInterface
         foreach ($items as $item) {
             $version = (string) ($item['version'] ?? '-');
             $date = $this->formatTimestamp($item['createdAt'] ?? null);
-            $changelog = $this->truncate((string) ($item['changelog'] ?? ''), 80);
+            $changelog = StringHelper::truncate((string) ($item['changelog'] ?? ''), 80);
 
             $lines[] = "| {$version} | {$date} | {$changelog} |";
         }
@@ -352,7 +353,7 @@ final class SpaceSkillsTool implements ToolInterface
 
                 $lines[] = "**{$stars}** " . ($title !== '' ? "— {$title}" : '');
                 if ($body !== '') {
-                    $lines[] = $this->truncate($body, 200);
+                    $lines[] = StringHelper::truncate($body, 200);
                 }
                 $lines[] = '';
             }
@@ -471,12 +472,4 @@ final class SpaceSkillsTool implements ToolInterface
         return (string) $timestamp;
     }
 
-    private function truncate(string $value, int $max): string
-    {
-        if (strlen($value) <= $max) {
-            return $value;
-        }
-
-        return substr($value, 0, $max - 1) . '…';
-    }
 }

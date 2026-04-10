@@ -19,6 +19,9 @@ final class StreamingMarkdownBuffer
     private string $buffer = '';
     private bool $inCodeFence = false;
     private string $codeFenceChar = '';
+    private int $codeFenceLength = 0;
+    /** @var string[] */
+    private array $codeFenceLines = [];
 
     /**
      * @param Closure(string): void $writer  Called with rendered ANSI output
@@ -41,15 +44,22 @@ final class StreamingMarkdownBuffer
      */
     public function flush(): void
     {
-        if ($this->buffer === '') {
+        $markdown = $this->buffer;
+        if ($this->codeFenceLines !== []) {
+            $markdown = implode("\n", $this->codeFenceLines);
+            if ($this->buffer !== '') {
+                $markdown .= "\n" . $this->buffer;
+            }
+        }
+
+        if ($markdown === '' || $this->bufferIsOnlyFenceMarker($markdown)) {
+            $this->reset();
             return;
         }
 
-        $rendered = MarkdownRenderer::render($this->buffer);
+        $rendered = MarkdownRenderer::render($markdown);
         ($this->writer)($rendered);
-        $this->buffer = '';
-        $this->inCodeFence = false;
-        $this->codeFenceChar = '';
+        $this->reset();
     }
 
     /**
@@ -60,6 +70,8 @@ final class StreamingMarkdownBuffer
         $this->buffer = '';
         $this->inCodeFence = false;
         $this->codeFenceChar = '';
+        $this->codeFenceLength = 0;
+        $this->codeFenceLines = [];
     }
 
     private function processBuffer(): void
@@ -73,32 +85,30 @@ final class StreamingMarkdownBuffer
         }
 
         $flushable = [];
-        $kept = [];
 
         foreach ($lines as $line) {
             if ($this->inCodeFence) {
-                $kept[] = $line;
-                // Check for closing fence
-                if (preg_match('/^' . preg_quote($this->codeFenceChar, '/') . '{3,}\s*$/', $line)) {
+                $this->codeFenceLines[] = $line;
+                if ($this->isClosingFence($line)) {
                     $this->inCodeFence = false;
                     $this->codeFenceChar = '';
-                    // Code block complete — move everything to flushable
-                    array_push($flushable, ...$kept);
-                    $kept = [];
+                    $this->codeFenceLength = 0;
+                    $this->flushLines($this->codeFenceLines);
+                    $this->codeFenceLines = [];
                 }
                 continue;
             }
 
-            // Check for opening fence
-            if (preg_match('/^(`{3,}|~{3,})/', $line, $m)) {
-                // Flush any accumulated non-fence content first
+            $openingFence = $this->detectOpeningFence($line);
+            if ($openingFence !== null) {
                 if ($flushable !== []) {
                     $this->flushLines($flushable);
                     $flushable = [];
                 }
                 $this->inCodeFence = true;
-                $this->codeFenceChar = $m[1][0];
-                $kept[] = $line;
+                $this->codeFenceChar = $openingFence['char'];
+                $this->codeFenceLength = $openingFence['length'];
+                $this->codeFenceLines = [$line];
                 continue;
             }
 
@@ -112,7 +122,7 @@ final class StreamingMarkdownBuffer
         }
 
         // Rebuild buffer: unflushed lines + incomplete trailing fragment
-        $remaining = array_merge($kept, $flushable);
+        $remaining = $flushable;
         $this->buffer = $remaining !== []
             ? implode("\n", $remaining) . "\n" . $incomplete
             : $incomplete;
@@ -154,5 +164,44 @@ final class StreamingMarkdownBuffer
         }
 
         return false;
+    }
+
+    /**
+     * @return array{char: string, length: int}|null
+     */
+    private function detectOpeningFence(string $line): ?array
+    {
+        if (!preg_match('/^ {0,3}(`{3,}|~{3,})(.*)$/', $line, $matches)) {
+            return null;
+        }
+
+        $fence = $matches[1];
+        if ($fence[0] === '`' && str_contains($matches[2], '`')) {
+            return null;
+        }
+
+        return [
+            'char' => $fence[0],
+            'length' => strlen($fence),
+        ];
+    }
+
+    private function isClosingFence(string $line): bool
+    {
+        if ($this->codeFenceChar === '' || $this->codeFenceLength < 3) {
+            return false;
+        }
+
+        return preg_match(
+            '/^ {0,3}' . preg_quote($this->codeFenceChar, '/') . '{' . $this->codeFenceLength . ',}[ \t]*$/',
+            $line,
+        ) === 1;
+    }
+
+    private function bufferIsOnlyFenceMarker(?string $markdown = null): bool
+    {
+        $markdown ??= $this->buffer;
+
+        return preg_match('/^\s*(`{3,}|~{3,})\s*$/', $markdown) === 1;
     }
 }

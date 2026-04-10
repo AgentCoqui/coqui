@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
+use CoquiBot\Coqui\Support\JsonHelper;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -337,6 +338,11 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             'completed_at' => $task['completed_at'],
         ];
 
+        $metadata = JsonHelper::decodeJsonObject($task['metadata'] ?? null);
+        if ($metadata !== null) {
+            $summary['metadata'] = $metadata;
+        }
+
         if ($task['result'] !== null) {
             $result = $task['result'];
             if (mb_strlen($result) > self::RESULT_PREVIEW_LENGTH) {
@@ -397,6 +403,7 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             'role' => $t['role'],
             'created_at' => $t['created_at'],
             'completed_at' => $t['completed_at'],
+            'metadata' => JsonHelper::decodeJsonObject($t['metadata'] ?? null),
         ], $tasks);
 
         $counts = $this->storage->getTaskCounts();
@@ -460,4 +467,5 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             'message' => 'Cancellation signal sent. The task will stop after its current iteration.',
         ], JSON_UNESCAPED_SLASHES) ?: 'Cancel requested');
     }
+
 }

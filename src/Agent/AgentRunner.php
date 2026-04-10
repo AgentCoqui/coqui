@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Contract\PendingInputProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\TickCallbackInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
+use CarmeloSantana\PHPAgents\Enum\AgentFinishReason;
 use CarmeloSantana\PHPAgents\Enum\Role;
 use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Agent\Output;
@@ -40,15 +41,22 @@ use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryExtractor;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
+use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\EditHistory;
+use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
+use CoquiBot\Coqui\Repl\NotificationPresenter;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Contract\PromptBudgetSnapshot;
+use CoquiBot\Coqui\Contract\SystemRole;
+use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
+use CoquiBot\Coqui\Observer\BudgetExitObserver;
 use CoquiBot\Coqui\Renderer\ContextUsageBar;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
 
@@ -70,10 +78,10 @@ final class AgentRunner
         private readonly ToolkitDiscovery $discovery,
         private readonly CatastrophicBlacklist $blacklist,
         private readonly CredentialResolverInterface $credentialResolver,
+        private readonly ProviderFactory $providerFactory,
         private readonly ?SkillDiscovery $skillDiscovery = null,
         private readonly ?RoleDiscovery $roleDiscovery = null,
         private readonly bool $unsafeMode = false,
-        private readonly ?ProviderFactory $providerFactory = null,
         private readonly bool $backgroundTasksEnabled = false,
         private readonly ?MemoryStore $memoryStore = null,
         private readonly ?MemorySummarizer $memorySummarizer = null,
@@ -91,6 +99,7 @@ final class AgentRunner
         private readonly ?HttpClientInterface $httpClient = null,
         private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
         private readonly ?ToolUsageTracker $usageTracker = null,
+        private readonly ?NotificationStore $notificationStore = null,
     ) {}
 
     /**
@@ -127,6 +136,9 @@ final class AgentRunner
         PendingInputProviderInterface $pendingInputProvider,
         ?string $role = null,
         ?int $maxIterations = null,
+        ?string $workScopeSessionId = null,
+        ?string $defaultProjectId = null,
+        ?string $defaultSprintId = null,
     ): AgentTurnResult {
         return $this->doRun(
             $prompt,
@@ -138,6 +150,9 @@ final class AgentRunner
             enableBackgroundTasks: false,
             role: $role,
             maxIterations: $maxIterations,
+            workScopeSessionId: $workScopeSessionId,
+            defaultProjectId: $defaultProjectId,
+            defaultSprintId: $defaultSprintId,
         );
     }
 
@@ -172,6 +187,9 @@ final class AgentRunner
         ?string $role = null,
         ?int $maxIterations = null,
         ?array $filePaths = null,
+        ?string $workScopeSessionId = null,
+        ?string $defaultProjectId = null,
+        ?string $defaultSprintId = null,
     ): AgentTurnResult {
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
@@ -199,6 +217,7 @@ final class AgentRunner
 
         $agent = $this->createAgent(
             sessionId: $sessionId,
+            currentTurnId: $turnId,
             executionPolicy: $executionPolicy,
             sanitizer: $sanitizer,
             onRestart: function () use (&$restartRequested): void {
@@ -210,6 +229,9 @@ final class AgentRunner
             enableBackgroundTasks: $enableBackgroundTasks,
             role: $effectiveRole,
             maxIterations: $maxIterations,
+            workScopeSessionId: $workScopeSessionId,
+            defaultProjectId: $defaultProjectId,
+            defaultSprintId: $defaultSprintId,
         );
 
         if ($observer !== null) {
@@ -234,21 +256,42 @@ final class AgentRunner
             // Auto-summarize when conversation history is nearing the context limit.
             // This preserves important context via LLM summarization instead of
             // silently dropping oldest turns via fitWithinBudget().
+            if ($history->count() > 0) {
+                $agent->notify('agent.status', ['label' => 'Checking context budget']);
+            }
             $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer);
+
+            // Snapshot unread informational notifications and pass them into the
+            // turn as a dedicated prompt section. This keeps notification context
+            // visible to the model without polluting conversation history.
+            if ($this->notificationStore !== null && $workScopeSessionId === null) {
+                $agent->notify('agent.status', ['label' => 'Processing notifications']);
+                $notificationPromptSection = $this->snapshotNotificationPromptSection(
+                    $sessionId,
+                    $agent,
+                );
+
+                if ($notificationPromptSection !== null) {
+                    $agent->setNotificationPromptSection($notificationPromptSection);
+                }
+            }
 
             // Per-iteration pruning is handled by AbstractAgent using the
             // model-aware ContextWindow passed to OrchestratorAgent.
 
             $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $history);
 
-            // Resolve usage: prefer provider-reported tokens, fall back to local estimation
+            // Resolve usage: prefer provider-reported tokens, fall back to local estimation.
+            // Some providers (notably Ollama) report their num_ctx as prompt_tokens
+            // rather than actual evaluated tokens. Sanity-check against a heuristic
+            // estimate and fall back when the provider value is implausibly high.
             $usage = ($output->usage !== null && $output->usage->totalTokens > 0)
-                ? $output->usage
+                ? $this->sanitizeUsage($output->usage, $output, $modelString)
                 : $this->estimateUsage($output, $modelString);
 
-            // Detect whether the agent exhausted its iteration budget
             $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole);
-            $iterationLimitReached = $resolvedMaxIterations > 0 && $output->iterations >= $resolvedMaxIterations;
+            ['iterationLimitReached' => $iterationLimitReached, 'budgetExhausted' => $budgetExhausted] =
+                $this->resolveExitFlags($output, $resolvedMaxIterations);
 
             // Batch all post-turn DB writes in a single transaction to reduce fsync overhead
             $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
@@ -301,16 +344,14 @@ final class AgentRunner
                         storage: $this->storage,
                         memoryStore: $this->memoryStore,
                     );
-                    $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
+                    $factory = $this->providerFactory;
                     $utilityModel = $this->roleResolver->resolveUtility();
                     if ($utilityModel !== '') {
                         $utilityProvider = $factory->create($utilityModel);
-                        $summarizer->summarizeAndPersist(
+                        $pruneResult = $summarizer->summarizeAndPersist(
                             sessionId: $sessionId,
                             provider: $utilityProvider,
-                            keepRecentTurns: $pruningStrategy->sessionId() !== null
-                                ? CoquiDefaults::KEEP_RECENT_TURNS
-                                : CoquiDefaults::KEEP_RECENT_TURNS,
+                            keepRecentTurns: CoquiDefaults::KEEP_RECENT_TURNS,
                             workflowContext: $this->buildWorkflowContext($sessionId),
                             onExtraction: function (int $saved, string $source) use ($agent): void {
                                 $agent->notify('agent.memory_extraction', [
@@ -320,6 +361,16 @@ final class AgentRunner
                                 ]);
                             },
                         );
+
+                        if ($pruneResult->wasSummarized()) {
+                            $agent->notify('agent.summary', [
+                                'messages_summarized' => $pruneResult->messagesSummarized,
+                                'tokens_before' => $pruneResult->tokensBefore,
+                                'tokens_after' => $pruneResult->tokensAfter,
+                                'tokens_saved' => $pruneResult->tokensSaved(),
+                                'auto' => true,
+                            ]);
+                        }
                     }
                 } catch (\Throwable) {
                     // Deferred persistence failure is non-fatal
@@ -345,9 +396,12 @@ final class AgentRunner
             $contextUsage = null;
             try {
                 $finalConversation = $output->conversation ?? $history;
+                $promptCounter = TokenCounterFactory::forModel($modelString);
+                $promptSections = $agent->getPromptSectionBreakdown($promptCounter);
                 $contextUsage = ContextUsageBar::buildSnapshot(
                     $finalConversation,
                     $agent->getContextWindow(),
+                    $promptSections,
                 );
             } catch (\Throwable) {
                 // Non-fatal — progress bar is optional
@@ -397,6 +451,7 @@ final class AgentRunner
                 childAgentCount: $childAgentCount,
                 restartRequested: $restartRequested,
                 iterationLimitReached: $iterationLimitReached,
+                budgetExhausted: $budgetExhausted,
                 contextUsage: $contextUsage,
                 fileEdits: $fileEdits,
                 reviewFeedback: $reviewFeedback,
@@ -436,6 +491,7 @@ final class AgentRunner
 
     private function createAgent(
         string $sessionId,
+        ?string $currentTurnId,
         ToolExecutionPolicyInterface $executionPolicy,
         ScriptSanitizer $sanitizer,
         \Closure $onRestart,
@@ -445,12 +501,45 @@ final class AgentRunner
         bool $enableBackgroundTasks = true,
         string $role = 'orchestrator',
         ?int $maxIterations = null,
+        ?string $workScopeSessionId = null,
+        ?string $defaultProjectId = null,
+        ?string $defaultSprintId = null,
     ): OrchestratorAgent {
         $modelString = $this->roleResolver->resolve($role);
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
+        $httpClient = $this->httpClient;
+        if ($httpClient instanceof ReactHttpClientAdapter && $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken) {
+            $httpClient = $httpClient->withCancellationToken($cancellationToken);
+        }
+
+        $factory = $this->providerFactory;
         $provider = $factory->create($modelString);
 
-        return new OrchestratorAgent(
+        // Resolve budget exit configuration
+        $budgetExitThreshold = CoquiDefaults::BUDGET_EXIT_THRESHOLD;
+        $budgetExitWrapUpIterations = CoquiDefaults::BUDGET_EXIT_WRAP_UP_ITERATIONS;
+        if ($this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig) {
+            $budgetExitThreshold = $this->config->getBudgetExitThreshold();
+            $budgetExitWrapUpIterations = $this->config->getBudgetExitWrapUpIterations();
+        }
+
+        // Create BudgetExitObserver with workflow context builder.
+        // When the agent crosses the budget threshold, this observer queues
+        // a wrap-up instruction with current todo/artifact/sprint state.
+        $budgetExitObserver = null;
+        $effectivePendingInputProvider = $pendingInputProvider;
+
+        if ($budgetExitThreshold > 0.0) {
+            $capturedSessionId = $sessionId;
+            $budgetExitObserver = new BudgetExitObserver(
+                workflowContextBuilder: fn(): string => $this->buildWorkflowContext($capturedSessionId) ?? '',
+            );
+
+            $effectivePendingInputProvider = $pendingInputProvider !== null
+                ? new CompositePendingInputProvider($pendingInputProvider, $budgetExitObserver)
+                : $budgetExitObserver;
+        }
+
+        $agent = new OrchestratorAgent(
             provider: $provider,
             roleResolver: $this->roleResolver,
             config: $this->config,
@@ -458,6 +547,7 @@ final class AgentRunner
             workspacePath: $this->workspacePath,
             storage: $this->storage,
             sessionId: $sessionId,
+            currentTurnId: $currentTurnId,
             observer: $observer,
             discovery: $this->discovery,
             maxIterations: $maxIterations ?? $this->roleResolver->resolveMaxIterations($role),
@@ -468,7 +558,7 @@ final class AgentRunner
             skillDiscovery: $this->skillDiscovery,
             roleDiscovery: $this->roleDiscovery,
             cancellationToken: $cancellationToken,
-            pendingInputProvider: $pendingInputProvider,
+            pendingInputProvider: $effectivePendingInputProvider,
             backgroundTaskToolkit: ($enableBackgroundTasks && $this->backgroundTasksEnabled)
                 ? new BackgroundTaskToolkit(
                     storage: $this->storage,
@@ -495,10 +585,23 @@ final class AgentRunner
             unsafeMode: $this->unsafeMode,
             toolExecutor: $this->toolExecutor,
             tickCallback: $this->tickCallback,
-            httpClient: $this->httpClient,
+            httpClient: $httpClient,
             loadingRegistry: $this->loadingRegistry,
+            providerFactory: $this->providerFactory,
             usageTracker: $this->usageTracker,
+            workScopeSessionId: $workScopeSessionId,
+            defaultProjectId: $defaultProjectId,
+            defaultSprintId: $defaultSprintId,
+            budgetExitThreshold: $budgetExitThreshold,
+            budgetExitWrapUpIterations: $budgetExitWrapUpIterations,
         );
+
+        // Attach the budget exit observer so it receives agent.budget_warning events
+        if ($budgetExitObserver !== null) {
+            $agent->attach($budgetExitObserver);
+        }
+
+        return $agent;
     }
 
     /**
@@ -507,13 +610,82 @@ final class AgentRunner
      *
      * Used by the /prompt REPL command and GET /api/v1/server/prompt endpoint.
      *
-     * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>}
+     * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, applied_loading_modes: array<string, ToolkitLoadingMode>, budget_snapshot: array<string, mixed>}
      */
     public function buildPromptPreview(?string $role = null): array
     {
+        $preview = $this->buildPromptPreviewData($role);
+
+        return [
+            'prompt' => $preview['prompt'],
+            'tool_count' => $preview['snapshot']->toolCount,
+            'toolkit_count' => $preview['snapshot']->toolkitCount,
+            'prompt_tokens' => $preview['snapshot']->promptTokens,
+            'tool_tokens' => $preview['snapshot']->toolTokens,
+            'total_tokens' => $preview['snapshot']->totalTokens,
+            'toolkit_breakdown' => $preview['snapshot']->toolkitBreakdown,
+            'tool_schemas' => $preview['tool_schemas'],
+            'applied_loading_modes' => $preview['agent']->getAppliedLoadingModes(),
+            'budget_snapshot' => $preview['snapshot']->toArray(),
+        ];
+    }
+
+    public function buildBudgetPreview(?string $role = null): PromptBudgetSnapshot
+    {
+        return $this->buildPromptPreviewData($role)['snapshot'];
+    }
+
+    /**
+     * @return array{prompt: string, snapshot: PromptBudgetSnapshot, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, agent: OrchestratorAgent}
+     */
+    private function buildPromptPreviewData(?string $role = null): array
+    {
+        $previewContext = $this->buildPreviewContext($role);
+        $agent = $previewContext['agent'];
+        $counter = $previewContext['counter'];
+        $promptText = $agent->getSystemPromptText();
+        $promptTokens = $counter->count($promptText);
+        $toolkitBreakdown = $agent->getToolkitTokenBreakdown($counter);
+        $standaloneToolTokens = $agent->getStandaloneToolTokens($counter);
+        $toolkitToolTokens = array_sum(array_column($toolkitBreakdown, 'tools_tokens'));
+        $toolTokens = $standaloneToolTokens + $toolkitToolTokens;
+        $toolSchemas = array_values(array_map(
+            fn($tool) => $tool->toFunctionSchema(),
+            $agent->tools(),
+        ));
+
+        $snapshot = (new PromptBudgetManager())->buildSnapshot(
+            role: $previewContext['effective_role'],
+            model: $previewContext['model_string'],
+            toolCount: $agent->getToolCount(),
+            toolkitCount: $agent->getOwnToolkitCount(),
+            promptTokens: $promptTokens,
+            toolTokens: $toolTokens,
+            toolkitBreakdown: $toolkitBreakdown,
+            promptSections: $agent->getPromptSectionBreakdown($counter),
+            appliedLoadingModes: $agent->getAppliedLoadingModes(),
+            loadingDecisions: $agent->getToolkitLoadingDecisions(),
+            deferredToolkits: $agent->getDeferredToolkitInfo(),
+            toolkitBudget: $agent->getToolkitBudgetSnapshot(),
+            contextWindow: $agent->getContextWindow(),
+        );
+
+        return [
+            'prompt' => $promptText,
+            'snapshot' => $snapshot,
+            'tool_schemas' => $toolSchemas,
+            'agent' => $agent,
+        ];
+    }
+
+    /**
+     * @return array{effective_role: string, model_string: string, agent: OrchestratorAgent, counter: \CarmeloSantana\PHPAgents\Contract\TokenCounterInterface}
+     */
+    private function buildPreviewContext(?string $role = null): array
+    {
         $effectiveRole = $role ?? 'orchestrator';
         $modelString = $this->roleResolver->resolve($effectiveRole);
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
+        $factory = $this->providerFactory;
         $provider = $factory->create($modelString);
 
         $sanitizer = new ScriptSanitizer(unsafe: false, blacklist: $this->blacklist);
@@ -543,27 +715,113 @@ final class AgentRunner
                 ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
                 : null,
             loadingRegistry: $this->loadingRegistry,
+            providerFactory: $this->providerFactory,
             usageTracker: $this->usageTracker,
         );
 
-        $counter = TokenCounterFactory::forModel($modelString);
-        $promptText = $agent->getSystemPromptText();
-        $promptTokens = $counter->count($promptText);
-        $toolkitBreakdown = $agent->getToolkitTokenBreakdown($counter);
-        $standaloneToolTokens = $agent->getStandaloneToolTokens($counter);
-
-        $toolkitToolTokens = array_sum(array_column($toolkitBreakdown, 'tools_tokens'));
-        $toolTokens = $standaloneToolTokens + $toolkitToolTokens;
-
         return [
-            'prompt'            => $promptText,
-            'tool_count'        => $agent->getToolCount(),
-            'toolkit_count'     => $agent->getOwnToolkitCount(),
-            'prompt_tokens'     => $promptTokens,
-            'tool_tokens'       => $toolTokens,
-            'total_tokens'      => $promptTokens + $toolTokens,
-            'toolkit_breakdown' => $toolkitBreakdown,
+            'effective_role' => $effectiveRole,
+            'model_string' => $modelString,
+            'agent' => $agent,
+            'counter' => TokenCounterFactory::forModel($modelString),
         ];
+    }
+
+    /**
+     * Export the system prompt and tool schemas to a human-readable file.
+     *
+     * @return string Absolute path to the exported file.
+     */
+    public function exportPromptToFile(?string $role = null): string
+    {
+        $preview = $this->buildPromptPreview($role);
+        $effectiveRole = $role ?? 'orchestrator';
+        $timestamp = date('Y-m-d_H-i-s');
+
+        $lines = [];
+        $lines[] = '# Coqui System Prompt Export';
+        $lines[] = '# Generated: ' . date('c');
+        $lines[] = '# Role: ' . $effectiveRole;
+        $lines[] = '# Tools: ' . $preview['tool_count'] . '  |  Toolkits: ' . $preview['toolkit_count'];
+        $lines[] = '# Prompt tokens: ' . number_format($preview['prompt_tokens'])
+            . '  |  Tool schema tokens: ' . number_format($preview['tool_tokens'])
+            . '  |  Total: ' . number_format($preview['total_tokens']);
+        $lines[] = '';
+        $lines[] = str_repeat('=', 80);
+        $lines[] = 'SYSTEM PROMPT';
+        $lines[] = str_repeat('=', 80);
+        $lines[] = '';
+        $lines[] = $preview['prompt'];
+        $lines[] = '';
+        $lines[] = str_repeat('=', 80);
+        $lines[] = 'TOOLKIT TOKEN BREAKDOWN';
+        $lines[] = str_repeat('=', 80);
+        $lines[] = '';
+
+        foreach ($preview['toolkit_breakdown'] as $entry) {
+            $lines[] = sprintf(
+                '%s: %s guidelines + %s tools = %s total',
+                $entry['name'],
+                number_format($entry['guidelines_tokens']),
+                number_format($entry['tools_tokens']),
+                number_format($entry['total_tokens']),
+            );
+        }
+
+        $lines[] = '';
+        $lines[] = str_repeat('=', 80);
+        $lines[] = 'TOOL SCHEMAS (' . $preview['tool_count'] . ' tools)';
+        $lines[] = str_repeat('=', 80);
+
+        foreach ($preview['tool_schemas'] as $schema) {
+            $fn = $schema['function'];
+            $name = $fn['name'];
+            $desc = $fn['description'];
+            $params = $fn['parameters'];
+
+            $lines[] = '';
+            $lines[] = '## ' . $name;
+            $lines[] = $desc;
+
+            $properties = $params['properties'] ?? [];
+            $required = $params['required'] ?? [];
+
+            if ($properties instanceof \stdClass) {
+                $properties = (array) $properties;
+            }
+
+            if (!empty($properties)) {
+                $lines[] = '';
+                $lines[] = 'Parameters:';
+
+                foreach ($properties as $pName => $pSchema) {
+                    $type = $pSchema['type'] ?? 'mixed';
+                    if (isset($pSchema['enum'])) {
+                        $type = 'enum(' . implode('|', $pSchema['enum']) . ')';
+                    }
+                    $isRequired = in_array($pName, $required, true);
+                    $pDesc = $pSchema['description'] ?? '';
+                    $lines[] = sprintf(
+                        '  %s (%s%s)%s',
+                        $pName,
+                        $type,
+                        $isRequired ? ', required' : '',
+                        $pDesc !== '' ? ' — ' . $pDesc : '',
+                    );
+                }
+            }
+
+            $lines[] = '';
+            $lines[] = str_repeat('-', 40);
+        }
+
+        $lines[] = '';
+
+        $content = implode("\n", $lines);
+        $filePath = rtrim($this->workspacePath, '/') . '/Prompt-' . $timestamp . '.txt';
+        file_put_contents($filePath, $content);
+
+        return $filePath;
     }
 
     /**
@@ -785,6 +1043,57 @@ final class AgentRunner
     }
 
     /**
+     * Sanity-check provider-reported usage against a heuristic estimate.
+     *
+     * Some providers (notably Ollama) report their configured context window
+     * size (num_ctx) as prompt_tokens instead of the actual evaluated count.
+     * When the provider's prompt_tokens exceeds the heuristic estimate by more
+     * than 2.5×, replace it with the heuristic value. Completion tokens are
+     * trusted since they reflect actual generation.
+     */
+    private function sanitizeUsage(Usage $reported, Output $output, string $modelString): Usage
+    {
+        $heuristic = $this->estimateUsage($output, $modelString);
+
+        // If we can't estimate (no conversation), trust the provider
+        if ($heuristic->totalTokens === 0) {
+            return $reported;
+        }
+
+        // Provider prompt tokens look reasonable — use as-is
+        if ($heuristic->promptTokens === 0 || $reported->promptTokens <= $heuristic->promptTokens * 2.5) {
+            return $reported;
+        }
+
+        // Provider prompt tokens are implausibly high — use heuristic for prompt,
+        // keep provider's completion tokens (those reflect actual generation).
+        $promptTokens = $heuristic->promptTokens;
+        $completionTokens = $reported->completionTokens;
+
+        return new Usage(
+            promptTokens: $promptTokens,
+            completionTokens: $completionTokens,
+            totalTokens: $promptTokens + $completionTokens,
+        );
+    }
+
+    /**
+     * @return array{iterationLimitReached: bool, budgetExhausted: bool}
+     */
+    private function resolveExitFlags(Output $output, int $resolvedMaxIterations): array
+    {
+        $budgetExhausted = $output->finishReason === AgentFinishReason::BudgetExhausted;
+        $iterationLimitReached = $output->finishReason === AgentFinishReason::MaxIterations
+            && $resolvedMaxIterations > 0
+            && $output->iterations >= $resolvedMaxIterations;
+
+        return [
+            'iterationLimitReached' => $iterationLimitReached,
+            'budgetExhausted' => $budgetExhausted,
+        ];
+    }
+
+    /**
      * Auto-summarize conversation history when it approaches the context window limit
      * or the conversation has grown too many turns.
      *
@@ -837,7 +1146,20 @@ final class AgentRunner
                 $historyTokens = $history->estimateTokens();
                 $systemPromptTokens = (int) (strlen($agent->getSystemPromptText()) / 4);
                 $userPromptTokens = (int) (strlen($prompt) / 4);
-                $estimatedTokens = (int) (($historyTokens + $systemPromptTokens + $userPromptTokens) * 1.15);
+
+                // Estimate pending notification tokens — notifications are injected
+                // after this check but still consume context window budget.
+                $notificationTokenEstimate = 0;
+                if ($this->notificationStore !== null) {
+                    try {
+                        $pendingCount = $this->notificationStore->countUnread($sessionId);
+                        $notificationTokenEstimate = $pendingCount * 40;
+                    } catch (\Throwable) {
+                        // Non-critical — skip if store errors
+                    }
+                }
+
+                $estimatedTokens = (int) (($historyTokens + $systemPromptTokens + $userPromptTokens + $notificationTokenEstimate) * 1.15);
 
                 $maxTokens = $contextWindow->maxTokens();
                 $reserved = $contextWindow->reservedTokens();
@@ -871,7 +1193,7 @@ final class AgentRunner
         );
 
         // Resolve a cheap provider for summarization via utility model chain
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
+        $factory = $this->providerFactory;
         $provider = null;
 
         try {
@@ -936,6 +1258,51 @@ final class AgentRunner
     }
 
     /**
+     * Snapshot unread informational notifications and format them into a
+     * per-turn prompt section.
+     */
+    private function snapshotNotificationPromptSection(
+        string $sessionId,
+        OrchestratorAgent $agent,
+    ): ?string {
+        if ($this->notificationStore === null) {
+            return null;
+        }
+
+        $limit = CoquiDefaults::NOTIFICATION_PROMPT_INJECTION_LIMIT;
+        if ($this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig) {
+            $notifConfig = $this->config->getNotificationConfig();
+            $limit = $notifConfig['promptInjectionLimit'];
+        }
+
+        try {
+            $notifications = $this->notificationStore->snapshotAndClear($sessionId, $limit);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        if ($notifications === []) {
+            return null;
+        }
+
+        $presenter = new NotificationPresenter();
+        $content = $presenter->formatForPromptInjection($notifications);
+
+        if ($content === '') {
+            return null;
+        }
+
+        // Emit observer event for REPL/SSE transparency
+        $agent->notify('agent.notification', [
+            'count' => count($notifications),
+            'source' => 'prompt_section',
+            'notifications' => $notifications,
+        ]);
+
+        return $content;
+    }
+
+    /**
      * Build a workflow context string summarizing active todos and artifacts.
      *
      * Injected into the summarization prompt so the LLM preserves
@@ -953,12 +1320,12 @@ final class AgentRunner
                 if ($total > 0) {
                     $lines = ["Todos: {$stats['completed']}/{$total} completed"];
 
-                    $activeTodos = $this->todoStore->list($sessionId, 'in_progress');
+                    $activeTodos = $this->todoStore->list($sessionId, status: 'in_progress');
                     foreach ($activeTodos as $todo) {
                         $lines[] = "  - [in_progress] {$todo['title']}";
                     }
 
-                    $pendingTodos = $this->todoStore->list($sessionId, 'pending');
+                    $pendingTodos = $this->todoStore->list($sessionId, status: 'pending');
                     foreach (array_slice($pendingTodos, 0, 5) as $todo) {
                         $lines[] = "  - [pending] {$todo['title']}";
                     }
@@ -1092,7 +1459,7 @@ final class AgentRunner
         }
 
         // Default: only coder role
-        return $role === 'coder';
+        return $role === SystemRole::Coder->value;
     }
 
     /**
@@ -1111,6 +1478,8 @@ final class AgentRunner
                 config: $this->config,
                 roleDiscovery: $this->roleDiscovery,
                 observer: $observer,
+                toolExecutor: $this->toolExecutor,
+                providerFactory: $this->providerFactory,
             );
 
             // Build reviewer toolkits: read-only filesystem + shell search
@@ -1125,6 +1494,7 @@ final class AgentRunner
                     workDir: $this->projectRoot,
                     allowedCommands: \CoquiBot\Coqui\Config\ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
                     timeout: 60,
+                    rootPath: $this->projectRoot,
                 ),
                 new \CoquiBot\Coqui\Toolkit\CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ];
@@ -1166,7 +1536,7 @@ final class AgentRunner
         }
 
         try {
-            $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
+            $factory = $this->providerFactory;
             $provider = null;
 
             // Resolve a cheap utility provider

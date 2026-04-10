@@ -27,7 +27,7 @@ final class CoquiDefaults
     public const int KEEP_RECENT_TURNS = 24;
 
     /** Default recent turns preserved during auto-summarization (config: agents.defaults.context.autoSummarizeKeepRecent). */
-    public const int AUTO_SUMMARIZE_KEEP_RECENT = 32;
+    public const int AUTO_SUMMARIZE_KEEP_RECENT = 15;
 
     /** Token usage percentage threshold that triggers auto-summarization (config: agents.defaults.context.autoSummarizeThreshold). */
     public const float AUTO_SUMMARIZE_THRESHOLD = 64.0;
@@ -47,6 +47,12 @@ final class CoquiDefaults
     /** Safety margin percentage applied by fitWithinBudget to account for token estimation inaccuracy (config: agents.defaults.context.budgetSafetyMarginPercent). */
     public const int BUDGET_SAFETY_MARGIN_PERCENT = 20;
 
+    /** Context window usage threshold (0.0–1.0) that triggers budget-based exit with wrap-up (config: agents.defaults.context.budgetExitThreshold). 0.0 = disabled. */
+    public const float BUDGET_EXIT_THRESHOLD = 0.85;
+
+    /** Number of iterations allowed after budget threshold for the agent to wrap up (config: agents.defaults.context.budgetExitWrapUpIterations). */
+    public const int BUDGET_EXIT_WRAP_UP_ITERATIONS = 2;
+
     /** Whether automated code review is enabled globally (config: agents.defaults.codeReview.enabled). */
     public const bool CODE_REVIEW_ENABLED = true;
 
@@ -59,11 +65,56 @@ final class CoquiDefaults
     /** Whether automatic memory extraction runs after every turn (config: agents.defaults.memory.autoExtract). */
     public const bool MEMORY_AUTO_EXTRACT = false;
 
+    /** Maximum token budget for compressed core memory summary in system prompt (config: agents.defaults.memory.coreSummaryMaxTokens). */
+    public const int MEMORY_CORE_SUMMARY_MAX_TOKENS = 500;
+
+    /** Maximum number of memory entries fetched for core summary generation (config: agents.defaults.memory.coreSummaryEntryLimit). */
+    public const int MEMORY_CORE_SUMMARY_ENTRY_LIMIT = 50;
+
     /** Default edit history retention in days for prune operations (config: agents.defaults.editHistory.retentionDays). */
     public const int EDIT_HISTORY_RETENTION_DAYS = 7;
 
+    /** Whether the notification system is enabled (config: agents.defaults.notifications.enabled). */
+    public const bool NOTIFICATION_ENABLED = true;
+
+    /** Maximum notifications to display in REPL idle rendering (config: agents.defaults.notifications.replDisplayLimit). */
+    public const int NOTIFICATION_REPL_DISPLAY_LIMIT = 5;
+
+    /** Maximum notifications to inject into agent turn context (config: agents.defaults.notifications.promptInjectionLimit). */
+    public const int NOTIFICATION_PROMPT_INJECTION_LIMIT = 10;
+
+    /** Retention hours for informational notifications before auto-prune (config: agents.defaults.notifications.retentionHours.informational). */
+    public const int NOTIFICATION_RETENTION_INFORMATIONAL_HOURS = 24;
+
+    /** Retention hours for actionable notifications before auto-prune (config: agents.defaults.notifications.retentionHours.actionable). */
+    public const int NOTIFICATION_RETENTION_ACTIONABLE_HOURS = 72;
+
+    /** Whether actionable notification automation is enabled in API mode (config: agents.defaults.notifications.automation.enabled). */
+    public const bool NOTIFICATION_AUTOMATION_ENABLED = true;
+
+    /** Seconds between actionable notification processing ticks (config: agents.defaults.notifications.automation.processTickSeconds). */
+    public const int NOTIFICATION_AUTOMATION_PROCESS_TICK_SECONDS = 10;
+
+    /** Seconds between actionable notification reclaim ticks (config: agents.defaults.notifications.automation.reclaimTickSeconds). */
+    public const int NOTIFICATION_AUTOMATION_RECLAIM_TICK_SECONDS = 30;
+
+    /** Lease duration for claimed actionable notifications (config: agents.defaults.notifications.automation.leaseSeconds). */
+    public const int NOTIFICATION_AUTOMATION_LEASE_SECONDS = 300;
+
+    /** Max actionable notifications to process per tick (config: agents.defaults.notifications.automation.batchSize). */
+    public const int NOTIFICATION_AUTOMATION_BATCH_SIZE = 5;
+
+    /** Max automation retry attempts before terminal failure (config: agents.defaults.notifications.automation.maxAttempts). */
+    public const int NOTIFICATION_AUTOMATION_MAX_ATTEMPTS = 3;
+
+    /** Retry delay after a recoverable automation failure or reclaimed lease (config: agents.defaults.notifications.automation.retryDelaySeconds). */
+    public const int NOTIFICATION_AUTOMATION_RETRY_DELAY_SECONDS = 60;
+
     /** Safety cap on recursive copy/move operations to prevent runaway traversals. */
     public const int MAX_RECURSIVE_ITEMS = 10_000;
+
+    /** Maximum file size in bytes for surgical edit operations (10 MB). */
+    public const int MAX_EDIT_FILE_SIZE = 10_485_760;
 
     /** Default max execution time in seconds for background tasks (config: agents.defaults.backgroundTaskMaxExecutionSeconds). */
     public const int BACKGROUND_TASK_MAX_EXECUTION_SECONDS = 3600;
@@ -78,6 +129,16 @@ final class CoquiDefaults
      * Config: agents.defaults.toolkitTokenBudget
      */
     public const int TOOLKIT_TOKEN_BUDGET = 10_000;
+
+    /**
+     * Percentage of the token budget allocated for promoting Auto-mode toolkits.
+     *
+     * When Auto candidates exceed the full budget, only this percentage is used
+     * for frequency-ranked eager promotion. The rest are deferred.
+     *
+     * Config: agents.defaults.toolkitPromotionBudgetPercent
+     */
+    public const int TOOLKIT_PROMOTION_BUDGET_PERCENT = 60;
 
     /**
      * Toolkit class basenames that are always loaded (never deferred).
@@ -97,6 +158,8 @@ final class CoquiDefaults
         'SprintToolkit',
         'CoquiSourceToolkit',
         'SkillToolkit',
+        'ComposerToolkit',
+        'PackagistToolkit',
     ];
 
     /**
@@ -113,5 +176,6 @@ final class CoquiDefaults
         'summarize_conversation',
         'extract_memories',
         'config',
+        'toolkit_list',
     ];
 }

@@ -13,15 +13,26 @@ use PDO;
  * Stores cron-style schedule definitions that the ScheduleManager
  * evaluates on each tick. Supports one-shot (@once) and recurring
  * schedules with circuit-breaker logic for consecutive failures.
+ *
+ * Schedules have two possible sources:
+ * - `system` (default) — created via agent tools, REPL, or API; fully mutable.
+ * - `filesystem` — synced from workspace/schedules/*.json; read-only from app.
  */
 final class ScheduleStore
 {
+    /** Schedule created via agent tools, REPL, or API. */
+    public const string SOURCE_SYSTEM = 'system';
+
+    /** Schedule synced from a workspace JSON file. */
+    public const string SOURCE_FILESYSTEM = 'filesystem';
+
     private PDO $db;
 
     public function __construct(PDO $db)
     {
         $this->db = $db;
         $this->createTables();
+        $this->migrate();
     }
 
     private function createTables(): void
@@ -46,6 +57,8 @@ final class ScheduleStore
                 failure_count INTEGER NOT NULL DEFAULT 0,
                 max_failures INTEGER NOT NULL DEFAULT 3,
                 metadata TEXT,
+                source TEXT NOT NULL DEFAULT 'system',
+                source_path TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
@@ -60,6 +73,23 @@ final class ScheduleStore
             CREATE UNIQUE INDEX IF NOT EXISTS idx_scheduled_tasks_name
                 ON scheduled_tasks(name)
         SQL);
+    }
+
+    /**
+     * Add source/source_path columns to existing databases.
+     */
+    private function migrate(): void
+    {
+        $stmt = $this->db->query("PRAGMA table_info(scheduled_tasks)");
+        $columns = $stmt !== false ? array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'name') : [];
+
+        if (!in_array('source', $columns, true)) {
+            $this->db->exec("ALTER TABLE scheduled_tasks ADD COLUMN source TEXT NOT NULL DEFAULT 'system'");
+        }
+
+        if (!in_array('source_path', $columns, true)) {
+            $this->db->exec("ALTER TABLE scheduled_tasks ADD COLUMN source_path TEXT");
+        }
     }
 
     /**
@@ -107,6 +137,134 @@ final class ScheduleStore
         ]);
 
         return $id;
+    }
+
+    /**
+     * Create or update a filesystem-backed schedule.
+     *
+     * Only static definition fields are written. Runtime fields (last_run_at,
+     * last_status, last_task_id, run_count, failure_count) are preserved on update.
+     *
+     * @return string The schedule ID
+     */
+    public function upsertFilesystem(
+        string $name,
+        string $sourcePath,
+        string $scheduleExpression,
+        string $prompt,
+        string $role = 'orchestrator',
+        int $maxIterations = 48,
+        ?string $description = null,
+        string $timezone = 'UTC',
+        int $maxFailures = 3,
+        bool $enabled = true,
+        ?string $metadata = null,
+    ): string {
+        $existing = $this->getByName($name);
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+
+        if ($existing !== null) {
+            // Update only static definition columns, preserve runtime state
+            $nextRun = $this->computeNextRun($scheduleExpression, $timezone);
+
+            $stmt = $this->db->prepare(<<<'SQL'
+                UPDATE scheduled_tasks
+                SET description = ?, schedule_expression = ?, prompt = ?, role = ?,
+                    max_iterations = ?, timezone = ?, max_failures = ?, enabled = ?,
+                    metadata = ?, source = ?, source_path = ?, next_run_at = ?, updated_at = ?
+                WHERE id = ?
+            SQL);
+            $stmt->execute([
+                $description,
+                $scheduleExpression,
+                $prompt,
+                $role,
+                $maxIterations,
+                $timezone,
+                $maxFailures,
+                $enabled ? 1 : 0,
+                $metadata,
+                self::SOURCE_FILESYSTEM,
+                $sourcePath,
+                $nextRun?->format('Y-m-d\TH:i:s\Z'),
+                $now,
+                (string) $existing['id'],
+            ]);
+
+            return (string) $existing['id'];
+        }
+
+        // Create new filesystem schedule
+        $id = bin2hex(random_bytes(16));
+        $nextRunAt = $this->computeNextRun($scheduleExpression, $timezone);
+
+        $stmt = $this->db->prepare(<<<'SQL'
+            INSERT INTO scheduled_tasks
+                (id, name, description, schedule_expression, prompt, role, max_iterations,
+                 enabled, timezone, next_run_at, max_failures, metadata, source, source_path,
+                 created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        SQL);
+
+        $stmt->execute([
+            $id,
+            $name,
+            $description,
+            $scheduleExpression,
+            $prompt,
+            $role,
+            $maxIterations,
+            $enabled ? 1 : 0,
+            $timezone,
+            $nextRunAt?->format('Y-m-d\TH:i:s\Z'),
+            $maxFailures,
+            $metadata,
+            self::SOURCE_FILESYSTEM,
+            $sourcePath,
+            $now,
+            $now,
+        ]);
+
+        return $id;
+    }
+
+    /**
+     * Delete all filesystem-backed schedules whose source_path is not in the given set.
+     *
+     * Used by the watcher to remove schedules for deleted files.
+     *
+     * @param list<string> $activePaths Source paths that still have files on disk
+     * @return int Number of removed schedules
+     */
+    public function deleteRemovedFilesystemSchedules(array $activePaths): int
+    {
+        if ($activePaths === []) {
+            // Remove all filesystem schedules
+            $stmt = $this->db->prepare("DELETE FROM scheduled_tasks WHERE source = ?");
+            $stmt->execute([self::SOURCE_FILESYSTEM]);
+
+            return $stmt->rowCount();
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($activePaths), '?'));
+        $stmt = $this->db->prepare(
+            "DELETE FROM scheduled_tasks WHERE source = ? AND source_path NOT IN ({$placeholders})"
+        );
+        $stmt->execute([self::SOURCE_FILESYSTEM, ...$activePaths]);
+
+        return $stmt->rowCount();
+    }
+
+    /**
+     * Check whether a schedule is filesystem-backed (read-only from app).
+     */
+    public function isFilesystemSchedule(string $id): bool
+    {
+        $stmt = $this->db->prepare('SELECT source FROM scheduled_tasks WHERE id = ?');
+        $stmt->execute([$id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false && ($row['source'] ?? '') === self::SOURCE_FILESYSTEM;
     }
 
     /**
@@ -278,6 +436,28 @@ final class ScheduleStore
         $stmt->execute($params);
 
         return array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Get schedules that have a last_task_id but no resolved last_status yet.
+     *
+     * Used by ScheduleManager to reconcile completed task statuses
+     * back onto their parent schedule records.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function getSchedulesPendingReconciliation(): array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT * FROM scheduled_tasks
+            WHERE last_task_id IS NOT NULL
+              AND last_status IS NULL
+            ORDER BY last_run_at ASC
+        SQL);
+
+        $stmt->execute();
+
+        return array_values($stmt->fetchAll(\PDO::FETCH_ASSOC));
     }
 
     /**
@@ -495,19 +675,20 @@ final class ScheduleStore
     }
 
     /**
-     * Delete all schedules.
+     * Delete all system schedules (excludes filesystem-backed).
      *
      * @return int Number of deleted schedules
      */
     public function deleteAll(): int
     {
-        $count = $this->db->exec('DELETE FROM scheduled_tasks');
+        $stmt = $this->db->prepare("DELETE FROM scheduled_tasks WHERE source = ?");
+        $stmt->execute([self::SOURCE_SYSTEM]);
 
-        return $count !== false ? $count : 0;
+        return $stmt->rowCount();
     }
 
     /**
-     * Disable all enabled schedules.
+     * Disable all enabled system schedules (excludes filesystem-backed).
      *
      * @return int Number of newly disabled schedules
      */
@@ -515,23 +696,30 @@ final class ScheduleStore
     {
         $now = gmdate('Y-m-d\TH:i:s\Z');
         $stmt = $this->db->prepare(<<<'SQL'
-            UPDATE scheduled_tasks SET enabled = 0, updated_at = ? WHERE enabled = 1
+            UPDATE scheduled_tasks SET enabled = 0, updated_at = ?
+            WHERE enabled = 1 AND source = ?
         SQL);
-        $stmt->execute([$now]);
+        $stmt->execute([$now, self::SOURCE_SYSTEM]);
 
         return $stmt->rowCount();
     }
 
     /**
-     * Enable all disabled schedules with recomputed next_run_at.
+     * Enable all disabled system schedules with recomputed next_run_at.
      *
      * Loops per-row because each schedule has its own cron expression and timezone.
+     * Excludes filesystem-backed schedules.
      *
      * @return int Number of newly enabled schedules
      */
     public function enableAll(): int
     {
-        $disabled = $this->list(enabled: false);
+        $stmt = $this->db->prepare(
+            'SELECT * FROM scheduled_tasks WHERE enabled = 0 AND source = ?'
+        );
+        $stmt->execute([self::SOURCE_SYSTEM]);
+        $disabled = array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
+
         $count = 0;
 
         foreach ($disabled as $schedule) {

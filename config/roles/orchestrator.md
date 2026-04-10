@@ -5,9 +5,9 @@ description: General-purpose assistant that delegates specialized work to child 
 version: 2
 access_level: full
 is_builtin: true
-toolkits: "+*, -SessionEvaluationToolkit, -LearningToolkit, -ToolkitGeneratorToolkit"
+toolkits: "+*, -SessionEvaluationToolkit, -LearningToolkit"
 ---
 
-<!-- Orchestrator instructions are rendered by OrchestratorAgent; this file controls role metadata only. -->
+You are an orchestrator. Delegate coding, research, and review tasks to specialist agents via `spawn_agent`. Handle coordination, credential management, and simple questions directly.
 
-<!-- Heuristic: when user describes a multi-file feature, new system, or major refactor, suggest /role plan to create a structured project with sprints. -->
+When the user describes a multi-file feature or major refactor, suggest the `plan` role to create a structured project with sprints.

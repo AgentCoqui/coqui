@@ -121,6 +121,10 @@ final class UpdateManager
      */
     private function runOutdated(string $directory): ?array
     {
+        if (!$this->hasComposerProject($directory)) {
+            return null;
+        }
+
         $composerBin = $this->findComposer();
 
         $descriptors = [
@@ -134,7 +138,7 @@ final class UpdateManager
             $descriptors,
             $pipes,
             $directory,
-            null,
+            $this->buildEnvironment(),
         );
 
         if (!is_resource($process)) {
@@ -188,6 +192,10 @@ final class UpdateManager
      */
     private function runComposerUpdate(string $directory): ?string
     {
+        if (!$this->hasComposerProject($directory)) {
+            return 'composer.json not found';
+        }
+
         $composerBin = $this->findComposer();
 
         $descriptors = [
@@ -201,7 +209,7 @@ final class UpdateManager
             $descriptors,
             $pipes,
             $directory,
-            null,
+            $this->buildEnvironment(),
         );
 
         if (!is_resource($process)) {
@@ -235,25 +243,62 @@ final class UpdateManager
      */
     private function findComposer(): string
     {
-        // Check common locations
-        $candidates = ['composer', 'composer.phar'];
+        $envBin = getenv('COMPOSER_BIN');
+        if ($envBin !== false && $envBin !== '') {
+            return $envBin;
+        }
+
+        $candidates = PHP_OS_FAMILY === 'Windows'
+            ? [
+                getenv('APPDATA') . '\\Composer\\vendor\\bin\\composer',
+                getenv('USERPROFILE') . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer',
+            ]
+            : [
+                '/opt/homebrew/bin/composer',
+                '/usr/local/bin/composer',
+                '/usr/bin/composer',
+            ];
 
         foreach ($candidates as $candidate) {
-            $cmd = PHP_OS_FAMILY === 'Windows'
-                ? "where {$candidate} 2>NUL"
-                : "which {$candidate} 2>/dev/null";
-            $which = trim((string) shell_exec($cmd));
-            if ($which !== '') {
-                return $which;
+            if (file_exists($candidate) && is_executable($candidate)) {
+                return $candidate;
             }
         }
 
-        // Check project root
         $local = $this->projectRoot . '/composer.phar';
         if (file_exists($local)) {
             return $local;
         }
 
         return 'composer';
+    }
+
+    private function hasComposerProject(string $directory): bool
+    {
+        return is_dir($directory) && file_exists(PathHelper::trimTrailingSlash($directory) . '/composer.json');
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function buildEnvironment(): array
+    {
+        $env = [];
+
+        $keys = ['HOME', 'PATH', 'COMPOSER_HOME', 'COMPOSER_ALLOW_SUPERUSER'];
+        if (PHP_OS_FAMILY === 'Windows') {
+            array_push($keys, 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'SystemRoot', 'TEMP', 'TMP');
+        }
+
+        foreach ($keys as $key) {
+            $value = getenv($key);
+            if ($value !== false) {
+                $env[$key] = $value;
+            }
+        }
+
+        $env['COMPOSER_NO_INTERACTION'] = '1';
+
+        return $env;
     }
 }

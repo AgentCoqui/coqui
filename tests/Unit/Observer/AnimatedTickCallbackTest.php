@@ -8,8 +8,7 @@ use Symfony\Component\Console\Output\BufferedOutput;
 function makeTickCallback(): array
 {
     $output = new BufferedOutput();
-    // Pass null stdin to avoid TTY checks in pollEsc()
-    $callback = new AnimatedTickCallback($output, stdin: null);
+    $callback = new AnimatedTickCallback($output);
 
     return [$callback, $output];
 }

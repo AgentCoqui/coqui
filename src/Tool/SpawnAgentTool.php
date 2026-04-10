@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Tool;
 
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
+use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
@@ -26,11 +27,14 @@ use CoquiBot\Coqui\Config\ShellConfigResolver;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
+use CoquiBot\Coqui\Contract\ChildAgentHandoff;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
+use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
@@ -49,7 +53,6 @@ use SplObserver;
  */
 final class SpawnAgentTool implements ToolInterface
 {
-    private int $currentIteration = 0;
     private int $childRunCount = 0;
     private ?VisionAnalyzer $visionAnalyzer = null;
 
@@ -76,6 +79,8 @@ final class SpawnAgentTool implements ToolInterface
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
         private readonly array $shellDeniedCommands = ['sudo'],
         private readonly bool $unsafeMode = false,
+        private readonly ?ToolExecutorInterface $toolExecutor = null,
+        private readonly ?ProviderFactory $providerFactory = null,
     ) {}
 
     public function name(): string
@@ -107,7 +112,7 @@ final class SpawnAgentTool implements ToolInterface
             new EnumParameter(
                 name: 'role',
                 description: 'The role/specialty of the child agent to spawn',
-                values: !empty($roles) ? $roles : ['coder', 'reviewer'],
+                values: !empty($roles) ? $roles : [SystemRole::Coder->value, SystemRole::Reviewer->value],
                 required: true,
             ),
             new StringParameter(
@@ -133,17 +138,28 @@ final class SpawnAgentTool implements ToolInterface
             return ToolResult::error('Both role and task are required');
         }
 
+        $handoff = ChildAgentHandoff::fromInput(
+            task: $task,
+            context: $context,
+            metadata: [
+                'source' => 'spawn_agent',
+                'role' => $role,
+            ],
+            intent: 'delegated_task',
+            workflowPhase: 'delegation',
+            parentSessionId: $this->sessionId,
+        );
+
         // Resolve role to model
         $modelString = $this->roleResolver->resolve($role);
 
         // Notify observer about child spawn
-        if ($this->observer !== null && method_exists($this->observer, 'handleEvent')) {
-            $this->observer->handleEvent('child.start', ['role' => $role, 'model' => $modelString]);
-        }
+        $this->notifyObserver('child.start', ['role' => $role, 'model' => $modelString]);
 
         try {
             // Create provider for child agent
-            $provider = ProviderFactory::fromModelString($modelString, $this->config);
+            $factory = $this->providerFactory ?? new ProviderFactory($this->config);
+            $provider = $factory->create($modelString);
 
             // Build toolkits based on role
             $toolkits = $this->buildToolkits($role);
@@ -152,10 +168,11 @@ final class SpawnAgentTool implements ToolInterface
             $child = new ChildAgent(
                 provider: $provider,
                 role: $role,
-                taskInstructions: $task,
+                taskInstructions: $handoff,
                 toolkits: $toolkits,
                 maxIterations: $this->roleResolver->resolveMaxIterations($role),
                 roleDiscovery: $this->roleDiscovery,
+                toolExecutor: $this->toolExecutor,
             );
 
             // Attach observer if available
@@ -164,10 +181,7 @@ final class SpawnAgentTool implements ToolInterface
             }
 
             // Build prompt with optional context
-            $prompt = $task;
-            if ($context !== '') {
-                $prompt = "## Context\n\n{$context}\n\n## Task\n\n{$task}";
-            }
+            $prompt = $handoff->userPrompt();
 
             $output = $child->run(new UserMessage($prompt));
 
@@ -175,19 +189,18 @@ final class SpawnAgentTool implements ToolInterface
             if ($this->storage !== null && $this->sessionId !== null) {
                 $this->storage->logChildRun(
                     sessionId: $this->sessionId,
-                    parentIteration: $this->currentIteration,
+                    parentIteration: 0,
                     agentRole: $role,
                     model: $modelString,
                     prompt: $prompt,
                     result: $output->content,
                     tokenCount: $output->usage !== null ? $output->usage->totalTokens : 0,
+                    metadata: $handoff->toArray(),
                 );
             }
 
             // Notify observer about child completion
-            if ($this->observer !== null && method_exists($this->observer, 'handleEvent')) {
-                $this->observer->handleEvent('child.end', null);
-            }
+            $this->notifyObserver('child.end', null);
 
             $this->childRunCount++;
 
@@ -208,9 +221,7 @@ final class SpawnAgentTool implements ToolInterface
 
             return ToolResult::success($output->content);
         } catch (\Throwable $e) {
-            if ($this->observer !== null && method_exists($this->observer, 'handleEvent')) {
-                $this->observer->handleEvent('child.end', null);
-            }
+            $this->notifyObserver('child.end', null);
 
             return ToolResult::error("Child agent failed: {$e->getMessage()}");
         }
@@ -234,22 +245,34 @@ final class SpawnAgentTool implements ToolInterface
             'full' => [
                 new FileSystemToolkit(workspacePath: $this->workspacePath, allowedPaths: $mountPaths),
                 new ShellToolkit(
-                    workDir: $this->projectRoot,
+                    workDir: $this->workspacePath,
                     allowedCommands: $this->shellAllowedCommands,
                     deniedCommands: $this->shellDeniedCommands,
                     timeout: 60,
                     unsafe: $this->unsafeMode,
+                    rootPath: $this->workspacePath,
+                    allowedPaths: $mountPaths,
+                    sandboxWrites: ShellConfigResolver::resolveSandboxWrites($this->config),
+                    scrubEnvironment: ShellConfigResolver::resolveScrubEnvironment($this->config),
                 ),
-                new WebToolkit(),
+                new WebToolkit(
+                    storage: $this->storage,
+                    parentSessionId: $this->sessionId,
+                    workspacePath: $this->workspacePath,
+                ),
                 new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],
 
             'readonly-shell' => [
                 new FileSystemToolkit(workspacePath: $this->workspacePath, readOnly: true, allowedPaths: $mountPaths),
                 new ShellToolkit(
-                    workDir: $this->projectRoot,
+                    workDir: $this->workspacePath,
                     allowedCommands: ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
                     timeout: 60,
+                    rootPath: $this->workspacePath,
+                    allowedPaths: $mountPaths,
+                    sandboxWrites: ShellConfigResolver::resolveSandboxWrites($this->config),
+                    scrubEnvironment: ShellConfigResolver::resolveScrubEnvironment($this->config),
                 ),
                 new CoquiSourceToolkit(projectRoot: $this->projectRoot),
             ],
@@ -265,12 +288,18 @@ final class SpawnAgentTool implements ToolInterface
 
         // Memory toolkit — gives child agents access to persistent cross-session memory.
         if ($this->memoryStore !== null && $accessLevel === 'full') {
-            $toolkits[] = new MemoryToolkit($this->memoryStore);
+            $toolkits[] = new MemoryToolkit($this->memoryStore, $this->workspacePath);
         }
 
         // Skill toolkit — gives child agents access to discovered Agent Skills.
         if ($this->skillDiscovery !== null && $accessLevel !== 'minimal') {
-            $toolkits[] = new SkillToolkit($this->skillDiscovery);
+            $toolkits[] = new SkillToolkit(
+                $this->skillDiscovery,
+                $this->storage !== null ? new SkillLifecycleStore($this->storage->getPdo()) : null,
+                $this->sessionId,
+                null,
+                $role,
+            );
         }
 
         // Artifact toolkit — share parent session's artifacts with child agents.
@@ -406,7 +435,7 @@ final class SpawnAgentTool implements ToolInterface
 
         // Backward-compatible fallback
         return match ($role) {
-            'coder' => 'full',
+            SystemRole::Coder->value => 'full',
             default => 'readonly',
         };
     }
@@ -429,11 +458,6 @@ final class SpawnAgentTool implements ToolInterface
         }
     }
 
-    public function setCurrentIteration(int $iteration): void
-    {
-        $this->currentIteration = $iteration;
-    }
-
     public function setVisionAnalyzer(VisionAnalyzer $analyzer): void
     {
         $this->visionAnalyzer = $analyzer;
@@ -442,6 +466,15 @@ final class SpawnAgentTool implements ToolInterface
     public function getChildRunCount(): int
     {
         return $this->childRunCount;
+    }
+
+    private function notifyObserver(string $event, mixed $payload): void
+    {
+        if (!is_object($this->observer) || !method_exists($this->observer, 'handleEvent')) {
+            return;
+        }
+
+        call_user_func([$this->observer, 'handleEvent'], $event, $payload);
     }
 
     /**
@@ -478,7 +511,7 @@ final class SpawnAgentTool implements ToolInterface
         }
 
         // Default: only coder role
-        return $role === 'coder';
+        return $role === SystemRole::Coder->value;
     }
 
     /**
@@ -499,9 +532,11 @@ final class SpawnAgentTool implements ToolInterface
                 config: $this->config,
                 roleDiscovery: $this->roleDiscovery,
                 observer: $this->observer,
+                toolExecutor: $this->toolExecutor,
+                providerFactory: $this->providerFactory,
             );
 
-            $reviewerToolkits = $this->buildToolkits('reviewer');
+            $reviewerToolkits = $this->buildToolkits(SystemRole::Reviewer->value);
             $coderToolkits = $reviewConfig['autoIterate'] ? $this->buildToolkits($coderRole) : [];
 
             return $cycle->run(
@@ -534,7 +569,7 @@ final class SpawnAgentTool implements ToolInterface
                         'role' => [
                             'type' => 'string',
                             'description' => 'The role/specialty of the child agent',
-                            'enum' => !empty($roles) ? $roles : ['coder', 'reviewer'],
+                            'enum' => !empty($roles) ? $roles : [SystemRole::Coder->value, SystemRole::Reviewer->value],
                         ],
                         'task' => [
                             'type' => 'string',

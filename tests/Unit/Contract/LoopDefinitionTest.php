@@ -219,16 +219,16 @@ test('fromArray parses parameters', function () {
     $def = LoopDefinition::fromArray([
         'name' => 'test',
         'description' => 'Test',
-        'roles' => [['role' => 'coder', 'prompt' => 'Code {{topic}}.']],
+        'roles' => [['role' => 'coder', 'prompt' => 'Code {{subject}}.']],
         'termination_condition' => ['type' => 'manual'],
         'parameters' => [
-            ['name' => 'topic', 'description' => 'Subject to investigate', 'required' => true],
+            ['name' => 'subject', 'description' => 'Subject to investigate', 'required' => true],
             ['name' => 'format', 'description' => 'Output format', 'required' => false, 'default' => 'markdown'],
         ],
     ]);
 
     expect($def->parameters)->toHaveCount(2);
-    expect($def->parameters[0]->name)->toBe('topic');
+    expect($def->parameters[0]->name)->toBe('subject');
     expect($def->parameters[0]->required)->toBeTrue();
     expect($def->parameters[1]->name)->toBe('format');
     expect($def->parameters[1]->default)->toBe('markdown');
@@ -252,14 +252,14 @@ test('toArray includes parameters when present', function () {
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'manual'],
         'parameters' => [
-            ['name' => 'topic', 'description' => 'Subject', 'required' => true],
+            ['name' => 'subject', 'description' => 'Subject', 'required' => true],
         ],
     ]);
 
     $array = $def->toArray();
     expect($array)->toHaveKey('parameters');
     expect($array['parameters'])->toHaveCount(1);
-    expect($array['parameters'][0]['name'])->toBe('topic');
+    expect($array['parameters'][0]['name'])->toBe('subject');
 });
 
 test('toArray omits parameters when empty', function () {
@@ -281,13 +281,13 @@ test('requiredParameterNames returns only required params', function () {
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'manual'],
         'parameters' => [
-            ['name' => 'topic', 'description' => 'Required', 'required' => true],
+            ['name' => 'subject', 'description' => 'Required', 'required' => true],
             ['name' => 'format', 'description' => 'Optional', 'required' => false, 'default' => 'md'],
             ['name' => 'language', 'description' => 'Also required', 'required' => true],
         ],
     ]);
 
-    expect($def->requiredParameterNames())->toBe(['topic', 'language']);
+    expect($def->requiredParameterNames())->toBe(['subject', 'language']);
 });
 
 test('resolveParameters merges provided values with defaults', function () {
@@ -297,15 +297,15 @@ test('resolveParameters merges provided values with defaults', function () {
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
         'termination_condition' => ['type' => 'manual'],
         'parameters' => [
-            ['name' => 'topic', 'description' => 'Subject', 'required' => true],
+            ['name' => 'subject', 'description' => 'Subject', 'required' => true],
             ['name' => 'format', 'description' => 'Format', 'required' => false, 'default' => 'markdown'],
         ],
     ]);
 
-    $resolved = $def->resolveParameters(['topic' => 'authentication']);
+    $resolved = $def->resolveParameters(['subject' => 'authentication']);
 
     expect($resolved)->toBe([
-        'topic' => 'authentication',
+        'subject' => 'authentication',
         'format' => 'markdown',
     ]);
 });

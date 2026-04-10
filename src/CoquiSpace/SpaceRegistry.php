@@ -20,9 +20,8 @@ final class SpaceRegistry
      * or be allowed to disable/remove via the space manager.
      */
     private const array EXCLUDED_PACKAGES = [
-        'coquibot/coqui-toolkit-composer',
-        'coquibot/coqui-toolkit-packagist',
         'carmelosantana/php-agents',
+        'coquibot/coqui-toolkit-composer',
     ];
 
     public static function isExcluded(string $package): bool

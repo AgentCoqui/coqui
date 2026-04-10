@@ -18,7 +18,7 @@ use CoquiBot\Coqui\Contract\CoquiDefaults;
  *
  * Takes a Conversation and compresses it into a structured summary using a cheap
  * LLM provider. The summary replaces older messages, keeping the most recent turns
- * intact. Summaries can optionally be stored as session-scoped memories.
+ * intact. Summaries are persisted back into the session transcript only.
  */
 final class ConversationSummarizer
 {
@@ -113,11 +113,23 @@ final class ConversationSummarizer
         ?string $workflowContext = null,
         ?\Closure $onExtraction = null,
     ): ConversationSummaryResult {
-        // Load raw message rows (with DB IDs) for cleanup after summarization
-        $rawMessages = $this->storage->getMessages($sessionId);
+        // Load active (non-summarized) message rows for cleanup after summarization.
+        // Uses getActiveMessages() so the ID-marking logic operates on the same
+        // message set that loadConversation() returns — preventing already-summarized
+        // rows from inflating the user-turn count and shifting the cut-point.
+        $rawMessages = $this->storage->getActiveMessages($sessionId);
         $conversation = $this->storage->loadConversation($sessionId);
 
-        // Extract memories before summarization marks older messages
+        $result = $this->summarize($conversation, $provider, $keepRecentTurns, $focus, $workflowContext);
+
+        if ($result->messagesSummarized === 0) {
+            return $result;
+        }
+
+        // Extract memories from the messages being summarized — these are about to
+        // be compressed, so this is the last chance to capture noteworthy facts.
+        // Only runs when summarization actually compressed messages (avoids wasteful
+        // extraction on every turn that crosses the token threshold).
         if ($this->memoryStore !== null) {
             try {
                 $extractor = new MemoryExtractor($this->memoryStore);
@@ -127,14 +139,8 @@ final class ConversationSummarizer
                     $onExtraction($saved, 'summarization');
                 }
             } catch (\Throwable) {
-                // Extraction failure should never block summarization
+                // Extraction failure should never block summarization persistence
             }
-        }
-
-        $result = $this->summarize($conversation, $provider, $keepRecentTurns, $focus, $workflowContext);
-
-        if ($result->messagesSummarized === 0) {
-            return $result;
         }
 
         // Mark summarized messages as soft-deleted in the database.
@@ -143,22 +149,6 @@ final class ConversationSummarizer
         $idsToMark = $this->identifySummarizedMessageIds($rawMessages, $keepRecentTurns);
         if ($idsToMark !== []) {
             $this->storage->markMessagesAsSummarized($idsToMark);
-        }
-
-        // Store summary as a session-scoped memory if memory store is available
-        if ($this->memoryStore !== null && $result->summary !== '') {
-            $this->memoryStore->save(new MemoryEntry(
-                content: $result->summary,
-                area: 'session_summary',
-                metadata: [
-                    'tags' => "session:{$sessionId},auto_summary",
-                    'session_id' => $sessionId,
-                    'messages_summarized' => $result->messagesSummarized,
-                    'tokens_before' => $result->tokensBefore,
-                    'tokens_after' => $result->tokensAfter,
-                    'created_at' => date('c'),
-                ],
-            ));
         }
 
         // Persist summary as a user message (not system — AbstractAgent
@@ -362,9 +352,11 @@ final class ConversationSummarizer
      */
     private function identifySummarizedMessageIds(array $rawMessages, int $keepRecentTurns): array
     {
+        // Count only real user turns — summary messages (stored as role=user)
+        // must not displace actual user turns in the keepRecent calculation.
         $userIndices = [];
         foreach ($rawMessages as $i => $row) {
-            if ($row['role'] === 'user') {
+            if ($row['role'] === 'user' && !$this->isSummaryMessage($row['content'] ?? '')) {
                 $userIndices[] = $i;
             }
         }
@@ -389,5 +381,13 @@ final class ConversationSummarizer
         }
 
         return $ids;
+    }
+
+    /**
+     * Check if a message is a conversation summary marker.
+     */
+    private function isSummaryMessage(string $content): bool
+    {
+        return str_starts_with(ltrim($content), '[CONVERSATION SUMMARY');
     }
 }

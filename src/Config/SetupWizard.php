@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Config\ModelDefinition;
 use CarmeloSantana\PHPAgents\Provider\OllamaProvider;
 use CarmeloSantana\PHPAgents\Provider\OpenAICompatibleProvider;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Repl\InterruptiblePrompt;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -27,11 +28,15 @@ final class SetupWizard
     /** @var array<string, array<string, mixed>> Full model metadata keyed by "provider/model" */
     private array $modelMetadata = [];
 
+    private readonly InterruptiblePrompt $prompt;
+
     public function __construct(
         private readonly SymfonyStyle $io,
         private readonly DefaultsLoader $defaults,
         private readonly ?CredentialResolver $credentialResolver = null,
-    ) {}
+    ) {
+        $this->prompt = new InterruptiblePrompt($io);
+    }
 
     /**
      * Run the full setup wizard and return the generated config array.
@@ -102,7 +107,7 @@ final class SetupWizard
         $this->io->writeln($json);
         $this->io->newLine();
 
-        if (!$this->io->confirm('Save this configuration?', true)) {
+        if (!$this->confirm('Save this configuration?', true)) {
             $this->io->warning('Configuration not saved.');
             return null;
         }
@@ -169,14 +174,13 @@ final class SetupWizard
             'mounts'    => 'Directory Mounts',
         ];
 
-        $selected = $this->io->choice(
+        $selected = $this->choice(
             'Which sections do you want to edit? (comma-separated for multiple)',
             array_values($sections),
             null,
         );
 
-        // Normalize to array — Symfony choice returns string for single, but we allow comma-separated
-        $selectedValues = is_array($selected) ? $selected : [$selected];
+        $selectedValues = [$selected];
         $selectedKeys = [];
         $flipped = array_flip($sections);
         foreach ($selectedValues as $val) {
@@ -265,7 +269,7 @@ final class SetupWizard
         $this->io->writeln($json);
         $this->io->newLine();
 
-        if (!$this->io->confirm('Save this configuration?', true)) {
+        if (!$this->confirm('Save this configuration?', true)) {
             $this->io->warning('Configuration not saved.');
             return null;
         }
@@ -339,7 +343,7 @@ final class SetupWizard
             $choices[$name] = "{$displayName} — {$description}";
         }
 
-        $selected = $this->io->choice(
+        $selected = $this->choice(
             'Which providers do you want to configure? (comma-separated for multiple)',
             array_values($choices),
             $choices['ollama'] ?? null,
@@ -347,10 +351,6 @@ final class SetupWizard
 
         // Resolve display strings back to provider keys
         $flipped = array_flip($choices);
-
-        if (is_array($selected)) {
-            return array_map(fn(string $s) => $flipped[$s], $selected);
-        }
 
         return [$flipped[$selected]];
     }
@@ -365,7 +365,7 @@ final class SetupWizard
 
         // Base URL
         $defaultUrl = $this->defaults->defaultBaseUrl($provider);
-        $baseUrl = $this->io->ask('Base URL', $defaultUrl);
+        $baseUrl = $this->ask('Base URL', $defaultUrl);
         $baseUrl = is_string($baseUrl) ? $baseUrl : $defaultUrl;
 
         // API Key
@@ -378,13 +378,13 @@ final class SetupWizard
                 $masked = substr($envValue, 0, 8) . str_repeat('*', max(0, strlen($envValue) - 12)) . substr($envValue, -4);
                 $this->io->text("<fg=gray>Found API key in \${$envVar}:</> {$masked}");
 
-                if ($this->io->confirm("Use the key from \${$envVar}?", true)) {
+                if ($this->confirm("Use the key from \${$envVar}?", true)) {
                     $apiKey = "env:{$envVar}";
                 }
             }
 
             if ($apiKey === '') {
-                $apiKey = $this->io->askHidden("API key for {$displayName} (or press Enter to skip)") ?? '';
+                $apiKey = $this->askHidden("API key for {$displayName} (or press Enter to skip)") ?? '';
 
                 if ($apiKey === '' && $envVar !== null) {
                     $this->io->text("<fg=yellow>No API key provided.</> Set <fg=cyan>\${$envVar}</> before running Coqui.");
@@ -531,18 +531,18 @@ final class SetupWizard
         if (count($models) <= 20) {
             $this->io->text(sprintf('<fg=gray>%d models available for %s:</>', count($models), $displayName));
 
-            $selectedLabels = $this->io->choice(
+            $selectedLabels = $this->choice(
                 "Select models to include (comma-separated for multiple, or 'all')",
                 ['All available models', ...$choices],
                 'All available models',
             );
 
-            if ($selectedLabels === 'All available models' || (is_array($selectedLabels) && in_array('All available models', $selectedLabels, true))) {
+            if ($selectedLabels === 'All available models') {
                 return $models;
             }
 
             // Filter to selected
-            $selectedSet = is_array($selectedLabels) ? $selectedLabels : [$selectedLabels];
+            $selectedSet = [$selectedLabels];
             return array_values(array_filter($models, function (array $model) use ($selectedSet) {
                 $label = $model['name'] ?? $model['id'];
                 $recommended = ($model['recommended'] ?? false) ? ' (recommended)' : '';
@@ -587,7 +587,7 @@ final class SetupWizard
                 $defaultChoice = !empty($choices) ? reset($choices) : '';
             }
 
-            $selected = $this->io->choice(
+            $selected = $this->choice(
                 "<fg=cyan>{$roleName}</> — {$description}",
                 $choices,
                 $defaultChoice,
@@ -598,7 +598,7 @@ final class SetupWizard
             } else {
                 // Resolve back to full model ID
                 $flipped = array_flip($modelChoices);
-                $roles[$roleName] = is_string($selected) ? ($flipped[$selected] ?? (string) array_key_first($this->availableModels)) : (string) array_key_first($this->availableModels);
+                $roles[$roleName] = $flipped[$selected] ?? (string) array_key_first($this->availableModels);
             }
         }
 
@@ -617,7 +617,7 @@ final class SetupWizard
         $orchestratorModel = $roles['orchestrator'] ?? (string) array_key_first($this->availableModels);
         $this->io->text("The primary model is used as the default for any unassigned roles.");
 
-        if ($this->io->confirm("Use the orchestrator model ({$orchestratorModel}) as primary?", true)) {
+        if ($this->confirm("Use the orchestrator model ({$orchestratorModel}) as primary?", true)) {
             return $orchestratorModel;
         }
 
@@ -628,10 +628,11 @@ final class SetupWizard
         asort($modelChoices);
 
         $indexedChoices = array_combine(range(1, count($modelChoices)), array_values($modelChoices));
-        $selected = $this->io->choice('Select primary model', $indexedChoices, reset($indexedChoices));
+        $defaultChoice = reset($indexedChoices);
+        $selected = $this->choice('Select primary model', $indexedChoices, is_string($defaultChoice) ? $defaultChoice : null);
         $flipped = array_flip($modelChoices);
 
-        return is_string($selected) ? ($flipped[$selected] ?? $orchestratorModel) : $orchestratorModel;
+        return $flipped[$selected] ?? $orchestratorModel;
     }
 
     /**
@@ -653,7 +654,7 @@ final class SetupWizard
             '',
         ]);
 
-        return $this->io->confirm('Allow child agents to spawn background tasks?', false);
+        return $this->confirm('Allow child agents to spawn background tasks?', false);
     }
 
     /**
@@ -674,7 +675,7 @@ final class SetupWizard
             '',
         ]);
 
-        return $this->io->confirm('Enable automatic memory extraction after every turn?', CoquiDefaults::MEMORY_AUTO_EXTRACT);
+        return $this->confirm('Enable automatic memory extraction after every turn?', CoquiDefaults::MEMORY_AUTO_EXTRACT);
     }
 
     /**
@@ -706,14 +707,14 @@ final class SetupWizard
         ];
         $modeValues = ['token', 'turn', 'manual'];
 
-        $selected = $this->io->choice('Auto-summarization mode', $modeLabels, $modeLabels[0]);
+        $selected = $this->choice('Auto-summarization mode', $modeLabels, $modeLabels[0]);
         $selectedIndex = array_search($selected, $modeLabels, true);
         $mode = $modeValues[$selectedIndex !== false ? $selectedIndex : 0];
 
         $config = ['autoSummarizeMode' => $mode];
 
         if ($mode === 'token') {
-            $threshold = $this->io->ask(
+            $threshold = $this->ask(
                 'Token usage threshold (percentage of context window)',
                 (string) (int) CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD,
             );
@@ -721,7 +722,7 @@ final class SetupWizard
         }
 
         if ($mode === 'turn') {
-            $turns = $this->io->ask(
+            $turns = $this->ask(
                 'Summarize after how many user turns?',
                 (string) CoquiDefaults::AUTO_SUMMARIZE_TURN_THRESHOLD,
             );
@@ -747,7 +748,7 @@ final class SetupWizard
             'All sessions are stored in this single location regardless of where you run Coqui from.',
         ]);
 
-        $workspace = $this->io->ask('Workspace directory', $default);
+        $workspace = $this->ask('Workspace directory', $default);
 
         return is_string($workspace) ? $workspace : $default;
     }
@@ -772,11 +773,11 @@ final class SetupWizard
 
         $this->io->text('Coqui can check for dependency updates on startup and optionally apply them automatically.');
 
-        $checkUpdates = $this->io->confirm('Check for updates on startup?', true);
+        $checkUpdates = $this->confirm('Check for updates on startup?', true);
         $autoUpdate = false;
 
         if ($checkUpdates) {
-            $autoUpdate = $this->io->confirm('Automatically apply updates on startup? (will restart Coqui)', false);
+            $autoUpdate = $this->confirm('Automatically apply updates on startup? (will restart Coqui)', false);
         }
 
         // Persist to workspace .env via CredentialResolver (reuses the same .env mechanism)
@@ -812,7 +813,7 @@ final class SetupWizard
             'This key is used with <fg=cyan>Authorization: Bearer <key></> when calling the API.',
         ]);
 
-        $generateKey = $this->io->confirm('Generate an API key now?', true);
+        $generateKey = $this->confirm('Generate an API key now?', true);
 
         if (!$generateKey) {
             $this->io->text('<fg=gray>Skipped. Set COQUI_API_KEY manually. Localhost access works without a key.</>');
@@ -858,7 +859,7 @@ final class SetupWizard
             '',
         ]);
 
-        if (!$this->io->confirm('Would you like to mount local directories into the agent\'s workspace?', false)) {
+        if (!$this->confirm('Would you like to mount local directories into the agent\'s workspace?', false)) {
             return [];
         }
 
@@ -868,7 +869,7 @@ final class SetupWizard
         // Entry loop — add at least one mount, then optionally more
         $mounts[] = $this->promptForMount($mounts);
 
-        while ($this->io->confirm('Add another mount?', false)) {
+        while ($this->confirm('Add another mount?', false)) {
             $mounts[] = $this->promptForMount($mounts);
         }
 
@@ -899,7 +900,7 @@ final class SetupWizard
         $defaultPath = $defaults['path'] ?? null;
         $path = '';
         while (true) {
-            $input = $this->io->ask('Local directory path', $defaultPath);
+            $input = $this->ask('Local directory path', $defaultPath);
             if (!is_string($input) || $input === '') {
                 $this->io->error('A directory path is required.');
                 continue;
@@ -920,7 +921,7 @@ final class SetupWizard
         $defaultAlias = $defaults['alias'] ?? $suggestedAlias;
         $alias = '';
         while (true) {
-            $input = $this->io->ask(
+            $input = $this->ask(
                 sprintf('Mount alias (accessible at <fg=cyan>mnt/%s</>)', $defaultAlias),
                 $defaultAlias,
             );
@@ -944,12 +945,12 @@ final class SetupWizard
         $defaultAccess = $defaults['access'] ?? 'ro';
         $accessChoices = ['Read-only (recommended)', 'Read-write'];
         $accessDefault = $defaultAccess === 'rw' ? $accessChoices[1] : $accessChoices[0];
-        $accessSelected = $this->io->choice('Access level', $accessChoices, $accessDefault);
+        $accessSelected = $this->choice('Access level', $accessChoices, $accessDefault);
         $access = $accessSelected === 'Read-write' ? 'rw' : 'ro';
 
         // Description
         $defaultDesc = $defaults['description'] ?? null;
-        $description = $this->io->ask('Description (optional)', $defaultDesc);
+        $description = $this->ask('Description (optional)', $defaultDesc);
 
         $mount = [
             'path' => $path,
@@ -994,7 +995,7 @@ final class SetupWizard
 
             $this->io->table(['#', 'Path', 'Mount Point', 'Access', 'Description'], $rows);
 
-            $action = $this->io->choice('Mount configuration', [
+            $action = $this->choice('Mount configuration', [
                 'Accept',
                 'Add another mount',
                 'Edit a mount',
@@ -1046,12 +1047,35 @@ final class SetupWizard
             $choices[] = sprintf('%d: %s (mnt/%s)', $i + 1, $mount['path'], $mount['alias']);
         }
 
-        $selected = $this->io->choice($question, $choices);
-        if (is_string($selected) && preg_match('/^(\d+):/', $selected, $matches)) {
+        $selected = $this->choice($question, $choices);
+        if (preg_match('/^(\d+):/', $selected, $matches)) {
             return ((int) $matches[1]) - 1;
         }
 
         return null;
+    }
+
+    private function ask(string $question, ?string $default = null): ?string
+    {
+        return $this->prompt->ask($question, $default);
+    }
+
+    private function askHidden(string $question): ?string
+    {
+        return $this->prompt->askHidden($question);
+    }
+
+    private function confirm(string $question, bool $default = false): bool
+    {
+        return $this->prompt->confirm($question, $default);
+    }
+
+    /**
+     * @param array<int|string, string> $choices
+     */
+    private function choice(string $question, array $choices, ?string $default = null): string
+    {
+        return $this->prompt->choice($question, $choices, $default);
     }
 
     /**

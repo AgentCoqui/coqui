@@ -2,7 +2,7 @@
 
 Fully automated, multi-role iteration cycles that run hands-off until a termination condition is met.
 
-> **REPL-only execution**: Loop orchestration runs synchronously in the REPL via `LoopRunner`. The API provides read-only inspection of loop status and definitions but does not drive loop execution. See [REPL-API-DIVERGENCES.md](REPL-API-DIVERGENCES.md) for details on session model differences.
+> Loop orchestration uses `LoopExecutor` as the shared engine. The REPL drives loops synchronously; the API drives them asynchronously via `LoopManager` with a 5-second ReactPHP timer. See [REPL-API-DIVERGENCES.md](REPL-API-DIVERGENCES.md) for details.
 
 ## Overview
 
@@ -16,6 +16,7 @@ The most common pattern is **generator-evaluator**: a plan agent designs, a code
 | --- | --- | --- | --- | --- |
 | `harness` | plan → coder → reviewer | `evaluation_bound` | 5 | Generator-evaluator pattern inspired by Anthropic's Harness |
 | `research` | explorer → coder → reviewer | `evaluation_bound` | 3 | Research-driven investigation and synthesis |
+| `goal-driven` | plan → coder | `goal_bound` | 10 | LLM-evaluated goal completion without a reviewer role |
 
 View available definitions with `loop_definitions` or `GET /api/v1/loops/definitions`.
 
@@ -29,13 +30,13 @@ loop_start(definition: "harness", goal: "Build a Redis caching layer for the API
 
 ### With Parameters
 
-The `research` definition supports template parameters that are substituted into role prompts:
+The `research` definition derives its subject from the goal. Optional parameters can tune the deliverable:
 
 ```
 loop_start(
     definition: "research",
     goal: "Deep investigation of WebSocket libraries",
-    parameters: '{"topic": "PHP WebSocket libraries", "output_format": "comparison matrix"}'
+  parameters: '{"output_format": "comparison matrix"}'
 )
 ```
 
@@ -116,11 +117,11 @@ OrchestratorAgent sessionId
     → LoopExecutor.startLoop(sessionId)
       → loops.session_id
         → LoopStageResult.sessionId
-          → LoopRunner.buildToolkits(sessionId)
+          → LoopManager.advanceLoop()
             → ArtifactToolkit, TodoToolkit, SprintToolkit
 ```
 
-This means stage agents can read and create artifacts, track todos, and update sprint progress — all within the parent session's context. After each successful stage, LoopRunner creates a `loop_output` artifact with the stage's result.
+This means stage agents can read and create artifacts, track todos, and update sprint progress — all within the parent session's context. After each successful stage, `LoopManager` creates a `loop_output` artifact with the stage's result.
 
 ## Stage Agent Capabilities
 
@@ -186,19 +187,21 @@ Add a `parameters` array for template variable support:
 {
     "name": "investigate",
     "parameters": [
-        {"name": "topic", "description": "Subject to investigate", "required": true},
+    {"name": "subject", "description": "Subject to investigate", "required": true},
         {"name": "depth", "description": "How deep to go", "required": false, "default": "moderate"}
     ],
     "roles": [
         {
             "role": "explorer",
-            "prompt": "Investigate {{topic}} at {{depth}} depth..."
+      "prompt": "Investigate {{subject}} at {{depth}} depth..."
         }
     ]
 }
 ```
 
-Call with: `loop_start(definition: "investigate", goal: "...", parameters: '{"topic": "caching strategies"}')`.
+Call with: `loop_start(definition: "investigate", goal: "...", parameters: '{"subject": "caching strategies"}')`.
+
+Use the loop goal for the main subject matter. Parameters should refine behavior or supply additional structured inputs rather than act as loop identity.
 
 ## Monitoring and Control
 
@@ -215,12 +218,15 @@ Returns: current iteration/stage, status, elapsed time, and stage results.
 ```
 loop_pause(id: "loop123")    # Pauses after current stage completes
 loop_resume(id: "loop123")   # Continues from where it stopped
+loop_pause(id: "all")        # Pauses every running loop
+loop_resume(id: "all")       # Resumes every paused loop
 ```
 
 ### Stop
 
 ```
 loop_stop(id: "loop123")     # Cancels the loop
+loop_stop(id: "all")         # Cancels every active loop
 ```
 
 ## Agent Tools
@@ -230,9 +236,9 @@ loop_stop(id: "loop123")     # Cancels the loop
 | `loop_start` | Start a loop from a definition with a goal |
 | `loop_list` | List loops with optional status filter |
 | `loop_status` | Get detailed status of a specific loop |
-| `loop_pause` | Pause a running loop |
-| `loop_resume` | Resume a paused loop |
-| `loop_stop` | Stop/cancel a loop |
+| `loop_pause` | Pause a running loop or all running loops |
+| `loop_resume` | Resume a paused loop or all paused loops |
+| `loop_stop` | Stop/cancel one loop or all active loops |
 | `loop_definitions` | List available loop definitions |
 
 ## API Endpoints
@@ -267,7 +273,7 @@ Loops execute differently depending on the interface:
 
 | Mode | Driver | Behavior |
 | --- | --- | --- |
-| REPL | `LoopRunner` | Synchronous — spawns `ChildAgent` per stage, attaches observers for live output |
+| REPL | `LoopExecutor` | Synchronous — spawns `ChildAgent` per stage, attaches observers for live output |
 | API | `LoopManager` | Asynchronous — 5-second ReactPHP timer advances one stage per tick |
 
 Both modes use `LoopExecutor` as the shared orchestration engine for state management, prompt composition, and termination evaluation.

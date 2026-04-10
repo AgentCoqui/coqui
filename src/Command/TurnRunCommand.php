@@ -4,16 +4,14 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Command;
 
-use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
-use CoquiBot\Coqui\Config\ConfigGuard;
-use CoquiBot\Coqui\Observer\BackgroundTaskObserver;
+use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Observer\NullObserver;
-use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
+use CoquiBot\Coqui\Observer\TurnProcessObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -27,7 +25,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * Spawned by AgentTurnManager via proc_open. Reads the turn process
  * definition from SQLite, executes the agent loop, persists events
- * to the task_events table for SSE streaming, and updates the turn
+ * to the turn_events table for SSE streaming, and updates the turn
  * process record on completion.
  *
  * Exit codes:
@@ -70,10 +68,10 @@ final class TurnRunCommand extends Command
         $configOption = $input->getOption('config');
         $configPath = is_string($configOption) ? $configOption : null;
 
-        $workspaceOverride = $this->resolveWorkspaceOverride($input);
+        $workspaceOverride = WorkspaceOverrideResolver::resolve($input);
 
         $boot = new BootManager($workDir, $workspaceOverride);
-        $result = $boot->boot(io: null, configPath: $configPath);
+        $result = $boot->boot(io: null, configPath: $configPath, skipMaintenance: true);
 
         if (!$result) {
             $output->writeln('<error>Boot failed</error>');
@@ -128,37 +126,19 @@ final class TurnRunCommand extends Command
             pcntl_async_signals(true);
         }
 
-        // Create observer that persists events to task_events table.
-        // Uses the turn process ID as the "task ID" — same table, same format.
-        $turnObserver = new BackgroundTaskObserver($storage, $turnProcessId);
+        // Create observer that persists events to the turn_events table.
+        $turnObserver = new TurnProcessObserver($storage, $turnProcessId);
 
         // Create agent runner
-        $agentRunner = new AgentRunner(
-            roleResolver: $boot->roleResolver(),
-            config: $boot->config(),
+        $agentRunner = AgentRunnerFactory::create(
+            boot: $boot,
             projectRoot: $workDir,
-            workspacePath: $boot->workspacePath(),
             storage: $storage,
             observer: new NullObserver(),
-            discovery: $boot->discovery(),
-            blacklist: $boot->blacklist(),
-            credentialResolver: $boot->credentialResolver(),
-            skillDiscovery: $boot->skillDiscovery(),
-            roleDiscovery: $boot->roleDiscovery(),
             unsafeMode: $unsafeMode,
             backgroundTasksEnabled: true,
-            memoryStore: $boot->memoryStore(),
-            memorySummarizer: $boot->memorySummarizer(),
-            mountManager: $boot->mountManager(),
-            configManager: $boot->configManager(),
-            configGuard: new ConfigGuard(),
-            spaceToolkit: $boot->spaceToolkit(),
-            todoStore: $boot->todoStore(),
-            artifactStore: $boot->artifactStore(),
-            projectStore: $boot->projectStore(),
-            defaultsLoader: $boot->defaultsLoader(),
+            includeConfigManager: true,
             toolExecutor: new ConcurrentToolExecutor(),
-            httpClient: new ReactHttpClientAdapter(),
         );
 
         // Create execution policy (auto-approve — no human in the loop)
@@ -190,7 +170,7 @@ final class TurnRunCommand extends Command
                     'error' => 'Cancelled via SIGTERM',
                     'result' => $turnResult->content,
                 ]);
-                $storage->appendTaskEvent($turnProcessId, 'complete', [
+                $storage->appendTurnEvent($turnProcessId, 'complete', [
                     'error' => 'Cancelled',
                     'content' => $turnResult->content,
                 ]);
@@ -203,7 +183,7 @@ final class TurnRunCommand extends Command
                     'error' => $turnResult->error,
                     'result' => $turnResult->content,
                 ]);
-                $storage->appendTaskEvent($turnProcessId, 'complete', [
+                $storage->appendTurnEvent($turnProcessId, 'complete', [
                     'error' => $turnResult->error,
                     'content' => $turnResult->content,
                 ]);
@@ -212,7 +192,7 @@ final class TurnRunCommand extends Command
             }
 
             // Write the final "complete" event with full metadata
-            $storage->appendTaskEvent($turnProcessId, 'complete', $turnResult->toArray());
+            $storage->appendTurnEvent($turnProcessId, 'complete', $turnResult->toArray());
 
             // Generate title if needed (best-effort, runs in same process)
             $this->maybeGenerateTitle($sessionId, $prompt, $turnProcessId, $boot, $storage);
@@ -226,10 +206,10 @@ final class TurnRunCommand extends Command
             $storage->updateTurnProcessStatus($turnProcessId, 'failed', [
                 'error' => $e->getMessage(),
             ]);
-            $storage->appendTaskEvent($turnProcessId, 'error', [
+            $storage->appendTurnEvent($turnProcessId, 'error', [
                 'message' => 'Internal error',
             ]);
-            $storage->appendTaskEvent($turnProcessId, 'complete', [
+            $storage->appendTurnEvent($turnProcessId, 'complete', [
                 'error' => 'Internal error',
                 'content' => '',
             ]);
@@ -260,11 +240,12 @@ final class TurnRunCommand extends Command
                 roleResolver: $boot->roleResolver(),
                 config: $boot->config(),
                 roleDiscovery: $boot->roleDiscovery(),
+                providerFactory: $boot->providerFactory(),
             );
 
             $title = $titleGenerator->generate($prompt);
             if ($title === null) {
-                $storage->appendTaskEvent($turnProcessId, 'warning', [
+                $storage->appendTurnEvent($turnProcessId, 'warning', [
                     'message' => 'Title generation returned no result',
                 ]);
 
@@ -272,7 +253,7 @@ final class TurnRunCommand extends Command
             }
 
             $storage->updateSessionTitle($sessionId, $title);
-            $storage->appendTaskEvent($turnProcessId, 'title', ['title' => $title]);
+            $storage->appendTurnEvent($turnProcessId, 'title', ['title' => $title]);
         } catch (\Throwable $e) {
             // Best-effort — do not let title generation failures affect the turn
             error_log(sprintf(
@@ -284,7 +265,7 @@ final class TurnRunCommand extends Command
             ));
 
             try {
-                $storage->appendTaskEvent($turnProcessId, 'warning', [
+                $storage->appendTurnEvent($turnProcessId, 'warning', [
                     'message' => 'Title generation failed: ' . $e->getMessage(),
                 ]);
             } catch (\Throwable) {
@@ -293,20 +274,4 @@ final class TurnRunCommand extends Command
         }
     }
 
-    private function resolveWorkspaceOverride(InputInterface $input): ?string
-    {
-        $option = $input->getOption('workspace');
-
-        if (is_string($option) && $option !== '') {
-            return $option;
-        }
-
-        $env = getenv('COQUI_WORKSPACE');
-
-        if (is_string($env) && $env !== '') {
-            return $env;
-        }
-
-        return null;
-    }
 }

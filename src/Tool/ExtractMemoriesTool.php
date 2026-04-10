@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -30,6 +31,7 @@ final class ExtractMemoriesTool implements ToolInterface
         private readonly string $sessionId,
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
+        private readonly ?ProviderFactory $providerFactory = null,
     ) {}
 
     public function name(): string
@@ -131,7 +133,7 @@ final class ExtractMemoriesTool implements ToolInterface
 
     private function resolveProvider(): ?ProviderInterface
     {
-        $factory = new ProviderFactory($this->config);
+        $factory = $this->providerFactory ?? new ProviderFactory($this->config);
 
         $utilityModel = $this->roleResolver->resolveUtility();
         if ($utilityModel !== '') {
@@ -143,7 +145,7 @@ final class ExtractMemoriesTool implements ToolInterface
         }
 
         try {
-            $orchestratorModel = $this->roleResolver->resolve('orchestrator');
+            $orchestratorModel = $this->roleResolver->resolve(SystemRole::Orchestrator->value);
             return $factory->create($orchestratorModel);
         } catch (\Throwable) {
             return null;

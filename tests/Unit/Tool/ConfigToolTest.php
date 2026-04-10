@@ -124,6 +124,7 @@ test('set updates an allowed config value', function () {
 
     expect($result->status->value)->toBe('success');
     expect($result->content)->toContain('30');
+    expect($result->content)->toContain('restart is required');
 });
 
 test('set denies security-sensitive keys', function () {
@@ -186,6 +187,7 @@ test('switch_model changes primary model', function () {
 
     expect($result->status->value)->toBe('success');
     expect($result->content)->toContain('anthropic/claude-sonnet-4-20250514');
+    expect($result->content)->toContain('restart is required');
 
     // Verify it was persisted
     $data = json_decode(file_get_contents($this->manager->path()), true);

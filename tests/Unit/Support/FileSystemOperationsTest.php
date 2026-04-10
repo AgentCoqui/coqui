@@ -160,7 +160,11 @@ test('resolvePath stays within root', function () {
     file_put_contents($this->root . '/ok.txt', '');
 
     $resolved = $this->fs->resolvePath('ok.txt');
-    $realRoot = realpath($this->root);
+    $rawRoot = realpath($this->root);
+    // Normalize to forward slashes with lowercase drive letter (matches resolvePath output)
+    $realRoot = $rawRoot !== false
+        ? strtolower(substr(str_replace('\\', '/', $rawRoot), 0, 2)) . substr(str_replace('\\', '/', $rawRoot), 2)
+        : str_replace('\\', '/', $this->root);
 
     expect(str_starts_with($resolved, $realRoot))->toBeTrue();
 });
@@ -168,10 +172,22 @@ test('resolvePath stays within root', function () {
 test('resolvePath blocks directory traversal', function () {
     $resolved = $this->fs->resolvePath('../../etc/passwd');
 
-    // Should either resolve to root or stay within root
-    // resolvePath returns rootPath (not realRoot) as fallback, so check both
-    $inRoot = str_starts_with($resolved, $this->root)
-        || str_starts_with($resolved, realpath($this->root));
+    // Normalize both sides to forward-slash / lowercase-drive for cross-platform comparison
+    $normalize = static function (string $p): string {
+        $p = str_replace('\\', '/', $p);
+        if (preg_match('/^[A-Z]:\//', $p) === 1) {
+            $p = strtolower($p[0]) . substr($p, 1);
+        }
+        return $p;
+    };
+
+    $normalizedResolved = $normalize($resolved);
+    $normalizedRoot     = $normalize($this->root);
+    $rawReal            = realpath($this->root);
+    $normalizedReal     = $rawReal !== false ? $normalize($rawReal) : $normalizedRoot;
+
+    $inRoot = str_starts_with($normalizedResolved, $normalizedRoot)
+        || str_starts_with($normalizedResolved, $normalizedReal);
     expect($inRoot)->toBeTrue();
 });
 
@@ -186,6 +202,12 @@ test('resolvePath resolves relative segments', function () {
 
 test('makeRelative strips root prefix', function () {
     $abs = $this->root . '/sub/file.txt';
+
+    expect($this->fs->makeRelative($abs))->toBe('sub/file.txt');
+});
+
+test('makeRelative normalizes backslash-separated absolute paths', function () {
+    $abs = str_replace('/', '\\', $this->root) . '\\sub\\file.txt';
 
     expect($this->fs->makeRelative($abs))->toBe('sub/file.txt');
 });

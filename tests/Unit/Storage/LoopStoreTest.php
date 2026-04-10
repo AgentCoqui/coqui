@@ -13,9 +13,8 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    if (file_exists($this->dbPath)) {
-        unlink($this->dbPath);
-    }
+    releaseTestObjectProperties($this);
+    cleanupSqliteTestDb($this->dbPath);
 });
 
 // ──────────────────────────────────────────────
@@ -318,13 +317,19 @@ test('updateStage to running sets started_at and optional task_id', function () 
     $iterationId = $this->store->createIteration($loopId, 1);
     $id = $this->store->createStage($iterationId, 0, 'plan');
 
-    $this->store->updateStage($id, 'running', taskId: 'task-abc');
+    $this->store->updateStage(
+        $id,
+        'running',
+        taskId: 'task-abc',
+        metadata: ['loop_id' => 'loop-123', 'stage_index' => 0],
+    );
 
     $stage = $this->store->getStage($id);
     expect($stage['status'])->toBe('running');
     expect($stage['task_id'])->toBe('task-abc');
     expect($stage['started_at'])->not->toBeNull();
     expect($stage['completed_at'])->toBeNull();
+    expect(json_decode((string) $stage['metadata'], true)['loop_id'])->toBe('loop-123');
 });
 
 test('updateStage to running preserves existing started_at', function () {

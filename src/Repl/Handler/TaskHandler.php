@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl\Handler;
 
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\JsonHelper;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -73,6 +74,13 @@ final class TaskHandler
             ['Started' => $task['started_at'] ?? '(not started)'],
             ['Completed' => $task['completed_at'] ?? '(not completed)'],
         );
+
+        $metadata = JsonHelper::decodeJsonObject($task['metadata'] ?? null);
+        if ($metadata !== null) {
+            $io->newLine();
+            $io->text('<fg=cyan>Structured Metadata:</>');
+            $io->writeln(json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}');
+        }
 
         if ($task['result'] !== null) {
             $result = $task['result'];
@@ -163,4 +171,5 @@ final class TaskHandler
 
         return null;
     }
+
 }

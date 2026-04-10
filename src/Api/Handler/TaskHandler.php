@@ -10,6 +10,7 @@ use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\JsonHelper;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 use React\Stream\ThroughStream;
@@ -17,12 +18,12 @@ use React\Stream\ThroughStream;
 /**
  * Background task API endpoints.
  *
- * POST   /api/tasks              — create a new background task
- * GET    /api/tasks              — list tasks
- * GET    /api/tasks/{id}         — get task detail
- * GET    /api/tasks/{id}/events  — SSE event stream (long-poll)
- * POST   /api/tasks/{id}/input   — inject user input into running task
- * POST   /api/tasks/{id}/cancel  — cancel a task
+ * POST   /api/v1/tasks              — create a new background task
+ * GET    /api/v1/tasks              — list tasks
+ * GET    /api/v1/tasks/{id}         — get task detail
+ * GET    /api/v1/tasks/{id}/events  — SSE event stream (long-poll)
+ * POST   /api/v1/tasks/{id}/input   — inject user input into running task
+ * POST   /api/v1/tasks/{id}/cancel  — cancel a task
  */
 final readonly class TaskHandler
 {
@@ -36,7 +37,7 @@ final readonly class TaskHandler
     ) {}
 
     /**
-     * POST /api/tasks
+     * POST /api/v1/tasks
      *
      * Body: { "prompt": "...", "role"?: "orchestrator", "title"?: "...",
      *         "parent_session_id"?: "...", "max_iterations"?: 25 }
@@ -63,7 +64,7 @@ final readonly class TaskHandler
         if (!$this->roleResolver->hasRole($role)) {
             return Router::errorResponse(
                 ApiErrorCode::ROLE_NOT_FOUND,
-                sprintf('Unknown role "%s". Use GET /api/config/roles to see available roles.', $role),
+                sprintf('Unknown role "%s". Use GET /api/v1/config/roles to see available roles.', $role),
             );
         }
 
@@ -110,7 +111,7 @@ final readonly class TaskHandler
     }
 
     /**
-     * GET /api/tasks?status=running&limit=50
+     * GET /api/v1/tasks?status=running&limit=50
      */
     public function list(ServerRequestInterface $request): Response
     {
@@ -119,6 +120,7 @@ final readonly class TaskHandler
         $limit = isset($params['limit']) ? min((int) $params['limit'], 200) : 50;
 
         $tasks = $this->storage->listTasks($status, $limit);
+        $tasks = array_map(fn(array $task): array => $this->normalizeTask($task), $tasks);
 
         return Router::jsonResponse([
             'tasks' => $tasks,
@@ -128,7 +130,7 @@ final readonly class TaskHandler
     }
 
     /**
-     * GET /api/tasks/{id}
+     * GET /api/v1/tasks/{id}
      */
     public function get(ServerRequestInterface $request, string $id): Response
     {
@@ -139,13 +141,25 @@ final readonly class TaskHandler
         }
 
         // Add live process status
+        $task = $this->normalizeTask($task);
         $task['process_alive'] = $this->taskManager->isRunning($id);
 
         return Router::jsonResponse($task);
     }
 
     /**
-     * GET /api/tasks/{id}/events?since_id=0
+     * @param array<string, mixed> $task
+     * @return array<string, mixed>
+     */
+    private function normalizeTask(array $task): array
+    {
+        $task['metadata'] = JsonHelper::decodeJsonObject($task['metadata'] ?? null);
+
+        return $task;
+    }
+
+    /**
+     * GET /api/v1/tasks/{id}/events?since_id=0
      *
      * Returns an SSE stream that delivers task events in real time.
      * Uses long-polling: the stream checks for new events every second
@@ -236,7 +250,7 @@ final readonly class TaskHandler
     }
 
     /**
-     * POST /api/tasks/{id}/input  { "content": "..." }
+     * POST /api/v1/tasks/{id}/input  { "content": "..." }
      *
      * Inject user input into a running task's conversation.
      */
@@ -273,7 +287,7 @@ final readonly class TaskHandler
     }
 
     /**
-     * POST /api/tasks/{id}/cancel
+     * POST /api/v1/tasks/{id}/cancel
      */
     public function cancel(ServerRequestInterface $request, string $id): Response
     {

@@ -53,6 +53,7 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/toolkits stub tool:<name>` | Set an individual tool to `stub` |
 | `/toolkits disable tool:<name>` | Set an individual tool to `disabled` |
 | `/prompt` | Print the fully rendered system prompt with tool/toolkit/token counts |
+| `/prompt export` | Export system prompt and tool schemas to a file in the workspace |
 
 ### Background Tasks
 
@@ -205,6 +206,23 @@ coqui doctor --json       # Output results as JSON
 | `--workspace <path>` | | Workspace directory (overrides config and default) |
 | `--repair` | | Automatically fix detected issues |
 | `--json` | | Output results as JSON |
+
+### `coqui benchmark`
+
+Run lightweight performance benchmarks against key Coqui subsystems such as boot, token estimation, SQLite setup, and autoloader hot paths.
+
+```bash
+coqui benchmark
+coqui benchmark --iterations 250
+coqui benchmark --json
+```
+
+| Option | Short | Description |
+| --- | --- | --- |
+| `--iterations <n>` | `-i` | Number of iterations per benchmark. Default: `100` |
+| `--json` | | Output machine-readable JSON instead of console tables |
+| `--config <path>` | `-c` | Path to `openclaw.json` |
+| `--workdir <path>` | `-w` | Working directory used for boot benchmarking |
 
 ## Launcher
 

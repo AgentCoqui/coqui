@@ -15,10 +15,10 @@ use React\Http\Message\Response;
 /**
  * File upload endpoints for session-scoped file management.
  *
- * POST   /api/sessions/{id}/files            — upload files (multipart/form-data)
- * GET    /api/sessions/{id}/files            — list uploaded files
- * GET    /api/sessions/{id}/files/{fileId}   — download a file
- * DELETE /api/sessions/{id}/files/{fileId}   — delete a file
+ * POST   /api/v1/sessions/{id}/files            — upload files (multipart/form-data)
+ * GET    /api/v1/sessions/{id}/files            — list uploaded files
+ * GET    /api/v1/sessions/{id}/files/{fileId}   — download a file
+ * DELETE /api/v1/sessions/{id}/files/{fileId}   — delete a file
  */
 final readonly class FileUploadHandler
 {
@@ -28,7 +28,7 @@ final readonly class FileUploadHandler
     ) {}
 
     /**
-     * POST /api/sessions/{id}/files
+     * POST /api/v1/sessions/{id}/files
      *
      * Accepts multipart/form-data with one or more files in the "files[]" field.
      */
@@ -122,7 +122,7 @@ final readonly class FileUploadHandler
     }
 
     /**
-     * GET /api/sessions/{id}/files
+     * GET /api/v1/sessions/{id}/files
      */
     public function list(ServerRequestInterface $request, string $id): Response
     {
@@ -142,7 +142,7 @@ final readonly class FileUploadHandler
     }
 
     /**
-     * GET /api/sessions/{id}/files/{fileId}
+     * GET /api/v1/sessions/{id}/files/{fileId}
      *
      * Returns the raw file content with appropriate Content-Type header.
      */
@@ -186,7 +186,7 @@ final readonly class FileUploadHandler
     }
 
     /**
-     * DELETE /api/sessions/{id}/files/{fileId}
+     * DELETE /api/v1/sessions/{id}/files/{fileId}
      */
     public function delete(ServerRequestInterface $request, string $id, string $fileId): Response
     {

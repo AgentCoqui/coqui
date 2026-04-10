@@ -11,6 +11,8 @@ use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CoquiBot\Coqui\Config\RoleDiscovery;
+use CoquiBot\Coqui\Contract\ChildAgentHandoff;
+use CoquiBot\Coqui\Contract\SystemRole;
 
 /**
  * A flexible child agent that receives its instructions and toolkits at construction time.
@@ -19,6 +21,7 @@ use CoquiBot\Coqui\Config\RoleDiscovery;
  */
 final class ChildAgent extends AbstractAgent
 {
+    private readonly ChildAgentHandoff $handoff;
 
     /**
      * @param ToolkitInterface[] $toolkits
@@ -26,7 +29,7 @@ final class ChildAgent extends AbstractAgent
     public function __construct(
         ProviderInterface $provider,
         private readonly string $role,
-        private readonly string $taskInstructions,
+        string|ChildAgentHandoff $taskInstructions,
         array $toolkits = [],
         int $maxIterations = AbstractAgent::DEFAULT_MAX_ITERATIONS,
         private readonly ?RoleDiscovery $roleDiscovery = null,
@@ -39,6 +42,10 @@ final class ChildAgent extends AbstractAgent
             toolExecutor: $toolExecutor,
             tickCallback: $tickCallback,
         );
+
+        $this->handoff = is_string($taskInstructions)
+            ? ChildAgentHandoff::fromTask($taskInstructions)
+            : $taskInstructions;
 
         foreach ($toolkits as $toolkit) {
             $this->addToolkit($toolkit);
@@ -54,7 +61,7 @@ final class ChildAgent extends AbstractAgent
             
             ## Your Task
             
-            {$this->taskInstructions}
+            {$this->handoff->taskInstructions()}
             
             ## Completion
             
@@ -75,7 +82,7 @@ final class ChildAgent extends AbstractAgent
 
         // Fall back to hardcoded defaults for backward compatibility
         return match ($this->role) {
-            'coder' => <<<INSTRUCTIONS
+            SystemRole::Coder->value => <<<INSTRUCTIONS
                 You are an expert PHP developer. Your task is to write clean, well-documented code.
                 
                 Guidelines:
@@ -87,7 +94,7 @@ final class ChildAgent extends AbstractAgent
                 - Include type declarations for all parameters and return types
                 INSTRUCTIONS,
 
-            'reviewer' => <<<INSTRUCTIONS
+            SystemRole::Reviewer->value => <<<INSTRUCTIONS
                 You are a code reviewer. Analyze the provided code for:
                 
                 - Bugs and logic errors

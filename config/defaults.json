@@ -1,7 +1,7 @@
 {
     "families": {
         "gpt": {"name": "GPT", "description": "GPT-architecture models (OpenAI and open-source)", "contextWindow": 400000, "maxTokens": 128000},
-        "claude": {"name": "Claude", "description": "Anthropic Claude models", "contextWindow": 200000, "maxTokens": 64000},
+        "claude": {"name": "Claude", "description": "Anthropic Claude models", "contextWindow": 1000000, "maxTokens": 128000},
         "gemini": {"name": "Gemini", "description": "Google Gemini models", "contextWindow": 1000000, "maxTokens": 65536},
         "grok": {"name": "Grok", "description": "xAI Grok models", "contextWindow": 131072, "maxTokens": 32768},
         "mistral": {"name": "Mistral", "description": "Mistral AI general-purpose models", "contextWindow": 128000, "maxTokens": 32768},

@@ -13,8 +13,8 @@ use React\Http\Message\Response;
 /**
  * Turn inspection endpoints.
  *
- * GET /api/sessions/{id}/turns           — list turns for a session
- * GET /api/sessions/{id}/turns/{turnId}  — get turn detail with messages
+ * GET /api/v1/sessions/{id}/turns           — list turns for a session
+ * GET /api/v1/sessions/{id}/turns/{turnId}  — get turn detail with messages
  */
 final readonly class TurnHandler
 {
@@ -23,7 +23,7 @@ final readonly class TurnHandler
     ) {}
 
     /**
-     * GET /api/sessions/{id}/turns?limit=50
+     * GET /api/v1/sessions/{id}/turns?limit=50
      */
     public function list(ServerRequestInterface $request, string $id): Response
     {
@@ -46,7 +46,7 @@ final readonly class TurnHandler
     }
 
     /**
-     * GET /api/sessions/{id}/turns/{turnId}
+     * GET /api/v1/sessions/{id}/turns/{turnId}
      */
     public function get(ServerRequestInterface $request, string $id, string $turnId): Response
     {
