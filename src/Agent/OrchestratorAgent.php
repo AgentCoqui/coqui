@@ -338,7 +338,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Memory toolkit — SQLite-backed with optional vector search
         if ($this->memoryStore !== null) {
-            $this->addToolkit(new MemoryToolkit($this->memoryStore));
+            $this->addToolkit(new MemoryToolkit($this->memoryStore, $this->workspacePath));
         }
 
         // Skill toolkit — discovered reusable instructions with usage attribution.

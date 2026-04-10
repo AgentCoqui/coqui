@@ -1872,9 +1872,9 @@
             "path": "src/Memory/MemorySummarizer.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\MemorySummarizer",
             "layer": "storage",
-            "description": "Generates compressed memory summaries for system prompt injection. Caches summaries in a memory_summary SQLite table, invalidating when memory count changes. LLM compression prompt prioritizes high-importance items first. Falls back to raw MemoryStore::getCoreSummary() when no provider is available.",
+            "description": "Generates compressed memory summaries for system prompt injection. Caches summaries in a memory_summary SQLite table, invalidating when memory count changes. LLM compression prompt prioritizes high-importance items first. Falls back to raw MemoryStore::getCoreSummary() when no provider is available. Token budget and entry limit are configurable via constructor (coreSummaryMaxTokens, coreSummaryEntryLimit) defaulting to CoquiDefaults constants, read from openclaw.json by BootManager.",
             "methods": [
-                "getSummary(): ?string — returns cached or freshly generated summary, null if no memories exist",
+                "getSummary(?ProviderInterface, int maxTokens = 0): string — returns cached or freshly generated summary, uses configured maxTokens/entryLimit defaults",
                 "invalidate(): void — forces summary regeneration on next call"
             ]
         },
@@ -1911,10 +1911,10 @@
             "path": "src/Toolkit/MemoryToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\MemoryToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing memory toolkit providing 7 tools: memory_save (with area, tags, importance), memory_search (composite-scored hybrid), memory_update (by ID, including importance), memory_delete (by ID), memory_forget (bulk by query), memory_list (filtered, with include_archived), memory_restore (un-archive by ID). Guidelines describe importance scoring, area defaults, pinning, decay lifecycle.",
+            "description": "Agent-facing memory toolkit providing 8 tools: memory_save (with area, tags, importance), memory_search (composite-scored hybrid), memory_update (by ID, including importance), memory_delete (by ID), memory_forget (bulk by query), memory_list (filtered, with include_archived), memory_restore (un-archive by ID), memory_import (bulk import document into chunked memory entries with heading/paragraph strategies). Guidelines describe importance scoring, area defaults, pinning, decay lifecycle, and bulk import.",
             "methods": [
-                "tools(): array — returns 7 Tool instances for full CRUD memory operations including restore",
-                "guidelines(): string — dynamic guidelines with importance scoring, decay info, memory count, and vector search availability"
+                "tools(): array — returns 8 Tool instances for full CRUD memory operations including restore and bulk import (import available when workspacePath provided)",
+                "guidelines(): string — dynamic guidelines with importance scoring, decay info, memory count, vector search availability, and import guidance"
             ]
         },
         {

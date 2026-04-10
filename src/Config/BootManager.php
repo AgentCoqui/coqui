@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
 
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Contract\MountDefinition;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -512,7 +513,15 @@ final class BootManager
 
         $this->memoryStore = new MemoryStore($dbPath, $embeddingProvider);
         $this->memoryStore->deleteArea('session_summary');
-        $this->memorySummarizer = new MemorySummarizer($this->memoryStore);
+
+        $coreSummaryMaxTokens = $this->config->get('agents.defaults.memory.coreSummaryMaxTokens');
+        $coreSummaryEntryLimit = $this->config->get('agents.defaults.memory.coreSummaryEntryLimit');
+
+        $this->memorySummarizer = new MemorySummarizer(
+            memoryStore: $this->memoryStore,
+            maxTokens: is_int($coreSummaryMaxTokens) ? $coreSummaryMaxTokens : CoquiDefaults::MEMORY_CORE_SUMMARY_MAX_TOKENS,
+            entryLimit: is_int($coreSummaryEntryLimit) ? $coreSummaryEntryLimit : CoquiDefaults::MEMORY_CORE_SUMMARY_ENTRY_LIMIT,
+        );
 
         // Run boot-time decay sweep — archives stale, low-value memories
         $this->memoryStore->decayAndArchive();

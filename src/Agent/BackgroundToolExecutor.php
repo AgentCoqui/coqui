@@ -117,7 +117,7 @@ final class BackgroundToolExecutor implements ToolExecutorInterface
 
         // Memory toolkit
         $memoryStore = $this->boot->memoryStore();
-        $this->registerToolkit(new MemoryToolkit($memoryStore));
+        $this->registerToolkit(new MemoryToolkit($memoryStore, $workspacePath));
 
         // Project source toolkit
         $this->registerToolkit(new CoquiSourceToolkit(projectRoot: $this->projectRoot));
