@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Contract\SystemRole;
 
 /**
  * Generates a concise title for a session based on the first user prompt.
@@ -19,7 +20,7 @@ use CoquiBot\Coqui\Config\RoleResolver;
  */
 final class TitleGenerator
 {
-    private const string ROLE = 'title-generator';
+    private const SystemRole ROLE = SystemRole::TitleGenerator;
 
     private const string FALLBACK_INSTRUCTIONS = <<<'PROMPT'
         Generate a concise title (3-7 words) that captures the essence of the user's request.
@@ -78,7 +79,7 @@ final class TitleGenerator
     {
         if ($this->roleDiscovery !== null) {
             try {
-                return $this->roleDiscovery->readInstructions(self::ROLE);
+                return $this->roleDiscovery->readInstructions(self::ROLE->value);
             } catch (\Throwable) {
                 // Fall through
             }

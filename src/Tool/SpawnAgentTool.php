@@ -28,6 +28,7 @@ use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\ChildAgentHandoff;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Memory\MemoryStore;
@@ -110,7 +111,7 @@ final class SpawnAgentTool implements ToolInterface
             new EnumParameter(
                 name: 'role',
                 description: 'The role/specialty of the child agent to spawn',
-                values: !empty($roles) ? $roles : ['coder', 'reviewer'],
+                values: !empty($roles) ? $roles : [SystemRole::Coder->value, SystemRole::Reviewer->value],
                 required: true,
             ),
             new StringParameter(
@@ -432,7 +433,7 @@ final class SpawnAgentTool implements ToolInterface
 
         // Backward-compatible fallback
         return match ($role) {
-            'coder' => 'full',
+            SystemRole::Coder->value => 'full',
             default => 'readonly',
         };
     }
@@ -508,7 +509,7 @@ final class SpawnAgentTool implements ToolInterface
         }
 
         // Default: only coder role
-        return $role === 'coder';
+        return $role === SystemRole::Coder->value;
     }
 
     /**
@@ -532,7 +533,7 @@ final class SpawnAgentTool implements ToolInterface
                 toolExecutor: $this->toolExecutor,
             );
 
-            $reviewerToolkits = $this->buildToolkits('reviewer');
+            $reviewerToolkits = $this->buildToolkits(SystemRole::Reviewer->value);
             $coderToolkits = $reviewConfig['autoIterate'] ? $this->buildToolkits($coderRole) : [];
 
             return $cycle->run(
@@ -565,7 +566,7 @@ final class SpawnAgentTool implements ToolInterface
                         'role' => [
                             'type' => 'string',
                             'description' => 'The role/specialty of the child agent',
-                            'enum' => !empty($roles) ? $roles : ['coder', 'reviewer'],
+                            'enum' => !empty($roles) ? $roles : [SystemRole::Coder->value, SystemRole::Reviewer->value],
                         ],
                         'task' => [
                             'type' => 'string',

@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Agent;
 
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CoquiBot\Coqui\Contract\LearnerFollowUpMetadata;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -50,7 +51,7 @@ final readonly class QualityAutomationCoordinator
                 'name' => self::EVALUATION_SCHEDULE_NAME,
                 'expression' => $this->evaluationScheduleExpression(),
                 'prompt' => $this->buildEvaluatorSchedulePrompt(),
-                'role' => 'evaluator',
+                'role' => SystemRole::Evaluator->value,
                 'description' => 'Automatically evaluates completed sessions and records structured reports.',
                 'kind' => 'evaluation',
             ],
@@ -58,7 +59,7 @@ final readonly class QualityAutomationCoordinator
                 'name' => self::LEARNING_SCHEDULE_NAME,
                 'expression' => $this->learningScheduleExpression(),
                 'prompt' => $this->buildLearnerSchedulePrompt(),
-                'role' => 'learner',
+                'role' => SystemRole::Learner->value,
                 'description' => 'Automatically analyzes poor evaluations and synthesizes corrective skills.',
                 'kind' => 'learning',
             ],
@@ -119,7 +120,7 @@ final readonly class QualityAutomationCoordinator
         $title = sprintf('Quality Learning Follow-up: %s', $evaluationId);
         $triggerContext = $this->resolveLearnerTriggerContext($evaluationId);
 
-        $learnerSessionId = $this->storage->createSession('learner', self::QUALITY_CREATED_BY);
+        $learnerSessionId = $this->storage->createSession(SystemRole::Learner->value, self::QUALITY_CREATED_BY);
         $taskId = $this->storage->createTask(
             sessionId: $learnerSessionId,
             prompt: $this->buildLearnerFollowUpPrompt(
@@ -131,7 +132,7 @@ final readonly class QualityAutomationCoordinator
                 childRunCount: $triggerContext['child_run_count'],
                 evidenceSources: $triggerContext['evidence_sources'],
             ),
-            role: 'learner',
+            role: SystemRole::Learner->value,
             title: $title,
             maxIterations: self::DEFAULT_MAX_ITERATIONS,
             metadata: (new LearnerFollowUpMetadata(

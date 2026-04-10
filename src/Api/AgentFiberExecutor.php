@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Observer\SseObserver;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -63,8 +64,8 @@ final class AgentFiberExecutor
                 $session = $this->storage->getSession($sessionId);
                 $sessionRole = ($session !== null && isset($session['model_role']))
                     ? (string) $session['model_role']
-                    : 'orchestrator';
-                $role = ($sessionRole !== '' && $sessionRole !== 'orchestrator') ? $sessionRole : null;
+                    : SystemRole::Orchestrator->value;
+                $role = ($sessionRole !== '' && $sessionRole !== SystemRole::Orchestrator->value) ? $sessionRole : null;
 
                 // Create a new AgentRunner with the SSE observer for this turn
                 $result = $this->agentRunner->runWithObserver(

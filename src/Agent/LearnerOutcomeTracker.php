@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Agent;
 
 use CoquiBot\Coqui\Contract\LearnerOutcomeMetadata;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
+use CoquiBot\Coqui\Support\JsonHelper;
+use CoquiBot\Coqui\Support\StringHelper;
 
 /**
  * Persists learner follow-up outcomes back onto their source evaluations.
@@ -27,11 +30,11 @@ final readonly class LearnerOutcomeTracker
         ?string $result = null,
         ?string $error = null,
     ): bool {
-        if (($task['role'] ?? null) !== 'learner') {
+        if (($task['role'] ?? null) !== SystemRole::Learner->value) {
             return false;
         }
 
-        $metadata = $this->decodeJsonObject($task['metadata'] ?? null);
+        $metadata = JsonHelper::decodeJsonObject($task['metadata'] ?? null);
         $evaluationId = is_array($metadata) && isset($metadata['evaluation_id']) && is_string($metadata['evaluation_id'])
             ? $metadata['evaluation_id']
             : null;
@@ -56,8 +59,8 @@ final readonly class LearnerOutcomeTracker
             taskStatus: $status,
             skillsCreated: $status === 'completed' ? $this->extractSkillNames((string) ($resultText ?? ''), 'created') : [],
             skillsUpdated: $status === 'completed' ? $this->extractSkillNames((string) ($resultText ?? ''), 'updated') : [],
-            resultExcerpt: $this->truncate($resultText),
-            error: $this->truncate($errorText),
+            resultExcerpt: StringHelper::truncateNullable($resultText, 1000, '...'),
+            error: StringHelper::truncateNullable($errorText, 1000, '...'),
             capturedAt: gmdate('Y-m-d\TH:i:s\Z'),
         );
 
@@ -105,36 +108,4 @@ final readonly class LearnerOutcomeTracker
         return $names;
     }
 
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function decodeJsonObject(mixed $value): ?array
-    {
-        if (is_array($value)) {
-            return $value;
-        }
-
-        if (!is_string($value) || trim($value) === '') {
-            return null;
-        }
-
-        try {
-            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\Throwable) {
-            return null;
-        }
-
-        return is_array($decoded) ? $decoded : null;
-    }
-
-    private function truncate(?string $value, int $limit = 1000): ?string
-    {
-        if ($value === null || trim($value) === '') {
-            return null;
-        }
-
-        return mb_strlen($value) > $limit
-            ? mb_substr($value, 0, $limit) . '...'
-            : $value;
-    }
 }

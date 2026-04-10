@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\RoleUpdateInfo;
@@ -79,7 +80,7 @@ final class RunCommand extends Command
     private bool $restartRequested = false;
     private bool $continueMode = false;
     private bool $hintsEnabled = true;
-    private string $activeRole = 'orchestrator';
+    private string $activeRole = 'orchestrator'; // property default must be string literal
     private ?string $activeProjectId = null;
     private ?string $activeProjectSlug = null;
 
@@ -263,7 +264,7 @@ final class RunCommand extends Command
 
         $bannerLines = [
             '<fg=gray>Session:</> ' . substr($this->sessionId, 0, 8) . '...',
-            '<fg=gray>Model:</> ' . $this->boot->roleResolver()->resolve('orchestrator'),
+            '<fg=gray>Model:</> ' . $this->boot->roleResolver()->resolve(SystemRole::Orchestrator->value),
             '<fg=gray>Project root:</> ' . $this->workDir,
             '<fg=gray>Workspace:</> ' . $this->boot->workspacePath(),
         ];
@@ -395,7 +396,7 @@ final class RunCommand extends Command
                 $projectTag = $this->activeProjectSlug !== null
                     ? sprintf(' <fg=magenta>[%s]</>', $this->activeProjectSlug)
                     : '';
-                if ($this->activeRole !== 'orchestrator') {
+                if ($this->activeRole !== SystemRole::Orchestrator->value) {
                     $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>%s:', $this->activeRole, $projectTag));
                 } else {
                     $io->writeln(sprintf(' <fg=cyan>You</>%s:', $projectTag));
@@ -658,8 +659,8 @@ final class RunCommand extends Command
                 return Command::FAILURE;
             }
         } else {
-            $modelString = $this->boot->roleResolver()->resolve('orchestrator');
-            $this->sessionId = $this->storage->createSession('orchestrator', $modelString);
+            $modelString = $this->boot->roleResolver()->resolve(SystemRole::Orchestrator->value);
+            $this->sessionId = $this->storage->createSession(SystemRole::Orchestrator->value, $modelString);
         }
 
         // Build policy and run

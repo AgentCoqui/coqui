@@ -12,6 +12,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
+use CoquiBot\Coqui\Support\JsonHelper;
 
 /**
  * Agent-facing toolkit for the learner role.
@@ -168,7 +169,7 @@ final class LearningToolkit implements ToolkitInterface
                     $eval['report'],
                 );
 
-                $metadata = $this->decodeJsonObject($eval['metadata'] ?? null);
+                $metadata = JsonHelper::decodeJsonObject($eval['metadata'] ?? null);
                 if ($metadata !== null) {
                     $output .= "\n\n---\n\n## Structured Evidence Metadata\n\n";
                     $output .= json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}';
@@ -209,21 +210,4 @@ final class LearningToolkit implements ToolkitInterface
         );
     }
 
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function decodeJsonObject(mixed $value): ?array
-    {
-        if (!is_string($value) || trim($value) === '') {
-            return null;
-        }
-
-        try {
-            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\Throwable) {
-            return null;
-        }
-
-        return is_array($decoded) ? $decoded : null;
-    }
 }

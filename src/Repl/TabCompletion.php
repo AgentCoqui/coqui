@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Repl;
 
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\LoopDiscovery;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -211,7 +212,7 @@ final class TabCompletion
 
         $prefix = $parts[1];
         $roles = $this->boot->roleResolver()->selectableRoles();
-        $roles[] = 'orchestrator';
+        $roles[] = SystemRole::Orchestrator->value;
         $roles[] = 'edit';
         $roles = array_unique($roles);
         return array_values(array_filter(

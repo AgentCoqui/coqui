@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Notification;
 
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Contract\SystemRole;
 
 final readonly class EscalateLoopFailureAction implements NotificationAutomationHandlerInterface
 {
@@ -53,7 +54,7 @@ final readonly class EscalateLoopFailureAction implements NotificationAutomation
             sessionId: (string) ($loop['session_id'] ?? ''),
         );
 
-        $executionSessionId = $this->storage->createSession('orchestrator', '');
+        $executionSessionId = $this->storage->createSession(SystemRole::Orchestrator->value, '');
         $activeProjectId = $this->storage->getActiveProjectId($targetSessionId);
         if ($activeProjectId !== null) {
             $this->storage->setActiveProject($executionSessionId, $activeProjectId);
@@ -71,7 +72,7 @@ final readonly class EscalateLoopFailureAction implements NotificationAutomation
         $followUpTaskId = $this->storage->createTask(
             sessionId: $executionSessionId,
             prompt: $this->buildPrompt($loop, $notification),
-            role: 'orchestrator',
+            role: SystemRole::Orchestrator->value,
             parentSessionId: $targetSessionId,
             title: $this->buildTitle($loop),
             maxIterations: self::MAX_ITERATIONS,

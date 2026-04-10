@@ -10,6 +10,7 @@ use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\JsonHelper;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 use React\Stream\ThroughStream;
@@ -152,23 +153,9 @@ final readonly class TaskHandler
      */
     private function normalizeTask(array $task): array
     {
-        $task['metadata'] = $this->decodeJsonObject($task['metadata'] ?? null);
+        $task['metadata'] = JsonHelper::decodeJsonObject($task['metadata'] ?? null);
 
         return $task;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function decodeJsonObject(mixed $value): ?array
-    {
-        if (!is_string($value) || $value === '') {
-            return null;
-        }
-
-        $decoded = json_decode($value, true);
-
-        return is_array($decoded) ? $decoded : null;
     }
 
     /**

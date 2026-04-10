@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CoquiBot\Coqui\Config\PathHelper;
+use CoquiBot\Coqui\Support\StringHelper;
 
 /**
  * Generates complete toolkit package scaffolds for Coqui.
@@ -676,12 +677,7 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
             $name = substr($name, 9);
         }
 
-        // Convert to kebab-case
-        $name = strtolower($name);
-        $name = (string) preg_replace('/[^a-z0-9-]/', '-', $name);
-        $name = (string) preg_replace('/-+/', '-', $name);
-
-        return trim($name, '-');
+        return StringHelper::slug($name);
     }
 
     private function toPascalCase(string $kebab): string

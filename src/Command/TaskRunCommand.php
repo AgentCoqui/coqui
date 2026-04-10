@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Command;
 use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
 use CoquiBot\Coqui\Agent\LearnerOutcomeTracker;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Api\DatabasePendingInputProvider;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
@@ -115,7 +116,7 @@ final class TaskRunCommand extends Command
 
         $sessionId = $task['session_id'];
         $prompt = $task['prompt'];
-        $role = $task['role'] ?? 'orchestrator';
+        $role = $task['role'] ?? SystemRole::Orchestrator->value;
         $workScopeSessionId = $task['parent_session_id'] ?? null;
         if ($workScopeSessionId === '') {
             $workScopeSessionId = null;
@@ -440,7 +441,7 @@ final class TaskRunCommand extends Command
                 'task_id' => $taskId,
                 'task_session_id' => (string) ($task['session_id'] ?? ''),
                 'parent_session_id' => isset($task['parent_session_id']) ? (string) $task['parent_session_id'] : null,
-                'role' => (string) ($task['role'] ?? 'orchestrator'),
+                'role' => (string) ($task['role'] ?? SystemRole::Orchestrator->value),
                 'title' => $displayTitle,
             ];
 

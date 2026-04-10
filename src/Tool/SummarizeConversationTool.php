@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
@@ -243,7 +244,7 @@ final class SummarizeConversationTool implements ToolInterface
             }
 
             // Fall back to orchestrator model
-            $orchestratorModel = $this->roleResolver->resolve('orchestrator');
+            $orchestratorModel = $this->roleResolver->resolve(SystemRole::Orchestrator->value);
             return $factory->create($orchestratorModel);
         } catch (\Throwable) {
             return null;

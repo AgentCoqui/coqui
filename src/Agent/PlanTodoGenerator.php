@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\TodoStore;
 
 /**
@@ -22,7 +23,7 @@ use CoquiBot\Coqui\Storage\TodoStore;
  */
 final class PlanTodoGenerator
 {
-    private const string ROLE = 'plan-todo-generator';
+    private const SystemRole ROLE = SystemRole::PlanTodoGenerator;
 
     private const string FALLBACK_INSTRUCTIONS = <<<'PROMPT'
         You are a plan-to-task extraction assistant. Given a plan document, extract the concrete
@@ -152,7 +153,7 @@ final class PlanTodoGenerator
     {
         if ($this->roleDiscovery !== null) {
             try {
-                return $this->roleDiscovery->readInstructions(self::ROLE);
+                return $this->roleDiscovery->readInstructions(self::ROLE->value);
             } catch (\Throwable) {
                 // Fall through to hardcoded fallback
             }

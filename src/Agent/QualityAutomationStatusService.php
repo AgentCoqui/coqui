@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\JsonHelper;
 
 /**
  * Read-only visibility surface for the autonomous quality loop.
@@ -128,8 +129,8 @@ final readonly class QualityAutomationStatusService
             'task_id' => $row['learner_follow_up_task_id'] ?? null,
             'task_status' => (string) ($row['learner_follow_up_status'] ?? 'missing'),
             'task_title' => $row['task_title'] ?? null,
-            'trigger_metadata' => self::decodeJsonObject($row['task_metadata'] ?? null),
-            'learner_outcome' => self::decodeJsonObject($row['learner_outcome_metadata'] ?? null),
+            'trigger_metadata' => JsonHelper::decodeJsonObject($row['task_metadata'] ?? null),
+            'learner_outcome' => JsonHelper::decodeJsonObject($row['learner_outcome_metadata'] ?? null),
             'task_created_at' => $row['task_created_at'] ?? null,
             'task_started_at' => $row['task_started_at'] ?? null,
             'task_completed_at' => $row['task_completed_at'] ?? null,
@@ -137,24 +138,6 @@ final readonly class QualityAutomationStatusService
             'task_result' => $row['task_result'] ?? null,
             'task_error' => $row['task_error'] ?? null,
         ], $rows);
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private static function decodeJsonObject(mixed $value): ?array
-    {
-        if (!is_string($value) || trim($value) === '') {
-            return null;
-        }
-
-        try {
-            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\Throwable) {
-            return null;
-        }
-
-        return is_array($decoded) ? $decoded : null;
     }
 
     private function boolConfig(string $key, bool $default): bool

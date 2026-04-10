@@ -9,6 +9,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CoquiBot\Coqui\Support\StringHelper;
 use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
@@ -175,7 +176,7 @@ final class PackagistTool implements ToolInterface
         foreach ($results as $pkg) {
             $rank++;
             $name = $pkg['name'] ?? 'unknown';
-            $desc = $this->truncate($pkg['description'] ?? '', 60);
+            $desc = StringHelper::truncate($pkg['description'] ?? '', 60, '...');
             $downloads = $this->formatNumber($pkg['downloads'] ?? 0);
             $favers = $this->formatNumber($pkg['favers'] ?? 0);
             $output .= "| {$rank} | {$name} | {$downloads} | {$favers} | {$desc} |\n";
@@ -304,7 +305,7 @@ final class PackagistTool implements ToolInterface
 
                 foreach ($advisories as $advisory) {
                     $cve = $advisory['cve'] ?? 'N/A';
-                    $title = $this->truncate($advisory['title'] ?? 'Unknown', 50);
+                    $title = StringHelper::truncate($advisory['title'] ?? 'Unknown', 50, '...');
                     $affected = $advisory['affectedVersions'] ?? 'unknown';
                     $severity = $advisory['severity'] ?? 'unknown';
                     $output .= "| {$cve} | {$title} | {$affected} | {$severity} |\n";
@@ -378,15 +379,6 @@ final class PackagistTool implements ToolInterface
         }
 
         return null;
-    }
-
-    private function truncate(string $text, int $maxLength): string
-    {
-        if (strlen($text) <= $maxLength) {
-            return $text;
-        }
-
-        return substr($text, 0, $maxLength - 3) . '...';
     }
 
     private function formatNumber(int $number): string

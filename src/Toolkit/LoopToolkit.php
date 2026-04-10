@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
+use CoquiBot\Coqui\Support\JsonHelper;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Agent\LoopExecutor;
@@ -317,27 +318,13 @@ final readonly class LoopToolkit implements ToolkitInterface
                         'role' => $s['role'],
                         'status' => $s['status'],
                         'summary' => $s['result_summary'] !== null ? mb_substr($s['result_summary'], 0, 200) : null,
-                        'metadata' => $this->decodeJsonObject($s['metadata'] ?? null),
+                        'metadata' => JsonHelper::decodeJsonObject($s['metadata'] ?? null),
                     ], $stages);
                 }
 
                 return ToolResult::success((string) json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             },
         );
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function decodeJsonObject(mixed $value): ?array
-    {
-        if (!is_string($value) || $value === '') {
-            return null;
-        }
-
-        $decoded = json_decode($value, true);
-
-        return is_array($decoded) ? $decoded : null;
     }
 
     private function loopPauseTool(): Tool
