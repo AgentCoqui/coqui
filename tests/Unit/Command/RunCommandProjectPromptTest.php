@@ -50,7 +50,7 @@ test('run command syncs active project after agent turns without putting the pro
         ->not->toContain("sprintf(' [%s] › ', \$this->activeProjectSlug)");
 
     preg_match_all(
-        '/\\$shutdownGuard\\(\\$shutdownStty\\);\n\s+\\$this->restoreActiveProject\\(\\);/',
+        '/\\$shutdownGuard\\(\\$shutdownStty\\);\R+\s+\\$this->restoreActiveProject\\(\\);/',
         $source,
         $matches,
     );

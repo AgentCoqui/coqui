@@ -13,6 +13,7 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
+use CoquiBot\Coqui\Support\ProcessSpawner;
 use PDO;
 
 /**
@@ -2016,16 +2017,47 @@ final class SessionStorage
             return (bool) ($this->expectedCoquiProcessChecker)($pid, $subcommand);
         }
 
-        if ($pid <= 0 || !function_exists('posix_kill') || !posix_kill($pid, 0)) {
+        if ($pid <= 0 || !ProcessSpawner::isProcessAlive($pid)) {
             return false;
         }
 
-        $command = shell_exec(sprintf('ps -o command= -p %d 2>/dev/null', $pid));
+        $command = PHP_OS_FAMILY === 'Windows'
+            ? $this->windowsProcessCommandLine($pid)
+            : shell_exec(sprintf('ps -o command= -p %d 2>/dev/null', $pid));
+
         if (!is_string($command) || trim($command) === '') {
             return false;
         }
 
         return str_contains($command, 'bin/coqui')
             && str_contains($command, $subcommand);
+    }
+
+    private function windowsProcessCommandLine(int $pid): ?string
+    {
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        $process = @proc_open([
+            'powershell',
+            '-NoProfile',
+            '-Command',
+            sprintf('(Get-CimInstance Win32_Process -Filter "ProcessId = %d" -ErrorAction SilentlyContinue).CommandLine', $pid),
+        ], $descriptors, $pipes, null, null);
+
+        if (!is_resource($process)) {
+            return null;
+        }
+
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($process);
+
+        return $stdout === false ? null : trim($stdout);
     }
 }

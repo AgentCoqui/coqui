@@ -190,6 +190,12 @@ test('makeRelative strips root prefix', function () {
     expect($this->fs->makeRelative($abs))->toBe('sub/file.txt');
 });
 
+test('makeRelative normalizes backslash-separated absolute paths', function () {
+    $abs = str_replace('/', '\\', $this->root) . '\\sub\\file.txt';
+
+    expect($this->fs->makeRelative($abs))->toBe('sub/file.txt');
+});
+
 // ---------------------------------------------------------------
 // Mount support
 // ---------------------------------------------------------------

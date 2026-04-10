@@ -109,32 +109,10 @@ function createAgentRunnerFixture(): array
 function cleanupAgentRunnerFixture(array $fixture): void
 {
     foreach ([$fixture['dbPath'], $fixture['memoryDbPath']] as $file) {
-        if (file_exists($file)) {
-            unlink($file);
-        }
-
-        foreach (['-wal', '-shm'] as $suffix) {
-            $path = $file . $suffix;
-            if (file_exists($path)) {
-                unlink($path);
-            }
-        }
+        cleanupSqliteTestDb($file);
     }
 
-    if (!is_dir($fixture['workspacePath'])) {
-        return;
-    }
-
-    $iterator = new RecursiveIteratorIterator(
-        new RecursiveDirectoryIterator($fixture['workspacePath'], RecursiveDirectoryIterator::SKIP_DOTS),
-        RecursiveIteratorIterator::CHILD_FIRST,
-    );
-
-    foreach ($iterator as $file) {
-        $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
-    }
-
-    rmdir($fixture['workspacePath']);
+    cleanupTestTree($fixture['workspacePath']);
 }
 
 function makeAgentRunnerFixture(

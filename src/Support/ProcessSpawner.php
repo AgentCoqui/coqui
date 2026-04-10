@@ -41,7 +41,7 @@ final class ProcessSpawner
             2 => ['pipe', 'w'],  // stderr
         ];
 
-        $process = proc_open(
+        $process = @proc_open(
             $cmd,
             $descriptors,
             $pipes,
@@ -105,6 +105,10 @@ final class ProcessSpawner
             return true;
         }
 
+        if (PHP_OS_FAMILY === 'Windows') {
+            return self::windowsTaskKill($pid, $signal === SIGKILL);
+        }
+
         return false;
     }
 
@@ -124,6 +128,25 @@ final class ProcessSpawner
 
         $status = proc_get_status($process);
         if (!$status['running']) {
+            return;
+        }
+
+        if (PHP_OS_FAMILY === 'Windows') {
+            self::windowsTaskKill($pid, false);
+
+            $elapsedUs = 0;
+            $timeoutUs = $timeoutMs * 1000;
+
+            while ($elapsedUs < $timeoutUs) {
+                usleep(self::GRACEFUL_POLL_INTERVAL_US);
+                $elapsedUs += self::GRACEFUL_POLL_INTERVAL_US;
+
+                if (!self::isProcessAlive($pid)) {
+                    return;
+                }
+            }
+
+            self::windowsTaskKill($pid, true);
             return;
         }
 
@@ -159,11 +182,22 @@ final class ProcessSpawner
             return false;
         }
 
-        if (!function_exists('posix_kill')) {
-            return false;
+        if (function_exists('posix_kill')) {
+            return posix_kill($pid, 0);
         }
 
-        return posix_kill($pid, 0);
+        if (PHP_OS_FAMILY === 'Windows') {
+            $output = self::runCommand([
+                self::windowsPowerShellBinary(),
+                '-NoProfile',
+                '-Command',
+                sprintf('Get-Process -Id %d -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id', $pid),
+            ]);
+
+            return trim($output ?? '') === (string) $pid;
+        }
+
+        return false;
     }
 
     /**
@@ -215,5 +249,71 @@ final class ProcessSpawner
         }
 
         return self::$hasPerl;
+    }
+
+    private static function windowsTaskKill(int $pid, bool $force): bool
+    {
+        $command = ['taskkill'];
+        if ($force) {
+            $command[] = '/F';
+        }
+        array_push($command, '/PID', (string) $pid, '/T');
+
+        $exitCode = self::runCommandExitCode($command);
+
+        return $exitCode === 0 || !self::isProcessAlive($pid);
+    }
+
+    private static function windowsPowerShellBinary(): string
+    {
+        return 'powershell';
+    }
+
+    /**
+     * @param list<string> $command
+     */
+    private static function runCommand(array $command): ?string
+    {
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        $process = @proc_open($command, $descriptors, $pipes, null, null);
+        if (!is_resource($process)) {
+            return null;
+        }
+
+        fclose($pipes[0]);
+        $stdout = stream_get_contents($pipes[1]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+        proc_close($process);
+
+        return $stdout === false ? null : $stdout;
+    }
+
+    /**
+     * @param list<string> $command
+     */
+    private static function runCommandExitCode(array $command): int
+    {
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+
+        $process = @proc_open($command, $descriptors, $pipes, null, null);
+        if (!is_resource($process)) {
+            return 1;
+        }
+
+        fclose($pipes[0]);
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        return proc_close($process);
     }
 }

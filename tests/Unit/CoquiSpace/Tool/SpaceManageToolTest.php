@@ -27,9 +27,7 @@ beforeEach(function () {
     );
 
     // Fake composer binary so ComposerRunner never calls the real composer
-    $this->fakeBin = sys_get_temp_dir() . '/fake-composer-' . uniqid();
-    file_put_contents($this->fakeBin, "#!/bin/sh\nexit 0\n");
-    chmod($this->fakeBin, 0755);
+    $this->fakeBin = createFakeComposerBinary();
     putenv("COMPOSER_BIN={$this->fakeBin}");
 
     $skillDiscovery = new SkillDiscovery($this->tmpDir);
@@ -47,21 +45,9 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    if (file_exists($this->fakeBin)) {
-        unlink($this->fakeBin);
-    }
+    @unlink($this->fakeBin);
     putenv('COMPOSER_BIN=');
-
-    if (is_dir($this->tmpDir)) {
-        $files = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($this->tmpDir, RecursiveDirectoryIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::CHILD_FIRST,
-        );
-        foreach ($files as $file) {
-            $file->isDir() ? rmdir($file->getRealPath()) : unlink($file->getRealPath());
-        }
-        rmdir($this->tmpDir);
-    }
+    cleanupTestTree($this->tmpDir);
 });
 
 // ── Contract ─────────────────────────────────────────────────────────────────

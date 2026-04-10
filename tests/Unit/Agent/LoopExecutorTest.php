@@ -65,26 +65,9 @@ beforeEach(function () {
 
 afterEach(function () {
     // Release PDO handles before cleanup — Windows locks open SQLite files
-    $this->storage = null;
-    $this->loopStore = null;
-    $this->projectStore = null;
-    $this->artifactStore = null;
-    $this->executor = null;
-
-    if (file_exists($this->dbPath)) {
-        unlink($this->dbPath);
-    }
-    // Clean up temp workspace
-    if (is_dir($this->workspacePath)) {
-        $it = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($this->workspacePath, RecursiveDirectoryIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::CHILD_FIRST,
-        );
-        foreach ($it as $file) {
-            $file->isDir() ? rmdir($file->getPathname()) : unlink($file->getPathname());
-        }
-        rmdir($this->workspacePath);
-    }
+    releaseTestObjectProperties($this);
+    cleanupSqliteTestDb($this->dbPath);
+    cleanupTestTree($this->workspacePath);
 });
 
 // ──────────────────────────────────────────────
