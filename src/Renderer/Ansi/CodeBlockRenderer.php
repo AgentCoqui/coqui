@@ -34,6 +34,10 @@ final class CodeBlockRenderer implements NodeRendererInterface
         }
 
         $code = rtrim($code, "\n");
+        if (trim($code) === '') {
+            return '';
+        }
+
         $lines = explode("\n", $code);
 
         $output = '';

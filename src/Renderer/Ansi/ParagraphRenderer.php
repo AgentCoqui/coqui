@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Renderer\Ansi;
 
+use League\CommonMark\Extension\CommonMark\Node\Block\ListBlock;
+use League\CommonMark\Extension\CommonMark\Node\Block\ListItem;
 use League\CommonMark\Node\Block\Paragraph;
 use League\CommonMark\Node\Node;
 use League\CommonMark\Renderer\ChildNodeRendererInterface;
@@ -15,14 +17,15 @@ final class ParagraphRenderer implements NodeRendererInterface
     {
         Paragraph::assertInstanceOf($node);
 
-        $content = $childRenderer->renderNodes($node->children());
+        $content = rtrim($childRenderer->renderNodes($node->children()), "\n");
 
-        // Tight list items don't get extra spacing — check parent
-        if ($node->parent() instanceof \League\CommonMark\Extension\CommonMark\Node\Block\ListItem) {
-            $listData = $node->parent()->parent();
-            if ($listData instanceof \League\CommonMark\Extension\CommonMark\Node\Block\ListBlock && $listData->isTight()) {
-                return $content . "\n";
+        if ($node->parent() instanceof ListItem) {
+            $list = $node->parent()->parent();
+            if ($list instanceof ListBlock && $list->isTight()) {
+                return $content;
             }
+
+            return $content . "\n";
         }
 
         return $content . "\n\n";

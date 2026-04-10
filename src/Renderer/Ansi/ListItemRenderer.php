@@ -41,13 +41,13 @@ final class ListItemRenderer implements NodeRendererInterface
 
         // Indent continuation lines
         $lines = explode("\n", $content);
-        $first = array_shift($lines);
-        $result = '  ' . $bullet . ' ' . $first;
+        $first = array_shift($lines) ?? '';
+        $result = '  ' . $bullet . ($first !== '' ? ' ' . $first : '');
 
         foreach ($lines as $line) {
             $result .= "\n" . '    ' . $line;
         }
 
-        return $result . "\n";
+        return $result;
     }
 }
