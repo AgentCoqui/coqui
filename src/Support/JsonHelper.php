@@ -1,0 +1,40 @@
+<?php
+
+declare(strict_types=1);
+
+namespace CoquiBot\Coqui\Support;
+
+/**
+ * Shared JSON decode helpers.
+ *
+ * Extracted from 11 identical private decodeJsonObject() methods scattered
+ * across toolkits, handlers, and agents.
+ */
+final class JsonHelper
+{
+    /**
+     * Decode a JSON string into an associative array, returning null on failure.
+     *
+     * Handles: array passthrough, null/empty rejection, decode errors.
+     *
+     * @return array<string, mixed>|null
+     */
+    public static function decodeJsonObject(mixed $value): ?array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        try {
+            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return is_array($decoded) ? $decoded : null;
+    }
+}

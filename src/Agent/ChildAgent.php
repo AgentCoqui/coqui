@@ -12,6 +12,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Contract\ChildAgentHandoff;
+use CoquiBot\Coqui\Contract\SystemRole;
 
 /**
  * A flexible child agent that receives its instructions and toolkits at construction time.
@@ -81,7 +82,7 @@ final class ChildAgent extends AbstractAgent
 
         // Fall back to hardcoded defaults for backward compatibility
         return match ($this->role) {
-            'coder' => <<<INSTRUCTIONS
+            SystemRole::Coder->value => <<<INSTRUCTIONS
                 You are an expert PHP developer. Your task is to write clean, well-documented code.
                 
                 Guidelines:
@@ -93,7 +94,7 @@ final class ChildAgent extends AbstractAgent
                 - Include type declarations for all parameters and return types
                 INSTRUCTIONS,
 
-            'reviewer' => <<<INSTRUCTIONS
+            SystemRole::Reviewer->value => <<<INSTRUCTIONS
                 You are a code reviewer. Analyze the provided code for:
                 
                 - Bugs and logic errors

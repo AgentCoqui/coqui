@@ -22,6 +22,7 @@ use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
+use CoquiBot\Coqui\Contract\SystemRole;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -118,7 +119,7 @@ final class SlashCommandRouter
     {
         $sessionId = $this->session->createNewSession();
         $io->success('New session started: ' . $sessionId);
-        return RouteResult::stateChange(newSessionId: $sessionId, newActiveRole: 'orchestrator');
+        return RouteResult::stateChange(newSessionId: $sessionId, newActiveRole: SystemRole::Orchestrator->value);
     }
 
     private function handleHistory(SymfonyStyle $io, string $sessionId): RouteResult
@@ -219,7 +220,7 @@ final class SlashCommandRouter
 
     private function handlePrompt(SymfonyStyle $io, string $arg, string $activeRole): RouteResult
     {
-        $role = $activeRole !== 'orchestrator' ? $activeRole : null;
+        $role = $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null;
 
         if (trim($arg) === 'export') {
             $filePath = $this->agentRunner->exportPromptToFile($role);
@@ -250,7 +251,7 @@ final class SlashCommandRouter
         $requestedRole = trim($arg);
         $role = $requestedRole !== ''
             ? $requestedRole
-            : ($activeRole !== 'orchestrator' ? $activeRole : null);
+            : ($activeRole !== SystemRole::Orchestrator->value ? $activeRole : null);
 
         $this->budget->handle($io, $role);
 

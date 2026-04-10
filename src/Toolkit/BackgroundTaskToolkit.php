@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
+use CoquiBot\Coqui\Support\JsonHelper;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -337,7 +338,7 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             'completed_at' => $task['completed_at'],
         ];
 
-        $metadata = $this->decodeJsonObject($task['metadata'] ?? null);
+        $metadata = JsonHelper::decodeJsonObject($task['metadata'] ?? null);
         if ($metadata !== null) {
             $summary['metadata'] = $metadata;
         }
@@ -402,7 +403,7 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             'role' => $t['role'],
             'created_at' => $t['created_at'],
             'completed_at' => $t['completed_at'],
-            'metadata' => $this->decodeJsonObject($t['metadata'] ?? null),
+            'metadata' => JsonHelper::decodeJsonObject($t['metadata'] ?? null),
         ], $tasks);
 
         $counts = $this->storage->getTaskCounts();
@@ -467,17 +468,4 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         ], JSON_UNESCAPED_SLASHES) ?: 'Cancel requested');
     }
 
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function decodeJsonObject(mixed $value): ?array
-    {
-        if (!is_string($value) || $value === '') {
-            return null;
-        }
-
-        $decoded = json_decode($value, true);
-
-        return is_array($decoded) ? $decoded : null;
-    }
 }

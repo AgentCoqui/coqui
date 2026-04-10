@@ -13,6 +13,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CoquiBot\Coqui\Contract\EvaluationEvidenceMetadata;
+use CoquiBot\Coqui\Support\JsonHelper;
 use CoquiBot\Coqui\Agent\QualityAutomationCoordinator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\EvaluationStore;
@@ -294,7 +295,7 @@ final class SessionEvaluationToolkit implements ToolkitInterface
                         'prompt' => $prompt,
                         'result' => $resultText,
                         'token_count' => (int) $run['token_count'],
-                        'metadata' => $this->decodeJsonObject($run['metadata'] ?? null),
+                        'metadata' => JsonHelper::decodeJsonObject($run['metadata'] ?? null),
                         'created_at' => $run['created_at'],
                     ];
                 }, $childRuns);
@@ -544,24 +545,6 @@ final class SessionEvaluationToolkit implements ToolkitInterface
         }
 
         return array_values($grouped);
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function decodeJsonObject(mixed $value): ?array
-    {
-        if (!is_string($value) || trim($value) === '') {
-            return null;
-        }
-
-        try {
-            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
-        } catch (\Throwable) {
-            return null;
-        }
-
-        return is_array($decoded) ? $decoded : null;
     }
 
     /**

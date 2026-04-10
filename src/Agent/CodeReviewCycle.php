@@ -16,6 +16,7 @@ use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\CodeReviewResult;
 use CoquiBot\Coqui\Contract\ReviewHandoffMetadata;
 use CoquiBot\Coqui\Contract\ReviewVerdict;
+use CoquiBot\Coqui\Contract\SystemRole;
 use SplObserver;
 
 /**
@@ -153,7 +154,7 @@ final class CodeReviewCycle
         ?string $sprintContext,
         int $round,
     ): array {
-        $reviewerModelString = $this->roleResolver->resolve('reviewer');
+        $reviewerModelString = $this->roleResolver->resolve(SystemRole::Reviewer->value);
 
         try {
             $factory = new ProviderFactory($this->config);
@@ -172,7 +173,7 @@ final class CodeReviewCycle
             metadata: (new ReviewHandoffMetadata(
                 phase: 'review',
                 round: $round,
-                sourceRole: 'coder',
+                sourceRole: SystemRole::Coder->value,
                 hasSprintContext: $sprintContext !== null && $sprintContext !== '',
                 autoIterate: false,
             ))->toArray(),
@@ -182,7 +183,7 @@ final class CodeReviewCycle
 
         $child = new ChildAgent(
             provider: $provider,
-            role: 'reviewer',
+            role: SystemRole::Reviewer->value,
             taskInstructions: $handoff,
             toolkits: $toolkits,
             maxIterations: self::REVIEWER_MAX_ITERATIONS,
@@ -225,7 +226,7 @@ final class CodeReviewCycle
         int $maxIterations,
         int $round,
     ): array {
-        $coderModelString = $this->roleResolver->resolve('coder');
+        $coderModelString = $this->roleResolver->resolve(SystemRole::Coder->value);
 
         try {
             $factory = new ProviderFactory($this->config);
@@ -244,7 +245,7 @@ final class CodeReviewCycle
             metadata: (new ReviewHandoffMetadata(
                 phase: 'rework',
                 round: $round,
-                sourceRole: 'reviewer',
+                sourceRole: SystemRole::Reviewer->value,
                 hasSprintContext: false,
                 autoIterate: true,
             ))->toArray(),
@@ -254,7 +255,7 @@ final class CodeReviewCycle
 
         $child = new ChildAgent(
             provider: $provider,
-            role: 'coder',
+            role: SystemRole::Coder->value,
             taskInstructions: $handoff,
             toolkits: $toolkits,
             maxIterations: $maxIterations,

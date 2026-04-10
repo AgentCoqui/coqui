@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl\Handler;
 
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\JsonHelper;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -74,7 +75,7 @@ final class TaskHandler
             ['Completed' => $task['completed_at'] ?? '(not completed)'],
         );
 
-        $metadata = $this->decodeJsonObject($task['metadata'] ?? null);
+        $metadata = JsonHelper::decodeJsonObject($task['metadata'] ?? null);
         if ($metadata !== null) {
             $io->newLine();
             $io->text('<fg=cyan>Structured Metadata:</>');
@@ -171,17 +172,4 @@ final class TaskHandler
         return null;
     }
 
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function decodeJsonObject(mixed $value): ?array
-    {
-        if (!is_string($value) || $value === '') {
-            return null;
-        }
-
-        $decoded = json_decode($value, true);
-
-        return is_array($decoded) ? $decoded : null;
-    }
 }

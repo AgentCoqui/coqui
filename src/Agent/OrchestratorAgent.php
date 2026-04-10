@@ -53,6 +53,7 @@ use CoquiBot\Coqui\Memory\MemoryEntry;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
+use CoquiBot\Coqui\Support\StringHelper;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
 use CoquiBot\Coqui\Toolkit\LearningToolkit;
@@ -1565,7 +1566,7 @@ final class OrchestratorAgent extends AbstractAgent
             }
 
             $sections[] = new PromptSection(
-                id: 'toolkit.' . strtolower(preg_replace('/[^a-z0-9]+/i', '-', $displayName) ?? $displayName),
+                id: 'toolkit.' . StringHelper::slug($displayName),
                 title: $displayName,
                 content: $guidelines,
                 priority: PromptSectionPriority::Volatile,

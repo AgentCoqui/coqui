@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api;
 
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
@@ -112,7 +113,7 @@ final class ScheduleManager
             }
         }
 
-        $role = (string) ($schedule['role'] ?? 'orchestrator');
+        $role = (string) ($schedule['role'] ?? SystemRole::Orchestrator->value);
         $prompt = (string) ($schedule['prompt'] ?? '');
         $maxIterations = (int) ($schedule['max_iterations'] ?? 48);
         $scheduleName = (string) ($schedule['name'] ?? 'schedule');

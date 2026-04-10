@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Repl\TerminalStateManager;
 use CoquiBot\Coqui\Repl\TimeFormatter;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\JsonHelper;
 use CoquiBot\Coqui\Tui\LoopDashboardScreen;
 use CoquiBot\Coqui\Tui\ScreenRunner;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -258,7 +259,7 @@ final class LoopHandler
             $io->table(['#', 'Role', 'Status', 'Summary'], $stageRows);
 
             foreach ($stages as $s) {
-                $metadata = $this->decodeJsonObject($s['metadata'] ?? null);
+                $metadata = JsonHelper::decodeJsonObject($s['metadata'] ?? null);
                 if ($metadata === null) {
                     continue;
                 }
@@ -391,17 +392,4 @@ final class LoopHandler
         $io->success("Cancelled loop {$target}.");
     }
 
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function decodeJsonObject(mixed $value): ?array
-    {
-        if (!is_string($value) || $value === '') {
-            return null;
-        }
-
-        $decoded = json_decode($value, true);
-
-        return is_array($decoded) ? $decoded : null;
-    }
 }

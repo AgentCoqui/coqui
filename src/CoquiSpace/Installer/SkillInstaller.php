@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\CoquiSpace\Installer;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\CoquiSpace\SpaceClient;
 use CoquiBot\Coqui\CoquiSpace\SpaceRegistry;
+use CoquiBot\Coqui\Support\StringHelper;
 
 /**
  * Manages the local skill lifecycle: download, install, update, disable, enable, remove.
@@ -348,8 +349,7 @@ final class SkillInstaller
 
     private function sanitizeName(string $value): string
     {
-        $clean = strtolower(preg_replace('/[^a-zA-Z0-9-]/', '-', $value) ?? $value);
-        $clean = trim($clean, '-');
+        $clean = StringHelper::slug($value);
 
         return $clean !== '' ? $clean : 'skill-' . bin2hex(random_bytes(4));
     }

@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Config;
 use CarmeloSantana\PHPAgents\Agent\AbstractAgent;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Contract\SystemRole;
 
 /**
  * Resolves role-based model assignments.
@@ -77,7 +78,7 @@ final class RoleResolver
             }
         }
 
-        return $this->resolve('title-generator');
+        return $this->resolve(SystemRole::TitleGenerator->value);
     }
 
     /**

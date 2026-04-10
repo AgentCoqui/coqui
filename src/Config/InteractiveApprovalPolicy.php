@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\StringHelper;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -192,7 +193,7 @@ final class InteractiveApprovalPolicy implements ToolExecutionPolicyInterface
         foreach ($arguments as $key => $value) {
             $display = match (true) {
                 is_bool($value) => $value ? 'true' : 'false',
-                is_string($value) => $this->truncate($value, 120),
+                is_string($value) => StringHelper::truncate($value, 120, '...'),
                 is_numeric($value) => (string) $value,
                 is_array($value) => json_encode($value, JSON_UNESCAPED_SLASHES) ?: '[...]',
                 default => '(complex)',
@@ -200,17 +201,6 @@ final class InteractiveApprovalPolicy implements ToolExecutionPolicyInterface
 
             $this->io->writeln("<fg=gray>{$key}:</> {$display}");
         }
-    }
-
-    private function truncate(string $text, int $maxLength): string
-    {
-        $text = str_replace(["\n", "\r"], ' ', $text);
-
-        if (mb_strlen($text) <= $maxLength) {
-            return $text;
-        }
-
-        return mb_substr($text, 0, $maxLength - 3) . '...';
     }
 
     /**

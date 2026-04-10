@@ -614,6 +614,13 @@
             "methods": []
         },
         {
+            "path": "src/Contract/SystemRole.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\SystemRole",
+            "layer": "contract",
+            "description": "String-backed enum centralizing built-in role name constants: Orchestrator, Coder, Reviewer, Learner, Evaluator, TitleGenerator, PlanTodoGenerator. Eliminates magic role strings scattered across the codebase.",
+            "methods": []
+        },
+        {
             "path": "src/Config/DefaultsLoader.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\DefaultsLoader",
             "layer": "config",
@@ -2643,6 +2650,26 @@
             "layer": "support",
             "description": "Domain exception for filesystem operations with static factories for common error types: fileNotFound, readFailed, writeFailed, readOnlyMount, pathEscapesSandbox, invalidRange, invalidRegex, copyFailed, moveFailed, cannotCopyToSelf, maxRecursiveItemsExceeded, deletionFailed, binaryFileNotEditable, fileTooLarge.",
             "methods": []
+        },
+        {
+            "path": "src/Support/JsonHelper.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\JsonHelper",
+            "layer": "support",
+            "description": "Centralized JSON decode helper. Provides decodeJsonObject() which safely decodes a mixed value into an associative array or null. Handles array passthrough, null/empty/non-string rejection, and type verification. Replaces 11 identical private methods formerly scattered across toolkits, handlers, and agents.",
+            "methods": [
+                "static decodeJsonObject(mixed): ?array — decode mixed value to associative array or null"
+            ]
+        },
+        {
+            "path": "src/Support/StringHelper.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\StringHelper",
+            "layer": "support",
+            "description": "Centralized string manipulation. Provides truncate() with newline normalization and multi-byte safety, truncateNullable() for nullable variants, and slug() for kebab-case conversion with Unicode transliteration. Replaces 6+ private truncate methods and 3+ slug/sanitize patterns scattered across the codebase.",
+            "methods": [
+                "static truncate(string, int, string): string — truncate with newline normalization and mb_* safety",
+                "static truncateNullable(?string, int, string): ?string — nullable-safe truncate variant",
+                "static slug(string): string — kebab-case conversion with transliteration"
+            ]
         },
         {
             "path": "src/Storage/EditHistory.php",

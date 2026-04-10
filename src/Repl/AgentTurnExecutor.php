@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Exception\InteractionCancelledException;
 use CoquiBot\Coqui\Exception\ShutdownRequestedException;
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use React\EventLoop\Loop;
@@ -106,7 +107,7 @@ final class AgentTurnExecutor
                 $sessionId,
                 $executionPolicy,
                 $cancellationToken,
-                role: $activeRole !== 'orchestrator' ? $activeRole : null,
+                role: $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null,
             );
         } finally {
             $this->escObserver->endTurn();

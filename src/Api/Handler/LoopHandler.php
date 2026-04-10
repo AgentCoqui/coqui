@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Storage\LoopStore;
+use CoquiBot\Coqui\Support\JsonHelper;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -148,22 +149,9 @@ final readonly class LoopHandler
      */
     private function normalizeStage(array $stage): array
     {
-        $stage['metadata'] = $this->decodeJsonObject($stage['metadata'] ?? null);
+        $stage['metadata'] = JsonHelper::decodeJsonObject($stage['metadata'] ?? null);
 
         return $stage;
     }
 
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function decodeJsonObject(mixed $value): ?array
-    {
-        if (!is_string($value) || $value === '') {
-            return null;
-        }
-
-        $decoded = json_decode($value, true);
-
-        return is_array($decoded) ? $decoded : null;
-    }
 }

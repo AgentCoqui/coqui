@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Notification;
 
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\JsonHelper;
 
 final readonly class RetryBackgroundTaskAction implements NotificationAutomationHandlerInterface
 {
@@ -51,7 +53,7 @@ final readonly class RetryBackgroundTaskAction implements NotificationAutomation
         );
 
         $executionSessionId = $this->storage->createSession(
-            modelRole: (string) ($task['role'] ?? 'orchestrator'),
+            modelRole: (string) ($task['role'] ?? SystemRole::Orchestrator->value),
             model: '',
         );
 
@@ -60,7 +62,7 @@ final readonly class RetryBackgroundTaskAction implements NotificationAutomation
             $this->storage->setActiveProject($executionSessionId, $activeProjectId);
         }
 
-        $originalMetadata = $this->decodeJsonObject($task['metadata'] ?? null) ?? [];
+        $originalMetadata = JsonHelper::decodeJsonObject($task['metadata'] ?? null) ?? [];
         $metadata = array_replace_recursive($originalMetadata, [
             'automation' => [
                 'notification_id' => $notificationId,
@@ -73,7 +75,7 @@ final readonly class RetryBackgroundTaskAction implements NotificationAutomation
         $followUpTaskId = $this->storage->createTask(
             sessionId: $executionSessionId,
             prompt: (string) ($task['prompt'] ?? ''),
-            role: (string) ($task['role'] ?? 'orchestrator'),
+            role: (string) ($task['role'] ?? SystemRole::Orchestrator->value),
             parentSessionId: $targetSessionId,
             title: $this->buildRetryTitle($task),
             maxIterations: max(1, (int) ($task['max_iterations'] ?? 25)),
@@ -105,21 +107,4 @@ final readonly class RetryBackgroundTaskAction implements NotificationAutomation
             : 'Retry: ' . $title;
     }
 
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function decodeJsonObject(mixed $value): ?array
-    {
-        if (!is_string($value) || $value === '') {
-            return null;
-        }
-
-        try {
-            $decoded = json_decode($value, true, flags: JSON_THROW_ON_ERROR);
-        } catch (\Throwable) {
-            return null;
-        }
-
-        return is_array($decoded) ? $decoded : null;
-    }
 }

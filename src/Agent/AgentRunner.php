@@ -54,6 +54,7 @@ use SplObserver;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\PromptBudgetSnapshot;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
 use CoquiBot\Coqui\Observer\BudgetExitObserver;
 use CoquiBot\Coqui\Renderer\ContextUsageBar;
@@ -1456,7 +1457,7 @@ final class AgentRunner
         }
 
         // Default: only coder role
-        return $role === 'coder';
+        return $role === SystemRole::Coder->value;
     }
 
     /**
