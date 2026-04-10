@@ -28,6 +28,7 @@ final class ComposerRunner
     {
         $arguments = $this->normalizeArguments($command);
         $composer = $this->resolveComposerBinary();
+        $processCommand = $this->buildProcessCommand($composer, $arguments);
 
         $descriptors = [
             0 => ['pipe', 'r'],
@@ -37,8 +38,8 @@ final class ComposerRunner
 
         $env = $this->buildEnvironment();
 
-        $process = proc_open(
-            [$composer, ...$arguments],
+        $process = @proc_open(
+            $processCommand,
             $descriptors,
             $pipes,
             $this->workingDirectory,
@@ -114,6 +115,8 @@ final class ComposerRunner
 
         $candidates = PHP_OS_FAMILY === 'Windows'
             ? [
+                getenv('APPDATA') . '\\Composer\\vendor\\bin\\composer.bat',
+                getenv('USERPROFILE') . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer.bat',
                 getenv('APPDATA') . '\\Composer\\vendor\\bin\\composer',
                 getenv('USERPROFILE') . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer',
             ]
@@ -124,12 +127,29 @@ final class ComposerRunner
             ];
 
         foreach ($candidates as $path) {
-            if (file_exists($path) && is_executable($path)) {
+            if ($path !== false && $path !== '' && file_exists($path) && is_executable($path)) {
                 return $path;
             }
         }
 
         return 'composer';
+    }
+
+    /**
+     * @param list<string> $arguments
+     * @return list<string>
+     */
+    private function buildProcessCommand(string $composer, array $arguments): array
+    {
+        if (preg_match('/\.(php|phar)$/i', $composer) === 1) {
+            return [PHP_BINARY, $composer, ...$arguments];
+        }
+
+        if (PHP_OS_FAMILY === 'Windows' && preg_match('/\.(bat|cmd)$/i', $composer) === 1) {
+            return ['cmd.exe', '/d', '/c', $composer, ...$arguments];
+        }
+
+        return [$composer, ...$arguments];
     }
 
     /**

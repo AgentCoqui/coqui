@@ -20,9 +20,8 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    if (file_exists($this->dbPath)) {
-        unlink($this->dbPath);
-    }
+    releaseTestObjectProperties($this);
+    cleanupSqliteTestDb($this->dbPath);
 });
 
 test('runner creates a retry task for failed background task notifications', function () {
