@@ -8,7 +8,6 @@ use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -46,7 +45,7 @@ final class ConversationHandler
             memoryStore: $this->boot->memoryStore(),
         );
 
-        $factory = new ProviderFactory($config);
+        $factory = $this->boot->providerFactory();
         $provider = null;
 
         try {

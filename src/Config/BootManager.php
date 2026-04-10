@@ -8,9 +8,11 @@ use CarmeloSantana\PHPAgents\Contract\EmbeddingProviderInterface;
 use CarmeloSantana\PHPAgents\Embedding\OllamaEmbeddingProvider;
 use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
 
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Contract\MountDefinition;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ArtifactStore;
@@ -64,6 +66,7 @@ final class BootManager
     private ?NotificationStore $notificationStore = null;
     private ?ToolUsageTracker $usageTracker = null;
     private ?ToolkitLoadingRegistry $loadingRegistry = null;
+    private ?ProviderFactory $providerFactory = null;
 
     public function __construct(
         private readonly string $workDir,
@@ -121,6 +124,22 @@ final class BootManager
     public function config(): OpenClawConfig
     {
         return $this->config;
+    }
+
+    /**
+     * Shared ProviderFactory instance.
+     *
+     * Lazily created on first call. Pass an HttpClientInterface on the first
+     * call to wire it into the factory (e.g. ReactHttpClientAdapter for REPL
+     * or API contexts). Subsequent calls return the cached instance.
+     */
+    public function providerFactory(?HttpClientInterface $httpClient = null): ProviderFactory
+    {
+        if ($this->providerFactory === null) {
+            $this->providerFactory = new ProviderFactory($this->config, $httpClient);
+        }
+
+        return $this->providerFactory;
     }
 
     /**

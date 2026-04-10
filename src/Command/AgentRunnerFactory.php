@@ -30,6 +30,9 @@ final class AgentRunnerFactory
         ?ToolExecutorInterface $toolExecutor = null,
         ?HttpClientInterface $httpClient = null,
     ): AgentRunner {
+        $httpClient = $httpClient ?? new ReactHttpClientAdapter();
+        $providerFactory = $boot->providerFactory($httpClient);
+
         return new AgentRunner(
             roleResolver: $boot->roleResolver(),
             config: $boot->config(),
@@ -43,6 +46,7 @@ final class AgentRunnerFactory
             skillDiscovery: $boot->skillDiscovery(),
             roleDiscovery: $boot->roleDiscovery(),
             unsafeMode: $unsafeMode,
+            providerFactory: $providerFactory,
             backgroundTasksEnabled: $backgroundTasksEnabled,
             memoryStore: $boot->memoryStore(),
             memorySummarizer: $boot->memorySummarizer(),
@@ -57,7 +61,7 @@ final class AgentRunnerFactory
             defaultsLoader: $boot->defaultsLoader(),
             tickCallback: $tickCallback,
             toolExecutor: $toolExecutor,
-            httpClient: $httpClient ?? new ReactHttpClientAdapter(),
+            httpClient: $httpClient,
             loadingRegistry: $includeLoadingData ? $boot->loadingRegistry() : null,
             usageTracker: $includeLoadingData ? $boot->usageTracker() : null,
             notificationStore: $boot->notificationStore(),

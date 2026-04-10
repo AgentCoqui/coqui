@@ -240,6 +240,7 @@ final class TurnRunCommand extends Command
                 roleResolver: $boot->roleResolver(),
                 config: $boot->config(),
                 roleDiscovery: $boot->roleDiscovery(),
+                providerFactory: $boot->providerFactory(),
             );
 
             $title = $titleGenerator->generate($prompt);

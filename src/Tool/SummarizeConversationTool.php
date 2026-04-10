@@ -35,6 +35,7 @@ final class SummarizeConversationTool implements ToolInterface
         private readonly string $sessionId,
         private readonly ?TodoStore $todoStore = null,
         private readonly ?ArtifactStore $artifactStore = null,
+        private readonly ?ProviderFactory $providerFactory = null,
     ) {}
 
     public function name(): string
@@ -236,7 +237,7 @@ final class SummarizeConversationTool implements ToolInterface
     private function resolveSummarizationProvider(): ?ProviderInterface
     {
         try {
-            $factory = new ProviderFactory($this->config);
+            $factory = $this->providerFactory ?? new ProviderFactory($this->config);
 
             $utilityModel = $this->roleResolver->resolveUtility();
             if ($utilityModel !== '') {

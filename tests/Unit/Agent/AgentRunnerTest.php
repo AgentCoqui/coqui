@@ -21,6 +21,7 @@ use CarmeloSantana\PHPAgents\Message\AssistantMessage;
 use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Message\SystemMessage;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Provider\Usage;
 
 function makeTestCredentialResolver(string $workspacePath): CredentialResolverInterface
@@ -157,6 +158,7 @@ function makeAgentRunnerFixture(
         discovery: $discovery,
         blacklist: $blacklist,
         credentialResolver: makeTestCredentialResolver($workspacePath),
+        providerFactory: new ProviderFactory($config),
         todoStore: $todoStore,
         artifactStore: $artifactStore,
         projectStore: $projectStore,

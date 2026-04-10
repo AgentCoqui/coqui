@@ -39,6 +39,7 @@ final class CodeReviewCycle
         private readonly ?RoleDiscovery $roleDiscovery = null,
         private readonly ?SplObserver $observer = null,
         private readonly ?ToolExecutorInterface $toolExecutor = null,
+        private readonly ?ProviderFactory $providerFactory = null,
     ) {}
 
     /**
@@ -157,7 +158,7 @@ final class CodeReviewCycle
         $reviewerModelString = $this->roleResolver->resolve(SystemRole::Reviewer->value);
 
         try {
-            $factory = new ProviderFactory($this->config);
+            $factory = $this->providerFactory ?? new ProviderFactory($this->config);
             $provider = $factory->create($reviewerModelString);
         } catch (\Throwable $e) {
             return [
@@ -229,7 +230,7 @@ final class CodeReviewCycle
         $coderModelString = $this->roleResolver->resolve(SystemRole::Coder->value);
 
         try {
-            $factory = new ProviderFactory($this->config);
+            $factory = $this->providerFactory ?? new ProviderFactory($this->config);
             $provider = $factory->create($coderModelString);
         } catch (\Throwable $e) {
             return [

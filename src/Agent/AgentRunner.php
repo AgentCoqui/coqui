@@ -78,10 +78,10 @@ final class AgentRunner
         private readonly ToolkitDiscovery $discovery,
         private readonly CatastrophicBlacklist $blacklist,
         private readonly CredentialResolverInterface $credentialResolver,
+        private readonly ProviderFactory $providerFactory,
         private readonly ?SkillDiscovery $skillDiscovery = null,
         private readonly ?RoleDiscovery $roleDiscovery = null,
         private readonly bool $unsafeMode = false,
-        private readonly ?ProviderFactory $providerFactory = null,
         private readonly bool $backgroundTasksEnabled = false,
         private readonly ?MemoryStore $memoryStore = null,
         private readonly ?MemorySummarizer $memorySummarizer = null,
@@ -344,7 +344,7 @@ final class AgentRunner
                         storage: $this->storage,
                         memoryStore: $this->memoryStore,
                     );
-                    $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
+                    $factory = $this->providerFactory;
                     $utilityModel = $this->roleResolver->resolveUtility();
                     if ($utilityModel !== '') {
                         $utilityProvider = $factory->create($utilityModel);
@@ -511,7 +511,7 @@ final class AgentRunner
             $httpClient = $httpClient->withCancellationToken($cancellationToken);
         }
 
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $httpClient);
+        $factory = $this->providerFactory;
         $provider = $factory->create($modelString);
 
         // Resolve budget exit configuration
@@ -587,6 +587,7 @@ final class AgentRunner
             tickCallback: $this->tickCallback,
             httpClient: $httpClient,
             loadingRegistry: $this->loadingRegistry,
+            providerFactory: $this->providerFactory,
             usageTracker: $this->usageTracker,
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
@@ -684,7 +685,7 @@ final class AgentRunner
     {
         $effectiveRole = $role ?? 'orchestrator';
         $modelString = $this->roleResolver->resolve($effectiveRole);
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
+        $factory = $this->providerFactory;
         $provider = $factory->create($modelString);
 
         $sanitizer = new ScriptSanitizer(unsafe: false, blacklist: $this->blacklist);
@@ -714,6 +715,7 @@ final class AgentRunner
                 ? new ModelFamilyResolver($this->defaultsLoader->familyNames())
                 : null,
             loadingRegistry: $this->loadingRegistry,
+            providerFactory: $this->providerFactory,
             usageTracker: $this->usageTracker,
         );
 
@@ -1191,7 +1193,7 @@ final class AgentRunner
         );
 
         // Resolve a cheap provider for summarization via utility model chain
-        $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
+        $factory = $this->providerFactory;
         $provider = null;
 
         try {
@@ -1477,6 +1479,7 @@ final class AgentRunner
                 roleDiscovery: $this->roleDiscovery,
                 observer: $observer,
                 toolExecutor: $this->toolExecutor,
+                providerFactory: $this->providerFactory,
             );
 
             // Build reviewer toolkits: read-only filesystem + shell search
@@ -1533,7 +1536,7 @@ final class AgentRunner
         }
 
         try {
-            $factory = $this->providerFactory ?? new ProviderFactory($this->config, $this->httpClient);
+            $factory = $this->providerFactory;
             $provider = null;
 
             // Resolve a cheap utility provider

@@ -192,6 +192,7 @@ final class AgentTurnExecutor
                 roleResolver: $this->boot->roleResolver(),
                 config: $this->boot->config(),
                 roleDiscovery: $this->boot->roleDiscovery(),
+                providerFactory: $this->boot->providerFactory(),
             );
 
             $title = $titleGenerator->generate($prompt);

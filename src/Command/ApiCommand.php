@@ -50,7 +50,6 @@ use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
 use CoquiBot\Coqui\Agent\ToolBoundEvaluator;
-use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
@@ -304,7 +303,7 @@ final class ApiCommand extends Command
             // Resolve utility model provider for goal_bound evaluation
             $goalEvaluator = null;
             try {
-                $factory = new ProviderFactory($boot->config(), new ReactHttpClientAdapter());
+                $factory = $boot->providerFactory(new ReactHttpClientAdapter());
                 $utilityModel = $boot->roleResolver()->resolveUtility();
                 if ($utilityModel !== '') {
                     $goalEvaluator = new GoalEvaluator($factory->create($utilityModel));
