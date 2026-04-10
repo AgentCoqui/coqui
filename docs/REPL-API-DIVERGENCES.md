@@ -18,7 +18,7 @@ The REPL is Coqui's primary interface. The API server exists as a background-tas
 | Task creation | Agent calls `start_background_task` → record written to SQLite | Same (agent tool or `POST /api/v1/tasks`) |
 | Task execution | **Not executed by REPL** — tasks remain pending until the API server picks them up | `BackgroundTaskManager` spawns `bin/coqui task:run` child processes on 1-second tick |
 | Monitoring | Agent polls with `task_status` tool; user checks `/tasks` REPL command | Same tools, plus `GET /api/v1/tasks/{id}/events` SSE stream |
-| Concurrency | N/A (REPL doesn't execute tasks) | Configurable via `api.tasks.maxConcurrent` (default 3) |
+| Concurrency | N/A (REPL doesn't execute tasks) | Configurable via `api.tasks.maxConcurrent` (default 32) |
 
 Background tasks **require the API server to be running** for execution. The REPL can create and monitor tasks, but only the API server spawns the child processes that execute them.
 
@@ -26,19 +26,20 @@ Background tasks **require the API server to be running** for execution. The REP
 
 | Concern | REPL | API |
 |---------|------|-----|
-| Orchestrator | `LoopRunner` — synchronous, blocking | `LoopManager` — async 5-second ReactPHP timer (removed in v0.x) |
-| Session model | **Parent session shared** across all stages — artifacts, todos, and sprints flow continuously | **New session per stage** — each stage runs as an independent background task |
-| Stage execution | Child agent runs in-process (same as `SpawnAgentTool`) | Stage spawned as background task via `BackgroundTaskManager` |
-| Artifact continuity | Stage outputs stored as `loop_output` artifacts in the parent session | Stage outputs stored in per-stage sessions; linked via loop store only |
-| Cancellation | Ctrl+C cancels the current stage agent | `POST /api/v1/loops/{id}/stop` sets status; manager stops on next tick |
+| Loop creation | Agent calls `loop_start` tool; `/loops` REPL workflow manages loop lifecycle | Read-only inspection via `GET /api/v1/loops` and related endpoints |
+| Stage advancement | **Not executed by REPL** — loop records are created but stages remain pending until the API server picks them up | `LoopManager` advances stages on a 5-second ReactPHP timer, creating background tasks via `BackgroundTaskManager` |
+| Session model | N/A (REPL doesn't execute stages) | **New session per stage** — each stage runs as an independent background task; artifacts shared via work-scope session |
+| Artifact continuity | N/A | Stage outputs stored as `loop_output` artifacts in the work-scope session |
+| Monitoring | Agent polls with `loop_status` tool; user checks `/loops` REPL command | Same tools, plus `GET /api/v1/loops/{id}` |
+| Cancellation | `/loops stop <id>` sets status; manager stops on next tick | No HTTP mutation endpoint; use REPL or agent tools, then inspect loop state over HTTP |
 
-Loop execution is **REPL-only**. The API provides read-only inspection of loop status, definitions, and iteration history but does not orchestrate loop execution.
+Loop stage advancement **requires the API server to be running**. The REPL can create loops (writing records to SQLite) and monitor their progress, but only the API server's `LoopManager` creates background tasks for each stage and advances the loop state machine.
 
 ## Schedules
 
 | Concern | REPL | API |
 |---------|------|-----|
-| Schedule creation | Agent calls `schedule_create` tool; `/schedules` REPL command for management | Same tools, plus REST endpoints |
+| Schedule creation | Agent calls `schedule_create` tool; `/schedules` REPL command for management | Read-only inspection via `GET /api/v1/schedules` and `GET /api/v1/schedules/{id}` |
 | Schedule evaluation | **Not evaluated by REPL** — cron expressions are not checked during REPL idle | `ScheduleManager` evaluates cron on a 60-second ReactPHP timer |
 | Task spawning | N/A | Ready schedules create background tasks automatically |
 
@@ -57,7 +58,7 @@ Webhooks **require the API server to be running** to receive incoming deliveries
 
 | Concern | REPL | API |
 |---------|------|-----|
-| Active project | Injected into system prompt; displayed in readline prompt | Not injected — API turns don't carry project context |
+| Active project | Injected into system prompt; displayed in the REPL user label before input | Not injected — API turns don't carry project context |
 | Terminal rendering | Rich terminal output with colors, progress bars, file-change summaries | No terminal rendering — events are structured JSON |
 | Edit history | Tracked per-turn with file-change summary after each turn | Not tracked — API turns don't have `EditHistory` |
 
@@ -66,8 +67,9 @@ Webhooks **require the API server to be running** to receive incoming deliveries
 The REPL provides the full-featured, interactive experience. The API provides:
 
 1. **Background task execution** — the only way to run tasks in separate processes
-2. **Schedule evaluation** — cron-driven task spawning
-3. **Webhook reception** — incoming event processing
-4. **Monitoring** — read-only inspection of sessions, tasks, artifacts, todos, loops, schedules, and webhooks
+2. **Loop stage advancement** — the only way loop stages progress (via `LoopManager`)
+3. **Schedule evaluation** — cron-driven task spawning
+4. **Webhook reception** — incoming event processing
+5. **Monitoring** — read-only inspection of sessions, tasks, artifacts, todos, loops, schedules, and webhooks
 
 When in doubt, use the REPL. The API is designed to complement it, not replace it.

@@ -15,8 +15,8 @@ use React\Http\Message\Response;
 /**
  * Role read-only endpoints.
  *
- * GET    /api/config/roles          — list all roles with metadata
- * GET    /api/config/roles/{name}   — get role detail + instructions
+ * GET    /api/v1/config/roles          — list all roles with metadata
+ * GET    /api/v1/config/roles/{name}   — get role detail + instructions
  *
  * Mutating operations (create, update, delete) are REPL-only.
  */
@@ -28,7 +28,7 @@ final readonly class RoleHandler
     ) {}
 
     /**
-     * GET /api/config/roles
+     * GET /api/v1/config/roles
      *
      * Sources from RoleResolver::toArray() which merges system roles
      * (orchestrator), config roles, and file-based discovered roles.
@@ -44,7 +44,7 @@ final readonly class RoleHandler
     }
 
     /**
-     * GET /api/config/roles/{name}
+     * GET /api/v1/config/roles/{name}
      *
      * System roles (orchestrator) return metadata with editable=false.
      * Non-system roles include full instructions.

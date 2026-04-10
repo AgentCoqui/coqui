@@ -8,17 +8,24 @@ use CarmeloSantana\PHPAgents\Contract\EmbeddingProviderInterface;
 use CarmeloSantana\PHPAgents\Embedding\OllamaEmbeddingProvider;
 use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
 
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Contract\MountDefinition;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
+use Symfony\Contracts\HttpClient\HttpClientInterface;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
+use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
+use CoquiBot\Coqui\Exception\InteractionCancelledException;
+use CoquiBot\Coqui\Exception\ShutdownRequestedException;
+use CoquiBot\Coqui\Repl\InterruptiblePrompt;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -54,8 +61,13 @@ final class BootManager
     private ?SpaceToolkit $spaceToolkit = null;
     private ?LoopStore $loopStore = null;
     private ?LoopDiscovery $loopDiscovery = null;
+    private ?LoopUpdateTracker $loopUpdateTracker = null;
+    /** @var list<LoopUpdateInfo> */
+    private array $pendingLoopUpdates = [];
+    private ?NotificationStore $notificationStore = null;
     private ?ToolUsageTracker $usageTracker = null;
     private ?ToolkitLoadingRegistry $loadingRegistry = null;
+    private ?ProviderFactory $providerFactory = null;
 
     public function __construct(
         private readonly string $workDir,
@@ -72,8 +84,11 @@ final class BootManager
      *                                               or null for headless/API mode.
      * @return bool True if boot succeeded, false if it should abort.
      */
-    public function boot(OutputInterface|SymfonyStyle|null $io = null, ?string $configPath = null): bool
-    {
+    public function boot(
+        OutputInterface|SymfonyStyle|null $io = null,
+        ?string $configPath = null,
+        bool $skipMaintenance = false,
+    ): bool {
         $this->loadConfig($io, $configPath);
         $this->blacklist = CatastrophicBlacklist::fromConfig($this->config);
         $this->initializeWorkspace();
@@ -82,7 +97,7 @@ final class BootManager
         $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
         $this->initializeCredentials();
         $this->initializeMemory();
-        $this->initializeArtifacts();
+        $this->initializeArtifacts($skipMaintenance);
         $this->discoverLoops();
         $this->discoverToolkits($io);
         $this->seedPackageContent();
@@ -110,6 +125,22 @@ final class BootManager
     public function config(): OpenClawConfig
     {
         return $this->config;
+    }
+
+    /**
+     * Shared ProviderFactory instance.
+     *
+     * Lazily created on first call. Pass an HttpClientInterface on the first
+     * call to wire it into the factory (e.g. ReactHttpClientAdapter for REPL
+     * or API contexts). Subsequent calls return the cached instance.
+     */
+    public function providerFactory(?HttpClientInterface $httpClient = null): ProviderFactory
+    {
+        if ($this->providerFactory === null) {
+            $this->providerFactory = new ProviderFactory($this->config, $httpClient);
+        }
+
+        return $this->providerFactory;
     }
 
     /**
@@ -233,6 +264,21 @@ final class BootManager
         return $this->loopDiscovery;
     }
 
+    public function loopUpdateTracker(): ?LoopUpdateTracker
+    {
+        return $this->loopUpdateTracker;
+    }
+
+    /**
+     * Get loop definitions with pending updates that need user review.
+     *
+     * @return list<LoopUpdateInfo>
+     */
+    public function pendingLoopUpdates(): array
+    {
+        return $this->pendingLoopUpdates;
+    }
+
     public function usageTracker(): ?ToolUsageTracker
     {
         return $this->usageTracker;
@@ -241,6 +287,11 @@ final class BootManager
     public function loadingRegistry(): ?ToolkitLoadingRegistry
     {
         return $this->loadingRegistry;
+    }
+
+    public function notificationStore(): ?NotificationStore
+    {
+        return $this->notificationStore;
     }
 
     private function loadConfig(OutputInterface|SymfonyStyle|null $io, ?string $configPath): void
@@ -291,6 +342,7 @@ final class BootManager
 
         // Interactive setup wizard — only available with SymfonyStyle
         if ($io instanceof SymfonyStyle) {
+            $prompt = new InterruptiblePrompt($io);
             $io->warning('No openclaw.json configuration found.');
             $io->text([
                 'Coqui needs an openclaw.json file to know which AI providers and models to use.',
@@ -298,16 +350,22 @@ final class BootManager
                 '',
             ]);
 
-            if ($io->confirm('Would you like to run the setup wizard now?', true)) {
-                $outputPath = $this->configManager->path();
-                $wizard = new SetupWizard($io, $this->defaultsLoader);
-                $saved = $wizard->runAndSave($outputPath);
+            try {
+                if ($prompt->confirm('Would you like to run the setup wizard now?', true)) {
+                    $outputPath = $this->configManager->path();
+                    $wizard = new SetupWizard($io, $this->defaultsLoader);
+                    $saved = $wizard->runAndSave($outputPath);
 
-                if ($saved && file_exists($outputPath)) {
-                    $this->config = $this->configManager->load();
-                    $this->configPath = $this->configManager->path();
-                    return;
+                    if ($saved && file_exists($outputPath)) {
+                        $this->config = $this->configManager->load();
+                        $this->configPath = $this->configManager->path();
+                        return;
+                    }
                 }
+            } catch (InteractionCancelledException) {
+                $io->text('<fg=gray>Setup wizard cancelled.</>');
+            } catch (ShutdownRequestedException) {
+                $io->text('<fg=gray>Setup wizard interrupted. Continuing with defaults.</>');
             }
 
             $defaultModel = $this->defaultsLoader->defaultModel();
@@ -422,8 +480,16 @@ final class BootManager
 
     private function discoverLoops(): void
     {
+        $builtinDir = ($this->workDir !== '' ? PathHelper::trimTrailingSlash($this->workDir) : dirname(__DIR__, 2)) . '/config/loops';
+
         $this->loopDiscovery = new LoopDiscovery($this->workspacePath, $this->workDir !== '' ? $this->workDir : null);
-        $this->loopDiscovery->seedBuiltinLoops();
+        $this->loopUpdateTracker = new LoopUpdateTracker($this->workspacePath, $builtinDir);
+
+        // Seed built-in loops, recording hashes for newly seeded files
+        $this->loopDiscovery->seedBuiltinLoops($this->loopUpdateTracker);
+
+        // Auto-update unmodified loops and collect notifications for modified ones
+        $this->pendingLoopUpdates = $this->loopUpdateTracker->autoUpdateAndNotify($this->loopDiscovery);
     }
 
     private function discoverRoles(): void
@@ -446,19 +512,29 @@ final class BootManager
         $embeddingProvider = $this->resolveEmbeddingProvider();
 
         $this->memoryStore = new MemoryStore($dbPath, $embeddingProvider);
-        $this->memorySummarizer = new MemorySummarizer($this->memoryStore);
+        $this->memoryStore->deleteArea('session_summary');
+
+        $coreSummaryMaxTokens = $this->config->get('agents.defaults.memory.coreSummaryMaxTokens');
+        $coreSummaryEntryLimit = $this->config->get('agents.defaults.memory.coreSummaryEntryLimit');
+
+        $this->memorySummarizer = new MemorySummarizer(
+            memoryStore: $this->memoryStore,
+            maxTokens: is_int($coreSummaryMaxTokens) ? $coreSummaryMaxTokens : CoquiDefaults::MEMORY_CORE_SUMMARY_MAX_TOKENS,
+            entryLimit: is_int($coreSummaryEntryLimit) ? $coreSummaryEntryLimit : CoquiDefaults::MEMORY_CORE_SUMMARY_ENTRY_LIMIT,
+        );
 
         // Run boot-time decay sweep — archives stale, low-value memories
         $this->memoryStore->decayAndArchive();
     }
 
     /**
-     * Initialize artifact store and clean up finalized artifacts from previous sessions.
+     * Initialize artifact store and optionally clean up finalized artifacts.
      *
-     * Draft and review artifacts are preserved across sessions. Final-stage artifacts
-     * are deleted because they have already been consumed by coder agents.
+     * Maintenance cleanup (cleanupFinalized, cleanupOrphaned, cleanupStale, cleanupUnlinked)
+     * runs only in long-lived processes (REPL, API server). Ephemeral background task
+     * processes skip cleanup to avoid deleting artifacts that sibling tasks need to read.
      */
-    private function initializeArtifacts(): void
+    private function initializeArtifacts(bool $skipMaintenance = false): void
     {
         $dbPath = $this->workspacePath . '/data/coqui.db';
 
@@ -466,15 +542,25 @@ final class BootManager
         $pdo = $storage->getPdo();
 
         $this->artifactStore = new ArtifactStore($pdo);
-        $this->artifactStore->cleanupFinalized();
         $this->todoStore = new TodoStore($pdo);
-        $this->todoStore->cleanupOrphaned();
-        $this->todoStore->cleanupStale();
-        $this->todoStore->cleanupUnlinked();
         $this->projectStore = new ProjectStore($pdo);
         $this->loopStore = new LoopStore($pdo);
+        $this->notificationStore = new NotificationStore($pdo);
         $this->usageTracker = new ToolUsageTracker($pdo);
         $this->loadingRegistry = new ToolkitLoadingRegistry($this->workspacePath);
+
+        if (!$skipMaintenance) {
+            $this->artifactStore->cleanupFinalized();
+            $this->todoStore->cleanupOrphaned();
+            $this->todoStore->cleanupStale();
+            $this->todoStore->cleanupUnlinked();
+
+            $notifConfig = $this->config->getNotificationConfig();
+            $this->notificationStore->prune(
+                $notifConfig['retentionHours']['informational'],
+                $notifConfig['retentionHours']['actionable'],
+            );
+        }
     }
 
     /**

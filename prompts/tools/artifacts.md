@@ -9,6 +9,9 @@ Artifacts are versioned, structured outputs that persist across turns within a s
 - `artifact_get` — Retrieve a specific artifact by ID, including its current content and metadata.
 - `artifact_list` — List artifacts in the current session, optionally filtered by type or stage.
 - `artifact_stage` — Transition an artifact through stages: `draft` → `review` → `final`. Stage transitions are one-directional.
+- `artifact_bulk_stage` — Transition multiple artifacts to a new stage by explicit IDs or by filters. Use `all: true` to transition every artifact in the session.
+- `artifact_delete` — Delete a single artifact and all of its version history.
+- `artifact_bulk_delete` — Delete multiple artifacts by explicit IDs or by filters. Use `all: true` to wipe all session artifacts.
 
 ### Artifact Types
 
@@ -22,18 +25,11 @@ Use descriptive types that match the content: `code`, `document`, `config`, `pla
 
 ### Guidelines
 
-1. **Create artifacts for significant outputs.** Don't create artifacts for trivial one-liners — use them for code, documents, configs, and plans that the user will want to reference or iterate on.
-2. **Update, don't recreate.** When iterating on content, update the existing artifact rather than creating a new one. The version history preserves all prior states.
-3. **Use meaningful titles.** Titles should describe the artifact concisely (e.g., "User Authentication Service", "Database Migration Plan").
-4. **Set language for code.** When creating code artifacts, set the `language` parameter (e.g., `php`, `python`, `sql`) for proper syntax context.
-5. **Set filepath when applicable.** If the artifact corresponds to a file, set `filepath` so the user knows where it belongs.
-6. **Advance stages deliberately.** Move to `review` when the artifact is ready for the user to evaluate. Only move to `final` when the user has approved it.
+1. **Create artifacts for significant outputs** — code, documents, configs, plans. Not for one-liners.
+2. **Update, don't recreate.** Version history preserves all prior states.
+3. **Set `language` and `filepath`** when applicable for proper context.
+4. **Advance stages deliberately.** Only `final` after user approval. Use bulk ops for cleanup workflows.
 
-### Integration with Todos
+### Todo Integration
 
-Plan artifacts and todos work together for structured implementation. All todos **must** be linked to an artifact:
-- Create a plan artifact first, then link todos via `artifact_id`
-- When a plan artifact is staged to `final`, todos are auto-generated from its content
-- Use `todo_list(artifact_id: "<id>")` to see todos linked to a specific plan
-- Artifact guidelines show linked todo progress for plan artifacts (e.g. "todos: 3/5")
-- IDs shown in guidelines and tool outputs are full UUIDs — use them directly in tool calls
+All todos **must** be linked to an artifact via `artifact_id`. When a plan artifact reaches `final`, todos are auto-generated from its content. Use `todo_list(artifact_id: "<id>")` to see linked todos. IDs in guidelines are full UUIDs — use them directly.

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Observer;
 
 use CarmeloSantana\PHPAgents\Contract\TickCallbackInterface;
-use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use Symfony\Component\Console\Output\OutputInterface;
 
 /**
@@ -13,7 +12,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  *
  * Called at strategic points in the agent run loop (between stream chunks,
  * between tool calls, after provider calls). Updates the terminal status
- * line with a spinner animation and polls STDIN for ESC keypresses.
+ * line with a spinner animation.
  *
  * Throttled to ≥50ms between redraws to avoid flicker.
  */
@@ -32,9 +31,6 @@ final class AnimatedTickCallback implements TickCallbackInterface
 
     public function __construct(
         private readonly OutputInterface $output,
-        private ?ProcessCancellationToken $cancellationToken = null,
-        /** @var resource|null */
-        private readonly mixed $stdin = null,
     ) {}
 
     /**
@@ -90,19 +86,12 @@ final class AnimatedTickCallback implements TickCallbackInterface
         $this->context = $context;
     }
 
-    public function setCancellationToken(ProcessCancellationToken $token): void
-    {
-        $this->cancellationToken = $token;
-    }
-
     #[\Override]
     public function tick(): void
     {
         if (!$this->active) {
             return;
         }
-
-        $this->pollEsc();
 
         $now = microtime(true);
         if (($now - $this->lastDrawTime) < self::THROTTLE_SECONDS) {
@@ -138,29 +127,4 @@ final class AnimatedTickCallback implements TickCallbackInterface
         $this->statusLineVisible = false;
     }
 
-    /**
-     * Non-blocking poll for ESC keypress on STDIN.
-     */
-    private function pollEsc(): void
-    {
-        if ($this->cancellationToken === null || $this->cancellationToken->isCancelled()) {
-            return;
-        }
-
-        $stdin = $this->stdin ?? \STDIN;
-        if (!is_resource($stdin) || !stream_isatty($stdin)) {
-            return;
-        }
-
-        $read = [$stdin];
-        $write = $except = [];
-        if (@stream_select($read, $write, $except, 0, 0) > 0) {
-            $char = fread($stdin, 1);
-            if ($char === "\x1b") {
-                $this->cancellationToken->cancel();
-                $this->clearStatusLine();
-                $this->output->writeln('  <fg=yellow>⚠ Cancellation requested (ESC) — finishing current operation...</>');
-            }
-        }
-    }
 }

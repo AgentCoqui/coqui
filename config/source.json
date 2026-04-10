@@ -10,30 +10,34 @@
         "toolkit": "Toolkits — groups of related tools with shared guidelines",
         "observer": "Observers — real-time event rendering for terminal output",
         "storage": "Storage — SQLite-backed session and audit persistence",
-        "coqui-space": "Coqui Space — marketplace integration for discovering, installing, and managing skills and toolkits"
+        "coqui-space": "Coqui Space — marketplace integration for discovering, installing, and managing skills and toolkits",
+        "prompt": "Prompt — system prompt composition, soul resolution, placeholder substitution"
     },
     "files": [
         {
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, toolkit_list). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Also builds prompt-section telemetry with pinned-versus-deferrable classification and rationale for budget inspection surfaces. Supports a per-turn notification prompt section injected outside the cached base instructions so transient background-work notifications remain visible to the model without polluting persisted conversation history. Constructed fresh on every REPL turn.",
             "methods": [
-                "instructions(): string \u2014 returns the full system prompt with role descriptions, security rules, and operational guidelines",
-                "tools(): ToolInterface[] \u2014 returns standalone tools (spawn, credentials, package_info, php_execute, vision_analyze, restart_coqui, summarize_conversation)",
+                "setNotificationPromptSection(?string): void — install or clear the turn-scoped notification prompt section",
+                "instructions(): string — returns the full system prompt with role descriptions, security rules, and operational guidelines",
+                "tools(): ToolInterface[] — returns standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, toolkit_list)",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
                 "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking",
                 "resolveContextWindow(): ?ContextWindowInterface — resolves ContextWindow from ModelDefinition with 128K/4K fallback",
                 "getContextWindow(): ?ContextWindowInterface — accessor for the resolved context window",
                 "resolveActiveProjectId(): ?string — reads active project from SessionStorage",
-                "injectProjectContext(string): string — appends # ACTIVE PROJECT section with metadata, sprints, and directory to system prompt"
+                "injectProjectContext(string): string — appends # ACTIVE PROJECT section with metadata, sprints, and directory to system prompt",
+                "getPromptSectionBreakdown(TokenCounterInterface): array — returns typed prompt-section telemetry with priority, pinning, rationale, and token counts",
+                "getAppliedLoadingModes(): array<string, ToolkitLoadingMode> — applied runtime loading modes (toolkit basename => mode) for REPL display"
             ]
         },
         {
             "path": "src/Agent/ChildAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\ChildAgent",
             "layer": "agent",
-            "description": "Flexible child agent spawned by SpawnAgentTool. Receives role, task instructions, and toolkits at construction time. Loads role instructions from file-based roles via RoleDiscovery, falling back to hardcoded instructions for backward compatibility.",
+            "description": "Flexible child agent spawned by SpawnAgentTool. Receives role, a typed child handoff envelope or legacy task string, and toolkits at construction time. Loads role instructions from file-based roles via RoleDiscovery, falling back to hardcoded instructions for backward compatibility.",
             "methods": [
                 "instructions(): string — resolves role instructions from file or hardcoded fallback + task injection",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
@@ -44,7 +48,7 @@
             "path": "src/Agent/AgentRunner.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunner",
             "layer": "agent",
-            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Includes autoSummarizeIfNeeded() for pre-turn budget checks with workflow context injection, and autoExtractMemories() which runs LLM-based memory extraction after each successful turn (configurable via agents.defaults.memory.autoExtract). Accepts optional TodoStore and ArtifactStore to build workflow context for summarization.",
+            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Includes autoSummarizeIfNeeded() for pre-turn budget checks with workflow context injection, and autoExtractMemories() which runs LLM-based memory extraction after each successful turn (configurable via agents.defaults.memory.autoExtract). Snapshots unread informational notifications into a transient prompt section and applies it to the live OrchestratorAgent for the current turn instead of injecting synthetic transcript messages. Also builds prompt-preview and prompt-budget snapshots used by the REPL and API inspection surfaces, including prompt-section rationale and pinning metadata. Accepts optional TodoStore and ArtifactStore to build workflow context for summarization.",
             "methods": [
                 "run(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy): AgentTurnResult — runs a single agent turn using the default observer",
                 "runWithObserver(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy, SplObserver $observer): AgentTurnResult — runs a turn with a per-turn observer override",
@@ -52,7 +56,64 @@
                 "createAgent(..., ?SplObserver $observer, string $role, ?int $maxIterations): OrchestratorAgent — builds the orchestrator agent with role-resolved model and iteration limit",
                 "autoSummarizeIfNeeded(OrchestratorAgent, Conversation, string $sessionId, ?SplObserver): Conversation — checks token budget and auto-summarizes with workflow context if threshold exceeded",
                 "autoExtractMemories(Conversation, string $sessionId): void — runs LLM-based memory extraction from completed turn",
-                "buildWorkflowContext(string $sessionId): ?string — queries TodoStore and ArtifactStore to build workflow context for summarization"
+                "buildWorkflowContext(string $sessionId): ?string — queries TodoStore and ArtifactStore to build workflow context for summarization",
+                "buildPromptPreview(?string): array — builds prompt text, token counts, schemas, and budget snapshot for REPL/API prompt inspection",
+                "buildBudgetPreview(?string): PromptBudgetSnapshot — builds role/model prompt-budget telemetry without the full prompt body"
+            ]
+        },
+        {
+            "path": "src/Agent/PromptBudgetManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\PromptBudgetManager",
+            "layer": "agent",
+            "description": "Stateless builder for prompt-budget snapshots. Normalizes prompt/tool token counts, converts applied loading modes into serializable strings, carries prompt-section rationale and pinning metadata, and maps preview totals onto a ContextUsageSnapshot so REPL and API budget surfaces share the same derived metadata.",
+            "methods": [
+                "buildSnapshot(string, string, int, int, int, int, array, array, array, array, array, array, ?ContextWindowInterface): PromptBudgetSnapshot — assemble immutable prompt budget telemetry"
+            ]
+        },
+        {
+            "path": "src/Agent/CodeReviewCycle.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\CodeReviewCycle",
+            "layer": "agent",
+            "description": "Coordinates coder-reviewer-rework loops for automated code review. Builds typed ChildAgentHandoff envelopes with structured ReviewHandoffMetadata for reviewer and coder rework passes, and accepts an injected ToolExecutorInterface so child review runs can reuse the same executor mode as their parent context.",
+            "methods": [
+                "run(string $coderOutput, string $originalTask, array $reviewerToolkits, int $maxRounds, array $coderToolkits, bool $autoIterate, ?string $sprintContext, int $coderMaxIterations): CodeReviewResult — runs review and optional rework rounds until approved or exhausted"
+            ]
+        },
+        {
+            "path": "src/Agent/CompositePendingInputProvider.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\CompositePendingInputProvider",
+            "layer": "agent",
+            "description": "Composes multiple PendingInputProviderInterface implementations into a single provider. consumePendingInputs() merges results from all inner providers in registration order. Used to combine BudgetExitObserver with API-mode PendingInputProvider so both can inject messages into the agent loop.",
+            "methods": [
+                "consumePendingInputs(): array — returns merged pending messages from all composed providers"
+            ]
+        },
+        {
+            "path": "src/Agent/QualityAutomationCoordinator.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\QualityAutomationCoordinator",
+            "layer": "agent",
+            "description": "Coordinates the autonomous quality loop across schedules and background tasks. Bootstraps default evaluator and learner schedules when enabled, and queues learner follow-up background tasks when poor evaluations are saved. When an EvaluationStore is injected, it also persists explicit provenance from the evaluation record to the learner follow-up task instead of relying on inferred title matching. Learner follow-up tasks now also receive typed LearnerFollowUpMetadata on the background task record. Reads agents.defaults.quality.* config directly for enablement, cron expressions, timezone, learner dedupe window, and poor-evaluation threshold.",
+            "methods": [
+                "ensureDefaultSchedules(): array — creates the default evaluator and learner system schedules when missing",
+                "queueLearnerFollowUp(string $evaluationId, string $evaluatedSessionId, string $overallGrade, float $overallScore): ?array — reuses an explicitly linked follow-up when present or queues a learner background task for poor evaluations"
+            ]
+        },
+        {
+            "path": "src/Agent/QualityAutomationStatusService.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\QualityAutomationStatusService",
+            "layer": "agent",
+            "description": "Read-only visibility service for the autonomous quality loop. Aggregates agents.defaults.quality config, the managed evaluator/learner schedules, explicit evaluation-to-follow-up task provenance, and decoded learner outcomes into a single summary payload that can be reused by REPL and API surfaces.",
+            "methods": [
+                "summary(int $followUpLimit = 10): array — returns config flags, managed schedule state, and linked learner follow-up task status"
+            ]
+        },
+        {
+            "path": "src/Agent/LearnerOutcomeTracker.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\LearnerOutcomeTracker",
+            "layer": "agent",
+            "description": "Quality-loop helper that persists learner follow-up results back onto evaluations. Detects learner tasks via task metadata, extracts created and updated skill names from learner result text, and stores a structured outcome payload on the source evaluation record.",
+            "methods": [
+                "recordFromTask(array $task, string $status, ?string $result, ?string $error): bool — persist learner outcome metadata for a completed, failed, or cancelled learner follow-up task"
             ]
         },
         {
@@ -76,46 +137,62 @@
             ]
         },
         {
-            "path": "src/Agent/LoopExecutor.php",
-            "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
+            "path": "src/Agent/GoalEvaluator.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\GoalEvaluator",
             "layer": "agent",
-            "description": "Core loop orchestration engine. Mode-agnostic — drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Creates projects per loop, snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound). Does not execute child agents directly — callers (LoopRunner for REPL, LoopManager for API) handle execution.",
+            "description": "Single-shot LLM evaluator for goal_bound loop termination. Sends the loop goal, optional evaluation prompt, and the latest stage output to a utility model and parses a structured ACHIEVED/NOT_ACHIEVED judgment. Follows the TitleGenerator pattern — one LLM call, no tool use, catches all errors. Falls back to not-achieved on any failure.",
             "methods": [
-                "startLoop(LoopDefinition, string $goal, ?string $sessionId): string — creates loop and first iteration",
-                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, builds context prompt, returns stage result",
-                "completeStage(string $stageId, ?string $result, ?string $sessionId, ?string $taskId): void — records stage result",
-                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition and advances if continuing"
+                "evaluate(string $goal, ?string $goalPrompt, string $lastStageOutput, array $previousOutcomes): GoalEvaluationResult — single-shot LLM evaluation"
             ]
         },
         {
-            "path": "src/Agent/LoopRunner.php",
-            "fqcn": "CoquiBot\\Coqui\\Agent\\LoopRunner",
+            "path": "src/Agent/ToolBoundEvaluator.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\ToolBoundEvaluator",
             "layer": "agent",
-            "description": "REPL synchronous loop execution driver. Spawns child agents for each stage, runs iterations synchronously, emits observer events (loop.start, loop.iteration_start, loop.stage_start, loop.stage_end, loop.iteration_end, loop.complete). Mirrors SpawnAgentTool patterns for toolkit building.",
+            "description": "Direct tool execution evaluator for tool_bound loop termination. Delegates tool resolution and execution to BackgroundToolExecutor, parses numeric output, and compares against a threshold using the configured operator. No LLM involved — zero token cost. Valid operators: >=, >, <=, <, ==, !=.",
             "methods": [
-                "run(LoopDefinition, string $goal, ?string $sessionId): array — runs loop to completion synchronously"
+                "evaluate(string $toolName, array $arguments, string $operator, float $threshold): ToolBoundEvaluationResult — execute tool and compare numeric output"
+            ]
+        },
+        {
+            "path": "src/Agent/LoopExecutor.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
+            "layer": "agent",
+            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Supports project resolution in startLoop via 3-tier fallback: explicit project_id/slug → active session project → auto-create. Creates sprints with auto-transitions. Snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound, goal_bound, tool_bound). Supports template parameters with {{placeholder}} substitution. Enforces inter-stage artifact contracts via requires_artifact_from and explicit evidence verification via requires_explicit_evidence — queries ArtifactStore by session+createdAfter (optionally narrowing by projectId when available), never silently bypasses when projectId is null. Injects Required Deliverables into coder prompts when next stage requires explicit evidence. Injects Evidence Artifacts section into reviewer prompts with explicit artifact IDs, titles, and types for deterministic discovery. Injects rich project context into stage prompts. Prepared stages now carry typed LoopStageHandoffMetadata for persistence and observability. Does not execute child agents directly — LoopManager handles execution via background tasks.",
+            "methods": [
+                "startLoop(array $rawDefinition, string $goal, ?string $sessionId, array $parameters, ?string $projectId, ?string $projectSlug, ?string $sprintId): string — validates/substitutes parameters, resolves project via 3-tier fallback, creates loop and first iteration",
+                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, enforces artifact contract gate, enforces explicit evidence contract, builds context prompt with rich project context",
+                "completeStage(string $stageId, string $result, ?string $artifactId, ?string $taskId): void — records stage result with 2000-char truncation",
+                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition (dispatches to goal/tool evaluators for new types), auto-transitions sprints, advances if continuing",
+                "resolveProject(?string $projectId, ?string $projectSlug, ?string $sessionId, string $goal): string — 3-tier project resolution: explicit ID/slug → session active project → auto-create",
+                "buildProjectContextSection(?string $projectId, ?string $sprintId): string — renders rich project context with sprint roster and progress for stage prompts"
             ]
         },
         {
             "path": "src/Api/LoopManager.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\LoopManager",
             "layer": "agent",
-            "description": "ReactPHP timer-based async loop coordinator. 5-second tick checks running loops, starts pending stages as background tasks, polls for stage task completion, evaluates iterations. Integrates with SessionStorage for background task creation.",
+            "description": "ReactPHP timer-based async loop coordinator. 5-second tick checks running loops, starts pending stages as background tasks with work-scope session propagation (parentSessionId), and persists typed LoopStageHandoffMetadata onto both the stage row and spawned background task. 3-second reconciliation checks completed tasks, auto-creates loop_output artifacts in the parent session, and advances loop state. Propagates active project context from parent session to stage tasks. Publishes loop lifecycle notifications through NotificationPublisher, upgrading terminal loop failures to actionable notifications for the API-side automation runner while keeping stage/complete milestones informational.",
             "methods": [
                 "tick(): void — process all running loops on timer",
-                "processLoop(array $loop): void — advance a single loop's stages"
+                "advanceLoop(string $loopId): void — prepare next stage, create task with parentSessionId propagation",
+                "reconcileLoop(string $loopId): void — check completed tasks, create loop_output artifacts, advance state",
+                "createStageArtifact(string $loopId, array $stage, array $task, string $output, array $state): ?string — create loop_output artifact in work-scope session",
+                "publishLoopNotification(...): void — route informational vs actionable loop notifications to the user-facing session"
             ]
         },
         {
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system, resolves session, enters REPL or headless mode",
                 "runRepl(SymfonyStyle, bool): int — interactive REPL loop with readline, signal handling, slash command routing, and agent turn execution",
                 "runHeadless(InputInterface, OutputInterface): int — single-prompt execution without REPL",
-                "resolveWorkspaceOverride(?string): ?string — resolves --workdir flag to absolute path"
+                "resolveWorkspaceOverride(?string): ?string — resolves --workdir flag to absolute path",
+                "getIdleNotifications(?NotificationStore, int): array — read-only idle fetch for unread informational notifications",
+                "getActionableSummary(?NotificationStore): array — sticky per-session actionable status counts for REPL rendering"
             ]
         },
         {
@@ -140,7 +217,7 @@
             "path": "src/Repl/SlashCommandRouter.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\SlashCommandRouter",
             "layer": "command",
-            "description": "Routes REPL slash commands to the appropriate handler class. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session).",
+            "description": "Routes REPL slash commands to the appropriate handler class. Includes prompt-budget visibility via /budget and quality automation visibility via /quality alongside the existing task, schedule, loop, role, and evaluation commands. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session).",
             "methods": [
                 "route(string, string, string, SymfonyStyle): RouteResult — dispatches a slash command string to the matching handler"
             ]
@@ -193,10 +270,19 @@
             "path": "src/Repl/TabCompletion.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\TabCompletion",
             "layer": "command",
-            "description": "Readline tab-completion for REPL slash commands. Provides context-aware completions for /role, /roles, /toolkits, /todos, /schedules, and top-level commands.",
+            "description": "Readline tab-completion for REPL slash commands. Provides context-aware completions for /role, /roles, /toolkits, /todos, /schedules, /budget, /quality, and top-level commands.",
             "methods": [
                 "register(): void — installs readline_completion_function",
                 "setSessionId(string): void — updates session for todo completions"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/BudgetHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\BudgetHandler",
+            "layer": "command",
+            "description": "Handles /budget REPL command. Renders prompt/token totals, context-window headroom, toolkit budget sources, and recent toolkit loading decisions so prompt pressure is visible without exporting the full system prompt.",
+            "methods": [
+                "handle(SymfonyStyle, ?string): void — renders prompt-budget telemetry for the active or requested role"
             ]
         },
         {
@@ -239,6 +325,15 @@
             "description": "Handles /schedules REPL command with subcommands: list, enable, disable, delete, trigger.",
             "methods": [
                 "handle(SymfonyStyle, string): void — dispatches schedule subcommand"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/QualityHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\QualityHandler",
+            "layer": "command",
+            "description": "Handles /quality REPL command. Renders the managed evaluator/learner schedules plus explicit learner follow-up task state from QualityAutomationStatusService so users can inspect the autonomous quality loop without querying the database.",
+            "methods": [
+                "handle(SymfonyStyle): void — renders quality automation config, schedules, and active/recent follow-up tasks"
             ]
         },
         {
@@ -337,6 +432,15 @@
             ]
         },
         {
+            "path": "src/Command/WorkspaceOverrideResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Command\\WorkspaceOverrideResolver",
+            "layer": "command",
+            "description": "Shared helper for Symfony Console commands that resolves the workspace override from the --workspace CLI option or the COQUI_WORKSPACE environment variable.",
+            "methods": [
+                "resolve(InputInterface): ?string — returns CLI workspace override first, then COQUI_WORKSPACE, else null"
+            ]
+        },
+        {
             "path": "src/Command/DoctorCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\DoctorCommand",
             "layer": "command",
@@ -432,32 +536,47 @@
             "path": "src/Contract/TerminationType.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\TerminationType",
             "layer": "contract",
-            "description": "Backed string enum defining loop termination strategies: EvaluationBound (stage output evaluated for done signal), IterationBound (fixed iteration count), TimeBound (wall-clock duration), Manual (user-controlled stop).",
+            "description": "Backed string enum defining loop termination strategies: EvaluationBound (stage output evaluated for done signal), IterationBound (fixed iteration count), TimeBound (wall-clock duration), Manual (user-controlled stop), GoalBound (LLM-evaluated goal achievement), ToolBound (tool execution with numeric threshold comparison).",
             "methods": []
         },
         {
             "path": "src/Contract/TerminationCondition.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\TerminationCondition",
             "layer": "contract",
-            "description": "Value object pairing a TerminationType with its threshold value. Factory method fromArray() parses JSON config format {type, value}.",
+            "description": "Value object pairing a TerminationType with its configuration. Supports type-specific fields: goalPrompt for GoalBound, toolName/toolArguments/operator/threshold for ToolBound, maxIterations for both. Factory method fromArray() parses JSON config format {type, value}. VALID_OPERATORS constant defines allowed comparison operators for tool_bound.",
             "methods": [
-                "fromArray(array): self — factory from JSON config"
+                "fromArray(array): self — factory from JSON config",
+                "toArray(): array — serialize to JSON-compatible array"
             ]
+        },
+        {
+            "path": "src/Contract/GoalEvaluationResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\GoalEvaluationResult",
+            "layer": "contract",
+            "description": "Value object for LLM goal achievement evaluation result. Contains bool achieved and string rationale.",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/ToolBoundEvaluationResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolBoundEvaluationResult",
+            "layer": "contract",
+            "description": "Value object for direct tool execution evaluation result. Contains bool met, float actualValue, string operator, float threshold, and optional error string.",
+            "methods": []
         },
         {
             "path": "src/Contract/LoopRoleDefinition.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\LoopRoleDefinition",
             "layer": "contract",
-            "description": "Value object for a single stage in a loop definition. Contains role name, prompt template, optional skills array, and optional per-stage maxIterations override.",
+            "description": "Value object for a single stage in a loop definition. Contains role name, prompt template, optional skills array, optional per-stage maxIterations override, optional requiresArtifactFrom index for inter-stage artifact contract enforcement, and optional requiresExplicitEvidence flag that strengthens the artifact contract to require non-loop_output artifacts.",
             "methods": [
-                "fromArray(array): self — factory from JSON config"
+                "fromArray(array): self — factory from JSON config, parses requires_artifact_from and requires_explicit_evidence"
             ]
         },
         {
             "path": "src/Contract/LoopDefinition.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\LoopDefinition",
             "layer": "contract",
-            "description": "Immutable value object representing a complete loop configuration. Contains name (validated against /^[a-z0-9][a-z0-9_-]*$/), description, roles array (LoopRoleDefinition[]), and termination condition.",
+            "description": "Immutable value object representing a complete loop configuration. Contains name (validated against /^[a-z0-9][a-z0-9_-]*$/), description, roles array (LoopRoleDefinition[]), termination condition, and cross-stage artifact dependency validation.",
             "methods": [
                 "fromArray(string, array): self — factory from JSON config with name validation"
             ]
@@ -466,14 +585,39 @@
             "path": "src/Contract/LoopStageResult.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\LoopStageResult",
             "layer": "contract",
-            "description": "Value object returned by LoopExecutor::prepareNextStage(). Contains the role name, composed prompt (with previous stage output injected), skills, and max iterations for the next stage to execute.",
+            "description": "Value object returned by LoopExecutor::prepareNextStage(). Contains the role name, composed prompt, skills, max iterations, session/sprint/project IDs for the next stage to execute, and optional typed LoopStageHandoffMetadata for persistence on loop stages and spawned background tasks. The projectId field enables pipeline propagation of the loop's project context through LoopManager -> background task -> TaskRunCommand -> AgentRunner -> OrchestratorAgent -> ArtifactToolkit for auto-scoping.",
             "methods": []
+        },
+        {
+            "path": "src/Contract/ReviewHandoffMetadata.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ReviewHandoffMetadata",
+            "layer": "contract",
+            "description": "Typed review-cycle metadata attached to reviewer and coder rework child handoffs. Captures review phase, round number, source role, sprint-context presence, and whether automated rework iteration is enabled.",
+            "methods": [
+                "toArray(): array - serialize structured review handoff metadata"
+            ]
+        },
+        {
+            "path": "src/Contract/LoopStageHandoffMetadata.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LoopStageHandoffMetadata",
+            "layer": "contract",
+            "description": "Typed loop-stage coordination metadata built by LoopExecutor and persisted through LoopStore and SessionStorage background tasks. Captures loop, iteration, stage, role, prior-stage artifact IDs, completed roles, and work-scope project/session/sprint context.",
+            "methods": [
+                "toArray(): array - serialize structured loop-stage handoff metadata"
+            ]
         },
         {
             "path": "src/Contract/IterationOutcome.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\IterationOutcome",
             "layer": "contract",
             "description": "Enum representing the result of a single loop iteration: Complete (termination condition met), Continue (loop should proceed), Failed (stage error), LimitReached (iteration/time bound hit).",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/SystemRole.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\SystemRole",
+            "layer": "contract",
+            "description": "String-backed enum centralizing built-in role name constants: Orchestrator, Coder, Reviewer, Learner, Evaluator, TitleGenerator, PlanTodoGenerator. Eliminates magic role strings scattered across the codebase.",
             "methods": []
         },
         {
@@ -595,14 +739,33 @@
             "path": "src/Config/LoopDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\LoopDiscovery",
             "layer": "config",
-            "description": "Discovers loop definitions from JSON files in workspace/loops/. Seeds built-in loop definitions from config/loops/ on first boot. Seeds package-distributed loop definitions from toolkit vendor directories. Caches parsed LoopDefinition objects for reuse.",
+            "description": "Discovers loop definitions from JSON files in workspace/loops/. Seeds built-in loop definitions from config/loops/ on first boot. Seeds package-distributed loop definitions from toolkit vendor directories. Caches parsed LoopDefinition objects for reuse. Accepts an optional LoopUpdateTracker during seeding to record content hashes for update detection.",
             "methods": [
                 "discover(): array — scan workspace/loops/ for .json files, returns map of name → LoopDefinition",
                 "get(string): ?LoopDefinition — get a single definition by name",
                 "names(): string[] — list all available definition names",
-                "seedBuiltins(): void — copy config/loops/*.json to workspace/loops/ if not present",
+                "seedBuiltins(?LoopUpdateTracker): void — copy config/loops/*.json to workspace/loops/ if not present; records hashes when tracker provided",
                 "seedPackageLoops(string[] $packageLoopPaths): void — copy .json loop files from package directories to workspace/loops/ (never overwrites)"
             ]
+        },
+        {
+            "path": "src/Config/LoopUpdateTracker.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\LoopUpdateTracker",
+            "layer": "config",
+            "description": "Tracks content hashes of built-in loop definition files to detect updates. Mirrors the RoleUpdateTracker pattern: records SHA-256 hashes of both built-in source and workspace copy, auto-updates unmodified workspace copies when the built-in changes, returns pending update notifications for user-modified files. Hash data stored in workspace/data/loop-hashes.json.",
+            "methods": [
+                "recordHash(string $loopName, string $builtinPath, string $workspacePath): void — record SHA-256 hashes for a loop definition",
+                "checkForUpdates(string $builtinDir, string $workspaceDir): list<LoopUpdateInfo> — compare current hashes and return pending updates",
+                "applyUpdate(string $loopName, string $builtinPath, string $workspacePath): void — copy built-in to workspace with backup",
+                "autoUpdateAndNotify(string $builtinDir, string $workspaceDir): list<LoopUpdateInfo> — auto-update unmodified files, return user-modified for notification"
+            ]
+        },
+        {
+            "path": "src/Config/LoopUpdateInfo.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\LoopUpdateInfo",
+            "layer": "config",
+            "description": "Value object for a pending loop definition update. Contains loopName, hasBuiltinUpdate flag, and isUserModified flag. Used by LoopUpdateTracker::autoUpdateAndNotify() to report which definitions have pending updates that require user attention.",
+            "methods": []
         },
         {
             "path": "src/Config/UpdateManager.php",
@@ -671,7 +834,7 @@
             "path": "src/Contract/CoquiDefaults.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\CoquiDefaults",
             "layer": "contract",
-            "description": "Centralized default values for Coqui configuration. Single source of truth for all default limits and thresholds (maxIterations, maxConcurrent, keepRecentTurns, autoSummarizeKeepRecent, autoSummarizeThreshold, context window fallbacks, editHistoryRetentionDays, maxRecursiveItems). All config fallbacks reference these constants instead of hardcoding values.",
+            "description": "Centralized default values for Coqui configuration. Single source of truth for all default limits and thresholds (maxIterations, maxConcurrent, keepRecentTurns, autoSummarizeKeepRecent, autoSummarizeThreshold, context window fallbacks, notification display/retention/automation timings, editHistoryRetentionDays, maxRecursiveItems). All config fallbacks reference these constants instead of hardcoding values.",
             "methods": []
         },
         {
@@ -746,6 +909,15 @@
             ]
         },
         {
+            "path": "src/Tool/ConfigTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ConfigTool",
+            "layer": "tool",
+            "description": "Agent-facing tool for reading and modifying openclaw.json configuration with guardrails. Supports get, set, show, list_models, and switch_model actions. Delegates persistence to ConfigManager and blocks security-sensitive keys via ConfigGuard. Current runtime behavior requires a restart after successful writes because Coqui constructs long-lived providers, resolvers, and toolkits at boot.",
+            "methods": [
+                "execute(array $input): ToolResult — dispatches config actions and returns guarded read/write results"
+            ]
+        },
+        {
 
             "path": "src/Tool/PhpExecuteTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\PhpExecuteTool",
@@ -795,12 +967,11 @@
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",
-            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/readonly-shell/minimal) to determine toolkit assignment. Full-access children inherit the parent's shellAllowedCommands and shellDeniedCommands. readonly-shell children receive ShellToolkit restricted to READ_ONLY_SHELL_COMMANDS (grep, find, cat, head, tail, wc, ls, sort, uniq, sed, awk, diff). Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
+            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/readonly-shell/minimal) to determine toolkit assignment. Full-access children inherit the parent's shellAllowedCommands and shellDeniedCommands. readonly-shell children receive ShellToolkit restricted to READ_ONLY_SHELL_COMMANDS (grep, cat, head, tail, wc, ls, uniq, diff). Normalizes task and context input into a typed ChildAgentHandoff envelope before invoking the child, passes through the injected ToolExecutorInterface for executor consistency, and persists handoff metadata on child run records. Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
             "methods": [
                 "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
                 "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level with visibility filtering, credential guards in child mode, and optional BackgroundTaskToolkit",
                 "resolveAccessLevel(string $role): string — looks up access_level from RoleProperties",
-                "setCurrentIteration(int $iteration): void — tracks parent iteration for logging",
                 "getChildRunCount(): int — returns number of child agents spawned during this turn",
                 "isChildBackgroundTasksEnabled(): bool — checks agents.defaults.childBackgroundTasks config flag"
             ]
@@ -827,6 +998,25 @@
             ]
         },
         {
+            "path": "src/Tool/ToolkitListTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ToolkitListTool",
+            "layer": "tool",
+            "description": "Standalone system tool that lists all workspace toolkit packages. Promoted from ToolkitGeneratorToolkit so it is always available (never deferred). Lists packages from workspace/packages/ with their tools, dependencies, and credential requirements.",
+            "methods": [
+                "tool(): ToolInterface — returns the toolkit_list tool instance"
+            ]
+        },
+        {
+            "path": "src/Contract/ToolkitLoadingMode.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitLoadingMode",
+            "layer": "contract",
+            "description": "Backed string enum defining when a toolkit enters LLM context. System (always loaded, immutable), Eager (user override, always loaded), Deferred (user override, always stubbed), Auto (budget gate decides based on token budget and usage frequency). isPersistable() returns true for Eager/Deferred only. isLoaded() returns true for System/Eager.",
+            "methods": [
+                "isPersistable(): bool — Eager or Deferred only",
+                "isLoaded(): bool — System or Eager"
+            ]
+        },
+        {
             "path": "src/Storage/ToolUsageTracker.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ToolUsageTracker",
             "layer": "storage",
@@ -840,15 +1030,29 @@
             ]
         },
         {
+            "path": "src/Storage/SkillLifecycleStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\SkillLifecycleStore",
+            "layer": "storage",
+            "description": "SQLite-backed lifecycle store for the quality-learning loop. Persists per-skill usage events, normalized evaluation evidence links, and learner-created skill provenance records so evaluator and learner flows can reference durable evidence beyond JSON metadata blobs.",
+            "methods": [
+                "recordSkillUsage(string $skillName, string $action, string $sourceTool, ?string $sessionId = null, ?string $turnId = null, ?string $agentRole = null, ?array $metadata = null): string — persist a skill usage event",
+                "listSkillUsage(?string $skillName = null, ?string $sessionId = null, int $limit = 100): array — list recorded skill usage events",
+                "replaceEvaluationEvidenceLinks(string $evaluationId, array $links): void — replace normalized evidence links for an evaluation",
+                "listEvaluationEvidenceLinks(string $evaluationId): array — list persisted evidence links for an evaluation",
+                "recordSkillProvenance(string $skillName, string $action, string $evaluationId, string $learnerTaskId, ?array $metadata = null): string — persist learner provenance for a created or updated skill",
+                "listSkillProvenance(?string $skillName = null, ?string $evaluationId = null, int $limit = 100): array — list persisted provenance events"
+            ]
+        },
+        {
             "path": "src/Config/ToolkitLoadingRegistry.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\ToolkitLoadingRegistry",
             "layer": "config",
-            "description": "Manages per-toolkit loading mode (system/eager/deferred). System toolkits (CoquiDefaults::SYSTEM_TOOLKITS) are immutable. Persists user overrides to workspace/toolkit-loading.json. Orthogonal to ToolkitVisibilityRegistry — visibility controls whether a tool is seen, loading mode controls when it enters context.",
+            "description": "Manages per-toolkit loading mode (System/Eager/Deferred/Auto via ToolkitLoadingMode enum). System toolkits (CoquiDefaults::SYSTEM_TOOLKITS) are immutable. Persists user overrides (Eager/Deferred) to workspace/toolkit-loading.json. Auto is the default when no override exists — the budget gate decides. Orthogonal to ToolkitVisibilityRegistry — visibility controls whether a tool is seen, loading mode controls when it enters context.",
             "methods": [
-                "getMode(string $classBasename): string — returns system/eager/deferred",
-                "setMode(string $classBasename, string $mode): void — persists override (guards system toolkits)",
+                "getMode(string $classBasename): ToolkitLoadingMode — returns System/Eager/Deferred/Auto",
+                "setMode(string $classBasename, ToolkitLoadingMode $mode): void — persists Eager/Deferred override (guards system toolkits)",
+                "resetMode(string $classBasename): void — removes persisted override, returns to Auto",
                 "isSystem(string $classBasename): bool — checks CoquiDefaults::SYSTEM_TOOLKITS",
-                "shouldLoadEagerly(string $classBasename): bool — system OR explicit eager",
                 "all(): array<string, string> — persisted overrides for display"
             ]
         },
@@ -866,7 +1070,7 @@
             "path": "src/Toolkit/ToolkitGeneratorToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\ToolkitGeneratorToolkit",
             "layer": "toolkit",
-            "description": "Generates complete toolkit package scaffolds for Coqui. Tools: toolkit_create (scaffolds a new package with composer.json, toolkit class, README, runs composer install), toolkit_add_tool (inserts a new tool into an existing toolkit class), toolkit_list (lists workspace toolkit packages with metadata). All generated packages follow Coqui conventions and are auto-discoverable.",
+            "description": "Generates complete toolkit package scaffolds for Coqui. Tools: toolkit_create (scaffolds a new package with composer.json, toolkit class, README, runs composer install), toolkit_add_tool (inserts a new tool into an existing toolkit class). The toolkit_list tool was promoted to a standalone system tool (ToolkitListTool). All generated packages follow Coqui conventions and are auto-discoverable.",
             "methods": [
                 "tools(): ToolInterface[] — returns toolkit_create, toolkit_add_tool, toolkit_list",
                 "guidelines(): string — usage instructions for toolkit generation workflow"
@@ -894,6 +1098,44 @@
                 "client(): SpaceClient — exposes client for slash commands",
                 "skillInstaller(): SkillInstaller — exposes installer for slash commands",
                 "toolkitInstaller(): ToolkitInstaller — exposes installer for slash commands"
+            ]
+        },
+        {
+            "path": "src/Toolkit/ComposerToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ComposerToolkit",
+            "layer": "toolkit",
+            "description": "System toolkit for workspace Composer package management. Always loaded — never budget-gated or deferred. Wraps the single `composer` tool with 12 subcommands: show, add, remove, update, install, dump-autoload, validate, doctor, search, show-package, outdated, audit. Supports path repositories for local packages, @dev stability, object-oriented composer.json manipulation, backup before mutations, denylist for blocked frameworks, and PackageEventListener notification on install/remove.",
+            "methods": [
+                "tools(): ToolInterface[] — returns composer tool",
+                "guidelines(): string — usage instructions for workspace package management"
+            ]
+        },
+        {
+            "path": "src/Toolkit/PackagistToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\PackagistToolkit",
+            "layer": "toolkit",
+            "description": "System toolkit for Packagist package discovery. Always loaded — never budget-gated or deferred. Wraps the single `packagist` tool with 2 actions: search (keyword search with pagination, tags, type filter) and details (package info + versions + security advisories). Guidelines encourage searching Packagist before building custom solutions.",
+            "methods": [
+                "tools(): ToolInterface[] — returns packagist tool",
+                "guidelines(): string — usage instructions emphasizing search-first approach"
+            ]
+        },
+        {
+            "path": "src/Tool/ComposerTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\ComposerTool",
+            "layer": "tool",
+            "description": "ToolInterface implementation for workspace Composer management. 12-subcommand tool: show (display composer.json), add (with path/VCS repo support, denylist, backup, security audit), remove (with orphaned repo cleanup), update, install, dump-autoload, validate, doctor (6-point health check), search (installed packages), show-package, outdated, audit. Uses object-oriented JSON manipulation for structural changes and Composer CLI for dependency resolution.",
+            "methods": [
+                "execute(array $input): ToolResult — dispatches to subcommand handler based on action parameter"
+            ]
+        },
+        {
+            "path": "src/Tool/PackagistTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\PackagistTool",
+            "layer": "tool",
+            "description": "ToolInterface implementation for Packagist API access. 2-action tool: search (keyword search with pagination, tags, type, per_page) and details (package info + all versions + security advisories in a single call). Uses Symfony HttpClient for API requests.",
+            "methods": [
+                "execute(array $input): ToolResult — dispatches to search or details handler"
             ]
         },
         {
@@ -1017,6 +1259,16 @@
             "methods": []
         },
         {
+            "path": "src/Observer/BudgetExitObserver.php",
+            "fqcn": "CoquiBot\\Coqui\\Observer\\BudgetExitObserver",
+            "layer": "observer",
+            "description": "Implements both SplObserver and PendingInputProviderInterface. Listens for agent.budget_warning events and queues a workflow-aware wrap-up instruction as a UserMessage. The instruction includes current context budget usage, remaining wrap-up iterations, and workflow context (todos, artifacts, sprints) from an optional closure. CompositePendingInputProvider consumes the queued message on the next agent iteration.",
+            "methods": [
+                "update(SplSubject $subject): void — listens for agent.budget_warning and queues wrap-up instruction",
+                "consumePendingInputs(): array — returns and clears queued wrap-up messages"
+            ]
+        },
+        {
             "path": "src/Observer/TerminalObserver.php",
             "fqcn": "CoquiBot\\Coqui\\Observer\\TerminalObserver",
             "layer": "observer",
@@ -1119,9 +1371,9 @@
             "path": "src/Renderer/ContextUsageBar.php",
             "fqcn": "CoquiBot\\Coqui\\Renderer\\ContextUsageBar",
             "layer": "observer",
-            "description": "Bridge between agent data model (Conversation, ContextWindow) and the generic ProgressBar renderer. Categorizes messages by role, detects summary messages via [CONVERSATION SUMMARY] marker, estimates per-category token usage, and delegates to ProgressBar for rendering.",
+            "description": "Bridge between agent data model (Conversation, ContextWindow) and the generic ProgressBar renderer. Categorizes conversation messages by role, detects persisted conversation summaries via the [CONVERSATION SUMMARY] marker regardless of message role, folds prompt-section token telemetry into system versus memory buckets, and delegates to ProgressBar for rendering.",
             "methods": [
-                "buildSnapshot(Conversation, ?ContextWindowInterface): ContextUsageSnapshot — categorize messages and build usage snapshot",
+                "buildSnapshot(Conversation, ?ContextWindowInterface, array $promptSections): ContextUsageSnapshot — categorize conversation messages, merge prompt-section token buckets, and build usage snapshot",
                 "render(SymfonyStyle $io, ContextUsageSnapshot $snapshot, bool $showLegend, int $width): void — render context usage bar"
             ]
         },
@@ -1129,13 +1381,103 @@
             "path": "src/Contract/ContextUsageSnapshot.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\ContextUsageSnapshot",
             "layer": "contract",
-            "description": "Immutable snapshot of context window usage broken down by message category (system, user, assistant, tool, summary). Built from conversation messages and context window limits. Converts to ProgressBarSegment[] with predefined colors for rendering.",
+            "description": "Immutable snapshot of context window usage broken down by category (system, memory, user, assistant, tool, summary). Built from conversation messages, prompt-section telemetry, and context window limits. Converts to ProgressBarSegment[] with predefined colors for rendering.",
             "methods": [
                 "effectiveBudget(): int — max tokens minus reserved",
                 "availableTokens(): int — remaining budget",
                 "toSegments(): ProgressBarSegment[] — convert breakdown to colored segments",
                 "formatMaxTokens(): string — human-readable token count (e.g. 128K, 1M)",
                 "toArray(): array — serialize for JSON"
+            ]
+        },
+        {
+            "path": "src/Contract/ChildAgentHandoff.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ChildAgentHandoff",
+            "layer": "contract",
+            "description": "Typed envelope for parent-to-child task coordination. Carries the child task, optional context, metadata, workflow intent, artifact and todo references, and parent/work-scope project/session/sprint context. Used by SpawnAgentTool, ChildAgent, and CodeReviewCycle to normalize cross-agent handoffs while preserving a rendered user prompt for current child execution paths.",
+            "methods": [
+                "fromTask(string): self — build a handoff from a bare task string",
+                "fromInput(string, string, array): self — normalize spawn_agent inputs into a typed envelope",
+                "hasContext(): bool — whether auxiliary context is present",
+                "taskInstructions(): string — the normalized task body used in child instructions",
+                "userPrompt(): string — render the structured user prompt with context and task sections",
+                "toArray(): array — serialize the handoff envelope"
+            ]
+        },
+        {
+            "path": "src/Contract/EvaluationEvidenceMetadata.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\EvaluationEvidenceMetadata",
+            "layer": "contract",
+            "description": "Typed provenance payload stored on evaluation records. Captures the evaluated session identity, evidence sources consulted by the evaluator, and related child run identifiers and counts so learner and reporting flows do not need to infer provenance from report text.",
+            "methods": [
+                "toArray(): array - serialize structured evaluation evidence metadata"
+            ]
+        },
+        {
+            "path": "src/Contract/EvaluationReadModel.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\EvaluationReadModel",
+            "layer": "contract",
+            "description": "Typed evaluation read model used by API and future observability surfaces. Hydrates an evaluation row plus optional session title, normalizes numeric score fields, decodes structured metadata, and exposes full and summary serialization helpers.",
+            "methods": [
+                "fromRow(array): self — hydrate typed evaluation data from a storage row",
+                "toArray(): array — serialize the full evaluation payload including report and metadata",
+                "toSummaryArray(): array — serialize the compact evaluation payload for list endpoints"
+            ]
+        },
+        {
+            "path": "src/Contract/EvaluationStatsReadModel.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\EvaluationStatsReadModel",
+            "layer": "contract",
+            "description": "Typed aggregate evaluation metrics payload. Wraps total counts, per-dimension averages, and grade distribution so API clients consume a stable structure instead of raw associative arrays.",
+            "methods": [
+                "fromArray(array): self — normalize aggregate evaluation stats into a typed payload",
+                "toArray(): array — serialize aggregate metrics for API responses"
+            ]
+        },
+        {
+            "path": "src/Contract/LearnerFollowUpMetadata.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LearnerFollowUpMetadata",
+            "layer": "contract",
+            "description": "Typed provenance payload attached to learner follow-up background tasks created from poor evaluations. Carries the source evaluation ID, evaluated session ID, grade and score summary, and the key evaluation evidence context needed for learner and reporting flows.",
+            "methods": [
+                "toArray(): array - serialize structured learner follow-up metadata"
+            ]
+        },
+        {
+            "path": "src/Contract/LearnerOutcomeMetadata.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\LearnerOutcomeMetadata",
+            "layer": "contract",
+            "description": "Typed learner-outcome payload stored on evaluations after a learner follow-up task completes. Captures the learner task status, created and updated skill names, and a compact result or error excerpt for quality observability surfaces.",
+            "methods": [
+                "toArray(): array - serialize structured learner outcome metadata"
+            ]
+        },
+        {
+            "path": "src/Contract/PromptSectionPriority.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\PromptSectionPriority",
+            "layer": "contract",
+            "description": "Backed enum describing whether a prompt section is critical, workflow-scoped, or volatile. Used by prompt-budget telemetry to distinguish pinned context from deferrable prompt content.",
+            "methods": [
+                "isPinned(): bool — whether this priority should remain pinned in budget reporting",
+                "isDeferrable(): bool — whether this priority represents deferrable prompt content"
+            ]
+        },
+        {
+            "path": "src/Contract/PromptSection.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\PromptSection",
+            "layer": "contract",
+            "description": "Immutable value object for typed prompt sections. Carries section identity, content, priority, rationale, inclusion decision, and source metadata so prompt-budget surfaces can explain why high-cost prompt sections are present.",
+            "methods": [
+                "toTelemetryArray(int): array — serialize a prompt section with token count, pinning flags, and rationale"
+            ]
+        },
+        {
+            "path": "src/Contract/PromptBudgetSnapshot.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\PromptBudgetSnapshot",
+            "layer": "contract",
+            "description": "Immutable value object for prompt-preview budget telemetry. Captures role/model identity, prompt and tool token totals, prompt-section rationale and pinning metadata, toolkit breakdown, serialized applied loading modes, toolkit loading decisions, deferred toolkit metadata, and optional context-window headroom.",
+            "methods": [
+                "toArray(): array — serialize prompt-budget telemetry for REPL/API surfaces"
             ]
         },
         {
@@ -1213,7 +1555,7 @@
             "path": "src/Api/Handler/HealthHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\HealthHandler",
             "layer": "command",
-            "description": "GET /api/v1/health — liveness check returning status, version, uptime, and active session count.",
+            "description": "GET /api/v1/health — liveness check returning status, version, uptime, active session count, schedule/webhook stats, and a compact quality automation summary when available.",
             "methods": [
                 "__invoke(ServerRequestInterface $request): Response"
             ]
@@ -1292,13 +1634,43 @@
             ]
         },
         {
+            "path": "src/Api/Handler/BudgetHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\BudgetHandler",
+            "layer": "command",
+            "description": "Handles /budget REPL command. Renders prompt/token totals, context-window headroom, toolkit budget sources, recent toolkit loading decisions, and prompt-section rationale with pinned-versus-deferrable classification so prompt pressure is visible without exporting the full system prompt.",
+            "methods": [
+                "get(request): Response — returns a serialized PromptBudgetSnapshot"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/PromptHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\PromptHandler",
+            "layer": "command",
+            "description": "GET /api/v1/server/prompt — system prompt inspection endpoint. Returns the fully rendered system prompt plus tool counts, token estimates, toolkit breakdown, and the associated prompt-budget snapshot.",
+            "methods": [
+                "get(request): Response — returns prompt text and budget metadata for the requested or active role"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/EvaluationHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\EvaluationHandler",
+            "layer": "command",
+            "description": "Read-only evaluation API surface. Exposes list, detail, and aggregate stats endpoints backed by typed evaluation read models so dashboards and external clients can inspect evaluator output without scraping REPL text.",
+            "methods": [
+                "list(request): Response — list evaluations with optional grade, session, and limit filters",
+                "get(request, id): Response — return a single evaluation or 404 when missing",
+                "stats(request): Response — return aggregate evaluation metrics and grade distribution"
+            ]
+        },
+        {
             "path": "src/Api/Handler/ServerHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ServerHandler",
             "layer": "command",
-            "description": "Server status and control endpoints: GET /api/v1/server/info (runtime info, uptime, memory, active sessions/tasks), GET /api/v1/server/stats (database statistics and table integrity check).",
+            "description": "Server status and control endpoints: GET /api/v1/server/info (runtime info, uptime, memory, active sessions/tasks, compact quality summary), GET /api/v1/server/stats (database statistics and table integrity check), and GET /api/v1/server/quality (detailed quality automation state).",
             "methods": [
                 "info(request): Response — version, uptime, memory, active workload",
-                "stats(request): Response — database stats and table check"
+                "stats(request): Response — database stats and table check",
+                "quality(request): Response — detailed quality automation summary"
             ]
         },
         {
@@ -1338,10 +1710,10 @@
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including RoleHandler, TitleGenerator, and SummarizeHandler, configures CORS (with PATCH support) and optional API key auth, and enters the ReactPHP event loop.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, and prompt-inspection surfaces, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers, and enters the ReactPHP event loop.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
-                "registerRoutes(Router, ...handlers): void — registers all API routes including summarize endpoint",
+                "registerRoutes(Router, ...handlers): void — registers all API routes including evaluation, prompt, budget, and loop endpoints",
                 "resolveApiKey(BootManager): ?string — resolves API key from config/env/workspace"
             ]
         },
@@ -1349,14 +1721,14 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, session title management, and background task queries. Idempotent migrations add turn_id FK columns and title column.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, background task queries, and dedicated event streams for both background tasks and turn processes. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title column, and metadata columns.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
                 "listSessions(int $limit): array — lists recent sessions (includes title)",
                 "getSession(string $id): ?array — retrieves session details (includes title)",
                 "updateSessionTitle(string $sessionId, string $title): void — updates session title",
-            "setActiveProject(string $sessionId, ?string $projectId): void — sets or clears the active project for a session",
-            "getActiveProjectId(string $sessionId): ?string — returns the active project ID for a session, or null",
+                "setActiveProject(string $sessionId, ?string $projectId): void — sets or clears the active project for a session",
+                "getActiveProjectId(string $sessionId): ?string — returns the active project ID for a session, or null",
                 "addMessage(string $sessionId, ..., ?string $turnId): string — persists a message with optional turn linkage",
                 "loadConversation(string $sessionId): Conversation — rebuilds full conversation history",
                 "logChildRun(...): string — logs a child agent execution",
@@ -1366,6 +1738,11 @@
                 "completeTurn(string $turnId, ...): void — updates turn with response, tokens, duration, tools used",
                 "getTurns(string $sessionId, int $limit): array — returns turns ordered by turn_number ASC",
                 "getTurnWithMessages(string $turnId): ?array — returns turn with nested messages",
+                "createTurnProcess(string $sessionId, string $prompt, ?array $filePaths): string — creates an API turn-process record for child execution",
+                "appendTurnEvent(string $turnProcessId, string $eventType, mixed $data): void — persists turn process stream events to turn_events",
+                "getTurnEvents(string $turnProcessId, ?int $sinceId, int $limit): array — returns streamed events for an API turn process",
+                "findTaskByAutomationNotificationId(string $notificationId, array $statuses = ['pending', 'running', 'completed']): ?array — finds the newest follow-up task spawned for a notification automation action",
+                "findRecentTaskByTitle(string $title, ?string $role, array $statuses, int $lookbackHours): ?array — finds the newest matching background task for dedupe/orchestration",
                 "getTasksByStatus(string $status): array — returns all tasks with a given status",
                 "purgeOldTaskEvents(int $maxAgeDays): int — deletes old events for terminal tasks, returns count"
             ]
@@ -1374,16 +1751,17 @@
             "path": "src/Storage/ArtifactStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ArtifactStore",
             "layer": "storage",
-            "description": "SQLite-backed artifact persistence. Tables: artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, timestamps), artifact_versions (id, artifact_id, version, content, change_summary, created_at). Shares PDO connection from SessionStorage. Supports CRUD, automatic versioning on update, stage transitions (draft/review/final), and per-session listing with type/stage filters.",
+            "description": "SQLite-backed artifact persistence. Tables: artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, sprint_id, persistent, timestamps), artifact_versions (id, artifact_id, version, content, change_summary, created_at). Shares PDO connection from SessionStorage. Supports CRUD, automatic versioning on update, stage transitions (draft/review/final), and per-session listing with type/stage/project_id/sprint_id/created_after filters. cleanupFinalized() excludes loop_output and persistent artifacts. create() auto-sets persistent=true when projectId is non-null, ensuring project-linked artifacts survive cleanup across background task process boundaries.",
             "methods": [
-                "create(sessionId, title, content, type, language, filepath, stage, turnId, metadata): string — creates artifact + initial version, returns ID",
+                "create(sessionId, title, content, type, language, filepath, stage, turnId, metadata, projectId, sprintId, persistent): string — creates artifact + initial version; auto-sets persistent=true when projectId is non-null; returns ID",
                 "update(id, content, changeSummary, title, stage): bool — updates content, bumps version, saves snapshot",
                 "get(id): ?array — retrieves artifact by ID",
-                "list(sessionId, type, stage, limit): array — lists artifacts with optional filters",
+                "list(sessionId, type, stage, limit, projectId, sprintId, createdAfter): array — lists artifacts with optional filters",
                 "delete(id): bool — deletes artifact and cascaded versions",
                 "getVersions(artifactId): array — returns version history ordered desc",
                 "getVersion(artifactId, version): ?array — retrieves specific version",
-                "updateStage(id, stage): bool — updates stage only"
+                "updateStage(id, stage): bool — updates stage only",
+                "cleanupFinalized(): int — deletes non-persistent final artifacts except loop_output type"
             ]
         },
         {
@@ -1434,15 +1812,22 @@
             "path": "src/Storage/EvaluationStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\EvaluationStore",
             "layer": "storage",
-            "description": "SQLite-backed evaluation report persistence. Table: evaluations (id, session_id, evaluator_task_id, overall_grade, score_completion, score_hallucination, score_efficiency, overall_score, report, model, metadata, created_at). Shares PDO connection from SessionStorage. Provides efficient unevaluated session discovery via LEFT JOIN, aggregate statistics with grade distribution, and orphaned record cleanup.",
+            "description": "SQLite-backed evaluation report persistence. Table: evaluations (id, session_id, evaluator_task_id, learner_follow_up_task_id, learner_follow_up_linked_at, learner_outcome_metadata, overall_grade, score_completion, score_hallucination, score_efficiency, overall_score, report, model, metadata, created_at). Shares PDO connection from SessionStorage. Provides efficient unevaluated session discovery via LEFT JOIN, aggregate statistics with grade distribution, explicit provenance linking from evaluations to learner follow-up tasks, structured metadata persistence for evaluator evidence and learner outcomes, and typed read-model hydration for API observability surfaces.",
             "methods": [
                 "create(sessionId, overallGrade, scores, report, model): string \u2014 creates evaluation record, returns ID",
                 "get(id): ?array \u2014 retrieves evaluation by ID",
+                "getReadModel(id): ?EvaluationReadModel — retrieves a typed evaluation payload joined with session title",
                 "getBySessionId(sessionId): array \u2014 fetches evaluations for a session",
+                "linkLearnerFollowUpTask(string $evaluationId, string $taskId): bool \u2014 persists the learner follow-up task linked to an evaluation",
+                "updateLearnerOutcomeMetadata(string $evaluationId, array $metadata): bool — persists structured learner outcome data back onto the source evaluation",
                 "getUnevaluatedSessions(lookbackHours, inactivityHours, minTurns, limit): array \u2014 LEFT JOIN query for sessions without evaluations",
                 "list(grade, limit): array \u2014 lists recent evaluations with optional grade filter",
+                "listReadModels(?string $grade, ?string $sessionId, int $limit): array — lists typed evaluation payloads for API consumers",
                 "getStats(): array \u2014 aggregate statistics with grade distribution and score averages",
+                "getStatsReadModel(): EvaluationStatsReadModel — returns typed aggregate evaluation metrics",
                 "getPoorEvaluations(limit, thresholdScore, sinceHours): array \u2014 fetches evaluations below a score threshold within a rolling time window",
+                "listLearnerFollowUps(?array $statuses, int $limit): array \u2014 joins evaluations to learner follow-up tasks for explicit provenance reporting",
+                "getLearnerFollowUpStats(): array \u2014 groups linked learner follow-up tasks by task status",
                 "cleanupOrphaned(): int \u2014 removes evaluations for deleted sessions"
             ]
         },
@@ -1466,19 +1851,20 @@
             "path": "src/Memory/MemoryStore.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\MemoryStore",
             "layer": "storage",
-            "description": "SQLite-backed memory store with FTS5 full-text search, optional vector embeddings, importance scoring, composite relevance ranking, and automatic decay/archival. Stores memories in workspace/data/memory.db with area classification, tag-based organization, and per-entry importance scores. Hybrid search merges vector+FTS candidates, deduplicates by ID, and applies composite scoring (0.4*similarity + 0.2*recency + 0.25*importance + 0.15*access). Memories decay over time — inactive low-importance entries are archived (soft-deleted). Pinned memories (importance >= 0.9) never decay.",
+            "description": "SQLite-backed memory store with FTS5 full-text search, optional vector embeddings, importance scoring, composite relevance ranking, and automatic decay/archival. Stores memories in workspace/data/memory.db with area classification, tag-based organization, and per-entry importance scores. Hybrid search merges vector+FTS candidates, deduplicates by ID, and applies composite scoring (0.4*similarity + 0.2*recency + 0.25*importance + 0.15*access). Memories decay over time — inactive low-importance entries are archived (soft-deleted). Legacy session_summary memories are explicitly purgeable and excluded from prompt-memory recap helpers so cross-session conversation summaries cannot leak into new sessions.",
             "methods": [
                 "save(MemoryEntry $entry): string — saves memory with importance scoring and optional embedding, returns ID",
                 "search(string $query, int $limit, float $threshold): array — composite-scored hybrid search (vector + FTS5 + LIKE fallback)",
                 "update(string $id, ?string $content, ?string $area, ?array $tags, ?float $importance): bool — updates memory fields including importance",
                 "delete(string $id): bool — deletes memory, embedding, and FTS entry",
+                "deleteArea(string $area): int — deletes all memories in the given area, including embeddings and FTS rows",
                 "getById(string $id): ?MemoryEntry — retrieves single memory by ID",
                 "listAll(int $limit, int $offset, ?string $area, ?array $tags): array — filtered listing with pagination (excludes archived)",
                 "count(): int — total active memory count",
-                "getCoreSummary(): string — importance-sorted summary grouped by area for system prompt injection",
+                "getCoreSummary(): string — importance-sorted summary grouped by area for system prompt injection, excluding legacy session summaries",
                 "decayAndArchive(): int — scans memories, computes effective score, archives those below threshold",
                 "restoreMemory(string $id): bool — un-archives a memory",
-                "getTopImportantMemories(int $limit): array — returns top N by importance+access+recency for recapitulation",
+                "getTopImportantMemories(int $limit): array — returns top N by importance+access+recency for recapitulation, excluding legacy session summaries",
                 "hasVectorSearch(): bool — whether embedding provider is available"
             ]
         },
@@ -1486,9 +1872,9 @@
             "path": "src/Memory/MemorySummarizer.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\MemorySummarizer",
             "layer": "storage",
-            "description": "Generates compressed memory summaries for system prompt injection. Caches summaries in a memory_summary SQLite table, invalidating when memory count changes. LLM compression prompt prioritizes high-importance items first. Falls back to raw MemoryStore::getCoreSummary() when no provider is available.",
+            "description": "Generates compressed memory summaries for system prompt injection. Caches summaries in a memory_summary SQLite table, invalidating when memory count changes. LLM compression prompt prioritizes high-importance items first. Falls back to raw MemoryStore::getCoreSummary() when no provider is available. Token budget and entry limit are configurable via constructor (coreSummaryMaxTokens, coreSummaryEntryLimit) defaulting to CoquiDefaults constants, read from openclaw.json by BootManager.",
             "methods": [
-                "getSummary(): ?string — returns cached or freshly generated summary, null if no memories exist",
+                "getSummary(?ProviderInterface, int maxTokens = 0): string — returns cached or freshly generated summary, uses configured maxTokens/entryLimit defaults",
                 "invalidate(): void — forces summary regeneration on next call"
             ]
         },
@@ -1505,10 +1891,10 @@
             "path": "src/Memory/ConversationSummarizer.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\ConversationSummarizer",
             "layer": "storage",
-            "description": "Summarizes conversation history to reduce token usage while preserving context. Runs automatic memory extraction before summarization to preserve facts before they are compressed. Splits conversations into a segment to summarize and recent turns to keep, compresses the older segment via a cheap LLM provider, and rebuilds the conversation with a summary SystemMessage. Accepts optional workflowContext parameter to inject active todo/artifact state into the LLM compression prompt.",
+            "description": "Summarizes conversation history to reduce token usage while preserving context. Runs automatic memory extraction before summarization to preserve facts before they are compressed. Splits conversations into a segment to summarize and recent turns to keep, compresses the older segment via a cheap LLM provider, and rebuilds the conversation with a summary marker persisted back into the session transcript as a user message so it survives provider replay. Accepts optional workflowContext parameter to inject active todo/artifact state into the LLM compression prompt.",
             "methods": [
                 "summarize(Conversation, ProviderInterface, keepRecentTurns, ?focus, ?workflowContext): ConversationSummaryResult — compresses older messages into a structured summary, preserving workflow context",
-                "summarizeAndPersist(sessionId, provider, keepRecentTurns, ?focus, ?workflowContext): ConversationSummaryResult — extracts memories, summarizes with workflow context, stores in MemoryStore, and persists summary SystemMessage to session"
+                "summarizeAndPersist(sessionId, provider, keepRecentTurns, ?focus, ?workflowContext): ConversationSummaryResult — extracts durable memories, summarizes with workflow context, marks older session rows summarized, and persists the summary marker back into the session transcript"
             ]
         },
         {
@@ -1525,17 +1911,17 @@
             "path": "src/Toolkit/MemoryToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\MemoryToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing memory toolkit providing 7 tools: memory_save (with area, tags, importance), memory_search (composite-scored hybrid), memory_update (by ID, including importance), memory_delete (by ID), memory_forget (bulk by query), memory_list (filtered, with include_archived), memory_restore (un-archive by ID). Guidelines describe importance scoring, area defaults, pinning, decay lifecycle.",
+            "description": "Agent-facing memory toolkit providing 8 tools: memory_save (with area, tags, importance), memory_search (composite-scored hybrid), memory_update (by ID, including importance), memory_delete (by ID), memory_forget (bulk by query), memory_list (filtered, with include_archived), memory_restore (un-archive by ID), memory_import (bulk import document into chunked memory entries with heading/paragraph strategies). Guidelines describe importance scoring, area defaults, pinning, decay lifecycle, and bulk import.",
             "methods": [
-                "tools(): array — returns 7 Tool instances for full CRUD memory operations including restore",
-                "guidelines(): string — dynamic guidelines with importance scoring, decay info, memory count, and vector search availability"
+                "tools(): array — returns 8 Tool instances for full CRUD memory operations including restore and bulk import (import available when workspacePath provided)",
+                "guidelines(): string — dynamic guidelines with importance scoring, decay info, memory count, vector search availability, and import guidance"
             ]
         },
         {
             "path": "src/Toolkit/ArtifactToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\ArtifactToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing artifact management toolkit providing 5 tools: artifact_create (new versioned artifact), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage filter), artifact_stage (draft→review→final transition). Accepts optional TodoStore to show todo progress next to plan artifacts in guidelines. Guidelines dynamically list existing artifacts with todo counts for plans.",
+            "description": "Agent-facing artifact management toolkit providing 6 tools: artifact_create (new versioned artifact with project_id/sprint_id linking and auto-scoping from defaultProjectId/defaultSprintId), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage/project_id/sprint_id/created_after filters), artifact_stage (draft→review→final transition with auto todo generation for plans), artifact_delete. Accepts optional TodoStore to show todo progress next to plan artifacts in guidelines. Constructor accepts defaultProjectId/defaultSprintId for auto-scoping artifact_create in loop stage contexts — when the LLM omits project_id/sprint_id, defaults are used as fallback.",
             "methods": [
                 "tools(): array — returns 5 Tool instances for artifact CRUD + staging",
                 "guidelines(): string — dynamic guidelines showing existing artifact listing with todo progress for plans"
@@ -1565,7 +1951,7 @@
             "path": "src/Toolkit/SessionEvaluationToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\SessionEvaluationToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing toolkit for the evaluator role. Visibility restricted via the evaluator role's toolkits frontmatter field. Provides 4 tools for introspecting past sessions and recording structured evaluation reports: evaluation_list_sessions, evaluation_read_transcript, evaluation_read_child_runs, evaluation_save_report. Guidelines dynamically show evaluation statistics and grade distribution.",
+            "description": "Agent-facing toolkit for the evaluator role. Visibility restricted via the evaluator role's toolkits frontmatter field. Provides 4 tools for introspecting past sessions and recording structured evaluation reports: evaluation_list_sessions, evaluation_read_transcript, evaluation_read_child_runs, evaluation_save_report. When a QualityAutomationCoordinator is injected, saving a poor evaluation can also queue a learner follow-up background task. Guidelines dynamically show evaluation statistics and grade distribution.",
             "methods": [
                 "roleScope(): string \u2014 returns 'evaluator' to restrict this toolkit to the evaluator role",
                 "tools(): array \u2014 returns 4 evaluation Tool instances",
@@ -1601,6 +1987,41 @@
                 "isAcceptedImageType(string $mime): bool — checks if MIME type is in ACCEPTED_IMAGE_TYPES",
                 "mimeFromExtension(string $path): string — guesses MIME type from file extension",
                 "buildErrorMessage(string $source, string $reason): string — builds descriptive error for file/URL failures"
+            ]
+        },
+        {
+            "path": "src/Agent/OrchestratorPrompt.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorPrompt",
+            "layer": "agent",
+            "description": "System prompt template for the OrchestratorAgent. Delegates to PromptLoader which composes the prompt from markdown files in the prompts/ directory. Injects workspace path, available roles, skills, storage map, and time-since-last-message as placeholders. Forwards workspacePath to PromptLoader for soul.md override resolution.",
+            "methods": [
+                "render(): string — returns the fully assembled system prompt string",
+                "renderSections(): array — returns typed prompt sections with id, title, content, and source"
+            ]
+        },
+        {
+            "path": "src/Prompt/PromptLoader.php",
+            "fqcn": "CoquiBot\\Coqui\\Prompt\\PromptLoader",
+            "layer": "prompt",
+            "description": "Discovers and composes system prompts from markdown files. Loads prompt sections from the prompts/ directory, supports placeholder substitution, and assembles the final system prompt. Soul resolution: soul.md defines the bot's core identity and is loaded before base.md. Users can override it by placing a soul.md (case-insensitive) in their workspace root or workspace/prompts/. Resolution order: workspace root → workspace/prompts/ → default prompts/soul.md.",
+            "methods": [
+                "load(string $filename): string — load and render a single prompt file with placeholder substitution",
+                "loadSection(string $section, string $filename): string — load a subsection file from a subdirectory",
+                "discoverSection(string $section): string[] — discover and load all markdown files in a subdirectory",
+                "discoverSectionEntries(string $section): array — discover section entries with metadata (id, title, filename, content, source)",
+                "compose(string[] $filenames): string — compose multiple files into a single string separated by blank lines",
+                "buildSystemPrompt(): string — build the complete orchestrator system prompt (soul.md → base.md → tools/* → security.md → done.md)",
+                "buildSystemPromptSections(): array — build the system prompt as typed file sections with metadata",
+                "resolveSoulPath(): ?string — resolve the soul.md file path with workspace override and case-insensitive lookup"
+            ]
+        },
+        {
+            "path": "src/Prompt/PromptNotFoundException.php",
+            "fqcn": "CoquiBot\\Coqui\\Prompt\\PromptNotFoundException",
+            "layer": "prompt",
+            "description": "Domain exception thrown when a required prompt file cannot be located during prompt discovery or loading.",
+            "methods": [
+                "forFile(string $filename, string $directory): self — static factory for missing prompt file errors"
             ]
         },
         {
@@ -1733,6 +2154,72 @@
             ]
         },
         {
+            "path": "src/Api/ScheduleManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\ScheduleManager",
+            "layer": "api",
+            "description": "Evaluates due schedules and creates background tasks for execution. Ticked every 60 seconds by a ReactPHP periodic timer. Queries ScheduleStore for enabled schedules past their next_run_at, creates sessions and background tasks, and reconciles completed tasks to update schedule success/failure counters. Includes duplicate enqueue protection and minimum interval enforcement.",
+            "methods": [
+                "tick(): void — evaluate due schedules and create background tasks",
+                "reconcile(): void — check schedule-linked tasks for completion and update counters"
+            ]
+        },
+        {
+            "path": "src/Api/WorkspaceWatcher.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\WorkspaceWatcher",
+            "layer": "api",
+            "description": "Generic polling-based workspace watcher. Holds registered WatchJobInterface instances and runs all jobs on each tick. Designed to be driven by a ReactPHP periodic timer. Jobs handle their own state tracking; the watcher iterates and aggregates results.",
+            "methods": [
+                "register(WatchJobInterface): void — register a watch job",
+                "tick(): array — run all jobs and return results keyed by job name",
+                "initialSync(): array — run initial sync on boot (alias for tick)",
+                "getLastResults(): array — get last scan results per job",
+                "getJobNames(): array — list registered job names",
+                "hasJobs(): bool — check if any jobs are registered"
+            ]
+        },
+        {
+            "path": "src/Api/WatchJob/ScheduleFileWatchJob.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\WatchJob\\ScheduleFileWatchJob",
+            "layer": "api",
+            "description": "WatchJobInterface implementation that monitors workspace/schedules/ for JSON files. Tracks file mtimes to detect additions, modifications, and removals. Uses ScheduleFileDefinition for parsing and ScheduleStore::upsertFilesystem() for idempotent persistence.",
+            "methods": [
+                "scan(): WatchJobResult — scan directory, sync changes to ScheduleStore",
+                "name(): string — returns 'schedules'"
+            ]
+        },
+        {
+            "path": "src/Contract/WatchJobInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\WatchJobInterface",
+            "layer": "contract",
+            "description": "Pluggable watch job contract for the WorkspaceWatcher. Implementations scan a specific workspace subdirectory and reconcile detected changes into appropriate storage.",
+            "methods": [
+                "scan(): WatchJobResult — perform a full scan and reconcile changes",
+                "name(): string — human-readable name for logging"
+            ]
+        },
+        {
+            "path": "src/Contract/WatchJobResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\WatchJobResult",
+            "layer": "contract",
+            "description": "Readonly value object representing the result of a single WatchJob scan cycle. Tracks counts for added, modified, and removed items plus non-fatal error messages.",
+            "methods": [
+                "hasChanges(): bool — true if any items were added, modified, or removed",
+                "hasErrors(): bool — true if any errors occurred",
+                "total(): int — sum of added + modified + removed"
+            ]
+        },
+        {
+            "path": "src/Contract/ScheduleFileDefinition.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ScheduleFileDefinition",
+            "layer": "contract",
+            "description": "Immutable value object representing a schedule parsed from a workspace JSON file. Supports field aliases (schedule_expression/expression/cron), validates via ScheduleValidator, and derives the schedule name from the filename stem.",
+            "methods": [
+                "fromFile(string): self — parse a JSON file into a definition",
+                "fromArray(array, string): self — build from decoded JSON array",
+                "deriveNameFromPath(string): string — extract filename stem as schedule name"
+            ]
+        },
+        {
             "path": "src/Api/Handler/TaskHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\TaskHandler",
             "layer": "command",
@@ -1769,7 +2256,7 @@
             "path": "src/Command/TaskRunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\TaskRunCommand",
             "layer": "command",
-            "description": "Hidden Symfony Console command that executes a single background task in a child process. Boots the full agent stack, reads role and max_iterations from the task record, registers SIGTERM handler. Branches on tool_name presence: agent tasks use AgentRunner, tool tasks use BackgroundToolExecutor for direct execution without LLM. Updates task status on completion.",
+            "description": "Hidden Symfony Console command that executes a single background task in a child process. Boots the full agent stack, reads role and max_iterations from the task record, registers SIGTERM handler. Branches on tool_name presence: agent tasks use AgentRunner, tool tasks use BackgroundToolExecutor for direct execution without LLM. Updates task status on completion and publishes user-facing notifications, promoting failed task outcomes to actionable notifications that the API-side automation runner can claim for retry handling.",
             "methods": [
                 "execute(input, output): int — run task by ID with role/maxIterations from DB, exit 0=completed, 1=failed, 2=cancelled",
                 "executeToolTask(taskId, task, boot, storage, workDir, unsafeMode, output): int — direct tool execution path for background tool tasks"
@@ -1779,9 +2266,18 @@
             "path": "src/Observer/BackgroundTaskObserver.php",
             "fqcn": "CoquiBot\\Coqui\\Observer\\BackgroundTaskObserver",
             "layer": "observer",
-            "description": "SplObserver that persists agent events to the task_events SQLite table. Used by TaskRunCommand to stream events from background task agent execution.",
+            "description": "SplObserver that persists agent events to the task_events SQLite table and emits throttled heartbeats for stale-task detection. Used by TaskRunCommand to stream events from background task agent execution.",
             "methods": [
                 "update(subject): void — handle agent events, persist to task_events"
+            ]
+        },
+        {
+            "path": "src/Observer/TurnProcessObserver.php",
+            "fqcn": "CoquiBot\\Coqui\\Observer\\TurnProcessObserver",
+            "layer": "observer",
+            "description": "SplObserver that persists interactive API turn events to the turn_events SQLite table. Mirrors the task event payload shape without reusing background-task heartbeats or task-specific storage.",
+            "methods": [
+                "update(subject): void — handle agent events, persist to turn_events"
             ]
         },
         {
@@ -1811,7 +2307,7 @@
             "path": "src/Config/OpenClawConfig.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\OpenClawConfig",
             "layer": "config",
-            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, utility model, provider config, and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
+            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, utility model, provider config, notification system settings (including automation lease/retry timers), and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
             "methods": [
                 "fromFile(string): self — load and parse openclaw.json file",
                 "fromArray(array): self — create from pre-parsed array",
@@ -1820,6 +2316,7 @@
                 "getPrimaryModel(): string — resolve primary model string",
                 "getFallbacks(): array — return ordered fallback model strings",
                 "getImageModel(): string — resolve image generation model",
+                "getNotificationConfig(): array — resolve notification display, retention, and automation settings with defaults",
                 "getUtilityModel(): string — resolve utility model from config or COQUI_UTILITY_MODEL env",
                 "resolveModel(string): string — resolve alias to full model string",
                 "getModelDefinition(string): ModelDefinition — build ModelDefinition for a model string"
@@ -1850,16 +2347,16 @@
             "path": "src/Storage/ScheduleStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ScheduleStore",
             "layer": "storage",
-            "description": "SQLite-backed persistence for scheduled tasks. Stores cron-style schedule definitions that the ScheduleManager evaluates on each tick. Supports one-shot (@once) and recurring schedules with circuit-breaker logic for consecutive failures.",
+            "description": "SQLite-backed persistence for scheduled tasks. Stores cron-style schedule definitions that the ScheduleManager evaluates on each tick. Supports one-shot (@once) and recurring schedules with circuit-breaker logic for consecutive failures. Tracks schedule source (system or filesystem) for declarative JSON-file-based schedules.",
             "methods": [
                 "create(string, string, string, ...): string — create a new schedule, returns ID",
                 "get(string): ?array — get schedule by ID",
                 "getByName(string): ?array — get schedule by unique name",
                 "update(string, ...): bool — update schedule fields, recomputes next_run_at",
                 "delete(string): bool — delete a schedule",
-                "deleteAll(): int — delete all schedules, returns count",
-                "disableAll(): int — disable all enabled schedules, returns count",
-                "enableAll(): int — enable all disabled schedules with recomputed next_run_at, returns count",
+                "deleteAll(): int — delete all system schedules, returns count",
+                "disableAll(): int — disable all enabled system schedules, returns count",
+                "enableAll(): int — enable all disabled system schedules with recomputed next_run_at, returns count",
                 "list(?bool, ?string, int): array — list schedules with optional filters",
                 "getReadySchedules(DateTimeImmutable): array — get enabled schedules past due",
                 "markExecuted(string, string): void — record execution, update next_run_at",
@@ -1868,6 +2365,9 @@
                 "enable(string): bool — enable schedule and reset failure counter",
                 "disable(string): bool — disable schedule",
                 "getStats(): array — count total, enabled, disabled, total_runs",
+                "upsertFilesystem(string, string, string, string, ...): string — create or update a filesystem-sourced schedule, preserving runtime state",
+                "deleteRemovedFilesystemSchedules(array): int — delete filesystem schedules not in active paths",
+                "isFilesystemSchedule(string): bool — check if a schedule is filesystem-sourced",
                 "getUpcoming(int): array — get schedules due within N hours",
                 "forceNextRun(string, string): void — force next_run_at to a specific time",
                 "computeNextRun(string, string): ?DateTimeImmutable — compute next run from cron expression"
@@ -2063,10 +2563,10 @@
             "path": "src/Toolkit/FileSystemToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\FileSystemToolkit",
             "layer": "toolkit",
-            "description": "Unified filesystem toolkit providing 18 tools: 4 read (read_file, list_dir, search_files, file_info), 5 write (write_file, create_dir, delete_file, copy_file, move), 8 surgical edit (replace_in_file, insert_before, insert_after, replace_block, remove_lines, write_lines, batch_replace, indent_lines, append_to_file), and 1 history (edit_history). copy_file and move auto-detect files vs directories for recursive operations. list_dir accepts a max_depth parameter (1–10, default 3) when recursive=true. search_files supports ** for recursive glob (delegated to FileSystemOperations::resolveGlob). Supports readOnly mode, mount-aware path sandboxing, configurable edit history retention, and SQLite-backed edit history with unified diff and undo.",
+            "description": "Unified filesystem toolkit providing 20 tools: 4 read (read_file, list_dir, search_files, file_info), 5 write (write_file, create_dir, delete_file, copy_file, move), 9 surgical edit (replace_in_file, insert_before, insert_after, replace_block, remove_lines, write_lines, batch_replace, indent_lines, append_to_file), and 2 history/session (edit_history, edit_session). All surgical edit tools support dry_run (preview diff without writing), context_lines (diff context), and session_id (queue edits in a transactional EditSession). Binary and oversized file guards reject surgical edits on binary files or files exceeding MAX_EDIT_FILE_SIZE. batch_replace supports exclude patterns and auto-skips binary files by extension and content inspection. edit_session provides transactional multi-file edits with SHA-256 concurrent modification detection on commit. copy_file and move auto-detect files vs directories. list_dir accepts max_depth (1–10, default 3). search_files supports ** for recursive glob. Supports readOnly mode, mount-aware path sandboxing, configurable edit history retention, and SQLite-backed edit history with unified diff and undo.",
             "methods": [
-                "tools(): array — returns 4 read tools always, plus 14 write/edit/history tools when not readOnly",
-                "guidelines(): string — tool selection guide with best practices, mode-aware"
+                "tools(): array — returns 4 read tools always, plus 16 write/edit/history/session tools when not readOnly",
+                "guidelines(): string — tool selection guide with best practices, mode-aware; includes dry-run, transactional edits, and safety guard sections"
             ]
         },
         {
@@ -2083,9 +2583,9 @@
             "path": "src/Toolkit/WebToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\WebToolkit",
             "layer": "toolkit",
-            "description": "HTTP requests and optional web search. Provides http_request tool (GET/POST/PUT/DELETE with SSRF protection) and optional web_search tool (when searchEndpoint is configured). Blocks private/internal network addresses by default. Truncates responses to 10K chars. Ported from php-agents.",
+            "description": "HTTP requests, async-first downloads, and optional web search. Provides http_request with configurable method, headers, query params, structured/raw request bodies, timeout, retries, and response modes; http_download queues background downloads when session storage is available and otherwise saves directly into workspace/downloads; and optional web_search when searchEndpoint is configured. Blocks private/internal network addresses by default and truncates inline response previews to 10K chars.",
             "methods": [
-                "tools(): array — returns [http_request] always, plus [web_search] when search endpoint configured",
+                "tools(): array — returns [http_request, http_download] always, plus [web_search] when search endpoint configured",
                 "guidelines(): string — web usage guidelines"
             ]
         },
@@ -2103,7 +2603,7 @@
             "path": "src/Support/FileSystemOperations.php",
             "fqcn": "CoquiBot\\Coqui\\Support\\FileSystemOperations",
             "layer": "support",
-            "description": "Shared file I/O helpers with path sandboxing, atomic writes, and line ending detection. Combines path resolution (mount-aware sandbox) with atomic write via temp-file + rename. Used by FileSystemToolkit for all file operations.",
+            "description": "Shared file I/O helpers with path sandboxing, atomic writes, line ending detection, binary file detection, and file size queries. Combines path resolution (mount-aware sandbox) with atomic write via temp-file + rename. Used by FileSystemToolkit for all file operations.",
             "methods": [
                 "resolvePath(string): string — canonicalize and sandbox-check a relative path; throws FileSystemException::pathEscapesSandbox if realpath escapes root and all allowed mounts",
                 "resolveGlob(string): array — glob within sandbox boundaries; supports ** for recursive directory traversal (RecursiveIteratorIterator + fnmatch), capped at MAX_GLOB_RESULTS (500)",
@@ -2113,21 +2613,69 @@
                 "append(string, string): int — append with file creation",
                 "delete(string): void — unlink with mount read-only guard",
                 "isReadOnlyMountPath(string): bool — check if path is under a read-only mount",
-                "detectEol(string): string — detect dominant line ending style"
+                "detectEol(string): string — detect dominant line ending style",
+                "isBinaryFile(string): bool — detect binary files by checking first 8KB for null bytes",
+                "fileSize(string): int — get file size in bytes with sandbox enforcement"
+            ]
+        },
+        {
+            "path": "src/Support/DiffHelper.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\DiffHelper",
+            "layer": "support",
+            "description": "Standalone unified diff generator using a pure PHP Myers LCS algorithm. Decoupled from SQLite storage layer. Provides unifiedDiff() for computing diffs between strings, preview() for dry-run file change previews with metadata headers, and myersDiff() for raw line-level diff operations. Used by EditHistory (undo diffs) and FileSystemToolkit (dry-run previews, edit session queuing).",
+            "methods": [
+                "static unifiedDiff(string, string, string, string, int): string — compute unified diff between two strings with configurable context lines",
+                "static preview(string, string, string, array, int): string — generate preview header with file path, metadata, and unified diff",
+                "static myersDiff(array, array): array — pure PHP Myers LCS producing operation tags per line (equal/add/remove)"
+            ]
+        },
+        {
+            "path": "src/Support/EditSession.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\EditSession",
+            "layer": "support",
+            "description": "Transactional edit session value object for atomic multi-file edits. Generates a random hex session ID, queues edits with SHA-256 hash snapshots of original content, validates against concurrent modifications before commit, and provides immutable state transitions (active → committed/rolled_back/expired). Sessions expire after a configurable timeout (default 5 minutes). Used by FileSystemToolkit's edit_session tool.",
+            "methods": [
+                "addEdit(string, string, string, string, array): void — queue an edit with path, original, modified, operation, and metadata",
+                "validate(): array — re-read files and compare SHA-256 hashes, return conflicting paths",
+                "commit(): array — mark committed and return pending edits for caller to write",
+                "rollback(): void — discard all pending edits",
+                "isActive(): bool — session is active and within timeout",
+                "isExpired(): bool — timeout exceeded",
+                "status(): string — current state (active/committed/rolled_back/expired)"
             ]
         },
         {
             "path": "src/Support/FileSystemException.php",
             "fqcn": "CoquiBot\\Coqui\\Support\\FileSystemException",
             "layer": "support",
-            "description": "Domain exception for filesystem operations with static factories for common error types: fileNotFound, readFailed, writeFailed, readOnlyMount, pathEscapesSandbox, invalidRange, invalidRegex, copyFailed, moveFailed, cannotCopyToSelf, maxRecursiveItemsExceeded, deletionFailed.",
+            "description": "Domain exception for filesystem operations with static factories for common error types: fileNotFound, readFailed, writeFailed, readOnlyMount, pathEscapesSandbox, invalidRange, invalidRegex, copyFailed, moveFailed, cannotCopyToSelf, maxRecursiveItemsExceeded, deletionFailed, binaryFileNotEditable, fileTooLarge.",
             "methods": []
+        },
+        {
+            "path": "src/Support/JsonHelper.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\JsonHelper",
+            "layer": "support",
+            "description": "Centralized JSON decode helper. Provides decodeJsonObject() which safely decodes a mixed value into an associative array or null. Handles array passthrough, null/empty/non-string rejection, and type verification. Replaces 11 identical private methods formerly scattered across toolkits, handlers, and agents.",
+            "methods": [
+                "static decodeJsonObject(mixed): ?array — decode mixed value to associative array or null"
+            ]
+        },
+        {
+            "path": "src/Support/StringHelper.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\StringHelper",
+            "layer": "support",
+            "description": "Centralized string manipulation. Provides truncate() with newline normalization and multi-byte safety, truncateNullable() for nullable variants, and slug() for kebab-case conversion with Unicode transliteration. Replaces 6+ private truncate methods and 3+ slug/sanitize patterns scattered across the codebase.",
+            "methods": [
+                "static truncate(string, int, string): string — truncate with newline normalization and mb_* safety",
+                "static truncateNullable(?string, int, string): ?string — nullable-safe truncate variant",
+                "static slug(string): string — kebab-case conversion with transliteration"
+            ]
         },
         {
             "path": "src/Storage/EditHistory.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\EditHistory",
             "layer": "storage",
-            "description": "SQLite-backed edit history with file backups for undo support. Records each mutating edit with the original file content as a backup. Supports undo by edit ID, unified diff generation, listing recent edits, and pruning old entries. Used by FileSystemToolkit.",
+            "description": "SQLite-backed edit history with file backups for undo support. Records each mutating edit with the original file content as a backup. Supports undo by edit ID, unified diff generation (delegated to DiffHelper), listing recent edits, and pruning old entries. Used by FileSystemToolkit.",
             "methods": [
                 "record(string, string, string, array): int — record an edit with backup, returns edit ID",
                 "getBackup(int): array — retrieve backup content for a specific edit",
@@ -2135,6 +2683,116 @@
                 "getEditsSince(string): array — edits since a timestamp (for REPL summary)",
                 "generateDiff(int): string — unified diff between backup and current file",
                 "prune(int): int — remove old entries and backup files"
+            ]
+        },
+        {
+            "path": "src/Storage/NotificationStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\NotificationStore",
+            "layer": "storage",
+            "description": "SQLite-backed notification persistence for transient informational and actionable notifications. Shares the main coqui.db PDO connection, performs idempotent schema migration for lease/retry columns, enforces unread fingerprint deduplication, and supports both user-facing notification reads and API-side actionable claim/reclaim workflows.",
+            "methods": [
+                "create(string $sessionId, string $kind, string $title, ?string $message = null, string $class = 'informational', string $priority = 'normal', ?string $fingerprint = null, ?string $sourceType = null, ?string $sourceId = null, ?array $metadata = null, ?string $expiresAt = null): ?string — create a notification unless an unread fingerprint duplicate blocks insertion",
+                "getUnreadInformational(string $sessionId, int $limit = 10): array — list unread informational notifications for a session",
+                "snapshotAndClear(string $sessionId, int $limit = 10): array — atomically read and mark unread informational notifications as read",
+                "countUnread(string $sessionId): int — count unread informational notifications",
+                "getPendingActionableGlobal(?array $kinds = null, int $limit = 10): array — list actionable notifications eligible for automation across all sessions",
+                "getOpenActionableSummary(string $sessionId): array — count pending and claimed actionable notifications for REPL status rendering",
+                "claim(string $id, string $claimedBy, int $leaseSeconds = 300): bool — acquire a lease on a pending actionable notification",
+                "completeClaim(string $id): void — mark a claimed actionable notification completed",
+                "retryClaim(string $id, string $lastError, int $retryDelaySeconds = 60): void — requeue a claimed actionable notification with backoff",
+                "failClaim(string $id, ?string $lastError = null): void — mark a claimed actionable notification permanently failed",
+                "reclaimExpiredClaims(int $maxAttempts = 3, int $retryDelaySeconds = 60): array — reclaim or fail expired actionable leases",
+                "prune(int $informationalRetentionHours = 24, int $actionableRetentionHours = 72): int — delete old read/terminal notifications by class-specific retention",
+                "getRecent(string $sessionId, int $limit = 20): array — list recent notifications regardless of class/state",
+                "get(string $id): ?array — fetch a notification by ID"
+            ]
+        },
+        {
+            "path": "src/Notification/NotificationPublisher.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\NotificationPublisher",
+            "layer": "agent",
+            "description": "Centralized notification publishing facade. Resolves the correct user-facing session from execution, parent, and work-scope session chains; routes informational versus actionable notifications into NotificationStore; and provides standard fingerprint helpers so producers can deduplicate task and loop events consistently.",
+            "methods": [
+                "publish(string $sessionId, string $kind, string $title, ?string $message = null, string $class = 'informational', string $priority = 'normal', ?string $fingerprint = null, ?string $sourceType = null, ?string $sourceId = null, ?array $metadata = null, ?string $expiresAt = null): ?string — publish a notification through NotificationStore",
+                "info(string $sessionId, string $kind, string $title, ?string $message = null, ?string $fingerprint = null, ?string $sourceType = null, ?string $sourceId = null, ?array $metadata = null, string $priority = 'normal'): ?string — convenience wrapper for informational notifications",
+                "actionable(string $sessionId, string $kind, string $title, ?string $message = null, ?string $fingerprint = null, ?string $sourceType = null, ?string $sourceId = null, ?array $metadata = null, string $priority = 'high'): ?string — convenience wrapper for actionable notifications",
+                "resolveTargetSession(string $sessionId, ?string $parentSessionId = null, ?string $workScopeSessionId = null): string — choose the user-visible session for a notification",
+                "taskFingerprint(string $taskId, string $outcome): string — build a standard task-event fingerprint",
+                "loopFingerprint(string $loopId, int $iterationNumber, ?int $stageIndex = null, ?string $outcome = null): string — build a standard loop-event fingerprint",
+                "existsByFingerprint(string $sessionId, string $fingerprint): bool — check whether a notification fingerprint already exists"
+            ]
+        },
+        {
+            "path": "src/Notification/NotificationAutomationHandlerInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\NotificationAutomationHandlerInterface",
+            "layer": "contract",
+            "description": "Contract for actionable notification handlers. Each handler owns one notification kind and returns a typed NotificationAutomationResult telling the runner whether to complete, retry, fail, or skip the claimed notification.",
+            "methods": [
+                "kind(): string — actionable notification kind this handler processes",
+                "handle(array $notification): NotificationAutomationResult — execute automation for a claimed notification"
+            ]
+        },
+        {
+            "path": "src/Notification/NotificationAutomationOutcome.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\NotificationAutomationOutcome",
+            "layer": "contract",
+            "description": "Backed enum defining the four actionable notification handler outcomes: completed, retry, failed, and skipped.",
+            "methods": []
+        },
+        {
+            "path": "src/Notification/NotificationAutomationResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\NotificationAutomationResult",
+            "layer": "contract",
+            "description": "Readonly result wrapper returned by actionable notification handlers. Carries a NotificationAutomationOutcome plus an optional human-readable message and optional retry delay override for the runner.",
+            "methods": [
+                "completed(?string $message = null): self — build a completed result",
+                "retry(string $message, ?int $retryDelaySeconds = null): self — build a retry result with optional delay override",
+                "failed(string $message): self — build a terminal failure result",
+                "skipped(?string $message = null): self — build a skipped result"
+            ]
+        },
+        {
+            "path": "src/Notification/NotificationAutomationRunner.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\NotificationAutomationRunner",
+            "layer": "agent",
+            "description": "API-only automation coordinator for actionable notifications. Pulls pending notifications from NotificationStore, claims them with leases, dispatches by notification kind to registered handlers, and records per-kind/process metrics for completions, retries, failures, reclaim activity, and skips.",
+            "methods": [
+                "tick(): void — claim and process a batch of actionable notifications",
+                "reclaim(): void — reclaim or fail expired claims based on retry policy",
+                "stats(): array — return cumulative runner counters and per-kind metrics"
+            ]
+        },
+        {
+            "path": "src/Notification/RetryBackgroundTaskAction.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\RetryBackgroundTaskAction",
+            "layer": "agent",
+            "description": "Actionable notification handler for task.failed events. Verifies that the original background task still exists and is failed, deduplicates follow-up work using automation.notification_id metadata, propagates the active project to the new execution session, and spawns a retry task in the user-facing parent session.",
+            "methods": [
+                "kind(): string — returns task.failed",
+                "handle(array $notification): NotificationAutomationResult — create a retry background task or return skipped/failed state"
+            ]
+        },
+        {
+            "path": "src/Notification/EscalateLoopFailureAction.php",
+            "fqcn": "CoquiBot\\Coqui\\Notification\\EscalateLoopFailureAction",
+            "layer": "agent",
+            "description": "Actionable notification handler for loop.failed events. Verifies the loop is still failed, deduplicates by automation.notification_id metadata, creates a fresh orchestrator execution session, and queues an investigation task with the failed loop context back into the parent conversation session.",
+            "methods": [
+                "kind(): string — returns loop.failed",
+                "handle(array $notification): NotificationAutomationResult — create a follow-up loop investigation task or return skipped/failed state"
+            ]
+        },
+        {
+            "path": "src/Repl/NotificationPresenter.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\NotificationPresenter",
+            "layer": "command",
+            "description": "Pure formatting helper for notification-related REPL UI. Produces the idle stacked informational notification block, compact unread badge, sticky actionable automation summary line, post-turn acknowledgment copy, and plain-text prompt-section content used by AgentRunner.",
+            "methods": [
+                "formatIdleNotifications(array $notifications): array — render stacked idle notification lines for the REPL",
+                "formatBadge(int $unreadCount): string — render the compact unread prompt badge",
+                "formatActionableSummary(int $pendingCount, int $activeCount): string — render the sticky actionable automation summary line",
+                "formatTurnAcknowledgment(array $notifications): array — render post-turn acknowledgment copy",
+                "formatForPromptInjection(array $notifications): string — render plain-text notification context for the model prompt"
             ]
         }
     ],

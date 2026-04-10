@@ -1,5 +1,6 @@
 # Coqui Bot
 
+<!-- markdownlint-disable MD033 -->
 <p align="center">
     <picture>
         <img src="https://raw.githubusercontent.com/AgentCoqui/coqui/main/assets/coqui.webp" alt="Coqui" width="256" />
@@ -21,6 +22,7 @@
   <a href="https://coqui.space">Toolkits</a> ·
   <a href="https://github.com/sponsors/carmelosantana">Sponsor</a>
 </p>
+<!-- markdownlint-enable MD033 -->
 
 > **Book a 1:1 call** — paid sessions for real-time implementation help, AI agent consulting, or just to support Coqui's active development. [Schedule time →](https://cal.com/carmelosantana/coqui-1:1)
 
@@ -49,6 +51,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - 🌐 [**HTTP API**](docs/FEATURES.md#http-api) — async REST + SSE server for dashboards and headless automation
 - 💾 [**Persistent Sessions**](docs/FEATURES.md#persistent-sessions) — SQLite-backed conversations that survive restarts
 - 👁️ [**Vision Analysis**](docs/FEATURES.md#vision-analysis) — analyze images from URLs, files, or base64 data
+- 🪶 [**Soul**](docs/FEATURES.md#soul) — customizable core identity via `soul.md` with workspace override support
 
 See [docs/FEATURES.md](docs/FEATURES.md) for the full feature reference with usage examples and token efficiency strategies.
 
@@ -63,6 +66,8 @@ Or use **Docker** — no local PHP required. See [Docker](#docker) below.
 ## Installation
 
 The installer detects your OS, installs PHP 8.4+ and required extensions if missing, downloads the latest Coqui release, verifies the SHA-256 checksum, and adds `coqui` to your PATH — no Git or Composer required.
+
+Platform expectations are straightforward: Linux and macOS are fully supported, WSL2 is the recommended Windows development path, and native Windows currently targets basic installer and REPL usage.
 
 ### Linux / macOS / WSL2
 
@@ -122,10 +127,19 @@ For automatic crash recovery and restart support, use the launcher:
 ```
 
 The launcher starts the REPL (foreground) + API server (background on port 3300) by default. It also handles:
+
 - **Clean exit** (exit code 0) — `/quit` stops the launcher and all background services
 - **Restart** (exit code 10) — `/restart` or the `restart_coqui` tool triggers an immediate relaunch
 - **Crash recovery** — unexpected exits auto-relaunch up to 3 consecutive times
-- **Service management** — `./bin/coqui-launcher stop` / `status` to manage background services
+- **Service management** — `./bin/coqui-launcher stop`, `status`, and `cleanup` to manage background services and reclaim stale Coqui-owned processes
+
+If a previous session left stale Coqui processes behind, run:
+
+```bash
+./bin/coqui-launcher cleanup
+```
+
+`cleanup` only targets stale or conflicting Coqui-owned processes for this checkout. It does not blindly kill unrelated PHP processes.
 
 ```txt
  Coqui v0.1.0
@@ -161,7 +175,7 @@ See [docs/ROLES.md](docs/ROLES.md) for all built-in roles and [docs/COMMANDS.md]
 ### CLI Options
 
 | Option | Short | Description |
-|--------|-------|-------------|
+| --- | --- | --- |
 | `--config` | `-c` | Path to `openclaw.json` config file |
 | `--wizard` | `-w` | Run the setup wizard |
 | `--new` | | Start a fresh session |
@@ -178,7 +192,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full CLI reference including `a
 ## REPL Commands
 
 | Command | Description |
-|---------|-------------|
+| --- | --- |
 | `/new` | Start a new session |
 | `/sessions` | List all saved sessions |
 | `/resume <id>` | Resume a session by ID |
@@ -199,14 +213,14 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full command reference with exa
 
 Coqui uses an `openclaw.json` config file for centralized model routing. The format is fully compatible with [OpenClaw](https://github.com/openclaw/openclaw) — you can drop in your existing OpenClaw config and it works without any changes. Coqui-specific extensions (workspace, mounts, shell access control) live under `agents.defaults` and are safely ignored by other OpenClaw-compatible tools.
 
-Config changes are detected automatically — edit the file and your next message uses the new settings. No restart required.
+Config changes require a restart to take effect. Use `/restart` in the REPL or restart the process after editing `openclaw.json`.
 
 For the full config reference, see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ### Supported Providers
 
 | Provider | Protocol | API Key Env Var |
-|----------|----------|----------------|
+| --- | --- | --- |
 | Ollama (local) | `openai-completions` | — |
 | OpenAI | `openai-completions` | `OPENAI_API_KEY` |
 | OpenAI Responses | `openai-responses` | `OPENAI_API_KEY` |
@@ -304,7 +318,7 @@ Define short aliases for quick reference:
 Coqui ships with a rich set of tools organized into toolkits:
 
 | Category | Key Tools | Description |
-|----------|-----------|-------------|
+| --- | --- | --- |
 | **Agent** | `spawn_agent`, `restart_coqui` | Delegate to child agents, restart Coqui |
 | **Filesystem** | `read_file`, `write_file`, `replace_in_file`, `edit_history` | Sandboxed file I/O, surgical edits, undo history |
 | **Shell** | `exec` | Run shell commands (open by default; opt-in allowlist via `shellAllowedCommands`, `cwd` support) |
@@ -331,7 +345,7 @@ See [docs/TOOLKITS.md](docs/TOOLKITS.md) for the full walkthrough with examples.
 Coqui is optimized for low-latency agent loops. Key design decisions:
 
 | Metric | Value | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Cold boot | ~78 ms | Autoload + BootManager + workspace init |
 | Memory at boot | ~4 MB | Before toolkit discovery |
 | Memory with toolkits | ~8 MB | 44 tools, 7 packages |
@@ -403,10 +417,11 @@ ollama serve
 ### Useful Commands
 
 | Command | Description |
-|---------|-------------|
+| --- | --- |
 | `make start` | Start REPL + API (native) |
 | `make stop` | Stop all native services |
 | `make status` | Show service status |
+| `make cleanup` | Clean stale/conflicting native Coqui processes |
 | `make repl` | REPL only (native) |
 | `make api` | API only (native, `HOST=0.0.0.0` for network access) |
 | `make docker-start` | REPL + API (Docker) |
@@ -432,7 +447,7 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 ### File Overview
 
 | File | Purpose |
-|------|---------|
+| --- | --- |
 | `Dockerfile` | PHP 8.4 CLI + extensions + Composer |
 | `compose.yaml` | Base service with workspace volume + host Ollama access |
 | `compose.api.yaml` | API server service (port 3300) — runs alongside REPL |
@@ -443,13 +458,19 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 ## Documentation
 
 | Document | Description |
-|----------|-------------|
+| --- | --- |
 | [Features](docs/FEATURES.md) | Complete feature reference with usage examples |
 | [Commands](docs/COMMANDS.md) | REPL slash commands and CLI reference |
 | [Roles](docs/ROLES.md) | Built-in roles, access levels, and custom role creation |
 | [Configuration](docs/CONFIGURATION.md) | `openclaw.json` reference |
-| [API](docs/API.md) | HTTP API endpoints |
+| [API](docs/API.md) | Canonical HTTP API reference |
+| [App API Usage](docs/APP-API-USAGE.md) | Client integration patterns for apps and dashboards |
+| [REPL/API Divergences](docs/REPL-API-DIVERGENCES.md) | Features intentionally kept out of the HTTP surface |
 | [Background Tasks](docs/BACKGROUND-TASKS.md) | Background task architecture and usage |
+| [Loops](docs/LOOPS.md) | Loop definitions, runtime model, and inspection |
+| [Todos](docs/TODOS.md) | Planning and todo workflow |
+| [Artifacts](docs/ARTIFACTS.md) | Artifact lifecycle and versioning |
+| [Testing](docs/TESTING.md) | Test layout, local commands, coverage, and PCOV/Xdebug setup |
 | [Toolkits](docs/TOOLKITS.md) | Creating toolkit packages |
 | [Skills](docs/SKILLS.md) | Skills system and schema |
 | [GitHub Actions](docs/GITHUB-ACTIONS.md) | CI/CD integration |

@@ -10,6 +10,7 @@ use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CoquiBot\Coqui\Config\PathHelper;
+use CoquiBot\Coqui\Support\StringHelper;
 
 /**
  * Generates complete toolkit package scaffolds for Coqui.
@@ -38,7 +39,6 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
         return [
             $this->createTool(),
             $this->addToolTool(),
-            $this->listTool(),
         ];
     }
 
@@ -51,7 +51,7 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
             ## Workflow
             1. `toolkit_create` — scaffold a new toolkit with composer.json, source, and README
             2. `toolkit_add_tool` — add tools to an existing toolkit
-            3. `toolkit_list` — list all toolkit packages in the workspace
+            3. `toolkit_list` — list all toolkit packages (standalone system tool, always available)
 
             ## After creating a toolkit
             1. Use `composer` tool (action: require, target: workspace) to install it
@@ -140,16 +140,6 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
                 ),
             ],
             callback: fn(array $input): ToolResult => $this->executeAddTool($input),
-        );
-    }
-
-    private function listTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'toolkit_list',
-            description: 'List all toolkit packages in the workspace with their tools, dependencies, and credential requirements.',
-            parameters: [],
-            callback: fn(array $input): ToolResult => $this->executeList(),
         );
     }
 
@@ -353,51 +343,6 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
             . "- Parameters: " . (empty($parameters) ? 'none' : count($parameters)) . "\n\n"
             . "The toolkit class has been updated. If already installed, restart Coqui to pick up changes.",
         );
-    }
-
-    // ── List ────────────────────────────────────────────────────────────
-
-    private function executeList(): ToolResult
-    {
-        $packagesDir = $this->packagesDir();
-
-        if (!is_dir($packagesDir)) {
-            return ToolResult::success("No toolkit packages found. Use `toolkit_create` to create one.");
-        }
-
-        $entries = scandir($packagesDir);
-        if ($entries === false) {
-            return ToolResult::error("Cannot read packages directory.");
-        }
-
-        $packages = [];
-
-        foreach ($entries as $entry) {
-            if ($entry === '.' || $entry === '..') {
-                continue;
-            }
-
-            $composerPath = $packagesDir . '/' . $entry . '/composer.json';
-            if (!file_exists($composerPath)) {
-                continue;
-            }
-
-            $data = json_decode((string) file_get_contents($composerPath), true);
-            if (!is_array($data)) {
-                continue;
-            }
-
-            $packages[] = $this->formatPackageInfo($entry, $data);
-        }
-
-        if (empty($packages)) {
-            return ToolResult::success("No toolkit packages found. Use `toolkit_create` to create one.");
-        }
-
-        $output = "## Workspace Toolkit Packages\n\n";
-        $output .= implode("\n", $packages);
-
-        return ToolResult::success($output);
     }
 
     // ── Generators ──────────────────────────────────────────────────────
@@ -732,12 +677,7 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
             $name = substr($name, 9);
         }
 
-        // Convert to kebab-case
-        $name = strtolower($name);
-        $name = (string) preg_replace('/[^a-z0-9-]/', '-', $name);
-        $name = (string) preg_replace('/-+/', '-', $name);
-
-        return trim($name, '-');
+        return StringHelper::slug($name);
     }
 
     private function toPascalCase(string $kebab): string
@@ -863,48 +803,6 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
         $files = glob($srcDir . '/*Toolkit.php');
 
         return !empty($files) ? $files[0] : null;
-    }
-
-    /**
-     * @param array<string, mixed> $data
-     */
-    private function formatPackageInfo(string $dirName, array $data): string
-    {
-        $name = $data['name'] ?? 'coquibot/' . $dirName;
-        $desc = $data['description'] ?? 'No description';
-        $toolkits = $data['extra']['php-agents']['toolkits'] ?? [];
-        $credentials = $data['extra']['php-agents']['credentials'] ?? [];
-        $requires = $data['require'] ?? [];
-
-        // Remove php and php-agents from requires display
-        unset($requires['php'], $requires['carmelosantana/php-agents']);
-
-        $output = "### {$name}\n";
-        $output .= "{$desc}\n\n";
-
-        if (!empty($toolkits)) {
-            $output .= "**Classes:** " . implode(', ', array_map(fn(string $c) => '`' . $c . '`', $toolkits)) . "\n";
-        }
-
-        if (!empty($requires)) {
-            $deps = [];
-            foreach ($requires as $pkg => $ver) {
-                $deps[] = "`{$pkg}` ({$ver})";
-            }
-            $output .= "**Dependencies:** " . implode(', ', $deps) . "\n";
-        }
-
-        if (!empty($credentials)) {
-            $creds = [];
-            foreach ($credentials as $key => $cdesc) {
-                $creds[] = "`{$key}`";
-            }
-            $output .= "**Credentials:** " . implode(', ', $creds) . "\n";
-        }
-
-        $output .= "\n";
-
-        return $output;
     }
 
     private function runComposerInstall(string $packageDir): string

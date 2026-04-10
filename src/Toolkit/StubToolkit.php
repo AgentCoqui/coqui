@@ -11,9 +11,9 @@ use CoquiBot\Coqui\Tool\StubTool;
 /**
  * Wraps a toolkit with stub schemas for all its tools.
  *
- * Guidelines pass through unchanged so the LLM still receives usage
- * instructions for the toolkit. The tools() method returns StubTool
- * wrappers instead of real tools so the LLM only sees minimal schemas.
+ * Deferred toolkits have zero prompt footprint — guidelines return empty
+ * and tools() returns StubTool wrappers with minimal schemas. The LLM
+ * discovers deferred toolkit capabilities via tool_search only.
  *
  * The caller (OrchestratorAgent::addToolkit) must register the real tools
  * via realTools() into the BM25 ToolRegistry before adding this wrapper to
@@ -38,9 +38,16 @@ final class StubToolkit implements ToolkitInterface
         );
     }
 
+    /**
+     * Returns empty string — deferred toolkits have zero prompt footprint.
+     *
+     * The LLM discovers deferred toolkit capabilities via tool_search.
+     * A brief description is included in the # DEFERRED TOOLKITS hint
+     * section instead of full guidelines.
+     */
     public function guidelines(): string
     {
-        return $this->inner->guidelines();
+        return '';
     }
 
     /**

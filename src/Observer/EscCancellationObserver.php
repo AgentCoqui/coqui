@@ -62,45 +62,109 @@ final class EscCancellationObserver implements SplObserver
         $this->messageShown = false;
     }
 
-    public function update(SplSubject $subject): void
+    /**
+     * Begin a fresh REPL turn.
+     *
+     * Resets per-turn state, drains any stale pending input from the prior turn,
+     * and enables ESC polling for the new token.
+     */
+    public function beginTurn(ProcessCancellationToken $token): void
     {
-        if ($this->active && $this->isTty && !$this->token->isCancelled()) {
-            // stream_select with 0 timeout: non-blocking check for available bytes.
-            // Guards against fread blocking if stty or stream_set_blocking wasn't applied.
-            //
-            // Memory streams (php://memory, used in tests) are seekable and cannot be
-            // passed to stream_select() — skip the select and fread directly instead.
-            // stream_get_meta_data() returns false on error (suppressed by @),
-            // but PHPStan's stub types it as always-array — the @var annotation
-            // restores the false branch so the is_array() guard below is meaningful.
-            /** @var false|array<string, mixed> $meta */
-            $meta = @stream_get_meta_data($this->stdin);
-            $isSelectable = is_array($meta) && empty($meta['seekable']);
+        $this->token = $token;
+        $this->messageShown = false;
+        $this->drainPendingInput();
+        $this->active = true;
+    }
 
-            if ($isSelectable) {
-                $read = [$this->stdin];
-                $write = $except = [];
-                $available = @stream_select($read, $write, $except, 0, 0);
-            } else {
-                $available = 1; // Non-selectable stream — attempt fread directly
-            }
+    /**
+     * End the current REPL turn.
+     *
+     * Disables polling first so queued timer callbacks become no-ops, then
+     * drains any leftover bytes to prevent false cancellation on the next turn.
+     */
+    public function endTurn(): void
+    {
+        $this->active = false;
+        $this->messageShown = false;
+        $this->drainPendingInput();
+    }
 
-            $byte = ($available > 0) ? @fread($this->stdin, 1) : false;
-
-            if ($byte === "\x1B") {
-                $this->token->cancel();
-
-                if (!$this->messageShown) {
-                    $this->messageShown = true;
-                    // Clear any in-place status line before writing the cancellation message.
-                    $this->output->write("\r\033[K");
-                    $this->output->writeln(
-                        "\n<fg=yellow>⚑ Cancellation requested — finishing current response...</>",
-                    );
-                }
-            }
+    public function poll(): void
+    {
+        if (!$this->active || !$this->isTty || $this->token->isCancelled()) {
+            return;
         }
 
+        if ($this->isSelectableStream()) {
+            $read = [$this->stdin];
+            $write = $except = [];
+            $available = @stream_select($read, $write, $except, 0, 0);
+        } else {
+            $available = 1;
+        }
+
+        $byte = ($available > 0) ? @fread($this->stdin, 1) : false;
+
+        if ($byte !== "\x1B") {
+            return;
+        }
+
+        $this->token->cancel();
+
+        if ($this->messageShown) {
+            return;
+        }
+
+        $this->messageShown = true;
+        $this->output->write("\r\033[K");
+        $this->output->writeln(
+            "\n<fg=yellow>⚑ Cancellation requested — returning to the REPL...</>",
+        );
+    }
+
+    public function update(SplSubject $subject): void
+    {
+        $this->poll();
+
         $this->inner->update($subject);
+    }
+
+    private function drainPendingInput(): void
+    {
+        if (!$this->isTty) {
+            return;
+        }
+
+        if ($this->isSelectableStream()) {
+            $read = [$this->stdin];
+            $write = $except = [];
+
+            while (@stream_select($read, $write, $except, 0, 0) > 0) {
+                $chunk = @fread($this->stdin, 128);
+                if ($chunk === false || $chunk === '') {
+                    break;
+                }
+
+                $read = [$this->stdin];
+                $write = $except = [];
+            }
+
+            return;
+        }
+
+        while (true) {
+            $chunk = @fread($this->stdin, 128);
+            if ($chunk === false || $chunk === '') {
+                return;
+            }
+        }
+    }
+
+    private function isSelectableStream(): bool
+    {
+        /** @var false|array<string, mixed> $meta */
+        $meta = @stream_get_meta_data($this->stdin);
+
+        return is_array($meta) && empty($meta['seekable']);
     }
 }

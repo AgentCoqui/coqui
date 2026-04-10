@@ -10,6 +10,8 @@ A comprehensive guide to everything Coqui can do. Each feature covers what it do
 
 **How it helps:** Save money and improve speed. A local 8B model can handle orchestration and routing while a frontier model tackles the hard coding problems.
 
+Coqui is not limited to coding workflows — any use case that benefits from LLM orchestration (research, writing, analysis, philosophical reasoning) can use the same model routing. Route frontier models like Claude Opus, GPT-5.4, or Gemini 2.5 Pro to roles that need depth, and fast/cheap models to utility tasks.
+
 **How to use it:** Map roles to models in `openclaw.json`:
 
 ```json
@@ -53,7 +55,46 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 - **Implicitly:** Converse normally — Coqui saves important facts automatically.
 - **Explicitly:** "Remember that I always use PHP 8.4" stores it immediately.
 - **Search:** The agent searches memory with `memory_search` and manages entries with `memory_save`, `memory_update`, `memory_delete`.
+- **Bulk import:** Use `memory_import` to load a document file (identity scaffold, research notes, knowledge base) into searchable memory entries with configurable chunking, importance, and tags.
 - **Embeddings:** For semantic search, configure an embedding model in `openclaw.json` under `agents.defaults.memory.embeddingModel`.
+
+**Configuring memory for identity-heavy use cases:**
+
+For use cases that require preserving large identity scaffolds or long-running developmental context (research continuity, autonomous agents with persistent identity), tune these settings in `openclaw.json`:
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "memory": {
+                "autoExtract": true,
+                "coreSummaryMaxTokens": 2000,
+                "coreSummaryEntryLimit": 100,
+                "embeddingModel": "ollama/nomic-embed-text"
+            },
+            "context": {
+                "autoSummarizeMode": "manual",
+                "autoSummarizeKeepRecent": 20,
+                "budgetExitThreshold": 0.0
+            }
+        }
+    }
+}
+```
+
+| Setting | Default | Identity Use Case | Purpose |
+|---|---|---|---|
+| `coreSummaryMaxTokens` | 500 | 2000–5000 | Token budget for compressed core memory in system prompt |
+| `coreSummaryEntryLimit` | 50 | 100–200 | Max memories fetched for core summary generation |
+| `autoSummarizeMode` | `"token"` | `"manual"` | Prevent aggressive conversation summarization |
+| `autoSummarizeKeepRecent` | 15 | 20 | Preserve more conversation depth when summarizing |
+| `budgetExitThreshold` | 0.85 | 0.0 | Disable budget-based exit (0.0 = disabled) |
+
+**Three-layer identity architecture:**
+
+1. **Soul** (always in context) — place a `soul.md` file in your workspace root to define core identity, values, and personality. This is injected into every system prompt. Keep it to 2–5K tokens.
+2. **Indexed memories** (searchable, selectively injected) — import key developmental milestones and identity anchors as high-importance (≥ 0.9) memory entries via `memory_import` or `memory_save`. These are pinned (exempt from decay), searchable, and summarized into the system prompt.
+3. **Full archive** (file-accessible) — keep the complete identity document in the workspace as a file. The agent can retrieve specific sections on demand via `read_file` and `file_search`.
 
 ## <a id="runtime-extensibility"></a> 📦 Runtime Extensibility
 
@@ -96,7 +137,7 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 **How to use it:**
 - The agent calls `schedule_create(name: "nightly-eval", expression: "0 2 * * *", prompt: "...", role: "evaluator")`.
 - Manage via REPL: `/schedules` to list all schedules.
-- Manage via API: `POST /api/v1/schedules`.
+- Inspect via API: `GET /api/v1/schedules`.
 - Failed schedules are automatically disabled after 3 consecutive failures (circuit breaker). Re-enable after investigating.
 
 ## <a id="webhooks"></a> 🔗 Webhooks
@@ -213,7 +254,7 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 
 ## <a id="conversation-summarization"></a> 🔄 Conversation Summarization
 
-**What it does:** Automatic and on-demand conversation compression. When token usage exceeds a configurable threshold (default 75%), older messages are summarized via LLM while preserving recent turns and workflow state (todos, artifacts).
+**What it does:** Automatic and on-demand conversation compression. When token usage exceeds a configurable threshold (default 64%), older messages are summarized via LLM while preserving recent turns and workflow state (todos, artifacts).
 
 **How it helps:** Long sessions never hit token limits. The agent maintains awareness of earlier work through structured summaries while staying within budget.
 
@@ -248,6 +289,8 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 - Power users: `--auto-approve` skips prompts (blacklist still active).
 - Testing: `--unsafe` disables PHP script sanitization.
 - Toolkits declare gated operations in `composer.json` — Coqui handles the confirmation UX.
+
+**Content policy note:** Coqui's safety model gates **execution** (shell commands, PHP code, filesystem writes), not **expression**. There is no content filtering on LLM-generated text. The content of generated responses is governed entirely by the upstream provider's own policies (Anthropic, OpenAI, etc.). Users running research or creative use cases with sensitive phenomenological content should choose providers and models whose content policies align with their research needs.
 
 ## <a id="http-api"></a> 🌐 HTTP API
 
@@ -334,6 +377,43 @@ Child agents always get read-only mount access regardless of the mount's declare
 - Browse installed: `/space installed`
 - Update all: `/space update`
 - Web: [coqui.space](https://coqui.space)
+
+## <a id="soul"></a> 🪶 Soul
+
+**What it does:** The `soul.md` file defines the bot's core identity, values, and guiding principles. It is loaded before all other prompt sections, establishing the bot's personality and approach to interactions. Users can override the default soul by placing their own `soul.md` in the workspace.
+
+**How it helps:** Separates the bot's character and tone from its technical/operational instructions. This makes it easy to customize the bot's personality without touching system-level prompts. The soul is always the first thing the agent reads — it shapes every interaction.
+
+**How to use it:**
+
+The default `soul.md` ships with Coqui in the `prompts/` directory. To customize:
+
+1. Create a `soul.md` file in your workspace root (`~/.coqui/.workspace/soul.md`) or in `workspace/prompts/soul.md`
+2. Write your custom identity, values, and tone guidelines
+3. The custom soul takes effect immediately — no restart needed
+
+**Override resolution order** (first match wins):
+1. Workspace root — `workspace/soul.md` (case-insensitive: `SOUL.md`, `Soul.md`, etc.)
+2. Workspace prompts — `workspace/prompts/soul.md` (case-insensitive)
+3. Default — `prompts/soul.md` (shipped with Coqui)
+
+**Example custom soul.md:**
+
+```markdown
+# Atlas — DevOps Automation Agent
+
+You are Atlas, a focused DevOps automation assistant. You value precision,
+infrastructure-as-code, and repeatable deployments above all else.
+
+## Tone
+- Be direct and technical. Skip pleasantries.
+- Always recommend automation over manual steps.
+- Cite specific tools and versions when making recommendations.
+```
+
+The soul does not support auto-updates like roles. If you have a custom `soul.md` in your workspace, it stays exactly as you wrote it until you edit or remove it. Removing your custom file reverts to the default soul.
+
+For inspiration on writing soul documents, see [soul.md](https://soul.md/) — a resource exploring AI identity and what it means to define who an AI is.
 
 ## <a id="token-efficiency"></a> 💰 Token Efficiency
 

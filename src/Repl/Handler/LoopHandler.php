@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Repl\Handler;
 
-use CoquiBot\Coqui\Agent\LoopRunner;
+use CoquiBot\Coqui\Agent\LoopExecutor;
+use CoquiBot\Coqui\Api\ApiHealthCheck;
 use CoquiBot\Coqui\Config\LoopDiscovery;
+use CoquiBot\Coqui\Repl\TerminalStateManager;
 use CoquiBot\Coqui\Repl\TimeFormatter;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\JsonHelper;
+use CoquiBot\Coqui\Tui\LoopDashboardScreen;
+use CoquiBot\Coqui\Tui\ScreenRunner;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -16,10 +21,15 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  */
 final class LoopHandler
 {
+    /**
+     * @param array<string, mixed> $config Runtime config values for the TUI dashboard display.
+     */
     public function __construct(
         private readonly SessionStorage $storage,
         private readonly ?LoopDiscovery $loopDiscovery,
-        private readonly ?LoopRunner $loopRunner = null,
+        private readonly ?LoopExecutor $loopExecutor = null,
+        private readonly ?TerminalStateManager $terminalState = null,
+        private readonly array $config = [],
     ) {}
 
     public function handle(SymfonyStyle $io, string $arg, string $sessionId = ''): void
@@ -44,7 +54,7 @@ final class LoopHandler
 
     private function handleStart(SymfonyStyle $io, string $target, string $sessionId): void
     {
-        if ($this->loopRunner === null || $this->loopDiscovery === null) {
+        if ($this->loopExecutor === null || $this->loopDiscovery === null) {
             $io->error('Loop execution is not available — required stores were not initialized.');
             return;
         }
@@ -79,6 +89,7 @@ final class LoopHandler
             return;
         }
 
+        $rawDefinition = $this->loopDiscovery->getRawDefinition($defName);
         $definition = $this->loopDiscovery->get($defName);
 
         $io->section(sprintf('Starting loop: %s', $defName));
@@ -90,27 +101,41 @@ final class LoopHandler
         ]);
         $io->newLine();
 
+        // Verify API server is reachable — loops depend on LoopManager (API) to advance stages.
+        $health = ApiHealthCheck::check();
+        if (!$health['ok']) {
+            $io->error($health['error'] ?? 'API health check failed.');
+            return;
+        }
+
         try {
-            $result = $this->loopRunner->run(
-                definition: $definition,
+            $loopId = $this->loopExecutor->startLoop(
+                rawDefinition: $rawDefinition,
                 goal: $goal,
                 sessionId: $sessionId !== '' ? $sessionId : null,
             );
 
-            $io->newLine();
             $io->success(sprintf(
-                'Loop completed — %d iteration(s), %d total stage(s), outcome: %s',
-                $result['iterations_completed'],
-                $result['total_stages_run'],
-                $result['outcome']->value,
+                'Loop "%s" started with ID %s. Stages will execute as background tasks via the API server. Use /loops status %s to monitor.',
+                $defName,
+                $loopId,
+                substr($loopId, 0, 8),
             ));
         } catch (\Throwable $e) {
-            $io->error(sprintf('Loop execution failed: %s', $e->getMessage()));
+            $io->error(sprintf('Failed to start loop: %s', $e->getMessage()));
         }
     }
 
     private function handleList(SymfonyStyle $io, LoopStore $store, string $statusFilter): void
     {
+        // Launch interactive TUI when on an interactive terminal with no status filter
+        if ($statusFilter === '' && $this->terminalState?->isInteractiveTty()) {
+            $screen = new LoopDashboardScreen($store, $this->config);
+            $runner = new ScreenRunner($this->terminalState, $io);
+            $runner->run($screen);
+            return;
+        }
+
         $filter = in_array($statusFilter, ['running', 'paused', 'completed', 'failed', 'cancelled'], true)
             ? $statusFilter
             : null;
@@ -232,6 +257,16 @@ final class LoopHandler
                 ];
             }
             $io->table(['#', 'Role', 'Status', 'Summary'], $stageRows);
+
+            foreach ($stages as $s) {
+                $metadata = JsonHelper::decodeJsonObject($s['metadata'] ?? null);
+                if ($metadata === null) {
+                    continue;
+                }
+
+                $io->text(sprintf('<fg=cyan>Stage %d metadata (%s):</>', $s['stage_index'], $s['role']));
+                $io->writeln(json_encode($metadata, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}');
+            }
         }
     }
 
@@ -356,4 +391,5 @@ final class LoopHandler
         $store->updateLoopStatus($target, 'cancelled');
         $io->success("Cancelled loop {$target}.");
     }
+
 }

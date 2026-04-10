@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\ConfigValidator;
 
-beforeEach(function () {
-    $this->validator = new ConfigValidator();
-});
+function validator(): ConfigValidator
+{
+    return new ConfigValidator();
+}
 
 test('valid config passes validation', function () {
     $data = [
@@ -18,7 +19,7 @@ test('valid config passes validation', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->toBeEmpty();
 });
@@ -32,7 +33,7 @@ test('missing primary model fails validation', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->not->toBeEmpty();
     expect($errors[0])->toContain('model.primary');
@@ -47,7 +48,7 @@ test('invalid model format fails validation', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->not->toBeEmpty();
     expect($errors[0])->toContain('model.primary');
@@ -62,7 +63,7 @@ test('valid model formats pass', function (string $model) {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->toBeEmpty();
 })->with([
@@ -85,7 +86,7 @@ test('roles with invalid model format fail validation', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->not->toBeEmpty();
     expect($errors[0])->toContain('roles.orchestrator');
@@ -104,9 +105,52 @@ test('valid roles pass', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->toBeEmpty();
+});
+
+test('role toolkit budget overrides pass validation', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'roles' => [
+                    'coder' => [
+                        'model' => 'anthropic/claude-sonnet-4-20250514',
+                        'toolkitTokenBudget' => 6000,
+                        'toolkitPromotionBudgetPercent' => 45,
+                    ],
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->toBeEmpty();
+});
+
+test('role toolkit budget overrides fail validation when invalid', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'roles' => [
+                    'coder' => [
+                        'toolkitTokenBudget' => 0,
+                        'toolkitPromotionBudgetPercent' => 120,
+                    ],
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->toHaveCount(2);
+    expect($errors[0])->toContain('toolkitTokenBudget');
+    expect($errors[1])->toContain('toolkitPromotionBudgetPercent');
 });
 
 test('fallbacks must be array of strings', function () {
@@ -121,7 +165,7 @@ test('fallbacks must be array of strings', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->not->toBeEmpty();
     expect($errors[0])->toContain('fallback');
@@ -142,7 +186,7 @@ test('valid fallbacks pass', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->toBeEmpty();
 });
@@ -163,7 +207,7 @@ test('provider baseUrl must be valid URL', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->not->toBeEmpty();
     expect($errors[0])->toContain('URL');
@@ -179,7 +223,7 @@ test('maxIterations must be non-negative integer', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->not->toBeEmpty();
     expect($errors[0])->toContain('maxIterations');
@@ -195,7 +239,7 @@ test('maxIterations zero is valid (unlimited)', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->toBeEmpty();
 });
@@ -210,14 +254,14 @@ test('blacklist patterns must be valid regex', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->not->toBeEmpty();
     expect($errors[0])->toContain('blacklist');
 });
 
 test('empty config has only primary model error', function () {
-    $errors = $this->validator->validate([]);
+    $errors = validator()->validate([]);
 
     // Should have an error about missing primary model
     expect($errors)->not->toBeEmpty();
@@ -232,7 +276,7 @@ test('minimal valid config', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->toBeEmpty();
 });
@@ -251,7 +295,7 @@ test('valid editHistory config passes', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->toBeEmpty();
 });
@@ -266,7 +310,7 @@ test('editHistory.retentionDays must be positive integer', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->not->toBeEmpty();
     expect($errors)->toContain('agents.defaults.editHistory.retentionDays must be a positive integer');
@@ -282,7 +326,7 @@ test('editHistory.retentionDays rejects negative values', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->not->toBeEmpty();
 });
@@ -297,7 +341,7 @@ test('editHistory must be an object', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->toContain('agents.defaults.editHistory must be an object');
 });
@@ -311,7 +355,49 @@ test('missing editHistory is valid', function () {
         ],
     ];
 
-    $errors = $this->validator->validate($data);
+    $errors = validator()->validate($data);
 
     expect($errors)->toBeEmpty();
+});
+
+test('valid quality config passes validation', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'quality' => [
+                    'enabled' => true,
+                    'bootstrapSchedules' => true,
+                    'autoTriggerLearner' => true,
+                    'poorEvaluationThreshold' => 0.7,
+                    'learnerDedupLookbackHours' => 72,
+                    'evaluationSchedule' => '0 2 * * *',
+                    'learningSchedule' => '30 2 * * *',
+                    'timezone' => 'UTC',
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->toBeEmpty();
+});
+
+test('quality config rejects invalid cron expression', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'quality' => [
+                    'evaluationSchedule' => 'not-a-cron',
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->not->toBeEmpty();
+    expect(implode(' | ', $errors))->toContain('quality.evaluationSchedule');
 });

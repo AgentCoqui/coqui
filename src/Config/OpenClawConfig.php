@@ -182,6 +182,52 @@ final class OpenClawConfig implements ConfigInterface
         return $this->modelDefinitions[$model] ?? null;
     }
 
+    /**
+     * Get notification system configuration.
+     *
+     * @return array{
+     *     enabled: bool,
+     *     replDisplayLimit: int,
+     *     promptInjectionLimit: int,
+     *     retentionHours: array{informational: int, actionable: int},
+     *     automation: array{enabled: bool, processTickSeconds: int, reclaimTickSeconds: int, leaseSeconds: int, batchSize: int, maxAttempts: int, retryDelaySeconds: int}
+     * }
+     */
+    public function getNotificationConfig(): array
+    {
+        $enabled = $this->get('agents.defaults.notifications.enabled');
+        $replLimit = $this->get('agents.defaults.notifications.replDisplayLimit');
+        $promptLimit = $this->get('agents.defaults.notifications.promptInjectionLimit');
+        $retInfoHours = $this->get('agents.defaults.notifications.retentionHours.informational');
+        $retActionHours = $this->get('agents.defaults.notifications.retentionHours.actionable');
+        $automationEnabled = $this->get('agents.defaults.notifications.automation.enabled');
+        $processTickSeconds = $this->get('agents.defaults.notifications.automation.processTickSeconds');
+        $reclaimTickSeconds = $this->get('agents.defaults.notifications.automation.reclaimTickSeconds');
+        $leaseSeconds = $this->get('agents.defaults.notifications.automation.leaseSeconds');
+        $batchSize = $this->get('agents.defaults.notifications.automation.batchSize');
+        $maxAttempts = $this->get('agents.defaults.notifications.automation.maxAttempts');
+        $retryDelaySeconds = $this->get('agents.defaults.notifications.automation.retryDelaySeconds');
+
+        return [
+            'enabled' => is_bool($enabled) ? $enabled : CoquiDefaults::NOTIFICATION_ENABLED,
+            'replDisplayLimit' => is_int($replLimit) && $replLimit >= 1 ? $replLimit : CoquiDefaults::NOTIFICATION_REPL_DISPLAY_LIMIT,
+            'promptInjectionLimit' => is_int($promptLimit) && $promptLimit >= 1 ? $promptLimit : CoquiDefaults::NOTIFICATION_PROMPT_INJECTION_LIMIT,
+            'retentionHours' => [
+                'informational' => is_int($retInfoHours) && $retInfoHours >= 1 ? $retInfoHours : CoquiDefaults::NOTIFICATION_RETENTION_INFORMATIONAL_HOURS,
+                'actionable' => is_int($retActionHours) && $retActionHours >= 1 ? $retActionHours : CoquiDefaults::NOTIFICATION_RETENTION_ACTIONABLE_HOURS,
+            ],
+            'automation' => [
+                'enabled' => is_bool($automationEnabled) ? $automationEnabled : CoquiDefaults::NOTIFICATION_AUTOMATION_ENABLED,
+                'processTickSeconds' => is_int($processTickSeconds) && $processTickSeconds >= 1 ? $processTickSeconds : CoquiDefaults::NOTIFICATION_AUTOMATION_PROCESS_TICK_SECONDS,
+                'reclaimTickSeconds' => is_int($reclaimTickSeconds) && $reclaimTickSeconds >= 1 ? $reclaimTickSeconds : CoquiDefaults::NOTIFICATION_AUTOMATION_RECLAIM_TICK_SECONDS,
+                'leaseSeconds' => is_int($leaseSeconds) && $leaseSeconds >= 1 ? $leaseSeconds : CoquiDefaults::NOTIFICATION_AUTOMATION_LEASE_SECONDS,
+                'batchSize' => is_int($batchSize) && $batchSize >= 1 ? $batchSize : CoquiDefaults::NOTIFICATION_AUTOMATION_BATCH_SIZE,
+                'maxAttempts' => is_int($maxAttempts) && $maxAttempts >= 1 ? $maxAttempts : CoquiDefaults::NOTIFICATION_AUTOMATION_MAX_ATTEMPTS,
+                'retryDelaySeconds' => is_int($retryDelaySeconds) && $retryDelaySeconds >= 1 ? $retryDelaySeconds : CoquiDefaults::NOTIFICATION_AUTOMATION_RETRY_DELAY_SECONDS,
+            ],
+        ];
+    }
+
     private function buildAliasMap(): void
     {
         $models = $this->get('agents.defaults.models', []);
@@ -227,5 +273,39 @@ final class OpenClawConfig implements ConfigInterface
                 );
             }
         }
+    }
+
+    /**
+     * Get the budget exit threshold (0.0–1.0).
+     *
+     * When context window usage reaches this percentage, the agent enters
+     * a wrap-up window and exits with BudgetExhausted. 0.0 = disabled.
+     */
+    public function getBudgetExitThreshold(): float
+    {
+        $value = $this->get('agents.defaults.context.budgetExitThreshold');
+
+        if (is_numeric($value)) {
+            $float = (float) $value;
+            if ($float >= 0.0 && $float <= 1.0) {
+                return $float;
+            }
+        }
+
+        return CoquiDefaults::BUDGET_EXIT_THRESHOLD;
+    }
+
+    /**
+     * Get the number of wrap-up iterations after budget threshold is reached.
+     */
+    public function getBudgetExitWrapUpIterations(): int
+    {
+        $value = $this->get('agents.defaults.context.budgetExitWrapUpIterations');
+
+        if (is_int($value) && $value >= 1) {
+            return $value;
+        }
+
+        return CoquiDefaults::BUDGET_EXIT_WRAP_UP_ITERATIONS;
     }
 }

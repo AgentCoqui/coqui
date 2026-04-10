@@ -49,6 +49,11 @@ final class FileSystemException extends \RuntimeException
         return new self(sprintf('Path escapes workspace boundary: %s', $path));
     }
 
+    public static function absolutePathNotInSandbox(string $path): self
+    {
+        return new self(sprintf('Absolute path is outside the workspace and not under any mount: %s', $path));
+    }
+
     public static function copyFailed(string $source, string $destination, string $reason = ''): self
     {
         $msg = sprintf('Failed to copy %s → %s', $source, $destination);
@@ -82,5 +87,18 @@ final class FileSystemException extends \RuntimeException
     public static function deletionFailed(string $path): self
     {
         return new self(sprintf('Failed to delete: %s', $path));
+    }
+
+    public static function binaryFileNotEditable(string $path): self
+    {
+        return new self(sprintf('Cannot perform surgical edit on binary file: %s — use write_file for full replacement.', $path));
+    }
+
+    public static function fileTooLarge(string $path, int $sizeBytes, int $limitBytes): self
+    {
+        $sizeMb = round($sizeBytes / 1_048_576, 1);
+        $limitMb = round($limitBytes / 1_048_576, 1);
+
+        return new self(sprintf('File too large for surgical edit: %s (%s MB, limit %s MB) — use write_file for full replacement.', $path, $sizeMb, $limitMb));
     }
 }

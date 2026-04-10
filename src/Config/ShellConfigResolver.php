@@ -16,8 +16,7 @@ final class ShellConfigResolver
 {
     /** Read-only shell commands for readonly-shell access level. */
     public const array READ_ONLY_SHELL_COMMANDS = [
-        'grep', 'find', 'cat', 'head', 'tail', 'wc', 'ls',
-        'sort', 'uniq', 'sed', 'awk', 'diff',
+        'grep', 'cat', 'head', 'tail', 'wc', 'ls', 'uniq', 'diff',
     ];
 
     /**
@@ -55,5 +54,33 @@ final class ShellConfigResolver
         );
 
         return $allowSudo ? [] : ['sudo'];
+    }
+
+    /**
+     * Whether shell write sandboxing is enabled.
+     *
+     * Reads `agents.defaults.shell.sandboxWrites` from openclaw.json.
+     * Defaults to true — shell commands cannot write outside workspace/mounts.
+     */
+    public static function resolveSandboxWrites(ConfigInterface $config): bool
+    {
+        return filter_var(
+            $config->get('agents.defaults.shell.sandboxWrites', true),
+            FILTER_VALIDATE_BOOLEAN,
+        );
+    }
+
+    /**
+     * Whether subprocess environment scrubbing is enabled.
+     *
+     * Reads `agents.defaults.shell.scrubEnvironment` from openclaw.json.
+     * Defaults to true — API keys and secrets are stripped from subprocesses.
+     */
+    public static function resolveScrubEnvironment(ConfigInterface $config): bool
+    {
+        return filter_var(
+            $config->get('agents.defaults.shell.scrubEnvironment', true),
+            FILTER_VALIDATE_BOOLEAN,
+        );
     }
 }

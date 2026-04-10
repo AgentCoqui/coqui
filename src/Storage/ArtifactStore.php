@@ -112,6 +112,11 @@ final class ArtifactStore
         $id = bin2hex(random_bytes(16));
         $now = gmdate('Y-m-d\TH:i:s\Z');
 
+        // Auto-persist artifacts linked to projects — project-linked artifacts
+        // survive cleanupFinalized() so they remain available to later loop stages
+        // (e.g. reviewers) whose processes boot and run cleanup before reading them.
+        $isPersistent = $persistent || ($projectId !== null && $projectId !== '');
+
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, sprint_id, persistent, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
@@ -129,11 +134,10 @@ final class ArtifactStore
             $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
             $projectId,
             $sprintId,
-            $persistent ? 1 : 0,
+            $isPersistent ? 1 : 0,
             $now,
             $now,
         ]);
-
         // Save initial version
         $this->saveVersion($id, 1, $content, 'Initial version');
 
@@ -216,6 +220,7 @@ final class ArtifactStore
         int $limit = 50,
         ?string $projectId = null,
         ?string $sprintId = null,
+        ?string $createdAfter = null,
     ): array {
         $where = ['session_id = ?'];
         $params = [$sessionId];
@@ -238,6 +243,11 @@ final class ArtifactStore
         if ($sprintId !== null) {
             $where[] = 'sprint_id = ?';
             $params[] = $sprintId;
+        }
+
+        if ($createdAfter !== null) {
+            $where[] = 'created_at > ?';
+            $params[] = $createdAfter;
         }
 
         $params[] = $limit;
@@ -267,6 +277,27 @@ final class ArtifactStore
         }
 
         return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Delete multiple artifacts from a session.
+     *
+     * @param list<string> $ids
+     * @return int Number of artifacts deleted.
+     */
+    public function bulkDelete(array $ids, string $sessionId): int
+    {
+        if ($ids === []) {
+            return 0;
+        }
+
+        $placeholders = implode(', ', array_fill(0, count($ids), '?'));
+        $stmt = $this->db->prepare(
+            "DELETE FROM artifacts WHERE id IN ({$placeholders}) AND session_id = ?",
+        );
+        $stmt->execute([...$ids, $sessionId]);
+
+        return $stmt->rowCount();
     }
 
     /**
@@ -335,13 +366,15 @@ final class ArtifactStore
      *
      * Draft and review artifacts are preserved across sessions so in-progress
      * planning work survives restarts. Version history is cascade-deleted by FK.
-     * Persistent artifacts (linked to projects) are never cleaned up.
+     * Persistent artifacts (linked to projects) and loop_output artifacts are
+     * never cleaned up — loop_output artifacts are referenced by loop_stages.artifact_id
+     * and must survive for loop debugging and reviewer evidence.
      *
      * @return int Number of artifacts deleted.
      */
     public function cleanupFinalized(): int
     {
-        $stmt = $this->db->prepare("DELETE FROM artifacts WHERE stage = 'final' AND persistent = 0");
+        $stmt = $this->db->prepare("DELETE FROM artifacts WHERE stage = 'final' AND persistent = 0 AND type != 'loop_output'");
         $stmt->execute();
 
         return $stmt->rowCount();

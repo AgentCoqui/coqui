@@ -41,9 +41,7 @@ beforeEach(function () {
     );
 
     // Create a fake composer binary that always exits 0
-    $this->fakeBin = sys_get_temp_dir() . '/fake-composer-' . uniqid();
-    file_put_contents($this->fakeBin, "#!/bin/sh\nexit 0\n");
-    chmod($this->fakeBin, 0755);
+    $this->fakeBin = createFakeComposerBinary();
     putenv("COMPOSER_BIN={$this->fakeBin}");
 
     // ToolkitDiscovery is final — use a real instance with temp dirs
@@ -60,9 +58,7 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    if (file_exists($this->fakeBin)) {
-        unlink($this->fakeBin);
-    }
+    @unlink($this->fakeBin);
     putenv('COMPOSER_BIN=');
     cleanupToolkitInstallerDir($this->tmpDir);
 });
@@ -135,10 +131,6 @@ test('validatePackageName rejects name with spaces', function () {
 // ── disable() state file management ──────────────────────────────────────────
 
 test('disable writes state file with constraint', function () {
-    if (PHP_OS_FAMILY === 'Windows') {
-        $this->markTestSkipped('Fake shell-script Composer binary cannot execute on Windows.');
-    }
-
     file_put_contents($this->tmpDir . '/composer.json', json_encode([
         'require' => ['vendor/my-toolkit' => '^1.0'],
     ]));
@@ -150,10 +142,6 @@ test('disable writes state file with constraint', function () {
 });
 
 test('state file records correct constraint after disable', function () {
-    if (PHP_OS_FAMILY === 'Windows') {
-        $this->markTestSkipped('Fake shell-script Composer binary cannot execute on Windows.');
-    }
-
     file_put_contents($this->tmpDir . '/composer.json', json_encode([
         'require' => ['vendor/my-toolkit' => '^2.0'],
     ]));
@@ -173,10 +161,6 @@ test('enable with no saved state and not installed throws RuntimeException', fun
 });
 
 test('state file entry is removed after disable then enable', function () {
-    if (PHP_OS_FAMILY === 'Windows') {
-        $this->markTestSkipped('Fake shell-script Composer binary cannot execute on Windows.');
-    }
-
     file_put_contents($this->tmpDir . '/composer.json', json_encode([
         'require' => ['vendor/my-toolkit' => '^1.0'],
     ]));

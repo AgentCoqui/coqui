@@ -1,6 +1,20 @@
 {
     "name": "harness",
     "description": "Generator-evaluator loop inspired by Anthropic's Harness pattern. A planner creates the approach, a coder implements it, and a reviewer evaluates the result. The loop continues until the reviewer approves or the iteration limit is reached.",
+    "parameters": [
+        {
+            "name": "max_review_rounds",
+            "description": "Maximum number of review iterations before the loop stops",
+            "required": false,
+            "default": "5"
+        },
+        {
+            "name": "termination_criteria",
+            "description": "Criteria the reviewer uses to decide approval",
+            "required": false,
+            "default": "The reviewer must explicitly approve the implementation as meeting the stated goal. Approval means no remaining issues that affect correctness or completeness."
+        }
+    ],
     "roles": [
         {
             "name": "plan",
@@ -11,21 +25,23 @@
         {
             "name": "implement",
             "role": "coder",
-            "prompt": "Implement the plan from the previous stage. Follow the plan's steps precisely. Write clean, tested code. If reworking from a previous iteration, focus on the specific issues identified by the reviewer.",
-            "order": 1
+            "prompt": "Implement the plan from the previous stage. Follow the plan's steps precisely. Write clean, tested code directly to the filesystem using the project directory. If reworking from a previous iteration, focus on the specific issues identified by the reviewer.\n\nAfter implementation:\n1. Run verification commands (tests, lint, type checks) via shell\n2. Update todos to reflect completed work via todo_complete\n3. Summarize what was done, what was verified, and any known gaps",
+            "order": 1,
+            "requires_artifact_from": 0
         },
         {
             "name": "evaluate",
             "role": "reviewer",
-            "prompt": "Review the implementation against the original goal and the plan. Check for correctness, completeness, code quality, and edge cases. If the implementation meets the acceptance criteria, approve it. If not, provide specific, actionable feedback for the next iteration.",
-            "order": 2
+            "prompt": "Review the implementation against the original goal and the plan. Verify actual file state using shell tools (ls, cat, grep, find). Check for correctness, completeness, code quality, and edge cases. Cross-check the coder's claimed changes against the real workspace. If the implementation meets the acceptance criteria, approve it. If not, provide specific, actionable feedback for the next iteration.",
+            "order": 2,
+            "requires_artifact_from": 1
         }
     ],
     "termination_condition": {
         "type": "evaluation_bound",
         "value": {
-            "criteria": "The reviewer must explicitly approve the implementation as meeting the stated goal. Approval means no remaining issues that affect correctness or completeness.",
-            "max_review_rounds": 5
+            "criteria": "{{termination_criteria}}",
+            "max_review_rounds": "{{max_review_rounds}}"
         }
     }
 }

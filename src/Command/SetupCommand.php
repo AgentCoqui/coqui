@@ -6,6 +6,9 @@ namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\SetupWizard;
+use CoquiBot\Coqui\Exception\InteractionCancelledException;
+use CoquiBot\Coqui\Exception\ShutdownRequestedException;
+use CoquiBot\Coqui\Repl\InterruptiblePrompt;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -29,6 +32,7 @@ final class SetupCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
+        $prompt = new InterruptiblePrompt($io);
 
         $workDirOption = $input->getOption('workdir');
         $workDir = is_string($workDirOption) ? $workDirOption : (getcwd() ?: '.');
@@ -44,15 +48,22 @@ final class SetupCommand extends Command
             $existingConfig = is_array($decoded) ? $decoded : null;
 
             if ($existingConfig !== null) {
-                $editMode = $io->choice(
-                    "An openclaw.json already exists at: {$outputPath}",
-                    [
+                try {
+                    $editMode = $prompt->choice(
+                        "An openclaw.json already exists at: {$outputPath}",
+                        [
+                            'Edit specific sections (preserves other settings)',
+                            'Start fresh (overwrite everything)',
+                            'Cancel',
+                        ],
                         'Edit specific sections (preserves other settings)',
-                        'Start fresh (overwrite everything)',
-                        'Cancel',
-                    ],
-                    'Edit specific sections (preserves other settings)',
-                );
+                    );
+                } catch (InteractionCancelledException) {
+                    $io->info('Setup cancelled. Existing config preserved.');
+                    return Command::SUCCESS;
+                } catch (ShutdownRequestedException) {
+                    return Command::SUCCESS;
+                }
 
                 if ($editMode === 'Cancel') {
                     $io->info('Setup cancelled. Existing config preserved.');
@@ -68,7 +79,14 @@ final class SetupCommand extends Command
         $defaults = new DefaultsLoader();
         $wizard = new SetupWizard($io, $defaults);
 
-        $saved = $wizard->runAndSave($outputPath, $existingConfig);
+        try {
+            $saved = $wizard->runAndSave($outputPath, $existingConfig);
+        } catch (InteractionCancelledException) {
+            $io->info('Setup cancelled. Existing config preserved.');
+            return Command::SUCCESS;
+        } catch (ShutdownRequestedException) {
+            return Command::SUCCESS;
+        }
 
         return $saved ? Command::SUCCESS : Command::FAILURE;
     }

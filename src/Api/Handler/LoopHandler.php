@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Storage\LoopStore;
+use CoquiBot\Coqui\Support\JsonHelper;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -86,6 +87,8 @@ final readonly class LoopHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
         }
 
+        $state['stages'] = array_map(fn(array $stage): array => $this->normalizeStage($stage), $state['stages']);
+
         return Router::jsonResponse($state);
     }
 
@@ -118,6 +121,7 @@ final readonly class LoopHandler
         }
 
         $stages = $this->store->listStages($iterationId);
+        $stages = array_map(fn(array $stage): array => $this->normalizeStage($stage), $stages);
 
         return Router::jsonResponse([
             'iteration' => $iteration,
@@ -138,4 +142,16 @@ final readonly class LoopHandler
         $router->get($v1 . '/loops/{id}/iterations', [$this, 'iterations']);
         $router->get($v1 . '/loops/{id}/iterations/{iterationId}', [$this, 'iteration']);
     }
+
+    /**
+     * @param array<string, mixed> $stage
+     * @return array<string, mixed>
+     */
+    private function normalizeStage(array $stage): array
+    {
+        $stage['metadata'] = JsonHelper::decodeJsonObject($stage['metadata'] ?? null);
+
+        return $stage;
+    }
+
 }

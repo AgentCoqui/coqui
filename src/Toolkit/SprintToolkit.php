@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Toolkit;
 
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
+use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
@@ -14,6 +15,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
+use CoquiBot\Coqui\Support\FileSystemOperations;
 
 /**
  * Agent-facing toolkit for managing projects and sprints.
@@ -51,11 +53,13 @@ final readonly class SprintToolkit implements ToolkitInterface
             $this->projectListTool(),
             $this->projectGetTool(),
             $this->projectUpdateTool(),
+            $this->projectDeleteTool(),
             $this->sprintCreateTool(),
             $this->sprintListTool(),
             $this->sprintGetTool(),
             $this->sprintTransitionTool(),
             $this->sprintUpdateTool(),
+            $this->sprintDeleteTool(),
         ];
 
         // project_switch requires session storage to persist the active project
@@ -347,6 +351,96 @@ final readonly class SprintToolkit implements ToolkitInterface
         );
     }
 
+    private function projectDeleteTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'project_delete',
+            description: 'Delete a project or all projects. Clears active-project session references. Optionally delete project workspace directories too.',
+            parameters: [
+                new StringParameter('id', 'Project ID, slug, or "all"', required: true),
+                new BoolParameter('delete_directory', 'If true, also delete workspace/projects/<directory> for each project.', required: false),
+            ],
+            callback: function (array $args): ToolResult {
+                $id = trim((string) ($args['id'] ?? ''));
+                $deleteDirectory = (bool) ($args['delete_directory'] ?? false);
+
+                if ($id === '') {
+                    return ToolResult::error('Project ID, slug, or "all" is required.');
+                }
+
+                if ($deleteDirectory && $this->workspacePath === null) {
+                    return ToolResult::error('Project directory deletion requires a workspace path.');
+                }
+
+                if (strtolower($id) === 'all') {
+                    $projects = $this->projectStore->listProjects(limit: 1000);
+                    if ($projects === []) {
+                        return ToolResult::success(json_encode([
+                            'deleted' => 0,
+                            'cleared_active_sessions' => 0,
+                            'directories_deleted' => 0,
+                        ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    }
+
+                    $directoriesDeleted = 0;
+                    $warnings = [];
+                    if ($deleteDirectory) {
+                        foreach ($projects as $project) {
+                            try {
+                                $this->deleteProjectDirectory((string) $project['id']);
+                                $directoriesDeleted++;
+                            } catch (\Throwable $e) {
+                                $warnings[] = sprintf('Failed to delete project directory for %s: %s', $project['slug'], $e->getMessage());
+                            }
+                        }
+                    }
+
+                    $deleted = $this->projectStore->deleteAllProjects();
+                    $cleared = $this->storage?->clearAllActiveProjects() ?? 0;
+
+                    return ToolResult::success(json_encode([
+                        'deleted' => $deleted,
+                        'cleared_active_sessions' => $cleared,
+                        'directories_deleted' => $directoriesDeleted,
+                        'warnings' => $warnings !== [] ? $warnings : null,
+                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                }
+
+                $project = $this->projectStore->getProject($id);
+                if ($project === null) {
+                    return ToolResult::error(sprintf('Project "%s" not found.', $id));
+                }
+
+                $directoryDeleted = false;
+                $warning = null;
+                if ($deleteDirectory) {
+                    try {
+                        $this->deleteProjectDirectory((string) $project['id']);
+                        $directoryDeleted = true;
+                    } catch (\Throwable $e) {
+                        $warning = $e->getMessage();
+                    }
+                }
+
+                $deleted = $this->projectStore->deleteProject((string) $project['id']);
+                if (!$deleted) {
+                    return ToolResult::error('Failed to delete project.');
+                }
+
+                $cleared = $this->storage?->clearActiveProjectReferences((string) $project['id']) ?? 0;
+
+                return ToolResult::success(json_encode([
+                    'id' => $project['id'],
+                    'slug' => $project['slug'],
+                    'deleted' => true,
+                    'cleared_active_sessions' => $cleared,
+                    'directory_deleted' => $directoryDeleted,
+                    'warning' => $warning,
+                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+            },
+        );
+    }
+
     // =========================================================================
     // Sprint Tools
     // =========================================================================
@@ -580,5 +674,68 @@ final readonly class SprintToolkit implements ToolkitInterface
                     : ToolResult::error("Sprint not found: {$id}");
             },
         );
+    }
+
+    private function sprintDeleteTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'sprint_delete',
+            description: 'Delete a sprint or all sprints. Pass project_id to limit an all-delete to a single project.',
+            parameters: [
+                new StringParameter('id', 'Sprint ID or "all"', required: true),
+                new StringParameter('project_id', 'Optional project ID or slug when deleting all sprints for one project', required: false),
+            ],
+            callback: function (array $args): ToolResult {
+                $id = trim((string) ($args['id'] ?? ''));
+                $projectIdOrSlug = isset($args['project_id']) ? trim((string) $args['project_id']) : '';
+
+                if ($id === '') {
+                    return ToolResult::error('Sprint ID or "all" is required.');
+                }
+
+                if (strtolower($id) === 'all') {
+                    $projectId = null;
+                    if ($projectIdOrSlug !== '') {
+                        $project = $this->projectStore->getProject($projectIdOrSlug);
+                        if ($project === null) {
+                            return ToolResult::error(sprintf('Project "%s" not found.', $projectIdOrSlug));
+                        }
+
+                        $projectId = (string) $project['id'];
+                    }
+
+                    $deleted = $this->projectStore->deleteAllSprints($projectId);
+
+                    return ToolResult::success(json_encode([
+                        'deleted' => $deleted,
+                        'project_id' => $projectId,
+                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                }
+
+                $sprint = $this->projectStore->getSprint($id);
+                if ($sprint === null) {
+                    return ToolResult::error(sprintf('Sprint "%s" not found.', $id));
+                }
+
+                $deleted = $this->projectStore->deleteSprint((string) $sprint['id']);
+
+                return $deleted
+                    ? ToolResult::success(json_encode([
+                        'id' => $sprint['id'],
+                        'deleted' => true,
+                    ], JSON_UNESCAPED_SLASHES) ?: '{}')
+                    : ToolResult::error('Failed to delete sprint.');
+            },
+        );
+    }
+
+    private function deleteProjectDirectory(string $projectId): void
+    {
+        if ($this->workspacePath === null) {
+            return;
+        }
+
+        $operations = new FileSystemOperations($this->workspacePath);
+        $operations->deleteDirectory('projects/' . $this->projectStore->getProjectDirectory($projectId));
     }
 }

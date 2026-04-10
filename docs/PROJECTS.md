@@ -42,7 +42,7 @@ When active, the system prompt gains an `# ACTIVE PROJECT` section containing:
 - Workspace directory path
 - Sprint roster with progress bars and todo counts
 
-This gives agents ambient awareness without requiring explicit lookups. The REPL prompt also changes to show the project slug: `[auth] ›`.
+This gives agents ambient awareness without requiring explicit lookups. In the REPL, the active project is shown in the visible `You [project]` label before each input cycle.
 
 Active project state is per-session and restores automatically when resuming a session.
 
@@ -109,12 +109,14 @@ This creates traceability: project → sprint → artifact → todos.
 | `project_list` | List projects with optional status filter |
 | `project_get` | Get project details with sprint roster |
 | `project_update` | Update title, description, or status |
+| `project_delete` | Delete one project or all projects; clears active-project session references |
 | `project_switch` | Switch or clear the active project |
 | `sprint_create` | Create a sprint within a project |
 | `sprint_list` | List sprints with progress stats |
 | `sprint_get` | Full sprint details with review history |
 | `sprint_transition` | Move sprint through its lifecycle |
 | `sprint_update` | Update sprint metadata |
+| `sprint_delete` | Delete one sprint or bulk-delete sprints globally or by project |
 
 `project_switch` is only available when the agent has a session context (orchestrator and background tasks).
 
@@ -129,6 +131,24 @@ This creates traceability: project → sprint → artifact → todos.
 | `/projects clear` | Unset active project |
 | `/sprints` | Show sprints from all active projects |
 | `/sprints <slug>` | Show sprints for a specific project |
+
+## Cleanup
+
+Projects and sprints can now be removed directly from the agent tool surface:
+
+```
+project_delete(id: "auth")
+project_delete(id: "all")
+project_delete(id: "auth", delete_directory: true)
+
+sprint_delete(id: "sprint123")
+sprint_delete(id: "all", project_id: "auth")
+```
+
+- `project_delete` always removes the database record and clears any session `active_project_id` references pointing at that project
+- `delete_directory: true` additionally removes `workspace/projects/<directory>` for the project
+- Project directory deletion is optional and intended for full cleanup workflows
+- Deleting a project or sprint does not automatically delete related artifacts or todos; clean those up with `artifact_bulk_delete` and `todo_clear` / `todo_bulk_delete`
 
 ## Recommended Workflow
 

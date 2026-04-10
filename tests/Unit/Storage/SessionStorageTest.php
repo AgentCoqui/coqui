@@ -10,9 +10,8 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    if (file_exists($this->dbPath)) {
-        unlink($this->dbPath);
-    }
+    releaseTestObjectProperties($this);
+    cleanupSqliteTestDb($this->dbPath);
 });
 
 test('creates session and returns id', function () {
@@ -104,6 +103,7 @@ test('logChildRun saves child run data', function () {
         prompt: 'Write a function',
         result: 'function test() {}',
         tokenCount: 150,
+        metadata: ['workflow_phase' => 'delegation', 'intent' => 'delegated_task'],
     );
 
     $runs = $this->storage->getChildRuns($sessionId);
@@ -112,6 +112,24 @@ test('logChildRun saves child run data', function () {
     expect($runs[0]['agent_role'])->toBe('coder');
     expect($runs[0]['parent_iteration'])->toBe(3);
     expect($runs[0]['token_count'])->toBe(150);
+    expect(json_decode((string) $runs[0]['metadata'], true)['workflow_phase'])->toBe('delegation');
+});
+
+test('createTask stores structured metadata', function () {
+    $sessionId = $this->storage->createSession('test', 'model');
+
+    $taskId = $this->storage->createTask(
+        sessionId: $sessionId,
+        prompt: 'Run loop stage',
+        role: 'coder',
+        metadata: ['loop_id' => 'loop-123', 'stage_index' => 1],
+    );
+
+    $task = $this->storage->getTask($taskId);
+
+    expect($task)->not->toBeNull();
+    expect(json_decode((string) $task['metadata'], true)['loop_id'])->toBe('loop-123');
+    expect(json_decode((string) $task['metadata'], true)['stage_index'])->toBe(1);
 });
 
 test('deleteSession removes session and messages', function () {
@@ -227,6 +245,96 @@ test('getPdo returns working connection', function () {
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
     expect($row['id'])->toBe($sessionId);
+});
+
+test('checkTablesExist includes turn process tables', function () {
+    $result = $this->storage->checkTablesExist();
+
+    expect($result['ok'])->toBeTrue();
+    expect($result['missing'])->toBe([]);
+});
+
+test('appendTurnEvent stores and retrieves turn process events', function () {
+    $sessionId = $this->storage->createSession('test', 'model');
+    $turnProcessId = $this->storage->createTurnProcess($sessionId, 'Hello');
+
+    $this->storage->appendTurnEvent($turnProcessId, 'complete', [
+        'content' => 'Done',
+        'error' => null,
+    ]);
+
+    $events = $this->storage->getTurnEvents($turnProcessId);
+
+    expect($events)->toHaveCount(1);
+    expect($events[0]['event_type'])->toBe('complete');
+    expect(json_decode((string) $events[0]['data'], true))->toBe([
+        'content' => 'Done',
+        'error' => null,
+    ]);
+});
+
+test('findRecentTaskByTitle returns most recent matching task', function () {
+    $sessionId = $this->storage->createSession('learner', 'quality-automation');
+
+    $firstTaskId = $this->storage->createTask(
+        sessionId: $sessionId,
+        prompt: 'first prompt',
+        role: 'learner',
+        title: 'Quality Learning Follow-up: eval-1',
+    );
+
+    sleep(1);
+
+    $secondTaskId = $this->storage->createTask(
+        sessionId: $sessionId,
+        prompt: 'second prompt',
+        role: 'learner',
+        title: 'Quality Learning Follow-up: eval-1',
+    );
+
+    $task = $this->storage->findRecentTaskByTitle(
+        title: 'Quality Learning Follow-up: eval-1',
+        role: 'learner',
+    );
+
+    expect($task)->not->toBeNull();
+    expect($task['id'])->toBe($secondTaskId);
+    expect($task['id'])->not->toBe($firstTaskId);
+});
+
+test('clearActiveProjectReferences clears matching session pointers only', function () {
+    $projectA = 'project-a';
+    $projectB = 'project-b';
+    $sessionA = $this->storage->createSession('orchestrator', 'model-a');
+    $sessionB = $this->storage->createSession('orchestrator', 'model-b');
+    $sessionC = $this->storage->createSession('orchestrator', 'model-c');
+
+    $this->storage->setActiveProject($sessionA, $projectA);
+    $this->storage->setActiveProject($sessionB, $projectA);
+    $this->storage->setActiveProject($sessionC, $projectB);
+
+    $cleared = $this->storage->clearActiveProjectReferences($projectA);
+
+    expect($cleared)->toBe(2);
+    expect($this->storage->getActiveProjectId($sessionA))->toBeNull();
+    expect($this->storage->getActiveProjectId($sessionB))->toBeNull();
+    expect($this->storage->getActiveProjectId($sessionC))->toBe($projectB);
+});
+
+test('clearAllActiveProjects clears every active project pointer', function () {
+    $sessionA = $this->storage->createSession('orchestrator', 'model-a');
+    $sessionB = $this->storage->createSession('orchestrator', 'model-b');
+    $sessionC = $this->storage->createSession('orchestrator', 'model-c');
+
+    $this->storage->setActiveProject($sessionA, 'project-a');
+    $this->storage->setActiveProject($sessionB, 'project-b');
+
+    $cleared = $this->storage->clearAllActiveProjects();
+
+    expect($cleared)->toBe(2);
+    expect($this->storage->getActiveProjectId($sessionA))->toBeNull();
+    expect($this->storage->getActiveProjectId($sessionB))->toBeNull();
+    expect($this->storage->getActiveProjectId($sessionC))->toBeNull();
 });
 
 test('loadConversation preserves ToolCall metadata through storage roundtrip', function () {

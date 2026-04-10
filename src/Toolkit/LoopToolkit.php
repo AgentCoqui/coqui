@@ -8,9 +8,11 @@ use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
+use CoquiBot\Coqui\Support\JsonHelper;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Agent\LoopExecutor;
+use CoquiBot\Coqui\Api\ApiHealthCheck;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Storage\LoopStore;
 
@@ -27,6 +29,7 @@ final readonly class LoopToolkit implements ToolkitInterface
         private LoopDiscovery $loopDiscovery,
         private ?LoopExecutor $executor = null,
         private ?string $sessionId = null,
+        private ?\Closure $healthCheck = null,
     ) {}
 
     public function tools(): array
@@ -82,10 +85,11 @@ final readonly class LoopToolkit implements ToolkitInterface
 
         ### Usage
         - Start a loop: `loop_start(definition: "harness", goal: "Build feature X")`
-        - With parameters: `loop_start(definition: "research", goal: "Investigate auth", parameters: "{\"topic\": \"authentication\"}")`
+        - With parameters: `loop_start(definition: "research", goal: "Investigate auth", parameters: "{\"output_format\": \"comparison matrix\"}")`
+        - Reuse a project: `loop_start(definition: "harness", goal: "Fix bugs", project_slug: "my-app")`
         - Monitor: `loop_status(id: "...")` or `loop_list()`
-        - Pause/resume: `loop_pause(id: "...")` / `loop_resume(id: "...")`
-        - Cancel: `loop_stop(id: "...")`
+        - Pause/resume: `loop_pause(id: "...")` / `loop_resume(id: "...")` or pass `id: "all"`
+        - Cancel: `loop_stop(id: "...")` or `loop_stop(id: "all")`
         GUIDELINES;
     }
 
@@ -93,7 +97,7 @@ final readonly class LoopToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'loop_start',
-            description: 'Start a new automated loop workflow from a named definition. The loop runs multiple roles in sequence per iteration, evaluating termination conditions between cycles. Definitions may declare parameters — pass them as a JSON object to substitute {{variable}} placeholders in role prompts.',
+            description: 'Start a new automated loop workflow from a named definition. The loop runs multiple roles in sequence per iteration, evaluating termination conditions between cycles. Use the goal to describe the subject matter; parameters should tune the definition rather than identify the loop. Loops can reuse an existing project (by ID or slug) instead of auto-creating a new one.',
             parameters: [
                 new StringParameter(
                     name: 'definition',
@@ -112,7 +116,22 @@ final readonly class LoopToolkit implements ToolkitInterface
                 ),
                 new StringParameter(
                     name: 'parameters',
-                    description: 'JSON object of template parameter values (e.g. {"topic": "authentication", "language": "PHP"}). These substitute {{variable}} placeholders in the loop\'s role prompts.',
+                    description: 'JSON object of template parameter values (e.g. {"output_format": "comparison matrix", "language": "PHP"}). These substitute {{variable}} placeholders in the loop\'s role prompts.',
+                    required: false,
+                ),
+                new StringParameter(
+                    name: 'project_id',
+                    description: 'Reuse an existing project by ID. The loop will scope all work to this project instead of creating a new one. Mutually exclusive with project_slug.',
+                    required: false,
+                ),
+                new StringParameter(
+                    name: 'project_slug',
+                    description: 'Reuse an existing project by slug. The loop will scope all work to this project instead of creating a new one. Mutually exclusive with project_id.',
+                    required: false,
+                ),
+                new StringParameter(
+                    name: 'sprint_id',
+                    description: 'Attach the loop to an existing sprint within the project. If omitted, a new sprint is created per iteration.',
                     required: false,
                 ),
             ],
@@ -129,36 +148,74 @@ final readonly class LoopToolkit implements ToolkitInterface
                     return ToolResult::error("Loop definition \"{$defName}\" not found. Available: {$available}");
                 }
 
-                $definition = $this->loopDiscovery->get($defName);
+                $rawDefinition = $this->loopDiscovery->getRawDefinition($defName);
 
                 // Parse template parameters if provided
                 $parameters = [];
                 if (isset($input['parameters']) && $input['parameters'] !== '') {
                     $decoded = json_decode((string) $input['parameters'], true);
                     if (!is_array($decoded)) {
-                        return ToolResult::error('The "parameters" field must be a valid JSON object (e.g. {"topic": "auth"})');
+                        return ToolResult::error('The "parameters" field must be a valid JSON object (e.g. {"output_format": "report"})');
                     }
                     $parameters = array_map('strval', $decoded);
                 }
 
+                $maxIterations = null;
+                if (isset($input['max_iterations']) && $input['max_iterations'] !== '') {
+                    $maxIterations = (int) $input['max_iterations'];
+                    if ($maxIterations < 1) {
+                        return ToolResult::error('The "max_iterations" field must be greater than 0');
+                    }
+                }
+
                 // Use LoopExecutor to actually start the loop when available
                 if ($this->executor !== null) {
+                    // Verify API server is reachable before creating the loop —
+                    // loops depend on LoopManager (API) to advance stages via background tasks.
+                    $health = ($this->healthCheck ?? static fn(): array => ApiHealthCheck::check())();
+                    if (!$health['ok']) {
+                        return ToolResult::error($health['error'] ?? 'Cannot reach the API server required for loop execution.');
+                    }
+
                     try {
+                        // Resolve project input
+                        $projectId = isset($input['project_id']) && $input['project_id'] !== ''
+                            ? (string) $input['project_id']
+                            : null;
+                        $projectSlug = isset($input['project_slug']) && $input['project_slug'] !== ''
+                            ? (string) $input['project_slug']
+                            : null;
+                        $sprintId = isset($input['sprint_id']) && $input['sprint_id'] !== ''
+                            ? (string) $input['sprint_id']
+                            : null;
+
+                        if ($projectId !== null && $projectSlug !== null) {
+                            return ToolResult::error('Specify either "project_id" or "project_slug", not both');
+                        }
+
                         $loopId = $this->executor->startLoop(
-                            definition: $definition,
+                            rawDefinition: $rawDefinition,
                             goal: $goal,
                             sessionId: $this->sessionId,
                             parameters: $parameters,
+                            projectId: $projectId,
+                            projectSlug: $projectSlug,
+                            sprintId: $sprintId,
+                            maxIterationsOverride: $maxIterations,
                         );
+
+                        // Parse the definition for display (doesn't need substitution for metadata)
+                        $definition = $this->loopDiscovery->get($defName);
 
                         return ToolResult::success((string) json_encode([
                             'loop_id' => $loopId,
                             'definition' => $defName,
                             'goal' => $goal,
+                            'max_iterations' => $maxIterations,
                             'parameters' => $parameters !== [] ? $parameters : null,
                             'roles' => array_map(fn($r) => $r->role, $definition->roles),
                             'termination' => $definition->terminationCondition->type->value,
-                            'message' => "Loop \"{$defName}\" started successfully with ID {$loopId}. It will execute autonomously. Use loop_status(id: \"{$loopId}\") to monitor progress.",
+                            'message' => "Loop \"{$defName}\" started successfully with ID {$loopId}. Stages will execute as background tasks via the API server. Use loop_status(id: \"{$loopId}\") to monitor progress.",
                         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
                     } catch (\Throwable $e) {
                         return ToolResult::error(sprintf('Failed to start loop: %s', $e->getMessage()));
@@ -166,14 +223,15 @@ final readonly class LoopToolkit implements ToolkitInterface
                 }
 
                 // Fallback: return definition details when executor is not available
+                $definition = $this->loopDiscovery->get($defName);
                 return ToolResult::success((string) json_encode([
                     'action' => 'start_loop',
                     'definition' => $defName,
                     'goal' => $goal,
-                    'max_iterations' => $input['max_iterations'] ?? null,
+                    'max_iterations' => $maxIterations,
                     'roles' => array_map(fn($r) => $r->role, $definition->roles),
                     'termination' => $definition->terminationCondition->type->value,
-                    'message' => "Loop \"{$defName}\" is ready to start. The loop orchestrator will execute this autonomously.",
+                    'message' => "Loop \"{$defName}\" is ready to start. Stages will execute as background tasks via the API server.",
                 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
             },
         );
@@ -260,6 +318,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                         'role' => $s['role'],
                         'status' => $s['status'],
                         'summary' => $s['result_summary'] !== null ? mb_substr($s['result_summary'], 0, 200) : null,
+                        'metadata' => JsonHelper::decodeJsonObject($s['metadata'] ?? null),
                     ], $stages);
                 }
 
@@ -274,10 +333,24 @@ final readonly class LoopToolkit implements ToolkitInterface
             name: 'loop_pause',
             description: 'Pause a running loop after the current stage completes.',
             parameters: [
-                new StringParameter(name: 'id', description: 'Loop ID', required: true),
+                new StringParameter(name: 'id', description: 'Loop ID or "all"', required: true),
             ],
             callback: function (array $input): ToolResult {
                 $id = (string) ($input['id'] ?? '');
+
+                if (strtolower($id) === 'all') {
+                    $running = $this->loopStore->listLoops('running');
+                    if ($running === []) {
+                        return ToolResult::success('No running loops to pause.');
+                    }
+
+                    foreach ($running as $loop) {
+                        $this->loopStore->updateLoopStatus((string) $loop['id'], 'paused');
+                    }
+
+                    return ToolResult::success(sprintf('Paused %d loop(s).', count($running)));
+                }
+
                 $loop = $this->loopStore->getLoop($id);
 
                 if ($loop === null) {
@@ -300,10 +373,24 @@ final readonly class LoopToolkit implements ToolkitInterface
             name: 'loop_resume',
             description: 'Resume a paused loop.',
             parameters: [
-                new StringParameter(name: 'id', description: 'Loop ID', required: true),
+                new StringParameter(name: 'id', description: 'Loop ID or "all"', required: true),
             ],
             callback: function (array $input): ToolResult {
                 $id = (string) ($input['id'] ?? '');
+
+                if (strtolower($id) === 'all') {
+                    $paused = $this->loopStore->listLoops('paused');
+                    if ($paused === []) {
+                        return ToolResult::success('No paused loops to resume.');
+                    }
+
+                    foreach ($paused as $loop) {
+                        $this->loopStore->updateLoopStatus((string) $loop['id'], 'running');
+                    }
+
+                    return ToolResult::success(sprintf('Resumed %d loop(s).', count($paused)));
+                }
+
                 $loop = $this->loopStore->getLoop($id);
 
                 if ($loop === null) {
@@ -326,10 +413,28 @@ final readonly class LoopToolkit implements ToolkitInterface
             name: 'loop_stop',
             description: 'Cancel a running or paused loop.',
             parameters: [
-                new StringParameter(name: 'id', description: 'Loop ID', required: true),
+                new StringParameter(name: 'id', description: 'Loop ID or "all"', required: true),
             ],
             callback: function (array $input): ToolResult {
                 $id = (string) ($input['id'] ?? '');
+
+                if (strtolower($id) === 'all') {
+                    $active = array_merge(
+                        $this->loopStore->listLoops('running'),
+                        $this->loopStore->listLoops('paused'),
+                    );
+
+                    if ($active === []) {
+                        return ToolResult::success('No active loops to cancel.');
+                    }
+
+                    foreach ($active as $loop) {
+                        $this->loopStore->updateLoopStatus((string) $loop['id'], 'cancelled');
+                    }
+
+                    return ToolResult::success(sprintf('Cancelled %d loop(s).', count($active)));
+                }
+
                 $loop = $this->loopStore->getLoop($id);
 
                 if ($loop === null) {

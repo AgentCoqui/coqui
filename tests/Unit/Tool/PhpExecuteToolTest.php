@@ -27,6 +27,10 @@ afterEach(function () {
     if (is_dir($this->tmpDir)) {
         rmdir($this->tmpDir);
     }
+
+    if (isset($this->projectMutationProbe) && is_string($this->projectMutationProbe) && file_exists($this->projectMutationProbe)) {
+        unlink($this->projectMutationProbe);
+    }
 });
 
 test('has correct name', function () {
@@ -39,6 +43,7 @@ test('executes simple PHP code', function () {
     ]);
 
     expect($result->status->value)->toBe('success');
+    expect($result->content)->toContain('**Phase:** execution');
     expect($result->content)->toContain('Hello from Coqui!');
 })->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
 
@@ -48,7 +53,18 @@ test('captures stderr on error', function () {
     ]);
 
     // Division by zero produces a warning/error
+    expect($result->content)->toContain('**Phase:** execution');
     expect($result->content)->toContain('stderr');
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
+
+test('fails syntax check before execution', function () {
+    $result = $this->tool->execute([
+        'code' => 'if (true) {',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+    expect($result->content)->toContain('**Phase:** syntax-check');
+    expect($result->content)->toContain('Fix the syntax error and rerun php_execute.');
 })->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
 
 test('denies eval in code', function () {
@@ -57,6 +73,7 @@ test('denies eval in code', function () {
     ]);
 
     expect($result->status->value)->toBe('error');
+    expect($result->content)->toContain('**Phase:** safety-check');
     expect($result->content)->toContain('eval');
 });
 
@@ -98,7 +115,12 @@ test('cleans up temp files after execution', function () {
     ]);
 
     $tmpDir = $this->tmpDir . '/tmp';
-    $files = is_dir($tmpDir) ? (glob($tmpDir . '/exec_*.php') ?: []) : [];
+    $files = is_dir($tmpDir)
+        ? array_merge(
+            glob($tmpDir . '/exec_*.php') ?: [],
+            glob($tmpDir . '/lint_*.php') ?: [],
+        )
+        : [];
 
     expect($files)->toBeEmpty();
 })->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
@@ -130,4 +152,128 @@ test('autoloader is available in executed code', function () {
 
     expect($result->status->value)->toBe('success');
     expect($result->content)->toContain('autoloader works');
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
+
+// ---------------------------------------------------------------
+// ScriptSanitizer denies file-write functions
+// ---------------------------------------------------------------
+
+test('denies file_put_contents in code', function () {
+    $result = $this->tool->execute([
+        'code' => 'file_put_contents("/tmp/hack.txt", "data");',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+    expect($result->content)->toContain('file_put_contents');
+});
+
+test('denies fwrite in code', function () {
+    $result = $this->tool->execute([
+        'code' => '$f = fopen("/tmp/x", "w"); fwrite($f, "data");',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+});
+
+test('denies fopen in code', function () {
+    $result = $this->tool->execute([
+        'code' => '$f = fopen("/tmp/x", "w");',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+    expect($result->content)->toContain('fopen');
+});
+
+test('denies mkdir in code', function () {
+    $result = $this->tool->execute([
+        'code' => 'mkdir("/tmp/evil-dir");',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+});
+
+test('denies unlink in code', function () {
+    $result = $this->tool->execute([
+        'code' => 'unlink("/tmp/some-file.txt");',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+});
+
+test('denies fputcsv in code', function () {
+    $result = $this->tool->execute([
+        'code' => '$f = fopen("/tmp/x.csv", "w"); fputcsv($f, ["a","b"]);',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+});
+
+// ---------------------------------------------------------------
+// Runtime disable_functions blocks write functions even if
+// sanitizer is bypassed (e.g. via variable function calls)
+// ---------------------------------------------------------------
+
+test('runtime disable_functions blocks file_put_contents', function () {
+    // Use variable indirection to bypass static analysis
+    $result = $this->tool->execute([
+        'code' => <<<'PHP'
+            $fn = 'file_put_' . 'contents';
+            $fn('/tmp/coqui-test-blocked.txt', 'should not write');
+            echo 'written';
+            PHP,
+    ]);
+
+    // Either the sanitizer catches it or RuntimeException from disable_functions
+    if ($result->status->value === 'error') {
+        expect(true)->toBeTrue(); // Blocked by sanitizer
+    } else {
+        // If it somehow passed sanitizer, runtime should block it
+        expect($result->content)->not->toContain('written');
+    }
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
+
+test('runtime bootstrap exposes the expected safety directives', function () {
+    $result = $this->tool->execute([
+        'code' => <<<'PHP'
+            echo json_encode([
+                'open_basedir' => ini_get('open_basedir'),
+                'disable_functions' => ini_get('disable_functions'),
+            ], JSON_THROW_ON_ERROR);
+            PHP,
+    ]);
+
+    preg_match('/```\n(.*?)\n```/s', $result->content, $matches);
+    $payload = json_decode($matches[1] ?? '{}', true, flags: JSON_THROW_ON_ERROR);
+
+    expect($result->status->value)->toBe('success');
+    expect($payload['open_basedir'] ?? '')->toContain($this->tmpDir);
+    expect($payload['open_basedir'] ?? '')->toContain($this->projectRoot);
+    expect($payload['open_basedir'] ?? '')->toContain(sys_get_temp_dir());
+    expect($payload['disable_functions'] ?? '')->toContain('file_put_contents');
+    expect($payload['disable_functions'] ?? '')->toContain('fopen');
+})->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');
+
+test('open_basedir blocks reads outside allowed roots', function () {
+    $result = $this->tool->execute([
+        'code' => <<<'PHP'
+            var_dump(file_get_contents('/etc/passwd'));
+            PHP,
+    ]);
+
+    expect($result->status->value)->toBe('success');
+    expect($result->content)->toContain('open_basedir');
+    expect($result->content)->toContain('bool(false)');
+    expect($result->content)->not->toContain('root:');
+})->skip(PHP_OS_FAMILY === 'Windows', 'open_basedir check targets Unix paths');
+
+test('runtime disable_functions blocks project root mutation attempts', function () {
+    $this->projectMutationProbe = $this->projectRoot . '/.coqui-php-exec-probe-' . bin2hex(random_bytes(4));
+
+    $result = $this->tool->execute([
+        'code' => '$writer = "file_put_" . "contents"; $writer(' . var_export($this->projectMutationProbe, true) . ', "blocked");',
+    ]);
+
+    expect($result->status->value)->toBe('error');
+    expect(file_exists($this->projectMutationProbe))->toBeFalse();
+    expect($result->content)->toContain('file_put_contents');
 })->skip(PHP_OS_FAMILY === 'Windows', 'ReactPHP process pipes are not supported on Windows');

@@ -8,13 +8,11 @@
     {
       "name": "Carmelo Santana"
     }
-  ], 
+  ],
   "require": {
     "php": "^8.4",
     "ext-pdo_sqlite": "*",
     "carmelosantana/php-agents": "^0.12",
-    "coquibot/coqui-toolkit-composer": "^0.1",
-    "coquibot/coqui-toolkit-packagist": "^0.1",
     "dragonmantank/cron-expression": "^3.0",
     "league/commonmark": "^2.8",
     "react/async": "^4",
@@ -54,6 +52,7 @@
   },
   "scripts": {
     "test": "pest",
+    "test:coverage": "@php scripts/test-coverage.php",
     "test-bash": "bash tests/bash/launcher-sigint-test.sh",
     "lint-bash": "shellcheck bin/coqui-launcher tests/bash/launcher-sigint-test.sh scripts/build.sh scripts/ci-test.sh scripts/sync-workspace-toolkits.sh",
     "analyse": "phpstan analyse --memory-limit=512M"

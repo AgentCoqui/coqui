@@ -15,8 +15,8 @@ use CoquiBot\Coqui\Support\ProcessSpawner;
  * other HTTP requests (health checks, session listing, SSE polling) are
  * never blocked by LLM provider calls.
  *
- * Events are persisted to the `task_events` table by the child process
- * (via BackgroundTaskObserver) and polled by the parent via SSE timers.
+ * Events are persisted to the `turn_events` table by the child process
+ * (via TurnProcessObserver) and polled by the parent via SSE timers.
  *
  * The manager is ticked periodically by a ReactPHP timer. On each tick it:
  * 1. Checks running processes for termination
@@ -177,10 +177,10 @@ final class AgentTurnManager
             ]);
 
             if ($updated) {
-                $this->storage->appendTaskEvent($turnProcessId, 'error', [
+                $this->storage->appendTurnEvent($turnProcessId, 'error', [
                     'message' => sprintf('Process exited with code %d', $exitCode),
                 ]);
-                $this->storage->appendTaskEvent($turnProcessId, 'complete', [
+                $this->storage->appendTurnEvent($turnProcessId, 'complete', [
                     'error' => 'Process exited unexpectedly',
                     'content' => '',
                 ]);
@@ -221,10 +221,10 @@ final class AgentTurnManager
             $this->storage->updateTurnProcessStatus($turnProcessId, 'failed', [
                 'error' => 'Failed to spawn turn process',
             ]);
-            $this->storage->appendTaskEvent($turnProcessId, 'error', [
+            $this->storage->appendTurnEvent($turnProcessId, 'error', [
                 'message' => 'Failed to spawn turn process',
             ]);
-            $this->storage->appendTaskEvent($turnProcessId, 'complete', [
+            $this->storage->appendTurnEvent($turnProcessId, 'complete', [
                 'error' => 'Failed to spawn turn process',
                 'content' => '',
             ]);

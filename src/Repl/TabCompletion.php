@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Repl;
 
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\LoopDiscovery;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -80,6 +81,14 @@ final class TabCompletion
                 return $this->completeProjects($parts, $input);
             }
 
+            // Complete /prompt subcommands
+            if (count($parts) >= 2 && $cmd === '/prompt') {
+                return array_filter(
+                    ['export'],
+                    fn(string $s) => str_starts_with($s, $input),
+                );
+            }
+
             // Complete top-level slash commands
             if (str_starts_with($input, '/') || $line === '' || $line === '/') {
                 return $this->completeTopLevel($input);
@@ -96,16 +105,18 @@ final class TabCompletion
     private function completeToolkits(array $parts, string $input): array
     {
         $sub = $parts[1];
-        $toolkitSubCommands = ['enable', 'stub', 'disable'];
+        $visibilitySubCommands = ['enable', 'stub', 'disable'];
+        $loadingSubCommands = ['promote', 'demote', 'auto'];
+        $allSubCommands = [...$visibilitySubCommands, ...$loadingSubCommands];
 
         if (count($parts) === 2) {
             return array_values(array_filter(
-                $toolkitSubCommands,
+                $allSubCommands,
                 fn(string $s) => str_starts_with($s, $input),
             ));
         }
 
-        if (count($parts) === 3 && in_array($sub, $toolkitSubCommands, strict: true)) {
+        if (count($parts) === 3 && in_array($sub, $visibilitySubCommands, strict: true)) {
             $prefix = $parts[2];
             $candidates = [];
 
@@ -121,6 +132,25 @@ final class TabCompletion
 
             return array_values(array_filter(
                 $candidates,
+                fn(string $c) => str_starts_with($c, $prefix),
+            ));
+        }
+
+        // Loading mode subcommands target toolkit class basenames
+        if (count($parts) === 3 && in_array($sub, $loadingSubCommands, strict: true)) {
+            $prefix = $parts[2];
+            $candidates = [];
+
+            $allPackages = $this->boot->discovery()->allWithVisibility();
+            foreach ($allPackages as $entry) {
+                foreach ($entry['classes'] as $cls) {
+                    $clsParts = explode('\\', $cls);
+                    $candidates[] = end($clsParts);
+                }
+            }
+
+            return array_values(array_filter(
+                array_unique($candidates),
                 fn(string $c) => str_starts_with($c, $prefix),
             ));
         }
@@ -182,7 +212,7 @@ final class TabCompletion
 
         $prefix = $parts[1];
         $roles = $this->boot->roleResolver()->selectableRoles();
-        $roles[] = 'orchestrator';
+        $roles[] = SystemRole::Orchestrator->value;
         $roles[] = 'edit';
         $roles = array_unique($roles);
         return array_values(array_filter(
@@ -316,7 +346,7 @@ final class TabCompletion
         $commands = [
             '/new', '/history', '/sessions', '/resume', '/model',
             '/config', '/tasks', '/task', '/task-cancel', '/todos', '/projects', '/sprints', '/toolkits', '/schedules', '/loops',
-            '/prompt', '/role', '/roles', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/evaluations', '/hints', '/help', '/quit',
+            '/budget', '/prompt', '/role', '/roles', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/evaluations', '/quality', '/hints', '/help', '/quit',
         ];
 
         return array_values(array_filter($commands, fn(string $c) => str_starts_with($c, $input)));

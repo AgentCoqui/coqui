@@ -129,9 +129,6 @@ step "Removing development files"
     rm -f AGENTS.md .claude 2>/dev/null || true
     rm -f .editorconfig .php-cs-fixer.php 2>/dev/null || true
 
-    # Dev / alternate Composer configs
-    rm -f composer-dev.json composer-prod.json 2>/dev/null || true
-
     # Tests, examples, build scripts
     rm -rf tests/ scripts/ examples/ 2>/dev/null || true
 

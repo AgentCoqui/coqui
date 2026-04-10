@@ -78,7 +78,8 @@ final class TerminalObserver implements SplObserver
         // Clear the in-place status line before writing any new output.
         // Text streaming and reasoning are excluded — they write inline
         // and the status line is already cleared before their first chunk.
-        if (!in_array($event, ['agent.text_delta', 'agent.reasoning'], true)) {
+        // Status updates drive the spinner directly without clearing first.
+        if (!in_array($event, ['agent.text_delta', 'agent.reasoning', 'agent.status'], true)) {
             $this->clearStatusLine();
         }
 
@@ -118,9 +119,15 @@ final class TerminalObserver implements SplObserver
 
             'agent.warning' => $this->output->writeln("{$indent}<fg=yellow>⚠ {$data}</>"),
 
+            'agent.budget_warning' => $this->handleBudgetWarning($data, $indent),
+
             'agent.summary' => $this->handleSummary($data, $indent),
 
             'agent.memory_extraction' => $this->handleMemoryExtraction($data, $indent),
+
+            'agent.notification' => $this->handleNotification($data, $indent),
+
+            'agent.status' => $this->handleStatus($data),
 
             'child.start' => $this->handleChildStart($data, $indent),
 
@@ -322,6 +329,20 @@ final class TerminalObserver implements SplObserver
         }
     }
 
+    private function handleBudgetWarning(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $usagePercent = $data['usagePercent'] ?? 0;
+        $wrapUpIterations = $data['wrapUpIterations'] ?? 2;
+        $this->output->writeln(
+            "{$indent}<fg=yellow;options=bold>⚠ Context budget {$usagePercent}% consumed — "
+            . "{$wrapUpIterations} wrap-up iteration(s) before exit</>",
+        );
+    }
+
     private function handleSummary(mixed $data, string $indent): void
     {
         if (!is_array($data)) {
@@ -333,8 +354,9 @@ final class TerminalObserver implements SplObserver
         $auto = ($data['auto'] ?? false) ? ' (auto)' : '';
 
         $this->output->writeln(
-            "{$indent}<fg=yellow>📋 Conversation summarized{$auto}: {$count} messages compressed, {$saved} tokens saved</>",
+            "{$indent}<fg=yellow>❇ Conversation summarized{$auto}: {$count} messages compressed, {$saved} tokens saved</>",
         );
+        $this->showStatusLine();
     }
 
     private function handleMemoryExtraction(mixed $data, string $indent): void
@@ -351,8 +373,39 @@ final class TerminalObserver implements SplObserver
         }
 
         $this->output->writeln(
-            "{$indent}<fg=yellow>🧠 Memory extraction ({$source}): {$count} " . ($count === 1 ? 'memory' : 'memories') . ' saved</>',
+            "{$indent}<fg=yellow>✱ Memory extraction ({$source}): {$count} " . ($count === 1 ? 'memory' : 'memories') . ' saved</>',
         );
+        $this->showStatusLine();
+    }
+
+    private function handleNotification(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $count = (int) ($data['count'] ?? 0);
+        $source = (string) ($data['source'] ?? 'turn_inject');
+
+        if ($count === 0) {
+            return;
+        }
+
+        $label = $count === 1 ? 'notification' : 'notifications';
+        $this->output->writeln(
+            "{$indent}<fg=yellow>☀︎ {$count} {$label} injected ({$source})</>",
+        );
+        $this->showStatusLine();
+    }
+
+    private function handleStatus(mixed $data): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $label = (string) ($data['label'] ?? '');
+        $this->showStatusLine($label);
     }
 
     /**

@@ -33,6 +33,8 @@ use CoquiBot\Coqui\Storage\TodoStore;
  * - todo_list: List todos with optional filters
  * - todo_get: Get full details of a specific todo
  * - todo_delete: Remove a todo item
+ * - todo_complete_all: Mark all actionable todos in the session as completed
+ * - todo_clear: Delete completed/cancelled todos or wipe the session todo list
  */
 final class TodoToolkit implements ToolkitInterface
 {
@@ -64,8 +66,10 @@ final class TodoToolkit implements ToolkitInterface
         if ($this->accessLevel === 'full') {
             $tools[] = $this->completeTool();
             $tools[] = $this->bulkCompleteTool();
+            $tools[] = $this->completeAllTool();
             $tools[] = $this->deleteTool();
             $tools[] = $this->bulkDeleteTool();
+            $tools[] = $this->clearTool();
         }
 
         return $tools;
@@ -652,6 +656,53 @@ final class TodoToolkit implements ToolkitInterface
                 }
 
                 return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
+            },
+        );
+    }
+
+    private function completeAllTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'todo_complete_all',
+            description: 'Mark all pending and in-progress todos in the current session as completed.',
+            parameters: [],
+            callback: function (array $args): ToolResult {
+                $completed = $this->store->completeAllBySession(
+                    sessionId: $this->sessionId,
+                    completedBy: $this->currentRole,
+                );
+                $stats = $this->store->getStats($this->sessionId);
+
+                return ToolResult::success(json_encode([
+                    'completed' => $completed,
+                    'progress' => "{$stats['completed']}/{$stats['total']} completed",
+                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+            },
+        );
+    }
+
+    private function clearTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'todo_clear',
+            description: 'Delete completed/cancelled todos or wipe the entire session todo list. Use scope="all" to start fresh.',
+            parameters: [
+                new EnumParameter('scope', 'Which todos to delete', ['completed', 'all'], required: false),
+            ],
+            callback: function (array $args): ToolResult {
+                $scope = isset($args['scope']) ? trim((string) $args['scope']) : 'completed';
+
+                $deleted = $scope === 'all'
+                    ? $this->store->deleteBySession($this->sessionId)
+                    : $this->store->deleteCompletedBySession($this->sessionId);
+
+                $stats = $this->store->getStats($this->sessionId);
+
+                return ToolResult::success(json_encode([
+                    'scope' => $scope,
+                    'deleted' => $deleted,
+                    'remaining' => $stats['total'],
+                ], JSON_UNESCAPED_SLASHES) ?: '{}');
             },
         );
     }

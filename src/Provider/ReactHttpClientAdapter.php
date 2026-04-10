@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Provider;
 
+use CoquiBot\Coqui\Api\ProcessCancellationToken;
+use React\EventLoop\Loop;
 use React\Http\Browser;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use Symfony\Contracts\HttpClient\ResponseInterface;
@@ -34,6 +36,7 @@ final class ReactHttpClientAdapter implements HttpClientInterface
     public function __construct(
         ?Browser $browser = null,
         array $defaultOptions = [],
+        private readonly ?ProcessCancellationToken $cancellationToken = null,
     ) {
         $this->browser = ($browser ?? new Browser())->withTimeout(300);
         $this->defaultOptions = $defaultOptions;
@@ -79,12 +82,24 @@ final class ReactHttpClientAdapter implements HttpClientInterface
         // Use requestStreaming so the response body is a ReadableStreamInterface
         $promise = $browser->requestStreaming($method, $url, $headers, $body);
 
-        return new ReactHttpResponse(
+        $response = new ReactHttpResponse(
             promise: $promise,
             url: $url,
             method: $method,
             startTime: microtime(true),
         );
+
+        $this->cancellationToken?->onCancel(static function () use ($response): void {
+            // Cancellation may be requested from a signal handler or a timer callback
+            // while the current Fiber is suspended inside await(). Deferring the
+            // actual promise cancellation onto the event loop avoids switching Fibers
+            // from the wrong execution context during shutdown.
+            Loop::futureTick(static function () use ($response): void {
+                $response->cancel();
+            });
+        });
+
+        return $response;
     }
 
     public function stream(ResponseInterface|iterable $responses, ?float $timeout = null): ResponseStreamInterface
@@ -125,6 +140,11 @@ final class ReactHttpClientAdapter implements HttpClientInterface
         }
 
         return $clone;
+    }
+
+    public function withCancellationToken(?ProcessCancellationToken $cancellationToken): static
+    {
+        return new self($this->browser, $this->defaultOptions, $cancellationToken);
     }
 
     /**

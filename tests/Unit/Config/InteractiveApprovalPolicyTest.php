@@ -3,6 +3,8 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\InteractiveApprovalPolicy;
+use CoquiBot\Coqui\Config\AutoApprovalPolicy;
+use CoquiBot\Coqui\Config\CatastrophicBlacklist;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -154,4 +156,112 @@ test('tool not in gated map is never gated', function () {
     expect($reflection->invoke($policy, 'git_diff', ['scope' => 'working']))->toBeFalse();
     expect($reflection->invoke($policy, 'git_log', []))->toBeFalse();
     expect($reflection->invoke($policy, 'git_status', []))->toBeFalse();
+});
+
+// ---------------------------------------------------------------
+// Blacklist scoping — only command-execution tools are checked
+// ---------------------------------------------------------------
+
+test('blacklist blocks exec tool with shutdown command', function () {
+    $blacklist = new CatastrophicBlacklist();
+    $policy = new InteractiveApprovalPolicy(
+        io: createIo(),
+        blacklist: $blacklist,
+    );
+
+    $result = $policy->shouldExecute('exec', ['command' => 'shutdown -h now']);
+    expect($result)->toBeString();
+    expect($result)->toContain('CATASTROPHIC BLOCK');
+});
+
+test('blacklist blocks php_execute with shutdown in code', function () {
+    $blacklist = new CatastrophicBlacklist();
+    $policy = new InteractiveApprovalPolicy(
+        io: createIo(),
+        blacklist: $blacklist,
+    );
+
+    $result = $policy->shouldExecute('php_execute', ['code' => "exec('shutdown -h now');"]);
+    expect($result)->toBeString();
+    expect($result)->toContain('CATASTROPHIC BLOCK');
+});
+
+test('blacklist does NOT block write_file with shutdown in content', function () {
+    $blacklist = new CatastrophicBlacklist();
+    $policy = new InteractiveApprovalPolicy(
+        io: createIo(),
+        blacklist: $blacklist,
+    );
+
+    $result = $policy->shouldExecute('write_file', [
+        'path' => 'plan.md',
+        'content' => 'The server will shutdown gracefully when signaled.',
+    ]);
+    expect($result)->toBeTrue();
+});
+
+test('blacklist does NOT block replace_in_file with shutdown in content', function () {
+    $blacklist = new CatastrophicBlacklist();
+    $policy = new InteractiveApprovalPolicy(
+        io: createIo(),
+        blacklist: $blacklist,
+    );
+
+    $result = $policy->shouldExecute('replace_in_file', [
+        'path' => 'timer.md',
+        'old_content' => 'shutdown the timer',
+        'new_content' => 'stop the timer',
+    ]);
+    expect($result)->toBeTrue();
+});
+
+test('blacklist does NOT block memory_save with shutdown in content', function () {
+    $blacklist = new CatastrophicBlacklist();
+    $policy = new InteractiveApprovalPolicy(
+        io: createIo(),
+        blacklist: $blacklist,
+    );
+
+    $result = $policy->shouldExecute('memory_save', [
+        'content' => 'User prefers graceful shutdown handling.',
+        'area' => 'preferences',
+    ]);
+    expect($result)->toBeTrue();
+});
+
+// ---------------------------------------------------------------
+// AutoApprovalPolicy — same blacklist scoping
+// ---------------------------------------------------------------
+
+test('auto-approval blocks exec with shutdown', function () {
+    $blacklist = new CatastrophicBlacklist();
+    $policy = new AutoApprovalPolicy(blacklist: $blacklist);
+
+    $result = $policy->shouldExecute('exec', ['command' => 'shutdown -h now']);
+    expect($result)->toBeString();
+    expect($result)->toContain('CATASTROPHIC BLOCK');
+});
+
+test('auto-approval allows write_file with shutdown in content', function () {
+    $blacklist = new CatastrophicBlacklist();
+    $policy = new AutoApprovalPolicy(blacklist: $blacklist);
+
+    $result = $policy->shouldExecute('write_file', [
+        'path' => 'docs/architecture.md',
+        'content' => 'The graceful shutdown handler ensures all connections are closed.',
+    ]);
+    expect($result)->toBeTrue();
+});
+
+test('auto-approval allows batch_replace with reboot in content', function () {
+    $blacklist = new CatastrophicBlacklist();
+    $policy = new AutoApprovalPolicy(blacklist: $blacklist);
+
+    $result = $policy->shouldExecute('batch_replace', [
+        'glob' => '*.md',
+        'replacements' => [
+            ['search' => 'reboot the system', 'replace' => 'restart the system'],
+        ],
+    ]);
+    expect($result)->toBeTrue();
 });

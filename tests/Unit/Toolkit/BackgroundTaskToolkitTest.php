@@ -88,7 +88,7 @@ test('maxIterationsCap clamps zero to 1', function () {
     );
 
     $tools = $toolkit->tools();
-    $startTaskTool = $tools[0];
+    $startTaskTool = toolFromToolkit($toolkit, 'start_background_task');
     $schema = $startTaskTool->toFunctionSchema();
 
     // The max_iterations parameter maximum should be clamped to 1
@@ -105,7 +105,7 @@ test('maxIterationsCap clamps negative to 1', function () {
     );
 
     $tools = $toolkit->tools();
-    $startTaskTool = $tools[0];
+    $startTaskTool = toolFromToolkit($toolkit, 'start_background_task');
     $schema = $startTaskTool->toFunctionSchema();
 
     $maxIterationsParam = $schema['function']['parameters']['properties']['max_iterations'] ?? null;
@@ -116,7 +116,7 @@ test('maxIterationsCap clamps negative to 1', function () {
 // --- start_background_task validation ---
 
 test('start_background_task returns error for empty prompt', function () {
-    $tool = $this->toolkit->tools()[0];
+    $tool = toolFromToolkit($this->toolkit, 'start_background_task');
 
     $result = $tool->execute(['prompt' => '', 'title' => 'Test']);
 
@@ -125,7 +125,7 @@ test('start_background_task returns error for empty prompt', function () {
 });
 
 test('start_background_task returns error for empty title', function () {
-    $tool = $this->toolkit->tools()[0];
+    $tool = toolFromToolkit($this->toolkit, 'start_background_task');
 
     $result = $tool->execute(['prompt' => 'Do something', 'title' => '']);
 
@@ -134,7 +134,7 @@ test('start_background_task returns error for empty title', function () {
 });
 
 test('start_background_task creates task successfully', function () {
-    $tool = $this->toolkit->tools()[0];
+    $tool = toolFromToolkit($this->toolkit, 'start_background_task');
 
     $result = $tool->execute([
         'prompt' => 'Research PHP 8.4 features',
@@ -152,7 +152,7 @@ test('start_background_task creates task successfully', function () {
 // --- start_background_tool validation ---
 
 test('start_background_tool returns error for empty tool_name', function () {
-    $tool = $this->toolkit->tools()[1];
+    $tool = toolFromToolkit($this->toolkit, 'start_background_tool');
 
     $result = $tool->execute([
         'tool_name' => '',
@@ -165,7 +165,7 @@ test('start_background_tool returns error for empty tool_name', function () {
 });
 
 test('start_background_tool returns error for empty arguments', function () {
-    $tool = $this->toolkit->tools()[1];
+    $tool = toolFromToolkit($this->toolkit, 'start_background_tool');
 
     $result = $tool->execute([
         'tool_name' => 'web_search',
@@ -178,7 +178,7 @@ test('start_background_tool returns error for empty arguments', function () {
 });
 
 test('start_background_tool returns error for invalid JSON arguments', function () {
-    $tool = $this->toolkit->tools()[1];
+    $tool = toolFromToolkit($this->toolkit, 'start_background_tool');
 
     $result = $tool->execute([
         'tool_name' => 'web_search',
@@ -191,7 +191,7 @@ test('start_background_tool returns error for invalid JSON arguments', function 
 });
 
 test('start_background_tool returns error for empty title', function () {
-    $tool = $this->toolkit->tools()[1];
+    $tool = toolFromToolkit($this->toolkit, 'start_background_tool');
 
     $result = $tool->execute([
         'tool_name' => 'web_search',
@@ -204,7 +204,7 @@ test('start_background_tool returns error for empty title', function () {
 });
 
 test('start_background_tool creates tool task successfully', function () {
-    $tool = $this->toolkit->tools()[1];
+    $tool = toolFromToolkit($this->toolkit, 'start_background_tool');
 
     $result = $tool->execute([
         'tool_name' => 'web_search',
@@ -222,7 +222,7 @@ test('start_background_tool creates tool task successfully', function () {
 // --- task_status ---
 
 test('task_status returns error for non-existent task', function () {
-    $tool = $this->toolkit->tools()[2]; // task_status
+    $tool = toolFromToolkit($this->toolkit, 'task_status');
 
     $result = $tool->execute(['task_id' => 'nonexistent-id']);
 
@@ -232,7 +232,7 @@ test('task_status returns error for non-existent task', function () {
 
 test('task_status returns details for existing task', function () {
     // Create a task first
-    $startTool = $this->toolkit->tools()[0];
+    $startTool = toolFromToolkit($this->toolkit, 'start_background_task');
     $createResult = $startTool->execute([
         'prompt' => 'Test task',
         'title' => 'Test',
@@ -240,32 +240,70 @@ test('task_status returns details for existing task', function () {
     $taskId = json_decode($createResult->content, true)['task_id'];
 
     // Check status
-    $statusTool = $this->toolkit->tools()[2];
+    $statusTool = toolFromToolkit($this->toolkit, 'task_status');
     $result = $statusTool->execute(['task_id' => $taskId]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($result->content)->toContain('pending');
 });
 
+test('task_status includes structured metadata when present', function () {
+    $taskId = $this->storage->createTask(
+        sessionId: $this->parentSessionId,
+        prompt: 'Inspect provenance',
+        role: 'orchestrator',
+        title: 'Inspect provenance',
+        metadata: ['workflow_phase' => 'review', 'intent' => 'code_review'],
+    );
+
+    $statusTool = toolFromToolkit($this->toolkit, 'task_status');
+    $result = $statusTool->execute(['task_id' => $taskId]);
+    $decoded = json_decode($result->content, true);
+
+    expect($decoded['metadata'])->toBe([
+        'workflow_phase' => 'review',
+        'intent' => 'code_review',
+    ]);
+});
+
 // --- list_tasks ---
 
 test('list_tasks returns empty list when no tasks', function () {
-    $tool = $this->toolkit->tools()[3]; // list_tasks
+    $tool = toolFromToolkit($this->toolkit, 'list_tasks');
 
     $result = $tool->execute([]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
 });
 
+test('list_tasks includes decoded metadata when present', function () {
+    $this->storage->createTask(
+        sessionId: $this->parentSessionId,
+        prompt: 'Loop stage task',
+        role: 'coder',
+        title: 'Loop stage task',
+        metadata: ['loop_id' => 'loop-123', 'stage_index' => 1],
+    );
+
+    $tool = toolFromToolkit($this->toolkit, 'list_tasks');
+    $result = $tool->execute([]);
+    $decoded = json_decode($result->content, true);
+
+    expect($decoded['tasks'][0]['metadata'])->toBe([
+        'loop_id' => 'loop-123',
+        'stage_index' => 1,
+    ]);
+});
+
 test('list_tasks returns created tasks', function () {
     // Create a task
-    $startTool = $this->toolkit->tools()[0];
+    $startTool = toolFromToolkit($this->toolkit, 'start_background_task');
     $startTool->execute([
         'prompt' => 'Test task',
         'title' => 'My task',
     ]);
 
-    $tool = $this->toolkit->tools()[3];
+    $tool = toolFromToolkit($this->toolkit, 'list_tasks');
     $result = $tool->execute([]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
@@ -275,7 +313,7 @@ test('list_tasks returns created tasks', function () {
 // --- cancel_task ---
 
 test('cancel_task returns error for non-existent task', function () {
-    $tool = $this->toolkit->tools()[4]; // cancel_task
+    $tool = toolFromToolkit($this->toolkit, 'cancel_task');
 
     $result = $tool->execute(['task_id' => 'nonexistent-id']);
 

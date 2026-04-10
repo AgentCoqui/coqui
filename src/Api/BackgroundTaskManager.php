@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api;
 
+use CoquiBot\Coqui\Notification\NotificationPublisher;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Support\ProcessSpawner;
@@ -49,6 +50,7 @@ final class BackgroundTaskManager
         private readonly string $workspacePath = '',
         private readonly int $maxConcurrent = CoquiDefaults::MAX_CONCURRENT_TASKS,
         private readonly bool $unsafeMode = false,
+        private readonly ?NotificationPublisher $publisher = null,
     ) {}
 
     /**
@@ -209,6 +211,7 @@ final class BackgroundTaskManager
                     'error' => sprintf('Process exited with code %d', $exitCode),
                     'stderr' => mb_substr($stderr, 0, 500),
                 ]);
+                $this->publishRecoveryNotification($taskId, 'failed', 'Task process exited abnormally', sprintf('Exit code %d', $exitCode));
             }
         }
     }
@@ -264,6 +267,7 @@ final class BackgroundTaskManager
             $this->storage->updateTaskStatus($taskId, 'failed', [
                 'error' => 'Failed to spawn task process',
             ]);
+            $this->publishRecoveryNotification($taskId, 'failed', 'Failed to spawn task process');
 
             return false;
         }
@@ -331,6 +335,7 @@ final class BackgroundTaskManager
                 $this->storage->appendTaskEvent($taskId, 'cancelled', [
                     'message' => 'Cancelled (no active process found)',
                 ]);
+                $this->publishRecoveryNotification($taskId, 'cancelled', 'Task cancelled (orphan)');
             }
         }
     }
@@ -360,6 +365,7 @@ final class BackgroundTaskManager
             $this->storage->appendTaskEvent($taskId, 'failed', [
                 'error' => 'Killed: no heartbeat for 5 minutes',
             ]);
+            $this->publishRecoveryNotification($taskId, 'failed', 'Task killed — stale heartbeat', 'No heartbeat for 5 minutes');
         }
     }
 
@@ -389,6 +395,59 @@ final class BackgroundTaskManager
             $this->storage->appendTaskEvent($taskId, 'failed', [
                 'error' => sprintf('Killed: exceeded max execution time (%ds)', $maxSeconds),
             ]);
+            $this->publishRecoveryNotification($taskId, 'failed', 'Task killed — execution timeout', sprintf('Exceeded %d seconds', $maxSeconds));
+        }
+    }
+
+    /**
+     * Publish a recovery notification for a task the manager had to intervene on.
+     *
+     * Uses fingerprint deduplication — if the child process (TaskRunCommand) already
+     * published a notification for this task+outcome, this is a no-op.
+     */
+    private function publishRecoveryNotification(string $taskId, string $outcome, string $title, ?string $detail = null): void
+    {
+        if ($this->publisher === null) {
+            return;
+        }
+
+        try {
+            $task = $this->storage->getTask($taskId);
+            if ($task === null) {
+                return;
+            }
+
+            $targetSession = NotificationPublisher::resolveTargetSession(
+                sessionId: (string) ($task['session_id'] ?? ''),
+                parentSessionId: $task['parent_session_id'] ?? null,
+            );
+
+            $fingerprint = NotificationPublisher::taskFingerprint($taskId, $outcome);
+
+            // Skip if child process already published this notification
+            if ($this->publisher->existsByFingerprint($targetSession, $fingerprint)) {
+                return;
+            }
+
+            $kind = match ($outcome) {
+                'completed' => 'task.completed',
+                'cancelled' => 'task.cancelled',
+                default => 'task.failed',
+            };
+
+            $this->publisher->publish(
+                sessionId: $targetSession,
+                kind: $kind,
+                title: $title,
+                message: $detail !== null ? mb_substr($detail, 0, 200) : null,
+                class: 'informational',
+                priority: $outcome === 'failed' ? 'high' : 'normal',
+                fingerprint: $fingerprint,
+                sourceType: 'background_task',
+                sourceId: $taskId,
+            );
+        } catch (\Throwable) {
+            // Never break task management for notification failures
         }
     }
 }

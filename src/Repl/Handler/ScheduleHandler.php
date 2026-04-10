@@ -52,11 +52,13 @@ final class ScheduleHandler
         $rows = [];
         foreach ($schedules as $s) {
             $status = ((int) $s['enabled']) ? '<fg=green>✓</>' : '<fg=red>✗</>';
+            $source = ($s['source'] ?? 'system') === 'filesystem' ? '<fg=cyan>file</>' : 'system';
             $lastRun = $s['last_run_at'] !== null ? TimeFormatter::timeSince($s['last_run_at']) : '-';
             $rows[] = [
                 $status,
                 substr($s['id'], 0, 8) . '...',
                 $s['name'],
+                $source,
                 $s['schedule_expression'],
                 $s['next_run_at'] ?? 'N/A',
                 $lastRun,
@@ -66,7 +68,7 @@ final class ScheduleHandler
             ];
         }
 
-        $io->table(['', 'ID', 'Name', 'Expression', 'Next Run', 'Last Run', 'Last Status', 'Runs', 'Fails'], $rows);
+        $io->table(['', 'ID', 'Name', 'Source', 'Expression', 'Next Run', 'Last Run', 'Last Status', 'Runs', 'Fails'], $rows);
     }
 
     private function handleEnable(SymfonyStyle $io, ScheduleStore $store, string $target): void
@@ -94,6 +96,15 @@ final class ScheduleHandler
         $schedule = $this->resolveByIdOrName($store, $target);
         if ($schedule === null) {
             $io->error("No schedule found matching '{$target}'.");
+            return;
+        }
+
+        if ($this->isFilesystemSchedule($schedule)) {
+            $io->warning(sprintf(
+                "Schedule '%s' is defined by a filesystem file (%s). Set \"enabled\": true in the JSON file to enable it.",
+                $schedule['name'],
+                basename((string) $schedule['source_path']),
+            ));
             return;
         }
 
@@ -129,6 +140,15 @@ final class ScheduleHandler
             return;
         }
 
+        if ($this->isFilesystemSchedule($schedule)) {
+            $io->warning(sprintf(
+                "Schedule '%s' is defined by a filesystem file (%s). Set \"enabled\": false in the JSON file to disable it.",
+                $schedule['name'],
+                basename((string) $schedule['source_path']),
+            ));
+            return;
+        }
+
         $store->disable((string) $schedule['id']);
         $io->success("Disabled: {$schedule['name']}");
     }
@@ -158,6 +178,15 @@ final class ScheduleHandler
         $schedule = $this->resolveByIdOrName($store, $target);
         if ($schedule === null) {
             $io->error("No schedule found matching '{$target}'.");
+            return;
+        }
+
+        if ($this->isFilesystemSchedule($schedule)) {
+            $io->warning(sprintf(
+                "Schedule '%s' is defined by a filesystem file (%s). Delete the JSON file to remove it.",
+                $schedule['name'],
+                basename((string) $schedule['source_path']),
+            ));
             return;
         }
 
@@ -214,5 +243,13 @@ final class ScheduleHandler
         }
 
         return $store->getByName($idOrName);
+    }
+
+    /**
+     * @param array<string, mixed> $schedule
+     */
+    private function isFilesystemSchedule(array $schedule): bool
+    {
+        return ($schedule['source'] ?? 'system') === ScheduleStore::SOURCE_FILESYSTEM;
     }
 }

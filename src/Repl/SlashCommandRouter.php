@@ -6,11 +6,14 @@ namespace CoquiBot\Coqui\Repl;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Renderer\MarkdownRenderer;
+use CoquiBot\Coqui\Renderer\PromptUsageBar;
+use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
+use CoquiBot\Coqui\Repl\Handler\QualityHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
@@ -19,6 +22,7 @@ use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
+use CoquiBot\Coqui\Contract\SystemRole;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -35,6 +39,8 @@ final class SlashCommandRouter
         private readonly TaskHandler $task,
         private readonly TodoHandler $todo,
         private readonly ScheduleHandler $schedule,
+        private readonly BudgetHandler $budget,
+        private readonly QualityHandler $quality,
         private readonly ProjectHandler $project,
         private readonly RoleHandler $role,
         private readonly ToolkitVisibilityHandler $toolkitVisibility,
@@ -81,12 +87,14 @@ final class SlashCommandRouter
             '/task-cancel' => $this->handleTaskCancel($io, $arg),
             '/update' => $this->handleUpdate($io),
             '/toolkits' => $this->handleToolkits($io, $arg),
-            '/prompt' => $this->handlePrompt($io, $activeRole),
+            '/budget' => $this->handleBudget($io, $arg, $activeRole),
+            '/prompt' => $this->handlePrompt($io, $arg, $activeRole),
             '/summarize' => $this->handleSummarize($io, $arg, $sessionId),
             '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId),
             '/roles' => $this->handleRoles($io, $arg, $activeRole),
             '/space' => $this->handleSpace($io, $arg),
             '/schedules' => $this->handleSchedules($io, $arg),
+            '/quality' => $this->handleQuality($io),
             '/webhooks' => $this->handleWebhooks($io, $arg),
             '/evaluations' => $this->handleEvaluations($io, $arg),
             '/loops' => $this->handleLoops($io, $arg, $sessionId),
@@ -111,7 +119,7 @@ final class SlashCommandRouter
     {
         $sessionId = $this->session->createNewSession();
         $io->success('New session started: ' . $sessionId);
-        return RouteResult::stateChange(newSessionId: $sessionId, newActiveRole: 'orchestrator');
+        return RouteResult::stateChange(newSessionId: $sessionId, newActiveRole: SystemRole::Orchestrator->value);
     }
 
     private function handleHistory(SymfonyStyle $io, string $sessionId): RouteResult
@@ -210,9 +218,16 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handlePrompt(SymfonyStyle $io, string $activeRole): RouteResult
+    private function handlePrompt(SymfonyStyle $io, string $arg, string $activeRole): RouteResult
     {
-        $role = $activeRole !== 'orchestrator' ? $activeRole : null;
+        $role = $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null;
+
+        if (trim($arg) === 'export') {
+            $filePath = $this->agentRunner->exportPromptToFile($role);
+            $io->success('Prompt exported to: ' . $filePath);
+            return RouteResult::continue();
+        }
+
         $preview = $this->agentRunner->buildPromptPreview($role);
         $io->section('System Prompt');
         $io->write(MarkdownRenderer::render($preview['prompt']));
@@ -224,6 +239,22 @@ final class SlashCommandRouter
             '<fg=gray>Tool schema tokens:</> ' . number_format($preview['tool_tokens']),
             '<fg=gray>Estimated total:</> ' . number_format($preview['total_tokens']),
         ]);
+        $io->newLine();
+        PromptUsageBar::renderSectionBreakdown($io, $preview['budget_snapshot']);
+        $io->newLine();
+        PromptUsageBar::renderContextImpact($io, $preview['budget_snapshot']);
+        return RouteResult::continue();
+    }
+
+    private function handleBudget(SymfonyStyle $io, string $arg, string $activeRole): RouteResult
+    {
+        $requestedRole = trim($arg);
+        $role = $requestedRole !== ''
+            ? $requestedRole
+            : ($activeRole !== SystemRole::Orchestrator->value ? $activeRole : null);
+
+        $this->budget->handle($io, $role);
+
         return RouteResult::continue();
     }
 
@@ -257,6 +288,12 @@ final class SlashCommandRouter
     private function handleSchedules(SymfonyStyle $io, string $arg): RouteResult
     {
         $this->schedule->handle($io, $arg);
+        return RouteResult::continue();
+    }
+
+    private function handleQuality(SymfonyStyle $io): RouteResult
+    {
+        $this->quality->handle($io);
         return RouteResult::continue();
     }
 
@@ -302,7 +339,9 @@ final class SlashCommandRouter
                 ['/projects [status]', 'List projects (optionally filter by active/completed/archived)'],
                 ['/sprints [project_slug]', 'List sprints for a project (all projects if no slug given)'],
                 ['/toolkits [enable|stub|disable <pkg|tool:name>]', 'Manage toolkit visibility'],
+                ['/budget [role]', 'Show prompt-budget telemetry and toolkit loading decisions'],
                 ['/prompt', 'Show the full system prompt sent to the LLM'],
+                ['/prompt export', 'Export system prompt and tool schemas to a file in the workspace'],
                 ['/role [name]', 'Switch active role (e.g. /role coder). No argument shows current role'],
                 ['/role edit <name>', 'Open a role file in your editor'],
                 ['/roles', 'List all roles with visibility and update status'],
@@ -311,6 +350,7 @@ final class SlashCommandRouter
                 ['/roles unignore <name>', 'Resume receiving updates for a role'],
                 ['/space [search|install|remove|installed|skills|toolkits|update]', 'Coqui Space marketplace'],
                 ['/schedules', 'List scheduled tasks with status and next run time'],
+                ['/quality', 'Show quality automation schedules and learner follow-up state'],
                 ['/webhooks', 'List webhook subscriptions with status and trigger counts'],
                 ['/evaluations', 'List session evaluation reports with grades and scores'],
                 ['/loops [start <def> <goal>|status|definitions|pause|resume|stop <id|all>]', 'Manage automated loop workflows'],

@@ -36,7 +36,7 @@ Pending tasks can be cancelled immediately (status goes straight to `cancelled`)
 
 ### Concurrency
 
-By default, one background task runs at a time. Additional tasks are queued and start automatically when a slot opens. Configure the concurrency limit in `openclaw.json`:
+By default, up to 32 background tasks run concurrently. Additional tasks are queued and start automatically when a slot opens. Configure the concurrency limit in `openclaw.json`:
 
 ```json
 {
@@ -74,7 +74,7 @@ The API server is still the sole executor — the ReactPHP event loop manages ch
 
 ### Via the LLM Agent
 
-When connected through the API, the orchestrator agent has access to four background task tools. You can ask it naturally:
+When connected through the API, the orchestrator agent has access to five background task tools. You can ask it naturally:
 
 > "Start a background task to refactor the authentication module"
 
@@ -136,7 +136,7 @@ The API provides full programmatic control over background tasks.
 #### Create a Task
 
 ```bash
-curl -X POST http://localhost:3300/api/tasks \
+curl -X POST http://localhost:3300/api/v1/tasks \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -165,18 +165,18 @@ curl -X POST http://localhost:3300/api/tasks \
 
 ```bash
 # All tasks
-curl http://localhost:3300/api/tasks \
+curl http://localhost:3300/api/v1/tasks \
   -H "Authorization: Bearer $API_KEY"
 
 # Filter by status
-curl "http://localhost:3300/api/tasks?status=running" \
+curl "http://localhost:3300/api/v1/tasks?status=running" \
   -H "Authorization: Bearer $API_KEY"
 ```
 
 #### Get Task Details
 
 ```bash
-curl http://localhost:3300/api/tasks/{id} \
+curl http://localhost:3300/api/v1/tasks/{id} \
   -H "Authorization: Bearer $API_KEY"
 ```
 
@@ -185,7 +185,7 @@ curl http://localhost:3300/api/tasks/{id} \
 Monitor a task in real time using Server-Sent Events:
 
 ```bash
-curl -N http://localhost:3300/api/tasks/{id}/events \
+curl -N http://localhost:3300/api/v1/tasks/{id}/events \
   -H "Authorization: Bearer $API_KEY"
 ```
 
@@ -211,7 +211,7 @@ data: {"status":"completed"}
 The stream closes automatically when the task reaches a terminal state (completed, failed, or cancelled). Use the `since_id` query parameter to resume from a specific event:
 
 ```bash
-curl -N "http://localhost:3300/api/tasks/{id}/events?since_id=42" \
+curl -N "http://localhost:3300/api/v1/tasks/{id}/events?since_id=42" \
   -H "Authorization: Bearer $API_KEY"
 ```
 
@@ -220,7 +220,7 @@ curl -N "http://localhost:3300/api/tasks/{id}/events?since_id=42" \
 Send additional instructions to a running task. The input is consumed by the agent at the start of its next iteration:
 
 ```bash
-curl -X POST http://localhost:3300/api/tasks/{id}/input \
+curl -X POST http://localhost:3300/api/v1/tasks/{id}/input \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"content": "Focus on the database layer first"}'
@@ -229,7 +229,7 @@ curl -X POST http://localhost:3300/api/tasks/{id}/input \
 #### Cancel a Task
 
 ```bash
-curl -X POST http://localhost:3300/api/tasks/{id}/cancel \
+curl -X POST http://localhost:3300/api/v1/tasks/{id}/cancel \
   -H "Authorization: Bearer $API_KEY"
 ```
 
@@ -239,12 +239,12 @@ Cancellation is cooperative. The agent finishes its current iteration before sto
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/tasks` | Create a new background task |
-| `GET` | `/api/tasks` | List tasks (optional `?status=` filter) |
-| `GET` | `/api/tasks/{id}` | Get task details |
-| `GET` | `/api/tasks/{id}/events` | SSE event stream (optional `?since_id=`) |
-| `POST` | `/api/tasks/{id}/input` | Inject input into a running task |
-| `POST` | `/api/tasks/{id}/cancel` | Cancel a task |
+| `POST` | `/api/v1/tasks` | Create a new background task |
+| `GET` | `/api/v1/tasks` | List tasks (optional `?status=` filter) |
+| `GET` | `/api/v1/tasks/{id}` | Get task details |
+| `GET` | `/api/v1/tasks/{id}/events` | SSE event stream (optional `?since_id=`) |
+| `POST` | `/api/v1/tasks/{id}/input` | Inject input into a running task |
+| `POST` | `/api/v1/tasks/{id}/cancel` | Cancel a task |
 
 ### Create Task Request Body
 

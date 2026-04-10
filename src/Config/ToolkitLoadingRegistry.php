@@ -5,35 +5,31 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
 
 /**
- * Manages per-toolkit loading mode (system / eager / deferred).
+ * Manages per-toolkit loading mode overrides.
  *
- * Persists overrides to workspace/toolkit-loading.json. System toolkits
- * (defined in CoquiDefaults::SYSTEM_TOOLKITS) are always System mode and
- * cannot be changed. All other toolkits default to Deferred.
+ * Persists overrides to workspace/toolkit-loading.json. The tri-state model:
+ *
+ * - System:   Always loaded (hardcoded in CoquiDefaults::SYSTEM_TOOLKITS, immutable)
+ * - Eager:    User override — always loaded regardless of budget
+ * - Deferred: User override — always deferred regardless of budget/frequency
+ * - Auto:     Budget gate decides (default for all non-system toolkits)
+ *
+ * Only Eager and Deferred are persisted. Removing an entry returns to Auto.
+ * System is resolved from CoquiDefaults::SYSTEM_TOOLKITS at query time.
  *
  * Orthogonal to ToolkitVisibilityRegistry — visibility controls whether
  * the LLM can see the tool at all, loading mode controls *when* it enters context.
  */
 final class ToolkitLoadingRegistry
 {
-    /**
-     * Loading modes.
-     *
-     * - system:   Always loaded with full schema (hardcoded, immutable)
-     * - eager:    Loaded with full schema when budget allows (user override)
-     * - deferred: Wrapped as StubToolkit, discoverable via tool_search (default for non-system)
-     */
-    private const string MODE_SYSTEM = 'system';
-    private const string MODE_EAGER = 'eager';
-    private const string MODE_DEFERRED = 'deferred';
-
-    private const array VALID_MODES = [self::MODE_SYSTEM, self::MODE_EAGER, self::MODE_DEFERRED];
+    private const array PERSISTABLE_MODES = ['eager', 'deferred'];
 
     private string $filePath;
 
-    /** @var array<string, string>|null classBasename => mode */
+    /** @var array<string, string>|null classBasename => mode string */
     private ?array $cache = null;
 
     public function __construct(string $workspacePath)
@@ -44,26 +40,32 @@ final class ToolkitLoadingRegistry
     /**
      * Get the loading mode for a toolkit (by class basename).
      *
-     * System toolkits always return 'system', regardless of persisted state.
-     * Non-system toolkits check persisted overrides, defaulting to 'deferred'.
+     * Resolution: System (hardcoded) → Persisted override (Eager/Deferred) → Auto (default).
      */
-    public function getMode(string $classBasename): string
+    public function getMode(string $classBasename): ToolkitLoadingMode
     {
         if ($this->isSystem($classBasename)) {
-            return self::MODE_SYSTEM;
+            return ToolkitLoadingMode::System;
         }
 
         $data = $this->load();
+        $persisted = $data[$classBasename] ?? null;
 
-        return $data[$classBasename] ?? self::MODE_DEFERRED;
+        return match ($persisted) {
+            'eager' => ToolkitLoadingMode::Eager,
+            'deferred' => ToolkitLoadingMode::Deferred,
+            default => ToolkitLoadingMode::Auto,
+        };
     }
 
     /**
-     * Set the loading mode for a toolkit.
+     * Set the loading mode override for a toolkit.
      *
-     * @throws \InvalidArgumentException When trying to change a system toolkit or using invalid mode
+     * Only Eager and Deferred can be set. Use resetMode() to return to Auto.
+     *
+     * @throws \InvalidArgumentException When trying to change a system toolkit or using a non-persistable mode
      */
-    public function setMode(string $classBasename, string $mode): void
+    public function setMode(string $classBasename, ToolkitLoadingMode $mode): void
     {
         if ($this->isSystem($classBasename)) {
             throw new \InvalidArgumentException(
@@ -71,21 +73,37 @@ final class ToolkitLoadingRegistry
             );
         }
 
-        if (!in_array($mode, [self::MODE_EAGER, self::MODE_DEFERRED], true)) {
+        if (!$mode->isPersistable()) {
             throw new \InvalidArgumentException(
-                sprintf('Invalid loading mode "%s". Use "eager" or "deferred".', $mode),
+                sprintf('Loading mode "%s" cannot be set directly. Use Eager or Deferred.', $mode->value),
+            );
+        }
+
+        $data = $this->load();
+        $data[$classBasename] = $mode->value;
+        $this->save($data);
+    }
+
+    /**
+     * Remove a persisted override, returning the toolkit to Auto mode.
+     *
+     * @throws \InvalidArgumentException When trying to reset a system toolkit
+     */
+    public function resetMode(string $classBasename): void
+    {
+        if ($this->isSystem($classBasename)) {
+            throw new \InvalidArgumentException(
+                sprintf('Toolkit "%s" is a system toolkit and cannot be reset.', $classBasename),
             );
         }
 
         $data = $this->load();
 
-        if ($mode === self::MODE_DEFERRED) {
-            // Remove entry — deferred is the default, no need to persist
-            unset($data[$classBasename]);
-        } else {
-            $data[$classBasename] = $mode;
+        if (!isset($data[$classBasename])) {
+            return;
         }
 
+        unset($data[$classBasename]);
         $this->save($data);
     }
 
@@ -98,19 +116,9 @@ final class ToolkitLoadingRegistry
     }
 
     /**
-     * Check if a toolkit should be loaded eagerly (system or explicit eager override).
-     */
-    public function shouldLoadEagerly(string $classBasename): bool
-    {
-        $mode = $this->getMode($classBasename);
-
-        return $mode === self::MODE_SYSTEM || $mode === self::MODE_EAGER;
-    }
-
-    /**
      * Return all persisted overrides for display.
      *
-     * @return array<string, string> classBasename => mode
+     * @return array<string, string> classBasename => mode value string
      */
     public function all(): array
     {
@@ -142,10 +150,10 @@ final class ToolkitLoadingRegistry
             return $this->cache = [];
         }
 
-        // Filter to valid modes only
+        // Filter to persistable modes only
         $filtered = [];
         foreach ($data as $key => $value) {
-            if (is_string($key) && is_string($value) && in_array($value, self::VALID_MODES, true)) {
+            if (is_string($key) && is_string($value) && in_array($value, self::PERSISTABLE_MODES, true)) {
                 $filtered[$key] = $value;
             }
         }

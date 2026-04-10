@@ -12,8 +12,13 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
+use CoquiBot\Coqui\Contract\EvaluationEvidenceMetadata;
+use CoquiBot\Coqui\Support\JsonHelper;
+use CoquiBot\Coqui\Agent\QualityAutomationCoordinator;
+use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 
 /**
  * Agent-facing toolkit for the evaluator role.
@@ -37,6 +42,9 @@ final class SessionEvaluationToolkit implements ToolkitInterface
         private readonly SessionStorage $storage,
         private readonly int $defaultLookbackHours = 24,
         private readonly int $defaultInactivityHours = 3,
+        private readonly ?QualityAutomationCoordinator $qualityAutomation = null,
+        private readonly ?ArtifactStore $artifactStore = null,
+        private readonly ?SkillLifecycleStore $skillLifecycleStore = null,
     ) {}
 
     public function tools(): array
@@ -280,12 +288,14 @@ final class SessionEvaluationToolkit implements ToolkitInterface
                     }
 
                     return [
+                        'id' => $run['id'],
                         'role' => $run['agent_role'],
                         'model' => $run['model'],
                         'parent_iteration' => $run['parent_iteration'],
                         'prompt' => $prompt,
                         'result' => $resultText,
                         'token_count' => (int) $run['token_count'],
+                        'metadata' => JsonHelper::decodeJsonObject($run['metadata'] ?? null),
                         'created_at' => $run['created_at'],
                     ];
                 }, $childRuns);
@@ -342,6 +352,31 @@ final class SessionEvaluationToolkit implements ToolkitInterface
                     return ToolResult::error("Session not found: {$sessionId}");
                 }
 
+                $childRuns = $this->storage->getChildRuns($sessionId);
+                $artifacts = $this->artifactStore?->list($sessionId, limit: 100) ?? [];
+                $skillUsage = $this->skillLifecycleStore?->listSkillUsage(sessionId: $sessionId, limit: 200) ?? [];
+                $evidenceSources = ['transcript'];
+                if ($childRuns !== []) {
+                    $evidenceSources[] = 'child_runs';
+                }
+                if ($artifacts !== []) {
+                    $evidenceSources[] = 'artifacts';
+                }
+                if ($skillUsage !== []) {
+                    $evidenceSources[] = 'skills';
+                }
+
+                $evidenceMetadata = new EvaluationEvidenceMetadata(
+                    sessionId: $sessionId,
+                    sessionTitle: (string) ($session['title'] ?? '(untitled)'),
+                    evidenceSources: array_values(array_unique($evidenceSources)),
+                    childRunIds: array_values(array_map(
+                        static fn(array $run): string => (string) ($run['id'] ?? ''),
+                        $childRuns,
+                    )),
+                    childRunCount: count($childRuns),
+                );
+
                 $id = $this->evaluationStore->create(
                     sessionId: $sessionId,
                     overallGrade: $grade,
@@ -350,9 +385,29 @@ final class SessionEvaluationToolkit implements ToolkitInterface
                     scoreEfficiency: $scoreEfficiency,
                     overallScore: $overallScore,
                     report: $report,
+                    metadata: $evidenceMetadata->toArray(),
                 );
 
-                return ToolResult::success(json_encode([
+                $evidenceLinks = $this->buildEvidenceLinks(
+                    evaluationId: $id,
+                    sessionId: $sessionId,
+                    session: $session,
+                    childRuns: array_values($childRuns),
+                    artifacts: $artifacts,
+                    skillUsage: $skillUsage,
+                );
+                if ($this->skillLifecycleStore !== null && $evidenceLinks !== []) {
+                    $this->skillLifecycleStore->replaceEvaluationEvidenceLinks($id, $evidenceLinks);
+                }
+
+                $learnerFollowUp = $this->qualityAutomation?->queueLearnerFollowUp(
+                    evaluationId: $id,
+                    evaluatedSessionId: $sessionId,
+                    overallGrade: $grade,
+                    overallScore: $overallScore,
+                );
+
+                $response = [
                     'id' => $id,
                     'session_id' => $sessionId,
                     'session_title' => $session['title'] ?? '(untitled)',
@@ -364,9 +419,132 @@ final class SessionEvaluationToolkit implements ToolkitInterface
                         'efficiency' => $scoreEfficiency,
                     ],
                     'message' => "Evaluation saved successfully. Grade: {$grade} (score: {$overallScore})",
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ];
+
+                if ($learnerFollowUp !== null) {
+                    $response['learner_follow_up_task_id'] = $learnerFollowUp['taskId'];
+                    $response['learner_follow_up_status'] = $learnerFollowUp['status'];
+                }
+
+                $response['metadata'] = $evidenceMetadata->toArray();
+                $response['evidence_links_count'] = count($evidenceLinks);
+
+                return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
             },
         );
+    }
+
+    /**
+     * @param array<string, mixed> $session
+     * @param list<array<string, mixed>> $childRuns
+     * @param list<array<string, mixed>> $artifacts
+     * @param list<array<string, mixed>> $skillUsage
+     * @return list<array{type: string, evidence_id?: string|null, label: string, metadata?: array<string, mixed>|null}>
+     */
+    private function buildEvidenceLinks(
+        string $evaluationId,
+        string $sessionId,
+        array $session,
+        array $childRuns,
+        array $artifacts,
+        array $skillUsage,
+    ): array {
+        $links = [[
+            'type' => 'session',
+            'evidence_id' => $sessionId,
+            'label' => (string) ($session['title'] ?? '(untitled)'),
+            'metadata' => [
+                'evaluation_id' => $evaluationId,
+                'model_role' => $session['model_role'] ?? null,
+                'model' => $session['model'] ?? null,
+            ],
+        ]];
+
+        foreach ($childRuns as $run) {
+            $links[] = [
+                'type' => 'child_run',
+                'evidence_id' => isset($run['id']) && is_string($run['id']) ? $run['id'] : null,
+                'label' => sprintf(
+                    '%s child run (iteration %d)',
+                    (string) ($run['agent_role'] ?? 'unknown'),
+                    (int) ($run['parent_iteration'] ?? 0),
+                ),
+                'metadata' => [
+                    'agent_role' => $run['agent_role'] ?? null,
+                    'model' => $run['model'] ?? null,
+                    'parent_iteration' => (int) ($run['parent_iteration'] ?? 0),
+                    'created_at' => $run['created_at'] ?? null,
+                ],
+            ];
+        }
+
+        foreach ($artifacts as $artifact) {
+            $links[] = [
+                'type' => 'artifact',
+                'evidence_id' => isset($artifact['id']) && is_string($artifact['id']) ? $artifact['id'] : null,
+                'label' => (string) ($artifact['title'] ?? '(untitled artifact)'),
+                'metadata' => [
+                    'artifact_type' => $artifact['type'] ?? null,
+                    'stage' => $artifact['stage'] ?? null,
+                    'version' => isset($artifact['version']) ? (int) $artifact['version'] : null,
+                    'updated_at' => $artifact['updated_at'] ?? null,
+                ],
+            ];
+        }
+
+        foreach ($this->groupSkillUsageBySkill($skillUsage) as $group) {
+            $links[] = [
+                'type' => 'skill',
+                'evidence_id' => $group['skill_name'],
+                'label' => $group['skill_name'],
+                'metadata' => [
+                    'event_count' => $group['event_count'],
+                    'actions' => $group['actions'],
+                    'last_used_at' => $group['last_used_at'],
+                ],
+            ];
+        }
+
+        return $links;
+    }
+
+    /**
+     * @param list<array<string, mixed>> $skillUsage
+     * @return list<array{skill_name: string, event_count: int, actions: list<string>, last_used_at: string|null}>
+     */
+    private function groupSkillUsageBySkill(array $skillUsage): array
+    {
+        $grouped = [];
+
+        foreach ($skillUsage as $event) {
+            $skillName = isset($event['skill_name']) && is_string($event['skill_name']) ? $event['skill_name'] : null;
+            if ($skillName === null || $skillName === '') {
+                continue;
+            }
+
+            if (!isset($grouped[$skillName])) {
+                $grouped[$skillName] = [
+                    'skill_name' => $skillName,
+                    'event_count' => 0,
+                    'actions' => [],
+                    'last_used_at' => null,
+                ];
+            }
+
+            $grouped[$skillName]['event_count']++;
+
+            $action = isset($event['action']) && is_string($event['action']) ? $event['action'] : null;
+            if ($action !== null && $action !== '' && !in_array($action, $grouped[$skillName]['actions'], true)) {
+                $grouped[$skillName]['actions'][] = $action;
+            }
+
+            $createdAt = isset($event['created_at']) && is_string($event['created_at']) ? $event['created_at'] : null;
+            if ($createdAt !== null && ($grouped[$skillName]['last_used_at'] === null || $createdAt > $grouped[$skillName]['last_used_at'])) {
+                $grouped[$skillName]['last_used_at'] = $createdAt;
+            }
+        }
+
+        return array_values($grouped);
     }
 
     /**

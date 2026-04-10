@@ -10,12 +10,12 @@ use CoquiBot\Coqui\Contract\LoopParameterDefinition;
 
 test('fromArray creates parameter with all fields', function () {
     $param = LoopParameterDefinition::fromArray([
-        'name' => 'topic',
+        'name' => 'subject',
         'description' => 'The subject to investigate',
         'required' => true,
     ]);
 
-    expect($param->name)->toBe('topic');
+    expect($param->name)->toBe('subject');
     expect($param->description)->toBe('The subject to investigate');
     expect($param->required)->toBeTrue();
     expect($param->default)->toBeNull();
@@ -36,7 +36,7 @@ test('fromArray creates optional parameter with default', function () {
 
 test('fromArray defaults to required true', function () {
     $param = LoopParameterDefinition::fromArray([
-        'name' => 'topic',
+        'name' => 'subject',
         'description' => 'Test parameter',
     ]);
 
@@ -49,14 +49,14 @@ test('fromArray defaults to required true', function () {
 
 test('toArray serializes required parameter', function () {
     $param = LoopParameterDefinition::fromArray([
-        'name' => 'topic',
+        'name' => 'subject',
         'description' => 'The subject',
         'required' => true,
     ]);
 
     $array = $param->toArray();
 
-    expect($array['name'])->toBe('topic');
+    expect($array['name'])->toBe('subject');
     expect($array['description'])->toBe('The subject');
     expect($array['required'])->toBeTrue();
     expect($array)->not->toHaveKey('default');
@@ -120,18 +120,25 @@ test('constructor throws on name starting with number', function () {
 
 test('constructor throws on empty description', function () {
     LoopParameterDefinition::fromArray([
-        'name' => 'topic',
+        'name' => 'subject',
         'description' => '',
     ]);
 })->throws(\InvalidArgumentException::class, 'non-empty description');
 
 test('constructor throws on optional param without default', function () {
     LoopParameterDefinition::fromArray([
-        'name' => 'topic',
+        'name' => 'subject',
         'description' => 'Test',
         'required' => false,
     ]);
 })->throws(\InvalidArgumentException::class, 'must have a default value');
+
+test('constructor rejects reserved topic parameter name', function () {
+    LoopParameterDefinition::fromArray([
+        'name' => 'topic',
+        'description' => 'Legacy loop subject field',
+    ]);
+})->throws(\InvalidArgumentException::class, 'reserved');
 
 test('constructor allows underscores in name', function () {
     $param = LoopParameterDefinition::fromArray([

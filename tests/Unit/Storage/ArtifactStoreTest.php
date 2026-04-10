@@ -13,9 +13,8 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    if (file_exists($this->dbPath)) {
-        unlink($this->dbPath);
-    }
+    releaseTestObjectProperties($this);
+    cleanupSqliteTestDb($this->dbPath);
 });
 
 // --- Create ---
@@ -166,6 +165,20 @@ test('delete removes artifact', function () {
 
 test('delete returns false for nonexistent', function () {
     expect($this->store->delete('nonexistent'))->toBeFalse();
+});
+
+test('bulkDelete removes multiple artifacts in a session', function () {
+    $id1 = $this->store->create($this->sessionId, 'One', 'content');
+    $id2 = $this->store->create($this->sessionId, 'Two', 'content');
+    $otherSessionId = $this->storage->createSession('orchestrator', 'test/model');
+    $otherId = $this->store->create($otherSessionId, 'Other', 'content');
+
+    $deleted = $this->store->bulkDelete([$id1, $id2, $otherId], $this->sessionId);
+
+    expect($deleted)->toBe(2);
+    expect($this->store->get($id1))->toBeNull();
+    expect($this->store->get($id2))->toBeNull();
+    expect($this->store->get($otherId))->not->toBeNull();
 });
 
 // --- Versions ---

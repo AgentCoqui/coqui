@@ -12,6 +12,8 @@ namespace CoquiBot\Coqui\CoquiSpace\Installer;
  */
 final class ComposerRunner
 {
+    private const ALLOWED_COMMANDS = ['require', 'update', 'remove'];
+
     public function __construct(
         private readonly string $workingDirectory,
     ) {}
@@ -19,12 +21,14 @@ final class ComposerRunner
     /**
      * Run a Composer command and return stdout.
      *
+      * @param list<string>|string $command
      * @throws \RuntimeException If the command fails
      */
-    public function run(string $command): string
+    public function run(array|string $command): string
     {
+        $arguments = $this->normalizeArguments($command);
         $composer = $this->resolveComposerBinary();
-        $fullCommand = escapeshellarg($composer) . ' ' . $command;
+        $processCommand = $this->buildProcessCommand($composer, $arguments);
 
         $descriptors = [
             0 => ['pipe', 'r'],
@@ -34,8 +38,8 @@ final class ComposerRunner
 
         $env = $this->buildEnvironment();
 
-        $process = proc_open(
-            $fullCommand,
+        $process = @proc_open(
+            $processCommand,
             $descriptors,
             $pipes,
             $this->workingDirectory,
@@ -43,7 +47,7 @@ final class ComposerRunner
         );
 
         if (!is_resource($process)) {
-            throw new \RuntimeException("Failed to start Composer process: {$fullCommand}");
+            throw new \RuntimeException('Failed to start Composer process.');
         }
 
         fclose($pipes[0]);
@@ -66,6 +70,37 @@ final class ComposerRunner
     }
 
     /**
+     * @param array<int, string>|string $command
+     * @return list<string>
+     */
+    private function normalizeArguments(array|string $command): array
+    {
+        if (!is_dir($this->workingDirectory)) {
+            throw new \RuntimeException("Composer working directory not found: {$this->workingDirectory}");
+        }
+
+        if (!file_exists($this->workingDirectory . '/composer.json')) {
+            throw new \RuntimeException('Composer working directory must contain composer.json.');
+        }
+
+        $arguments = is_array($command)
+            ? array_values(array_filter($command, static fn(string $value): bool => $value !== ''))
+            : (preg_split('/\s+/', trim($command)) ?: []);
+
+        if ($arguments === []) {
+            throw new \InvalidArgumentException('Composer command is required.');
+        }
+
+        if (!in_array($arguments[0], self::ALLOWED_COMMANDS, true)) {
+            throw new \InvalidArgumentException(
+                'Unsupported Composer command: ' . $arguments[0] . '. Allowed: ' . implode(', ', self::ALLOWED_COMMANDS),
+            );
+        }
+
+        return $arguments;
+    }
+
+    /**
      * Resolve the Composer binary path.
      *
      * Checks in order: COMPOSER_BIN env, common system paths (including
@@ -78,16 +113,22 @@ final class ComposerRunner
             return $envBin;
         }
 
-        $candidates = PHP_OS_FAMILY === 'Windows'
-            ? [
-                getenv('APPDATA') . '\\Composer\\vendor\\bin\\composer',
-                getenv('USERPROFILE') . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer',
-            ]
-            : [
+        if (PHP_OS_FAMILY === 'Windows') {
+            $appData = getenv('APPDATA') ?: null;
+            $userProfile = getenv('USERPROFILE') ?: null;
+            $candidates = array_values(array_filter([
+                $appData !== null ? $appData . '\\Composer\\vendor\\bin\\composer.bat' : null,
+                $userProfile !== null ? $userProfile . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer.bat' : null,
+                $appData !== null ? $appData . '\\Composer\\vendor\\bin\\composer' : null,
+                $userProfile !== null ? $userProfile . '\\AppData\\Roaming\\Composer\\vendor\\bin\\composer' : null,
+            ]));
+        } else {
+            $candidates = [
                 '/opt/homebrew/bin/composer',   // macOS ARM (Homebrew)
                 '/usr/local/bin/composer',      // macOS Intel / Linux
                 '/usr/bin/composer',            // System-wide
             ];
+        }
 
         foreach ($candidates as $path) {
             if (file_exists($path) && is_executable($path)) {
@@ -96,6 +137,23 @@ final class ComposerRunner
         }
 
         return 'composer';
+    }
+
+    /**
+     * @param list<string> $arguments
+     * @return list<string>
+     */
+    private function buildProcessCommand(string $composer, array $arguments): array
+    {
+        if (preg_match('/\.(php|phar)$/i', $composer) === 1) {
+            return [PHP_BINARY, $composer, ...$arguments];
+        }
+
+        if (PHP_OS_FAMILY === 'Windows' && preg_match('/\.(bat|cmd)$/i', $composer) === 1) {
+            return ['cmd.exe', '/d', '/c', $composer, ...$arguments];
+        }
+
+        return [$composer, ...$arguments];
     }
 
     /**

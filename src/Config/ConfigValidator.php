@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
+use Cron\CronExpression;
+
 /**
  * Validates openclaw.json configuration data.
  *
@@ -33,8 +35,10 @@ final class ConfigValidator
         $errors = [...$errors, ...$this->validateShellAllowedCommands($data)];
         $errors = [...$errors, ...$this->validateWorkspace($data)];
         $errors = [...$errors, ...$this->validateMemory($data)];
+        $errors = [...$errors, ...$this->validateQuality($data)];
         $errors = [...$errors, ...$this->validateApi($data)];
         $errors = [...$errors, ...$this->validateEditHistory($data)];
+        $errors = [...$errors, ...$this->validateContext($data)];
 
         return $errors;
     }
@@ -91,9 +95,44 @@ final class ConfigValidator
 
         $errors = [];
         foreach ($roles as $name => $model) {
-            if (!is_string($model)) {
-                continue; // Role might have complex config
+            if (is_array($model)) {
+                $roleModel = $model['model'] ?? null;
+                if ($roleModel !== null) {
+                    if (!is_string($roleModel)) {
+                        $errors[] = sprintf('agents.defaults.roles.%s.model must be a string', $name);
+                    } elseif (!$this->isValidModelString($roleModel)) {
+                        $errors[] = sprintf(
+                            'agents.defaults.roles.%s.model: invalid model format "%s" (expected "provider/model")',
+                            $name,
+                            $roleModel,
+                        );
+                    }
+                }
+
+                $budget = $model['toolkitTokenBudget'] ?? null;
+                if ($budget !== null && (!is_int($budget) || $budget <= 0)) {
+                    $errors[] = sprintf(
+                        'agents.defaults.roles.%s.toolkitTokenBudget must be a positive integer',
+                        $name,
+                    );
+                }
+
+                $promotion = $model['toolkitPromotionBudgetPercent'] ?? null;
+                if ($promotion !== null && (!is_int($promotion) || $promotion < 0 || $promotion > 100)) {
+                    $errors[] = sprintf(
+                        'agents.defaults.roles.%s.toolkitPromotionBudgetPercent must be an integer between 0 and 100',
+                        $name,
+                    );
+                }
+
+                continue;
             }
+
+            if (!is_string($model)) {
+                $errors[] = sprintf('agents.defaults.roles.%s must be a string or an object', $name);
+                continue;
+            }
+
             if (!$this->isValidModelString($model)) {
                 $errors[] = sprintf(
                     'agents.defaults.roles.%s: invalid model format "%s" (expected "provider/model")',
@@ -376,6 +415,70 @@ final class ConfigValidator
      * @param array<string, mixed> $data
      * @return string[]
      */
+    private function validateQuality(array $data): array
+    {
+        $quality = $data['agents']['defaults']['quality'] ?? null;
+        if ($quality === null) {
+            return [];
+        }
+
+        if (!is_array($quality)) {
+            return ['agents.defaults.quality must be an object'];
+        }
+
+        $errors = [];
+
+        foreach (['enabled', 'bootstrapSchedules', 'autoTriggerLearner'] as $key) {
+            if (isset($quality[$key]) && !is_bool($quality[$key])) {
+                $errors[] = sprintf('agents.defaults.quality.%s must be a boolean', $key);
+            }
+        }
+
+        if (isset($quality['poorEvaluationThreshold'])) {
+            $threshold = $quality['poorEvaluationThreshold'];
+            if ((!is_int($threshold) && !is_float($threshold)) || $threshold < 0 || $threshold > 1) {
+                $errors[] = 'agents.defaults.quality.poorEvaluationThreshold must be a number between 0.0 and 1.0';
+            }
+        }
+
+        if (isset($quality['learnerDedupLookbackHours'])) {
+            $hours = $quality['learnerDedupLookbackHours'];
+            if (!is_int($hours) || $hours < 1) {
+                $errors[] = 'agents.defaults.quality.learnerDedupLookbackHours must be a positive integer';
+            }
+        }
+
+        foreach (['evaluationSchedule', 'learningSchedule'] as $key) {
+            if (!isset($quality[$key])) {
+                continue;
+            }
+
+            $expression = $quality[$key];
+            if (!is_string($expression) || ($expression !== '@once' && !CronExpression::isValidExpression($expression))) {
+                $errors[] = sprintf('agents.defaults.quality.%s must be a valid cron expression or @once', $key);
+            }
+        }
+
+        if (isset($quality['timezone'])) {
+            $timezone = $quality['timezone'];
+            if (!is_string($timezone) || $timezone === '') {
+                $errors[] = 'agents.defaults.quality.timezone must be a non-empty string';
+            } else {
+                try {
+                    new \DateTimeZone($timezone);
+                } catch (\Throwable) {
+                    $errors[] = sprintf('agents.defaults.quality.timezone must be a valid timezone, got "%s"', $timezone);
+                }
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
     private function validateApi(array $data): array
     {
         $api = $data['api'] ?? null;
@@ -414,7 +517,6 @@ final class ConfigValidator
     }
 
     /**
-    /**
      * @param array<string, mixed> $data
      * @return string[]
      */
@@ -435,6 +537,82 @@ final class ConfigValidator
         if (isset($editHistory['retentionDays'])) {
             if (!is_int($editHistory['retentionDays']) || $editHistory['retentionDays'] < 1) {
                 $errors[] = 'agents.defaults.editHistory.retentionDays must be a positive integer';
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
+    private function validateContext(array $data): array
+    {
+        $context = $data['agents']['defaults']['context'] ?? null;
+        if ($context === null) {
+            return [];
+        }
+
+        if (!is_array($context)) {
+            return ['agents.defaults.context must be an object'];
+        }
+
+        $errors = [];
+
+        if (isset($context['budgetExitThreshold'])) {
+            $threshold = $context['budgetExitThreshold'];
+            if ((!is_int($threshold) && !is_float($threshold)) || $threshold < 0.0 || $threshold > 1.0) {
+                $errors[] = 'agents.defaults.context.budgetExitThreshold must be a number between 0.0 and 1.0';
+            }
+        }
+
+        if (isset($context['budgetExitWrapUpIterations'])) {
+            $iterations = $context['budgetExitWrapUpIterations'];
+            if (!is_int($iterations) || $iterations < 1) {
+                $errors[] = 'agents.defaults.context.budgetExitWrapUpIterations must be a positive integer';
+            }
+        }
+
+        if (isset($context['autoSummarizeMode'])) {
+            $mode = $context['autoSummarizeMode'];
+            if (!is_string($mode) || !in_array($mode, ['token', 'turn', 'manual'], true)) {
+                $errors[] = 'agents.defaults.context.autoSummarizeMode must be "token", "turn", or "manual"';
+            }
+        }
+
+        if (isset($context['autoSummarizeThreshold'])) {
+            $threshold = $context['autoSummarizeThreshold'];
+            if ((!is_int($threshold) && !is_float($threshold)) || $threshold < 0 || $threshold > 100) {
+                $errors[] = 'agents.defaults.context.autoSummarizeThreshold must be a number between 0 and 100';
+            }
+        }
+
+        if (isset($context['autoSummarizeTurnThreshold'])) {
+            $turns = $context['autoSummarizeTurnThreshold'];
+            if (!is_int($turns) || $turns < 1) {
+                $errors[] = 'agents.defaults.context.autoSummarizeTurnThreshold must be a positive integer';
+            }
+        }
+
+        if (isset($context['autoSummarizeKeepRecent'])) {
+            $keep = $context['autoSummarizeKeepRecent'];
+            if (!is_int($keep) || $keep < 1 || $keep > 20) {
+                $errors[] = 'agents.defaults.context.autoSummarizeKeepRecent must be an integer between 1 and 20';
+            }
+        }
+
+        if (isset($context['keepRecentTurns'])) {
+            $keep = $context['keepRecentTurns'];
+            if (!is_int($keep) || $keep < 1) {
+                $errors[] = 'agents.defaults.context.keepRecentTurns must be a positive integer';
+            }
+        }
+
+        if (isset($context['budgetSafetyMarginPercent'])) {
+            $margin = $context['budgetSafetyMarginPercent'];
+            if (!is_int($margin) || $margin < 0 || $margin > 50) {
+                $errors[] = 'agents.defaults.context.budgetSafetyMarginPercent must be an integer between 0 and 50';
             }
         }
 

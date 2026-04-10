@@ -16,9 +16,8 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    if (file_exists($this->dbPath)) {
-        unlink($this->dbPath);
-    }
+    releaseTestObjectProperties($this);
+    cleanupSqliteTestDb($this->dbPath);
 });
 
 // --- Create ---
@@ -187,6 +186,36 @@ test('delete cascades to subtasks', function () {
 
 test('delete returns false for nonexistent todo', function () {
     expect($this->store->delete('nonexistent'))->toBeFalse();
+});
+
+test('deleteCompletedBySession removes only completed and cancelled todos', function () {
+    $completedId = $this->store->create($this->sessionId, 'Completed');
+    $cancelledId = $this->store->create($this->sessionId, 'Cancelled');
+    $pendingId = $this->store->create($this->sessionId, 'Pending');
+    $this->store->complete($completedId, 'coder');
+    $this->store->update($cancelledId, status: 'cancelled');
+
+    $deleted = $this->store->deleteCompletedBySession($this->sessionId);
+
+    expect($deleted)->toBe(2);
+    expect($this->store->get($completedId))->toBeNull();
+    expect($this->store->get($cancelledId))->toBeNull();
+    expect($this->store->get($pendingId))->not->toBeNull();
+});
+
+test('completeAllBySession completes pending and in progress todos only', function () {
+    $pendingId = $this->store->create($this->sessionId, 'Pending');
+    $inProgressId = $this->store->create($this->sessionId, 'In Progress');
+    $completedId = $this->store->create($this->sessionId, 'Completed');
+    $this->store->update($inProgressId, status: 'in_progress');
+    $this->store->complete($completedId, 'coder');
+
+    $count = $this->store->completeAllBySession($this->sessionId, 'orchestrator');
+
+    expect($count)->toBe(2);
+    expect($this->store->get($pendingId)['status'])->toBe('completed');
+    expect($this->store->get($inProgressId)['status'])->toBe('completed');
+    expect($this->store->get($completedId)['status'])->toBe('completed');
 });
 
 // --- List ---

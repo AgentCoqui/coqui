@@ -19,7 +19,6 @@ final readonly class OrchestratorPrompt
 
     public function __construct(
         private string $workspacePath,
-        private string $projectRoot,
         private string $availableRoles,
         private string $availableSkills = '',
         private string $storageMap = '',
@@ -30,18 +29,26 @@ final readonly class OrchestratorPrompt
             promptsDir: $promptsDir ?? dirname(__DIR__, 2) . '/prompts',
             placeholders: [
                 'workspace_path' => $this->workspacePath,
-                'project_root' => $this->projectRoot,
                 'available_roles' => $this->availableRoles,
                 'available_skills' => $this->availableSkills,
                 'storage_map' => $this->storageMap,
                 'current_datetime' => date('Y-m-d H:i:s (T)'),
                 'time_since_last_message' => $this->timeSinceLastMessage,
             ],
+            workspacePath: $this->workspacePath,
         );
     }
 
     public function render(): string
     {
         return $this->loader->buildSystemPrompt();
+    }
+
+    /**
+     * @return array<int, array{id: string, title: string, content: string, source: string}>
+     */
+    public function renderSections(): array
+    {
+        return $this->loader->buildSystemPromptSections();
     }
 }

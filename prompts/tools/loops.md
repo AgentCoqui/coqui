@@ -10,20 +10,20 @@ Use loops to run multi-role automated iteration cycles that execute without huma
 - `loop_start` — start a new loop from a named definition with a goal
 - `loop_list` — list running, paused, completed, or all loop instances
 - `loop_status` — get detailed status including current iteration and stage results
-- `loop_pause` — pause a running loop after the current stage completes
-- `loop_resume` — resume a paused loop
-- `loop_stop` — cancel a running or paused loop
+- `loop_pause` — pause a running loop after the current stage completes; pass `id: "all"` to pause every running loop
+- `loop_resume` — resume a paused loop; pass `id: "all"` to resume every paused loop
+- `loop_stop` — cancel a running or paused loop; pass `id: "all"` to cancel every active loop
 - `loop_definitions` — list available loop definitions with role sequences and termination conditions
 
 ### How Loops Work
 
-1. A loop definition specifies a sequence of **roles** (e.g., plan → coder → reviewer) and a **termination condition**.
-2. Each **iteration** runs all roles in sequence. Each role executes as a child agent with its own prompt and context.
-3. After each iteration, the **termination condition** is evaluated:
-   - **evaluation_bound** — the last stage's output is checked for approval/rejection signals
-   - **iteration_bound** — stops after a fixed number of iterations
-   - **time_bound** — stops after a deadline
-4. If the condition is not met, a new iteration begins with the results from the previous cycle.
+A loop definition specifies a sequence of roles (e.g., plan → coder → reviewer) and a termination condition. Each iteration runs all roles in sequence. After each iteration, the termination condition is evaluated — if not met, a new iteration begins with results from the previous cycle.
+
+Termination types: `evaluation_bound` (approval signals), `iteration_bound` (fixed count), `time_bound` (deadline), `goal_bound` (LLM evaluator), `tool_bound` (metric threshold).
+
+### Template Parameters
+
+Definitions support `{{placeholder}}` parameters substituted at start time. Use the goal for the loop's main subject matter; parameters should tune behavior or structured outputs. Use `loop_definitions` to see available parameters. Pass via `loop_start(parameters: {"max_review_rounds": "3"})`.
 
 ### Built-in Definitions
 
@@ -31,11 +31,15 @@ Use loops to run multi-role automated iteration cycles that execute without huma
 | --- | --- | --- | --- |
 | `harness` | plan → coder → reviewer | evaluation_bound (5 rounds) | Generator-evaluator pattern for iterative code quality |
 | `research` | explorer → coder → reviewer | evaluation_bound (3 rounds) | Research-driven implementation with review |
+| `goal-driven` | plan → coder | goal_bound (10 iterations) | LLM-evaluated goal completion without a reviewer role |
 
 ### Best Practices
 
-1. **Write clear goals.** The goal is passed to every role in every iteration. Be specific about what "done" looks like.
-2. **Monitor active loops.** Use `loop_status` to check progress, especially for evaluation-bound loops that may run many iterations.
-3. **Pause before modifying.** If you need to adjust something mid-loop, pause first, then resume after changes.
-4. **Use appropriate definitions.** Choose the definition that matches your workflow. Create custom definitions in `workspace/loops/` for specialized workflows.
-5. **Custom definitions.** Create a JSON file in `workspace/loops/` following the schema of built-in definitions. The loop will be auto-discovered.
+1. **Write clear goals.** Be specific about what "done" looks like — the goal is passed to every role in every iteration.
+2. **Monitor active loops.** Use `loop_status` to check progress. Use `loop_pause` before making mid-loop adjustments.
+3. **Use appropriate definitions.** Choose the one that fits your workflow. Create custom definitions in `workspace/loops/` for specialized workflows.
+4. **Use `id: "all"` for batch operations.** `loop_stop(id: "all")` cancels all active loops.
+
+### Artifact Contract Enforcement
+
+Loop stages can declare `requires_artifact_from` to enforce inter-stage artifact dependencies. Built-in definitions use this: coder requires plan output, reviewer requires coder output. Missing artifacts auto-fail the stage.

@@ -11,7 +11,8 @@
 ###############################################################################
 
 .PHONY: help \
-        start stop status repl api api-stop restart \
+	start stop status cleanup repl api api-stop restart \
+	test test-coverage analyse \
         dev \
         test-launcher \
         docker-build docker-start docker-stop docker-status \
@@ -48,6 +49,9 @@ stop: ## Stop all running services
 status: ## Show running service status
 	@./bin/coqui-launcher status
 
+cleanup: ## Clean stale/conflicting native Coqui processes
+	@./bin/coqui-launcher cleanup
+
 repl: ## Start REPL only (no background API)
 	@./bin/coqui-launcher --repl-only $(ARGS)
 
@@ -77,8 +81,18 @@ wizard: ## Run the setup wizard (no REPL, no session)
 dev: ## Start REPL + API in dev mode
 	@./bin/coqui-launcher $(ARGS)
 
+test: ## Run Pest test suite
+	@composer test $(ARGS)
+
+test-coverage: ## Run coverage via the repository Pest wrapper
+	@composer test:coverage $(ARGS)
+
+analyse: ## Run PHPStan static analysis
+	@composer analyse $(ARGS)
+
 test-launcher: ## Run bash unit tests for the launcher script
 	@bash tests/bash/launcher-sigint-test.sh
+	@bash tests/bash/launcher-default-mode-test.sh
 
 # =============================================================================
 # Docker

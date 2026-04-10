@@ -11,8 +11,6 @@
 /.claude              export-ignore
 
 # Dev / alternate Composer configs
-/composer-dev.json    export-ignore
-/composer-prod.json   export-ignore
 
 # Tests, examples, build scripts
 /tests/               export-ignore

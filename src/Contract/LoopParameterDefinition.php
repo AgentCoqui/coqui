@@ -24,6 +24,12 @@ final readonly class LoopParameterDefinition
             );
         }
 
+        if ($name === 'topic') {
+            throw new \InvalidArgumentException(
+                'Parameter name "topic" is reserved. Use the loop goal or another name such as "subject" instead.',
+            );
+        }
+
         if ($description === '') {
             throw new \InvalidArgumentException(
                 sprintf('Parameter "%s" must have a non-empty description', $name),

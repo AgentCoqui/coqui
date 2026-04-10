@@ -3,9 +3,10 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\SkillDiscovery;
+use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
-use CarmeloSantana\PHPAgents\Tool\ToolResult;
 
 function createToolkitWorkspace(): string
 {
@@ -47,6 +48,38 @@ function cleanupToolkitWorkspace(string $workspace): void
     rmdir($workspace);
 }
 
+function createSkillLifecycleFixture(): array
+{
+    $dbPath = sys_get_temp_dir() . '/coqui-skill-lifecycle-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+
+    return [
+        'dbPath' => $dbPath,
+        'storage' => $storage,
+        'store' => new SkillLifecycleStore($storage->getPdo()),
+        'sessionId' => $storage->createSession('orchestrator', 'test-model'),
+        'turnId' => 'turn-test',
+    ];
+}
+
+function cleanupSkillLifecycleFixture(array $fixture): void
+{
+    if (file_exists($fixture['dbPath'])) {
+        unlink($fixture['dbPath']);
+    }
+}
+
+function findToolkitTool(SkillToolkit $toolkit, string $name): object
+{
+    foreach ($toolkit->tools() as $tool) {
+        if ($tool->name() === $name) {
+            return $tool;
+        }
+    }
+
+    throw new RuntimeException("Tool not found: {$name}");
+}
+
 test('skill_list returns all discovered skills', function () {
     $workspace = createToolkitWorkspace();
     addToolkitSkill($workspace, 'skill-a', 'First skill');
@@ -77,26 +110,31 @@ test('skill_list returns all discovered skills', function () {
 test('skill_read returns skill body content', function () {
     $workspace = createToolkitWorkspace();
     addToolkitSkill($workspace, 'readable-skill', 'A readable skill', "# Hello World\n\nThis is the content.");
+    $fixture = createSkillLifecycleFixture();
 
     $discovery = new SkillDiscovery($workspace);
-    $toolkit = new SkillToolkit($discovery);
+    $toolkit = new SkillToolkit(
+        $discovery,
+        $fixture['store'],
+        $fixture['sessionId'],
+        $fixture['turnId'],
+        'orchestrator',
+    );
 
-    $tools = $toolkit->tools();
-    $readTool = null;
-    foreach ($tools as $tool) {
-        if ($tool->name() === 'skill_read') {
-            $readTool = $tool;
-            break;
-        }
+    try {
+        $result = findToolkitTool($toolkit, 'skill_read')->execute(['name' => 'readable-skill']);
+        expect($result->content)->toContain('# Hello World');
+        expect($result->content)->toContain('This is the content.');
+
+        $events = $fixture['store']->listSkillUsage(sessionId: $fixture['sessionId']);
+        expect($events)->toHaveCount(1);
+        expect($events[0]['skill_name'])->toBe('readable-skill');
+        expect($events[0]['action'])->toBe('read');
+        expect($events[0]['turn_id'])->toBe($fixture['turnId']);
+    } finally {
+        cleanupToolkitWorkspace($workspace);
+        cleanupSkillLifecycleFixture($fixture);
     }
-
-    expect($readTool)->not->toBeNull();
-
-    $result = $readTool->execute(['name' => 'readable-skill']);
-    expect($result->content)->toContain('# Hello World');
-    expect($result->content)->toContain('This is the content.');
-
-    cleanupToolkitWorkspace($workspace);
 });
 
 test('skill_read returns error for unknown skill', function () {
@@ -123,47 +161,70 @@ test('skill_read returns error for unknown skill', function () {
 
 test('skill_create scaffolds valid skill directory', function () {
     $workspace = createToolkitWorkspace();
+    $fixture = createSkillLifecycleFixture();
 
     $discovery = new SkillDiscovery($workspace);
-    $toolkit = new SkillToolkit($discovery);
+    $toolkit = new SkillToolkit($discovery, $fixture['store'], $fixture['sessionId']);
 
-    $tools = $toolkit->tools();
-    $createTool = null;
-    foreach ($tools as $tool) {
-        if ($tool->name() === 'skill_create') {
-            $createTool = $tool;
-            break;
-        }
+    try {
+        $result = findToolkitTool($toolkit, 'skill_create')->execute([
+            'name' => 'new-skill',
+            'description' => 'A brand new skill for testing.',
+            'instructions' => "# New Skill\n\nFollow these steps.",
+            'license' => 'MIT',
+        ]);
+
+        expect($result->content)->toContain('created successfully');
+
+        $skillDir = $workspace . '/skills/new-skill';
+        expect(is_dir($skillDir))->toBeTrue();
+        expect(file_exists($skillDir . '/SKILL.md'))->toBeTrue();
+
+        $content = file_get_contents($skillDir . '/SKILL.md');
+        expect($content)->toContain('name: new-skill');
+        expect($content)->toContain('description: A brand new skill for testing.');
+        expect($content)->toContain('license: MIT');
+        expect($content)->toContain('# New Skill');
+
+        $skills = $discovery->discoverAll();
+        expect(count($skills))->toBe(1);
+        expect($skills[0]->name)->toBe('new-skill');
+
+        $events = $fixture['store']->listSkillUsage(skillName: 'new-skill', sessionId: $fixture['sessionId']);
+        expect($events)->toHaveCount(1);
+        expect($events[0]['action'])->toBe('create');
+    } finally {
+        cleanupToolkitWorkspace($workspace);
+        cleanupSkillLifecycleFixture($fixture);
     }
+});
 
-    expect($createTool)->not->toBeNull();
+test('skill_update modifies instructions and records usage event', function () {
+    $workspace = createToolkitWorkspace();
+    addToolkitSkill($workspace, 'update-skill', 'Original description', "# Original\n\nBase body.");
+    $fixture = createSkillLifecycleFixture();
 
-    $result = $createTool->execute([
-        'name' => 'new-skill',
-        'description' => 'A brand new skill for testing.',
-        'instructions' => "# New Skill\n\nFollow these steps.",
-        'license' => 'MIT',
-    ]);
+    $discovery = new SkillDiscovery($workspace);
+    $toolkit = new SkillToolkit($discovery, $fixture['store'], $fixture['sessionId'], $fixture['turnId']);
 
-    expect($result->content)->toContain('created successfully');
+    try {
+        $result = findToolkitTool($toolkit, 'skill_update')->execute([
+            'name' => 'update-skill',
+            'instructions' => 'Appended guidance.',
+            'append' => true,
+        ]);
 
-    // Verify the skill was actually created
-    $skillDir = $workspace . '/skills/new-skill';
-    expect(is_dir($skillDir))->toBeTrue();
-    expect(file_exists($skillDir . '/SKILL.md'))->toBeTrue();
+        expect($result->content)->toContain('updated successfully');
+        expect(file_get_contents($workspace . '/skills/update-skill/SKILL.md'))->toContain('Appended guidance.');
 
-    $content = file_get_contents($skillDir . '/SKILL.md');
-    expect($content)->toContain('name: new-skill');
-    expect($content)->toContain('description: A brand new skill for testing.');
-    expect($content)->toContain('license: MIT');
-    expect($content)->toContain('# New Skill');
-
-    // Verify the skill is now discoverable
-    $skills = $discovery->discoverAll();
-    expect(count($skills))->toBe(1);
-    expect($skills[0]->name)->toBe('new-skill');
-
-    cleanupToolkitWorkspace($workspace);
+        $events = $fixture['store']->listSkillUsage(skillName: 'update-skill', sessionId: $fixture['sessionId']);
+        expect($events)->toHaveCount(1);
+        expect($events[0]['action'])->toBe('update');
+        expect($events[0]['source_tool'])->toBe('skill_update');
+    } finally {
+        cleanupToolkitWorkspace($workspace);
+        cleanupSkillLifecycleFixture($fixture);
+    }
 });
 
 test('skill_create validates name format', function () {

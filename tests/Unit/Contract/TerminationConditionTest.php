@@ -223,3 +223,279 @@ test('fromArray throws on empty type', function () {
 test('fromArray throws on missing type', function () {
     TerminationCondition::fromArray([]);
 })->throws(\InvalidArgumentException::class, 'Unknown termination type');
+
+// ──────────────────────────────────────────────
+//  GoalBound
+// ──────────────────────────────────────────────
+
+test('goal_bound with goal_prompt and max_iterations', function () {
+    $tc = new TerminationCondition(
+        type: TerminationType::GoalBound,
+        goalPrompt: 'Has the feature been fully implemented?',
+        maxIterations: 10,
+    );
+
+    expect($tc->type)->toBe(TerminationType::GoalBound);
+    expect($tc->goalPrompt)->toBe('Has the feature been fully implemented?');
+    expect($tc->maxIterations)->toBe(10);
+});
+
+test('goal_bound allows null goal_prompt', function () {
+    $tc = new TerminationCondition(
+        type: TerminationType::GoalBound,
+        maxIterations: 5,
+    );
+
+    expect($tc->goalPrompt)->toBeNull();
+    expect($tc->maxIterations)->toBe(5);
+});
+
+test('goal_bound throws on missing max_iterations', function () {
+    new TerminationCondition(type: TerminationType::GoalBound);
+})->throws(\InvalidArgumentException::class, 'max_iterations');
+
+test('goal_bound throws on zero max_iterations', function () {
+    new TerminationCondition(type: TerminationType::GoalBound, maxIterations: 0);
+})->throws(\InvalidArgumentException::class, 'max_iterations');
+
+test('goal_bound throws on negative max_iterations', function () {
+    new TerminationCondition(type: TerminationType::GoalBound, maxIterations: -1);
+})->throws(\InvalidArgumentException::class, 'max_iterations');
+
+test('goal_bound fromArray with goal_prompt and max_iterations', function () {
+    $tc = TerminationCondition::fromArray([
+        'type' => 'goal_bound',
+        'value' => [
+            'goal_prompt' => 'Is the test suite green?',
+            'max_iterations' => 8,
+        ],
+    ]);
+
+    expect($tc->type)->toBe(TerminationType::GoalBound);
+    expect($tc->goalPrompt)->toBe('Is the test suite green?');
+    expect($tc->maxIterations)->toBe(8);
+});
+
+test('goal_bound fromArray without goal_prompt', function () {
+    $tc = TerminationCondition::fromArray([
+        'type' => 'goal_bound',
+        'value' => ['max_iterations' => 3],
+    ]);
+
+    expect($tc->goalPrompt)->toBeNull();
+    expect($tc->maxIterations)->toBe(3);
+});
+
+test('goal_bound toArray round-trip', function () {
+    $tc = new TerminationCondition(
+        type: TerminationType::GoalBound,
+        goalPrompt: 'Verify the goal',
+        maxIterations: 6,
+    );
+
+    $arr = $tc->toArray();
+
+    expect($arr['type'])->toBe('goal_bound');
+    expect($arr['value']['goal_prompt'])->toBe('Verify the goal');
+    expect($arr['value']['max_iterations'])->toBe(6);
+
+    $roundTripped = TerminationCondition::fromArray($arr);
+    expect($roundTripped->type)->toBe($tc->type);
+    expect($roundTripped->goalPrompt)->toBe($tc->goalPrompt);
+    expect($roundTripped->maxIterations)->toBe($tc->maxIterations);
+});
+
+test('goal_bound toArray omits null goal_prompt', function () {
+    $tc = new TerminationCondition(
+        type: TerminationType::GoalBound,
+        maxIterations: 5,
+    );
+
+    $arr = $tc->toArray();
+
+    expect($arr['value'])->not->toHaveKey('goal_prompt');
+    expect($arr['value']['max_iterations'])->toBe(5);
+});
+
+// ──────────────────────────────────────────────
+//  ToolBound
+// ──────────────────────────────────────────────
+
+test('tool_bound with all fields', function () {
+    $tc = new TerminationCondition(
+        type: TerminationType::ToolBound,
+        toolName: 'run_tests',
+        toolArguments: ['suite' => 'unit'],
+        operator: '>=',
+        threshold: 95.0,
+        maxIterations: 10,
+    );
+
+    expect($tc->type)->toBe(TerminationType::ToolBound);
+    expect($tc->toolName)->toBe('run_tests');
+    expect($tc->toolArguments)->toBe(['suite' => 'unit']);
+    expect($tc->operator)->toBe('>=');
+    expect($tc->threshold)->toBe(95.0);
+    expect($tc->maxIterations)->toBe(10);
+});
+
+test('tool_bound allows null arguments', function () {
+    $tc = new TerminationCondition(
+        type: TerminationType::ToolBound,
+        toolName: 'check_coverage',
+        operator: '>',
+        threshold: 80.0,
+        maxIterations: 5,
+    );
+
+    expect($tc->toolArguments)->toBeNull();
+});
+
+test('tool_bound throws on missing tool name', function () {
+    new TerminationCondition(
+        type: TerminationType::ToolBound,
+        operator: '>=',
+        threshold: 90.0,
+        maxIterations: 5,
+    );
+})->throws(\InvalidArgumentException::class, 'tool');
+
+test('tool_bound throws on empty tool name', function () {
+    new TerminationCondition(
+        type: TerminationType::ToolBound,
+        toolName: '',
+        operator: '>=',
+        threshold: 90.0,
+        maxIterations: 5,
+    );
+})->throws(\InvalidArgumentException::class, 'tool');
+
+test('tool_bound throws on invalid operator', function () {
+    new TerminationCondition(
+        type: TerminationType::ToolBound,
+        toolName: 'run_tests',
+        operator: '===',
+        threshold: 90.0,
+        maxIterations: 5,
+    );
+})->throws(\InvalidArgumentException::class, 'operator');
+
+test('tool_bound throws on missing threshold', function () {
+    new TerminationCondition(
+        type: TerminationType::ToolBound,
+        toolName: 'run_tests',
+        operator: '>=',
+        maxIterations: 5,
+    );
+})->throws(\InvalidArgumentException::class, 'threshold');
+
+test('tool_bound throws on missing max_iterations', function () {
+    new TerminationCondition(
+        type: TerminationType::ToolBound,
+        toolName: 'run_tests',
+        operator: '>=',
+        threshold: 90.0,
+    );
+})->throws(\InvalidArgumentException::class, 'max_iterations');
+
+test('tool_bound throws on zero max_iterations', function () {
+    new TerminationCondition(
+        type: TerminationType::ToolBound,
+        toolName: 'run_tests',
+        operator: '>=',
+        threshold: 90.0,
+        maxIterations: 0,
+    );
+})->throws(\InvalidArgumentException::class, 'max_iterations');
+
+test('tool_bound validates all six operators', function () {
+    $validOperators = ['>=', '>', '<=', '<', '==', '!='];
+
+    foreach ($validOperators as $op) {
+        $tc = new TerminationCondition(
+            type: TerminationType::ToolBound,
+            toolName: 'run_tests',
+            operator: $op,
+            threshold: 50.0,
+            maxIterations: 3,
+        );
+
+        expect($tc->operator)->toBe($op);
+    }
+});
+
+test('tool_bound fromArray with all fields', function () {
+    $tc = TerminationCondition::fromArray([
+        'type' => 'tool_bound',
+        'value' => [
+            'tool' => 'run_tests',
+            'arguments' => ['suite' => 'unit'],
+            'operator' => '>=',
+            'threshold' => 95,
+            'max_iterations' => 10,
+        ],
+    ]);
+
+    expect($tc->type)->toBe(TerminationType::ToolBound);
+    expect($tc->toolName)->toBe('run_tests');
+    expect($tc->toolArguments)->toBe(['suite' => 'unit']);
+    expect($tc->operator)->toBe('>=');
+    expect($tc->threshold)->toBe(95.0);
+    expect($tc->maxIterations)->toBe(10);
+});
+
+test('tool_bound fromArray without arguments', function () {
+    $tc = TerminationCondition::fromArray([
+        'type' => 'tool_bound',
+        'value' => [
+            'tool' => 'check_coverage',
+            'operator' => '>',
+            'threshold' => 80,
+            'max_iterations' => 5,
+        ],
+    ]);
+
+    expect($tc->toolArguments)->toBeNull();
+});
+
+test('tool_bound toArray round-trip', function () {
+    $tc = new TerminationCondition(
+        type: TerminationType::ToolBound,
+        toolName: 'run_tests',
+        toolArguments: ['suite' => 'unit'],
+        operator: '>=',
+        threshold: 95.0,
+        maxIterations: 10,
+    );
+
+    $arr = $tc->toArray();
+
+    expect($arr['type'])->toBe('tool_bound');
+    expect($arr['value']['tool'])->toBe('run_tests');
+    expect($arr['value']['arguments'])->toBe(['suite' => 'unit']);
+    expect($arr['value']['operator'])->toBe('>=');
+    expect($arr['value']['threshold'])->toBe(95.0);
+    expect($arr['value']['max_iterations'])->toBe(10);
+
+    $roundTripped = TerminationCondition::fromArray($arr);
+    expect($roundTripped->type)->toBe($tc->type);
+    expect($roundTripped->toolName)->toBe($tc->toolName);
+    expect($roundTripped->toolArguments)->toBe($tc->toolArguments);
+    expect($roundTripped->operator)->toBe($tc->operator);
+    expect($roundTripped->threshold)->toBe($tc->threshold);
+    expect($roundTripped->maxIterations)->toBe($tc->maxIterations);
+});
+
+test('tool_bound toArray omits null arguments', function () {
+    $tc = new TerminationCondition(
+        type: TerminationType::ToolBound,
+        toolName: 'check_coverage',
+        operator: '>',
+        threshold: 80.0,
+        maxIterations: 5,
+    );
+
+    $arr = $tc->toArray();
+
+    expect($arr['value'])->not->toHaveKey('arguments');
+});

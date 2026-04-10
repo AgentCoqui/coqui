@@ -40,14 +40,14 @@ afterEach(function () {
 
 // ── Toolkit structure ───────────────────────────────────────────────
 
-test('provides three tools', function () {
-    expect($this->tools)->toHaveCount(3);
+test('provides two tools', function () {
+    expect($this->tools)->toHaveCount(2);
 });
 
 test('tool names are correct', function () {
     $names = array_map(fn($t) => $t->name(), $this->tools);
 
-    expect($names)->toBe(['toolkit_create', 'toolkit_add_tool', 'toolkit_list']);
+    expect($names)->toBe(['toolkit_create', 'toolkit_add_tool']);
 });
 
 test('guidelines contain XML tags', function () {
@@ -395,8 +395,8 @@ test('list returns empty message when no packages exist', function () {
     // Clean packages dir
     rmdir($this->tmpDir . '/packages');
 
-    $tool = findTool($this->tools, 'toolkit_list');
-    $result = $tool->execute([]);
+    $listTool = new \CoquiBot\Coqui\Tool\ToolkitListTool(workspacePath: $this->tmpDir);
+    $result = $listTool->tool()->execute([]);
 
     expect($result->status->value)->toBe('success');
     expect($result->content)->toContain('No toolkit packages');
@@ -407,8 +407,8 @@ test('list shows created packages', function () {
     $createTool->execute(['name' => 'listed-one', 'description' => 'First listed toolkit']);
     $createTool->execute(['name' => 'listed-two', 'description' => 'Second listed toolkit']);
 
-    $listTool = findTool($this->tools, 'toolkit_list');
-    $result = $listTool->execute([]);
+    $listTool = new \CoquiBot\Coqui\Tool\ToolkitListTool(workspacePath: $this->tmpDir);
+    $result = $listTool->tool()->execute([]);
 
     expect($result->status->value)->toBe('success');
     expect($result->content)->toContain('coquibot/coqui-toolkit-listed-one');
@@ -425,8 +425,8 @@ test('list shows credential requirements', function () {
         'credentials' => '{"LISTED_KEY": "A listed credential"}',
     ]);
 
-    $listTool = findTool($this->tools, 'toolkit_list');
-    $result = $listTool->execute([]);
+    $listTool = new \CoquiBot\Coqui\Tool\ToolkitListTool(workspacePath: $this->tmpDir);
+    $result = $listTool->tool()->execute([]);
 
     expect($result->status->value)->toBe('success');
     expect($result->content)->toContain('LISTED_KEY');

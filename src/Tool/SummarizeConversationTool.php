@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
@@ -34,6 +35,7 @@ final class SummarizeConversationTool implements ToolInterface
         private readonly string $sessionId,
         private readonly ?TodoStore $todoStore = null,
         private readonly ?ArtifactStore $artifactStore = null,
+        private readonly ?ProviderFactory $providerFactory = null,
     ) {}
 
     public function name(): string
@@ -51,9 +53,9 @@ final class SummarizeConversationTool implements ToolInterface
             - You want to preserve key context before older messages get pruned
             - The user asks you to summarize the conversation
 
-            The summary replaces older messages with a compact overview while keeping
-            recent turns intact. This preserves important context (decisions, file changes,
-            preferences) while significantly reducing token usage.
+            The summary replaces older messages in the current session with a compact
+            overview while keeping recent turns intact. This preserves important context
+            (decisions, file changes, preferences) while significantly reducing token usage.
 
             After summarization, older messages are condensed into a summary. The most
             recent turns remain in full detail for continuity.
@@ -235,7 +237,7 @@ final class SummarizeConversationTool implements ToolInterface
     private function resolveSummarizationProvider(): ?ProviderInterface
     {
         try {
-            $factory = new ProviderFactory($this->config);
+            $factory = $this->providerFactory ?? new ProviderFactory($this->config);
 
             $utilityModel = $this->roleResolver->resolveUtility();
             if ($utilityModel !== '') {
@@ -243,7 +245,7 @@ final class SummarizeConversationTool implements ToolInterface
             }
 
             // Fall back to orchestrator model
-            $orchestratorModel = $this->roleResolver->resolve('orchestrator');
+            $orchestratorModel = $this->roleResolver->resolve(SystemRole::Orchestrator->value);
             return $factory->create($orchestratorModel);
         } catch (\Throwable) {
             return null;

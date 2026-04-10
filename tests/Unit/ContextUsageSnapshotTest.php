@@ -19,26 +19,54 @@ test('builds snapshot from conversation with all message types', function () {
     $snapshot = ContextUsageBar::buildSnapshot($conversation);
 
     expect($snapshot)->toBeInstanceOf(ContextUsageSnapshot::class);
-    expect($snapshot->breakdown)->toHaveKeys(['system', 'user', 'assistant', 'tool', 'summary']);
+    expect($snapshot->breakdown)->toHaveKeys(['system', 'memory', 'user', 'assistant', 'tool', 'summary']);
     expect($snapshot->breakdown['system'])->toBeGreaterThan(0);
+    expect($snapshot->breakdown['memory'])->toBe(0);
     expect($snapshot->breakdown['user'])->toBeGreaterThan(0);
     expect($snapshot->breakdown['assistant'])->toBeGreaterThan(0);
     expect($snapshot->breakdown['tool'])->toBe(0);
     expect($snapshot->breakdown['summary'])->toBe(0);
 });
 
-test('detects summary messages by marker', function () {
+test('detects summary messages by marker regardless of persisted message role', function () {
     $conversation = new Conversation();
     $conversation->add(new SystemMessage('Base system prompt.'));
-    $conversation->add(new SystemMessage('[CONVERSATION SUMMARY - 2026-03-26] Prior discussion covered testing.'));
+    $conversation->add(new UserMessage('[CONVERSATION SUMMARY - 2026-03-26] Prior discussion covered testing.'));
     $conversation->add(new UserMessage('Continue'));
 
     $snapshot = ContextUsageBar::buildSnapshot($conversation);
 
     expect($snapshot->breakdown['summary'])->toBeGreaterThan(0);
     expect($snapshot->breakdown['system'])->toBeGreaterThan(0);
-    // Summary tokens should come from the summary message, not system
-    expect($snapshot->breakdown['summary'])->toBeGreaterThan($snapshot->breakdown['system']);
+    expect($snapshot->breakdown['user'])->toBeGreaterThan(0);
+});
+
+test('does not classify instructional mentions of the summary marker as a real summary', function () {
+    $conversation = new Conversation();
+    $conversation->add(new SystemMessage('Messages marked [CONVERSATION SUMMARY] provide background context only.'));
+    $conversation->add(new UserMessage('Hi'));
+
+    $snapshot = ContextUsageBar::buildSnapshot($conversation);
+
+    expect($snapshot->breakdown['summary'])->toBe(0);
+    expect($snapshot->breakdown['system'])->toBeGreaterThan(0);
+});
+
+test('adds prompt memory tokens to the live context breakdown', function () {
+    $conversation = new Conversation();
+    $conversation->add(new UserMessage('Hello'));
+
+    $snapshot = ContextUsageBar::buildSnapshot(
+        $conversation,
+        promptSections: [
+            ['group' => 'memory', 'tokens' => 240],
+            ['group' => 'identity', 'tokens' => 600],
+        ],
+    );
+
+    expect($snapshot->breakdown['memory'])->toBe(240);
+    expect($snapshot->breakdown['system'])->toBe(600);
+    expect($snapshot->usedTokens)->toBe(array_sum($snapshot->breakdown));
 });
 
 test('uses context window data when available', function () {
@@ -75,6 +103,7 @@ test('toSegments returns colored segments for non-zero categories', function () 
         usagePercent: 8.1,
         breakdown: [
             'system' => 5000,
+            'memory' => 1500,
             'user' => 2000,
             'assistant' => 3000,
             'tool' => 0,
@@ -84,11 +113,12 @@ test('toSegments returns colored segments for non-zero categories', function () 
 
     $segments = $snapshot->toSegments();
 
-    expect($segments)->toHaveCount(3); // Only non-zero categories
+    expect($segments)->toHaveCount(4); // Only non-zero categories
     expect($segments[0]->label)->toBe('System');
     expect($segments[0]->value)->toBe(5000);
-    expect($segments[1]->label)->toBe('User');
-    expect($segments[2]->label)->toBe('Assistant');
+    expect($segments[1]->label)->toBe('Memory');
+    expect($segments[2]->label)->toBe('User');
+    expect($segments[3]->label)->toBe('Assistant');
 });
 
 test('formatMaxTokens renders human-readable labels', function () {
