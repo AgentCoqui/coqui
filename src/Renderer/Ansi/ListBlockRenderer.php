@@ -15,6 +15,6 @@ final class ListBlockRenderer implements NodeRendererInterface
     {
         ListBlock::assertInstanceOf($node);
 
-        return $childRenderer->renderNodes($node->children()) . "\n";
+        return rtrim($childRenderer->renderNodes($node->children()), "\n") . "\n";
     }
 }

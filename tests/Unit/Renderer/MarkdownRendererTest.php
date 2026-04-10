@@ -48,12 +48,28 @@ test('renders fenced code block with border', function () {
     expect($result)->toContain('$x = 1;');
 });
 
+test('does not render an empty fenced code block', function () {
+    $result = MarkdownRenderer::render("```\n```\n");
+    $plain = preg_replace('/\e\[[\d;]*m/', '', $result) ?? $result;
+
+    expect($plain)->not->toContain('╭─');
+    expect(trim($plain))->toBe('');
+});
+
 test('renders unordered list with bullet', function () {
     $result = MarkdownRenderer::render("- Item one\n- Item two");
 
     expect($result)->toContain('•');
     expect($result)->toContain('Item one');
     expect($result)->toContain('Item two');
+});
+
+test('renders unordered list without blank lines between items', function () {
+    $result = MarkdownRenderer::render("- Item one\n- Item two");
+    $plain = preg_replace('/\e\[[\d;]*m/', '', $result) ?? $result;
+
+    expect($plain)->toContain("  • Item one\n  • Item two\n");
+    expect($plain)->not->toContain("Item one\n\n  • Item two");
 });
 
 test('renders ordered list with numbers', function () {
@@ -63,6 +79,14 @@ test('renders ordered list with numbers', function () {
     expect($result)->toContain('First');
     expect($result)->toContain('2.');
     expect($result)->toContain('Second');
+});
+
+test('renders ordered list without blank lines between items', function () {
+    $result = MarkdownRenderer::render("1. First\n2. Second");
+    $plain = preg_replace('/\e\[[\d;]*m/', '', $result) ?? $result;
+
+    expect($plain)->toContain("  1. First\n  2. Second\n");
+    expect($plain)->not->toContain("First\n\n  2. Second");
 });
 
 test('renders blockquote with bar', function () {
@@ -150,6 +174,49 @@ test('streaming buffer holds code fence until close', function () {
 
     expect($output)->toContain('$x = 1;');
     expect($output)->toContain('╭─');
+});
+
+test('streaming buffer renders fenced transcript chunks without phantom empty code blocks', function () {
+    $output = '';
+    $buffer = new StreamingMarkdownBuffer(function (string $rendered) use (&$output): void {
+        $output .= $rendered;
+    });
+
+    $markdown = <<<'MD'
+The loop just finished.
+
+```
+## Plan
+TL;DR
+
+1. Create `foo/`
+   * src/Loop.php
+   * composer.json
+
+2. Verify
+   * composer install
+   * phpstan
+```
+
+The coder task was cancelled.
+
+### Next steps
+* restart
+* manual
+MD;
+
+    foreach (str_split($markdown, 17) as $chunk) {
+        $buffer->feed($chunk);
+    }
+    $buffer->flush();
+
+    $plain = preg_replace('/\e\[[\d;]*m/', '', $output) ?? $output;
+
+    expect(substr_count($plain, '  ╭─'))->toBe(1);
+    expect($plain)->toContain("  │ ## Plan\n");
+    expect($plain)->not->toContain("  ╭─\n  │ \n  ╰─");
+    expect($plain)->toContain("  • restart\n  • manual\n");
+    expect($plain)->not->toContain("restart\n\n  • manual");
 });
 
 test('streaming buffer flush emits remaining content', function () {
