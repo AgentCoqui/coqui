@@ -4,15 +4,21 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "d2fab66ecc626a7f30977966d316850e",
+    "content-hash": "2054e32e90e1c4da0f9093333715b8af",
     "packages": [
         {
             "name": "carmelosantana/php-agents",
-            "version": "dev-chore_refactor-finish-enums",
+            "version": "v0.12.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/php-agents.git",
+                "reference": "54ecd5f7bf150ef8fe1c24454a0a54be4f742886"
+            },
             "dist": {
-                "type": "path",
-                "url": "../php-agents",
-                "reference": "b407944dadad261ac3e9b81c32889bc427e948f5"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/54ecd5f7bf150ef8fe1c24454a0a54be4f742886",
+                "reference": "54ecd5f7bf150ef8fe1c24454a0a54be4f742886",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4",
@@ -36,19 +42,7 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=512M"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -65,10 +59,11 @@
                 "php-agents",
                 "tools"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/php-agents/issues",
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.12.1"
+            },
+            "time": "2026-04-10T18:27:39+00:00"
         },
         {
             "name": "dflydev/dot-access-data",
@@ -3362,26 +3357,26 @@
         },
         {
             "name": "pestphp/pest-plugin-arch",
-            "version": "v4.0.0",
+            "version": "v4.0.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/pestphp/pest-plugin-arch.git",
-                "reference": "25bb17e37920ccc35cbbcda3b00d596aadf3e58d"
+                "reference": "3fb0d02a91b9da504b139dc7ab2a31efb7c3215c"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/pestphp/pest-plugin-arch/zipball/25bb17e37920ccc35cbbcda3b00d596aadf3e58d",
-                "reference": "25bb17e37920ccc35cbbcda3b00d596aadf3e58d",
+                "url": "https://api.github.com/repos/pestphp/pest-plugin-arch/zipball/3fb0d02a91b9da504b139dc7ab2a31efb7c3215c",
+                "reference": "3fb0d02a91b9da504b139dc7ab2a31efb7c3215c",
                 "shasum": ""
             },
             "require": {
                 "pestphp/pest-plugin": "^4.0.0",
                 "php": "^8.3",
-                "ta-tikoma/phpunit-architecture-test": "^0.8.5"
+                "ta-tikoma/phpunit-architecture-test": "^0.8.7"
             },
             "require-dev": {
-                "pestphp/pest": "^4.0.0",
-                "pestphp/pest-dev-tools": "^4.0.0"
+                "pestphp/pest": "^4.4.6",
+                "pestphp/pest-dev-tools": "^4.1.0"
             },
             "type": "library",
             "extra": {
@@ -3416,7 +3411,7 @@
                 "unit"
             ],
             "support": {
-                "source": "https://github.com/pestphp/pest-plugin-arch/tree/v4.0.0"
+                "source": "https://github.com/pestphp/pest-plugin-arch/tree/v4.0.2"
             },
             "funding": [
                 {
@@ -3428,7 +3423,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2025-08-20T13:10:51+00:00"
+            "time": "2026-04-10T17:20:19+00:00"
         },
         {
             "name": "pestphp/pest-plugin-mutate",
@@ -5699,9 +5694,7 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {
-        "carmelosantana/php-agents": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
