@@ -39,7 +39,7 @@ readonly RESTART_EXIT_CODE=10
 readonly MAX_CRASHES=3
 readonly API_DEFAULT_PORT=3300
 readonly PID_DIR="${PROJECT_DIR}/.workspace/pids"
-readonly DEFAULT_WORKSPACE='~/.coqui/.workspace'
+readonly DEFAULT_WORKSPACE="${HOME}/.coqui/.workspace"
 readonly API_READY_POLL_COUNT=8
 readonly API_READY_POLL_INTERVAL='0.25'
 
@@ -199,6 +199,7 @@ resolve_requested_workspace() {
     fi
 
     if [[ -z "$override" && -f "$config_candidate" ]]; then
+        # shellcheck disable=SC2016
         configured_workspace=$(php -r '
             $path = $argv[1] ?? "";
             $json = @file_get_contents($path);
@@ -680,7 +681,7 @@ show_status() {
     pid=$(read_pid "$name")
     if [[ -z "$pid" ]]; then
         log "${name}: stopped"
-    elif is_running "$pid" && [[ -n "$port" ]] && ! port_accepting_connections "$api_host" "$port" ]]; then
+    elif is_running "$pid" && [[ -n "$port" ]] && ! port_accepting_connections "$api_host" "$port"; then
         log "${name}: starting (PID ${pid})"
     elif is_running "$pid"; then
         log "${name}: running (PID ${pid})"
