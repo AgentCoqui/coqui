@@ -121,6 +121,20 @@ final class OrchestratorAgent extends AbstractAgent
     /** @var array<int, array{name: string, description: string, package: string}> Deferred toolkit info for prompt injection */
     private array $deferredToolkitInfo = [];
 
+    /**
+     * Maps toolkit class basenames to their corresponding tool prompt file slugs.
+     * When a toolkit is deferred, its prompt slug is excluded from system prompt injection.
+     */
+    private const array TOOLKIT_PROMPT_SLUG_MAP = [
+        'LoopToolkit' => 'loops',
+        'ScheduleToolkit' => 'schedules',
+        'WebhookToolkit' => 'webhooks',
+        'BackgroundTaskToolkit' => 'background-tasks',
+    ];
+
+    /** @var list<string> Tool prompt slugs excluded because their toolkit was deferred */
+    private array $excludedToolPromptSlugs = [];
+
     /** @var array<string, ToolkitLoadingMode> Applied loading modes for REPL display (toolkit basename => mode) */
     private array $appliedLoadingModes = [];
 
@@ -422,6 +436,35 @@ final class OrchestratorAgent extends AbstractAgent
             $this->addToolkit(new PackagistToolkit());
         }
 
+        // Schedule toolkit — cron-style task scheduling (top-level agents only)
+        if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {
+            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\ScheduleToolkit::class)) {
+                $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
+                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore));
+            }
+        }
+
+        // Loop toolkit — automated multi-role loop workflows (top-level agents only)
+        if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {
+            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\LoopToolkit::class)) {
+                $loopStore = new \CoquiBot\Coqui\Storage\LoopStore($this->storage->getPdo());
+                $loopDiscovery = new \CoquiBot\Coqui\Config\LoopDiscovery(
+                    $this->workspacePath,
+                    $this->projectRoot !== '' ? $this->projectRoot : null,
+                );
+                $loopExecutor = ($this->projectStore !== null && isset($artifactStore) && $this->roleDiscovery !== null)
+                    ? new \CoquiBot\Coqui\Agent\LoopExecutor(
+                        loopStore: $loopStore,
+                        projectStore: $this->projectStore,
+                        sessionStorage: $this->storage,
+                        todoStore: isset($todoStore) ? $todoStore : null,
+                        artifactStore: $artifactStore,
+                    )
+                    : null;
+                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId));
+            }
+        }
+
         // --- Candidate toolkits: collected first, then budget-gated ---
         // Non-system toolkits may be deferred (wrapped as StubToolkit) when the
         // total tool schema token count exceeds the configured budget. Frequency
@@ -489,48 +532,16 @@ final class OrchestratorAgent extends AbstractAgent
             ];
         }
 
-        // Schedule, webhook, and loop toolkits — only for top-level agents, never in loop stages.
+        // Webhook toolkit — only for top-level agents, never in loop stages.
         // Loop stages must not spawn background tasks, create schedules, manage webhooks, or
         // start nested loops — this prevents infinite recursion and uncontrolled spawning.
         if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {
-            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\ScheduleToolkit::class)) {
-                $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
-                $candidateToolkits[] = [
-                    'toolkit' => new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore),
-                    'package' => '',
-                    'description' => 'cron-style task scheduling',
-                ];
-            }
-
             if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\WebhookToolkit::class)) {
                 $webhookStore = new \CoquiBot\Coqui\Storage\WebhookStore($this->storage->getPdo());
                 $candidateToolkits[] = [
                     'toolkit' => new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore),
                     'package' => '',
                     'description' => 'webhook subscription management',
-                ];
-            }
-
-            // Loop toolkit — manages automated multi-role loop workflows
-            if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\LoopToolkit::class)) {
-                $loopStore = new \CoquiBot\Coqui\Storage\LoopStore($this->storage->getPdo());
-                $loopDiscovery = new \CoquiBot\Coqui\Config\LoopDiscovery(
-                    $this->workspacePath,
-                    $this->projectRoot !== '' ? $this->projectRoot : null,
-                );
-                $loopExecutor = ($this->projectStore !== null && isset($artifactStore) && $this->roleDiscovery !== null)
-                    ? new \CoquiBot\Coqui\Agent\LoopExecutor(
-                        loopStore: $loopStore,
-                        projectStore: $this->projectStore,
-                        sessionStorage: $this->storage,
-                        todoStore: isset($todoStore) ? $todoStore : null,
-                        artifactStore: $artifactStore,
-                    )
-                    : null;
-                $candidateToolkits[] = [
-                    'toolkit' => new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId),
-                    'package' => '',
-                    'description' => 'automated multi-role loop workflows',
                 ];
             }
         }
@@ -576,6 +587,14 @@ final class OrchestratorAgent extends AbstractAgent
 
         // --- Budget gate: decide which candidates load eagerly vs deferred ---
         $this->applyToolkitBudgetGate($candidateToolkits);
+
+        // Compute excluded tool prompt slugs based on deferred toolkits
+        $deferredNames = array_column($this->deferredToolkitInfo, 'name');
+        foreach (self::TOOLKIT_PROMPT_SLUG_MAP as $basename => $slug) {
+            if (in_array($basename, $deferredNames, true)) {
+                $this->excludedToolPromptSlugs[] = $slug;
+            }
+        }
 
         // Create spawn tool with workspace isolation
         $this->spawnTool = new SpawnAgentTool(
@@ -857,6 +876,7 @@ final class OrchestratorAgent extends AbstractAgent
             availableSkills: $skillsSummary,
             storageMap: $storageMap,
             timeSinceLastMessage: $timeSinceLastMessage,
+            excludeToolPromptSlugs: $this->excludedToolPromptSlugs,
         );
 
         return $prompt->render();
@@ -1303,6 +1323,7 @@ final class OrchestratorAgent extends AbstractAgent
             availableSkills: $skillsSummary,
             storageMap: $storageMap,
             timeSinceLastMessage: $timeSinceLastMessage,
+            excludeToolPromptSlugs: $this->excludedToolPromptSlugs,
         );
 
         $sections = [];

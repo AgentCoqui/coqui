@@ -1921,9 +1921,9 @@
             "path": "src/Toolkit/ArtifactToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\ArtifactToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing artifact management toolkit providing 6 tools: artifact_create (new versioned artifact with project_id/sprint_id linking and auto-scoping from defaultProjectId/defaultSprintId), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage/project_id/sprint_id/created_after filters), artifact_stage (draft→review→final transition with auto todo generation for plans), artifact_delete. Accepts optional TodoStore to show todo progress next to plan artifacts in guidelines. Constructor accepts defaultProjectId/defaultSprintId for auto-scoping artifact_create in loop stage contexts — when the LLM omits project_id/sprint_id, defaults are used as fallback.",
+            "description": "Agent-facing artifact management toolkit providing 6 tools: artifact_create (new versioned artifact with project_id/sprint_id linking and auto-scoping from defaultProjectId/defaultSprintId), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage/project_id/sprint_id/created_after filters), artifact_stage (single or bulk stage transitions with auto todo generation for plans), artifact_delete (single or bulk deletion with filters). Accepts optional TodoStore to show todo progress next to plan artifacts in guidelines. Constructor accepts defaultProjectId/defaultSprintId for auto-scoping artifact_create in loop stage contexts.",
             "methods": [
-                "tools(): array — returns 5 Tool instances for artifact CRUD + staging",
+                "tools(): array — returns 5-6 Tool instances for artifact CRUD + staging + optional delete",
                 "guidelines(): string — dynamic guidelines showing existing artifact listing with todo progress for plans"
             ]
         },
@@ -1931,7 +1931,7 @@
             "path": "src/Toolkit/TodoToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\TodoToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing session-scoped todo management toolkit providing 8 tools: todo_add, todo_update, todo_complete, todo_list, todo_get, todo_delete, todo_bulk_add, todo_bulk_update. Role-aware permissions. Accepts optional ArtifactStore to resolve artifact titles for linked todos. Guidelines dynamically show progress bar, active/pending listing with artifact cross-references, and post-summarization recovery hints.",
+            "description": "Agent-facing session-scoped todo management toolkit providing 6 tools: todo_add (single or bulk via items param), todo_update (single or bulk via updates param), todo_complete (single id, multiple ids, or all), todo_list, todo_get, todo_delete (single id, multiple ids, or scoped clear). Role-aware permissions. Accepts optional ArtifactStore to resolve artifact titles for linked todos. Guidelines dynamically show progress bar, active/pending listing with artifact cross-references, and post-summarization recovery hints.",
             "methods": [
                 "tools(): array — returns filtered Tool instances based on access level",
                 "guidelines(): string — dynamic progress summary with bar visualization, artifact cross-refs, and recovery hints"
@@ -2510,9 +2510,9 @@
             "path": "src/Toolkit/LoopToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\LoopToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing tools for starting and managing loop workflows. 7 tools: loop_start, loop_list, loop_status, loop_pause, loop_resume, loop_stop, loop_definitions. Guidelines inject active loop count, running loop details, and available definition names.",
+            "description": "Agent-facing tools for starting and managing loop workflows. 5 tools: loop_start, loop_list, loop_status, loop_control (pause/resume/stop via action param), loop_definitions. Guidelines inject active loop count, running loop details, and available definition names.",
             "methods": [
-                "tools(): array — return all 7 loop tools",
+                "tools(): array — return all 5 loop tools",
                 "guidelines(): string — dynamic active loop status and definition list"
             ]
         },
