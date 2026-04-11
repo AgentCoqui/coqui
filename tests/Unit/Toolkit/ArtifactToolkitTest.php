@@ -22,7 +22,7 @@ afterEach(function () {
 });
 
 test('provides exactly 6 tools', function () {
-    expect($this->toolkit->tools())->toHaveCount(8);
+    expect($this->toolkit->tools())->toHaveCount(6);
 });
 
 test('tool names are correct', function () {
@@ -37,9 +37,7 @@ test('tool names are correct', function () {
         'artifact_get',
         'artifact_list',
         'artifact_stage',
-        'artifact_bulk_stage',
         'artifact_delete',
-        'artifact_bulk_delete',
     ]);
 });
 
@@ -193,8 +191,7 @@ test('default toolkit provides 6 tools including delete', function () {
     );
 
     expect($names)->toContain('artifact_delete');
-    expect($names)->toContain('artifact_bulk_delete');
-    expect($names)->toHaveCount(8);
+    expect($names)->toHaveCount(6);
 });
 
 test('readonly toolkit provides 5 tools without delete', function () {
@@ -206,8 +203,7 @@ test('readonly toolkit provides 5 tools without delete', function () {
     );
 
     expect($names)->not->toContain('artifact_delete');
-    expect($names)->not->toContain('artifact_bulk_delete');
-    expect($names)->toHaveCount(6);
+    expect($names)->toHaveCount(5);
 });
 
 test('readonly toolkit still allows create, update, get, list, stage', function () {
@@ -224,7 +220,6 @@ test('readonly toolkit still allows create, update, get, list, stage', function 
         'artifact_get',
         'artifact_list',
         'artifact_stage',
-        'artifact_bulk_stage',
     ]);
 });
 
@@ -255,7 +250,7 @@ test('artifact_bulk_stage updates artifacts by explicit ids', function () {
     $id1 = $this->store->create($this->sessionId, 'One', 'content');
     $id2 = $this->store->create($this->sessionId, 'Two', 'content');
 
-    $tool = toolFromToolkit($this->toolkit, 'artifact_bulk_stage');
+    $tool = toolFromToolkit($this->toolkit, 'artifact_stage');
 
     $result = $tool->execute([
         'ids' => json_encode([$id1, $id2]),
@@ -274,7 +269,7 @@ test('artifact_bulk_delete deletes artifacts selected by filter', function () {
     $this->store->create($this->sessionId, 'Draft Two', 'content', type: 'code');
     $keepId = $this->store->create($this->sessionId, 'Document', 'content', type: 'document');
 
-    $tool = toolFromToolkit($this->toolkit, 'artifact_bulk_delete');
+    $tool = toolFromToolkit($this->toolkit, 'artifact_delete');
 
     $result = $tool->execute([
         'type' => 'code',

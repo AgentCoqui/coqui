@@ -4,14 +4,12 @@ Todos are session-scoped task items for tracking multi-step work. Link every tod
 
 ### Tools
 
-- `todo_add` / `todo_bulk_add` — create todos linked to an artifact (max 25 per bulk call)
-- `todo_update` / `todo_bulk_update` — update title, priority, notes, or status (max 25 per bulk)
-- `todo_complete` / `todo_bulk_complete` — mark todos completed (max 25 per bulk)
+- `todo_add` — create one or many todos linked to an artifact (pass `items` JSON array for bulk, max 25)
+- `todo_update` — update title, priority, notes, or status for one or many (pass `updates` JSON array for bulk, max 25)
+- `todo_complete` — mark todos completed: single `id`, multiple `ids`, or `all: true`
 - `todo_list` — list todos with filters (artifact, status, priority)
 - `todo_get` — get full details including subtasks
-- `todo_delete` / `todo_bulk_delete` — remove todos (max 25 per bulk)
-- `todo_complete_all` — mark all pending/in-progress todos completed
-- `todo_clear` — delete completed/cancelled todos, or `scope: "all"` to wipe the session
+- `todo_delete` — remove todos: single `id`, multiple `ids`, or `scope: "all"` / `scope: "completed"`
 
 ### When to Create Todos
 

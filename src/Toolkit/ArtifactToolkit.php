@@ -28,7 +28,8 @@ use CoquiBot\Coqui\Storage\TodoStore;
  * - artifact_update: Update content (auto-versions)
  * - artifact_get: Retrieve an artifact by ID
  * - artifact_list: List session artifacts with optional filters
- * - artifact_stage: Transition artifact stage (draft → review → final)
+ * - artifact_stage: Transition one or many artifacts to a new stage
+ * - artifact_delete: Delete one or many artifacts (irreversible)
  */
 final class ArtifactToolkit implements ToolkitInterface
 {
@@ -50,12 +51,10 @@ final class ArtifactToolkit implements ToolkitInterface
             $this->getTool(),
             $this->listTool(),
             $this->stageTool(),
-            $this->bulkStageTool(),
         ];
 
         if (!$this->readOnly) {
             $tools[] = $this->deleteTool();
-            $tools[] = $this->bulkDeleteTool();
         }
 
         return $tools;
@@ -298,104 +297,62 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_stage',
-            description: 'Transition an artifact to a new stage: draft → review → final. Use this to indicate readiness.',
+            description: 'Transition one or many artifacts to a new stage: draft → review → final. Provide id for single mode, or ids/all/filters for bulk mode.',
             parameters: [
-                new StringParameter('id', 'Artifact ID', required: true),
-                new EnumParameter('stage', 'New stage', ['draft', 'review', 'final'], required: true),
+                new StringParameter('id', 'Artifact ID for single-artifact mode', required: false),
+                new StringParameter('ids', 'JSON array of artifact IDs for bulk mode: ["id1", "id2", ...]. Max 200.', required: false),
+                new EnumParameter('stage', 'Target stage', ['draft', 'review', 'final'], required: true),
+                new EnumParameter('current_stage', 'Filter by current stage (bulk mode)', ['draft', 'review', 'final'], required: false),
+                new EnumParameter('type', 'Filter by artifact type (bulk mode)', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'other'], required: false),
+                new StringParameter('project_id', 'Filter by project ID (bulk mode)', required: false),
+                new StringParameter('sprint_id', 'Filter by sprint ID (bulk mode)', required: false),
+                new StringParameter('created_after', 'ISO 8601 creation-time filter (bulk mode)', required: false),
+                new BoolParameter('all', 'If true, target all artifacts in the current session.', required: false),
             ],
             callback: function (array $args): ToolResult {
                 $id = trim($args['id'] ?? '');
                 $stage = trim($args['stage'] ?? '');
 
-                if ($id === '' || $stage === '') {
-                    return ToolResult::error('Both id and stage are required.');
+                if ($stage === '') {
+                    return ToolResult::error('stage is required.');
                 }
 
-                $artifact = $this->store->get($id, sessionId: $this->sessionId);
-                if ($artifact === null) {
-                    return ToolResult::error("Artifact not found: {$id}");
-                }
-
-                $updated = $this->store->updateStage($id, $stage, sessionId: $this->sessionId);
-                if (!$updated) {
-                    return ToolResult::error("Failed to update stage for artifact {$id}");
-                }
-
-                $response = [
-                    'id' => $id,
-                    'title' => $artifact['title'],
-                    'previous_stage' => $artifact['stage'],
-                    'new_stage' => $stage,
-                ];
-
-                // Auto-generate todos from finalized plan artifacts
-                if ($stage === 'final' && $artifact['type'] === 'plan' && $this->planTodoGenerator !== null) {
-                    $todoIds = $this->planTodoGenerator->generate(
-                        artifactId: $id,
-                        sessionId: $this->sessionId,
-                        planContent: $artifact['content'] ?? '',
-                    );
-                    $response['todos_generated'] = count($todoIds);
-                    if ($todoIds === []) {
-                        $response['todos_note'] = 'Auto-generation failed or extracted no steps. Use todo_add or todo_bulk_add to create todos manually.';
+                // Single-artifact mode
+                if ($id !== '') {
+                    $artifact = $this->store->get($id, sessionId: $this->sessionId);
+                    if ($artifact === null) {
+                        return ToolResult::error("Artifact not found: {$id}");
                     }
+
+                    $updated = $this->store->updateStage($id, $stage, sessionId: $this->sessionId);
+                    if (!$updated) {
+                        return ToolResult::error("Failed to update stage for artifact {$id}");
+                    }
+
+                    $response = [
+                        'id' => $id,
+                        'title' => $artifact['title'],
+                        'previous_stage' => $artifact['stage'],
+                        'new_stage' => $stage,
+                    ];
+
+                    // Auto-generate todos from finalized plan artifacts
+                    if ($stage === 'final' && $artifact['type'] === 'plan' && $this->planTodoGenerator !== null) {
+                        $todoIds = $this->planTodoGenerator->generate(
+                            artifactId: $id,
+                            sessionId: $this->sessionId,
+                            planContent: $artifact['content'] ?? '',
+                        );
+                        $response['todos_generated'] = count($todoIds);
+                        if ($todoIds === []) {
+                            $response['todos_note'] = 'Auto-generation failed or extracted no steps. Use todo_add to create todos manually.';
+                        }
+                    }
+
+                    return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
                 }
 
-                return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
-            },
-        );
-    }
-
-    private function deleteTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'artifact_delete',
-            description: 'Delete an artifact and all its version history. This action is irreversible.',
-            parameters: [
-                new StringParameter('id', 'Artifact ID to delete', required: true),
-            ],
-            callback: function (array $args): ToolResult {
-                $id = trim($args['id'] ?? '');
-
-                if ($id === '') {
-                    return ToolResult::error('Artifact ID is required.');
-                }
-
-                $artifact = $this->store->get($id, sessionId: $this->sessionId);
-                if ($artifact === null) {
-                    return ToolResult::error("Artifact not found: {$id}");
-                }
-
-                $deleted = $this->store->delete($id, sessionId: $this->sessionId);
-                if (!$deleted) {
-                    return ToolResult::error("Failed to delete artifact {$id}");
-                }
-
-                return ToolResult::success(json_encode([
-                    'id' => $id,
-                    'title' => $artifact['title'],
-                    'deleted' => true,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
-            },
-        );
-    }
-
-    private function bulkStageTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'artifact_bulk_stage',
-            description: 'Transition multiple artifacts to a new stage by ID list or by session filters. Use all=true to transition every artifact in the current session.',
-            parameters: [
-                new StringParameter('ids', 'Optional JSON array of artifact IDs: ["id1", "id2", ...]. Max 200.', required: false),
-                new EnumParameter('stage', 'Target stage', ['draft', 'review', 'final'], required: true),
-                new EnumParameter('type', 'Optional filter by artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'other'], required: false),
-                new EnumParameter('current_stage', 'Optional filter by current stage', ['draft', 'review', 'final'], required: false),
-                new StringParameter('project_id', 'Optional filter by project ID', required: false),
-                new StringParameter('sprint_id', 'Optional filter by sprint ID', required: false),
-                new StringParameter('created_after', 'Optional ISO 8601 creation-time filter', required: false),
-                new BoolParameter('all', 'If true, target all artifacts in the current session.', required: false),
-            ],
-            callback: function (array $args): ToolResult {
+                // Bulk mode
                 [$matchedIds, $failedIds, $error] = $this->resolveArtifactTargets($args, stageFilterKey: 'current_stage');
 
                 if ($error !== null) {
@@ -405,37 +362,60 @@ final class ArtifactToolkit implements ToolkitInterface
                 if ($matchedIds === []) {
                     return ToolResult::success(json_encode([
                         'updated' => 0,
-                        'target_stage' => $args['stage'],
+                        'target_stage' => $stage,
                         'failed_ids' => $failedIds,
                     ], JSON_UNESCAPED_SLASHES) ?: '{}');
                 }
 
-                $updated = $this->store->bulkUpdateStage($matchedIds, (string) $args['stage'], $this->sessionId);
+                $updated = $this->store->bulkUpdateStage($matchedIds, $stage, $this->sessionId);
 
                 return ToolResult::success(json_encode([
                     'updated' => $updated,
-                    'target_stage' => $args['stage'],
+                    'target_stage' => $stage,
                     'failed_ids' => $failedIds,
                 ], JSON_UNESCAPED_SLASHES) ?: '{}');
             },
         );
     }
 
-    private function bulkDeleteTool(): ToolInterface
+    private function deleteTool(): ToolInterface
     {
         return new Tool(
-            name: 'artifact_bulk_delete',
-            description: 'Delete multiple artifacts by ID list or by session filters. Use all=true to wipe all artifacts in the current session.',
+            name: 'artifact_delete',
+            description: 'Delete one or many artifacts and their version history. Provide id for single mode, or ids/all/filters for bulk mode. Irreversible.',
             parameters: [
-                new StringParameter('ids', 'Optional JSON array of artifact IDs: ["id1", "id2", ...]. Max 200.', required: false),
-                new EnumParameter('type', 'Optional filter by artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'other'], required: false),
-                new EnumParameter('stage', 'Optional filter by stage', ['draft', 'review', 'final'], required: false),
-                new StringParameter('project_id', 'Optional filter by project ID', required: false),
-                new StringParameter('sprint_id', 'Optional filter by sprint ID', required: false),
-                new StringParameter('created_after', 'Optional ISO 8601 creation-time filter', required: false),
+                new StringParameter('id', 'Artifact ID for single-artifact mode', required: false),
+                new StringParameter('ids', 'JSON array of artifact IDs for bulk mode: ["id1", "id2", ...]. Max 200.', required: false),
+                new EnumParameter('type', 'Filter by artifact type (bulk mode)', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'other'], required: false),
+                new EnumParameter('stage', 'Filter by stage (bulk mode)', ['draft', 'review', 'final'], required: false),
+                new StringParameter('project_id', 'Filter by project ID (bulk mode)', required: false),
+                new StringParameter('sprint_id', 'Filter by sprint ID (bulk mode)', required: false),
+                new StringParameter('created_after', 'ISO 8601 creation-time filter (bulk mode)', required: false),
                 new BoolParameter('all', 'If true, target all artifacts in the current session.', required: false),
             ],
             callback: function (array $args): ToolResult {
+                $id = trim($args['id'] ?? '');
+
+                // Single-artifact mode
+                if ($id !== '') {
+                    $artifact = $this->store->get($id, sessionId: $this->sessionId);
+                    if ($artifact === null) {
+                        return ToolResult::error("Artifact not found: {$id}");
+                    }
+
+                    $deleted = $this->store->delete($id, sessionId: $this->sessionId);
+                    if (!$deleted) {
+                        return ToolResult::error("Failed to delete artifact {$id}");
+                    }
+
+                    return ToolResult::success(json_encode([
+                        'id' => $id,
+                        'title' => $artifact['title'],
+                        'deleted' => true,
+                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                }
+
+                // Bulk mode
                 [$matchedIds, $failedIds, $error] = $this->resolveArtifactTargets($args);
 
                 if ($error !== null) {
