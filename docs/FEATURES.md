@@ -227,7 +227,7 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 **How to use it:**
 - View todos: `/todos` in the REPL.
-- The agent manages todos via `todo_add`, `todo_complete`, `todo_bulk_add`, etc.
+- The agent manages todos via `todo_add`, `todo_update`, `todo_complete`, and `todo_delete`, with batch and session-wide modes exposed through parameters.
 - Auto-generated from plans: when `artifact_stage(stage: "final")` is called, `PlanTodoGenerator` extracts implementation steps automatically.
 - See [TODOS.md](TODOS.md) for bulk operations, role permissions, and progress tracking.
 - See [DATA_FLOW.md](DATA_FLOW.md) for how Projects, Sprints, Artifacts, Todos, and Loops interconnect.
