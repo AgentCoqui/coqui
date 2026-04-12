@@ -81,25 +81,25 @@ test('tools returns 4 tools when authenticated', function () {
     expect(count($tools))->toBe(4);
 });
 
-test('tool names include space_skills', function () {
+test('tool names include coqui_space_skills', function () {
     $names = array_map(fn($t) => $t->name(), $this->toolkit->tools());
 
-    expect($names)->toContain('space_skills');
+    expect($names)->toContain('coqui_space_skills');
 });
 
-test('tool names include space_toolkits', function () {
+test('tool names include coqui_space_toolkits', function () {
     $names = array_map(fn($t) => $t->name(), $this->toolkit->tools());
 
-    expect($names)->toContain('space_toolkits');
+    expect($names)->toContain('coqui_space_toolkits');
 });
 
-test('tool names include space', function () {
+test('tool names include coqui_space', function () {
     $names = array_map(fn($t) => $t->name(), $this->toolkit->tools());
 
-    expect($names)->toContain('space');
+    expect($names)->toContain('coqui_space');
 });
 
-test('when authenticated tools include space_account', function () {
+test('when authenticated tools include coqui_space_account', function () {
     $authenticated = new SpaceToolkit(
         $this->client,
         $this->skillInstaller,
@@ -109,13 +109,13 @@ test('when authenticated tools include space_account', function () {
 
     $names = array_map(fn($t) => $t->name(), $authenticated->tools());
 
-    expect($names)->toContain('space_account');
+    expect($names)->toContain('coqui_space_account');
 });
 
-test('when not authenticated tools do not include space_account', function () {
+test('when not authenticated tools do not include coqui_space_account', function () {
     $names = array_map(fn($t) => $t->name(), $this->toolkit->tools());
 
-    expect($names)->not->toContain('space_account');
+    expect($names)->not->toContain('coqui_space_account');
 });
 
 // ── guidelines() ─────────────────────────────────────────────────────────────

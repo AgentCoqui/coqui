@@ -52,8 +52,8 @@ afterEach(function () {
 
 // ── Contract ─────────────────────────────────────────────────────────────────
 
-test('name returns space', function () {
-    expect($this->tool->name())->toBe('space');
+test('name returns coqui_space', function () {
+    expect($this->tool->name())->toBe('coqui_space');
 });
 
 test('description is non-empty string', function () {
@@ -69,7 +69,7 @@ test('toFunctionSchema returns valid schema', function () {
     expect($schema)->toHaveKey('function');
     expect($schema['function'])->toHaveKey('name');
     expect($schema['function'])->toHaveKey('parameters');
-    expect($schema['function']['name'])->toBe('space');
+    expect($schema['function']['name'])->toBe('coqui_space');
 });
 
 // ── Error paths ───────────────────────────────────────────────────────────────
@@ -149,27 +149,6 @@ test('execute review with invalid rating returns error', function () {
     expect($result->status->value)->toBe('error');
 });
 
-test('execute disable without name returns error', function () {
-    $result = $this->tool->execute(['action' => 'disable']);
-
-    expect($result->status->value)->toBe('error');
-    expect($result->content)->toContain('name');
-});
-
-test('execute enable without name returns error', function () {
-    $result = $this->tool->execute(['action' => 'enable']);
-
-    expect($result->status->value)->toBe('error');
-    expect($result->content)->toContain('name');
-});
-
-test('execute remove without name returns error', function () {
-    $result = $this->tool->execute(['action' => 'remove']);
-
-    expect($result->status->value)->toBe('error');
-    expect($result->content)->toContain('name');
-});
-
 // ── Success paths ─────────────────────────────────────────────────────────────
 
 test('execute health returns success with ok status', function () {
@@ -185,12 +164,4 @@ test('execute health returns success with ok status', function () {
 
     expect($result->status->value)->toBe('success');
     expect($result->content)->toContain('ok');
-});
-
-test('execute installed returns success with empty lists when nothing installed', function () {
-    file_put_contents($this->tmpDir . '/composer.json', json_encode(['require' => []]));
-
-    $result = $this->tool->execute(['action' => 'installed']);
-
-    expect($result->status->value)->toBe('success');
 });

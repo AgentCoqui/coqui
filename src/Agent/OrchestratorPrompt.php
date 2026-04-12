@@ -24,6 +24,8 @@ final readonly class OrchestratorPrompt
         private string $storageMap = '',
         private string $timeSinceLastMessage = 'New session',
         ?string $promptsDir = null,
+        /** @var list<string> Tool prompt slugs to exclude from the system prompt. */
+        private array $excludeToolPromptSlugs = [],
     ) {
         $this->loader = new PromptLoader(
             promptsDir: $promptsDir ?? dirname(__DIR__, 2) . '/prompts',
@@ -36,6 +38,7 @@ final readonly class OrchestratorPrompt
                 'time_since_last_message' => $this->timeSinceLastMessage,
             ],
             workspacePath: $this->workspacePath,
+            excludeToolPromptSlugs: $this->excludeToolPromptSlugs,
         );
     }
 

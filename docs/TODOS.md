@@ -25,11 +25,14 @@ todo_add(
 ### Bulk Create (up to 25)
 
 ```
-todo_bulk_add(items: '[
-    {"title": "Create User model", "priority": "high"},
-    {"title": "Add login endpoint", "priority": "high"},
-    {"title": "Write integration tests", "priority": "medium"}
-]')
+todo_add(
+    artifact_id: "plan123",
+    items: '[
+        {"title": "Create User model", "priority": "high"},
+        {"title": "Add login endpoint", "priority": "high"},
+        {"title": "Write integration tests", "priority": "medium"}
+    ]'
+)
 ```
 
 ### Auto-Generated from Plans
@@ -74,10 +77,10 @@ todo_add(title: "Check for duplicates", parent_id: "parent123")
 
 ## Bulk Operations
 
-Both `todo_bulk_add` and `todo_bulk_update` accept up to 25 items per call. Operations are transaction-wrapped for atomicity.
+`todo_add(items: ...)` and `todo_update(updates: ...)` accept up to 25 items per call. `todo_complete(ids: ...)` and `todo_delete(ids: ...)` also support batch execution for up to 25 IDs. Operations are transaction-wrapped for atomicity where the store supports it.
 
 ```
-todo_bulk_update(items: '[
+todo_update(updates: '[
     {"id": "todo1", "status": "completed"},
     {"id": "todo2", "status": "in_progress"},
     {"id": "todo3", "status": "cancelled"}
@@ -90,8 +93,8 @@ Use bulk operations when modifying 5+ todos at once to reduce tool call overhead
 
 | Access Level | Available Tools |
 | --- | --- |
-| `full` | All 8 tools |
-| `readonly`, `readonly-shell` | `todo_list`, `todo_get`, `todo_add`, `todo_update`, `todo_bulk_add`, `todo_bulk_update` |
+| `full` | `todo_list`, `todo_get`, `todo_add`, `todo_update`, `todo_complete`, `todo_delete` |
+| `readonly`, `readonly-shell` | `todo_list`, `todo_get`, `todo_add`, `todo_update` |
 | `minimal` | `todo_list`, `todo_get` |
 
 Read-only roles can create and update todos (important for plan agents) but cannot delete or complete them.
@@ -126,18 +129,12 @@ Todos are shared between agents through session ID propagation — the same mech
 
 | Tool | Description |
 | --- | --- |
-| `todo_add` | Create a single todo |
-| `todo_update` | Update status, priority, title, or notes |
-| `todo_complete` | Mark a todo as completed |
+| `todo_add` | Create one todo or batch-create up to 25 todos via `items` |
+| `todo_update` | Update one todo or batch-update up to 25 todos via `updates` |
+| `todo_complete` | Mark one, many, or all todos as completed |
 | `todo_list` | List todos with optional `artifact_id` or `status` filter |
 | `todo_get` | Get a todo with its subtasks |
-| `todo_delete` | Delete a todo (cascades to subtasks) |
-| `todo_bulk_add` | Create up to 25 todos at once |
-| `todo_bulk_update` | Update up to 25 todos at once |
-| `todo_bulk_complete` | Mark up to 25 todos completed at once |
-| `todo_bulk_delete` | Delete up to 25 todos at once |
-| `todo_complete_all` | Mark every pending/in-progress todo in the session completed |
-| `todo_clear` | Delete completed/cancelled todos or wipe the full session todo list |
+| `todo_delete` | Delete one, many, or scoped todos (cascades to subtasks) |
 
 ## API Endpoints
 
@@ -168,14 +165,14 @@ All routes under `/api/v1/sessions/{id}/todos`:
 Use the agent tools when you need to reset progress without enumerating IDs first:
 
 ```
-todo_complete_all()
-todo_clear(scope: "completed")
-todo_clear(scope: "all")
+todo_complete(all: true)
+todo_delete(scope: "completed")
+todo_delete(scope: "all")
 ```
 
 - `scope: "completed"` removes completed and cancelled todos only
 - `scope: "all"` deletes every todo in the current session
-- For explicit ID batches, continue using `todo_bulk_complete` and `todo_bulk_delete`
+- For explicit ID batches, use `todo_complete(ids: '["todo1", "todo2"]')` and `todo_delete(ids: '["todo1", "todo2"]')`
 
 ## Cleanup
 

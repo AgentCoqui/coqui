@@ -10,9 +10,7 @@ Use loops to run multi-role automated iteration cycles that execute without huma
 - `loop_start` — start a new loop from a named definition with a goal
 - `loop_list` — list running, paused, completed, or all loop instances
 - `loop_status` — get detailed status including current iteration and stage results
-- `loop_pause` — pause a running loop after the current stage completes; pass `id: "all"` to pause every running loop
-- `loop_resume` — resume a paused loop; pass `id: "all"` to resume every paused loop
-- `loop_stop` — cancel a running or paused loop; pass `id: "all"` to cancel every active loop
+- `loop_control` — control a running or paused loop: `action: "pause"` pauses after the current stage, `action: "resume"` resumes a paused loop, `action: "stop"` cancels a loop; pass `id: "all"` for batch operations
 - `loop_definitions` — list available loop definitions with role sequences and termination conditions
 
 ### How Loops Work
@@ -38,7 +36,7 @@ Definitions support `{{placeholder}}` parameters substituted at start time. Use 
 1. **Write clear goals.** Be specific about what "done" looks like — the goal is passed to every role in every iteration.
 2. **Monitor active loops.** Use `loop_status` to check progress. Use `loop_pause` before making mid-loop adjustments.
 3. **Use appropriate definitions.** Choose the one that fits your workflow. Create custom definitions in `workspace/loops/` for specialized workflows.
-4. **Use `id: "all"` for batch operations.** `loop_stop(id: "all")` cancels all active loops.
+4. **Use `id: "all"` for batch operations.** `loop_control(action: "stop", id: "all")` cancels all active loops.
 
 ### Artifact Contract Enforcement
 

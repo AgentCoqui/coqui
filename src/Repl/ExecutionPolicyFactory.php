@@ -34,8 +34,6 @@ final class ExecutionPolicyFactory
         'restart_coqui' => ['*'],
         'schedule_delete' => ['*'],
         'sprint_delete' => ['*'],
-        'todo_bulk_delete' => ['*'],
-        'todo_clear' => ['*'],
         'todo_delete' => ['*'],
     ];
 

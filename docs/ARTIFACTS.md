@@ -71,7 +71,7 @@ When `artifact_stage(id, stage: "final")` is called on a `type: "plan"` artifact
 3. Up to 25 todos are created via `TodoStore::bulkCreate()`, linked to the artifact and its sprint.
 4. The `artifact_stage` response includes `todos_generated` count.
 
-This is best-effort — the stage transition always succeeds even if todo generation fails. If zero todos are generated, the response includes a hint suggesting manual `todo_add` or `todo_bulk_add`.
+This is best-effort — the stage transition always succeeds even if todo generation fails. If zero todos are generated, the response includes a hint suggesting manual `todo_add`.
 
 ## Persistence
 
@@ -103,10 +103,8 @@ All agent types (regardless of access level) receive `ArtifactToolkit`. The `art
 | `artifact_update` | yes | Update content (bumps version) |
 | `artifact_get` | yes | Retrieve artifact or specific version |
 | `artifact_list` | yes | List session artifacts with filters |
-| `artifact_stage` | yes | Transition artifact stage |
-| `artifact_bulk_stage` | yes | Transition multiple artifacts by IDs or filters |
-| `artifact_delete` | no | Delete artifact and all versions |
-| `artifact_bulk_delete` | no | Delete multiple artifacts by IDs or filters |
+| `artifact_stage` | yes | Transition one or many artifacts (single id or bulk ids/filters) |
+| `artifact_delete` | no | Delete one or many artifacts (single id or bulk ids/filters) |
 
 ## API Endpoints
 
@@ -140,13 +138,13 @@ All routes under `/api/v1/sessions/{id}/artifacts`:
 
 ## Bulk Management
 
-Artifacts can now be managed in bulk for cleanup and organization workflows:
+Artifacts can be managed in bulk for cleanup and organization workflows using the unified `artifact_stage` and `artifact_delete` tools:
 
 ```
-artifact_bulk_stage(ids: '["art1", "art2"]', stage: "review")
-artifact_bulk_delete(stage: "draft")
-artifact_bulk_delete(project_id: "proj123")
-artifact_bulk_delete(all: true)
+artifact_stage(ids: '["art1", "art2"]', stage: "review")
+artifact_delete(stage: "draft")
+artifact_delete(project_id: "proj123")
+artifact_delete(all: true)
 ```
 
 - Use explicit `ids` when you already know the target artifacts

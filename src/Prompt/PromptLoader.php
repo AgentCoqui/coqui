@@ -24,11 +24,13 @@ final readonly class PromptLoader
      * @param string $promptsDir Absolute path to the prompts/ directory.
      * @param array<string, string> $placeholders Map of {{key}} → value for substitution.
      * @param ?string $workspacePath Absolute path to the workspace directory (for soul.md override resolution).
+     * @param list<string> $excludeToolPromptSlugs Tool prompt file slugs to skip (e.g. ['loops'] skips tools/loops.md).
      */
     public function __construct(
         private string $promptsDir,
         private array $placeholders = [],
         private ?string $workspacePath = null,
+        private array $excludeToolPromptSlugs = [],
     ) {}
 
     /**
@@ -236,10 +238,18 @@ final readonly class PromptLoader
         // Base — operational instructions, environment, delegation rules
         $sections[] = $this->load('base.md');
 
-        // Tool-specific sections (auto-discovered, alphabetical)
-        $toolSections = $this->discoverSection('tools');
-        if ($toolSections !== []) {
-            $sections[] = implode("\n\n", $toolSections);
+        // Tool-specific sections (auto-discovered, alphabetical, filtered by exclusions)
+        $toolEntries = $this->discoverSectionEntries('tools');
+        $filteredToolContent = [];
+        foreach ($toolEntries as $entry) {
+            $slug = pathinfo($entry['filename'], PATHINFO_FILENAME);
+            if (in_array($slug, $this->excludeToolPromptSlugs, true)) {
+                continue;
+            }
+            $filteredToolContent[] = $entry['content'];
+        }
+        if ($filteredToolContent !== []) {
+            $sections[] = implode("\n\n", $filteredToolContent);
         }
 
         // Security — near the end
@@ -286,6 +296,10 @@ final readonly class PromptLoader
         ];
 
         foreach ($this->discoverSectionEntries('tools') as $entry) {
+            $slug = pathinfo($entry['filename'], PATHINFO_FILENAME);
+            if (in_array($slug, $this->excludeToolPromptSlugs, true)) {
+                continue;
+            }
             $sections[] = [
                 'id' => 'tools.' . pathinfo($entry['filename'], PATHINFO_FILENAME),
                 'title' => 'Tool Prompt: ' . $entry['title'],

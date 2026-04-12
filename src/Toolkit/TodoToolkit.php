@@ -27,14 +27,12 @@ use CoquiBot\Coqui\Storage\TodoStore;
  * - minimal: list, get only
  *
  * Tools:
- * - todo_add: Create a new todo item
- * - todo_update: Update todo fields (title, priority, notes, status)
- * - todo_complete: Mark a todo as completed
+ * - todo_add: Create one or many todo items (batch via items JSON array)
+ * - todo_update: Update one or many todo fields (batch via updates JSON array)
+ * - todo_complete: Mark one, many, or all todos as completed
  * - todo_list: List todos with optional filters
  * - todo_get: Get full details of a specific todo
- * - todo_delete: Remove a todo item
- * - todo_complete_all: Mark all actionable todos in the session as completed
- * - todo_clear: Delete completed/cancelled todos or wipe the session todo list
+ * - todo_delete: Remove one, many, or scoped todos (completed/all)
  */
 final class TodoToolkit implements ToolkitInterface
 {
@@ -57,19 +55,13 @@ final class TodoToolkit implements ToolkitInterface
         // Write tools — available to full + readonly (plan agent needs to create todos)
         if (in_array($this->accessLevel, ['full', 'readonly', 'readonly-shell'], true)) {
             $tools[] = $this->addTool();
-            $tools[] = $this->bulkAddTool();
             $tools[] = $this->updateTool();
-            $tools[] = $this->bulkUpdateTool();
         }
 
-        // Complete tool — only full access (coder implements and completes)
+        // Complete/delete tools — only full access (coder implements and completes)
         if ($this->accessLevel === 'full') {
             $tools[] = $this->completeTool();
-            $tools[] = $this->bulkCompleteTool();
-            $tools[] = $this->completeAllTool();
             $tools[] = $this->deleteTool();
-            $tools[] = $this->bulkDeleteTool();
-            $tools[] = $this->clearTool();
         }
 
         return $tools;
@@ -133,33 +125,42 @@ final class TodoToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'todo_add',
-            description: 'Add a new todo item linked to a plan artifact. Every todo must be associated with an artifact for plan→execution traceability. Use for each step in a multi-step plan.',
+            description: 'Add one or many todo items linked to a plan artifact. For single items provide title directly. For batch creation (up to 25), provide an items JSON array instead.',
             parameters: [
-                new StringParameter('title', 'Short description of the task (max 200 chars)', required: true),
+                new StringParameter('title', 'Short description of the task (max 200 chars) — for single-item mode', required: false),
                 new StringParameter('artifact_id', 'Artifact ID this todo belongs to (required — use artifact_list to find IDs)', required: true),
-                new EnumParameter('priority', 'Task priority', ['high', 'medium', 'low'], required: false),
+                new EnumParameter('priority', 'Task priority (single-item mode)', ['high', 'medium', 'low'], required: false),
                 new StringParameter('parent_id', 'Parent todo ID for creating a subtask', required: false),
                 new StringParameter('notes', 'Additional context, requirements, or implementation details', required: false),
                 new StringParameter('sprint_id', 'Link to a sprint for project tracking', required: false),
+                new StringParameter('items', 'JSON array for batch mode: [{"title": "...", "priority"?: "high|medium|low", "notes"?: "..."}]. Max 25 items. When provided, title parameter is ignored.', required: false),
             ],
             callback: function (array $args): ToolResult {
+                $artifactId = isset($args['artifact_id']) && trim($args['artifact_id']) !== '' ? trim($args['artifact_id']) : null;
+                if ($artifactId === null) {
+                    return ToolResult::error('artifact_id is required. Every todo must be linked to a plan artifact. Use artifact_list to find available artifact IDs.');
+                }
+
+                $sprintId = isset($args['sprint_id']) && trim($args['sprint_id']) !== '' ? trim($args['sprint_id']) : null;
+
+                // Batch mode: items parameter provided
+                $itemsRaw = isset($args['items']) && trim($args['items']) !== '' ? trim($args['items']) : null;
+                if ($itemsRaw !== null) {
+                    return $this->executeBulkAdd($itemsRaw, $artifactId, $sprintId);
+                }
+
+                // Single-item mode
                 $title = trim($args['title'] ?? '');
                 if ($title === '') {
-                    return ToolResult::error('Title is required.');
+                    return ToolResult::error('Title is required (or provide items for batch mode).');
                 }
                 if (mb_strlen($title) > 200) {
                     return ToolResult::error('Title must be 200 characters or less.');
                 }
 
-                $artifactId = isset($args['artifact_id']) && trim($args['artifact_id']) !== '' ? trim($args['artifact_id']) : null;
-                if ($artifactId === null) {
-                    return ToolResult::error('artifact_id is required. Every todo must be linked to a plan artifact. Use artifact_list to find available artifact IDs.');
-                }
                 $priority = $args['priority'] ?? 'medium';
                 $parentId = isset($args['parent_id']) && trim($args['parent_id']) !== '' ? trim($args['parent_id']) : null;
                 $notes = isset($args['notes']) && trim($args['notes']) !== '' ? trim($args['notes']) : null;
-
-                $sprintId = isset($args['sprint_id']) && trim($args['sprint_id']) !== '' ? trim($args['sprint_id']) : null;
 
                 $id = $this->store->create(
                     sessionId: $this->sessionId,
@@ -184,92 +185,80 @@ final class TodoToolkit implements ToolkitInterface
         );
     }
 
-    private function bulkAddTool(): ToolInterface
+    private function executeBulkAdd(string $itemsRaw, string $artifactId, ?string $sprintId): ToolResult
     {
-        return new Tool(
-            name: 'todo_bulk_add',
-            description: 'Create multiple todos linked to a plan artifact in one call. More efficient than repeated todo_add calls — use when creating 3+ todos (e.g. from a plan). Max 25 items per call.',
-            parameters: [
-                new StringParameter('items', 'JSON array of items: [{"title": "...", "priority"?: "high|medium|low", "notes"?: "..."}]. Max 25 items.', required: true),
-                new StringParameter('artifact_id', 'Artifact ID to link all todos to (required — use artifact_list to find IDs)', required: true),
-                new StringParameter('sprint_id', 'Link all todos to this sprint for project tracking', required: false),
-            ],
-            callback: function (array $args): ToolResult {
-                $itemsRaw = $args['items'] ?? '';
-                $items = json_decode($itemsRaw, true);
-                if (!is_array($items) || $items === []) {
-                    return ToolResult::error('items must be a non-empty JSON array of [{"title": "...", ...}].');
-                }
-                if (count($items) > 25) {
-                    return ToolResult::error('Maximum 25 items per bulk add call.');
-                }
+        $items = json_decode($itemsRaw, true);
+        if (!is_array($items) || $items === []) {
+            return ToolResult::error('items must be a non-empty JSON array of [{"title": "...", ...}].');
+        }
+        if (count($items) > 25) {
+            return ToolResult::error('Maximum 25 items per call.');
+        }
 
-                $artifactId = isset($args['artifact_id']) && trim($args['artifact_id']) !== '' ? trim($args['artifact_id']) : null;
-                if ($artifactId === null) {
-                    return ToolResult::error('artifact_id is required. Every todo must be linked to a plan artifact. Use artifact_list to find available artifact IDs.');
-                }
+        $validPriorities = ['high', 'medium', 'low'];
+        foreach ($items as $i => $item) {
+            if (!is_array($item) || !isset($item['title']) || trim((string) $item['title']) === '') {
+                return ToolResult::error(sprintf('Item %d: title is required.', $i + 1));
+            }
+            if (mb_strlen(trim((string) $item['title'])) > 200) {
+                return ToolResult::error(sprintf('Item %d: title must be 200 characters or less.', $i + 1));
+            }
+            if (isset($item['priority']) && !in_array($item['priority'], $validPriorities, true)) {
+                return ToolResult::error(sprintf('Item %d: invalid priority "%s".', $i + 1, $item['priority']));
+            }
+        }
 
-                $validPriorities = ['high', 'medium', 'low'];
-                foreach ($items as $i => $item) {
-                    if (!is_array($item) || !isset($item['title']) || trim((string) $item['title']) === '') {
-                        return ToolResult::error(sprintf('Item %d: title is required.', $i + 1));
-                    }
-                    if (mb_strlen(trim((string) $item['title'])) > 200) {
-                        return ToolResult::error(sprintf('Item %d: title must be 200 characters or less.', $i + 1));
-                    }
-                    if (isset($item['priority']) && !in_array($item['priority'], $validPriorities, true)) {
-                        return ToolResult::error(sprintf('Item %d: invalid priority "%s".', $i + 1, $item['priority']));
-                    }
-                }
+        $normalized = array_values(array_map(function (array $item): array {
+            $result = [
+                'title' => trim((string) $item['title']),
+                'priority' => $item['priority'] ?? 'medium',
+            ];
+            if (isset($item['notes']) && trim((string) $item['notes']) !== '') {
+                $result['notes'] = trim((string) $item['notes']);
+            }
 
-                // Normalize items
-                $normalized = array_values(array_map(function (array $item): array {
-                    $result = [
-                        'title' => trim((string) $item['title']),
-                        'priority' => $item['priority'] ?? 'medium',
-                    ];
-                    if (isset($item['notes']) && trim((string) $item['notes']) !== '') {
-                        $result['notes'] = trim((string) $item['notes']);
-                    }
+            return $result;
+        }, $items));
 
-                    return $result;
-                }, $items));
-
-                $sprintId = isset($args['sprint_id']) && trim($args['sprint_id']) !== '' ? trim($args['sprint_id']) : null;
-
-                $ids = $this->store->bulkCreate(
-                    sessionId: $this->sessionId,
-                    items: $normalized,
-                    createdBy: $this->currentRole,
-                    artifactId: $artifactId,
-                    sprintId: $sprintId,
-                );
-
-                return ToolResult::success(json_encode([
-                    'created' => count($ids),
-                    'ids' => $ids,
-                    'artifact_id' => $artifactId,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
-            },
+        $ids = $this->store->bulkCreate(
+            sessionId: $this->sessionId,
+            items: $normalized,
+            createdBy: $this->currentRole,
+            artifactId: $artifactId,
+            sprintId: $sprintId,
         );
+
+        return ToolResult::success(json_encode([
+            'created' => count($ids),
+            'ids' => $ids,
+            'artifact_id' => $artifactId,
+        ], JSON_UNESCAPED_SLASHES) ?: '{}');
     }
 
     private function updateTool(): ToolInterface
     {
         return new Tool(
             name: 'todo_update',
-            description: 'Update a todo item\'s fields. Use to change title, priority, notes, or set status to in_progress.',
+            description: 'Update one or many todo items. For a single item, provide id + fields. For batch updates (up to 25), provide an updates JSON array instead.',
             parameters: [
-                new StringParameter('id', 'Todo ID', required: true),
+                new StringParameter('id', 'Todo ID (single-item mode)', required: false),
                 new StringParameter('title', 'New title', required: false),
                 new EnumParameter('priority', 'New priority', ['high', 'medium', 'low'], required: false),
                 new StringParameter('notes', 'Updated notes or context', required: false),
                 new EnumParameter('status', 'New status', ['pending', 'in_progress', 'cancelled'], required: false),
+                new StringParameter('updates', 'JSON array for batch mode: [{"id": "...", "status"?: "pending|in_progress|completed|cancelled", "priority"?: "high|medium|low", "title"?: "...", "notes"?: "..."}]. Max 25.', required: false),
             ],
             callback: function (array $args): ToolResult {
+                // Batch mode
+                $updatesRaw = isset($args['updates']) && trim($args['updates']) !== '' ? trim($args['updates']) : null;
+                if ($updatesRaw !== null) {
+                    return $this->executeBulkUpdate($updatesRaw);
+                }
+
+                // Single-item mode
                 $id = trim($args['id'] ?? '');
                 if ($id === '') {
-                    return ToolResult::error('Todo ID is required.');
+                    return ToolResult::error('Todo ID is required (or provide updates for batch mode).');
                 }
 
                 $title = isset($args['title']) && trim($args['title']) !== '' ? trim($args['title']) : null;
@@ -307,86 +296,142 @@ final class TodoToolkit implements ToolkitInterface
         );
     }
 
-    private function bulkUpdateTool(): ToolInterface
+    private function executeBulkUpdate(string $updatesRaw): ToolResult
     {
-        return new Tool(
-            name: 'todo_bulk_update',
-            description: 'Update multiple todos in one call. More efficient than repeated todo_update calls. Max 25 items per call.',
-            parameters: [
-                new StringParameter('updates', 'JSON array of updates: [{"id": "...", "status"?: "pending|in_progress|completed|cancelled", "priority"?: "high|medium|low", "title"?: "...", "notes"?: "..."}]. Max 25.', required: true),
-            ],
-            callback: function (array $args): ToolResult {
-                $updatesRaw = $args['updates'] ?? '';
-                $updates = json_decode($updatesRaw, true);
-                if (!is_array($updates) || $updates === []) {
-                    return ToolResult::error('updates must be a non-empty JSON array of [{"id": "...", ...}].');
-                }
-                if (count($updates) > 25) {
-                    return ToolResult::error('Maximum 25 items per bulk update call.');
-                }
+        $updates = json_decode($updatesRaw, true);
+        if (!is_array($updates) || $updates === []) {
+            return ToolResult::error('updates must be a non-empty JSON array of [{"id": "...", ...}].');
+        }
+        if (count($updates) > 25) {
+            return ToolResult::error('Maximum 25 items per call.');
+        }
 
-                $validStatuses = ['pending', 'in_progress', 'completed', 'cancelled'];
-                $validPriorities = ['high', 'medium', 'low'];
-                /** @var list<array{id: string, title?: string, status?: string, priority?: string, notes?: string}> $typedUpdates */
-                $typedUpdates = [];
-                foreach ($updates as $i => $update) {
-                    if (!is_array($update) || !isset($update['id']) || trim((string) $update['id']) === '') {
-                        return ToolResult::error(sprintf('Item %d: id is required.', $i + 1));
-                    }
-                    if (isset($update['status']) && !in_array($update['status'], $validStatuses, true)) {
-                        return ToolResult::error(sprintf('Item %d: invalid status "%s".', $i + 1, $update['status']));
-                    }
-                    if (isset($update['priority']) && !in_array($update['priority'], $validPriorities, true)) {
-                        return ToolResult::error(sprintf('Item %d: invalid priority "%s".', $i + 1, $update['priority']));
-                    }
-                    if (isset($update['title']) && mb_strlen(trim((string) $update['title'])) > 200) {
-                        return ToolResult::error(sprintf('Item %d: title must be 200 characters or less.', $i + 1));
-                    }
+        $validStatuses = ['pending', 'in_progress', 'completed', 'cancelled'];
+        $validPriorities = ['high', 'medium', 'low'];
+        /** @var list<array{id: string, title?: string, status?: string, priority?: string, notes?: string}> $typedUpdates */
+        $typedUpdates = [];
+        foreach ($updates as $i => $update) {
+            if (!is_array($update) || !isset($update['id']) || trim((string) $update['id']) === '') {
+                return ToolResult::error(sprintf('Item %d: id is required.', $i + 1));
+            }
+            if (isset($update['status']) && !in_array($update['status'], $validStatuses, true)) {
+                return ToolResult::error(sprintf('Item %d: invalid status "%s".', $i + 1, $update['status']));
+            }
+            if (isset($update['priority']) && !in_array($update['priority'], $validPriorities, true)) {
+                return ToolResult::error(sprintf('Item %d: invalid priority "%s".', $i + 1, $update['priority']));
+            }
+            if (isset($update['title']) && mb_strlen(trim((string) $update['title'])) > 200) {
+                return ToolResult::error(sprintf('Item %d: title must be 200 characters or less.', $i + 1));
+            }
 
-                    $typed = ['id' => (string) $update['id']];
-                    if (isset($update['title'])) {
-                        $typed['title'] = (string) $update['title'];
-                    }
-                    if (isset($update['status'])) {
-                        $typed['status'] = (string) $update['status'];
-                    }
-                    if (isset($update['priority'])) {
-                        $typed['priority'] = (string) $update['priority'];
-                    }
-                    if (isset($update['notes'])) {
-                        $typed['notes'] = (string) $update['notes'];
-                    }
-                    $typedUpdates[] = $typed;
-                }
+            $typed = ['id' => (string) $update['id']];
+            if (isset($update['title'])) {
+                $typed['title'] = (string) $update['title'];
+            }
+            if (isset($update['status'])) {
+                $typed['status'] = (string) $update['status'];
+            }
+            if (isset($update['priority'])) {
+                $typed['priority'] = (string) $update['priority'];
+            }
+            if (isset($update['notes'])) {
+                $typed['notes'] = (string) $update['notes'];
+            }
+            $typedUpdates[] = $typed;
+        }
 
-                $count = $this->store->bulkUpdate($typedUpdates, sessionId: $this->sessionId);
-                $stats = $this->store->getStats($this->sessionId);
+        $count = $this->store->bulkUpdate($typedUpdates, sessionId: $this->sessionId);
+        $stats = $this->store->getStats($this->sessionId);
 
-                return ToolResult::success(json_encode([
-                    'updated' => $count,
-                    'total_requested' => count($updates),
-                    'progress' => "{$stats['completed']}/{$stats['total']} completed",
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
-            },
-        );
+        return ToolResult::success(json_encode([
+            'updated' => $count,
+            'total_requested' => count($updates),
+            'progress' => "{$stats['completed']}/{$stats['total']} completed",
+        ], JSON_UNESCAPED_SLASHES) ?: '{}');
     }
 
     private function completeTool(): ToolInterface
     {
         return new Tool(
             name: 'todo_complete',
-            description: 'Mark a todo as completed. Use after finishing a task. Optionally add completion notes.',
+            description: 'Mark one, many, or all todos as completed. Provide id for single, ids JSON array for batch (max 25), or all=true for every pending/in-progress todo in the session.',
             parameters: [
-                new StringParameter('id', 'Todo ID to mark as completed', required: true),
+                new StringParameter('id', 'Todo ID to mark as completed (single-item mode)', required: false),
+                new StringParameter('ids', 'JSON array of todo IDs: ["id1", "id2", ...]. Max 25. (batch mode)', required: false),
+                new BoolParameter('all', 'If true, complete all pending/in-progress todos in the session.', required: false),
                 new StringParameter('notes', 'Completion notes (what was done, any follow-ups)', required: false),
             ],
             callback: function (array $args): ToolResult {
-                $id = trim($args['id'] ?? '');
-                if ($id === '') {
-                    return ToolResult::error('Todo ID is required.');
+                $notes = isset($args['notes']) && trim($args['notes']) !== '' ? trim($args['notes']) : null;
+                $all = (bool) ($args['all'] ?? false);
+
+                // All mode
+                if ($all) {
+                    $completed = $this->store->completeAllBySession(
+                        sessionId: $this->sessionId,
+                        completedBy: $this->currentRole,
+                    );
+                    $stats = $this->store->getStats($this->sessionId);
+
+                    return ToolResult::success(json_encode([
+                        'completed' => $completed,
+                        'progress' => "{$stats['completed']}/{$stats['total']} completed",
+                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
                 }
 
-                $notes = isset($args['notes']) && trim($args['notes']) !== '' ? trim($args['notes']) : null;
+                // Batch mode
+                $idsRaw = isset($args['ids']) && trim($args['ids']) !== '' ? trim($args['ids']) : null;
+                if ($idsRaw !== null) {
+                    $ids = json_decode($idsRaw, true);
+                    if (!is_array($ids) || $ids === []) {
+                        return ToolResult::error('ids must be a non-empty JSON array of todo IDs.');
+                    }
+                    if (count($ids) > 25) {
+                        return ToolResult::error('Maximum 25 items per call.');
+                    }
+
+                    $completed = 0;
+                    $failed = [];
+
+                    foreach ($ids as $id) {
+                        $id = trim((string) $id);
+                        if ($id === '') {
+                            continue;
+                        }
+
+                        $result = $this->store->complete(
+                            id: $id,
+                            completedBy: $this->currentRole,
+                            notes: $notes,
+                            sessionId: $this->sessionId,
+                        );
+
+                        if ($result) {
+                            $completed++;
+                        } else {
+                            $failed[] = $id;
+                        }
+                    }
+
+                    $stats = $this->store->getStats($this->sessionId);
+
+                    $response = [
+                        'completed' => $completed,
+                        'total_requested' => count($ids),
+                        'progress' => "{$stats['completed']}/{$stats['total']} completed",
+                    ];
+                    if ($failed !== []) {
+                        $response['failed_ids'] = $failed;
+                    }
+
+                    return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
+                }
+
+                // Single-item mode
+                $id = trim($args['id'] ?? '');
+                if ($id === '') {
+                    return ToolResult::error('Provide id (single), ids (batch), or all=true.');
+                }
 
                 $completed = $this->store->complete(
                     id: $id,
@@ -523,14 +568,73 @@ final class TodoToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'todo_delete',
-            description: 'Delete a todo item and its subtasks. Use sparingly — prefer cancelling instead.',
+            description: 'Delete one or many todos, or clear by scope. Provide id for single, ids JSON array for batch (max 25), or scope to delete completed/all todos in the session. Prefer cancelling over deleting.',
             parameters: [
-                new StringParameter('id', 'Todo ID to delete', required: true),
+                new StringParameter('id', 'Todo ID to delete (single-item mode)', required: false),
+                new StringParameter('ids', 'JSON array of todo IDs: ["id1", "id2", ...]. Max 25. (batch mode)', required: false),
+                new EnumParameter('scope', 'Delete by scope: "completed" removes completed/cancelled, "all" wipes entire session list', ['completed', 'all'], required: false),
             ],
             callback: function (array $args): ToolResult {
+                // Scope mode (clear)
+                $scope = isset($args['scope']) && trim((string) $args['scope']) !== '' ? trim((string) $args['scope']) : null;
+                if ($scope !== null) {
+                    $deleted = $scope === 'all'
+                        ? $this->store->deleteBySession($this->sessionId)
+                        : $this->store->deleteCompletedBySession($this->sessionId);
+
+                    $stats = $this->store->getStats($this->sessionId);
+
+                    return ToolResult::success(json_encode([
+                        'scope' => $scope,
+                        'deleted' => $deleted,
+                        'remaining' => $stats['total'],
+                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                }
+
+                // Batch mode
+                $idsRaw = isset($args['ids']) && trim($args['ids']) !== '' ? trim($args['ids']) : null;
+                if ($idsRaw !== null) {
+                    $ids = json_decode($idsRaw, true);
+                    if (!is_array($ids) || $ids === []) {
+                        return ToolResult::error('ids must be a non-empty JSON array of todo IDs.');
+                    }
+                    if (count($ids) > 25) {
+                        return ToolResult::error('Maximum 25 items per call.');
+                    }
+
+                    $deleted = 0;
+                    $failed = [];
+
+                    foreach ($ids as $id) {
+                        $id = trim((string) $id);
+                        if ($id === '') {
+                            continue;
+                        }
+
+                        $result = $this->store->delete($id, sessionId: $this->sessionId);
+
+                        if ($result) {
+                            $deleted++;
+                        } else {
+                            $failed[] = $id;
+                        }
+                    }
+
+                    $response = [
+                        'deleted' => $deleted,
+                        'total_requested' => count($ids),
+                    ];
+                    if ($failed !== []) {
+                        $response['failed_ids'] = $failed;
+                    }
+
+                    return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
+                }
+
+                // Single-item mode
                 $id = trim($args['id'] ?? '');
                 if ($id === '') {
-                    return ToolResult::error('Todo ID is required.');
+                    return ToolResult::error('Provide id (single), ids (batch), or scope (completed/all).');
                 }
 
                 $todo = $this->store->get($id, sessionId: $this->sessionId);
@@ -547,161 +651,6 @@ final class TodoToolkit implements ToolkitInterface
                     'id' => $id,
                     'title' => $todo['title'],
                     'deleted' => true,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
-            },
-        );
-    }
-
-    private function bulkCompleteTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'todo_bulk_complete',
-            description: 'Mark multiple todos as completed in one call. More efficient than repeated todo_complete calls. Max 25 items.',
-            parameters: [
-                new StringParameter('ids', 'JSON array of todo IDs to mark as completed: ["id1", "id2", ...]. Max 25.', required: true),
-                new StringParameter('notes', 'Completion notes applied to all todos', required: false),
-            ],
-            callback: function (array $args): ToolResult {
-                $idsRaw = $args['ids'] ?? '';
-                $ids = json_decode($idsRaw, true);
-                if (!is_array($ids) || $ids === []) {
-                    return ToolResult::error('ids must be a non-empty JSON array of todo IDs.');
-                }
-                if (count($ids) > 25) {
-                    return ToolResult::error('Maximum 25 items per bulk complete call.');
-                }
-
-                $notes = isset($args['notes']) && trim($args['notes']) !== '' ? trim($args['notes']) : null;
-                $completed = 0;
-                $failed = [];
-
-                foreach ($ids as $id) {
-                    $id = trim((string) $id);
-                    if ($id === '') {
-                        continue;
-                    }
-
-                    $result = $this->store->complete(
-                        id: $id,
-                        completedBy: $this->currentRole,
-                        notes: $notes,
-                        sessionId: $this->sessionId,
-                    );
-
-                    if ($result) {
-                        $completed++;
-                    } else {
-                        $failed[] = $id;
-                    }
-                }
-
-                $stats = $this->store->getStats($this->sessionId);
-
-                $response = [
-                    'completed' => $completed,
-                    'total_requested' => count($ids),
-                    'progress' => "{$stats['completed']}/{$stats['total']} completed",
-                ];
-                if ($failed !== []) {
-                    $response['failed_ids'] = $failed;
-                }
-
-                return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
-            },
-        );
-    }
-
-    private function bulkDeleteTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'todo_bulk_delete',
-            description: 'Delete multiple todos and their subtasks in one call. Use sparingly — prefer cancelling instead. Max 25 items.',
-            parameters: [
-                new StringParameter('ids', 'JSON array of todo IDs to delete: ["id1", "id2", ...]. Max 25.', required: true),
-            ],
-            callback: function (array $args): ToolResult {
-                $idsRaw = $args['ids'] ?? '';
-                $ids = json_decode($idsRaw, true);
-                if (!is_array($ids) || $ids === []) {
-                    return ToolResult::error('ids must be a non-empty JSON array of todo IDs.');
-                }
-                if (count($ids) > 25) {
-                    return ToolResult::error('Maximum 25 items per bulk delete call.');
-                }
-
-                $deleted = 0;
-                $failed = [];
-
-                foreach ($ids as $id) {
-                    $id = trim((string) $id);
-                    if ($id === '') {
-                        continue;
-                    }
-
-                    $result = $this->store->delete($id, sessionId: $this->sessionId);
-
-                    if ($result) {
-                        $deleted++;
-                    } else {
-                        $failed[] = $id;
-                    }
-                }
-
-                $response = [
-                    'deleted' => $deleted,
-                    'total_requested' => count($ids),
-                ];
-                if ($failed !== []) {
-                    $response['failed_ids'] = $failed;
-                }
-
-                return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
-            },
-        );
-    }
-
-    private function completeAllTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'todo_complete_all',
-            description: 'Mark all pending and in-progress todos in the current session as completed.',
-            parameters: [],
-            callback: function (array $args): ToolResult {
-                $completed = $this->store->completeAllBySession(
-                    sessionId: $this->sessionId,
-                    completedBy: $this->currentRole,
-                );
-                $stats = $this->store->getStats($this->sessionId);
-
-                return ToolResult::success(json_encode([
-                    'completed' => $completed,
-                    'progress' => "{$stats['completed']}/{$stats['total']} completed",
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
-            },
-        );
-    }
-
-    private function clearTool(): ToolInterface
-    {
-        return new Tool(
-            name: 'todo_clear',
-            description: 'Delete completed/cancelled todos or wipe the entire session todo list. Use scope="all" to start fresh.',
-            parameters: [
-                new EnumParameter('scope', 'Which todos to delete', ['completed', 'all'], required: false),
-            ],
-            callback: function (array $args): ToolResult {
-                $scope = isset($args['scope']) ? trim((string) $args['scope']) : 'completed';
-
-                $deleted = $scope === 'all'
-                    ? $this->store->deleteBySession($this->sessionId)
-                    : $this->store->deleteCompletedBySession($this->sessionId);
-
-                $stats = $this->store->getStats($this->sessionId);
-
-                return ToolResult::success(json_encode([
-                    'scope' => $scope,
-                    'deleted' => $deleted,
-                    'remaining' => $stats['total'],
                 ], JSON_UNESCAPED_SLASHES) ?: '{}');
             },
         );
