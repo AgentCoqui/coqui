@@ -38,9 +38,7 @@ final readonly class LoopToolkit implements ToolkitInterface
             $this->loopStartTool(),
             $this->loopListTool(),
             $this->loopStatusTool(),
-            $this->loopPauseTool(),
-            $this->loopResumeTool(),
-            $this->loopStopTool(),
+            $this->loopControlTool(),
             $this->loopDefinitionsTool(),
         ];
     }
@@ -88,8 +86,9 @@ final readonly class LoopToolkit implements ToolkitInterface
         - With parameters: `loop_start(definition: "research", goal: "Investigate auth", parameters: "{\"output_format\": \"comparison matrix\"}")`
         - Reuse a project: `loop_start(definition: "harness", goal: "Fix bugs", project_slug: "my-app")`
         - Monitor: `loop_status(id: "...")` or `loop_list()`
-        - Pause/resume: `loop_pause(id: "...")` / `loop_resume(id: "...")` or pass `id: "all"`
-        - Cancel: `loop_stop(id: "...")` or `loop_stop(id: "all")`
+        - Pause: `loop_control(action: "pause", id: "...")` or `loop_control(action: "pause", id: "all")`
+        - Resume: `loop_control(action: "resume", id: "...")`
+        - Cancel: `loop_control(action: "stop", id: "...")`
         GUIDELINES;
     }
 
@@ -327,128 +326,127 @@ final readonly class LoopToolkit implements ToolkitInterface
         );
     }
 
-    private function loopPauseTool(): Tool
+    private function loopControlTool(): Tool
     {
         return new Tool(
-            name: 'loop_pause',
-            description: 'Pause a running loop after the current stage completes.',
+            name: 'loop_control',
+            description: 'Pause, resume, or cancel a loop. Pass id="all" to apply to all matching loops at once.',
             parameters: [
+                new EnumParameter(
+                    name: 'action',
+                    description: 'The control action to perform',
+                    values: ['pause', 'resume', 'stop'],
+                    required: true,
+                ),
                 new StringParameter(name: 'id', description: 'Loop ID or "all"', required: true),
             ],
             callback: function (array $input): ToolResult {
+                $action = (string) ($input['action'] ?? '');
                 $id = (string) ($input['id'] ?? '');
 
-                if (strtolower($id) === 'all') {
-                    $running = $this->loopStore->listLoops('running');
-                    if ($running === []) {
-                        return ToolResult::success('No running loops to pause.');
-                    }
-
-                    foreach ($running as $loop) {
-                        $this->loopStore->updateLoopStatus((string) $loop['id'], 'paused');
-                    }
-
-                    return ToolResult::success(sprintf('Paused %d loop(s).', count($running)));
+                if ($action === '' || $id === '') {
+                    return ToolResult::error('Both "action" and "id" are required.');
                 }
 
-                $loop = $this->loopStore->getLoop($id);
-
-                if ($loop === null) {
-                    return ToolResult::error("Loop \"{$id}\" not found");
-                }
-
-                if ($loop['status'] !== 'running') {
-                    return ToolResult::error("Cannot pause loop — current status is \"{$loop['status']}\"");
-                }
-
-                $this->loopStore->updateLoopStatus($id, 'paused');
-                return ToolResult::success("Loop \"{$id}\" paused. Use loop_resume to continue.");
+                return match ($action) {
+                    'pause' => $this->executePause($id),
+                    'resume' => $this->executeResume($id),
+                    'stop' => $this->executeStop($id),
+                    default => ToolResult::error("Unknown action: {$action}"),
+                };
             },
         );
     }
 
-    private function loopResumeTool(): Tool
+    private function executePause(string $id): ToolResult
     {
-        return new Tool(
-            name: 'loop_resume',
-            description: 'Resume a paused loop.',
-            parameters: [
-                new StringParameter(name: 'id', description: 'Loop ID or "all"', required: true),
-            ],
-            callback: function (array $input): ToolResult {
-                $id = (string) ($input['id'] ?? '');
+        if (strtolower($id) === 'all') {
+            $running = $this->loopStore->listLoops('running');
+            if ($running === []) {
+                return ToolResult::success('No running loops to pause.');
+            }
 
-                if (strtolower($id) === 'all') {
-                    $paused = $this->loopStore->listLoops('paused');
-                    if ($paused === []) {
-                        return ToolResult::success('No paused loops to resume.');
-                    }
+            foreach ($running as $loop) {
+                $this->loopStore->updateLoopStatus((string) $loop['id'], 'paused');
+            }
 
-                    foreach ($paused as $loop) {
-                        $this->loopStore->updateLoopStatus((string) $loop['id'], 'running');
-                    }
+            return ToolResult::success(sprintf('Paused %d loop(s).', count($running)));
+        }
 
-                    return ToolResult::success(sprintf('Resumed %d loop(s).', count($paused)));
-                }
+        $loop = $this->loopStore->getLoop($id);
 
-                $loop = $this->loopStore->getLoop($id);
+        if ($loop === null) {
+            return ToolResult::error("Loop \"{$id}\" not found");
+        }
 
-                if ($loop === null) {
-                    return ToolResult::error("Loop \"{$id}\" not found");
-                }
+        if ($loop['status'] !== 'running') {
+            return ToolResult::error("Cannot pause loop — current status is \"{$loop['status']}\"");
+        }
 
-                if ($loop['status'] !== 'paused') {
-                    return ToolResult::error("Cannot resume loop — current status is \"{$loop['status']}\"");
-                }
-
-                $this->loopStore->updateLoopStatus($id, 'running');
-                return ToolResult::success("Loop \"{$id}\" resumed.");
-            },
-        );
+        $this->loopStore->updateLoopStatus($id, 'paused');
+        return ToolResult::success("Loop \"{$id}\" paused. Use loop_control(action: \"resume\") to continue.");
     }
 
-    private function loopStopTool(): Tool
+    private function executeResume(string $id): ToolResult
     {
-        return new Tool(
-            name: 'loop_stop',
-            description: 'Cancel a running or paused loop.',
-            parameters: [
-                new StringParameter(name: 'id', description: 'Loop ID or "all"', required: true),
-            ],
-            callback: function (array $input): ToolResult {
-                $id = (string) ($input['id'] ?? '');
+        if (strtolower($id) === 'all') {
+            $paused = $this->loopStore->listLoops('paused');
+            if ($paused === []) {
+                return ToolResult::success('No paused loops to resume.');
+            }
 
-                if (strtolower($id) === 'all') {
-                    $active = array_merge(
-                        $this->loopStore->listLoops('running'),
-                        $this->loopStore->listLoops('paused'),
-                    );
+            foreach ($paused as $loop) {
+                $this->loopStore->updateLoopStatus((string) $loop['id'], 'running');
+            }
 
-                    if ($active === []) {
-                        return ToolResult::success('No active loops to cancel.');
-                    }
+            return ToolResult::success(sprintf('Resumed %d loop(s).', count($paused)));
+        }
 
-                    foreach ($active as $loop) {
-                        $this->loopStore->updateLoopStatus((string) $loop['id'], 'cancelled');
-                    }
+        $loop = $this->loopStore->getLoop($id);
 
-                    return ToolResult::success(sprintf('Cancelled %d loop(s).', count($active)));
-                }
+        if ($loop === null) {
+            return ToolResult::error("Loop \"{$id}\" not found");
+        }
 
-                $loop = $this->loopStore->getLoop($id);
+        if ($loop['status'] !== 'paused') {
+            return ToolResult::error("Cannot resume loop — current status is \"{$loop['status']}\"");
+        }
 
-                if ($loop === null) {
-                    return ToolResult::error("Loop \"{$id}\" not found");
-                }
+        $this->loopStore->updateLoopStatus($id, 'running');
+        return ToolResult::success("Loop \"{$id}\" resumed.");
+    }
 
-                if (!in_array($loop['status'], ['running', 'paused'], true)) {
-                    return ToolResult::error("Cannot stop loop — current status is \"{$loop['status']}\"");
-                }
+    private function executeStop(string $id): ToolResult
+    {
+        if (strtolower($id) === 'all') {
+            $active = array_merge(
+                $this->loopStore->listLoops('running'),
+                $this->loopStore->listLoops('paused'),
+            );
 
-                $this->loopStore->updateLoopStatus($id, 'cancelled');
-                return ToolResult::success("Loop \"{$id}\" cancelled.");
-            },
-        );
+            if ($active === []) {
+                return ToolResult::success('No active loops to cancel.');
+            }
+
+            foreach ($active as $loop) {
+                $this->loopStore->updateLoopStatus((string) $loop['id'], 'cancelled');
+            }
+
+            return ToolResult::success(sprintf('Cancelled %d loop(s).', count($active)));
+        }
+
+        $loop = $this->loopStore->getLoop($id);
+
+        if ($loop === null) {
+            return ToolResult::error("Loop \"{$id}\" not found");
+        }
+
+        if (!in_array($loop['status'], ['running', 'paused'], true)) {
+            return ToolResult::error("Cannot stop loop — current status is \"{$loop['status']}\"");
+        }
+
+        $this->loopStore->updateLoopStatus($id, 'cancelled');
+        return ToolResult::success("Loop \"{$id}\" cancelled.");
     }
 
     private function loopDefinitionsTool(): Tool

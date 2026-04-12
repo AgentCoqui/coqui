@@ -8,10 +8,8 @@ Artifacts are versioned, structured outputs that persist across turns within a s
 - `artifact_update` — Update an artifact's content. Each update auto-creates a version snapshot, incrementing the version number. Include a `change_summary` describing what changed.
 - `artifact_get` — Retrieve a specific artifact by ID, including its current content and metadata.
 - `artifact_list` — List artifacts in the current session, optionally filtered by type or stage.
-- `artifact_stage` — Transition an artifact through stages: `draft` → `review` → `final`. Stage transitions are one-directional.
-- `artifact_bulk_stage` — Transition multiple artifacts to a new stage by explicit IDs or by filters. Use `all: true` to transition every artifact in the session.
-- `artifact_delete` — Delete a single artifact and all of its version history.
-- `artifact_bulk_delete` — Delete multiple artifacts by explicit IDs or by filters. Use `all: true` to wipe all session artifacts.
+- `artifact_stage` — Transition one or many artifacts through stages: `draft` → `review` → `final`. Provide `id` for single mode, or `ids`/`all`/filters for bulk mode.
+- `artifact_delete` — Delete one or many artifacts and their version history. Provide `id` for single mode, or `ids`/`all`/filters for bulk mode.
 
 ### Artifact Types
 

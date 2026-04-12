@@ -148,7 +148,7 @@ sprint_delete(id: "all", project_id: "auth")
 - `project_delete` always removes the database record and clears any session `active_project_id` references pointing at that project
 - `delete_directory: true` additionally removes `workspace/projects/<directory>` for the project
 - Project directory deletion is optional and intended for full cleanup workflows
-- Deleting a project or sprint does not automatically delete related artifacts or todos; clean those up with `artifact_bulk_delete` and `todo_clear` / `todo_bulk_delete`
+- Deleting a project or sprint does not automatically delete related artifacts or todos; clean those up with `artifact_delete(project_id: ...)` and `todo_delete(scope: "all")`
 
 ## Recommended Workflow
 

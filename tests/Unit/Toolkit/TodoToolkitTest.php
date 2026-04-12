@@ -30,51 +30,51 @@ test('full-access toolkit exposes session cleanup tools', function () {
         $this->toolkit->tools(),
     );
 
-    expect($names)->toContain('todo_complete_all');
-    expect($names)->toContain('todo_clear');
+    expect($names)->toContain('todo_complete');
+    expect($names)->toContain('todo_delete');
 });
 
-test('todo_complete_all completes pending and in-progress todos', function () {
+test('todo_complete supports completing all pending and in-progress todos', function () {
     $todoA = $this->todoStore->create($this->sessionId, 'Todo A', artifactId: $this->artifactId);
     $todoB = $this->todoStore->create($this->sessionId, 'Todo B', artifactId: $this->artifactId);
     $this->todoStore->update($todoB, status: 'in_progress', sessionId: $this->sessionId);
 
     $tool = array_values(array_filter(
         $this->toolkit->tools(),
-        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'todo_complete_all',
+        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'todo_complete',
     ))[0];
 
-    $result = $tool->execute([]);
+    $result = $tool->execute(['all' => true]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($this->todoStore->get($todoA)['status'])->toBe('completed');
     expect($this->todoStore->get($todoB)['status'])->toBe('completed');
 });
 
-test('todo_clear deletes completed scope by default', function () {
+test('todo_delete clears completed scope when requested', function () {
     $completedId = $this->todoStore->create($this->sessionId, 'Completed', artifactId: $this->artifactId);
     $pendingId = $this->todoStore->create($this->sessionId, 'Pending', artifactId: $this->artifactId);
     $this->todoStore->complete($completedId, 'coder', sessionId: $this->sessionId);
 
     $tool = array_values(array_filter(
         $this->toolkit->tools(),
-        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'todo_clear',
+        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'todo_delete',
     ))[0];
 
-    $result = $tool->execute([]);
+    $result = $tool->execute(['scope' => 'completed']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($this->todoStore->get($completedId))->toBeNull();
     expect($this->todoStore->get($pendingId))->not->toBeNull();
 });
 
-test('todo_clear can wipe the session todo list', function () {
+test('todo_delete can wipe the session todo list', function () {
     $this->todoStore->create($this->sessionId, 'One', artifactId: $this->artifactId);
     $this->todoStore->create($this->sessionId, 'Two', artifactId: $this->artifactId);
 
     $tool = array_values(array_filter(
         $this->toolkit->tools(),
-        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'todo_clear',
+        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'todo_delete',
     ))[0];
 
     $result = $tool->execute(['scope' => 'all']);

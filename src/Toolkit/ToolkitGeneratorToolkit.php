@@ -49,9 +49,9 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
             Use these tools to create and manage toolkit packages for Coqui:
 
             ## Workflow
-            1. `toolkit_create` — scaffold a new toolkit with composer.json, source, and README
-            2. `toolkit_add_tool` — add tools to an existing toolkit
-            3. `toolkit_list` — list all toolkit packages (standalone system tool, always available)
+            1. `coqui_toolkit_create` — scaffold a new toolkit with composer.json, source, and README
+            2. `coqui_toolkit_add` — add tools to an existing toolkit
+            3. `coqui_toolkits` — list and manage all installed toolkits (standalone system tool, always available)
 
             ## After creating a toolkit
             1. Use `composer` tool (action: require, target: workspace) to install it
@@ -69,13 +69,13 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
     private function createTool(): ToolInterface
     {
         return new Tool(
-            name: 'toolkit_create',
+            name: 'coqui_toolkit_create',
             description: <<<'DESC'
                 Scaffold a new toolkit package in the workspace. Creates composer.json,
                 main toolkit class, and README.md. Optionally includes dependencies and
                 credential declarations. Runs `composer install` automatically.
 
-                Example: toolkit_create(name: "my-api", description: "My API toolkit",
+                Example: coqui_toolkit_create(name: "my-api", description: "My API toolkit",
                   dependencies: "guzzlehttp/guzzle:^7.0,symfony/http-client:^7.0",
                   credentials: '{"MY_API_KEY": "API key from https://example.com/keys"}')
                 DESC,
@@ -111,12 +111,12 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
     private function addToolTool(): ToolInterface
     {
         return new Tool(
-            name: 'toolkit_add_tool',
+            name: 'coqui_toolkit_add',
             description: <<<'DESC'
                 Add a new tool to an existing toolkit package. Inserts a tool definition
                 into the toolkit class's tools() array and creates the builder method.
 
-                Example: toolkit_add_tool(toolkit_name: "my-toolkit", tool_name: "fetch_data",
+                Example: coqui_toolkit_add(toolkit_name: "my-toolkit", tool_name: "fetch_data",
                   tool_description: "Fetch data from the API",
                   parameters: '[{"name": "url", "type": "string", "description": "The URL to fetch", "required": true}]')
                 DESC,
@@ -253,7 +253,7 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
 
         $output .= "### Next Steps\n";
         $output .= "1. Edit `src/{$toolkitClassName}.php` to add your tools\n";
-        $output .= "2. Use `toolkit_add_tool` to add more tools\n";
+        $output .= "2. Use `coqui_toolkit_add` to add more tools\n";
         $output .= "3. Install into workspace: `composer require coquibot/{$name}` (target: workspace)\n";
         $output .= "4. Restart Coqui to activate: `restart_coqui`\n";
 

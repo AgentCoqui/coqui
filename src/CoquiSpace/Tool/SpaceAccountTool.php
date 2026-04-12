@@ -26,7 +26,7 @@ final class SpaceAccountTool implements ToolInterface
 
     public function name(): string
     {
-        return 'space_account';
+        return 'coqui_space_account';
     }
 
     public function description(): string

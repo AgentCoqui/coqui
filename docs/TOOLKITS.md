@@ -52,7 +52,7 @@ The fastest way to create a toolkit is with Coqui's built-in generator:
 ```
 You: Create a toolkit called "my-api" that integrates with the Example API
 
-Coqui: toolkit_create(name: "my-api", description: "Example API integration",
+Coqui: coqui_toolkit_create(name: "my-api", description: "Example API integration",
          dependencies: "guzzlehttp/guzzle:^7.0",
          credentials: '{"EXAMPLE_API_KEY": "API key from https://example.com/keys"}')
 ```
@@ -62,7 +62,7 @@ This scaffolds the full package structure, generates `composer.json` with auto-d
 To add tools:
 
 ```
-Coqui: toolkit_add_tool(toolkit_name: "my-api", tool_name: "fetch_items",
+Coqui: coqui_toolkit_add(toolkit_name: "my-api", tool_name: "fetch_items",
          tool_description: "Fetch items from the Example API",
          parameters: '[{"name": "query", "type": "string", "description": "Search query", "required": true}]')
 ```
@@ -201,7 +201,7 @@ Ask Coqui to create a toolkit:
 You: Create a toolkit called "datetime-utils" with tools for working with dates and times
 ```
 
-Coqui uses `toolkit_create` to scaffold the package, then `toolkit_add_tool` to add specific tools.
+Coqui uses `coqui_toolkit_create` to scaffold the package, then `coqui_toolkit_add` to add specific tools.
 
 ### Option B: Manual Creation
 
@@ -436,7 +436,7 @@ Add dependencies to the `require` section of your toolkit's `composer.json`:
 Pass dependencies as a comma-separated string when creating a toolkit:
 
 ```
-toolkit_create(
+coqui_toolkit_create(
     name: "my-api",
     description: "API integration toolkit",
     dependencies: "guzzlehttp/guzzle:^7.0,symfony/http-client:^7.0"

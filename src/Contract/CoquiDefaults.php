@@ -128,7 +128,7 @@ final class CoquiDefaults
      *
      * Config: agents.defaults.toolkitTokenBudget
      */
-    public const int TOOLKIT_TOKEN_BUDGET = 10_000;
+    public const int TOOLKIT_TOKEN_BUDGET = 20_000;
 
     /**
      * Percentage of the token budget allocated for promoting Auto-mode toolkits.
@@ -157,9 +157,10 @@ final class CoquiDefaults
         'TodoToolkit',
         'SprintToolkit',
         'CoquiSourceToolkit',
-        'SkillToolkit',
         'ComposerToolkit',
         'PackagistToolkit',
+        'LoopToolkit',
+        'ScheduleToolkit',
     ];
 
     /**
@@ -176,6 +177,7 @@ final class CoquiDefaults
         'summarize_conversation',
         'extract_memories',
         'config',
-        'toolkit_list',
+        'coqui_toolkits',
+        'coqui_skills',
     ];
 }

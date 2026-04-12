@@ -18,11 +18,11 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, SkillToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, toolkit_list). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Also builds prompt-section telemetry with pinned-versus-deferrable classification and rationale for budget inspection surfaces. Supports a per-turn notification prompt section injected outside the cached base instructions so transient background-work notifications remain visible to the model without polluting persisted conversation history. Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, coqui_toolkits, coqui_skills). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Also builds prompt-section telemetry with pinned-versus-deferrable classification and rationale for budget inspection surfaces. Supports a per-turn notification prompt section injected outside the cached base instructions so transient background-work notifications remain visible to the model without polluting persisted conversation history. Constructed fresh on every REPL turn.",
             "methods": [
                 "setNotificationPromptSection(?string): void — install or clear the turn-scoped notification prompt section",
                 "instructions(): string — returns the full system prompt with role descriptions, security rules, and operational guidelines",
-                "tools(): ToolInterface[] — returns standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, toolkit_list)",
+                "tools(): ToolInterface[] — returns standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, coqui_toolkits, coqui_skills)",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
                 "getSpawnTool(): SpawnAgentTool — accessor for iteration tracking",
                 "resolveContextWindow(): ?ContextWindowInterface — resolves ContextWindow from ModelDefinition with 128K/4K fallback",
@@ -998,12 +998,21 @@
             ]
         },
         {
-            "path": "src/Tool/ToolkitListTool.php",
-            "fqcn": "CoquiBot\\Coqui\\Tool\\ToolkitListTool",
+            "path": "src/Tool/CoquiToolkitsTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\CoquiToolkitsTool",
             "layer": "tool",
-            "description": "Standalone system tool that lists all workspace toolkit packages. Promoted from ToolkitGeneratorToolkit so it is always available (never deferred). Lists packages from workspace/packages/ with their tools, dependencies, and credential requirements.",
+            "description": "Always-loaded standalone system tool for browsing and managing installed toolkits. Actions: list (workspace packages + installed via ToolkitInstaller), disable, enable, remove. Replaces the old ToolkitListTool.",
             "methods": [
-                "tool(): ToolInterface — returns the toolkit_list tool instance"
+                "tool(): ToolInterface — returns the coqui_toolkits tool instance"
+            ]
+        },
+        {
+            "path": "src/Tool/CoquiSkillsTool.php",
+            "fqcn": "CoquiBot\\Coqui\\Tool\\CoquiSkillsTool",
+            "layer": "tool",
+            "description": "Always-loaded standalone system tool for browsing and managing local skills. Actions: list, read, create, update, disable, enable, remove. Absorbs the orchestrator's SkillToolkit functionality into a single unified tool.",
+            "methods": [
+                "tool(): ToolInterface — returns the coqui_skills tool instance"
             ]
         },
         {
@@ -1070,9 +1079,9 @@
             "path": "src/Toolkit/ToolkitGeneratorToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\ToolkitGeneratorToolkit",
             "layer": "toolkit",
-            "description": "Generates complete toolkit package scaffolds for Coqui. Tools: toolkit_create (scaffolds a new package with composer.json, toolkit class, README, runs composer install), toolkit_add_tool (inserts a new tool into an existing toolkit class). The toolkit_list tool was promoted to a standalone system tool (ToolkitListTool). All generated packages follow Coqui conventions and are auto-discoverable.",
+            "description": "Generates complete toolkit package scaffolds for Coqui. Tools: coqui_toolkit_create (scaffolds a new package with composer.json, toolkit class, README, runs composer install), coqui_toolkit_add (inserts a new tool into an existing toolkit class). All generated packages follow Coqui conventions and are auto-discoverable.",
             "methods": [
-                "tools(): ToolInterface[] — returns toolkit_create, toolkit_add_tool, toolkit_list",
+                "tools(): ToolInterface[] — returns coqui_toolkit_create, coqui_toolkit_add",
                 "guidelines(): string — usage instructions for toolkit generation workflow"
             ]
         },
@@ -1080,7 +1089,7 @@
             "path": "src/Toolkit/SkillToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\SkillToolkit",
             "layer": "toolkit",
-            "description": "ToolkitInterface implementation providing four tools: skill_list (browse available skills), skill_read (activate a skill by loading full instructions), skill_create (scaffold a new skill directory with SKILL.md), skill_update (modify an existing skill's description or instructions with replace/append modes). Follows progressive disclosure — skill_read is the activation mechanism that loads full instructions into agent context.",
+            "description": "ToolkitInterface implementation providing four tools: skill_list, skill_read, skill_create, skill_update. Used by SpawnAgentTool to give child agents skill access. The orchestrator uses CoquiSkillsTool instead for the primary agent.",
             "methods": [
                 "tools(): ToolInterface[] — returns skill_list, skill_read, skill_create, skill_update tools",
                 "guidelines(): string — XML-wrapped instructions for the skill system"
@@ -1090,7 +1099,7 @@
             "path": "src/CoquiSpace/SpaceToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\SpaceToolkit",
             "layer": "toolkit",
-            "description": "ToolkitInterface entry point for Coqui Space marketplace integration. Factory wires everything from BootManager: SpaceClient, SkillInstaller, ToolkitInstaller. Provides 3-4 tools: space_skills, space_toolkits, space (manage), space_account (auth-gated). Guidelines include workflow patterns for discover/install/manage flows.",
+            "description": "ToolkitInterface entry point for Coqui Space marketplace integration. Factory wires everything from BootManager: SpaceClient, SkillInstaller, ToolkitInstaller. Provides 3-4 tools: coqui_space_skills, coqui_space_toolkits, coqui_space (manage), coqui_space_account (auth-gated). Local lifecycle management moved to coqui_toolkits and coqui_skills.",
             "methods": [
                 "create(BootManager $boot): self — factory method wiring all dependencies from boot",
                 "tools(): ToolInterface[] — returns space tools (space_account only when authenticated)",
@@ -1921,9 +1930,9 @@
             "path": "src/Toolkit/ArtifactToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\ArtifactToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing artifact management toolkit providing 6 tools: artifact_create (new versioned artifact with project_id/sprint_id linking and auto-scoping from defaultProjectId/defaultSprintId), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage/project_id/sprint_id/created_after filters), artifact_stage (draft→review→final transition with auto todo generation for plans), artifact_delete. Accepts optional TodoStore to show todo progress next to plan artifacts in guidelines. Constructor accepts defaultProjectId/defaultSprintId for auto-scoping artifact_create in loop stage contexts — when the LLM omits project_id/sprint_id, defaults are used as fallback.",
+            "description": "Agent-facing artifact management toolkit providing 6 tools: artifact_create (new versioned artifact with project_id/sprint_id linking and auto-scoping from defaultProjectId/defaultSprintId), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage/project_id/sprint_id/created_after filters), artifact_stage (single or bulk stage transitions with auto todo generation for plans), artifact_delete (single or bulk deletion with filters). Accepts optional TodoStore to show todo progress next to plan artifacts in guidelines. Constructor accepts defaultProjectId/defaultSprintId for auto-scoping artifact_create in loop stage contexts.",
             "methods": [
-                "tools(): array — returns 5 Tool instances for artifact CRUD + staging",
+                "tools(): array — returns 5-6 Tool instances for artifact CRUD + staging + optional delete",
                 "guidelines(): string — dynamic guidelines showing existing artifact listing with todo progress for plans"
             ]
         },
@@ -1931,7 +1940,7 @@
             "path": "src/Toolkit/TodoToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\TodoToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing session-scoped todo management toolkit providing 8 tools: todo_add, todo_update, todo_complete, todo_list, todo_get, todo_delete, todo_bulk_add, todo_bulk_update. Role-aware permissions. Accepts optional ArtifactStore to resolve artifact titles for linked todos. Guidelines dynamically show progress bar, active/pending listing with artifact cross-references, and post-summarization recovery hints.",
+            "description": "Agent-facing session-scoped todo management toolkit providing 6 tools: todo_add (single or bulk via items param), todo_update (single or bulk via updates param), todo_complete (single id, multiple ids, or all), todo_list, todo_get, todo_delete (single id, multiple ids, or scoped clear). Role-aware permissions. Accepts optional ArtifactStore to resolve artifact titles for linked todos. Guidelines dynamically show progress bar, active/pending listing with artifact cross-references, and post-summarization recovery hints.",
             "methods": [
                 "tools(): array — returns filtered Tool instances based on access level",
                 "guidelines(): string — dynamic progress summary with bar visualization, artifact cross-refs, and recovery hints"
@@ -2510,9 +2519,9 @@
             "path": "src/Toolkit/LoopToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\LoopToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing tools for starting and managing loop workflows. 7 tools: loop_start, loop_list, loop_status, loop_pause, loop_resume, loop_stop, loop_definitions. Guidelines inject active loop count, running loop details, and available definition names.",
+            "description": "Agent-facing tools for starting and managing loop workflows. 5 tools: loop_start, loop_list, loop_status, loop_control (pause/resume/stop via action param), loop_definitions. Guidelines inject active loop count, running loop details, and available definition names.",
             "methods": [
-                "tools(): array — return all 7 loop tools",
+                "tools(): array — return all 5 loop tools",
                 "guidelines(): string — dynamic active loop status and definition list"
             ]
         },
