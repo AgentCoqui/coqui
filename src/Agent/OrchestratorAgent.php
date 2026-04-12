@@ -61,7 +61,6 @@ use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ComposerToolkit;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Toolkit\PackagistToolkit;
-use CoquiBot\Coqui\Toolkit\SkillToolkit;
 use CoquiBot\Coqui\Toolkit\StubToolkit;
 use CoquiBot\Coqui\Toolkit\TodoToolkit;
 use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
@@ -75,7 +74,8 @@ use CoquiBot\Coqui\Tool\SpawnAgentTool;
 use CoquiBot\Coqui\Tool\StubTool;
 use CoquiBot\Coqui\Tool\ExtractMemoriesTool;
 use CoquiBot\Coqui\Tool\SummarizeConversationTool;
-use CoquiBot\Coqui\Tool\ToolkitListTool;
+use CoquiBot\Coqui\Tool\CoquiToolkitsTool;
+use CoquiBot\Coqui\Tool\CoquiSkillsTool;
 use CoquiBot\Coqui\Tool\ToolRegistry;
 use CoquiBot\Coqui\Tool\ToolSearchTool;
 use CoquiBot\Coqui\Tool\VisionTool;
@@ -108,7 +108,8 @@ final class OrchestratorAgent extends AbstractAgent
     private VisionTool $visionTool;
     private ?SummarizeConversationTool $summarizeTool = null;
     private ?ExtractMemoriesTool $extractMemoriesTool = null;
-    private ToolkitListTool $toolkitListTool;
+    private CoquiToolkitsTool $coquiToolkitsTool;
+    private CoquiSkillsTool $coquiSkillsTool;
     private ToolRegistry $toolRegistry;
     private ToolSearchTool $toolSearchTool;
     private ?ContextWindowInterface $contextWindowInstance = null;
@@ -353,17 +354,6 @@ final class OrchestratorAgent extends AbstractAgent
         // Memory toolkit — SQLite-backed with optional vector search
         if ($this->memoryStore !== null) {
             $this->addToolkit(new MemoryToolkit($this->memoryStore, $this->workspacePath));
-        }
-
-        // Skill toolkit — discovered reusable instructions with usage attribution.
-        if ($this->skillDiscovery !== null && $effectiveAccessLevel !== 'minimal') {
-            $this->addToolkit(new SkillToolkit(
-                discovery: $this->skillDiscovery,
-                lifecycleStore: $this->storage !== null ? new SkillLifecycleStore($this->storage->getPdo()) : null,
-                sessionId: $this->sessionId,
-                turnId: $this->currentTurnId,
-                agentRole: $this->activeRole ?? 'orchestrator',
-            ));
         }
 
         // Artifact toolkit — versioned output tracking (shares database with session storage)
@@ -696,8 +686,21 @@ final class OrchestratorAgent extends AbstractAgent
             );
         }
 
-        // Toolkit list tool — always available system tool for package discovery
-        $this->toolkitListTool = new ToolkitListTool(workspacePath: $this->workspacePath);
+        // Coqui toolkits tool — always-loaded system tool for browsing/managing installed toolkits
+        $this->coquiToolkitsTool = new CoquiToolkitsTool(
+            workspacePath: $this->workspacePath,
+            installer: $this->spaceToolkit?->toolkitInstaller(),
+        );
+
+        // Coqui skills tool — always-loaded system tool for browsing/managing local skills
+        $this->coquiSkillsTool = new CoquiSkillsTool(
+            discovery: $this->skillDiscovery ?? new SkillDiscovery($this->workspacePath),
+            installer: $this->spaceToolkit?->skillInstaller(),
+            lifecycleStore: $this->storage !== null ? new SkillLifecycleStore($this->storage->getPdo()) : null,
+            sessionId: $this->sessionId,
+            turnId: $this->currentTurnId,
+            agentRole: $this->activeRole ?? 'orchestrator',
+        );
 
         // Register standalone tools in the registry now that they're all created.
         // Toolkit tools are already registered via addToolkit() override above.
@@ -705,7 +708,8 @@ final class OrchestratorAgent extends AbstractAgent
             $this->toolRegistry->register($tool);
         }
 
-        $this->toolRegistry->register($this->toolkitListTool->tool());
+        $this->toolRegistry->register($this->coquiToolkitsTool->tool());
+        $this->toolRegistry->register($this->coquiSkillsTool->tool());
 
         $this->toolRegistry->register($this->visionTool);
 
@@ -1048,7 +1052,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         $lines[] = '';
-        $lines[] = 'Use `tool_search("keyword")` to find specific tools, or `toolkit_list` for a full inventory.';
+        $lines[] = 'Use `tool_search("keyword")` to find specific tools, or `coqui_toolkits` for a full inventory.';
 
         return $rendered . "\n\n" . implode("\n", $lines);
     }
@@ -1098,7 +1102,8 @@ final class OrchestratorAgent extends AbstractAgent
             $visibilityManaged['config'] = $this->configTool;
         }
 
-        $visibilityManaged['toolkit_list'] = $this->toolkitListTool->tool();
+        $visibilityManaged['coqui_toolkits'] = $this->coquiToolkitsTool->tool();
+        $visibilityManaged['coqui_skills'] = $this->coquiSkillsTool->tool();
 
         $tools = $alwaysEnabled;
 
@@ -1516,7 +1521,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         $lines[] = '';
-        $lines[] = 'Use `tool_search("keyword")` to find specific tools, or `toolkit_list` for a full inventory.';
+        $lines[] = 'Use `tool_search("keyword")` to find specific tools, or `coqui_toolkits` for a full inventory.';
 
         return new PromptSection(
             id: 'context.deferred-toolkits',

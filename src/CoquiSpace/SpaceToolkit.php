@@ -24,10 +24,10 @@ use Symfony\Component\HttpClient\HttpClient;
  * and toolkits from the Coqui Space marketplace (https://coqui.space).
  *
  * Tools:
- * - space_skills   — browse, install, and manage skills
- * - space_toolkits — browse, install, and manage toolkits
- * - space          — manage installed content, social actions, collections
- * - space_account  — authenticated user dashboard (when token set)
+ * - coqui_space_skills   — browse, install, and manage skills
+ * - coqui_space_toolkits — browse, install, and manage toolkits
+ * - coqui_space          — community social actions, collections, reviews
+ * - coqui_space_account  — authenticated user dashboard (when token set)
  */
 final class SpaceToolkit implements ToolkitInterface
 {
@@ -89,7 +89,7 @@ final class SpaceToolkit implements ToolkitInterface
         $tools = [
             new SpaceSkillsTool($this->client, $this->skillInstaller),
             new SpaceToolkitsTool($this->client, $this->toolkitInstaller),
-            new SpaceManageTool($this->client, $this->skillInstaller, $this->toolkitInstaller),
+            new SpaceManageTool($this->client),
         ];
 
         if (($this->tokenResolver)() !== '') {
@@ -105,7 +105,7 @@ final class SpaceToolkit implements ToolkitInterface
         $authStatus = $authenticated ? 'authenticated' : 'anonymous (limited functionality)';
 
         $accountRow = $authenticated
-            ? "\n| `space_account` | Your account dashboard | profile, my_skills, my_toolkits, my_collections, my_submissions, my_installs, my_analytics, my_stars |"
+            ? "\n| `coqui_space_account` | Your account dashboard | profile, my_skills, my_toolkits, my_collections, my_submissions, my_installs, my_analytics, my_stars |"
             : '';
 
         return <<<GUIDELINES
@@ -118,45 +118,41 @@ final class SpaceToolkit implements ToolkitInterface
 
         | Tool | Purpose | Key actions |
         |------|---------|-------------|
-        | `space_skills` | Browse, install and manage skills | search, list, details, versions, reviews, file, install, update |
-        | `space_toolkits` | Browse, install and manage toolkits | search, list, popular, details, reviews, install, update |
-        | `space` | Manage content, collections, reviews, notifications, tags, unified search | installed, disable, enable, remove, star, unstar, submit, tags, search_all, collections, review, notifications, health |{$accountRow}
+        | `coqui_space_skills` | Browse and install skills from Coqui Space | search, list, details, versions, reviews, file, install, update |
+        | `coqui_space_toolkits` | Browse and install toolkits from Coqui Space | search, list, popular, details, reviews, install, update |
+        | `coqui_space` | Community features: star, review, submit, collections | star, unstar, submit, tags, search_all, collections, review, notifications, health |{$accountRow}
+
+        **For local management** (list installed, disable, enable, remove) use `coqui_toolkits` or `coqui_skills` instead.
 
         ### Identifier patterns
 
         - **Skills** are identified by `owner/name` (e.g. `carmelosantana/code-review`). Directory name after install is the skill name.
         - **Toolkits** are Composer packages identified by `vendor/package` (e.g. `coquibot/coqui-toolkit-brave-search`).
-        - Any identifier with a `/` is treated as a toolkit in the `space` tool. Skill names without `/` are matched by directory name.
 
         ### Authentication required for
 
         - `star`, `unstar`, `submit`, `review`
         - `collections` (create/update/delete/add_item/remove_item)
-        - `notifications`, `space_account` (all actions)
+        - `notifications`, `coqui_space_account` (all actions)
         - Anonymous access: search, details, list, versions, reviews, install, update, tags, search_all, health
 
         ### Workflow patterns
 
         **Discover -> Install:**
-        1. `space_skills(action: "search", query: "code review")`
-        2. `space_skills(action: "details", owner: "carmelosantana", name: "code-review")`
-        3. `space_skills(action: "install", owner: "carmelosantana", name: "code-review")`
+        1. `coqui_space_skills(action: "search", query: "code review")`
+        2. `coqui_space_skills(action: "details", owner: "carmelosantana", name: "code-review")`
+        3. `coqui_space_skills(action: "install", owner: "carmelosantana", name: "code-review")`
 
         **Collections:**
-        1. `space(action: "collections", sub_action: "create", collection_name: "My Favorites", description: "...", is_public: true)`
-        2. `space(action: "collections", sub_action: "add_item", collection_id: "abc", entity_type: "skill", owner: "carmelosantana", name: "code-review")`
+        1. `coqui_space(action: "collections", sub_action: "create", collection_name: "My Favorites", description: "...", is_public: true)`
+        2. `coqui_space(action: "collections", sub_action: "add_item", collection_id: "abc", entity_type: "skill", owner: "carmelosantana", name: "code-review")`
 
         **Reviews:**
-        1. `space(action: "review", entity_type: "skill", owner: "carmelosantana", name: "code-review", rating: 5, title: "Great!", body: "Works perfectly.")`
-
-        **Manage installed:**
-        1. `space(action: "installed")` — see everything installed
-        2. `space(action: "disable", name: "code-review")` — deactivate
-        3. `space(action: "remove", name: "code-review", purge: true)` — fully remove
+        1. `coqui_space(action: "review", entity_type: "skill", owner: "carmelosantana", name: "code-review", rating: 5, title: "Great!", body: "Works perfectly.")`
 
         **Social:**
-        1. `space(action: "star", entity_type: "skill", owner: "carmelosantana", name: "code-review")`
-        2. `space(action: "submit", type: "toolkit", source_url: "https://github.com/user/repo")`
+        1. `coqui_space(action: "star", entity_type: "skill", owner: "carmelosantana", name: "code-review")`
+        2. `coqui_space(action: "submit", type: "toolkit", source_url: "https://github.com/user/repo")`
 
         ### Verified publishers
 

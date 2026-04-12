@@ -28,7 +28,7 @@ final class SpaceToolkitsTool implements ToolInterface
 
     public function name(): string
     {
-        return 'space_toolkits';
+        return 'coqui_space_toolkits';
     }
 
     public function description(): string
@@ -151,7 +151,7 @@ final class SpaceToolkitsTool implements ToolInterface
         }
 
         $lines[] = '';
-        $lines[] = '*Use `space_toolkits(action: "details", package: "vendor/package")` to see full details.*';
+        $lines[] = '*Use `coqui_space_toolkits(action: "details", package: "vendor/package")` to see full details.*';
 
         return ToolResult::success(implode("\n", $lines));
     }
@@ -199,7 +199,7 @@ final class SpaceToolkitsTool implements ToolInterface
         }
 
         $lines[] = '';
-        $lines[] = '*Use `space_toolkits(action: "details", package: "vendor/package")` to see full details.*';
+        $lines[] = '*Use `coqui_space_toolkits(action: "details", package: "vendor/package")` to see full details.*';
 
         return ToolResult::success(implode("\n", $lines));
     }
@@ -405,7 +405,7 @@ final class SpaceToolkitsTool implements ToolInterface
 
         $lines[] = '';
         $lines[] = '### Quick Actions';
-        $lines[] = "- Install: `space_toolkits(action: \"install\", package: \"{$name}\")`";
+        $lines[] = "- Install: `coqui_space_toolkits(action: \"install\", package: \"{$name}\")`";
 
         return ToolResult::success(implode("\n", $lines));
     }
@@ -465,8 +465,8 @@ final class SpaceToolkitsTool implements ToolInterface
         $lines[] = '';
         $lines[] = '### Quick Actions';
         if ($packageName !== '') {
-            $lines[] = "- Install: `space_toolkits(action: \"install\", package: \"{$packageName}\")`";
-            $lines[] = "- Reviews: `space_toolkits(action: \"reviews\", owner: \"{$owner}\", name: \"{$name}\")`";
+            $lines[] = "- Install: `coqui_space_toolkits(action: \"install\", package: \"{$packageName}\")`";
+            $lines[] = "- Reviews: `coqui_space_toolkits(action: \"reviews\", owner: \"{$owner}\", name: \"{$name}\")`";
         }
 
         return ToolResult::success(implode("\n", $lines));

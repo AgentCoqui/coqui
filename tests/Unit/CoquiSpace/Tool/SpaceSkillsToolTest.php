@@ -44,7 +44,7 @@ afterEach(function () {
 // ── Contract ─────────────────────────────────────────────────────────────────
 
 test('name returns space_skills', function () {
-    expect($this->tool->name())->toBe('space_skills');
+    expect($this->tool->name())->toBe('coqui_space_skills');
 });
 
 test('description is non-empty string', function () {
@@ -59,7 +59,7 @@ test('toFunctionSchema returns valid schema', function () {
     $schema = $this->tool->toFunctionSchema();
 
     expect($schema['type'])->toBe('function');
-    expect($schema['function']['name'])->toBe('space_skills');
+    expect($schema['function']['name'])->toBe('coqui_space_skills');
     expect($schema['function'])->toHaveKey('parameters');
 });
 

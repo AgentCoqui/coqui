@@ -29,7 +29,7 @@ final class SpaceSkillsTool implements ToolInterface
 
     public function name(): string
     {
-        return 'space_skills';
+        return 'coqui_space_skills';
     }
 
     public function description(): string
@@ -147,7 +147,7 @@ final class SpaceSkillsTool implements ToolInterface
         }
 
         $lines[] = '';
-        $lines[] = '*Use `space_skills(action: "details", owner: "OWNER", name: "SLUG")` to see full details.*';
+        $lines[] = '*Use `coqui_space_skills(action: "details", owner: "OWNER", name: "SLUG")` to see full details.*';
 
         return ToolResult::success(implode("\n", $lines));
     }
@@ -263,10 +263,10 @@ final class SpaceSkillsTool implements ToolInterface
 
         $lines[] = '';
         $lines[] = '### Quick Actions';
-        $lines[] = "- Install: `space_skills(action: \"install\", owner: \"{$owner}\", name: \"{$name}\")`";
-        $lines[] = "- Preview: `space_skills(action: \"file\", owner: \"{$owner}\", name: \"{$name}\")`";
-        $lines[] = "- Reviews: `space_skills(action: \"reviews\", owner: \"{$owner}\", name: \"{$name}\")`";
-        $lines[] = "- Versions: `space_skills(action: \"versions\", owner: \"{$owner}\", name: \"{$name}\")`";
+        $lines[] = "- Install: `coqui_space_skills(action: \"install\", owner: \"{$owner}\", name: \"{$name}\")`";
+        $lines[] = "- Preview: `coqui_space_skills(action: \"file\", owner: \"{$owner}\", name: \"{$name}\")`";
+        $lines[] = "- Reviews: `coqui_space_skills(action: \"reviews\", owner: \"{$owner}\", name: \"{$name}\")`";
+        $lines[] = "- Versions: `coqui_space_skills(action: \"versions\", owner: \"{$owner}\", name: \"{$name}\")`";
 
         return ToolResult::success(implode("\n", $lines));
     }

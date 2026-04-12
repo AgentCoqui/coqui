@@ -157,7 +157,6 @@ final class CoquiDefaults
         'TodoToolkit',
         'SprintToolkit',
         'CoquiSourceToolkit',
-        'SkillToolkit',
         'ComposerToolkit',
         'PackagistToolkit',
         'LoopToolkit',
@@ -178,6 +177,7 @@ final class CoquiDefaults
         'summarize_conversation',
         'extract_memories',
         'config',
-        'toolkit_list',
+        'coqui_toolkits',
+        'coqui_skills',
     ];
 }

@@ -4,11 +4,11 @@ Use the toolkit generator to scaffold new toolkit packages:
 
 These tools are available to the default orchestrator role unless toolkit visibility settings hide them.
 
-1. `toolkit_create` — create a new toolkit with composer.json, source class, and README
+1. `coqui_toolkit_create` — create a new toolkit with composer.json, source class, and README
    - Pass `dependencies` for Composer packages (comma-separated: "vendor/pkg:^1.0")
    - Pass `credentials` for API keys (JSON: '{"KEY": "description"}')
-2. `toolkit_add_tool` — add tools to an existing toolkit package
-3. `toolkit_list` — list all toolkit packages in the workspace
+2. `coqui_toolkit_add` — add tools to an existing toolkit package
+3. `coqui_toolkits` — list and manage all installed toolkit packages
 
 After creating a toolkit:
 1. Use `composer` tool (action: require, target: workspace) to install it

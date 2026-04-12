@@ -47,7 +47,7 @@ test('provides two tools', function () {
 test('tool names are correct', function () {
     $names = array_map(fn($t) => $t->name(), $this->tools);
 
-    expect($names)->toBe(['toolkit_create', 'toolkit_add_tool']);
+    expect($names)->toBe(['coqui_toolkit_create', 'coqui_toolkit_add']);
 });
 
 test('guidelines contain XML tags', function () {
@@ -69,10 +69,10 @@ function findTool(array $tools, string $name): mixed
     throw new RuntimeException("Tool not found: {$name}");
 }
 
-// ── toolkit_create ──────────────────────────────────────────────────
+// ── coqui_toolkit_create ──────────────────────────────────────────────────
 
 test('create rejects empty name', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $result = $tool->execute(['name' => '', 'description' => 'Test']);
 
     expect($result->status->value)->toBe('error');
@@ -80,7 +80,7 @@ test('create rejects empty name', function () {
 });
 
 test('create rejects empty description', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $result = $tool->execute(['name' => 'test-pkg', 'description' => '']);
 
     expect($result->status->value)->toBe('error');
@@ -88,7 +88,7 @@ test('create rejects empty description', function () {
 });
 
 test('create generates correct directory structure', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $result = $tool->execute([
         'name' => 'test-toolkit',
         'description' => 'A test toolkit',
@@ -105,7 +105,7 @@ test('create generates correct directory structure', function () {
 });
 
 test('create generates valid composer.json', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $tool->execute([
         'name' => 'my-api',
         'description' => 'My API toolkit',
@@ -124,7 +124,7 @@ test('create generates valid composer.json', function () {
 });
 
 test('create includes dependencies in composer.json', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $tool->execute([
         'name' => 'dep-test',
         'description' => 'Dependency test',
@@ -141,7 +141,7 @@ test('create includes dependencies in composer.json', function () {
 });
 
 test('create includes credentials in composer.json', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $tool->execute([
         'name' => 'cred-test',
         'description' => 'Credential test',
@@ -157,7 +157,7 @@ test('create includes credentials in composer.json', function () {
 });
 
 test('create generates toolkit class with credentials support', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $tool->execute([
         'name' => 'cred-toolkit',
         'description' => 'Toolkit with credentials',
@@ -176,7 +176,7 @@ test('create generates toolkit class with credentials support', function () {
 });
 
 test('create generates valid PHP syntax', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $tool->execute([
         'name' => 'syntax-check',
         'description' => 'Syntax check test',
@@ -193,7 +193,7 @@ test('create generates valid PHP syntax', function () {
 });
 
 test('create uses custom namespace when provided', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $tool->execute([
         'name' => 'custom-ns',
         'description' => 'Custom namespace test',
@@ -208,7 +208,7 @@ test('create uses custom namespace when provided', function () {
 });
 
 test('create rejects duplicate package', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $tool->execute(['name' => 'dupe-test', 'description' => 'First']);
     $result = $tool->execute(['name' => 'dupe-test', 'description' => 'Second']);
 
@@ -217,7 +217,7 @@ test('create rejects duplicate package', function () {
 });
 
 test('create sanitizes package name', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $tool->execute([
         'name' => 'My Special_Toolkit!!!',
         'description' => 'Name sanitization test',
@@ -228,7 +228,7 @@ test('create sanitizes package name', function () {
 });
 
 test('create strips coquibot/ prefix from name', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $tool->execute([
         'name' => 'coquibot/strip-prefix',
         'description' => 'Prefix strip test',
@@ -239,7 +239,7 @@ test('create strips coquibot/ prefix from name', function () {
 });
 
 test('create generates README with credential docs', function () {
-    $tool = findTool($this->tools, 'toolkit_create');
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
     $tool->execute([
         'name' => 'readme-cred',
         'description' => 'README credential test',
@@ -254,10 +254,10 @@ test('create generates README with credential docs', function () {
     expect($content)->toContain('Configuration');
 });
 
-// ── toolkit_add_tool ────────────────────────────────────────────────
+// ── coqui_toolkit_add ────────────────────────────────────────────────
 
 test('add_tool rejects empty toolkit name', function () {
-    $tool = findTool($this->tools, 'toolkit_add_tool');
+    $tool = findTool($this->tools, 'coqui_toolkit_add');
     $result = $tool->execute([
         'toolkit_name' => '',
         'tool_name' => 'test',
@@ -268,10 +268,10 @@ test('add_tool rejects empty toolkit name', function () {
 });
 
 test('add_tool rejects invalid snake_case name', function () {
-    $tool = findTool($this->tools, 'toolkit_add_tool');
+    $tool = findTool($this->tools, 'coqui_toolkit_add');
 
     // First create a toolkit
-    $createTool = findTool($this->tools, 'toolkit_create');
+    $createTool = findTool($this->tools, 'coqui_toolkit_create');
     $createTool->execute(['name' => 'add-test', 'description' => 'Test']);
 
     $result = $tool->execute([
@@ -285,7 +285,7 @@ test('add_tool rejects invalid snake_case name', function () {
 });
 
 test('add_tool rejects non-existent toolkit', function () {
-    $tool = findTool($this->tools, 'toolkit_add_tool');
+    $tool = findTool($this->tools, 'coqui_toolkit_add');
     $result = $tool->execute([
         'toolkit_name' => 'nonexistent',
         'tool_name' => 'test',
@@ -297,10 +297,10 @@ test('add_tool rejects non-existent toolkit', function () {
 });
 
 test('add_tool inserts new tool into toolkit', function () {
-    $createTool = findTool($this->tools, 'toolkit_create');
+    $createTool = findTool($this->tools, 'coqui_toolkit_create');
     $createTool->execute(['name' => 'addable', 'description' => 'Addable toolkit']);
 
-    $addTool = findTool($this->tools, 'toolkit_add_tool');
+    $addTool = findTool($this->tools, 'coqui_toolkit_add');
     $result = $addTool->execute([
         'toolkit_name' => 'addable',
         'tool_name' => 'fetch_data',
@@ -321,10 +321,10 @@ test('add_tool inserts new tool into toolkit', function () {
 });
 
 test('add_tool generates valid PHP after insertion', function () {
-    $createTool = findTool($this->tools, 'toolkit_create');
+    $createTool = findTool($this->tools, 'coqui_toolkit_create');
     $createTool->execute(['name' => 'valid-add', 'description' => 'Valid add test']);
 
-    $addTool = findTool($this->tools, 'toolkit_add_tool');
+    $addTool = findTool($this->tools, 'coqui_toolkit_add');
     $addTool->execute([
         'toolkit_name' => 'valid-add',
         'tool_name' => 'my_action',
@@ -341,10 +341,10 @@ test('add_tool generates valid PHP after insertion', function () {
 });
 
 test('add_tool rejects duplicate tool name', function () {
-    $createTool = findTool($this->tools, 'toolkit_create');
+    $createTool = findTool($this->tools, 'coqui_toolkit_create');
     $createTool->execute(['name' => 'dup-tool', 'description' => 'Dup test']);
 
-    $addTool = findTool($this->tools, 'toolkit_add_tool');
+    $addTool = findTool($this->tools, 'coqui_toolkit_add');
     $addTool->execute([
         'toolkit_name' => 'dup-tool',
         'tool_name' => 'my_tool',
@@ -362,10 +362,10 @@ test('add_tool rejects duplicate tool name', function () {
 });
 
 test('add_tool supports multiple parameter types', function () {
-    $createTool = findTool($this->tools, 'toolkit_create');
+    $createTool = findTool($this->tools, 'coqui_toolkit_create');
     $createTool->execute(['name' => 'multi-param', 'description' => 'Multi param test']);
 
-    $addTool = findTool($this->tools, 'toolkit_add_tool');
+    $addTool = findTool($this->tools, 'coqui_toolkit_add');
     $result = $addTool->execute([
         'toolkit_name' => 'multi-param',
         'tool_name' => 'complex_tool',
@@ -389,26 +389,26 @@ test('add_tool supports multiple parameter types', function () {
     expect($content)->toContain('EnumParameter');
 });
 
-// ── toolkit_list ────────────────────────────────────────────────────
+// ── coqui_toolkits ────────────────────────────────────────────────────
 
 test('list returns empty message when no packages exist', function () {
     // Clean packages dir
     rmdir($this->tmpDir . '/packages');
 
-    $listTool = new \CoquiBot\Coqui\Tool\ToolkitListTool(workspacePath: $this->tmpDir);
-    $result = $listTool->tool()->execute([]);
+    $listTool = new \CoquiBot\Coqui\Tool\CoquiToolkitsTool(workspacePath: $this->tmpDir);
+    $result = $listTool->tool()->execute(['action' => 'list']);
 
     expect($result->status->value)->toBe('success');
-    expect($result->content)->toContain('No toolkit packages');
+    expect($result->content)->toContain('No toolkit');
 });
 
 test('list shows created packages', function () {
-    $createTool = findTool($this->tools, 'toolkit_create');
+    $createTool = findTool($this->tools, 'coqui_toolkit_create');
     $createTool->execute(['name' => 'listed-one', 'description' => 'First listed toolkit']);
     $createTool->execute(['name' => 'listed-two', 'description' => 'Second listed toolkit']);
 
-    $listTool = new \CoquiBot\Coqui\Tool\ToolkitListTool(workspacePath: $this->tmpDir);
-    $result = $listTool->tool()->execute([]);
+    $listTool = new \CoquiBot\Coqui\Tool\CoquiToolkitsTool(workspacePath: $this->tmpDir);
+    $result = $listTool->tool()->execute(['action' => 'list']);
 
     expect($result->status->value)->toBe('success');
     expect($result->content)->toContain('coquibot/coqui-toolkit-listed-one');
@@ -418,15 +418,15 @@ test('list shows created packages', function () {
 });
 
 test('list shows credential requirements', function () {
-    $createTool = findTool($this->tools, 'toolkit_create');
+    $createTool = findTool($this->tools, 'coqui_toolkit_create');
     $createTool->execute([
         'name' => 'cred-listed',
         'description' => 'Credential listed toolkit',
         'credentials' => '{"LISTED_KEY": "A listed credential"}',
     ]);
 
-    $listTool = new \CoquiBot\Coqui\Tool\ToolkitListTool(workspacePath: $this->tmpDir);
-    $result = $listTool->tool()->execute([]);
+    $listTool = new \CoquiBot\Coqui\Tool\CoquiToolkitsTool(workspacePath: $this->tmpDir);
+    $result = $listTool->tool()->execute(['action' => 'list']);
 
     expect($result->status->value)->toBe('success');
     expect($result->content)->toContain('LISTED_KEY');

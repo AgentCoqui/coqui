@@ -40,7 +40,8 @@ Skills implement the [AgentSkills specification](https://agentskills.io/specific
 │  3. Inject skill summaries into system prompt       │
 │  4. User asks a question                            │
 │  5. Agent matches request → skill description       │
-│  6. Agent calls skill_read("skill-name")            │
+│  6. Agent calls coqui_skills(action: "read",       │
+│     name: "skill-name")                             │
 │  7. Full instructions load into context             │
 │  8. Agent follows the instructions                  │
 └─────────────────────────────────────────────────────┘
@@ -65,7 +66,7 @@ Ask Coqui to create a skill:
 ```
 You: Create a skill for reviewing PHP code with a focus on type safety
 
-Coqui: skill_create(
+Coqui: coqui_skills(action: "create",
     name: "php-code-review",
     description: "Review PHP code for type safety issues, missing type declarations, and incorrect use of mixed/null types. Use when asked to review PHP code or check types.",
     instructions: "# PHP Code Review\n\nFocus on type safety..."
@@ -116,7 +117,7 @@ Present findings as a numbered list, grouped by severity:
 3. **Suggestion** — style improvements, readability
 ```
 
-3. Restart Coqui or create the skill while Coqui is running (the `skill_create` tool invalidates the cache automatically).
+3. Restart Coqui or create the skill while Coqui is running (the `coqui_skills(action: "create")` tool invalidates the cache automatically).
 
 ## The SKILL.md Format
 
@@ -272,7 +273,7 @@ allowed-tools: Bash(git:*) Read Write
 
 ## Body Content
 
-The markdown body after the frontmatter is where the real instructions live. When the agent activates a skill via `skill_read`, this entire body is loaded into context.
+The markdown body after the frontmatter is where the real instructions live. When the agent activates a skill via `coqui_skills(action: "read")`, this entire body is loaded into context.
 
 There are no format restrictions. Write whatever helps the agent perform the task effectively.
 
@@ -329,12 +330,12 @@ Present results as a markdown table with columns: ...
 
 ## Creating Skills
 
-### With skill_create (Recommended)
+### With coqui_skills (Recommended)
 
-The `skill_create` tool validates the name, creates the directory, writes the `SKILL.md`, and invalidates the discovery cache so the skill is immediately available.
+The `coqui_skills(action: "create")` tool validates the name, creates the directory, writes the `SKILL.md`, and invalidates the discovery cache so the skill is immediately available.
 
 ```
-skill_create(
+coqui_skills(action: "create",
     name: "git-workflow",
     description: "Manage git branches, commits, and PRs following conventional patterns. Use when asked about git workflow, branching, or commit conventions.",
     instructions: "# Git Workflow\n\n## Branch Naming\n\n...",
@@ -361,7 +362,7 @@ Instructions here...
 EOF
 ```
 
-Restart Coqui to trigger discovery, or use the `skill_list` tool after a restart.
+Restart Coqui to trigger discovery, or use `coqui_skills(action: "list")` after a restart.
 
 ### From a Template
 
@@ -424,7 +425,7 @@ Skills use a three-tier loading strategy to minimize context usage:
 | Tier | What Loads | When | Token Cost |
 |---|---|---|---|
 | **Metadata** | `name` + `description` | Boot (every skill) | ~100 tokens per skill |
-| **Instructions** | Full SKILL.md body | `skill_read` activation | < 5000 tokens recommended |
+| **Instructions** | Full SKILL.md body | `coqui_skills(action: "read")` activation | < 5000 tokens recommended |
 | **Resources** | scripts/, references/, assets/ | Explicitly referenced | Varies |
 
 This means:
@@ -453,7 +454,7 @@ Skill names follow strict rules to ensure consistency and prevent conflicts:
 Coqui validates skills at multiple points:
 
 1. **Discovery time** — `SkillParser` checks frontmatter structure and required fields. Invalid skills are silently skipped (they don't break boot).
-2. **Creation time** — `skill_create` validates the name format and field lengths before writing.
+2. **Creation time** — `coqui_skills(action: "create")` validates the name format and field lengths before writing.
 3. **Manual validation** — Use `SkillParser::validate()` to check a skill directory against the spec.
 
 ### Validation Checks
@@ -474,39 +475,39 @@ Coqui validates skills at multiple points:
 ### What Happens on Invalid Skills
 
 - During **boot discovery**, invalid skills are silently skipped. This prevents a single malformed `SKILL.md` from breaking the entire skill system.
-- During **`skill_create`**, validation errors are returned as `ToolResult::error()` with specific messages. The directory is not created.
+- During **`coqui_skills(action: "create")`**, validation errors are returned as `ToolResult::error()` with specific messages. The directory is not created.
 - `SkillParser::validate()` returns an array of error strings — empty means valid.
 
 ## Skill Tools
 
-Coqui provides three built-in tools for skill management:
+Coqui provides a unified `coqui_skills` tool for skill management. Actions:
 
-### skill_list
+### list
 
 Lists all discovered skills with their names, descriptions, and paths.
 
 ```
-skill_list()
+coqui_skills(action: "list")
 ```
 
 Returns a formatted list or "No skills installed." if the skills directory is empty.
 
-### skill_read
+### read
 
 Activates a skill by loading its full markdown body into the agent's context. This is the primary mechanism for using skills.
 
 ```
-skill_read(name: "code-review")
+coqui_skills(action: "read", name: "code-review")
 ```
 
 The agent calls this when it determines a user's request matches a skill's description. The loaded instructions guide the agent's response.
 
-### skill_create
+### create
 
 Creates a new skill directory with a valid `SKILL.md`. Validates the name format and field lengths. Invalidates the discovery cache so the skill is immediately available.
 
 ```
-skill_create(
+coqui_skills(action: "create",
     name: "my-skill",
     description: "What it does and when to use it.",
     instructions: "# My Skill\n\nDetailed instructions...",
@@ -522,6 +523,8 @@ skill_create(
 | `instructions` | Yes | Markdown body content — the detailed instructions |
 | `license` | No | License name (e.g. "MIT", "Apache-2.0") |
 | `compatibility` | No | Environment requirements (max 500 chars) |
+
+Additional actions: `update`, `disable`, `enable`, `remove` — see tool description for details.
 
 ## How Discovery Works
 
@@ -560,7 +563,7 @@ If no skills are installed, the placeholder resolves to `"No skills installed."`
 
 ### Registration
 
-When `OrchestratorAgent` initializes its tools, it registers `SkillToolkit` (providing `skill_list`, `skill_read`, `skill_create`) alongside the other built-in toolkits.
+When `OrchestratorAgent` initializes its tools, it registers `CoquiSkillsTool` (providing `coqui_skills` with actions: list, read, create, update, disable, enable, remove) as a standalone always-loaded tool.
 
 ### File Layout
 
@@ -580,7 +583,7 @@ workspace/
 ### Cache Invalidation
 
 `SkillDiscovery` caches results after the first scan. The cache is invalidated:
-- When `skill_create` creates a new skill (calls `invalidateCache()`)
+- When `coqui_skills(action: "create")` creates a new skill (calls `invalidateCache()`)
 - On restart (a new `SkillDiscovery` instance is created)
 
 ## Best Practices
