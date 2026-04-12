@@ -42,7 +42,7 @@ test('prompt budget manager builds context-aware snapshot', function () {
         ],
         appliedLoadingModes: [
             'LoopToolkit' => ToolkitLoadingMode::Deferred,
-            'SkillToolkit' => ToolkitLoadingMode::Eager,
+            'ComposerToolkit' => ToolkitLoadingMode::Eager,
         ],
         loadingDecisions: [
             [

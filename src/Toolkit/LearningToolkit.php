@@ -68,8 +68,8 @@ final class LearningToolkit implements ToolkitInterface
             Workflow:
             1. Call `learning_list_poor_evaluations` to find recent poor sessions
             2. Read each evaluation report to understand failure patterns
-            3. Check existing skills with `skill_list` before creating new ones
-            4. Create or update skills with corrective SOPs
+            3. Check existing skills with `coqui_skills(action: "list")` before creating new ones
+            4. Create or update skills with `coqui_skills(action: "create", ...)` or `coqui_skills(action: "update", ...)`
 
             If no poor evaluations are found, call `done` immediately.
             </LEARNING-GUIDELINES>

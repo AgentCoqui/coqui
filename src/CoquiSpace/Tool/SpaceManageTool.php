@@ -11,41 +11,39 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\CoquiSpace\SpaceClient;
-use CoquiBot\Coqui\CoquiSpace\Installer\SkillInstaller;
-use CoquiBot\Coqui\CoquiSpace\Installer\ToolkitInstaller;
 
 /**
- * Agent-facing tool for managing installed content and social actions.
+ * Agent-facing tool for social actions and community features on Coqui Space.
  *
- * Actions: installed, disable, enable, remove, star, unstar, submit, tags, search_all,
+ * Actions: star, unstar, submit, tags, search_all,
  *          collections, review, notifications, health
+ *
+ * Local lifecycle management (installed, disable, enable, remove) has moved
+ * to coqui_toolkits and coqui_skills tools.
  */
 final class SpaceManageTool implements ToolInterface
 {
     public function __construct(
         private readonly SpaceClient $client,
-        private readonly SkillInstaller $skillInstaller,
-        private readonly ToolkitInstaller $toolkitInstaller,
     ) {}
 
     public function name(): string
     {
-        return 'space';
+        return 'coqui_space';
     }
 
     public function description(): string
     {
-        return 'Manage installed skills/toolkits and interact with Coqui Space. '
-            . 'Actions: installed (list all installed content), disable (deactivate without removing), '
-            . 'enable (reactivate disabled content), remove (uninstall), '
-            . 'star/unstar (community feedback — requires auth), '
+        return 'Interact with Coqui Space community features. '
+            . 'Actions: star/unstar (community feedback — requires auth), '
             . 'submit (submit a URL for review on coqui.space), '
             . 'tags (discover available tags for filtering), '
             . 'search_all (unified search across skills and toolkits), '
             . 'collections (manage collections — sub_action: list/create/details/update/delete/add_item/remove_item), '
             . 'review (post a review — requires auth), '
             . 'notifications (sub_action: list/mark_read/mark_all_read — requires auth), '
-            . 'health (check API status).';
+            . 'health (check API status). '
+            . 'For local management (list/disable/enable/remove), use coqui_toolkits or coqui_skills instead.';
     }
 
     public function parameters(): array
@@ -54,16 +52,15 @@ final class SpaceManageTool implements ToolInterface
             new EnumParameter(
                 'action',
                 'The operation to perform',
-                ['installed', 'disable', 'enable', 'remove', 'star', 'unstar', 'submit', 'tags', 'search_all', 'collections', 'review', 'notifications', 'health'],
+                ['star', 'unstar', 'submit', 'tags', 'search_all', 'collections', 'review', 'notifications', 'health'],
             ),
             new StringParameter('sub_action', 'Sub-action for collections/notifications', required: false),
-            new StringParameter('name', 'Content identifier: skill directory name for skills, vendor/package for toolkits. Auto-detected by "/" presence.', required: false),
-            new EnumParameter('type', 'Content type filter (for installed/tags)', ['all', 'skills', 'toolkits', 'skill', 'toolkit'], required: false),
+            new StringParameter('name', 'Content identifier: owner/name for skills, vendor/package for toolkits.', required: false),
+            new EnumParameter('type', 'Content type filter (for tags)', ['all', 'skills', 'toolkits', 'skill', 'toolkit'], required: false),
             new EnumParameter('entity_type', 'Entity type for star/unstar/review/collection items', ['skill', 'toolkit'], required: false),
             new StringParameter('owner', 'GitHub username (required for star/unstar/review)', required: false),
             new StringParameter('source_url', 'Repository or source URL (required for submit)', required: false),
             new StringParameter('notes', 'Additional notes for submission', required: false),
-            new BoolParameter('purge', 'Permanently delete when removing (default: false — just disables)', required: false),
             new StringParameter('query', 'Search keywords (required for search_all)', required: false),
             new NumberParameter('limit', 'Maximum results (1-50)', required: false),
             new StringParameter('cursor', 'Pagination cursor', required: false),
@@ -90,10 +87,6 @@ final class SpaceManageTool implements ToolInterface
 
         try {
             return match ($action) {
-                'installed' => $this->installed($input),
-                'disable' => $this->disable($input),
-                'enable' => $this->enable($input),
-                'remove' => $this->remove($input),
                 'star' => $this->star($input),
                 'unstar' => $this->unstar($input),
                 'submit' => $this->submit($input),
@@ -103,7 +96,7 @@ final class SpaceManageTool implements ToolInterface
                 'review' => $this->review($input),
                 'notifications' => $this->notifications($input),
                 'health' => $this->health(),
-                default => ToolResult::error("Unknown action: '{$action}'. Valid: installed, disable, enable, remove, star, unstar, submit, tags, search_all, collections, review, notifications, health"),
+                default => ToolResult::error("Unknown action: '{$action}'. Valid: star, unstar, submit, tags, search_all, collections, review, notifications, health"),
             };
         } catch (\Throwable $e) {
             return ToolResult::error($e->getMessage());
@@ -137,131 +130,6 @@ final class SpaceManageTool implements ToolInterface
     }
 
     // ── Actions ──────────────────────────────────────────────────────
-
-    /**
-     * @param array<string, mixed> $input
-     */
-    private function installed(array $input): ToolResult
-    {
-        $type = (string) ($input['type'] ?? 'all');
-
-        $lines = ['## Installed Content'];
-        $hasContent = false;
-
-        // Skills
-        if ($type === 'all' || $type === 'skills' || $type === 'skill') {
-            $skills = $this->skillInstaller->list();
-            $lines[] = '';
-            $lines[] = '### Skills';
-
-            if ($skills === []) {
-                $lines[] = 'No skills installed.';
-            } else {
-                $lines[] = '';
-                $lines[] = '| Name | Version | Status | Source | Origin |';
-                $lines[] = '|------|---------|--------|--------|--------|';
-
-                foreach ($skills as $skill) {
-                    $origin = $skill['source'] === 'coqui.space'
-                        ? "`{$skill['owner']}/{$skill['slug']}`"
-                        : 'local';
-                    $statusIcon = $skill['status'] === 'enabled' ? '✓' : '○';
-
-                    $lines[] = "| {$skill['name']} | {$skill['version']} | {$statusIcon} {$skill['status']} | {$skill['source']} | {$origin} |";
-                }
-
-                $hasContent = true;
-            }
-        }
-
-        // Toolkits
-        if ($type === 'all' || $type === 'toolkits' || $type === 'toolkit') {
-            $toolkits = $this->toolkitInstaller->list();
-            $lines[] = '';
-            $lines[] = '### Toolkits';
-
-            if ($toolkits === []) {
-                $lines[] = 'No Coqui toolkits installed.';
-            } else {
-                $lines[] = '';
-                $lines[] = '| Package | Constraint | Status |';
-                $lines[] = '|---------|------------|--------|';
-
-                foreach ($toolkits as $toolkit) {
-                    $statusIcon = $toolkit['status'] === 'enabled' ? '✓' : '○';
-                    $lines[] = "| `{$toolkit['package']}` | {$toolkit['constraint']} | {$statusIcon} {$toolkit['status']} |";
-                }
-
-                $hasContent = true;
-            }
-        }
-
-        if (!$hasContent && $type === 'all') {
-            $lines[] = '';
-            $lines[] = 'No skills or toolkits installed. Use `space_skills(action: "search", query: "...")` or `space_toolkits(action: "search", query: "...")` to discover content.';
-        }
-
-        return ToolResult::success(implode("\n", $lines));
-    }
-
-    /**
-     * @param array<string, mixed> $input
-     */
-    private function disable(array $input): ToolResult
-    {
-        $name = (string) ($input['name'] ?? '');
-        if ($name === '') {
-            return ToolResult::error('Parameter "name" is required for disable.');
-        }
-
-        if ($this->isToolkit($name)) {
-            $message = $this->toolkitInstaller->disable($name);
-        } else {
-            $message = $this->skillInstaller->disable($name);
-        }
-
-        return ToolResult::success($message);
-    }
-
-    /**
-     * @param array<string, mixed> $input
-     */
-    private function enable(array $input): ToolResult
-    {
-        $name = (string) ($input['name'] ?? '');
-        if ($name === '') {
-            return ToolResult::error('Parameter "name" is required for enable.');
-        }
-
-        if ($this->isToolkit($name)) {
-            $message = $this->toolkitInstaller->enable($name);
-        } else {
-            $message = $this->skillInstaller->enable($name);
-        }
-
-        return ToolResult::success($message);
-    }
-
-    /**
-     * @param array<string, mixed> $input
-     */
-    private function remove(array $input): ToolResult
-    {
-        $name = (string) ($input['name'] ?? '');
-        if ($name === '') {
-            return ToolResult::error('Parameter "name" is required for remove.');
-        }
-
-        $purge = (bool) ($input['purge'] ?? false);
-
-        if ($this->isToolkit($name)) {
-            $message = $this->toolkitInstaller->remove($name);
-        } else {
-            $message = $this->skillInstaller->remove($name, $purge);
-        }
-
-        return ToolResult::success($message);
-    }
 
     /**
      * @param array<string, mixed> $input
@@ -382,7 +250,7 @@ final class SpaceManageTool implements ToolInterface
         }
 
         $lines[] = '';
-        $lines[] = '*Use tags to filter results: `space_skills(action: "list", tags: "tag-slug")` or `space_toolkits(action: "list", tags: "tag-slug")`*';
+        $lines[] = '*Use tags to filter results: `coqui_space_skills(action: "list", tags: "tag-slug")` or `coqui_space_toolkits(action: "list", tags: "tag-slug")`*';
 
         return ToolResult::success(implode("\n", $lines));
     }
@@ -767,13 +635,5 @@ final class SpaceManageTool implements ToolInterface
             return number_format($value / 1_000, 1) . 'K';
         }
         return (string) $value;
-    }
-
-    /**
-     * Determine if a name refers to a toolkit (contains /) or a skill.
-     */
-    private function isToolkit(string $name): bool
-    {
-        return str_contains($name, '/');
     }
 }
