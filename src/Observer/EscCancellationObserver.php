@@ -13,21 +13,27 @@ use Symfony\Component\Console\Output\OutputInterface;
  * Decorator over TerminalObserver that detects ESC keypresses during agent execution.
  *
  * On each agent event (streaming chunk, tool call, etc.), performs a non-blocking
- * read on STDIN. If an ESC byte (0x1B) is detected, sets the cancellation token so
- * the agent stops cooperatively after its current operation.
+ * read on STDIN. If a standalone ESC byte (0x1B) is confirmed instead of the start
+ * of an ANSI escape sequence, sets the cancellation token so the agent stops
+ * cooperatively after its current operation.
  *
  * Requires the terminal to be in raw mode (min 0 time 0) so ESC is delivered
  * immediately without waiting for Enter. RunCommand manages this via stty before
- * and after each agent turn.
+ * and after each agent turn. ANSI sequences such as arrow keys are consumed and
+ * ignored so they do not cancel the request or leak into the next readline prompt.
  *
  * Falls back to a no-op if STDIN is not a TTY (piped input, Docker, CI).
  */
 final class EscCancellationObserver implements SplObserver
 {
+    private const int ESC_SEQUENCE_GRACE_USEC = 100000;
+
     private readonly bool $isTty;
     /** @var resource */
     private readonly mixed $stdin;
     private bool $messageShown = false;
+    private string $pendingEscape = '';
+    private ?float $pendingEscapeStartedAt = null;
 
     /** Set to true by RunCommand during agent execution; false otherwise. */
     public bool $active = false;
@@ -60,6 +66,7 @@ final class EscCancellationObserver implements SplObserver
     {
         $this->token = $token;
         $this->messageShown = false;
+        $this->resetPendingEscape();
     }
 
     /**
@@ -72,6 +79,7 @@ final class EscCancellationObserver implements SplObserver
     {
         $this->token = $token;
         $this->messageShown = false;
+        $this->resetPendingEscape();
         $this->drainPendingInput();
         $this->active = true;
     }
@@ -86,6 +94,7 @@ final class EscCancellationObserver implements SplObserver
     {
         $this->active = false;
         $this->messageShown = false;
+        $this->resetPendingEscape();
         $this->drainPendingInput();
     }
 
@@ -95,31 +104,8 @@ final class EscCancellationObserver implements SplObserver
             return;
         }
 
-        if ($this->isSelectableStream()) {
-            $read = [$this->stdin];
-            $write = $except = [];
-            $available = @stream_select($read, $write, $except, 0, 0);
-        } else {
-            $available = 1;
-        }
-
-        $byte = ($available > 0) ? @fread($this->stdin, 1) : false;
-
-        if ($byte !== "\x1B") {
-            return;
-        }
-
-        $this->token->cancel();
-
-        if ($this->messageShown) {
-            return;
-        }
-
-        $this->messageShown = true;
-        $this->output->write("\r\033[K");
-        $this->output->writeln(
-            "\n<fg=yellow>⚑ Cancellation requested — returning to the REPL...</>",
-        );
+        $this->consumeAvailableInput();
+        $this->cancelPendingEscapeIfConfirmed();
     }
 
     public function update(SplSubject $subject): void
@@ -134,6 +120,8 @@ final class EscCancellationObserver implements SplObserver
         if (!$this->isTty) {
             return;
         }
+
+        $this->resetPendingEscape();
 
         if ($this->isSelectableStream()) {
             $read = [$this->stdin];
@@ -166,5 +154,119 @@ final class EscCancellationObserver implements SplObserver
         $meta = @stream_get_meta_data($this->stdin);
 
         return is_array($meta) && empty($meta['seekable']);
+    }
+
+    private function consumeAvailableInput(): void
+    {
+        while ($this->isInputAvailable()) {
+            $chunk = @fread($this->stdin, 32);
+            if ($chunk === false || $chunk === '') {
+                return;
+            }
+
+            $this->consumeChunk($chunk);
+
+            if ($this->token->isCancelled()) {
+                return;
+            }
+        }
+    }
+
+    private function consumeChunk(string $chunk): void
+    {
+        foreach (str_split($chunk) as $byte) {
+            if ($this->pendingEscape !== '') {
+                $this->consumePendingEscapeByte($byte);
+                continue;
+            }
+
+            if ($byte === "\x1B") {
+                $this->pendingEscape = "\x1B";
+                $this->pendingEscapeStartedAt = microtime(true);
+            }
+        }
+    }
+
+    private function consumePendingEscapeByte(string $byte): void
+    {
+        $this->pendingEscape .= $byte;
+
+        if ($this->pendingEscape === "\x1B[" || $this->pendingEscape === "\x1BO") {
+            return;
+        }
+
+        if ($this->isAnsiSequencePrefix($this->pendingEscape)) {
+            if ($this->isAnsiSequenceComplete($this->pendingEscape)) {
+                $this->resetPendingEscape();
+            }
+
+            return;
+        }
+
+        $this->resetPendingEscape();
+    }
+
+    private function cancelPendingEscapeIfConfirmed(): void
+    {
+        if ($this->pendingEscapeStartedAt === null) {
+            return;
+        }
+
+        $elapsedUsec = (int) ((microtime(true) - $this->pendingEscapeStartedAt) * 1_000_000);
+        if ($elapsedUsec < self::ESC_SEQUENCE_GRACE_USEC) {
+            return;
+        }
+
+        if ($this->pendingEscape === "\x1B") {
+            $this->resetPendingEscape();
+            $this->token->cancel();
+            $this->showCancellationMessage();
+            return;
+        }
+
+        $this->resetPendingEscape();
+    }
+
+    private function showCancellationMessage(): void
+    {
+        if ($this->messageShown) {
+            return;
+        }
+
+        $this->messageShown = true;
+        $this->output->write("\r\033[K");
+        $this->output->writeln(
+            "\n<fg=yellow>⚑ Cancellation requested — returning to the REPL...</>",
+        );
+    }
+
+    private function resetPendingEscape(): void
+    {
+        $this->pendingEscape = '';
+        $this->pendingEscapeStartedAt = null;
+    }
+
+    private function isInputAvailable(): bool
+    {
+        if ($this->isSelectableStream()) {
+            $read = [$this->stdin];
+            $write = $except = [];
+
+            return @stream_select($read, $write, $except, 0, 0) > 0;
+        }
+
+        return true;
+    }
+
+    private function isAnsiSequencePrefix(string $bytes): bool
+    {
+        return str_starts_with($bytes, "\x1B[") || str_starts_with($bytes, "\x1BO");
+    }
+
+    private function isAnsiSequenceComplete(string $bytes): bool
+    {
+        $lastByte = ord($bytes[strlen($bytes) - 1]);
+
+        return $lastByte >= 64 && $lastByte <= 126;
     }
 }

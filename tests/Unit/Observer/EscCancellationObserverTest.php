@@ -50,6 +50,21 @@ function makeEscObserver(
     return [$observer, $output];
 }
 
+/**
+ * Append bytes to the fake STDIN stream without disturbing the current read pointer.
+ *
+ * @param resource $stream
+ */
+function appendToStdin(mixed $stream, string $bytes): void
+{
+    $position = ftell($stream);
+    assert($position !== false);
+
+    fseek($stream, 0, SEEK_END);
+    fwrite($stream, $bytes);
+    fseek($stream, $position);
+}
+
 // --- Active flag ---
 
 test('inactive observer does not read stdin', function () {
@@ -69,6 +84,8 @@ test('active observer reads stdin and cancels on ESC', function () {
     [$observer] = makeEscObserver($token, $stdin);
 
     $observer->active = true;
+    $observer->update(makeSubject());
+    usleep(110000);
     $observer->update(makeSubject());
 
     expect($token->isCancelled())->toBeTrue();
@@ -107,18 +124,22 @@ test('cancellation message is printed when ESC detected', function () {
 
     $observer->active = true;
     $observer->update(makeSubject());
+    usleep(110000);
+    $observer->update(makeSubject());
 
     expect($output->fetch())->toContain('Cancellation requested');
 });
 
 test('cancellation message is printed only once across multiple events', function () {
-    // Pre-load two ESC bytes so both update() calls read an ESC
-    $stdin = makeStdin("\x1B\x1B");
+    $stdin = makeStdin("\x1B");
     $token = new ProcessCancellationToken();
     [$observer, $output] = makeEscObserver($token, $stdin);
 
     $observer->active = true;
     $observer->update(makeSubject());
+    usleep(110000);
+    $observer->update(makeSubject());
+    appendToStdin($stdin, "\x1B");
     $observer->update(makeSubject());
 
     expect(substr_count($output->fetch(), 'Cancellation requested'))->toBe(1);
@@ -127,12 +148,14 @@ test('cancellation message is printed only once across multiple events', functio
 // --- setToken() ---
 
 test('setToken replaces the token and resets message flag', function () {
-    $stdin = makeStdin("\x1B\x1B");
+    $stdin = makeStdin("\x1B");
     $token1 = new ProcessCancellationToken();
     [$observer, $output] = makeEscObserver($token1, $stdin);
 
     // First turn: cancel token1 and show message
     $observer->active = true;
+    $observer->update(makeSubject());
+    usleep(110000);
     $observer->update(makeSubject());
     expect($token1->isCancelled())->toBeTrue();
     $output->fetch(); // flush output
@@ -140,6 +163,9 @@ test('setToken replaces the token and resets message flag', function () {
     // Second turn: new token, message flag reset
     $token2 = new ProcessCancellationToken();
     $observer->setToken($token2);
+    appendToStdin($stdin, "\x1B");
+    $observer->update(makeSubject());
+    usleep(110000);
     $observer->update(makeSubject());
 
     expect($token2->isCancelled())->toBeTrue();
@@ -147,12 +173,14 @@ test('setToken replaces the token and resets message flag', function () {
 });
 
 test('endTurn drains stale ESC bytes so the next turn starts clean', function () {
-    $stdin = makeStdin("\x1B\x1B");
+    $stdin = makeStdin("\x1B");
     $token1 = new ProcessCancellationToken();
     [$observer, $output] = makeEscObserver($token1, $stdin);
 
     $observer->setToken($token1);
     $observer->active = true;
+    $observer->update(makeSubject());
+    usleep(110000);
     $observer->update(makeSubject());
 
     expect($token1->isCancelled())->toBeTrue();
@@ -188,10 +216,42 @@ test('inner observer update() is called even after ESC cancellation', function (
 
     $observer->active = true;
     $observer->update(makeSubject());
+    usleep(110000);
+    $observer->update(makeSubject());
     $output->fetch(); // flush cancellation message
 
     // Next event: already cancelled, inner observer should still be called without error
     expect(fn () => $observer->update(makeSubject()))->not->toThrow(\Throwable::class);
+});
+
+test('up arrow does not cancel token', function () {
+    $stdin = makeStdin("\x1B[A");
+    $token = new ProcessCancellationToken();
+    [$observer, $output] = makeEscObserver($token, $stdin);
+
+    $observer->active = true;
+    $observer->update(makeSubject());
+    usleep(110000);
+    $observer->update(makeSubject());
+
+    expect($token->isCancelled())->toBeFalse();
+    expect($output->fetch())->not->toContain('Cancellation requested');
+});
+
+test('fragmented up arrow does not cancel token', function () {
+    $stdin = makeStdin("\x1B");
+    $token = new ProcessCancellationToken();
+    [$observer, $output] = makeEscObserver($token, $stdin);
+
+    $observer->active = true;
+    $observer->update(makeSubject());
+    appendToStdin($stdin, "[A");
+    $observer->update(makeSubject());
+    usleep(110000);
+    $observer->update(makeSubject());
+
+    expect($token->isCancelled())->toBeFalse();
+    expect($output->fetch())->not->toContain('Cancellation requested');
 });
 
 // --- Already-cancelled token ---

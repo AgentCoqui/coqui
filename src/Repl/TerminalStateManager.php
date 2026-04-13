@@ -15,6 +15,20 @@ namespace CoquiBot\Coqui\Repl;
  */
 final class TerminalStateManager
 {
+    /** @var resource */
+    private readonly mixed $stdin;
+    private readonly bool $isTty;
+
+    /**
+     * @param resource|null $stdin  Injectable stdin resource — defaults to STDIN. Used in tests.
+     * @param bool|null     $isTty  Override TTY detection for non-TTY test streams.
+     */
+    public function __construct(mixed $stdin = null, ?bool $isTty = null)
+    {
+        $this->stdin = $stdin ?? STDIN;
+        $this->isTty = $isTty ?? (is_resource($this->stdin) && stream_isatty($this->stdin));
+    }
+
     /**
      * Returns true when STDIN is an interactive TTY.
      *
@@ -23,9 +37,7 @@ final class TerminalStateManager
      */
     public function isInteractiveTty(): bool
     {
-        // stream_isatty() is more reliable than posix_isatty() for PHP stream resources.
-        // posix_isatty() can return false on macOS for php://stdin even in a real TTY.
-        return stream_isatty(STDIN);
+        return $this->isTty;
     }
 
     /**
@@ -35,7 +47,7 @@ final class TerminalStateManager
      */
     public function saveState(): ?string
     {
-        if (!$this->isInteractiveTty()) {
+        if (!$this->isInteractiveTty() || !$this->targetsProcessStdin()) {
             return null;
         }
 
@@ -58,10 +70,13 @@ final class TerminalStateManager
             return;
         }
 
-        shell_exec('stty -icanon -echo min 0 time 0 2>/dev/null');
+        if ($this->targetsProcessStdin()) {
+            shell_exec('stty -icanon -echo min 0 time 0 2>/dev/null');
+        }
+
         // Also set PHP's stream layer to non-blocking so fread() returns immediately
         // when no bytes are available, regardless of the OS-level stty settings.
-        stream_set_blocking(STDIN, false);
+        stream_set_blocking($this->stdin, false);
     }
 
     /**
@@ -72,13 +87,16 @@ final class TerminalStateManager
      */
     public function restoreState(?string $state): void
     {
-        if ($state === null || $state === '' || !$this->isInteractiveTty()) {
+        if (!$this->isInteractiveTty()) {
             return;
         }
 
-        shell_exec('stty ' . escapeshellarg($state) . ' 2>/dev/null');
+        if ($state !== null && $state !== '' && $this->targetsProcessStdin()) {
+            shell_exec('stty ' . escapeshellarg($state) . ' 2>/dev/null');
+        }
+
         // Restore PHP stream to blocking so readline's stream_select loop works correctly.
-        stream_set_blocking(STDIN, true);
+        stream_set_blocking($this->stdin, true);
     }
 
     /**
@@ -94,11 +112,15 @@ final class TerminalStateManager
             return;
         }
 
-        $read = [STDIN];
+        $read = [$this->stdin];
         $write = $except = [];
         while (@stream_select($read, $write, $except, 0, 0) > 0) {
-            @fread(STDIN, 128);
-            $read = [STDIN];
+            $chunk = @fread($this->stdin, 128);
+            if ($chunk === false || $chunk === '') {
+                break;
+            }
+
+            $read = [$this->stdin];
             $write = $except = [];
         }
     }
@@ -115,12 +137,13 @@ final class TerminalStateManager
     public function registerShutdownGuard(): \Closure
     {
         $shutdownStty = null;
+        $shouldRestore = $this->isInteractiveTty() && $this->targetsProcessStdin();
 
-        register_shutdown_function(static function () use (&$shutdownStty): void {
+        register_shutdown_function(static function () use (&$shutdownStty, $shouldRestore): void {
             // PHPStan cannot model that $shutdownStty (captured by reference) is
             // mutated later; it treats it as always-null inside the closure.
             // @phpstan-ignore booleanAnd.alwaysFalse, notIdentical.alwaysFalse, notIdentical.alwaysTrue
-            if ($shutdownStty !== null && $shutdownStty !== '') {
+            if ($shouldRestore && $shutdownStty !== null && $shutdownStty !== '') {
                 shell_exec('stty ' . escapeshellarg($shutdownStty) . ' 2>/dev/null');
             }
         });
@@ -128,5 +151,10 @@ final class TerminalStateManager
         return static function (?string $state) use (&$shutdownStty): void {
             $shutdownStty = $state;
         };
+    }
+
+    private function targetsProcessStdin(): bool
+    {
+        return defined('STDIN') && $this->stdin === STDIN;
     }
 }
