@@ -279,6 +279,8 @@ final class ArtifactToolkit implements ToolkitInterface
                     'version' => $a['version'],
                     'language' => $a['language'],
                     'filepath' => $a['filepath'],
+                    'storage_mode' => $a['storage_mode'] ?? 'database',
+                    'canonical_path' => $a['canonical_path'] ?? null,
                     'project_id' => $a['project_id'] ?? null,
                     'sprint_id' => $a['sprint_id'] ?? null,
                     'updated_at' => $a['updated_at'],
