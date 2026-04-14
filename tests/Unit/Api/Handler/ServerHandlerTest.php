@@ -16,6 +16,7 @@ use React\Http\Message\ServerRequest;
 
 function createServerHandlerFixture(): array
 {
+    $workspacePath = '/tmp/coqui';
     $dbPath = sys_get_temp_dir() . '/coqui-server-handler-' . bin2hex(random_bytes(8)) . '.db';
     $storage = new SessionStorage($dbPath);
     $evaluationStore = new EvaluationStore($storage->getPdo());
@@ -50,12 +51,13 @@ function createServerHandlerFixture(): array
     );
 
     return [
+        'workspacePath' => $workspacePath,
         'dbPath' => $dbPath,
         'storage' => $storage,
         'scheduleStore' => $scheduleStore,
         'qualityStatus' => $qualityStatus,
-        'turnManager' => new AgentTurnManager($storage, '/tmp/coqui', '/tmp/openclaw.json', '/tmp'),
-        'taskManager' => new BackgroundTaskManager($storage, '/tmp/coqui', '/tmp/openclaw.json', '/tmp'),
+        'turnManager' => new AgentTurnManager($storage, $workspacePath, '/tmp/openclaw.json', '/tmp'),
+        'taskManager' => new BackgroundTaskManager($storage, $workspacePath, '/tmp/openclaw.json', '/tmp'),
     ];
 }
 
@@ -74,6 +76,8 @@ test('server info includes quality automation summary', function () {
             storage: $fixture['storage'],
             startTime: microtime(true) - 5,
             turnManager: $fixture['turnManager'],
+            workspacePath: $fixture['workspacePath'],
+            databasePath: $fixture['dbPath'],
             taskManager: $fixture['taskManager'],
             qualityAutomation: $fixture['qualityStatus'],
         );
@@ -98,6 +102,8 @@ test('server quality endpoint returns detailed quality automation state', functi
             storage: $fixture['storage'],
             startTime: microtime(true) - 5,
             turnManager: $fixture['turnManager'],
+            workspacePath: $fixture['workspacePath'],
+            databasePath: $fixture['dbPath'],
             taskManager: $fixture['taskManager'],
             qualityAutomation: $fixture['qualityStatus'],
         );
@@ -121,6 +127,8 @@ test('health handler includes quality automation summary', function () {
         $handler = new HealthHandler(
             startTime: microtime(true) - 5,
             turnManager: $fixture['turnManager'],
+            workspacePath: $fixture['workspacePath'],
+            databasePath: $fixture['dbPath'],
             taskManager: $fixture['taskManager'],
             scheduleStore: $fixture['scheduleStore'],
             webhookStore: null,

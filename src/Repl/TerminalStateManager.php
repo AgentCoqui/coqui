@@ -136,20 +136,19 @@ final class TerminalStateManager
      */
     public function registerShutdownGuard(): \Closure
     {
-        $shutdownStty = null;
+        $shutdownState = new class () {
+            public ?string $stty = null;
+        };
         $shouldRestore = $this->isInteractiveTty() && $this->targetsProcessStdin();
 
-        register_shutdown_function(static function () use (&$shutdownStty, $shouldRestore): void {
-            // PHPStan cannot model that $shutdownStty (captured by reference) is
-            // mutated later; it treats it as always-null inside the closure.
-            // @phpstan-ignore booleanAnd.alwaysFalse, notIdentical.alwaysFalse, notIdentical.alwaysTrue
-            if ($shouldRestore && $shutdownStty !== null && $shutdownStty !== '') {
-                shell_exec('stty ' . escapeshellarg($shutdownStty) . ' 2>/dev/null');
+        register_shutdown_function(static function () use ($shutdownState, $shouldRestore): void {
+            if ($shouldRestore && $shutdownState->stty !== null && $shutdownState->stty !== '') {
+                shell_exec('stty ' . escapeshellarg($shutdownState->stty) . ' 2>/dev/null');
             }
         });
 
-        return static function (?string $state) use (&$shutdownStty): void {
-            $shutdownStty = $state;
+        return static function (?string $state) use ($shutdownState): void {
+            $shutdownState->stty = $state;
         };
     }
 
