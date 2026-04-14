@@ -6,7 +6,7 @@ It is intentionally concise. Use it for the project model, coding boundaries, an
 
 ## What Coqui Is
 
-Coqui is a CLI-first AI agent built on [`carmelosantana/php-agents`](https://github.com/carmelosantana/php-agents).
+Coqui is a personal operating system — a lightweight, hackable agent runtime built on [`carmelosantana/php-agents`](https://github.com/carmelosantana/php-agents). It supports coding, research, automation, and any workflow that benefits from persistent AI agents.
 
 At a high level:
 

@@ -17,13 +17,19 @@ use PDO;
 final class ArtifactStore
 {
     private PDO $db;
+    private ?ArtifactFileService $fileService;
+    private ?ProjectStore $projectStore;
 
     /**
      * @param PDO $db Shared PDO connection (from SessionStorage::getPdo())
+     * @param ArtifactFileService|null $fileService When provided, eligible artifacts write canonical content to disk.
+     * @param ProjectStore|null $projectStore When provided, resolves project directory for auto-generated paths.
      */
-    public function __construct(PDO $db)
+    public function __construct(PDO $db, ?ArtifactFileService $fileService = null, ?ProjectStore $projectStore = null)
     {
         $this->db = $db;
+        $this->fileService = $fileService;
+        $this->projectStore = $projectStore;
         $this->createTables();
     }
 
@@ -72,6 +78,11 @@ final class ArtifactStore
         $this->migrateAddColumn('artifacts', 'project_id', "TEXT");
         $this->migrateAddColumn('artifacts', 'sprint_id', "TEXT");
         $this->migrateAddColumn('artifacts', 'persistent', 'INTEGER NOT NULL DEFAULT 0');
+
+        // Hybrid filesystem columns — track canonical file path and storage mode
+        $this->migrateAddColumn('artifacts', 'storage_mode', "TEXT NOT NULL DEFAULT 'database'");
+        $this->migrateAddColumn('artifacts', 'canonical_path', 'TEXT');
+        $this->migrateAddColumn('artifacts', 'content_hash', 'TEXT');
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
@@ -141,6 +152,19 @@ final class ArtifactStore
         // Save initial version
         $this->saveVersion($id, 1, $content, 'Initial version');
 
+        // Filesystem-backed: resolve canonical path, write file, update DB metadata
+        if ($this->fileService !== null && $this->fileService->isFilesystemBacked($type, $filepath, $projectId)) {
+            $projectDir = $this->resolveProjectDirectory($projectId);
+            $canonicalPath = $this->fileService->resolveCanonicalPath($id, $type, $title, $filepath, $projectId, $projectDir);
+
+            if ($canonicalPath !== null && $this->fileService->writeContent($canonicalPath, $content)) {
+                $contentHash = $this->fileService->computeContentHash($content);
+                $this->db->prepare(
+                    'UPDATE artifacts SET storage_mode = ?, canonical_path = ?, content_hash = ?, filepath = COALESCE(filepath, ?) WHERE id = ?',
+                )->execute(['filesystem', $canonicalPath, $contentHash, $canonicalPath, $id]);
+            }
+        }
+
         return $id;
     }
 
@@ -185,6 +209,14 @@ final class ArtifactStore
         // Save version snapshot
         $this->saveVersion($id, $newVersion, $content, $changeSummary);
 
+        // Filesystem-backed: write updated content to canonical file
+        $canonicalPath = $artifact['canonical_path'] ?? null;
+        if ($this->fileService !== null && is_string($canonicalPath) && $canonicalPath !== '' && ($artifact['storage_mode'] ?? 'database') === 'filesystem') {
+            $this->fileService->writeContent($canonicalPath, $content);
+            $contentHash = $this->fileService->computeContentHash($content);
+            $this->db->prepare('UPDATE artifacts SET content_hash = ? WHERE id = ?')->execute([$contentHash, $id]);
+        }
+
         return true;
     }
 
@@ -195,6 +227,40 @@ final class ArtifactStore
      * @return array<string, mixed>|null
      */
     public function get(string $id, ?string $sessionId = null): ?array
+    {
+        if ($sessionId !== null) {
+            $stmt = $this->db->prepare('SELECT * FROM artifacts WHERE id = ? AND session_id = ?');
+            $stmt->execute([$id, $sessionId]);
+        } else {
+            $stmt = $this->db->prepare('SELECT * FROM artifacts WHERE id = ?');
+            $stmt->execute([$id]);
+        }
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($row === false) {
+            return null;
+        }
+
+        // For filesystem-backed artifacts, prefer the disk content over the DB snapshot
+        $canonicalPath = $row['canonical_path'] ?? null;
+        if ($this->fileService !== null && is_string($canonicalPath) && $canonicalPath !== '' && ($row['storage_mode'] ?? 'database') === 'filesystem') {
+            $diskContent = $this->fileService->readContent($canonicalPath);
+            if ($diskContent !== null) {
+                $row['content'] = $diskContent;
+            }
+        }
+
+        return $row;
+    }
+
+    /**
+     * Get a single artifact's raw DB row without the disk-content overlay.
+     *
+     * Used internally where we need to compare DB content against disk (e.g. drift sync).
+     *
+     * @return array<string, mixed>|null
+     */
+    private function getRaw(string $id, ?string $sessionId = null): ?array
     {
         if ($sessionId !== null) {
             $stmt = $this->db->prepare('SELECT * FROM artifacts WHERE id = ? AND session_id = ?');
@@ -268,6 +334,15 @@ final class ArtifactStore
      */
     public function delete(string $id, ?string $sessionId = null): bool
     {
+        // Delete canonical file first (before losing the DB record)
+        if ($this->fileService !== null) {
+            $artifact = $this->get($id, $sessionId);
+            $canonicalPath = $artifact['canonical_path'] ?? null;
+            if ($artifact !== null && is_string($canonicalPath) && $canonicalPath !== '' && ($artifact['storage_mode'] ?? 'database') === 'filesystem') {
+                $this->fileService->deleteFile($canonicalPath);
+            }
+        }
+
         if ($sessionId !== null) {
             $stmt = $this->db->prepare('DELETE FROM artifacts WHERE id = ? AND session_id = ?');
             $stmt->execute([$id, $sessionId]);
@@ -344,6 +419,22 @@ final class ArtifactStore
      */
     public function updateStage(string $id, string $stage, ?string $sessionId = null): bool
     {
+        // For filesystem-backed artifacts, sync disk content to DB before stage transition.
+        // This ensures PlanTodoGenerator and other post-finalization consumers see the
+        // latest content even if the file was edited externally.
+        // Uses getRaw() to avoid the disk-content overlay that get() applies.
+        if ($this->fileService !== null) {
+            $artifact = $this->getRaw($id, $sessionId);
+            $canonicalPath = $artifact['canonical_path'] ?? null;
+            if ($artifact !== null && is_string($canonicalPath) && $canonicalPath !== '' && ($artifact['storage_mode'] ?? 'database') === 'filesystem') {
+                $diskContent = $this->fileService->readContent($canonicalPath);
+                if ($diskContent !== null && $diskContent !== ($artifact['content'] ?? '')) {
+                    $contentHash = $this->fileService->computeContentHash($diskContent);
+                    $this->db->prepare('UPDATE artifacts SET content = ?, content_hash = ? WHERE id = ?')->execute([$diskContent, $contentHash, $id]);
+                }
+            }
+        }
+
         $now = gmdate('Y-m-d\TH:i:s\Z');
 
         if ($sessionId !== null) {
@@ -374,6 +465,18 @@ final class ArtifactStore
      */
     public function cleanupFinalized(): int
     {
+        // Delete canonical files for filesystem-backed artifacts before removing DB records
+        if ($this->fileService !== null) {
+            $filesToDelete = $this->db->query(
+                "SELECT canonical_path FROM artifacts WHERE stage = 'final' AND persistent = 0 AND type != 'loop_output' AND storage_mode = 'filesystem' AND canonical_path IS NOT NULL",
+            );
+            if ($filesToDelete !== false) {
+                while ($row = $filesToDelete->fetch(PDO::FETCH_ASSOC)) {
+                    $this->fileService->deleteFile((string) $row['canonical_path']);
+                }
+            }
+        }
+
         $stmt = $this->db->prepare("DELETE FROM artifacts WHERE stage = 'final' AND persistent = 0 AND type != 'loop_output'");
         $stmt->execute();
 
@@ -428,6 +531,22 @@ final class ArtifactStore
         $stmt->execute([$sessionId]);
 
         return ((int) $stmt->fetchColumn()) > 0;
+    }
+
+    /**
+     * Resolve the project directory name, or null if no project store or project.
+     */
+    private function resolveProjectDirectory(?string $projectId): ?string
+    {
+        if ($projectId === null || $projectId === '' || $this->projectStore === null) {
+            return null;
+        }
+
+        try {
+            return $this->projectStore->getProjectDirectory($projectId);
+        } catch (\InvalidArgumentException) {
+            return null;
+        }
     }
 
     private function saveVersion(

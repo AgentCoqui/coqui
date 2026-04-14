@@ -12,17 +12,25 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Minimal interactive prompt layer with immediate ESC cancel support.
  *
  * Falls back to SymfonyStyle's built-in helpers when no interactive TTY is
- * available. In an interactive TTY, raw mode is used so ESC aborts instantly
- * without waiting for Enter.
+ * available. In an interactive TTY, raw mode is used so standalone ESC aborts
+ * instantly without waiting for Enter while ANSI sequences such as arrow keys
+ * are ignored.
  */
 final class InterruptiblePrompt
 {
     private const int READ_POLL_USEC = 100000;
+    private const int ESC_SEQUENCE_GRACE_USEC = 100000;
+
+    /** @var resource */
+    private readonly mixed $stdin;
 
     public function __construct(
         private readonly SymfonyStyle $io,
         private readonly ?TerminalStateManager $terminalState = null,
-    ) {}
+        mixed $stdin = null,
+    ) {
+        $this->stdin = $stdin ?? STDIN;
+    }
 
     public function ask(string $question, ?string $default = null): ?string
     {
@@ -149,6 +157,7 @@ final class InterruptiblePrompt
     private function readLine(string $prompt, bool $hidden = false): string
     {
         $terminalState = $this->terminalState();
+        $stdin = $this->stdin;
         $savedState = $terminalState->saveState();
         $previousAsyncSignals = null;
         $previousHandler = null;
@@ -185,25 +194,50 @@ final class InterruptiblePrompt
         $this->io->write($prompt);
 
         $buffer = '';
+        $pendingEscape = '';
+        $pendingEscapeStartedAt = null;
 
         try {
             while (true) {
-                $read = [STDIN];
+                $read = [$stdin];
                 $write = $except = [];
                 $ready = @stream_select($read, $write, $except, 0, self::READ_POLL_USEC);
 
                 if ($ready === false || $ready === 0) {
+                    if ($this->shouldCancelPendingEscape($pendingEscape, $pendingEscapeStartedAt)) {
+                        throw InteractionCancelledException::byEsc();
+                    }
+
                     continue;
                 }
 
-                $chunk = @fread(STDIN, 32);
+                $chunk = @fread($stdin, 32);
                 if ($chunk === false || $chunk === '') {
+                    if ($this->shouldCancelPendingEscape($pendingEscape, $pendingEscapeStartedAt)) {
+                        throw InteractionCancelledException::byEsc();
+                    }
+
+                    if (feof($stdin)) {
+                        if ($this->shouldCancelPendingEscape($pendingEscape, $pendingEscapeStartedAt, eofReached: true)) {
+                            throw InteractionCancelledException::byEsc();
+                        }
+
+                        return $buffer;
+                    }
+
                     continue;
                 }
 
                 foreach (str_split($chunk) as $char) {
+                    if ($pendingEscape !== '') {
+                        $this->consumePendingEscapeByte($char, $pendingEscape, $pendingEscapeStartedAt);
+                        continue;
+                    }
+
                     if ($char === "\x1B") {
-                        throw InteractionCancelledException::byEsc();
+                        $pendingEscape = "\x1B";
+                        $pendingEscapeStartedAt = microtime(true);
+                        continue;
                     }
 
                     if ($char === "\x03") {
@@ -267,5 +301,56 @@ final class InterruptiblePrompt
         $ord = ord($char);
 
         return $ord >= 32 && $ord !== 127;
+    }
+
+    private function consumePendingEscapeByte(string $char, string &$pendingEscape, ?float &$pendingEscapeStartedAt): void
+    {
+        $pendingEscape .= $char;
+
+        if ($pendingEscape === "\x1B[" || $pendingEscape === "\x1BO") {
+            return;
+        }
+
+        if ($this->isAnsiSequencePrefix($pendingEscape)) {
+            if ($this->isAnsiSequenceComplete($pendingEscape)) {
+                $pendingEscape = '';
+                $pendingEscapeStartedAt = null;
+            }
+
+            return;
+        }
+
+        $pendingEscape = '';
+        $pendingEscapeStartedAt = null;
+    }
+
+    private function shouldCancelPendingEscape(string &$pendingEscape, ?float &$pendingEscapeStartedAt, bool $eofReached = false): bool
+    {
+        if ($pendingEscapeStartedAt === null) {
+            return false;
+        }
+
+        $elapsedUsec = (int) ((microtime(true) - $pendingEscapeStartedAt) * 1_000_000);
+        if (!$eofReached && $elapsedUsec < self::ESC_SEQUENCE_GRACE_USEC) {
+            return false;
+        }
+
+        $isStandaloneEscape = $pendingEscape === "\x1B";
+        $pendingEscape = '';
+        $pendingEscapeStartedAt = null;
+
+        return $isStandaloneEscape;
+    }
+
+    private function isAnsiSequencePrefix(string $bytes): bool
+    {
+        return str_starts_with($bytes, "\x1B[") || str_starts_with($bytes, "\x1BO");
+    }
+
+    private function isAnsiSequenceComplete(string $bytes): bool
+    {
+        $lastByte = ord($bytes[strlen($bytes) - 1]);
+
+        return $lastByte >= 64 && $lastByte <= 126;
     }
 }
