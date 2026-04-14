@@ -14,13 +14,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  */
 function makeSocketPair(): array
 {
-    $pair = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, 0);
-    assert($pair !== false);
-
-    stream_set_blocking($pair[0], false);
-    stream_set_blocking($pair[1], false);
-
-    return [$pair[0], $pair[1]];
+    return createNonBlockingStreamPair();
 }
 
 /**
