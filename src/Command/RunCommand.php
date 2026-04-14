@@ -372,6 +372,7 @@ final class RunCommand extends Command
                     'budgetExitThreshold' => $this->boot->config()->get('agents.defaults.context.budgetExitThreshold'),
                     'autoSummarizeThreshold' => $this->boot->config()->get('agents.defaults.context.autoSummarizeThreshold'),
                     'autoSummarizeKeepRecent' => $this->boot->config()->get('agents.defaults.context.autoSummarizeKeepRecent'),
+                    'workspacePath' => $this->boot->workspacePath(),
                 ],
             ),
             agentRunner: $this->agentRunner,

@@ -201,49 +201,10 @@ final class ApiCommand extends Command
         $scheduleStore = new ScheduleStore($storage->getPdo());
         $webhookStore = new WebhookStore($storage->getPdo());
 
-        // Create handlers
-        $evaluationStore = new EvaluationStore($storage->getPdo());
-        $qualityStatus = new QualityAutomationStatusService(
-            config: $boot->config(),
-            storage: $storage,
-            evaluationStore: $evaluationStore,
-            scheduleStore: $scheduleStore,
-        );
-
-        $healthHandler = new HealthHandler($startTime, $turnManager, $taskManager, $scheduleStore, $webhookStore, $qualityStatus);
-        $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
-        $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
-        $turnHandler = new TurnHandler($storage);
-        $configHandler = new ConfigHandler(
-            $boot->config(),
-            new ConfigValidator(),
-        );
-        $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
-        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
-        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());
-        $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
-        $evaluationHandler = new EvaluationHandler($evaluationStore);
-        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $taskManager, $qualityStatus);
-
-        $previewRunner = AgentRunnerFactory::create(
-            boot: $boot,
-            projectRoot: $workDir,
-            storage: $storage,
-            includeConfigManager: true,
-            includeVisibilityRegistry: true,
-        );
-        $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
-        $promptHandler = new PromptHandler($previewRunner);
-        $budgetHandler = new BudgetHandler($previewRunner);
         $artifactStore = new ArtifactStore($storage->getPdo());
-        $artifactHandler = new ArtifactHandler($artifactStore);
         $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($storage->getPdo());
-        $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
         // Schedule & webhook infrastructure
         $verifierRegistry = new WebhookVerifierRegistry();
-        $scheduleHandler = new ScheduleHandler($scheduleStore);
-        $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
-        $webhookMgmtHandler = new WebhookManagementHandler($webhookStore);
 
         // Loop + Schedule managers (autonomous execution engines)
         $loopStore = $boot->loopStore();
@@ -328,6 +289,46 @@ final class ApiCommand extends Command
             );
             $loopManager = new LoopManager($storage, $loopStore, $loopExecutor, $artifactStore, $notificationPublisher);
         }
+
+        // Create handlers
+        $evaluationStore = new EvaluationStore($storage->getPdo());
+        $qualityStatus = new QualityAutomationStatusService(
+            config: $boot->config(),
+            storage: $storage,
+            evaluationStore: $evaluationStore,
+            scheduleStore: $scheduleStore,
+        );
+
+        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $qualityStatus);
+        $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
+        $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
+        $turnHandler = new TurnHandler($storage);
+        $configHandler = new ConfigHandler(
+            $boot->config(),
+            new ConfigValidator(),
+        );
+        $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
+        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
+        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());
+        $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
+        $evaluationHandler = new EvaluationHandler($evaluationStore);
+        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $qualityStatus);
+
+        $previewRunner = AgentRunnerFactory::create(
+            boot: $boot,
+            projectRoot: $workDir,
+            storage: $storage,
+            includeConfigManager: true,
+            includeVisibilityRegistry: true,
+        );
+        $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
+        $promptHandler = new PromptHandler($previewRunner);
+        $budgetHandler = new BudgetHandler($previewRunner);
+        $artifactHandler = new ArtifactHandler($artifactStore);
+        $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
+        $scheduleHandler = new ScheduleHandler($scheduleStore);
+        $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
+        $webhookMgmtHandler = new WebhookManagementHandler($webhookStore);
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
             ? new ApiLoopHandler($loopStore, $loopDiscovery)

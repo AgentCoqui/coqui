@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api;
 
+use CoquiBot\Coqui\Support\RuntimeIdentity;
+
 /**
  * Checks whether the Coqui API server is reachable.
  *
@@ -21,7 +23,11 @@ final class ApiHealthCheck
      *
      * @return array{ok: bool, error: ?string}
      */
-    public static function check(): array
+    public static function check(
+        ?string $expectedWorkspacePath = null,
+        bool $requireTaskManager = false,
+        bool $requireLoopManager = false,
+    ): array
     {
         $host = self::resolveHost();
         $port = self::resolvePort();
@@ -35,7 +41,12 @@ final class ApiHealthCheck
             ],
         ]);
 
-        $result = @file_get_contents($url, false, $context);
+        set_error_handler(static fn(): bool => true);
+        try {
+            $result = file_get_contents($url, false, $context);
+        } finally {
+            restore_error_handler();
+        }
 
         if ($result === false) {
             return [
@@ -70,7 +81,80 @@ final class ApiHealthCheck
             ];
         }
 
+        $payload = json_decode($result, true);
+        if (!is_array($payload)) {
+            return [
+                'ok' => false,
+                'error' => sprintf('API server at %s:%s returned an invalid health payload.', $host, $port),
+            ];
+        }
+
+        return self::validatePayload($payload, $expectedWorkspacePath, $requireTaskManager, $requireLoopManager);
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array{ok: bool, error: ?string}
+     */
+    public static function validatePayload(
+        array $payload,
+        ?string $expectedWorkspacePath = null,
+        bool $requireTaskManager = false,
+        bool $requireLoopManager = false,
+    ): array {
+        if (($payload['status'] ?? null) !== 'ok') {
+            return ['ok' => false, 'error' => 'API server reported an unhealthy status.'];
+        }
+
+        if ($expectedWorkspacePath !== null && $expectedWorkspacePath !== '') {
+            $expectedWorkspaceId = RuntimeIdentity::fingerprintPath($expectedWorkspacePath);
+            $remoteWorkspaceId = is_string($payload['workspace_id'] ?? null) ? $payload['workspace_id'] : '';
+
+            if ($remoteWorkspaceId === '' || !hash_equals($expectedWorkspaceId, $remoteWorkspaceId)) {
+                return [
+                    'ok' => false,
+                    'error' => 'API server is running against a different workspace/database context than the current REPL session.',
+                ];
+            }
+        }
+
+        if ($requireTaskManager) {
+            $taskManager = self::managerPayload($payload, 'tasks');
+            if ($taskManager === null || ($taskManager['ready'] ?? false) !== true) {
+                return [
+                    'ok' => false,
+                    'error' => 'API background task manager is not dispatch-ready. Background tasks will not start until the API worker is healthy.',
+                ];
+            }
+        }
+
+        if ($requireLoopManager) {
+            $loopManager = self::managerPayload($payload, 'loops');
+            if ($loopManager === null || ($loopManager['ready'] ?? false) !== true) {
+                return [
+                    'ok' => false,
+                    'error' => 'API loop manager is not dispatch-ready. Loops cannot advance stages until the API worker is healthy.',
+                ];
+            }
+        }
+
         return ['ok' => true, 'error' => null];
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return array<string, mixed>|null
+     */
+    private static function managerPayload(array $payload, string $name): ?array
+    {
+        $managers = $payload['managers'] ?? null;
+        if (!is_array($managers)) {
+            return null;
+        }
+
+        $manager = $managers[$name] ?? null;
+
+        return is_array($manager) ? $manager : null;
     }
 
     private static function resolveHost(): string

@@ -204,6 +204,35 @@ final class LoopStore
         $stmt->execute([$iteration, $stage, $now, $id]);
     }
 
+    /**
+     * @param array<string, mixed> $patch
+     */
+    public function updateLoopMetadata(string $id, array $patch): void
+    {
+        $loop = $this->getLoop($id);
+        if ($loop === null) {
+            return;
+        }
+
+        $existing = [];
+        if (is_string($loop['metadata'] ?? null) && $loop['metadata'] !== '') {
+            $decoded = json_decode($loop['metadata'], true);
+            if (is_array($decoded)) {
+                $existing = $decoded;
+            }
+        }
+
+        $merged = array_replace_recursive($existing, $patch);
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+
+        $stmt = $this->db->prepare('UPDATE loops SET metadata = ?, last_activity_at = ? WHERE id = ?');
+        $stmt->execute([
+            json_encode($merged, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+            $now,
+            $id,
+        ]);
+    }
+
     // ──────────────────────────────────────────────
     //  Iteration CRUD
     // ──────────────────────────────────────────────

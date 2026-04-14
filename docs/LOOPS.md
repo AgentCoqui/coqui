@@ -22,6 +22,8 @@ View available definitions with `loop_definitions` or `GET /api/v1/loops/definit
 
 ## Starting a Loop
 
+Before a loop is created, Coqui now validates that the API worker is not just reachable, but also dispatch-ready for the same workspace context. If the API server is pointed at a different workspace database, or its loop/task managers are not ticking, loop creation fails fast instead of leaving a loop stuck with pending stages.
+
 ### Basic
 
 ```
@@ -106,6 +108,10 @@ For `evaluation_bound`, the executor scans the last stage's output for approval 
 | `completed` | Termination condition met |
 | `failed` | Stage error or unrecoverable failure |
 | `cancelled` | Stopped by user or agent |
+
+### Dispatch Diagnostics
+
+Newly created loops store dispatch metadata in the loop record. While the first stage is waiting to be queued, the dispatch status remains `pending`. After the API loop manager creates the background task, the dispatch status becomes `dispatched`. If dispatch fails, the loop metadata records the last dispatch error instead of silently appearing healthy.
 
 ## Session Context Propagation
 

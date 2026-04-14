@@ -30,6 +30,7 @@ final readonly class LoopToolkit implements ToolkitInterface
         private ?LoopExecutor $executor = null,
         private ?string $sessionId = null,
         private ?\Closure $healthCheck = null,
+        private ?string $expectedWorkspacePath = null,
     ) {}
 
     public function tools(): array
@@ -171,7 +172,11 @@ final readonly class LoopToolkit implements ToolkitInterface
                 if ($this->executor !== null) {
                     // Verify API server is reachable before creating the loop —
                     // loops depend on LoopManager (API) to advance stages via background tasks.
-                    $health = ($this->healthCheck ?? static fn(): array => ApiHealthCheck::check())();
+                    $health = ($this->healthCheck ?? fn(): array => ApiHealthCheck::check(
+                        expectedWorkspacePath: $this->expectedWorkspacePath,
+                        requireTaskManager: true,
+                        requireLoopManager: true,
+                    ))();
                     if (!$health['ok']) {
                         return ToolResult::error($health['error'] ?? 'Cannot reach the API server required for loop execution.');
                     }
@@ -308,6 +313,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                     'max_iterations' => $loop['max_iterations'],
                     'started_at' => $loop['started_at'],
                     'completed_at' => $loop['completed_at'],
+                    'metadata' => JsonHelper::decodeJsonObject($loop['metadata'] ?? null),
                 ];
 
                 if ($iteration !== null) {

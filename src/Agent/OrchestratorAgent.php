@@ -451,7 +451,7 @@ final class OrchestratorAgent extends AbstractAgent
                         artifactStore: $artifactStore,
                     )
                     : null;
-                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId));
+                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId, null, $this->workspacePath));
             }
         }
 

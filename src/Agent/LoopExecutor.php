@@ -149,6 +149,13 @@ final class LoopExecutor
             maxIterations: $maxIterations,
             deadline: $deadline,
             terminationCriteria: $terminationCriteria,
+            metadata: [
+                'dispatch' => [
+                    'status' => 'pending',
+                    'message' => 'Waiting for the API loop manager to create the first stage background task.',
+                    'updated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                ],
+            ],
         );
 
         // Create the first iteration and its sprint
@@ -326,10 +333,6 @@ final class LoopExecutor
             projectId: $loop['project_id'] ?? null,
             sprintId: $iteration['sprint_id'] ?? null,
         );
-
-        // Mark stage as running
-        $this->loopStore->updateStage($nextStage['id'], 'running', metadata: $handoffMetadata->toArray());
-        $this->loopStore->updateLoopProgress($loopId, (int) $iteration['iteration_number'], $stageIndex);
 
         return new LoopStageResult(
             stageId: $nextStage['id'],

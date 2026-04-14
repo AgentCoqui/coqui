@@ -89,6 +89,7 @@ test('startLoop creates loop with project and first iteration', function () {
     expect($loop['project_id'])->not->toBeNull();
     expect($loop['termination_criteria'])->toBe('Explicit approval required');
     expect((int) $loop['max_iterations'])->toBe(5); // max_review_rounds
+    expect(json_decode($loop['metadata'], true)['dispatch']['status'] ?? null)->toBe('pending');
 
     // First iteration created
     $iterations = $this->loopStore->listIterations($loopId);
@@ -175,13 +176,13 @@ test('prepareNextStage returns first pending stage', function () {
     expect($result->prompt)->toContain('plan');
 });
 
-test('prepareNextStage marks stage as running', function () {
+test('prepareNextStage leaves stage pending until loop manager dispatches it', function () {
     $loopId = $this->executor->startLoop($this->harnessDefinition, 'Goal');
 
     $result = $this->executor->prepareNextStage($loopId);
 
     $stage = $this->loopStore->getStage($result->stageId);
-    expect($stage['status'])->toBe('running');
+    expect($stage['status'])->toBe('pending');
 });
 
 test('prepareNextStage returns null for nonexistent loop', function () {
