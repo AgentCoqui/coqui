@@ -1,16 +1,18 @@
 # Coqui Features
 
-A comprehensive guide to everything Coqui can do. Each feature covers what it does, how it helps, and how to use it.
+Coqui is a personal operating system — a lightweight, hackable agent runtime that adapts to how you work. It handles coding, research, automation, and anything else that benefits from persistent AI agents with long-term memory and structured workflows.
+
+This guide covers every feature: what it does, how it helps, and how to use it.
 
 > **Token efficiency** is a cross-cutting concern in Coqui. See the [Token Efficiency](#token-efficiency) section at the bottom for how multiple features work together to keep costs down.
 
 ## <a id="multi-model-orchestration"></a> 🤖 Multi-Model Orchestration
 
-**What it does:** Route tasks to different LLMs based on the agent's role. Assign powerful models to complex coding work and fast, cheap models to orchestration and utility tasks.
+**What it does:** Route tasks to different LLMs based on the agent's role. Assign powerful models to complex work and fast, cheap models to orchestration and utility tasks.
 
-**How it helps:** Save money and improve speed. A local 8B model can handle orchestration and routing while a frontier model tackles the hard coding problems.
+**How it helps:** Save money and improve speed. A local 8B model can handle orchestration and routing while a frontier model tackles the hard problems — whether that's writing code, analyzing research, or synthesizing philosophical arguments.
 
-Coqui is not limited to coding workflows — any use case that benefits from LLM orchestration (research, writing, analysis, philosophical reasoning) can use the same model routing. Route frontier models like Claude Opus, GPT-5.4, or Gemini 2.5 Pro to roles that need depth, and fast/cheap models to utility tasks.
+Coqui is not limited to coding workflows — any use case that benefits from LLM orchestration (research, writing, analysis, consciousness exploration, project management) can use the same model routing. Route frontier models like Claude Opus, GPT-5.4, or Gemini 2.5 Pro to roles that need depth, and fast/cheap models to utility tasks.
 
 **How to use it:** Map roles to models in `openclaw.json`:
 

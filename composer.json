@@ -1,6 +1,6 @@
 {
   "name": "coquibot/coqui",
-  "description": "Terminal AI agent REPL with multi-model orchestration and persistent sessions",
+  "description": "Personal operating system — lightweight agent runtime with multi-model orchestration and persistent sessions",
   "version": "0.0.1",
   "type": "project",
   "license": "MIT",
