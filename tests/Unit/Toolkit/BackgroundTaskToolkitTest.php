@@ -21,10 +21,12 @@ beforeEach(function () {
         ],
     ]);
     $this->roleResolver = new RoleResolver($this->config);
+    $this->healthyBackgroundHealthCheck = static fn(): array => ['ok' => true, 'error' => null];
     $this->toolkit = new BackgroundTaskToolkit(
         storage: $this->storage,
         parentSessionId: $this->parentSessionId,
         roleResolver: $this->roleResolver,
+        healthCheck: $this->healthyBackgroundHealthCheck,
     );
 });
 
@@ -147,6 +149,24 @@ test('start_background_task creates task successfully', function () {
     expect($data)->toHaveKeys(['task_id', 'session_id', 'status', 'title']);
     expect($data['status'])->toBe('pending');
     expect($data['title'])->toBe('PHP research');
+});
+
+test('start_background_task refuses to queue work when API worker is unhealthy', function () {
+    $toolkit = new BackgroundTaskToolkit(
+        storage: $this->storage,
+        parentSessionId: $this->parentSessionId,
+        roleResolver: $this->roleResolver,
+        healthCheck: static fn(): array => ['ok' => false, 'error' => 'API background task manager is not dispatch-ready.'],
+    );
+    $tool = toolFromToolkit($toolkit, 'start_background_task');
+
+    $result = $tool->execute([
+        'prompt' => 'Research PHP 8.4 features',
+        'title' => 'PHP research',
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+    expect($result->content)->toContain('dispatch-ready');
 });
 
 // --- start_background_tool validation ---

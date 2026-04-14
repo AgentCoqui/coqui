@@ -7,8 +7,10 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
+use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\RuntimeIdentity;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -24,7 +26,10 @@ final readonly class ServerHandler
         private SessionStorage $storage,
         private float $startTime,
         private AgentTurnManager $turnManager,
+        private string $workspacePath,
+        private string $databasePath,
         private ?BackgroundTaskManager $taskManager = null,
+        private ?LoopManager $loopManager = null,
         private ?QualityAutomationStatusService $qualityAutomation = null,
     ) {}
 
@@ -44,12 +49,24 @@ final readonly class ServerHandler
                 'usage_bytes' => memory_get_usage(true),
                 'peak_bytes' => memory_get_peak_usage(true),
             ],
+            'runtime' => [
+                'workspace_id' => RuntimeIdentity::fingerprintPath($this->workspacePath),
+                'database_id' => RuntimeIdentity::fingerprintPath($this->databasePath),
+            ],
         ];
 
         if ($this->taskManager !== null) {
             $data['tasks'] = [
                 'active' => $this->taskManager->activeCount(),
                 'pending' => $this->taskManager->pendingCount(),
+                'last_tick_at' => $this->taskManager->lastTickAt(),
+            ];
+        }
+
+        if ($this->loopManager !== null) {
+            $data['loops'] = [
+                'last_tick_at' => $this->loopManager->lastTickAt(),
+                'last_reconcile_at' => $this->loopManager->lastReconcileAt(),
             ];
         }
 

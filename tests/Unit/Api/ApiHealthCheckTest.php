@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Api\ApiHealthCheck;
+use CoquiBot\Coqui\Support\RuntimeIdentity;
 
 test('check returns error when API server is unreachable', function () {
     // Point to a port that nothing is listening on
@@ -49,4 +50,46 @@ test('check uses defaults when env vars are not set', function () {
     } else {
         expect($result['error'])->toBeNull();
     }
+});
+
+test('validatePayload rejects workspace mismatch', function () {
+    $payload = [
+        'status' => 'ok',
+        'workspace_id' => RuntimeIdentity::fingerprintPath('/tmp/other-workspace'),
+        'managers' => [
+            'tasks' => ['ready' => true],
+            'loops' => ['ready' => true],
+        ],
+    ];
+
+    $result = ApiHealthCheck::validatePayload(
+        $payload,
+        expectedWorkspacePath: '/tmp/current-workspace',
+        requireTaskManager: true,
+        requireLoopManager: true,
+    );
+
+    expect($result['ok'])->toBeFalse();
+    expect($result['error'])->toContain('different workspace');
+});
+
+test('validatePayload rejects missing ready loop manager', function () {
+    $payload = [
+        'status' => 'ok',
+        'workspace_id' => RuntimeIdentity::fingerprintPath('/tmp/current-workspace'),
+        'managers' => [
+            'tasks' => ['ready' => true],
+            'loops' => ['ready' => false],
+        ],
+    ];
+
+    $result = ApiHealthCheck::validatePayload(
+        $payload,
+        expectedWorkspacePath: '/tmp/current-workspace',
+        requireTaskManager: true,
+        requireLoopManager: true,
+    );
+
+    expect($result['ok'])->toBeFalse();
+    expect($result['error'])->toContain('loop manager');
 });

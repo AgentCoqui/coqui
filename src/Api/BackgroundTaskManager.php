@@ -42,6 +42,8 @@ final class BackgroundTaskManager
 
     private int $staleCheckTickCount = 0;
 
+    private ?string $lastTickAt = null;
+
     public function __construct(
         private readonly SessionStorage $storage,
         private readonly string $coquiBinPath,
@@ -60,6 +62,7 @@ final class BackgroundTaskManager
      */
     public function tick(): void
     {
+        $this->lastTickAt = gmdate('Y-m-d\TH:i:s\Z');
         $this->reapFinishedProcesses();
         $this->processCancelRequests();
         $this->startPendingTasks();
@@ -168,6 +171,11 @@ final class BackgroundTaskManager
     public function pendingCount(): int
     {
         return count($this->storage->getPendingTasks());
+    }
+
+    public function lastTickAt(): ?string
+    {
+        return $this->lastTickAt;
     }
 
     /**
