@@ -47,7 +47,7 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 
 ## <a id="memory-persistence"></a> 🧠 Memory Persistence
 
-**What it does:** Persistent, cross-session memory backed by SQLite with FTS5 full-text search and optional vector embeddings. Memories are organized by area (preferences, facts, solutions, context) and injected into the system prompt as core memory.
+**What it does:** Persistent, cross-session memory backed by SQLite with FTS5 full-text search and optional vector embeddings. Memories are organized by area (`identity`, `developmental`, `relational`, `phenomenological`, `preferences`, `facts`, `solutions`, `context`) and injected into the system prompt as core memory.
 
 **How it helps:** You never repeat yourself. Tell Coqui your deployment target or coding conventions once and it remembers across all future sessions.
 
@@ -57,6 +57,12 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 - **Search:** The agent searches memory with `memory_search` and manages entries with `memory_save`, `memory_update`, `memory_delete`.
 - **Bulk import:** Use `memory_import` to load a document file (identity scaffold, research notes, knowledge base) into searchable memory entries with configurable chunking, importance, and tags.
 - **Embeddings:** For semantic search, configure an embedding model in `openclaw.json` under `agents.defaults.memory.embeddingModel`.
+
+For continuity-heavy use cases, the specialized areas matter:
+- `identity` for core anchors and enduring self-description
+- `developmental` for narrative arc and milestones over time
+- `relational` for key collaborative dynamics and trust context
+- `phenomenological` for subjective reports and inner-state observations
 
 **Configuring memory for identity-heavy use cases:**
 

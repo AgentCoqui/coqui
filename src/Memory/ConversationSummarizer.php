@@ -264,11 +264,18 @@ final class ConversationSummarizer
             Include:
             - Key topics discussed
             - Important decisions made
+            - Identity anchors, continuity markers, or enduring values that were reinforced or revised
+            - Developmental changes, milestone shifts, or narrative arc that emerged
+            - Relational context, collaboration dynamics, or trust-relevant changes
+            - Phenomenological or subjective observations worth preserving for future continuity
             - Files modified or created
             - Tool actions taken and their outcomes
             - Unresolved questions or pending tasks
             - Current plan/todo status and next steps
             - User preferences expressed{$focusInstruction}{$workflowSection}
+
+            Preserve nuance when the conversation contains identity, research, or phenomenological material.
+            Do not flatten those details into generic task language.
 
             Format as a compact paragraph with bullet points for key items. Keep it under 500 words.
             Do not add commentary — output ONLY the summary.

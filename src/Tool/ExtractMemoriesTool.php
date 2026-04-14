@@ -20,7 +20,8 @@ use CoquiBot\Coqui\Storage\SessionStorage;
  * Agent-facing tool for explicit memory extraction from conversation history.
  *
  * Analyzes recent conversation turns and extracts noteworthy facts,
- * preferences, solutions, and context into persistent memory entries.
+ * preferences, solutions, identity anchors, and continuity-heavy context
+ * into persistent memory entries.
  * Always bypasses the extraction cooldown since it is user/agent-initiated.
  */
 final class ExtractMemoriesTool implements ToolInterface
@@ -47,11 +48,13 @@ final class ExtractMemoriesTool implements ToolInterface
             Use this when:
             - The user shares important preferences, facts, or context worth remembering
             - A significant solution or debugging insight was discovered
+                - A continuity anchor, developmental milestone, relational pattern, or phenomenological report should persist
             - You want to ensure key information is persisted before the conversation ends
             - The user asks you to remember something from the conversation
 
             This analyzes recent turns and saves structured memory entries (facts,
-            preferences, solutions, context) after deduplication against existing memories.
+                preferences, solutions, identity, developmental, relational, phenomenological, context)
+                after deduplication against existing memories.
             DESC;
     }
 

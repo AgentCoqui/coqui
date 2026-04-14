@@ -22,13 +22,29 @@ final class MemoryStore
 {
     private const string LEGACY_SESSION_SUMMARY_AREA = 'session_summary';
 
-    private const AREA_DEFAULT_IMPORTANCE = [
+    public const array AREA_DEFAULT_IMPORTANCE = [
+        'identity' => 0.95,
+        'developmental' => 0.85,
+        'relational' => 0.85,
+        'phenomenological' => 0.8,
         'preferences' => 0.8,
         'solutions' => 0.7,
         'facts' => 0.6,
         'context' => 0.5,
         'main' => 0.5,
         'session_summary' => 0.3,
+    ];
+
+    private const array CORE_SUMMARY_AREA_ORDER = [
+        'identity',
+        'developmental',
+        'relational',
+        'phenomenological',
+        'preferences',
+        'solutions',
+        'facts',
+        'context',
+        'main',
     ];
 
     private PDO $db;
@@ -44,6 +60,28 @@ final class MemoryStore
     public function getPdo(): PDO
     {
         return $this->db;
+    }
+
+    /**
+     * Areas exposed to the agent-facing memory tools and auto-extractor.
+     *
+     * Internal compatibility buckets such as `main` and `session_summary`
+     * remain stored, but are not offered as first-class agent categories.
+     *
+     * @return list<string>
+     */
+    public static function userFacingAreas(): array
+    {
+        return [
+            'identity',
+            'developmental',
+            'relational',
+            'phenomenological',
+            'preferences',
+            'facts',
+            'solutions',
+            'context',
+        ];
     }
 
     /**
@@ -421,8 +459,9 @@ final class MemoryStore
     /**
      * Get a compact summary of all core memories for system prompt injection.
      *
-     * Returns formatted text suitable for including in an agent's system prompt.
-     * Summarizes preferences and key facts without excessive detail.
+    * Returns formatted text suitable for including in an agent's system prompt.
+    * Prioritizes continuity-heavy areas such as identity and developmental arc
+    * ahead of more general preferences, facts, and project context.
      */
     public function getCoreSummary(int $limit = 30): string
     {
@@ -459,6 +498,20 @@ final class MemoryStore
 
         foreach ($entries as $entry) {
             $grouped[$entry->area][] = $entry;
+        }
+
+        foreach (self::CORE_SUMMARY_AREA_ORDER as $area) {
+            if (!isset($grouped[$area])) {
+                continue;
+            }
+
+            $areaEntries = $grouped[$area];
+            $items = array_map(
+                fn(MemoryEntry $e) => '- ' . $e->content,
+                $areaEntries,
+            );
+            $sections[] = "**{$area}:**\n" . implode("\n", $items);
+            unset($grouped[$area]);
         }
 
         foreach ($grouped as $area => $areaEntries) {

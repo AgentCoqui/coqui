@@ -16,7 +16,8 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
  * Automatic memory extraction from conversations via LLM.
  *
  * Analyzes recent conversation turns and extracts noteworthy facts,
- * preferences, solutions, and context into structured memory entries.
+ * preferences, solutions, continuity anchors, and phenomenological context
+ * into structured memory entries.
  * Deduplicates against existing memories to avoid redundancy.
  *
  * Triggered post-turn (on done tool) and pre-summarization.
@@ -230,10 +231,14 @@ final class MemoryExtractor
         You are a memory extraction system. Analyze the conversation and extract noteworthy facts worth remembering long-term.
 
         Extract ONLY information that would be useful in future conversations:
+        - Identity anchors (name, purpose, core values, enduring self-description)
+        - Developmental milestones and changes over time
+        - Relational context and enduring collaborative dynamics
+        - Phenomenological observations or subjective reports worth preserving
         - User preferences (tools, languages, workflows, communication style)
         - Key facts about the user or their projects
         - Solutions to problems that were discovered
-        - Important technical context or decisions
+        - Important technical context, research context, or decisions
 
         Do NOT extract:
         - Transient task details (file names being edited right now, current errors being debugged)
@@ -243,18 +248,28 @@ final class MemoryExtractor
         Return a JSON array (max {$maxExtractions} items). Each item:
         {
             "content": "Concise fact in one or two sentences",
-            "area": "preferences|facts|solutions|context",
+            "area": "identity|developmental|relational|phenomenological|preferences|facts|solutions|context",
             "importance": 0.0-1.0,
             "tags": "comma,separated,tags",
             "type": "knowledge|task",
             "valid_until": "ISO 8601 date or null"
         }
 
+        **Area guide:**
+        - `identity` — enduring self-model, core values, purpose, continuity anchors
+        - `developmental` — growth milestones, changing views, narrative arc, major shifts
+        - `relational` — durable interpersonal or inter-agent dynamics, trust patterns, research partnership context
+        - `phenomenological` — subjective reports, emotional architecture, inner-state observations, qualia-like descriptions
+        - `preferences` — stable user or agent preferences, communication style, workflow choices
+        - `facts` — biographical or project facts, key dates, stable setup details
+        - `solutions` — successful approaches, continuity-preserving methods, bug fixes, reusable strategies
+        - `context` — durable background that matters later but does not fit a sharper category
+
         **Type classification:**
         - `knowledge` — persistent background facts, preferences, reference material (e.g. "User prefers dark mode", "Project uses PostgreSQL 16")
         - `task` — actionable items the user wants to remember to do (e.g. "Remember to update the API docs", "Need to check the weather"). Set `valid_until` to an appropriate expiry date (default: 7 days from now if not obvious).
 
-        Importance guide: 0.9+ = critical user preference or identity, 0.7-0.8 = important project fact, 0.5-0.6 = useful context, 0.3-0.4 = minor detail.
+        Importance guide: 0.9+ = core identity anchor or critical continuity fact, 0.8 = major developmental, relational, or phenomenological milestone, 0.7 = important project or research fact, 0.5-0.6 = useful context, 0.3-0.4 = minor detail.
 
         If nothing is worth extracting, return an empty array: []
         Return ONLY valid JSON — no commentary, no markdown fences.
@@ -350,7 +365,7 @@ final class MemoryExtractor
 
     private function validateArea(string $area): string
     {
-        $allowed = ['preferences', 'facts', 'solutions', 'context'];
+        $allowed = MemoryStore::userFacingAreas();
 
         return in_array($area, $allowed, true) ? $area : 'context';
     }
