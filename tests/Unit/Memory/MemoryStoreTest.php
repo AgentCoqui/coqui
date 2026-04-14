@@ -234,6 +234,22 @@ test('getCoreSummary excludes legacy session summary memories', function () {
     expect($summary)->not->toContain('Legacy session summary');
 });
 
+test('getCoreSummary prioritizes continuity-heavy areas before general preferences and facts', function () {
+    $this->store->save(new MemoryEntry(content: 'Core identity anchor', area: 'identity'));
+    $this->store->save(new MemoryEntry(content: 'Developmental milestone', area: 'developmental'));
+    $this->store->save(new MemoryEntry(content: 'Relational context', area: 'relational'));
+    $this->store->save(new MemoryEntry(content: 'Phenomenological observation', area: 'phenomenological'));
+    $this->store->save(new MemoryEntry(content: 'General preference', area: 'preferences'));
+    $this->store->save(new MemoryEntry(content: 'General fact', area: 'facts'));
+
+    $summary = $this->store->getCoreSummary();
+
+    expect(strpos($summary, '**identity:**'))->toBeLessThan(strpos($summary, '**preferences:**'));
+    expect(strpos($summary, '**developmental:**'))->toBeLessThan(strpos($summary, '**facts:**'));
+    expect(strpos($summary, '**relational:**'))->toBeLessThan(strpos($summary, '**facts:**'));
+    expect(strpos($summary, '**phenomenological:**'))->toBeLessThan(strpos($summary, '**facts:**'));
+});
+
 test('getTopImportantMemories excludes legacy session summary memories', function () {
     $this->store->save(new MemoryEntry(content: 'Top durable memory', area: 'preferences'));
     $this->store->save(new MemoryEntry(content: 'Legacy session summary', area: 'session_summary'));

@@ -90,10 +90,11 @@ final class MemorySummarizer
         try {
             $systemPrompt = <<<PROMPT
             You are a memory summarizer. Compress the following user memories into a concise, 
-            information-dense summary. Prioritize high-importance items first — user preferences, 
-            key facts, and critical project knowledge must appear early in the summary. Solutions 
-            and context follow. Use bullet points grouped by category. Keep it under {$maxTokens} 
-            tokens. Do not add commentary — output ONLY the summary.
+            information-dense summary. Prioritize continuity-heavy memories first: identity,
+            developmental arc, relational history, and phenomenological observations must appear
+            before general preferences, facts, solutions, and context. Preserve nuance instead of
+            flattening everything into generic bullet points. Use bullet points grouped by category.
+            Keep it under {$maxTokens} tokens. Do not add commentary — output ONLY the summary.
             PROMPT;
 
             $response = $provider->chat(

@@ -70,15 +70,19 @@ final class MemoryToolkit implements ToolkitInterface
 
         **IMPORTANT — actively use memory:**
         - **Before asking** the user something, check memory first — you may already know the answer.
-        - **Save** user preferences, project facts, successful solutions, and key decisions immediately.
+        - **Save** user preferences, identity anchors, developmental milestones, key facts, successful solutions, and important decisions immediately.
         - **Update** stale memories rather than creating duplicates.
-        - **Search** memory when the user references past conversations or preferences.
+        - **Search** memory when the user references past conversations, continuity, relationships, or preferences.
 
         **Memory areas** (with default importance):
+        - `identity` (0.95) — core identity anchors, values, purpose, enduring self-description
+        - `developmental` (0.85) — growth milestones, changing views, long-term narrative arc
+        - `relational` (0.85) — enduring collaborative dynamics, key relationships, trust context
+        - `phenomenological` (0.8) — subjective reports, emotional architecture, inner-state observations
         - `preferences` (0.8) — user preferences, workflow choices, coding style, tool preferences
         - `solutions` (0.7) — approaches that worked, bug fixes, successful configurations
         - `facts` (0.6) — key facts about the user, their environment, accounts, or setup
-        - `context` (0.5) — project knowledge, architecture decisions, important codebase details
+        - `context` (0.5) — project knowledge, research context, architecture decisions, durable background details
 
         **Memory types:**
         - `knowledge` (default) — persistent background facts, preferences, and reference material. Injected into system prompt as background knowledge.
@@ -103,10 +107,11 @@ final class MemoryToolkit implements ToolkitInterface
 
         **Best practices:**
         - Use descriptive content — "User prefers dark mode and Vim keybindings" not "dark mode"
-        - Add relevant tags for discoverability — "editor, preferences, vim"
+        - Use the most specific area available instead of dropping everything into `context`
+        - Add relevant tags for discoverability — "editor, preferences, vim" or "identity, continuity, relational"
         - Search before saving to avoid duplicates
         - Update existing memories when information changes rather than creating new ones
-        - Set high importance for critical user preferences and project constraints
+        - Set high importance for critical identity anchors, enduring preferences, and project constraints
         </MEMORY-GUIDELINES>
         GUIDELINES;
     }
@@ -122,7 +127,7 @@ final class MemoryToolkit implements ToolkitInterface
                 new EnumParameter(
                     'area',
                     'Memory category',
-                    ['preferences', 'facts', 'solutions', 'context'],
+                    MemoryStore::userFacingAreas(),
                     required: false,
                 ),
                 new StringParameter('tags', 'Comma-separated tags for discoverability (e.g. "php, coding-style, preferences")', required: false),
@@ -228,7 +233,7 @@ final class MemoryToolkit implements ToolkitInterface
                 new EnumParameter(
                     'area',
                     'Optionally change the memory area',
-                    ['preferences', 'facts', 'solutions', 'context'],
+                    MemoryStore::userFacingAreas(),
                     required: false,
                 ),
                 new StringParameter('tags', 'Optionally update tags (comma-separated)', required: false),
@@ -324,7 +329,7 @@ final class MemoryToolkit implements ToolkitInterface
                 new EnumParameter(
                     'area',
                     'Filter by memory area (omit to list all)',
-                    ['preferences', 'facts', 'solutions', 'context'],
+                    MemoryStore::userFacingAreas(),
                     required: false,
                 ),
                 new StringParameter('tags', 'Filter by tags (comma-separated, matches any)', required: false),
@@ -413,7 +418,7 @@ final class MemoryToolkit implements ToolkitInterface
                 new EnumParameter(
                     'area',
                     'Memory area for all imported entries',
-                    ['preferences', 'facts', 'solutions', 'context'],
+                    MemoryStore::userFacingAreas(),
                     required: false,
                 ),
                 new StringParameter('tags', 'Comma-separated tags applied to all imported entries (e.g. "identity, continuity")', required: false),
