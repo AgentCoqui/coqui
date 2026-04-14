@@ -21,6 +21,7 @@ use CoquiBot\Coqui\Renderer\JsonRenderer;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Repl\AgentTurnExecutor;
 use CoquiBot\Coqui\Repl\ExecutionPolicyFactory;
+use CoquiBot\Coqui\Repl\MultilineReader;
 use CoquiBot\Coqui\Repl\NotificationPresenter;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
@@ -83,6 +84,7 @@ final class RunCommand extends Command
     private string $activeRole = 'orchestrator'; // property default must be string literal
     private ?string $activeProjectId = null;
     private ?string $activeProjectSlug = null;
+    private bool $multilineMode = false;
 
     protected function configure(): void
     {
@@ -381,6 +383,12 @@ final class RunCommand extends Command
                 $this->boot->configManager()->set('agents.defaults.hints', $this->hintsEnabled);
                 $io->success($this->hintsEnabled ? 'Hints enabled' : 'Hints disabled');
             },
+            onMultilineToggle: function (?bool $enable) use ($io): void {
+                $this->multilineMode = $enable ?? !$this->multilineMode;
+                $io->success($this->multilineMode
+                    ? 'Multiline mode enabled — press Enter twice on an empty line to submit'
+                    : 'Multiline mode disabled — Enter submits immediately');
+            },
         );
 
         // --continue: auto-send "Continue." as the first prompt without displaying it
@@ -397,10 +405,11 @@ final class RunCommand extends Command
                 $projectTag = $this->activeProjectSlug !== null
                     ? sprintf(' <fg=magenta>[%s]</>', $this->activeProjectSlug)
                     : '';
+                $multilineTag = $this->multilineMode ? ' <fg=yellow>[multiline]</>' : '';
                 if ($this->activeRole !== SystemRole::Orchestrator->value) {
-                    $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>%s:', $this->activeRole, $projectTag));
+                    $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>%s%s:', $this->activeRole, $projectTag, $multilineTag));
                 } else {
-                    $io->writeln(sprintf(' <fg=cyan>You</>%s:', $projectTag));
+                    $io->writeln(sprintf(' <fg=cyan>You</>%s%s:', $projectTag, $multilineTag));
                 }
             }
 
@@ -413,7 +422,34 @@ final class RunCommand extends Command
 
             $readlinePrompt = $this->buildReadlinePrompt($notificationPresenter, $notificationStore);
 
-            // Read input using readline's callback API for non-blocking signal handling.
+            // Multiline mode: use raw-mode reader instead of readline
+            if ($this->multilineMode) {
+                $multilineReader = new MultilineReader($io, $terminalState);
+                try {
+                    $line = $multilineReader->read($readlinePrompt);
+                } catch (\CoquiBot\Coqui\Exception\ShutdownRequestedException) {
+                    if (getenv('COQUI_LAUNCHER') !== '1') {
+                        $io->newLine();
+                        $io->info('Shutting down Coqui.');
+                    }
+                    return 0;
+                } catch (\CoquiBot\Coqui\Exception\InteractionCancelledException) {
+                    $io->writeln('<fg=gray> (cancelled)</>');
+                    continue;
+                }
+
+                if (trim($line) === '') {
+                    continue;
+                }
+
+                $prompt = $line;
+                if (function_exists('readline_add_history')) {
+                    // Store the first line only for readline history
+                    $firstLine = strstr($line, "\n", true) ?: $line;
+                    readline_add_history($firstLine);
+                }
+            } else {
+            // Single-line mode: existing readline/fgets path
             $line = null;
             $lineReady = false;
             $ctrlCPressed = false;
@@ -546,6 +582,7 @@ final class RunCommand extends Command
             if (function_exists('readline_add_history')) {
                 readline_add_history($prompt);
             }
+            } // end single-line readline/fgets path
             } // end else (user input)
 
             // Handle slash commands

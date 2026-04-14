@@ -52,6 +52,7 @@ final class SlashCommandRouter
         private readonly LoopHandler $loop,
         private readonly AgentRunner $agentRunner,
         private readonly \Closure $onHintsToggle,
+        private readonly \Closure $onMultilineToggle,
     ) {}
 
     /**
@@ -98,6 +99,7 @@ final class SlashCommandRouter
             '/webhooks' => $this->handleWebhooks($io, $arg),
             '/evaluations' => $this->handleEvaluations($io, $arg),
             '/loops' => $this->handleLoops($io, $arg, $sessionId),
+            '/multiline' => $this->handleMultiline($io, $arg),
             '/hints' => $this->handleHints($io),
             '/help' => $this->handleHelp($io),
             default => $this->handleUnknown($io, $cmd),
@@ -315,6 +317,40 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
+    private function handleMultiline(SymfonyStyle $io, string $arg): RouteResult
+    {
+        $arg = strtolower(trim($arg));
+
+        return match ($arg) {
+            'on' => $this->applyMultilineMode($io, true),
+            'off' => $this->applyMultilineMode($io, false),
+            '' => $this->applyMultilineMode($io, null), // toggle
+            default => $this->showMultilineHelp($io),
+        };
+    }
+
+    private function applyMultilineMode(SymfonyStyle $io, ?bool $enable): RouteResult
+    {
+        ($this->onMultilineToggle)($enable);
+        return RouteResult::continue();
+    }
+
+    private function showMultilineHelp(SymfonyStyle $io): RouteResult
+    {
+        $io->text([
+            '<fg=cyan>Multiline mode</> — compose multi-line prompts before sending.',
+            '',
+            '  /multiline        Toggle multiline mode',
+            '  /multiline on     Enable multiline mode',
+            '  /multiline off    Disable multiline mode',
+            '',
+            'In multiline mode, single Enter adds a new line.',
+            'Press Enter twice on an empty line (or Ctrl+D) to submit.',
+            'Pasted content is automatically buffered when bracketed paste is available.',
+        ]);
+        return RouteResult::continue();
+    }
+
     private function handleHints(SymfonyStyle $io): RouteResult
     {
         ($this->onHintsToggle)();
@@ -355,6 +391,7 @@ final class SlashCommandRouter
                 ['/evaluations', 'List session evaluation reports with grades and scores'],
                 ['/loops [start <def> <goal>|status|definitions|pause|resume|stop <id|all>]', 'Manage automated loop workflows'],
                 ['/summarize [recent N] [focus "topic"]', 'Summarize conversation history to save tokens'],
+                ['/multiline [on|off]', 'Toggle multiline compose mode (double Enter to submit)'],
                 ['/hints', 'Toggle command hints in the input area'],
                 ['/update', 'Check for and apply dependency updates'],
                 ['/restart', 'Restart Coqui (re-reads config, re-discovers toolkits)'],

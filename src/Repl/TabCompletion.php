@@ -346,7 +346,7 @@ final class TabCompletion
         $commands = [
             '/new', '/history', '/sessions', '/resume', '/model',
             '/config', '/tasks', '/task', '/task-cancel', '/todos', '/projects', '/sprints', '/toolkits', '/schedules', '/loops',
-            '/budget', '/prompt', '/role', '/roles', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/evaluations', '/quality', '/hints', '/help', '/quit',
+            '/budget', '/prompt', '/role', '/roles', '/update', '/restart', '/space', '/space skills', '/space toolkits', '/evaluations', '/quality', '/multiline', '/hints', '/help', '/quit',
         ];
 
         return array_values(array_filter($commands, fn(string $c) => str_starts_with($c, $input)));
