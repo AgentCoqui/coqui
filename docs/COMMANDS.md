@@ -87,6 +87,9 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/webhooks` | List webhook subscriptions with status and trigger counts |
 | `/evaluations [grade]` | List session evaluation reports, optionally filtered by grade |
 | `/hints` | Toggle command hints in the input area |
+| `/multiline` | Toggle multiline compose mode (double-Enter submits, bracketed paste auto-detected) |
+| `/multiline on` | Enable multiline compose mode |
+| `/multiline off` | Disable multiline compose mode |
 
 ### Context Management
 
