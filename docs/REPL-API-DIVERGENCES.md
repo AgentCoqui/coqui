@@ -22,6 +22,8 @@ The REPL is Coqui's primary interface. The API server exists as a background-tas
 
 Background tasks **require the API server to be running** for execution. The REPL can create and monitor tasks, but only the API server spawns the child processes that execute them.
 
+The REPL now validates API worker readiness before queueing new work. A reachable HTTP server is not enough — the check also verifies that the task manager is dispatch-ready and that the API server is operating on the same workspace context.
+
 ## Loops
 
 | Concern | REPL | API |
@@ -34,6 +36,8 @@ Background tasks **require the API server to be running** for execution. The REP
 | Cancellation | `/loops stop <id>` sets status; manager stops on next tick | No HTTP mutation endpoint; use REPL or agent tools, then inspect loop state over HTTP |
 
 Loop stage advancement **requires the API server to be running**. The REPL can create loops (writing records to SQLite) and monitor their progress, but only the API server's `LoopManager` creates background tasks for each stage and advances the loop state machine.
+
+Loop creation also validates API worker readiness before persisting the loop. This prevents the previous failure mode where a loop could appear `running` in the REPL while no API worker was capable of dispatching its first stage.
 
 ## Schedules
 

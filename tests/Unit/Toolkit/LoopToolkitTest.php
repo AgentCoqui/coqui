@@ -618,6 +618,32 @@ test('loop_start passes max_iterations override to executor', function () {
     expect((int) $loop['max_iterations'])->toBe(3);
 });
 
+test('loop_start refuses to create a loop when the API worker is not dispatch-ready', function () {
+    $pdo = $this->storage->getPdo();
+    $projectStore = new \CoquiBot\Coqui\Storage\ProjectStore($pdo);
+    $executor = new \CoquiBot\Coqui\Agent\LoopExecutor(
+        loopStore: $this->loopStore,
+        projectStore: $projectStore,
+    );
+
+    $toolkit = new LoopToolkit(
+        $this->loopStore,
+        $this->loopDiscovery,
+        $executor,
+        null,
+        static fn(): array => ['ok' => false, 'error' => 'API loop manager is not dispatch-ready.'],
+    );
+    $startTool = toolFromToolkit($toolkit, 'loop_start');
+
+    $result = $startTool->execute([
+        'definition' => 'harness',
+        'goal' => 'Test readiness gate',
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+    expect($result->content)->toContain('dispatch-ready');
+});
+
 test('loop_definitions shows parameter info', function () {
     file_put_contents($this->loopsDir . '/parameterized.json', json_encode([
         'name' => 'parameterized',

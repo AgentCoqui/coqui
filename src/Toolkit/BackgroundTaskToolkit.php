@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
+use CoquiBot\Coqui\Api\ApiHealthCheck;
 use CoquiBot\Coqui\Support\JsonHelper;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
@@ -36,6 +37,8 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         private string $parentSessionId,
         private ?RoleResolver $roleResolver = null,
         int $maxIterationsCap = CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
+        private ?string $expectedWorkspacePath = null,
+        private ?\Closure $healthCheck = null,
     ) {
         $this->maxIterationsCap = max(1, $maxIterationsCap);
     }
@@ -206,6 +209,10 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
      */
     private function executeStartTask(array $args): ToolResult
     {
+        if (($healthError = $this->ensureDispatchReady()) !== null) {
+            return ToolResult::error($healthError);
+        }
+
         $prompt = trim((string) ($args['prompt'] ?? ''));
 
         if ($prompt === '') {
@@ -256,6 +263,10 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
      */
     private function executeStartBackgroundTool(array $args): ToolResult
     {
+        if (($healthError = $this->ensureDispatchReady()) !== null) {
+            return ToolResult::error($healthError);
+        }
+
         $toolName = trim((string) ($args['tool_name'] ?? ''));
 
         if ($toolName === '') {
@@ -304,6 +315,20 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             'title' => $title,
             'message' => 'Background tool execution queued. Use task_status to monitor progress.',
         ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: 'Tool task created');
+    }
+
+    private function ensureDispatchReady(): ?string
+    {
+        $health = ($this->healthCheck ?? fn(): array => ApiHealthCheck::check(
+            expectedWorkspacePath: $this->expectedWorkspacePath,
+            requireTaskManager: true,
+        ))();
+
+        if (($health['ok'] ?? false) === true) {
+            return null;
+        }
+
+        return $health['error'] ?? 'API background task manager is not ready.';
     }
 
     private const RESULT_PREVIEW_LENGTH = 2000;

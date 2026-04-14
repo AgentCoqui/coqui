@@ -567,6 +567,7 @@ final class AgentRunner
                     maxIterationsCap: $this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig
                         ? $this->config->getBackgroundTaskMaxIterations()
                         : CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS,
+                    expectedWorkspacePath: $this->workspacePath,
                 )
                 : null,
             memoryStore: $this->memoryStore,

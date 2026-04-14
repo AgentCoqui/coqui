@@ -217,7 +217,7 @@
             "path": "src/Repl/SlashCommandRouter.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\SlashCommandRouter",
             "layer": "command",
-            "description": "Routes REPL slash commands to the appropriate handler class. Includes prompt-budget visibility via /budget and quality automation visibility via /quality alongside the existing task, schedule, loop, role, and evaluation commands. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session).",
+            "description": "Routes REPL slash commands to the appropriate handler class. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
             "methods": [
                 "route(string, string, string, SymfonyStyle): RouteResult — dispatches a slash command string to the matching handler"
             ]
@@ -231,6 +231,15 @@
                 "static continue(): self — continue the REPL loop",
                 "static exit(int): self — exit with code",
                 "static stateChange(?string, ?string, ?string): self — continue with role/session/project update"
+            ]
+        },
+        {
+            "path": "src/Repl/MultilineReader.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\MultilineReader",
+            "layer": "command",
+            "description": "Raw-mode multiline input reader for REPL compose mode. Reads byte-by-byte in stty raw mode, supports double-Enter submit, Ctrl+D submit, bracketed paste (DEC 2004) to preserve embedded blank lines, ESC cancel, and Ctrl+C shutdown. Strips trailing sentinel empty lines from output.",
+            "methods": [
+                "read(string): string — enters raw mode and reads multiline input until submit or cancel"
             ]
         },
         {

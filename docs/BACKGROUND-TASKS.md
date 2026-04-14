@@ -64,6 +64,8 @@ Background task **tools** are available in both API and REPL modes. In REPL mode
 
 The API server is still the sole executor — the ReactPHP event loop manages child processes and SSE event streams. The REPL acts as a producer: it writes task records, and the API server consumes and executes them.
 
+When Coqui creates a background task from the REPL or an agent tool, it now performs a worker-readiness check first. This verifies that the API task manager is ticking and that the API worker is serving the same workspace context, preventing tasks from being queued into an unreachable or mismatched database.
+
 ### Requirements
 
 - The API server must be running (`php bin/coqui api`)

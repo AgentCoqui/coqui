@@ -55,7 +55,8 @@ final class SummarizeConversationTool implements ToolInterface
 
             The summary replaces older messages in the current session with a compact
             overview while keeping recent turns intact. This preserves important context
-            (decisions, file changes, preferences) while significantly reducing token usage.
+            (decisions, file changes, preferences, continuity anchors, developmental context)
+            while significantly reducing token usage.
 
             After summarization, older messages are condensed into a summary. The most
             recent turns remain in full detail for continuity.
@@ -78,7 +79,7 @@ final class SummarizeConversationTool implements ToolInterface
             ),
             new StringParameter(
                 name: 'focus',
-                description: 'Optional topic to emphasize in the summary (e.g. "file modifications", "user preferences", "error debugging").',
+                description: 'Optional topic to emphasize in the summary (e.g. "file modifications", "user preferences", "error debugging", "identity continuity", "phenomenological observations").',
                 required: false,
             ),
         ];

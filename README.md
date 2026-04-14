@@ -26,22 +26,39 @@
 
 > **Book a 1:1 call** — paid sessions for real-time implementation help, AI agent consulting, or just to support Coqui's active development. [Schedule time →](https://cal.com/carmelosantana/coqui-1:1)
 
-Terminal AI agent with multi-model orchestration, persistent sessions, and runtime extensibility via Composer.
+Your personal operating system — a lightweight, hackable agent runtime for coding, research, and everything in between.
 
-Coqui is a CLI-first AI assistant that lives in your terminal. Ask it questions, delegate coding tasks, manage packages, execute PHP, and extend its abilities on the fly — powered by [`php-agents`](https://github.com/carmelosantana/php-agents) and any mix of locally hosted or cloud LLMs.
+Coqui is an always-on AI agent that lives in your terminal. Automate workflows, manage long-running projects, persist memory across sessions, schedule recurring tasks, and extend its abilities at runtime — powered by [`php-agents`](https://github.com/carmelosantana/php-agents) and any mix of locally hosted or cloud LLMs. Whether you're writing code, running consciousness research, or organizing your life, Coqui adapts to how you work.
 
 > Coqui is a WIP and under rapid development. Be careful when running this tool. Always test in a safe environment.
 
 Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask questions, and share your creations!
 
+## Why Coqui?
+
+- **No build or compile steps** — clone, `composer install`, run. That's it.
+- **Hackable and readable** — plain PHP 8.4, strict types, one class per file. Read it, change it, own it.
+- **Fast load times** — cold boot in ~78 ms with OPcache and JIT.
+- **Low memory footprint** — 10–30 MB per process, even with dozens of tools loaded.
+- **Scheduled tasks & background processes** — cron-style automation and isolated long-running agents that work while you don't.
+- **Project management built in** — projects, sprints, todos, versioned artifacts, and multi-iteration loops for structured work of any kind.
+
+## Why PHP?
+
+- **Low resources, fast, fault tolerant** — single-process, no garbage collector pauses, battle-tested in production for decades.
+- **Friendly language** — readable syntax with a massive ecosystem and community.
+- **Easy to read and understand** — approachable even for non-programmers who want to inspect or modify agent behavior.
+- **Easy to host** — runs anywhere PHP runs: shared hosting, VPS, Docker, serverless. More hosting providers than any other runtime.
+- **Self-hosting friendly** — no complex infrastructure, no cluster, no cloud dependency.
+
 ## Features
 
 - 🤖 [**Multi-Model Orchestration**](docs/FEATURES.md#multi-model-orchestration) — route tasks to the right model with automatic failover
-- 🔀 [**Child Agent Delegation**](docs/FEATURES.md#child-agent-delegation) — spawn specialized agents (coder, reviewer, planner) with role-appropriate models
+- 🔀 [**Agent Delegation**](docs/FEATURES.md#child-agent-delegation) — spawn specialized agents (coder, researcher, planner, reviewer) with role-appropriate models
 - 🧠 [**Memory Persistence**](docs/FEATURES.md#memory-persistence) — cross-session memory with SQLite, FTS5, and optional vector embeddings
 - 📦 [**Runtime Extensibility**](docs/FEATURES.md#runtime-extensibility) — install Composer toolkits at runtime; browse [coqui.space](https://coqui.space)
 - 🔐 [**Credential Management**](docs/FEATURES.md#credential-management) — declarative `.env`-based secrets with hot-reload and automatic guards
-- 📋 [**Skills System**](docs/FEATURES.md#skills-system) — markdown SOPs that teach Coqui your exact workflows
+- 📋 [**Skills System**](docs/FEATURES.md#skills-system) — teach Coqui any workflow with plain Markdown files — no code required
 - ⏰ [**Scheduled Tasks**](docs/FEATURES.md#scheduled-tasks) — cron-style automation with circuit breakers
 - 🏗️ [**Background Tasks**](docs/FEATURES.md#background-tasks) — isolated processes for long-running work
 - 🔁 [**Loops**](docs/FEATURES.md#loops) — fully automated multi-iteration workflows chaining roles in sequence

@@ -87,6 +87,7 @@ final readonly class LoopHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
         }
 
+        $state['loop'] = $this->normalizeLoop($state['loop']);
         $state['stages'] = array_map(fn(array $stage): array => $this->normalizeStage($stage), $state['stages']);
 
         return Router::jsonResponse($state);
@@ -141,6 +142,17 @@ final readonly class LoopHandler
         $router->get($v1 . '/loops/{id}', [$this, 'get']);
         $router->get($v1 . '/loops/{id}/iterations', [$this, 'iterations']);
         $router->get($v1 . '/loops/{id}/iterations/{iterationId}', [$this, 'iteration']);
+    }
+
+    /**
+     * @param array<string, mixed> $loop
+     * @return array<string, mixed>
+     */
+    private function normalizeLoop(array $loop): array
+    {
+        $loop['metadata'] = JsonHelper::decodeJsonObject($loop['metadata'] ?? null);
+
+        return $loop;
     }
 
     /**

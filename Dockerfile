@@ -1,7 +1,7 @@
 ###############################################################################
 # Coqui — PHP 8.4 CLI Image
 #
-# Terminal AI agent — PHP 8.4 CLI + extensions + Composer
+# Personal operating system — PHP 8.4 CLI + extensions + Composer
 #
 # Usage:
 #   docker compose run --rm coqui            # interactive REPL

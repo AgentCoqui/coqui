@@ -16,6 +16,7 @@ use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
+use CoquiBot\Coqui\Storage\ArtifactFileService;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
@@ -541,9 +542,14 @@ final class BootManager
         $storage = new SessionStorage($dbPath);
         $pdo = $storage->getPdo();
 
-        $this->artifactStore = new ArtifactStore($pdo);
-        $this->todoStore = new TodoStore($pdo);
         $this->projectStore = new ProjectStore($pdo);
+
+        $fileService = null;
+        if ($this->config->isArtifactFilesystemBacked()) {
+            $fileService = new ArtifactFileService($this->workspacePath);
+        }
+        $this->artifactStore = new ArtifactStore($pdo, $fileService, $this->projectStore);
+        $this->todoStore = new TodoStore($pdo);
         $this->loopStore = new LoopStore($pdo);
         $this->notificationStore = new NotificationStore($pdo);
         $this->usageTracker = new ToolUsageTracker($pdo);

@@ -102,7 +102,11 @@ final class LoopHandler
         $io->newLine();
 
         // Verify API server is reachable — loops depend on LoopManager (API) to advance stages.
-        $health = ApiHealthCheck::check();
+        $health = ApiHealthCheck::check(
+            expectedWorkspacePath: (string) ($this->config['workspacePath'] ?? ''),
+            requireTaskManager: true,
+            requireLoopManager: true,
+        );
         if (!$health['ok']) {
             $io->error($health['error'] ?? 'API health check failed.');
             return;
@@ -225,6 +229,7 @@ final class LoopHandler
         $loop = $state['loop'];
         $iteration = $state['iteration'];
         $stages = $state['stages'];
+        $loopMetadata = JsonHelper::decodeJsonObject($loop['metadata'] ?? null);
 
         $io->section(sprintf('Loop: %s (%s)', $loop['definition_name'], $loop['id']));
         $io->definitionList(
@@ -234,6 +239,15 @@ final class LoopHandler
             ['Started' => $loop['started_at']],
             ['Completed' => $loop['completed_at'] ?? '-'],
         );
+
+        $dispatch = is_array($loopMetadata['dispatch'] ?? null) ? $loopMetadata['dispatch'] : null;
+        if ($dispatch !== null) {
+            $io->definitionList(
+                ['Dispatch' => (string) ($dispatch['status'] ?? 'unknown')],
+                ['Dispatch Detail' => (string) ($dispatch['message'] ?? '-')],
+                ['Dispatch Updated' => (string) ($dispatch['updated_at'] ?? '-')],
+            );
+        }
 
         if ($iteration !== null && $stages !== []) {
             $io->text('<fg=cyan>Current Iteration Stages:</>');

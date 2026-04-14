@@ -34,6 +34,10 @@ final class LoopManager
     /** @var array<string, true> Loops currently being advanced (prevent double-scheduling) */
     private array $advancingLoops = [];
 
+    private ?string $lastTickAt = null;
+
+    private ?string $lastReconcileAt = null;
+
     public function __construct(
         private readonly SessionStorage $storage,
         private readonly LoopStore $loopStore,
@@ -49,6 +53,7 @@ final class LoopManager
      */
     public function tick(): void
     {
+        $this->lastTickAt = gmdate('Y-m-d\TH:i:s\Z');
         $runningLoops = $this->loopStore->listLoops('running');
 
         foreach ($runningLoops as $loop) {
@@ -74,6 +79,7 @@ final class LoopManager
      */
     public function reconcile(): void
     {
+        $this->lastReconcileAt = gmdate('Y-m-d\TH:i:s\Z');
         $runningLoops = $this->loopStore->listLoops('running');
 
         foreach ($runningLoops as $loop) {
@@ -166,6 +172,17 @@ final class LoopManager
             taskId: $taskId,
             metadata: $stageResult->handoffMetadata?->toArray(),
         );
+        $this->loopStore->updateLoopProgress($loopId, (int) ($state['iteration']['iteration_number'] ?? 0), $stageResult->stageIndex);
+        $this->loopStore->updateLoopMetadata($loopId, [
+            'dispatch' => [
+                'status' => 'dispatched',
+                'message' => 'Stage background task created successfully.',
+                'task_id' => $taskId,
+                'stage_id' => $stageResult->stageId,
+                'stage_index' => $stageResult->stageIndex,
+                'updated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            ],
+        ]);
     }
 
     /**
@@ -294,6 +311,14 @@ final class LoopManager
     private function failLoop(string $loopId, string $phase, \Throwable $e): void
     {
         try {
+            $this->loopStore->updateLoopMetadata($loopId, [
+                'dispatch' => [
+                    'status' => 'failed',
+                    'message' => sprintf('Loop dispatch failed during %s.', $phase),
+                    'error' => mb_substr($e->getMessage(), 0, 200),
+                    'updated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                ],
+            ]);
             $this->loopStore->updateLoopStatus($loopId, 'failed');
             $this->publishLoopNotification(
                 loopId: $loopId,
@@ -484,5 +509,15 @@ final class LoopManager
         } catch (\Throwable) {
             // Never break loop execution for notification failures
         }
+    }
+
+    public function lastTickAt(): ?string
+    {
+        return $this->lastTickAt;
+    }
+
+    public function lastReconcileAt(): ?string
+    {
+        return $this->lastReconcileAt;
     }
 }
