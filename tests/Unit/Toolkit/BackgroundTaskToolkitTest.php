@@ -7,6 +7,7 @@ use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
+use CoquiBot\Coqui\Utility\PromptSizeValidator;
 
 beforeEach(function () {
     $this->dbPath = sys_get_temp_dir() . '/coqui-bgtask-test-' . bin2hex(random_bytes(8)) . '.db';
@@ -135,6 +136,18 @@ test('start_background_task returns error for empty title', function () {
     expect($result->content)->toContain('title');
 });
 
+test('start_background_task rejects oversized prompt', function () {
+    $tool = toolFromToolkit($this->toolkit, 'start_background_task');
+
+    $result = $tool->execute([
+        'prompt' => str_repeat('x', PromptSizeValidator::API_MAX_PROMPT_BYTES + 1),
+        'title' => 'Too Large',
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Error);
+    expect($result->content)->toContain('maximum length');
+});
+
 test('start_background_task creates task successfully', function () {
     $tool = toolFromToolkit($this->toolkit, 'start_background_task');
 
@@ -149,6 +162,22 @@ test('start_background_task creates task successfully', function () {
     expect($data)->toHaveKeys(['task_id', 'session_id', 'status', 'title']);
     expect($data['status'])->toBe('pending');
     expect($data['title'])->toBe('PHP research');
+});
+
+test('start_background_task accepts prompt at shared limit', function () {
+    $tool = toolFromToolkit($this->toolkit, 'start_background_task');
+
+    $result = $tool->execute([
+        'prompt' => str_repeat('x', PromptSizeValidator::API_MAX_PROMPT_BYTES),
+        'title' => 'Large Prompt',
+        'role' => 'orchestrator',
+    ]);
+
+    $data = json_decode($result->content, true);
+    $task = $this->storage->getTask($data['task_id']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect(strlen((string) $task['prompt']))->toBe(PromptSizeValidator::API_MAX_PROMPT_BYTES);
 });
 
 test('start_background_task refuses to queue work when API worker is unhealthy', function () {

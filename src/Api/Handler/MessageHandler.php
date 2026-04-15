@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Utility\PromptSizeValidator;
 use Psr\Http\Message\ServerRequestInterface;
 use React\EventLoop\Loop;
 use React\EventLoop\TimerInterface;
@@ -29,9 +30,6 @@ use React\Stream\ThroughStream;
  */
 final readonly class MessageHandler
 {
-    /** Maximum prompt length in bytes (100 KB). */
-    private const int MAX_PROMPT_BYTES = 102_400;
-
     /** How often to poll SQLite for new events (seconds). */
     private const float POLL_INTERVAL = 0.5;
 
@@ -87,11 +85,11 @@ final readonly class MessageHandler
 
         $prompt = trim((string) $body['prompt']);
 
-        // Enforce prompt length cap
-        if (strlen($prompt) > self::MAX_PROMPT_BYTES) {
+        $sizeError = PromptSizeValidator::validateApiText($prompt);
+        if ($sizeError !== null) {
             return Router::errorResponse(
                 ApiErrorCode::PAYLOAD_TOO_LARGE,
-                sprintf('Prompt exceeds maximum length of %s bytes', number_format(self::MAX_PROMPT_BYTES)),
+                $sizeError,
             );
         }
 

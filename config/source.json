@@ -2554,6 +2554,15 @@
             ]
         },
         {
+            "path": "src/Utility/PromptSizeValidator.php",
+            "fqcn": "CoquiBot\\Coqui\\Utility\\PromptSizeValidator",
+            "layer": "config",
+            "description": "Shared prompt-size validation for API and task-oriented input surfaces. Enforces the 1 MiB explicit rejection policy used by message submission, background task creation, and task follow-up input without truncating accepted content.",
+            "methods": [
+                "validateApiText(string, string): ?string — enforce the shared 1 MiB byte limit and return a human-readable error message"
+            ]
+        },
+        {
             "path": "src/Utility/ScheduleValidator.php",
             "fqcn": "CoquiBot\\Coqui\\Utility\\ScheduleValidator",
             "layer": "config",

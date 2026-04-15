@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\JsonHelper;
+use CoquiBot\Coqui\Utility\PromptSizeValidator;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 use React\Stream\ThroughStream;
@@ -27,9 +28,6 @@ use React\Stream\ThroughStream;
  */
 final readonly class TaskHandler
 {
-    /** Maximum prompt length in bytes (100 KB). */
-    private const int MAX_PROMPT_BYTES = 102_400;
-
     public function __construct(
         private SessionStorage $storage,
         private BackgroundTaskManager $taskManager,
@@ -52,10 +50,11 @@ final readonly class TaskHandler
 
         $prompt = trim((string) $body['prompt']);
 
-        if (strlen($prompt) > self::MAX_PROMPT_BYTES) {
+        $sizeError = PromptSizeValidator::validateApiText($prompt);
+        if ($sizeError !== null) {
             return Router::errorResponse(
                 ApiErrorCode::PAYLOAD_TOO_LARGE,
-                sprintf('Prompt exceeds maximum length of %s bytes', number_format(self::MAX_PROMPT_BYTES)),
+                $sizeError,
             );
         }
 
@@ -276,6 +275,14 @@ final readonly class TaskHandler
         }
 
         $content = trim((string) $body['content']);
+        $sizeError = PromptSizeValidator::validateApiText($content, 'Content');
+        if ($sizeError !== null) {
+            return Router::errorResponse(
+                ApiErrorCode::PAYLOAD_TOO_LARGE,
+                $sizeError,
+            );
+        }
+
         $inputId = $this->storage->addTaskInput($id, $content);
 
         return Router::jsonResponse([
