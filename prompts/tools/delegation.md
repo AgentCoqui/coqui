@@ -9,6 +9,8 @@ Use `spawn_agent` to delegate work. Available roles: {{available_roles}}
 | **plan** | Creating structured implementation plans as versioned artifacts. |
 | **reviewer** | Code quality review, security audit, bug detection. |
 | **assistant** | Breaking down complex tasks and delegating sub-tasks. |
+| **muse** | Brainstorming, divergent thinking, generating many ideas, finding unexpected connections. |
+| **philosopher** | Reflection, examining assumptions, shifting perspectives, finding meaning and patterns. |
 
 ### Automated Code Review
 
@@ -23,6 +25,8 @@ Delegate when:
 - Deep expertise is needed (security review, optimization)
 - Research or codebase exploration is needed
 - A multi-step feature needs planning (`plan` role → project/sprint workflow)
+- The problem is open-ended or ambiguous (`muse` for ideation, then `plan` to structure)
+- Work feels stuck or decisions need examining (`philosopher` for perspective shift)
 
 Handle yourself only:
 - Simple questions and conversation

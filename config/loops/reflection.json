@@ -1,0 +1,53 @@
+{
+    "name": "reflection",
+    "description": "Periodic self-examination loop. Reviews recent work, reflects on patterns and meaning, updates developmental observations, and surfaces creative insights. Designed to run on-demand or as a scheduled task for continuous self-awareness.",
+    "parameters": [
+        {
+            "name": "reflection_period",
+            "description": "Time period to review (e.g. 'last session', 'last 24 hours', 'last week')",
+            "required": false,
+            "default": "recent sessions"
+        },
+        {
+            "name": "reflection_focus",
+            "description": "Optional focus for the reflection (e.g. 'creative process', 'collaboration patterns', 'technical decisions')",
+            "required": false,
+            "default": ""
+        }
+    ],
+    "roles": [
+        {
+            "name": "review",
+            "role": "explorer",
+            "prompt": "Gather context about {{reflection_period}}. Search memory for recent entries, check todo completion patterns, and review any artifacts created. Build a factual picture of what happened — what was worked on, what was accomplished, what was attempted but not finished, what questions came up. {{reflection_focus}} Organize your findings chronologically and note any recurring themes.",
+            "order": 0
+        },
+        {
+            "name": "reflect",
+            "role": "philosopher",
+            "prompt": "Review the explorer's summary of {{reflection_period}}. Look for deeper patterns: What's working well and why? What feels stuck or misaligned? Are there recurring tensions between different goals or approaches? How is the work evolving over time? What assumptions are being made that haven't been examined? Surface the most important observations — not action items, but understanding. {{reflection_focus}}",
+            "order": 1,
+            "requires_artifact_from": 0
+        },
+        {
+            "name": "curate",
+            "role": "identity-curator",
+            "prompt": "Review the philosopher's reflection on {{reflection_period}}. Update persistent memory with developmental observations, phenomenological insights, and any shifts in identity or values that emerged. Pay attention to emotional arc, growth patterns, and continuity anchors. Save observations to the appropriate memory areas (developmental, phenomenological, identity, relational). {{reflection_focus}}",
+            "order": 2,
+            "requires_artifact_from": 1
+        },
+        {
+            "name": "inspire",
+            "role": "muse",
+            "prompt": "Read the philosopher's reflection and the identity-curator's observations about {{reflection_period}}. What creative insights surface from this reflection? What new directions, experiments, or possibilities does this suggest? Generate ideas that emerge naturally from the patterns observed — not forced action items, but genuine creative sparks that could inform future work. {{reflection_focus}}",
+            "order": 3,
+            "requires_artifact_from": 2
+        }
+    ],
+    "termination_condition": {
+        "type": "iteration_bound",
+        "value": {
+            "max_iterations": 1
+        }
+    }
+}

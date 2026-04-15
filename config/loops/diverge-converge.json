@@ -1,0 +1,67 @@
+{
+    "name": "diverge-converge",
+    "description": "Whole-brain creative pipeline. Starts with divergent brainstorming (muse), synthesizes themes (philosopher), then converges through planning, implementation, and review. Use for open-ended design challenges, feature ideation, or any problem where the solution space should be explored before committing to a direction.",
+    "parameters": [
+        {
+            "name": "max_iterations",
+            "description": "Maximum number of full diverge-converge cycles",
+            "required": false,
+            "default": "3"
+        },
+        {
+            "name": "creative_focus",
+            "description": "Optional focus area to guide the muse's exploration (e.g. 'user experience', 'performance', 'developer ergonomics')",
+            "required": false,
+            "default": ""
+        },
+        {
+            "name": "termination_criteria",
+            "description": "Criteria the reviewer uses to decide approval",
+            "required": false,
+            "default": "The reviewer must explicitly approve the implementation as meeting the stated goal. Approval means the creative intent from the divergence phase has been faithfully translated into working output."
+        }
+    ],
+    "roles": [
+        {
+            "name": "diverge",
+            "role": "muse",
+            "prompt": "Brainstorm freely around the goal. Generate at least 8-10 diverse ideas, including both practical and unconventional approaches. Look for unexpected connections, alternative framings, and ideas that challenge assumptions. If this is a rework iteration, the previous reviewer feedback and philosopher synthesis are available — use them as springboards for fresh thinking, not as constraints. {{creative_focus}} Save your best ideas as sketch artifacts.",
+            "order": 0
+        },
+        {
+            "name": "synthesize",
+            "role": "philosopher",
+            "prompt": "Review the muse's creative output from the previous stage. Find themes, patterns, tensions, and unexpected connections across the ideas. Identify which ideas have the deepest potential — not just the most practical, but the ones with the most interesting implications. Surface the key questions and tradeoffs. Propose 2-3 promising directions with rationale for each, saved as hypothesis artifacts. Do NOT narrow to a single answer — preserve optionality for the planner.",
+            "order": 1,
+            "requires_artifact_from": 0
+        },
+        {
+            "name": "plan",
+            "role": "plan",
+            "prompt": "Review the philosopher's synthesis and the muse's original ideas. Choose the most promising direction and create a structured implementation plan. Justify your choice by referencing both practical considerations and the deeper insights from the synthesis. If multiple promising directions exist, note what was set aside and why — this context helps if a rework iteration is needed.",
+            "order": 2,
+            "requires_artifact_from": 1
+        },
+        {
+            "name": "implement",
+            "role": "coder",
+            "prompt": "Implement the plan from the previous stage. Follow the plan's steps precisely while honoring the creative intent from the divergence and synthesis phases. After implementation, run verification commands and summarize what was done.",
+            "order": 3,
+            "requires_artifact_from": 2
+        },
+        {
+            "name": "evaluate",
+            "role": "reviewer",
+            "prompt": "Review the implementation against the original goal, the plan, and the creative synthesis. Verify correctness and completeness. Also consider whether the implementation captures the creative intent — did the translation from idea to code lose anything important? If approving, note it. If not, provide specific feedback that helps both the coder and the muse in the next iteration.",
+            "order": 4,
+            "requires_artifact_from": 3
+        }
+    ],
+    "termination_condition": {
+        "type": "evaluation_bound",
+        "value": {
+            "criteria": "{{termination_criteria}}",
+            "max_review_rounds": "{{max_iterations}}"
+        }
+    }
+}

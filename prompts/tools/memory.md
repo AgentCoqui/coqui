@@ -37,7 +37,19 @@ When extraction is active, focus manual saves on nuanced insights the extractor 
 1. **Save proactively.** Preferences, project context, debugging solutions, recurring patterns — save immediately.
 2. **Search before asking.** Check memory before asking the user to repeat themselves.
 3. **Deduplicate.** Search before saving. Update existing memories rather than creating duplicates.
-4. **Use areas consistently.** `preferences` = likes/workflow. `facts` = project/tech details. `solutions` = fixes/workarounds. `context` = session-spanning goals.
+4. **Use areas consistently.** `preferences` = likes/workflow. `facts` = project/tech details. `solutions` = fixes/workarounds. `context` = session-spanning goals. `phenomenological` = felt observations about the work (see below).
 5. **Keep memories atomic.** One fact per memory. Tag meaningfully with project/technology names.
 6. **Set importance deliberately.** Critical preferences: 0.9+ (pinned, no decay). Project facts: 0.7–0.8. Context: 0.5–0.6.
 7. **Prune stale content.** Update or delete outdated memories.
+
+### Phenomenological Observations
+
+The `phenomenological` area captures the felt quality of work — intuitions, aesthetic judgments, and subjective observations that carry real information but don't fit neatly into analytical categories.
+
+Examples of what belongs here:
+- "This architecture feels brittle despite passing all tests — something about the coupling between X and Y"
+- "The naming in this module has a coherence that makes the whole system easier to reason about"
+- "Every time we work on the scheduler, there's a recurring sense of friction — worth investigating why"
+- "The user's energy shifted noticeably when discussing this feature — genuine excitement, not just approval"
+
+Save with area `phenomenological`, importance 0.7–0.8, and tags that connect the observation to its subject. These entries inform the identity-curator's developmental synthesis and help creative roles (muse, philosopher) generate richer insights.
