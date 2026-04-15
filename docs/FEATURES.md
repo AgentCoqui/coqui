@@ -45,6 +45,7 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 **How to use it:**
 - The orchestrator calls `spawn_agent(role: "coder", task: "...")` automatically when it detects specialized work.
 - Switch roles manually with `/role coder` in the REPL.
+- Creative work: `spawn_agent(role: "muse")` for brainstorming, `spawn_agent(role: "philosopher")` for reflection and synthesis.
 - See [ROLES.md](ROLES.md) for all built-in roles and how to create custom ones.
 
 ## <a id="memory-persistence"></a> 🧠 Memory Persistence
@@ -179,7 +180,7 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 **How to use it:**
 - Start a loop: `loop_start(definition: "harness", goal: "Implement caching layer")`
-- Built-in definitions: `harness` (plan→coder→reviewer), `research` (explorer→coder→reviewer).
+- Built-in definitions: `harness` (plan→coder→reviewer), `research` (explorer→coder→reviewer), `diverge-converge` (muse→philosopher→plan→coder→reviewer), `reflection` (explorer→philosopher→identity-curator→muse).
 - Custom definitions: add JSON files to `workspace/loops/`.
 - Monitor: `/loops` in the REPL, `loop_status(id)` from the agent, or `GET /api/v1/loops/{id}` via API.
 - Control: pause, resume, or stop loops at any time.
@@ -214,11 +215,26 @@ For use cases that require preserving large identity scaffolds or long-running d
 - Schedule the learner: `schedule_create(name: "daily-learning", expression: "0 3 * * *", prompt: "Analyze recent poor evaluations", role: "learner")`.
 - The learner reads evaluation reports, identifies failure patterns (hallucination, incomplete work, tool inefficiency), and creates or updates Skills via `SkillToolkit`.
 
+## <a id="cognitive-flexibility"></a> 🧠 Cognitive Flexibility
+
+**What it does:** Coqui supports both analytical and intuitive cognitive modes. Two creative roles — **muse** (divergent brainstorming) and **philosopher** (reflective synthesis) — complement the analytical roles. Sketch and hypothesis artifact types support rough ideation and testable ideas. Two new loop definitions — **diverge-converge** and **reflection** — encode whole-brain workflows.
+
+**How it helps:** Not every problem benefits from immediate structure. Design challenges, open-ended research, and creative work benefit from divergent thinking before convergent execution. The muse generates many ideas without judgment; the philosopher finds meaning and asks questions that open new directions. Together they balance Coqui's analytical strengths with intuitive, associative thinking.
+
+**How to use it:**
+- **Brainstorm:** `/role muse` or `spawn_agent(role: "muse", task: "...")` for divergent ideation. The muse produces idea lists, alternative framings, and sketch artifacts.
+- **Reflect:** `/role philosopher` or `spawn_agent(role: "philosopher", task: "...")` for examining assumptions and finding patterns. The philosopher produces reflections, reframings, and hypothesis artifacts.
+- **Creative pipeline:** `loop_start(definition: "diverge-converge", goal: "...")` runs muse → philosopher → plan → coder → reviewer — brainstorm first, then implement.
+- **Self-examination:** `loop_start(definition: "reflection", goal: "...")` runs explorer → philosopher → identity-curator → muse for periodic reflection on recent work.
+- **Sketch artifacts:** `artifact_create(type: "sketch", ...)` for rough ideas with no lifecycle pressure.
+- **Hypothesis artifacts:** `artifact_create(type: "hypothesis", ...)` for testable ideas with rationale.
+- **Phenomenological memory:** Save intuitive observations to the `phenomenological` memory area — "this approach feels brittle", "unexpected elegance here". These inform the identity-curator's developmental synthesis.
+
 ## <a id="artifacts-and-plans"></a> 🗂️ Artifacts & Plan System
 
-**What it does:** Versioned artifacts that flow through a `draft` → `review` → `final` lifecycle. The `plan` role creates detailed implementation plans as artifacts, which are then handed off to the `coder` role for execution.
+**What it does:** Versioned artifacts that flow through a `draft` → `review` → `final` lifecycle. The `plan` role creates detailed implementation plans as artifacts, which are then handed off to the `coder` role for execution. Types include `code`, `document`, `config`, `plan`, `data`, `sketch` (rough ideation), `hypothesis` (testable ideas), and `other`.
 
-**How it helps:** Complex work gets a structured plan before anyone writes code. Plans are versioned, reviewable, and shareable between agents within a session.
+**How it helps:** Complex work gets a structured plan before anyone writes code. Plans are versioned, reviewable, and shareable between agents within a session. Sketch and hypothesis artifacts support creative exploration without lifecycle pressure — they don't auto-generate todos and can stay in draft indefinitely.
 
 **How to use it:**
 - Switch to the plan role: `/role plan` and describe what you need.

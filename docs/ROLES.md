@@ -89,6 +89,30 @@ Fast, read-only codebase analyst. Investigates specific areas using filesystem r
 
 Activate: Delegated via `spawn_agent(role: "explorer")`.
 
+### muse
+
+Creative divergent thinking agent for brainstorming, associative exploration, and ideation. Generates many ideas without evaluating them — finds unexpected connections using metaphor, analogy, and lateral thinking. Produces sketch artifacts for rough idea capture. Cannot fail — all creative output is valid.
+
+| Property | Value |
+| --- | --- |
+| Access Level | `readonly-shell` |
+| Max Iterations | `32` |
+| Toolkits | `+*, -SessionEvaluationToolkit, -LearningToolkit, -ShellToolkit, -php_execute` |
+
+Activate: `/role muse` or delegated via `spawn_agent(role: "muse")`. Also used as the divergence stage in the `diverge-converge` and `reflection` loops.
+
+### philosopher
+
+Reflective synthesis agent for examining assumptions, shifting perspectives, and finding meaning. Steps back from execution to ask questions that open new directions. Produces hypothesis artifacts for testable ideas with rationale. Outputs understanding, not action items.
+
+| Property | Value |
+| --- | --- |
+| Access Level | `readonly` |
+| Max Iterations | `24` |
+| Toolkits | `+*, -SessionEvaluationToolkit, -LearningToolkit, -ShellToolkit, -php_execute` |
+
+Activate: `/role philosopher` or delegated via `spawn_agent(role: "philosopher")`. Also used as the synthesis stage in the `diverge-converge` and `reflection` loops.
+
 ### evaluator
 
 Autonomous session evaluator that grades past sessions on completion, hallucinations, and tool efficiency. Produces structured evaluation reports with A-F grades. Typically runs on a schedule.

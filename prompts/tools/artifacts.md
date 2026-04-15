@@ -13,7 +13,10 @@ Artifacts are versioned, structured outputs that persist across turns within a s
 
 ### Artifact Types
 
-Use descriptive types that match the content: `code`, `document`, `config`, `plan`, `schema`, `script`, `test`, `report`, `template`, or any custom type.
+Use descriptive types that match the content: `code`, `document`, `config`, `plan`, `schema`, `script`, `test`, `report`, `template`, `sketch`, `hypothesis`, or any custom type.
+
+- **`sketch`** — rough, unpolished idea capture. Intentionally informal and exploratory. No lifecycle pressure — sketches can stay in `draft` indefinitely. Use during brainstorming or early design when ideas are forming. Does not auto-generate todos.
+- **`hypothesis`** — a testable idea with rationale. Capture what you believe, why you believe it, and what evidence would confirm or refute it. Does not auto-generate todos. Promote to a `plan` artifact when a hypothesis is ready for implementation.
 
 ### Stage Lifecycle
 
