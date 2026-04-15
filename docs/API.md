@@ -273,13 +273,15 @@ Create a new session.
 
 ```json
 {
-  "model_role": "orchestrator"
+  "model_role": "orchestrator",
+  "profile": "caelum"
 }
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `model_role` | string | No | `"orchestrator"` | Role to resolve the model from config. Must be a known role. |
+| `profile` | string | No | `null` | Personality profile name. Must match a `profiles/{name}/soul.md` in the workspace. |
 
 **Response `201`**
 
@@ -287,7 +289,8 @@ Create a new session.
 {
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "model_role": "orchestrator",
-  "model": "openai/gpt-5"
+  "model": "openai/gpt-5",
+  "profile": "caelum"
 }
 ```
 

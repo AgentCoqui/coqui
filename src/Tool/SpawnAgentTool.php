@@ -81,6 +81,7 @@ final class SpawnAgentTool implements ToolInterface
         private readonly bool $unsafeMode = false,
         private readonly ?ToolExecutorInterface $toolExecutor = null,
         private readonly ?ProviderFactory $providerFactory = null,
+        private readonly ?string $profileIdentityPreamble = null,
     ) {}
 
     public function name(): string
@@ -173,6 +174,7 @@ final class SpawnAgentTool implements ToolInterface
                 maxIterations: $this->roleResolver->resolveMaxIterations($role),
                 roleDiscovery: $this->roleDiscovery,
                 toolExecutor: $this->toolExecutor,
+                profileIdentityPreamble: $this->profileIdentityPreamble,
             );
 
             // Attach observer if available

@@ -54,6 +54,10 @@ final readonly class SessionHandler
             ? (string) $body['model_role']
             : 'orchestrator';
 
+        $profile = is_array($body) && isset($body['profile'])
+            ? (string) $body['profile']
+            : null;
+
         // Validate that the role exists
         if (!$this->roleResolver->hasRole($modelRole)) {
             return Router::errorResponse(
@@ -63,12 +67,13 @@ final readonly class SessionHandler
         }
 
         $model = $this->roleResolver->resolve($modelRole);
-        $sessionId = $this->storage->createSession($modelRole, $model);
+        $sessionId = $this->storage->createSession($modelRole, $model, $profile);
 
         return Router::jsonResponse([
             'id' => $sessionId,
             'model_role' => $modelRole,
             'model' => $model,
+            'profile' => $profile,
         ], 201);
     }
 

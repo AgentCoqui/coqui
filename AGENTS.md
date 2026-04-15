@@ -27,6 +27,7 @@ Use these documents as the canonical references:
 - [docs/TESTING.md](docs/TESTING.md): test strategy and test commands
 - [docs/TOOLKITS.md](docs/TOOLKITS.md): toolkit authoring and discovery
 - [docs/ROLES.md](docs/ROLES.md): role system and role files
+- [docs/PROFILES.md](docs/PROFILES.md): personality profiles
 - [docs/BACKGROUND-TASKS.md](docs/BACKGROUND-TASKS.md): background task model
 - [docs/LOOPS.md](docs/LOOPS.md): loop system
 - [docs/PROJECTS.md](docs/PROJECTS.md): project and sprint context

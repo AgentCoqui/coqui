@@ -46,6 +46,7 @@ final class BootManager
     private ToolkitVisibilityRegistry $visibilityRegistry;
     private SkillDiscovery $skillDiscovery;
     private RoleDiscovery $roleDiscovery;
+    private ProfileDiscovery $profileDiscovery;
     private RoleResolver $roleResolver;
     private RoleUpdateTracker $roleUpdateTracker;
     /** @var list<RoleUpdateInfo> */
@@ -208,6 +209,11 @@ final class BootManager
     public function roleDiscovery(): RoleDiscovery
     {
         return $this->roleDiscovery;
+    }
+
+    public function profileDiscovery(): ProfileDiscovery
+    {
+        return $this->profileDiscovery;
     }
 
     public function roleUpdateTracker(): RoleUpdateTracker
@@ -498,6 +504,7 @@ final class BootManager
         $builtinDir = ($this->workDir !== '' ? PathHelper::trimTrailingSlash($this->workDir) : dirname(__DIR__, 2)) . '/config/roles';
 
         $this->roleDiscovery = new RoleDiscovery($this->workspacePath, $this->workDir);
+        $this->profileDiscovery = new ProfileDiscovery($this->workspacePath);
         $this->roleUpdateTracker = new RoleUpdateTracker($this->workspacePath, $builtinDir);
 
         // Seed built-in roles, recording hashes for newly seeded files

@@ -35,6 +35,7 @@ final class ChildAgent extends AbstractAgent
         private readonly ?RoleDiscovery $roleDiscovery = null,
         ?ToolExecutorInterface $toolExecutor = null,
         ?TickCallbackInterface $tickCallback = null,
+        private readonly ?string $profileIdentityPreamble = null,
     ) {
         parent::__construct(
             $provider,
@@ -55,6 +56,11 @@ final class ChildAgent extends AbstractAgent
     public function instructions(): string
     {
         $roleInstructions = $this->resolveRoleInstructions();
+
+        // Prepend profile identity when a personality profile is active
+        if ($this->profileIdentityPreamble !== null && $this->profileIdentityPreamble !== '') {
+            $roleInstructions = $this->profileIdentityPreamble . "\n\n" . $roleInstructions;
+        }
 
         return <<<PROMPT
             {$roleInstructions}

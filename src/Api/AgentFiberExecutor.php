@@ -66,6 +66,8 @@ final class AgentFiberExecutor
                     ? (string) $session['model_role']
                     : SystemRole::Orchestrator->value;
                 $role = ($sessionRole !== '' && $sessionRole !== SystemRole::Orchestrator->value) ? $sessionRole : null;
+                $profileRaw = $session['profile'] ?? null;
+                $profile = is_string($profileRaw) ? $profileRaw : null;
 
                 // Create a new AgentRunner with the SSE observer for this turn
                 $result = $this->agentRunner->runWithObserver(
@@ -75,6 +77,7 @@ final class AgentFiberExecutor
                     $sseObserver,
                     $filePaths,
                     $role,
+                    $profile,
                 );
 
                 // Write the final complete event
@@ -186,12 +189,17 @@ final class AgentFiberExecutor
             );
 
             try {
+                $session = $this->storage->getSession($sessionId);
+                $profileRaw = $session['profile'] ?? null;
+                $profile = is_string($profileRaw) ? $profileRaw : null;
+
                 $result = $this->agentRunner->runWithObserver(
                     $prompt,
                     $sessionId,
                     $executionPolicy,
                     new NullObserver(),
                     $filePaths,
+                    profile: $profile,
                 );
 
                 // Process deferred work (memory extraction) before resolving

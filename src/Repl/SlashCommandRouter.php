@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
+use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
 use CoquiBot\Coqui\Repl\Handler\QualityHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
@@ -43,6 +44,7 @@ final class SlashCommandRouter
         private readonly QualityHandler $quality,
         private readonly ProjectHandler $project,
         private readonly RoleHandler $role,
+        private readonly ProfileHandler $profile,
         private readonly ToolkitVisibilityHandler $toolkitVisibility,
         private readonly SpaceHandler $space,
         private readonly ConfigHandler $config,
@@ -65,7 +67,7 @@ final class SlashCommandRouter
      *
      * @return RouteResult Result containing exit code or state changes.
      */
-    public function route(string $command, string $activeRole, string $sessionId, SymfonyStyle $io, ?string $activeProjectId = null): RouteResult
+    public function route(string $command, string $activeRole, string $sessionId, SymfonyStyle $io, ?string $activeProjectId = null, ?string $activeProfile = null): RouteResult
     {
         $parts = explode(' ', $command, 2);
         $cmd = $parts[0];
@@ -93,6 +95,8 @@ final class SlashCommandRouter
             '/summarize' => $this->handleSummarize($io, $arg, $sessionId),
             '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId),
             '/roles' => $this->handleRoles($io, $arg, $activeRole),
+            '/profile' => $this->handleProfile($io, $arg, $activeRole, $activeProfile),
+            '/profiles' => $this->handleProfiles($io, $activeProfile),
             '/space' => $this->handleSpace($io, $arg),
             '/schedules' => $this->handleSchedules($io, $arg),
             '/quality' => $this->handleQuality($io),
@@ -281,6 +285,16 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
+    private function handleProfile(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
+    {
+        return $this->profile->handleProfile($io, $arg, $activeRole, $activeProfile);
+    }
+
+    private function handleProfiles(SymfonyStyle $io, ?string $activeProfile): RouteResult
+    {
+        return $this->profile->handleProfiles($io, $activeProfile);
+    }
+
     private function handleSpace(SymfonyStyle $io, string $arg): RouteResult
     {
         $this->space->handle($io, $arg);
@@ -384,6 +398,8 @@ final class SlashCommandRouter
                 ['/roles update [name]', 'Apply pending built-in role updates'],
                 ['/roles ignore <name>', 'Ignore future updates for a role'],
                 ['/roles unignore <name>', 'Resume receiving updates for a role'],
+                ['/profile [name|reset]', 'Switch personality profile (creates new session). No argument shows current'],
+                ['/profiles', 'List all available personality profiles'],
                 ['/space [search|install|remove|installed|skills|toolkits|update]', 'Coqui Space marketplace'],
                 ['/schedules', 'List scheduled tasks with status and next run time'],
                 ['/quality', 'Show quality automation schedules and learner follow-up state'],
