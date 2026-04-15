@@ -2,6 +2,8 @@
 
 Roles control how Coqui agents behave. Each role defines an access level, available toolkits, iteration budget, and instruction set. The orchestrator delegates work to child agents by spawning them with a specific role.
 
+The orchestrator is the only role that uses the full orchestrator prompt stack, including `prompts/soul.md`. When you switch the main session to a specialized role with `/role <name>`, Coqui uses that role's markdown instructions instead of layering them on top of the soul. Spawned child agents follow the same rule and use role instructions directly.
+
 ## Access Levels
 
 Every role has an `access_level` that determines what the agent can do:

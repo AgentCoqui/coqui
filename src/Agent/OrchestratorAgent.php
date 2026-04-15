@@ -814,20 +814,10 @@ final class OrchestratorAgent extends AbstractAgent
             return $this->injectNotificationContext($this->cachedInstructions);
         }
 
-        // When a non-orchestrator role is active, use the role's instructions
-        // instead of the full orchestrator prompt. This enables /role switching
-        // while preserving memory injection and context awareness.
-        if ($this->activeRole !== null && $this->activeRole !== 'orchestrator' && $this->roleDiscovery !== null) {
-            try {
-                $roleInstructions = $this->roleDiscovery->readInstructions($this->activeRole);
-                $rendered = $roleInstructions;
-            } catch (\Throwable) {
-                // Role instructions not found — fall through to orchestrator prompt
-                $rendered = $this->renderOrchestratorPrompt();
-            }
-        } else {
-            $rendered = $this->renderOrchestratorPrompt();
-        }
+        // The orchestrator prompt stack owns soul/base/tool/security/done.
+        // Specialized roles replace that stack with role markdown instead of
+        // layering on top of soul, which keeps role switching predictable.
+        $rendered = $this->resolvePrimaryInstructionContent();
 
         // Inject deferred toolkit discovery hints when toolkits have been deferred
         $rendered = $this->injectDeferredToolkitHint($rendered);
@@ -884,6 +874,30 @@ final class OrchestratorAgent extends AbstractAgent
         );
 
         return $prompt->render();
+    }
+
+    private function resolvePrimaryInstructionContent(): string
+    {
+        $roleInstructions = $this->resolveActiveRoleInstructions();
+
+        if ($roleInstructions !== null) {
+            return $roleInstructions;
+        }
+
+        return $this->renderOrchestratorPrompt();
+    }
+
+    private function resolveActiveRoleInstructions(): ?string
+    {
+        if ($this->activeRole === null || $this->activeRole === 'orchestrator' || $this->roleDiscovery === null) {
+            return null;
+        }
+
+        try {
+            return $this->roleDiscovery->readInstructions($this->activeRole);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function injectNotificationContext(string $rendered): string
@@ -1294,22 +1308,17 @@ final class OrchestratorAgent extends AbstractAgent
      */
     private function buildInstructionPromptSections(): array
     {
-        if ($this->activeRole !== null && $this->activeRole !== 'orchestrator' && $this->roleDiscovery !== null) {
-            try {
-                $roleInstructions = $this->roleDiscovery->readInstructions($this->activeRole);
-
-                return [new PromptSection(
-                    id: 'role.' . $this->activeRole,
-                    title: ucfirst(str_replace('-', ' ', $this->activeRole)) . ' Instructions',
-                    content: $roleInstructions,
-                    priority: PromptSectionPriority::Critical,
-                    rationale: 'Role-specific instructions define the active agent behavior for this turn and cannot be deferred safely.',
-                    decision: 'pinned_critical',
-                    group: 'identity',
-                )];
-            } catch (\Throwable) {
-                // Fall back to the orchestrator prompt sections below.
-            }
+        $roleInstructions = $this->resolveActiveRoleInstructions();
+        if ($roleInstructions !== null) {
+            return [new PromptSection(
+                id: 'role.' . $this->activeRole,
+                title: ucfirst(str_replace('-', ' ', $this->activeRole)) . ' Instructions',
+                content: $roleInstructions,
+                priority: PromptSectionPriority::Critical,
+                rationale: 'Specialized roles replace the orchestrator prompt stack for that turn, so their instructions must stay pinned.',
+                decision: 'pinned_critical',
+                group: 'identity',
+            )];
         }
 
         $roles = implode(', ', $this->roleResolver->availableRoles());

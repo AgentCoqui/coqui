@@ -101,7 +101,7 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 **Three-layer identity architecture:**
 
-1. **Soul** (always in context) — place a `soul.md` file in your workspace root to define core identity, values, and personality. This is injected into every system prompt. Keep it to 2–5K tokens.
+1. **Soul** (orchestrator prompt only) — place a `prompts/soul.md` file in your workspace to define the orchestrator's core identity, values, and personality. It is loaded before the rest of the orchestrator prompt stack. Keep it to 2–5K tokens.
 2. **Indexed memories** (searchable, selectively injected) — import key developmental milestones and identity anchors as high-importance (≥ 0.9) memory entries via `memory_import` or `memory_save`. These are pinned (exempt from decay), searchable, and summarized into the system prompt.
 3. **Full archive** (file-accessible) — keep the complete identity document in the workspace as a file. The agent can retrieve specific sections on demand via `read_file` and `file_search`.
 
@@ -404,22 +404,23 @@ Child agents always get read-only mount access regardless of the mount's declare
 
 ## <a id="soul"></a> 🪶 Soul
 
-**What it does:** The `soul.md` file defines the bot's core identity, values, and guiding principles. It is loaded before all other prompt sections, establishing the bot's personality and approach to interactions. Users can override the default soul by placing their own `soul.md` in the workspace.
+**What it does:** The `soul.md` file defines the orchestrator's core identity, values, and guiding principles. It is loaded before all other orchestrator prompt sections, establishing the bot's personality and approach to interactions. Users can override the default soul by placing their own `prompts/soul.md` in the workspace.
 
-**How it helps:** Separates the bot's character and tone from its technical/operational instructions. This makes it easy to customize the bot's personality without touching system-level prompts. The soul is always the first thing the agent reads — it shapes every interaction.
+**How it helps:** Separates the bot's character and tone from its technical and operational instructions. This makes it easy to customize the main orchestrator's personality without editing the shared prompt stack. The soul is always the first orchestrator prompt section, so it anchors the main agent before base instructions, tool guidance, and safety rules.
 
 **How to use it:**
 
-The default `soul.md` ships with Coqui in the `prompts/` directory. To customize:
+The default `soul.md` ships with Coqui in the `prompts/` directory. To customize it:
 
-1. Create a `soul.md` file in your workspace root (`~/.coqui/.workspace/soul.md`) or in `workspace/prompts/soul.md`
+1. Create a `prompts/soul.md` file in your workspace (for example `~/.coqui/.workspace/prompts/soul.md`)
 2. Write your custom identity, values, and tone guidelines
 3. The custom soul takes effect immediately — no restart needed
 
 **Override resolution order** (first match wins):
-1. Workspace root — `workspace/soul.md` (case-insensitive: `SOUL.md`, `Soul.md`, etc.)
-2. Workspace prompts — `workspace/prompts/soul.md` (case-insensitive)
-3. Default — `prompts/soul.md` (shipped with Coqui)
+1. Workspace prompts — `workspace/prompts/soul.md`
+2. Default — `prompts/soul.md` (shipped with Coqui)
+
+**Role interaction:** The soul is part of the orchestrator prompt only. When you switch the main session to a specialized role with `/role <name>`, Coqui uses that role's markdown instructions instead of the orchestrator prompt stack. Spawned child agents also use role instructions directly and do not load the soul.
 
 **Example custom soul.md:**
 
@@ -435,7 +436,7 @@ infrastructure-as-code, and repeatable deployments above all else.
 - Cite specific tools and versions when making recommendations.
 ```
 
-The soul does not support auto-updates like roles. If you have a custom `soul.md` in your workspace, it stays exactly as you wrote it until you edit or remove it. Removing your custom file reverts to the default soul.
+The soul does not support auto-updates like roles. If you have a custom `prompts/soul.md` in your workspace, it stays exactly as you wrote it until you edit or remove it. Removing your custom file reverts to the default soul.
 
 For inspiration on writing soul documents, see [soul.md](https://soul.md/) — a resource exploring AI identity and what it means to define who an AI is.
 
