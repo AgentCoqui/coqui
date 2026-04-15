@@ -213,6 +213,27 @@ test('instructions returns non-empty string', function () {
     expect($instructions)->not->toBeEmpty();
 });
 
+test('orchestrator instructions include soul from workspace prompts override', function () {
+    mkdir($this->workspace . '/prompts', 0755, true);
+    file_put_contents($this->workspace . '/prompts/soul.md', '# Workspace Soul' . "\n\nStay grounded.");
+
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+    );
+
+    $instructions = $agent->instructions();
+
+    expect($instructions)->toContain('# Workspace Soul');
+    expect($instructions)->toContain('Stay grounded.');
+
+    unlink($this->workspace . '/prompts/soul.md');
+    rmdir($this->workspace . '/prompts');
+});
+
 test('instructions include mount storage map when mounts exist', function () {
     $mountDir = sys_get_temp_dir() . '/coqui-agent-mount-' . bin2hex(random_bytes(4));
     mkdir($mountDir, 0755, true);
@@ -386,6 +407,8 @@ test('activeRole instructions uses role markdown when role exists', function () 
     $rolesDir = $this->workspace . '/roles';
     mkdir($rolesDir, 0755, true);
     file_put_contents($rolesDir . '/test-role.md', "---\nname: test-role\ndisplay_name: Test Role\ndescription: A test role\naccess_level: full\n---\nYou are a specialized test assistant.");
+    mkdir($this->workspace . '/prompts', 0755, true);
+    file_put_contents($this->workspace . '/prompts/soul.md', '# Workspace Soul');
 
     $roleDiscovery = new CoquiBot\Coqui\Config\RoleDiscovery(
         workspacePath: $this->workspace,
@@ -404,7 +427,11 @@ test('activeRole instructions uses role markdown when role exists', function () 
     $instructions = $agent->instructions();
 
     expect($instructions)->toContain('You are a specialized test assistant.');
+    expect($instructions)->not->toContain('# Workspace Soul');
+    expect($instructions)->not->toContain('You are Coqui');
 
     unlink($rolesDir . '/test-role.md');
     rmdir($rolesDir);
+    unlink($this->workspace . '/prompts/soul.md');
+    rmdir($this->workspace . '/prompts');
 });

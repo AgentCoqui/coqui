@@ -60,45 +60,6 @@ test('resolveSoulPath returns default soul.md when workspace has no override', f
     expect($loader->resolveSoulPath())->toBe($this->promptsDir . '/soul.md');
 });
 
-test('resolveSoulPath returns workspace root soul.md override', function () {
-    $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
-    mkdir($this->workspacePath, 0755, true);
-    file_put_contents($this->workspacePath . '/soul.md', '# Custom Soul');
-
-    $loader = new PromptLoader(
-        promptsDir: $this->promptsDir,
-        workspacePath: $this->workspacePath,
-    );
-
-    expect($loader->resolveSoulPath())->toBe($this->workspacePath . '/soul.md');
-});
-
-test('resolveSoulPath finds uppercase SOUL.md in workspace root', function () {
-    $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
-    mkdir($this->workspacePath, 0755, true);
-    file_put_contents($this->workspacePath . '/SOUL.md', '# Custom Soul (uppercase)');
-
-    $loader = new PromptLoader(
-        promptsDir: $this->promptsDir,
-        workspacePath: $this->workspacePath,
-    );
-
-    expect($loader->resolveSoulPath())->toBe($this->workspacePath . '/SOUL.md');
-});
-
-test('resolveSoulPath finds title-case Soul.md in workspace root', function () {
-    $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
-    mkdir($this->workspacePath, 0755, true);
-    file_put_contents($this->workspacePath . '/Soul.md', '# Custom Soul (title case)');
-
-    $loader = new PromptLoader(
-        promptsDir: $this->promptsDir,
-        workspacePath: $this->workspacePath,
-    );
-
-    expect($loader->resolveSoulPath())->toBe($this->workspacePath . '/Soul.md');
-});
-
 test('resolveSoulPath returns workspace/prompts soul.md override', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
     mkdir($this->workspacePath . '/prompts', 0755, true);
@@ -112,18 +73,17 @@ test('resolveSoulPath returns workspace/prompts soul.md override', function () {
     expect($loader->resolveSoulPath())->toBe($this->workspacePath . '/prompts/soul.md');
 });
 
-test('resolveSoulPath prefers workspace root over workspace/prompts', function () {
+test('resolveSoulPath ignores workspace root soul.md when prompts override is absent', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
-    mkdir($this->workspacePath . '/prompts', 0755, true);
+    mkdir($this->workspacePath, 0755, true);
     file_put_contents($this->workspacePath . '/soul.md', '# Root soul');
-    file_put_contents($this->workspacePath . '/prompts/soul.md', '# Prompts soul');
 
     $loader = new PromptLoader(
         promptsDir: $this->promptsDir,
         workspacePath: $this->workspacePath,
     );
 
-    expect($loader->resolveSoulPath())->toBe($this->workspacePath . '/soul.md');
+    expect($loader->resolveSoulPath())->toBe($this->promptsDir . '/soul.md');
 });
 
 test('resolveSoulPath returns null when no soul.md exists anywhere', function () {
@@ -154,8 +114,8 @@ test('buildSystemPrompt loads soul.md before base.md', function () {
 
 test('buildSystemPrompt uses workspace soul.md override', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
-    mkdir($this->workspacePath, 0755, true);
-    file_put_contents($this->workspacePath . '/soul.md', '# My Custom Soul');
+    mkdir($this->workspacePath . '/prompts', 0755, true);
+    file_put_contents($this->workspacePath . '/prompts/soul.md', '# My Custom Soul');
 
     $loader = new PromptLoader(
         promptsDir: $this->promptsDir,
@@ -222,8 +182,8 @@ test('buildSystemPromptSections soul section has correct metadata', function () 
 
 test('buildSystemPromptSections uses workspace override source path', function () {
     $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
-    mkdir($this->workspacePath, 0755, true);
-    file_put_contents($this->workspacePath . '/soul.md', '# Workspace Soul');
+    mkdir($this->workspacePath . '/prompts', 0755, true);
+    file_put_contents($this->workspacePath . '/prompts/soul.md', '# Workspace Soul');
 
     $loader = new PromptLoader(
         promptsDir: $this->promptsDir,
@@ -233,7 +193,7 @@ test('buildSystemPromptSections uses workspace override source path', function (
     $sections = $loader->buildSystemPromptSections();
     $soulSection = $sections[0];
 
-    expect($soulSection['source'])->toBe($this->workspacePath . '/soul.md');
+    expect($soulSection['source'])->toBe($this->workspacePath . '/prompts/soul.md');
     expect($soulSection['content'])->toContain('# Workspace Soul');
 });
 
