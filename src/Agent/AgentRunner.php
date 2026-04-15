@@ -117,8 +117,9 @@ final class AgentRunner
         SplObserver $observer,
         ?array $filePaths = null,
         ?string $role = null,
+        ?string $profile = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths, role: $role);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths, role: $role, profile: $profile);
     }
 
     /**
@@ -167,8 +168,9 @@ final class AgentRunner
         ToolExecutionPolicyInterface $executionPolicy,
         ?CancellationTokenInterface $cancellationToken = null,
         ?string $role = null,
+        ?string $profile = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer, $cancellationToken, role: $role);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $this->observer, $cancellationToken, role: $role, profile: $profile);
     }
 
     /**
@@ -190,6 +192,7 @@ final class AgentRunner
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
         ?string $defaultSprintId = null,
+        ?string $profile = null,
     ): AgentTurnResult {
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
@@ -215,6 +218,15 @@ final class AgentRunner
         // Track restart request via closure
         $restartRequested = false;
 
+        // Resolve profile path from profile name
+        $resolvedProfilePath = null;
+        if ($profile !== null) {
+            $candidatePath = rtrim($this->workspacePath, '/') . '/profiles/' . $profile;
+            if (is_dir($candidatePath) && is_file($candidatePath . '/soul.md')) {
+                $resolvedProfilePath = $candidatePath;
+            }
+        }
+
         $agent = $this->createAgent(
             sessionId: $sessionId,
             currentTurnId: $turnId,
@@ -232,6 +244,8 @@ final class AgentRunner
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
             defaultSprintId: $defaultSprintId,
+            activeProfile: $profile,
+            activeProfilePath: $resolvedProfilePath,
         );
 
         if ($observer !== null) {
@@ -504,6 +518,8 @@ final class AgentRunner
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
         ?string $defaultSprintId = null,
+        ?string $activeProfile = null,
+        ?string $activeProfilePath = null,
     ): OrchestratorAgent {
         $modelString = $this->roleResolver->resolve($role);
         $httpClient = $this->httpClient;
@@ -595,6 +611,8 @@ final class AgentRunner
             defaultSprintId: $defaultSprintId,
             budgetExitThreshold: $budgetExitThreshold,
             budgetExitWrapUpIterations: $budgetExitWrapUpIterations,
+            activeProfile: $activeProfile,
+            activeProfilePath: $activeProfilePath,
         );
 
         // Attach the budget exit observer so it receives agent.budget_warning events

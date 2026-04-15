@@ -162,6 +162,7 @@ final class OrchestratorAgent extends AbstractAgent
     private ?string $cachedInstructionsRole = null;
     private ?string $cachedMemoryHash = null;
     private ?string $cachedProjectId = null;
+    private ?string $cachedProfile = null;
     private ?string $notificationPromptSection = null;
 
     private readonly RoleToolkitResolver $roleToolkitResolver;
@@ -210,6 +211,8 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ?string $defaultSprintId = null,
         private readonly float $budgetExitThreshold = 0.0,
         private readonly int $budgetExitWrapUpIterations = 2,
+        private readonly ?string $activeProfile = null,
+        private readonly ?string $activeProfilePath = null,
     ) {
         $this->childToolExecutor = $toolExecutor;
 
@@ -608,6 +611,7 @@ final class OrchestratorAgent extends AbstractAgent
             unsafeMode: $this->unsafeMode,
             toolExecutor: $this->childToolExecutor,
             providerFactory: $sharedFactory,
+            profileIdentityPreamble: $this->buildProfileIdentityPreamble(),
         );
 
         // Create credential tool for API key management
@@ -797,19 +801,22 @@ final class OrchestratorAgent extends AbstractAgent
 
     public function instructions(): string
     {
-        // Cache key: active role + memory summary hash + active project ID.
+        // Cache key: active role + memory summary hash + active project ID + profile.
         // The prompt is rebuilt from disk (glob + file reads) each time, which
         // is expensive in a loop-heavy agent. Cache it and invalidate only when
-        // the role changes, memory content is updated, or active project changes.
+        // the role changes, memory content is updated, active project changes,
+        // or active profile changes.
         $currentRole = $this->activeRole ?? 'orchestrator';
         $currentMemoryHash = $this->computeMemoryHash();
         $currentProjectId = $this->resolveActiveProjectId();
+        $currentProfile = $this->activeProfile;
 
         if (
             $this->cachedInstructions !== null
             && $this->cachedInstructionsRole === $currentRole
             && $this->cachedMemoryHash === $currentMemoryHash
             && $this->cachedProjectId === $currentProjectId
+            && $this->cachedProfile === $currentProfile
         ) {
             return $this->injectNotificationContext($this->cachedInstructions);
         }
@@ -833,6 +840,7 @@ final class OrchestratorAgent extends AbstractAgent
         $this->cachedInstructionsRole = $currentRole;
         $this->cachedMemoryHash = $currentMemoryHash;
         $this->cachedProjectId = $currentProjectId;
+        $this->cachedProfile = $currentProfile;
 
         return $this->injectNotificationContext($rendered);
     }
@@ -871,6 +879,7 @@ final class OrchestratorAgent extends AbstractAgent
             storageMap: $storageMap,
             timeSinceLastMessage: $timeSinceLastMessage,
             excludeToolPromptSlugs: $this->excludedToolPromptSlugs,
+            profilePath: $this->activeProfilePath,
         );
 
         return $prompt->render();
@@ -881,10 +890,43 @@ final class OrchestratorAgent extends AbstractAgent
         $roleInstructions = $this->resolveActiveRoleInstructions();
 
         if ($roleInstructions !== null) {
+            // When both profile and role are active, prepend the profile's
+            // identity preamble so the agent retains its personality even
+            // when operating under a specialized role.
+            $preamble = $this->buildProfileIdentityPreamble();
+            if ($preamble !== null) {
+                return $preamble . "\n\n" . $roleInstructions;
+            }
+
             return $roleInstructions;
         }
 
         return $this->renderOrchestratorPrompt();
+    }
+
+    /**
+     * Build a short identity preamble from the active profile's soul.md.
+     *
+     * When a profile is active and a specialized role replaces the orchestrator
+     * prompt stack, this preamble keeps the core personality present.
+     */
+    private function buildProfileIdentityPreamble(): ?string
+    {
+        if ($this->activeProfilePath === null) {
+            return null;
+        }
+
+        $soulPath = rtrim($this->activeProfilePath, '/') . '/soul.md';
+        if (!is_file($soulPath)) {
+            return null;
+        }
+
+        $content = file_get_contents($soulPath);
+        if ($content === false || trim($content) === '') {
+            return null;
+        }
+
+        return "<!-- Profile Identity -->\n" . trim($content);
     }
 
     private function resolveActiveRoleInstructions(): ?string
@@ -1338,6 +1380,7 @@ final class OrchestratorAgent extends AbstractAgent
             storageMap: $storageMap,
             timeSinceLastMessage: $timeSinceLastMessage,
             excludeToolPromptSlugs: $this->excludedToolPromptSlugs,
+            profilePath: $this->activeProfilePath,
         );
 
         $sections = [];

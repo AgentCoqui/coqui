@@ -26,6 +26,10 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/roles update [name]` | Apply pending built-in role updates |
 | `/roles ignore <name>` | Ignore future built-in updates for a role |
 | `/roles unignore <name>` | Resume receiving built-in updates for a role |
+| `/profile` | Show the current active personality profile |
+| `/profile <name>` | Switch to a personality profile (creates new session) |
+| `/profile reset` | Clear profile, revert to default identity (creates new session) |
+| `/profiles` | List all available personality profiles |
 | `/model [role]` | Show model configuration (optionally for a specific role) |
 
 ### Configuration & System

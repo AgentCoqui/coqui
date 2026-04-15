@@ -18,6 +18,7 @@ final readonly class RouteResult
         public ?string $newActiveRole = null,
         public ?string $newSessionId = null,
         public ?string $newActiveProjectId = null,
+        public ?string $newActiveProfile = null,
     ) {}
 
     public static function continue(): self
@@ -34,12 +35,14 @@ final readonly class RouteResult
         ?string $newActiveRole = null,
         ?string $newSessionId = null,
         ?string $newActiveProjectId = null,
+        ?string $newActiveProfile = null,
     ): self {
         return new self(
             shouldContinue: true,
             newActiveRole: $newActiveRole,
             newSessionId: $newSessionId,
             newActiveProjectId: $newActiveProjectId,
+            newActiveProfile: $newActiveProfile,
         );
     }
 }

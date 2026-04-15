@@ -375,6 +375,16 @@
             ]
         },
         {
+            "path": "src/Repl/Handler/ProfileHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ProfileHandler",
+            "layer": "command",
+            "description": "Handles /profile and /profiles REPL commands. Switches personality profile (creates new session), lists available profiles, clears profile.",
+            "methods": [
+                "handleProfile(SymfonyStyle, string, string, ?string): RouteResult — /profile switching, reset, and info display",
+                "handleProfiles(SymfonyStyle, ?string): RouteResult — /profiles listing"
+            ]
+        },
+        {
             "path": "src/Repl/Handler/ToolkitVisibilityHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ToolkitVisibilityHandler",
             "layer": "command",
@@ -2080,6 +2090,21 @@
                 "createRole(array, string): RoleProperties — create new role file",
                 "updateRole(string, array|RoleProperties, string): RoleProperties — update with backup",
                 "deleteRole(string): void — delete non-builtin role"
+            ]
+        },
+        {
+            "path": "src/Config/ProfileDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ProfileDiscovery",
+            "layer": "config",
+            "description": "Discovers personality profiles from workspace/profiles/{name}/ directories. A valid profile directory must contain a soul.md file. Provides profile existence checks, path resolution, soul.md reading, and description extraction.",
+            "methods": [
+                "discoverAll(): array<string, string> — scan workspace/profiles/ for valid profile directories (name → path)",
+                "profileExists(string $name): bool — check if a named profile exists",
+                "getProfilePath(string $name): string — return absolute path to profile directory",
+                "readSoul(string $name): string — load soul.md content for a profile",
+                "availableProfiles(): list<string> — return sorted list of profile names",
+                "invalidateCache(): void — clear cached profile list",
+                "extractDescription(string $name): ?string — extract first paragraph from soul.md as description"
             ]
         },
         {

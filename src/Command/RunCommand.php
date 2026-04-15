@@ -28,6 +28,7 @@ use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
+use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
 use CoquiBot\Coqui\Repl\Handler\QualityHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
@@ -82,6 +83,7 @@ final class RunCommand extends Command
     private bool $continueMode = false;
     private bool $hintsEnabled = true;
     private string $activeRole = 'orchestrator'; // property default must be string literal
+    private ?string $activeProfile = null;
     private ?string $activeProjectId = null;
     private ?string $activeProjectSlug = null;
     private bool $multilineMode = false;
@@ -101,7 +103,8 @@ final class RunCommand extends Command
             ->addOption('no-terminal', null, InputOption::VALUE_NONE, 'Headless mode: run a single prompt without the REPL')
             ->addOption('prompt', 'p', InputOption::VALUE_REQUIRED, 'Prompt to send in --no-terminal mode')
             ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'Output format for --no-terminal mode (text or json)', 'text')
-            ->addOption('continue', null, InputOption::VALUE_NONE, 'Resume the last session and automatically send "Continue." as the first prompt');
+            ->addOption('continue', null, InputOption::VALUE_NONE, 'Resume the last session and automatically send "Continue." as the first prompt')
+            ->addOption('profile', null, InputOption::VALUE_REQUIRED, 'Start with a personality profile (creates a new session)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -245,6 +248,28 @@ final class RunCommand extends Command
         // Restore active project from session
         $this->restoreActiveProject();
 
+        // Handle --profile CLI flag
+        $profileOption = $input->getOption('profile');
+        if (is_string($profileOption) && $profileOption !== '') {
+            $profileName = strtolower($profileOption);
+            $profileDiscovery = $this->boot->profileDiscovery();
+            if (!$profileDiscovery->profileExists($profileName)) {
+                $io->error(sprintf(
+                    'Profile "%s" not found. Available: %s',
+                    $profileName,
+                    implode(', ', $profileDiscovery->availableProfiles()) ?: '(none)',
+                ));
+                return Command::FAILURE;
+            }
+            $this->activeProfile = $profileName;
+            // Persist profile on the session
+            $this->storage->updateSessionProfile($this->sessionId, $profileName);
+        } else {
+            // Restore profile from session if resuming
+            $session = $this->storage->getSession($this->sessionId);
+            $this->activeProfile = $session['profile'] ?? null;
+        }
+
         // Display safety mode warnings
         if ($this->unsafeMode) {
             $io->warning('UNSAFE MODE — all PHP functions allowed, catastrophic commands still blocked.');
@@ -358,6 +383,7 @@ final class RunCommand extends Command
             ),
             project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
+            profile: new ProfileHandler($this->boot, $this->storage),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             space: new SpaceHandler($this->boot),
             config: new ConfigHandler($this->boot, $this->workDir),
@@ -406,8 +432,15 @@ final class RunCommand extends Command
                     ? sprintf(' <fg=magenta>[%s]</>', $this->activeProjectSlug)
                     : '';
                 $multilineTag = $this->multilineMode ? ' <fg=yellow>[multiline]</>' : '';
+                $contextParts = [];
+                if ($this->activeProfile !== null) {
+                    $contextParts[] = $this->activeProfile;
+                }
                 if ($this->activeRole !== SystemRole::Orchestrator->value) {
-                    $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>%s%s:', $this->activeRole, $projectTag, $multilineTag));
+                    $contextParts[] = $this->activeRole;
+                }
+                if ($contextParts !== []) {
+                    $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>%s%s:', implode(', ', $contextParts), $projectTag, $multilineTag));
                 } else {
                     $io->writeln(sprintf(' <fg=cyan>You</>%s%s:', $projectTag, $multilineTag));
                 }
@@ -587,7 +620,7 @@ final class RunCommand extends Command
 
             // Handle slash commands
             if (str_starts_with($prompt, '/')) {
-                $routeResult = $router->route($prompt, $this->activeRole, $this->sessionId, $io, $this->activeProjectId);
+                $routeResult = $router->route($prompt, $this->activeRole, $this->sessionId, $io, $this->activeProjectId, $this->activeProfile);
 
                 if (!$routeResult->shouldContinue) {
                     return $routeResult->exitCode ?? Command::SUCCESS;
@@ -607,6 +640,10 @@ final class RunCommand extends Command
                 if ($routeResult->newActiveProjectId !== null) {
                     $this->applyProjectChange($routeResult->newActiveProjectId);
                 }
+                if ($routeResult->newActiveProfile !== null) {
+                    // Empty string means "clear profile", non-empty means set
+                    $this->activeProfile = $routeResult->newActiveProfile !== '' ? $routeResult->newActiveProfile : null;
+                }
 
                 continue;
             }
@@ -620,6 +657,7 @@ final class RunCommand extends Command
                 $this->autoApprove,
                 $hasSignals,
                 $shutdownStty,
+                $this->activeProfile,
             );
             $shutdownGuard($shutdownStty);
             $this->restoreActiveProject();
@@ -640,6 +678,7 @@ final class RunCommand extends Command
                     $this->autoApprove,
                     $hasSignals,
                     $shutdownStty,
+                    $this->activeProfile,
                 );
                 $shutdownGuard($shutdownStty);
                 $this->restoreActiveProject();
