@@ -155,7 +155,10 @@ Run a single prompt without the interactive REPL:
 ```bash
 coqui run --no-terminal --prompt "List all PHP files in src/"
 coqui run --no-terminal --prompt "Summarize this project" --format json
+printf '%s' 'Summarize this project with a very large prompt body' | coqui run --no-terminal --format json
 ```
+
+For very large prompts, prefer piping via stdin instead of `--prompt`. Coqui does not truncate headless input, but shell and OS argv limits can prevent very large `--prompt` values from reaching the process intact.
 
 ### `coqui api`
 

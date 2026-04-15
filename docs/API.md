@@ -585,14 +585,14 @@ When streaming is disabled, the server blocks until the agent completes and retu
 
 **Prompt Size Limit**
 
-The `prompt` field is limited to **100 KB** (102,400 bytes). Prompts exceeding this limit return a `400` error with code `validation_error`.
+The `prompt` field is limited to **1 MiB** (1,048,576 bytes). Prompts exceeding this limit return a `413` error with code `payload_too_large`.
 
 **Error Responses**
 
 | Status | Code | Condition |
 |--------|------|-----------|
 | `400` | `missing_field` | Missing or empty `prompt` field |
-| `400` | `validation_error` | Prompt exceeds 100 KB size limit |
+| `413` | `payload_too_large` | Prompt exceeds 1 MiB size limit |
 | `404` | `session_not_found` | Session does not exist |
 | `404` | `not_found` | Referenced file ID not found in this session |
 | `409` | `agent_busy` | Session already has an active agent run |
@@ -1241,7 +1241,7 @@ Create a new background task. The task is started immediately if under the concu
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `prompt` | string | Yes | — | The task prompt (max 100 KB) |
+| `prompt` | string | Yes | — | The task prompt (max 1 MiB) |
 | `role` | string | No | `"orchestrator"` | Agent role for the task. Must be a known role. |
 | `title` | string | No | `null` | Human-readable title for the task |
 | `parent_session_id` | string | No | `null` | Link the task to a parent session (must exist) |
@@ -1406,7 +1406,7 @@ Inject user input into a running task's conversation. The input is queued and co
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `content` | string | Yes | The input text to inject (cannot be empty) |
+| `content` | string | Yes | The input text to inject (cannot be empty, max 1 MiB) |
 
 **Response `201`**
 
@@ -2396,16 +2396,16 @@ Exempt endpoints: `GET /api/v1/health`, `OPTIONS` (preflight).
 
 ### Request Size Limit
 
-Request bodies are limited to **1 MB** (1,048,576 bytes). Requests exceeding this limit receive `413 Payload Too Large`.
+Request bodies are limited to **50 MiB** (52,428,800 bytes). Requests exceeding this limit receive `413 Payload Too Large`.
 
 ```json
 {
-  "error": "Request body too large. Maximum size: 1048576 bytes",
+  "error": "Request body too large. Maximum size: 52428800 bytes",
   "code": "payload_too_large"
 }
 ```
 
-Only `POST`, `PUT`, and `PATCH` requests are checked.
+Only `POST`, `PUT`, and `PATCH` requests are checked. Prompt-bearing fields such as session message prompts, task prompts, and task follow-up input enforce their own stricter **1 MiB** per-field limit.
 
 ### Content-Type Enforcement
 

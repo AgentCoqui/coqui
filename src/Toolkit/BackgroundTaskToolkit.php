@@ -15,6 +15,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Utility\PromptSizeValidator;
 
 /**
  * LLM-facing tools for managing background tasks.
@@ -217,6 +218,11 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
 
         if ($prompt === '') {
             return ToolResult::error('Missing required "prompt" parameter');
+        }
+
+        $sizeError = PromptSizeValidator::validateApiText($prompt);
+        if ($sizeError !== null) {
+            return ToolResult::error($sizeError);
         }
 
         $title = trim((string) ($args['title'] ?? ''));
