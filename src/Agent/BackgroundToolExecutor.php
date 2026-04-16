@@ -38,6 +38,7 @@ final class BackgroundToolExecutor implements ToolExecutorInterface
         private readonly BootManager $boot,
         private readonly string $projectRoot,
         private readonly bool $unsafeMode = false,
+        private readonly ?string $activeProfileId = null,
     ) {
         $this->buildToolIndex();
     }
@@ -117,7 +118,7 @@ final class BackgroundToolExecutor implements ToolExecutorInterface
 
         // Memory toolkit
         $memoryStore = $this->boot->memoryStore();
-        $this->registerToolkit(new MemoryToolkit($memoryStore, $workspacePath));
+        $this->registerToolkit(new MemoryToolkit($memoryStore, $workspacePath, $this->activeProfileId));
 
         // Project source toolkit
         $this->registerToolkit(new CoquiSourceToolkit(projectRoot: $this->projectRoot));

@@ -78,3 +78,25 @@ test('orchestrator can delete another profiles memory by id', function () {
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($this->store->getById($id))->toBeNull();
 });
+
+test('memory_inspect_profile is only exposed to orchestrator-capable toolkits', function () {
+    $profileToolNames = array_map(fn($tool) => $tool->name(), $this->profileToolkit->tools());
+    $orchestratorToolNames = array_map(fn($tool) => $tool->name(), $this->orchestratorToolkit->tools());
+
+    expect($profileToolNames)->not->toContain('memory_inspect_profile');
+    expect($orchestratorToolNames)->toContain('memory_inspect_profile');
+});
+
+test('memory_inspect_profile returns only target profile memories', function () {
+    $this->store->save(new MemoryEntry(content: 'Nagog continuity note', area: 'facts', profileId: 'nagog'));
+    $this->store->save(new MemoryEntry(content: 'Trinity continuity note', area: 'facts', profileId: 'trinity'));
+    $this->store->save(new MemoryEntry(content: 'Shared continuity note', area: 'facts'));
+
+    $tool = toolFromToolkit($this->orchestratorToolkit, 'memory_inspect_profile');
+    $result = $tool->execute(['profile' => 'nagog', 'query' => 'continuity']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->content)->toContain('Nagog continuity note');
+    expect($result->content)->not->toContain('Trinity continuity note');
+    expect($result->content)->not->toContain('Shared continuity note');
+});

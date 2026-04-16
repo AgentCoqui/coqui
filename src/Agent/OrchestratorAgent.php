@@ -439,7 +439,7 @@ final class OrchestratorAgent extends AbstractAgent
         if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {
             if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\ScheduleToolkit::class)) {
                 $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
-                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore));
+                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore, $this->activeProfile));
             }
         }
 
