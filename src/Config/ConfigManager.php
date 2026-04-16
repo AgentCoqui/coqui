@@ -105,6 +105,18 @@ final class ConfigManager
         return $this->save($data);
     }
 
+    /**
+     * Remove a single dot-notation key from the config.
+     *
+     * @return string[] Validation errors (empty on success)
+     */
+    public function remove(string $dotKey): array
+    {
+        $data = $this->toArray();
+        $this->removeNestedValue($data, $dotKey);
+        return $this->save($data);
+    }
+
     public function config(): OpenClawConfig
     {
         if (!isset($this->config)) {
@@ -248,6 +260,29 @@ final class ConfigManager
             }
             $ref = &$ref[$key];
         }
+    }
+
+    /**
+     * Remove a value from a nested array using dot notation.
+     *
+     * @param array<string, mixed> $data
+     */
+    private function removeNestedValue(array &$data, string $dotKey): void
+    {
+        $keys = explode('.', $dotKey);
+        $lastKey = array_pop($keys);
+
+        $ref = &$data;
+
+        foreach ($keys as $key) {
+            if (!isset($ref[$key]) || !is_array($ref[$key])) {
+                return;
+            }
+
+            $ref = &$ref[$key];
+        }
+
+        unset($ref[$lastKey]);
     }
 
     private function isApiKeyField(string $dotKey): bool

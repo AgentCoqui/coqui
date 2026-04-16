@@ -15,6 +15,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Utility\PromptSizeValidator;
 
 /**
  * LLM-facing tools for managing background tasks.
@@ -219,6 +220,11 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             return ToolResult::error('Missing required "prompt" parameter');
         }
 
+        $sizeError = PromptSizeValidator::validateApiText($prompt);
+        if ($sizeError !== null) {
+            return ToolResult::error($sizeError);
+        }
+
         $title = trim((string) ($args['title'] ?? ''));
 
         if ($title === '') {
@@ -226,12 +232,16 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         }
 
         $role = trim((string) ($args['role'] ?? 'orchestrator'));
-        $maxIterations = (int) ($args['max_iterations'] ?? ($this->roleResolver?->resolveMaxIterations($role) ?? 25));
+        $parentSession = $this->storage->getSession($this->parentSessionId);
+        $parentProfile = is_array($parentSession) && is_string($parentSession['profile'] ?? null) && $parentSession['profile'] !== ''
+            ? $parentSession['profile']
+            : null;
+        $maxIterations = (int) ($args['max_iterations'] ?? ($this->roleResolver?->resolveMaxIterations($role, $parentProfile) ?? 25));
         $maxIterations = max(1, min($maxIterations, $this->maxIterationsCap));
 
         // Create a dedicated session for the task
         $model = 'background-task'; // Resolved at runtime by TaskRunCommand
-        $sessionId = $this->storage->createSession($role, $model);
+        $sessionId = $this->storage->createSession($role, $model, $parentProfile);
 
         // Propagate active project context from parent session
         $parentProjectId = $this->storage->getActiveProjectId($this->parentSessionId);

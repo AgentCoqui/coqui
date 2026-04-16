@@ -109,7 +109,7 @@ final class ArtifactToolkit implements ToolkitInterface
             parameters: [
                 new StringParameter('title', 'Short descriptive title for the artifact', required: true),
                 new StringParameter('content', 'The full content of the artifact', required: true),
-                new EnumParameter('type', 'Artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'other'], required: false),
+                new EnumParameter('type', 'Artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
                 new StringParameter('language', 'Programming language (for code artifacts, e.g. php, python, javascript)', required: false),
                 new StringParameter('filepath', 'Intended file path relative to workspace (e.g. src/MyClass.php)', required: false),
                 new StringParameter('project_id', 'Link artifact to a project (makes it persistent across sessions)', required: false),
@@ -245,7 +245,7 @@ final class ArtifactToolkit implements ToolkitInterface
             name: 'artifact_list',
             description: 'List artifacts in the current session, optionally filtered by type, stage, project, sprint, or creation time.',
             parameters: [
-                new EnumParameter('type', 'Filter by artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'other'], required: false),
+                new EnumParameter('type', 'Filter by artifact type', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
                 new EnumParameter('stage', 'Filter by stage', ['draft', 'review', 'final'], required: false),
                 new StringParameter('project_id', 'Filter by project ID — useful in loop/sprint contexts to see only relevant artifacts', required: false),
                 new StringParameter('sprint_id', 'Filter by sprint ID', required: false),
@@ -305,7 +305,7 @@ final class ArtifactToolkit implements ToolkitInterface
                 new StringParameter('ids', 'JSON array of artifact IDs for bulk mode: ["id1", "id2", ...]. Max 200.', required: false),
                 new EnumParameter('stage', 'Target stage', ['draft', 'review', 'final'], required: true),
                 new EnumParameter('current_stage', 'Filter by current stage (bulk mode)', ['draft', 'review', 'final'], required: false),
-                new EnumParameter('type', 'Filter by artifact type (bulk mode)', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'other'], required: false),
+                new EnumParameter('type', 'Filter by artifact type (bulk mode)', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
                 new StringParameter('project_id', 'Filter by project ID (bulk mode)', required: false),
                 new StringParameter('sprint_id', 'Filter by sprint ID (bulk mode)', required: false),
                 new StringParameter('created_after', 'ISO 8601 creation-time filter (bulk mode)', required: false),
@@ -388,7 +388,7 @@ final class ArtifactToolkit implements ToolkitInterface
             parameters: [
                 new StringParameter('id', 'Artifact ID for single-artifact mode', required: false),
                 new StringParameter('ids', 'JSON array of artifact IDs for bulk mode: ["id1", "id2", ...]. Max 200.', required: false),
-                new EnumParameter('type', 'Filter by artifact type (bulk mode)', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'other'], required: false),
+                new EnumParameter('type', 'Filter by artifact type (bulk mode)', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
                 new EnumParameter('stage', 'Filter by stage (bulk mode)', ['draft', 'review', 'final'], required: false),
                 new StringParameter('project_id', 'Filter by project ID (bulk mode)', required: false),
                 new StringParameter('sprint_id', 'Filter by sprint ID (bulk mode)', required: false),

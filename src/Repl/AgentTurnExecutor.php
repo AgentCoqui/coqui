@@ -55,6 +55,7 @@ final class AgentTurnExecutor
         bool $autoApprove,
         bool $hasSignals,
         ?string &$savedStty,
+        ?string $activeProfile = null,
     ): AgentTurnResult {
         $executionPolicy = $this->policyFactory->buildInteractive($sessionId, $io, $autoApprove);
         $cancellationToken = new ProcessCancellationToken();
@@ -108,6 +109,7 @@ final class AgentTurnExecutor
                 $executionPolicy,
                 $cancellationToken,
                 role: $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null,
+                profile: $activeProfile,
             );
         } finally {
             $this->escObserver->endTurn();

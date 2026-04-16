@@ -452,3 +452,16 @@ test('reserved name "ALL" (case-insensitive) is rejected by validator', function
     expect($error)->not->toBeNull();
     expect($error)->toContain('reserved');
 });
+
+test('schedule validator accepts prompt at 50000 characters', function () {
+    $error = \CoquiBot\Coqui\Utility\ScheduleValidator::validatePromptLength(str_repeat('x', 50000));
+
+    expect($error)->toBeNull();
+});
+
+test('schedule validator rejects prompt longer than 50000 characters', function () {
+    $error = \CoquiBot\Coqui\Utility\ScheduleValidator::validatePromptLength(str_repeat('x', 50001));
+
+    expect($error)->not->toBeNull();
+    expect($error)->toContain('50000');
+});

@@ -81,6 +81,9 @@ final class SpawnAgentTool implements ToolInterface
         private readonly bool $unsafeMode = false,
         private readonly ?ToolExecutorInterface $toolExecutor = null,
         private readonly ?ProviderFactory $providerFactory = null,
+        private readonly ?string $profileIdentityPreamble = null,
+        private readonly ?string $activeProfile = null,
+        private readonly ?string $activeProfilePath = null,
     ) {}
 
     public function name(): string
@@ -151,7 +154,7 @@ final class SpawnAgentTool implements ToolInterface
         );
 
         // Resolve role to model
-        $modelString = $this->roleResolver->resolve($role);
+        $modelString = $this->roleResolver->resolve($role, $this->activeProfile);
 
         // Notify observer about child spawn
         $this->notifyObserver('child.start', ['role' => $role, 'model' => $modelString]);
@@ -170,9 +173,11 @@ final class SpawnAgentTool implements ToolInterface
                 role: $role,
                 taskInstructions: $handoff,
                 toolkits: $toolkits,
-                maxIterations: $this->roleResolver->resolveMaxIterations($role),
+                maxIterations: $this->roleResolver->resolveMaxIterations($role, $this->activeProfile),
                 roleDiscovery: $this->roleDiscovery,
                 toolExecutor: $this->toolExecutor,
+                profileIdentityPreamble: $this->profileIdentityPreamble,
+                activeProfilePath: $this->activeProfilePath,
             );
 
             // Attach observer if available
@@ -427,7 +432,7 @@ final class SpawnAgentTool implements ToolInterface
     {
         if ($this->roleDiscovery !== null) {
             try {
-                $properties = $this->roleDiscovery->getRole($role);
+                $properties = $this->roleDiscovery->getRole($role, $this->activeProfilePath);
                 return $properties->accessLevel;
             } catch (\Throwable) {
                 // Fall through to hardcoded defaults
@@ -451,7 +456,7 @@ final class SpawnAgentTool implements ToolInterface
         }
 
         try {
-            $properties = $this->roleDiscovery->getRole($role);
+            $properties = $this->roleDiscovery->getRole($role, $this->activeProfilePath);
 
             return new RoleToolkitResolver($properties->toolkits);
         } catch (\Throwable) {
@@ -504,7 +509,7 @@ final class SpawnAgentTool implements ToolInterface
         // Check role-level auto_review flag
         if ($this->roleDiscovery !== null) {
             try {
-                $properties = $this->roleDiscovery->getRole($role);
+                $properties = $this->roleDiscovery->getRole($role, $this->activeProfilePath);
                 return $properties->autoReview;
             } catch (\Throwable) {
                 // Fall through
@@ -535,6 +540,9 @@ final class SpawnAgentTool implements ToolInterface
                 observer: $this->observer,
                 toolExecutor: $this->toolExecutor,
                 providerFactory: $this->providerFactory,
+                activeProfile: $this->activeProfile,
+                activeProfilePath: $this->activeProfilePath,
+                profileIdentityPreamble: $this->profileIdentityPreamble,
             );
 
             $reviewerToolkits = $this->buildToolkits(SystemRole::Reviewer->value);
@@ -547,7 +555,7 @@ final class SpawnAgentTool implements ToolInterface
                 maxRounds: $reviewConfig['maxRounds'],
                 coderToolkits: $coderToolkits,
                 autoIterate: $reviewConfig['autoIterate'],
-                coderMaxIterations: $this->roleResolver->resolveMaxIterations($coderRole),
+                coderMaxIterations: $this->roleResolver->resolveMaxIterations($coderRole, $this->activeProfile),
             );
         } catch (\Throwable) {
             // Review cycle failure should not prevent returning the coder's output

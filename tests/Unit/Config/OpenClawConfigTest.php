@@ -78,3 +78,15 @@ test('getImageModel returns null when not configured', function () {
 
     expect($config->getImageModel())->toBeNull();
 });
+
+test('getDefaultProfile returns normalized configured profile', function () {
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'profile' => ' Caelum ',
+            ],
+        ],
+    ]);
+
+    expect($config->getDefaultProfile())->toBe('caelum');
+});

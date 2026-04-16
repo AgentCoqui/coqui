@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Prompt;
 
+use CoquiBot\Coqui\Config\ProfileParser;
+
 /**
  * Discovers and composes system prompts from markdown files.
  *
@@ -12,25 +14,26 @@ namespace CoquiBot\Coqui\Prompt;
  * for the orchestrator agent.
  *
  * Soul resolution: soul.md defines the bot's core identity, values, and
- * personality. Users can override it by placing a soul.md (case-insensitive)
- * in their workspace root or workspace/prompts/. The resolution order is:
- *   1. Workspace root (e.g. workspace/soul.md, workspace/SOUL.md)
- *   2. Workspace prompts dir (e.g. workspace/prompts/soul.md)
- *   3. Default prompts/soul.md (shipped with Coqui)
+ * personality. Users can override it by placing a soul.md in
+ * workspace/prompts/. The resolution order is:
+ *   1. Workspace prompts dir (e.g. workspace/prompts/soul.md)
+ *   2. Default prompts/soul.md (shipped with Coqui)
  */
 final readonly class PromptLoader
 {
     /**
      * @param string $promptsDir Absolute path to the prompts/ directory.
      * @param array<string, string> $placeholders Map of {{key}} → value for substitution.
-     * @param ?string $workspacePath Absolute path to the workspace directory (for soul.md override resolution).
+    * @param ?string $workspacePath Absolute path to the workspace directory (for prompts/soul.md override resolution).
      * @param list<string> $excludeToolPromptSlugs Tool prompt file slugs to skip (e.g. ['loops'] skips tools/loops.md).
+     * @param ?string $profilePath Absolute path to the active profile directory (for 3-tier prompt override resolution).
      */
     public function __construct(
         private string $promptsDir,
         private array $placeholders = [],
         private ?string $workspacePath = null,
         private array $excludeToolPromptSlugs = [],
+        private ?string $profilePath = null,
     ) {}
 
     /**
@@ -157,65 +160,56 @@ final readonly class PromptLoader
     }
 
     /**
-     * Resolve the soul.md file path with user-override support.
+     * Resolve the soul.md file path with profile and user-override support.
      *
-     * Checks for a user-provided soul.md (case-insensitive) in the workspace
-     * root and workspace/prompts/ directory, falling back to the default
-     * prompts/soul.md. Returns null if no soul.md exists anywhere.
+     * Resolution order (3-tier fallback):
+     *   1. Active profile: {profilePath}/soul.md
+     *   2. Workspace override: {workspace}/prompts/soul.md
+     *   3. Default: {promptsDir}/soul.md
      *
      * @return ?string Absolute path to the resolved soul.md, or null if not found.
      */
     public function resolveSoulPath(): ?string
     {
-        // Check workspace root for a user-override (case-insensitive)
-        if ($this->workspacePath !== null) {
-            $match = $this->findCaseInsensitive($this->workspacePath, 'soul.md');
-            if ($match !== null) {
-                return $match;
-            }
+        return $this->resolvePromptFile('soul.md');
+    }
 
-            // Check workspace/prompts/ directory (case-insensitive)
-            $promptsDir = rtrim($this->workspacePath, '/') . '/prompts';
-            if (is_dir($promptsDir)) {
-                $match = $this->findCaseInsensitive($promptsDir, 'soul.md');
-                if ($match !== null) {
-                    return $match;
-                }
+    /**
+     * Resolve a prompt file path using the 3-tier fallback chain.
+     *
+     * Resolution order:
+     *   1. Active profile directory (if set)
+     *   2. Workspace prompts directory (if workspacePath set)
+     *   3. Default prompts directory
+     *
+     * @return ?string Absolute path to the resolved file, or null if not found.
+     */
+    public function resolvePromptFile(string $filename): ?string
+    {
+        // Tier 1: Profile override
+        if ($this->profilePath !== null) {
+            $profileFile = rtrim($this->profilePath, '/') . '/' . $filename;
+            if (is_file($profileFile)) {
+                return $profileFile;
             }
         }
 
-        // Fall back to the default prompts/soul.md
-        $defaultPath = $this->promptsDir . '/soul.md';
+        // Tier 2: Workspace override
+        if ($this->workspacePath !== null) {
+            $workspaceFile = rtrim($this->workspacePath, '/') . '/prompts/' . $filename;
+            if (is_file($workspaceFile)) {
+                return $workspaceFile;
+            }
+        }
+
+        // Tier 3: Default prompts directory
+        $defaultPath = $this->promptsDir . '/' . $filename;
         if (is_file($defaultPath)) {
             return $defaultPath;
         }
 
         return null;
     }
-
-    /**
-     * Find a file by name (case-insensitive) in a directory.
-     *
-     * @return ?string Absolute path to the matched file, or null if not found.
-     */
-    private function findCaseInsensitive(string $directory, string $filename): ?string
-    {
-        $target = strtolower($filename);
-        $files = glob($directory . '/*.md');
-
-        if ($files === false || $files === []) {
-            return null;
-        }
-
-        foreach ($files as $file) {
-            if (strtolower(basename($file)) === $target) {
-                return $file;
-            }
-        }
-
-        return null;
-    }
-
     /**
      * Build the complete orchestrator system prompt.
      *
@@ -229,17 +223,18 @@ final readonly class PromptLoader
         // Soul — core identity, values, and personality — always first
         $soulPath = $this->resolveSoulPath();
         if ($soulPath !== null) {
-            $content = file_get_contents($soulPath);
-            if ($content !== false) {
-                $sections[] = $this->substitutePlaceholders(trim($content));
+            $content = $this->readPromptContent($soulPath, supportsProfileSoulFrontmatter: true);
+            if ($content !== null) {
+                $sections[] = $this->substitutePlaceholders($content);
             }
         }
 
         // Base — operational instructions, environment, delegation rules
-        $sections[] = $this->load('base.md');
+        $sections[] = $this->loadWithFallback('base.md');
 
         // Tool-specific sections (auto-discovered, alphabetical, filtered by exclusions)
-        $toolEntries = $this->discoverSectionEntries('tools');
+        // Profile tool overrides are merged: profile files replace same-named defaults.
+        $toolEntries = $this->discoverSectionEntriesWithProfileMerge('tools');
         $filteredToolContent = [];
         foreach ($toolEntries as $entry) {
             $slug = pathinfo($entry['filename'], PATHINFO_FILENAME);
@@ -253,13 +248,21 @@ final readonly class PromptLoader
         }
 
         // Security — near the end
-        if (is_file($this->promptsDir . '/security.md')) {
-            $sections[] = $this->load('security.md');
+        $securityPath = $this->resolvePromptFile('security.md');
+        if ($securityPath !== null) {
+            $securityContent = file_get_contents($securityPath);
+            if ($securityContent !== false) {
+                $sections[] = $this->substitutePlaceholders(trim($securityContent));
+            }
         }
 
         // Final guidelines and done instructions — always last
-        if (is_file($this->promptsDir . '/done.md')) {
-            $sections[] = $this->load('done.md');
+        $donePath = $this->resolvePromptFile('done.md');
+        if ($donePath !== null) {
+            $doneContent = file_get_contents($donePath);
+            if ($doneContent !== false) {
+                $sections[] = $this->substitutePlaceholders(trim($doneContent));
+            }
         }
 
         return implode("\n\n", $sections);
@@ -274,28 +277,34 @@ final readonly class PromptLoader
     {
         $sections = [];
 
-        // Soul — core identity, values, personality (user-overridable)
+        // Soul — core identity, values, personality (profile → workspace → default)
         $soulPath = $this->resolveSoulPath();
         if ($soulPath !== null) {
-            $content = file_get_contents($soulPath);
-            if ($content !== false) {
+            $content = $this->readPromptContent($soulPath, supportsProfileSoulFrontmatter: true);
+            if ($content !== null) {
                 $sections[] = [
                     'id' => 'soul',
                     'title' => 'Soul',
-                    'content' => $this->substitutePlaceholders(trim($content)),
+                    'content' => $this->substitutePlaceholders($content),
                     'source' => $soulPath,
                 ];
             }
         }
 
-        $sections[] = [
-            'id' => 'base',
-            'title' => 'Base Prompt',
-            'content' => $this->load('base.md'),
-            'source' => $this->promptsDir . '/base.md',
-        ];
+        $basePath = $this->resolvePromptFile('base.md');
+        if ($basePath !== null) {
+            $baseContent = file_get_contents($basePath);
+            if ($baseContent !== false) {
+                $sections[] = [
+                    'id' => 'base',
+                    'title' => 'Base Prompt',
+                    'content' => $this->substitutePlaceholders(trim($baseContent)),
+                    'source' => $basePath,
+                ];
+            }
+        }
 
-        foreach ($this->discoverSectionEntries('tools') as $entry) {
+        foreach ($this->discoverSectionEntriesWithProfileMerge('tools') as $entry) {
             $slug = pathinfo($entry['filename'], PATHINFO_FILENAME);
             if (in_array($slug, $this->excludeToolPromptSlugs, true)) {
                 continue;
@@ -308,25 +317,119 @@ final readonly class PromptLoader
             ];
         }
 
-        if (is_file($this->promptsDir . '/security.md')) {
-            $sections[] = [
-                'id' => 'security',
-                'title' => 'Security Guardrails',
-                'content' => $this->load('security.md'),
-                'source' => $this->promptsDir . '/security.md',
-            ];
+        $securityPath = $this->resolvePromptFile('security.md');
+        if ($securityPath !== null) {
+            $securityContent = file_get_contents($securityPath);
+            if ($securityContent !== false) {
+                $sections[] = [
+                    'id' => 'security',
+                    'title' => 'Security Guardrails',
+                    'content' => $this->substitutePlaceholders(trim($securityContent)),
+                    'source' => $securityPath,
+                ];
+            }
         }
 
-        if (is_file($this->promptsDir . '/done.md')) {
-            $sections[] = [
-                'id' => 'done',
-                'title' => 'Completion Rules',
-                'content' => $this->load('done.md'),
-                'source' => $this->promptsDir . '/done.md',
-            ];
+        $donePath = $this->resolvePromptFile('done.md');
+        if ($donePath !== null) {
+            $doneContent = file_get_contents($donePath);
+            if ($doneContent !== false) {
+                $sections[] = [
+                    'id' => 'done',
+                    'title' => 'Completion Rules',
+                    'content' => $this->substitutePlaceholders(trim($doneContent)),
+                    'source' => $donePath,
+                ];
+            }
         }
 
         return $sections;
+    }
+
+    /**
+     * Load a prompt file using the 3-tier fallback chain, with placeholder substitution.
+     *
+     * @throws PromptNotFoundException When the file does not exist in any tier.
+     */
+    private function loadWithFallback(string $filename): string
+    {
+        $path = $this->resolvePromptFile($filename);
+
+        if ($path === null) {
+            throw PromptNotFoundException::forFile($filename, $this->promptsDir);
+        }
+
+        $content = file_get_contents($path);
+
+        if ($content === false) {
+            throw PromptNotFoundException::forFile($filename, $this->promptsDir);
+        }
+
+        return $this->substitutePlaceholders(trim($content));
+    }
+
+    private function readPromptContent(string $path, bool $supportsProfileSoulFrontmatter = false): ?string
+    {
+        if ($supportsProfileSoulFrontmatter && $this->profilePath !== null) {
+            $expectedProfileSoulPath = rtrim($this->profilePath, '/') . '/soul.md';
+            if ($path === $expectedProfileSoulPath) {
+                return (new ProfileParser())->readFile($path)['body'];
+            }
+        }
+
+        $content = file_get_contents($path);
+
+        return $content === false ? null : trim($content);
+    }
+
+    /**
+     * Discover section entries with profile-aware merging.
+     *
+     * When a profile is active and provides files in the same section subdirectory
+     * (e.g. profiles/{name}/tools/memory.md), those files override same-named
+     * defaults from the base prompts directory.
+     *
+     * @return array<int, array{id: string, title: string, filename: string, content: string, source: string}>
+     */
+    private function discoverSectionEntriesWithProfileMerge(string $section): array
+    {
+        // Start with default entries (keyed by filename for merge)
+        $entriesByFilename = [];
+        foreach ($this->discoverSectionEntries($section) as $entry) {
+            $entriesByFilename[$entry['filename']] = $entry;
+        }
+
+        // Merge profile overrides if a profile is active
+        if ($this->profilePath !== null) {
+            $profileSectionDir = rtrim($this->profilePath, '/') . '/' . $section;
+            if (is_dir($profileSectionDir)) {
+                $files = glob($profileSectionDir . '/*.md');
+                if ($files !== false) {
+                    sort($files);
+                    foreach ($files as $file) {
+                        $content = file_get_contents($file);
+                        if ($content === false) {
+                            continue;
+                        }
+
+                        $filename = basename($file);
+                        $slug = pathinfo($filename, PATHINFO_FILENAME);
+
+                        $entriesByFilename[$filename] = [
+                            'id' => sprintf('%s.%s', str_replace('/', '.', $section), $slug),
+                            'title' => $this->humanizeName($slug),
+                            'filename' => $filename,
+                            'content' => $this->substitutePlaceholders(trim($content)),
+                            'source' => $file,
+                        ];
+                    }
+                }
+            }
+        }
+
+        // Re-sort by filename and return values
+        ksort($entriesByFilename);
+        return array_values($entriesByFilename);
     }
 
     /**

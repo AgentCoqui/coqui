@@ -207,6 +207,9 @@ final class SessionStorage
         // Migration: active project tracking per session
         $this->migrateAddColumn('sessions', 'active_project_id', 'TEXT DEFAULT NULL');
 
+        // Migration: personality profile per session
+        $this->migrateAddColumn('sessions', 'profile', 'TEXT DEFAULT NULL');
+
         // Migration: child-run metadata for typed handoffs and provenance
         $this->migrateAddColumn('child_runs', 'metadata', 'TEXT DEFAULT NULL');
 
@@ -267,20 +270,21 @@ final class SessionStorage
         }
     }
 
-    public function createSession(string $modelRole, string $model): string
+    public function createSession(string $modelRole, string $model, ?string $profile = null): string
     {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO sessions (id, model_role, model, created_at, updated_at)
-            VALUES (:id, :model_role, :model, :created_at, :updated_at)
+            INSERT INTO sessions (id, model_role, model, profile, created_at, updated_at)
+            VALUES (:id, :model_role, :model, :profile, :created_at, :updated_at)
         SQL);
 
         $stmt->execute([
             'id' => $id,
             'model_role' => $modelRole,
             'model' => $model,
+            'profile' => $profile,
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -301,7 +305,7 @@ final class SessionStorage
             : '';
 
         $stmt = $this->db->prepare(<<<SQL
-            SELECT s.id, s.model_role, s.model, s.title, s.created_at, s.updated_at, s.token_count
+            SELECT s.id, s.model_role, s.model, s.title, s.profile, s.created_at, s.updated_at, s.token_count
             FROM sessions s
             {$join}
             {$filter}
@@ -321,7 +325,7 @@ final class SessionStorage
     public function getSession(string $id): ?array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, model_role, model, title, created_at, updated_at, token_count
+            SELECT id, model_role, model, title, profile, created_at, updated_at, token_count
             FROM sessions
             WHERE id = :id
         SQL);
@@ -364,6 +368,22 @@ final class SessionStorage
         $stmt->execute([
             'model_role' => $modelRole,
             'model' => $model,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * Update a session's active personality profile.
+     */
+    public function updateSessionProfile(string $sessionId, ?string $profile): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions SET profile = :profile, updated_at = :updated_at WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'profile' => $profile,
             'updated_at' => date('c'),
             'id' => $sessionId,
         ]);
@@ -1167,6 +1187,22 @@ final class SessionStorage
             return null;
         }
 
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
+    }
+
+    public function getLatestSessionIdForProfile(string $profile): ?string
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id
+            FROM sessions
+            WHERE profile = :profile
+            ORDER BY updated_at DESC
+            LIMIT 1
+        SQL);
+
+        $stmt->execute(['profile' => $profile]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;

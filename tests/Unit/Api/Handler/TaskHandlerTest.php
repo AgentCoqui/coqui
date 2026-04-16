@@ -7,6 +7,7 @@ use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Utility\PromptSizeValidator;
 use React\Http\Message\ServerRequest;
 
 function createTaskHandlerFixture(): array
@@ -103,6 +104,57 @@ test('task handler create validates missing prompt', function () {
     }
 });
 
+test('task handler create rejects oversized prompt', function () {
+    $fixture = createTaskHandlerFixture();
+
+    try {
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/tasks',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'prompt' => str_repeat('x', PromptSizeValidator::API_MAX_PROMPT_BYTES + 1),
+                'role' => 'coder',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(413);
+        expect($body['code'])->toBe('payload_too_large');
+    } finally {
+        cleanupTaskHandlerFixture($fixture);
+    }
+});
+
+test('task handler create accepts prompt at shared limit', function () {
+    $fixture = createTaskHandlerFixture();
+
+    try {
+        $prompt = str_repeat('x', PromptSizeValidator::API_MAX_PROMPT_BYTES);
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/tasks',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'prompt' => $prompt,
+                'role' => 'coder',
+                'title' => 'Large Prompt Task',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+        $task = $fixture['storage']->getTask($body['id']);
+
+        expect($response->getStatusCode())->toBe(201);
+        expect(strlen((string) $task['prompt']))->toBe(PromptSizeValidator::API_MAX_PROMPT_BYTES);
+    } finally {
+        cleanupTaskHandlerFixture($fixture);
+    }
+});
+
 test('task handler list and get normalize metadata and process status', function () {
     $fixture = createTaskHandlerFixture();
 
@@ -157,6 +209,66 @@ test('task handler addInput queues content for running tasks', function () {
         expect($response->getStatusCode())->toBe(201);
         expect($body['status'])->toBe('queued');
         expect($fixture['storage']->consumeTaskInputs($taskId))->toBe(['Please include the API handler changes']);
+    } finally {
+        cleanupTaskHandlerFixture($fixture);
+    }
+});
+
+test('task handler addInput rejects oversized content', function () {
+    $fixture = createTaskHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('coder', 'anthropic/claude-3-5-sonnet');
+        $taskId = $fixture['storage']->createTask(
+            sessionId: $sessionId,
+            prompt: 'Run a review',
+            role: 'coder',
+        );
+        $fixture['storage']->updateTaskStatus($taskId, 'running');
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/tasks/' . $taskId . '/input',
+            ['Content-Type' => 'application/json'],
+            json_encode(['content' => str_repeat('x', PromptSizeValidator::API_MAX_PROMPT_BYTES + 1)]) ?: '',
+        );
+
+        $response = $fixture['handler']->addInput($request, $taskId);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(413);
+        expect($body['code'])->toBe('payload_too_large');
+    } finally {
+        cleanupTaskHandlerFixture($fixture);
+    }
+});
+
+test('task handler addInput accepts content at shared limit', function () {
+    $fixture = createTaskHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('coder', 'anthropic/claude-3-5-sonnet');
+        $taskId = $fixture['storage']->createTask(
+            sessionId: $sessionId,
+            prompt: 'Run a review',
+            role: 'coder',
+        );
+        $fixture['storage']->updateTaskStatus($taskId, 'running');
+
+        $content = str_repeat('x', PromptSizeValidator::API_MAX_PROMPT_BYTES);
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/tasks/' . $taskId . '/input',
+            ['Content-Type' => 'application/json'],
+            json_encode(['content' => $content]) ?: '',
+        );
+
+        $response = $fixture['handler']->addInput($request, $taskId);
+        $inputs = $fixture['storage']->consumeTaskInputs($taskId);
+
+        expect($response->getStatusCode())->toBe(201);
+        expect($inputs)->toHaveCount(1);
+        expect(strlen($inputs[0]))->toBe(PromptSizeValidator::API_MAX_PROMPT_BYTES);
     } finally {
         cleanupTaskHandlerFixture($fixture);
     }

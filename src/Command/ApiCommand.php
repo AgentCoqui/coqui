@@ -300,7 +300,7 @@ final class ApiCommand extends Command
         );
 
         $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $qualityStatus);
-        $sessionHandler = new SessionHandler($storage, $boot->roleResolver());
+        $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->profileDiscovery());
         $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler(

@@ -30,6 +30,8 @@ Definitions support `{{placeholder}}` parameters substituted at start time. Use 
 | `harness` | plan → coder → reviewer | evaluation_bound (5 rounds) | Generator-evaluator pattern for iterative code quality |
 | `research` | explorer → coder → reviewer | evaluation_bound (3 rounds) | Research-driven implementation with review |
 | `goal-driven` | plan → coder | goal_bound (10 iterations) | LLM-evaluated goal completion without a reviewer role |
+| `diverge-converge` | muse → philosopher → plan → coder → reviewer | evaluation_bound (3 rounds) | Creative pipeline: brainstorm, synthesize themes, then plan and implement |
+| `reflection` | explorer → philosopher → identity-curator → muse | iteration_bound (1) | Periodic self-examination: review recent work, reflect on patterns, update developmental observations |
 
 ### Best Practices
 

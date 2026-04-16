@@ -26,6 +26,7 @@ final readonly class OrchestratorPrompt
         ?string $promptsDir = null,
         /** @var list<string> Tool prompt slugs to exclude from the system prompt. */
         private array $excludeToolPromptSlugs = [],
+        private ?string $profilePath = null,
     ) {
         $this->loader = new PromptLoader(
             promptsDir: $promptsDir ?? dirname(__DIR__, 2) . '/prompts',
@@ -39,6 +40,7 @@ final readonly class OrchestratorPrompt
             ],
             workspacePath: $this->workspacePath,
             excludeToolPromptSlugs: $this->excludeToolPromptSlugs,
+            profilePath: $this->profilePath,
         );
     }
 
