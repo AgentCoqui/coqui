@@ -36,6 +36,7 @@ final class MemoryToolkit implements ToolkitInterface
         private readonly MemoryStore $memoryStore,
         private readonly ?string $workspacePath = null,
         private readonly ?string $activeProfileId = null,
+        private readonly bool $allowCrossProfileMutation = false,
     ) {}
 
     public function tools(): array
@@ -59,7 +60,7 @@ final class MemoryToolkit implements ToolkitInterface
 
     public function guidelines(): string
     {
-        $count = $this->memoryStore->count();
+        $count = $this->memoryStore->count(profileId: $this->activeProfileId);
         $vectorStatus = $this->memoryStore->hasVectorSearch()
             ? 'Semantic vector search is **active** — search queries are matched by meaning, not just keywords.'
             : 'Vector search is not configured — search uses keyword matching (FTS5). Results are still good but exact phrasing helps.';
@@ -254,6 +255,11 @@ final class MemoryToolkit implements ToolkitInterface
                     ? max(0.0, min(1.0, (float) $input['importance']))
                     : null;
 
+                $existing = $this->memoryStore->getById($id);
+                if ($existing !== null && !$this->canMutateMemory($existing)) {
+                    return ToolResult::error($this->crossProfileMutationError($id, $existing->profileId));
+                }
+
                 $updated = $this->memoryStore->update(
                     id: $id,
                     content: $content,
@@ -292,6 +298,10 @@ final class MemoryToolkit implements ToolkitInterface
                     return ToolResult::error("Memory {$id} not found.");
                 }
 
+                if (!$this->canMutateMemory($existing)) {
+                    return ToolResult::error($this->crossProfileMutationError($id, $existing->profileId));
+                }
+
                 $this->memoryStore->delete($id);
 
                 return ToolResult::success("Memory {$id} deleted.");
@@ -315,7 +325,7 @@ final class MemoryToolkit implements ToolkitInterface
                     return ToolResult::error('Query cannot be empty.');
                 }
 
-                $count = $this->memoryStore->forget($query);
+                $count = $this->memoryStore->forget($query, profileId: $this->activeProfileId);
 
                 return ToolResult::success("Forgot {$count} memories matching \"{$query}\".");
             },
@@ -347,11 +357,11 @@ final class MemoryToolkit implements ToolkitInterface
 
                 if ($tags !== null && trim($tags) !== '') {
                     $tagList = array_map('trim', explode(',', $tags));
-                    $entries = $this->memoryStore->listByTags($tagList, $limit);
+                    $entries = $this->memoryStore->listByTags($tagList, $limit, profileId: $this->activeProfileId);
                 } elseif ($area !== null) {
                     $entries = $this->memoryStore->list($area, $limit, profileId: $this->activeProfileId);
                 } else {
-                    $entries = $this->memoryStore->listAll($limit);
+                    $entries = $this->memoryStore->listAll($limit, profileId: $this->activeProfileId);
                 }
 
                 // Include archived memories if requested
@@ -375,7 +385,7 @@ final class MemoryToolkit implements ToolkitInterface
                     $entries,
                 );
 
-                $total = $this->memoryStore->count();
+                $total = $this->memoryStore->count(profileId: $this->activeProfileId);
                 $header = "Showing " . count($entries) . " of {$total} total memories:";
 
                 return ToolResult::success("{$header}\n\n" . implode("\n\n---\n\n", $formatted));
@@ -399,12 +409,37 @@ final class MemoryToolkit implements ToolkitInterface
                     return ToolResult::error('Memory ID is required.');
                 }
 
+                $existing = $this->memoryStore->getById($id);
+                if ($existing !== null && !$this->canMutateMemory($existing)) {
+                    return ToolResult::error($this->crossProfileMutationError($id, $existing->profileId));
+                }
+
                 $restored = $this->memoryStore->restoreMemory($id);
 
                 return $restored
                     ? ToolResult::success("Memory {$id} restored and is now active.")
                     : ToolResult::error("Memory {$id} not found or is not archived.");
             },
+        );
+    }
+
+    private function canMutateMemory(MemoryEntry $entry): bool
+    {
+        if ($this->activeProfileId === null || $this->allowCrossProfileMutation) {
+            return true;
+        }
+
+        return $entry->profileId === null || $entry->profileId === $this->activeProfileId;
+    }
+
+    private function crossProfileMutationError(string $id, ?string $memoryProfileId): string
+    {
+        $profileLabel = $memoryProfileId ?? 'shared';
+
+        return sprintf(
+            'Memory %s belongs to profile "%s" and cannot be changed from the active profile.',
+            $id,
+            $profileLabel,
         );
     }
 

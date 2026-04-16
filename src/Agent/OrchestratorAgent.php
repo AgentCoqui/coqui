@@ -357,7 +357,12 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Memory toolkit — SQLite-backed with optional vector search
         if ($this->memoryStore !== null) {
-            $this->addToolkit(new MemoryToolkit($this->memoryStore, $this->workspacePath, $this->activeProfile));
+            $this->addToolkit(new MemoryToolkit(
+                $this->memoryStore,
+                $this->workspacePath,
+                $this->activeProfile,
+                $this->activeRole === null || $this->activeRole === 'orchestrator',
+            ));
         }
 
         // Artifact toolkit — versioned output tracking (shares database with session storage)
@@ -1439,6 +1444,8 @@ final class OrchestratorAgent extends AbstractAgent
     private function buildInstructionPromptSections(): array
     {
         $roleInstructions = $this->resolveActiveRoleInstructions();
+        $sections = [];
+
         if ($roleInstructions !== null) {
             $activeRole = $this->activeRole;
 
@@ -1446,7 +1453,38 @@ final class OrchestratorAgent extends AbstractAgent
                 throw new \LogicException('Active role must be set when role instructions are resolved.');
             }
 
-            return [new PromptSection(
+            [$soul, $backstory] = $this->buildProfileIdentityParts();
+            if ($soul !== null && trim($soul) !== '') {
+                $sections[] = new PromptSection(
+                    id: 'prompt.soul',
+                    title: 'Soul',
+                    content: $soul,
+                    priority: PromptSectionPriority::Critical,
+                    rationale: 'The soul defines the bot\'s core identity, values, and personality — it must stay pinned at the highest priority.',
+                    decision: 'pinned_critical',
+                    group: 'identity',
+                    source: $this->activeProfilePath !== null ? rtrim($this->activeProfilePath, '/') . '/soul.md' : null,
+                );
+            }
+
+            if ($backstory !== null && trim($backstory) !== '') {
+                $sections[] = new PromptSection(
+                    id: 'prompt.backstory',
+                    title: 'Backstory',
+                    content: $backstory,
+                    priority: PromptSectionPriority::Critical,
+                    rationale: 'Backstory preserves profile continuity and narrative context, so it stays pinned with identity material.',
+                    decision: 'pinned_critical',
+                    group: 'identity',
+                    source: $this->activeProfilePath !== null ? rtrim($this->activeProfilePath, '/') . '/backstory.md' : null,
+                );
+            }
+
+            if (($preferences = $this->buildProfilePreferencesPromptSection()) !== null) {
+                $sections[] = $preferences;
+            }
+
+            $sections[] = new PromptSection(
                 id: 'role.' . $activeRole,
                 title: ucfirst(str_replace('-', ' ', $activeRole)) . ' Instructions',
                 content: $roleInstructions,
@@ -1454,7 +1492,9 @@ final class OrchestratorAgent extends AbstractAgent
                 rationale: 'Specialized roles replace the orchestrator prompt stack for that turn, so their instructions must stay pinned.',
                 decision: 'pinned_critical',
                 group: 'identity',
-            )];
+            );
+
+            return $sections;
         }
 
         $roles = implode(', ', $this->roleResolver->availableRoles());
@@ -1477,7 +1517,6 @@ final class OrchestratorAgent extends AbstractAgent
             profilePath: $this->activeProfilePath,
         );
 
-        $sections = [];
         foreach ($prompt->renderSections() as $entry) {
             $sections[] = $this->classifyInstructionPromptSection(
                 id: $entry['id'],
@@ -1485,6 +1524,17 @@ final class OrchestratorAgent extends AbstractAgent
                 content: $entry['content'],
                 source: $entry['source'],
             );
+        }
+
+        if (($preferences = $this->buildProfilePreferencesPromptSection()) !== null) {
+            $insertAt = 0;
+            foreach ($sections as $index => $section) {
+                if (in_array($section->id, ['prompt.soul', 'prompt.backstory'], true)) {
+                    $insertAt = $index + 1;
+                }
+            }
+
+            array_splice($sections, $insertAt, 0, [$preferences]);
         }
 
         return $sections;
@@ -1499,6 +1549,16 @@ final class OrchestratorAgent extends AbstractAgent
                 content: $content,
                 priority: PromptSectionPriority::Critical,
                 rationale: 'The soul defines the bot\'s core identity, values, and personality — it must stay pinned at the highest priority.',
+                decision: 'pinned_critical',
+                group: 'identity',
+                source: $source,
+            ),
+            'backstory' => new PromptSection(
+                id: 'prompt.backstory',
+                title: $title,
+                content: $content,
+                priority: PromptSectionPriority::Critical,
+                rationale: 'Backstory preserves profile continuity and narrative context, so it stays pinned with identity material.',
                 decision: 'pinned_critical',
                 group: 'identity',
                 source: $source,
@@ -1546,6 +1606,25 @@ final class OrchestratorAgent extends AbstractAgent
         };
     }
 
+    private function buildProfilePreferencesPromptSection(): ?PromptSection
+    {
+        $preferencesBlock = $this->profilePreferences?->renderPromptSection();
+        if ($preferencesBlock === null || trim($preferencesBlock) === '') {
+            return null;
+        }
+
+        return new PromptSection(
+            id: 'prompt.preferences',
+            title: 'Preferences',
+            content: $preferencesBlock,
+            priority: PromptSectionPriority::Critical,
+            rationale: 'Profile preferences tune communication and behavior for the active persona, so they must stay pinned with identity context.',
+            decision: 'pinned_critical',
+            group: 'identity',
+            source: $this->activeProfilePath !== null ? rtrim($this->activeProfilePath, '/') . '/preferences.json' : null,
+        );
+    }
+
     /**
      * @return list<PromptSection>
      */
@@ -1556,7 +1635,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         $utilityProvider = $this->resolveUtilityProvider();
-        $memorySummary = $this->memorySummarizer->getSummary($utilityProvider);
+        $memorySummary = $this->memorySummarizer->getSummary($utilityProvider, profileId: $this->activeProfile);
 
         if ($memorySummary === '') {
             return [];
