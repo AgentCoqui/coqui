@@ -222,10 +222,17 @@ final class AgentRunner
 
         // Resolve profile path from profile name
         $resolvedProfilePath = null;
+        $resolvedPreferences = null;
         if ($profile !== null) {
             $candidatePath = rtrim($this->workspacePath, '/') . '/profiles/' . $profile;
             if (is_dir($candidatePath) && is_file($candidatePath . '/soul.md')) {
                 $resolvedProfilePath = $candidatePath;
+
+                // Load profile preferences if available
+                $preferencesFile = $candidatePath . '/preferences.json';
+                if (is_file($preferencesFile)) {
+                    $resolvedPreferences = \CoquiBot\Coqui\Config\ProfilePreferences::fromFile($preferencesFile);
+                }
             }
         }
 
@@ -248,6 +255,7 @@ final class AgentRunner
             defaultSprintId: $defaultSprintId,
             activeProfile: $profile,
             activeProfilePath: $resolvedProfilePath,
+            profilePreferences: $resolvedPreferences,
         );
 
         if ($observer !== null) {
@@ -262,7 +270,7 @@ final class AgentRunner
                 try {
                     $roleProps = $this->roleDiscovery->getRole($effectiveRole, $resolvedProfilePath);
                     if ($roleProps->preSummarize) {
-                        $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer);
+                        $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer, $profile);
                     }
                 } catch (\Throwable) {
                     // Role not found or summarization failure — non-fatal
@@ -275,7 +283,7 @@ final class AgentRunner
             if ($history->count() > 0) {
                 $agent->notify('agent.status', ['label' => 'Checking context budget']);
             }
-            $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer);
+            $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer, $profile);
 
             // Snapshot unread informational notifications and pass them into the
             // turn as a dedicated prompt section. This keeps notification context
@@ -376,6 +384,7 @@ final class AgentRunner
                                     'auto' => true,
                                 ]);
                             },
+                            profileId: $profile,
                         );
 
                         if ($pruneResult->wasSummarized()) {
@@ -406,6 +415,7 @@ final class AgentRunner
                 $conversationForExtraction,
                 $sessionId,
                 fn(string $event, mixed $data) => $agent->notify($event, $data),
+                $profile,
             ));
 
             // Build context usage snapshot for progress bar rendering
@@ -524,6 +534,7 @@ final class AgentRunner
         ?string $defaultSprintId = null,
         ?string $activeProfile = null,
         ?string $activeProfilePath = null,
+        ?\CoquiBot\Coqui\Config\ProfilePreferences $profilePreferences = null,
     ): OrchestratorAgent {
         $modelString = $this->roleResolver->resolve($role, $activeProfile);
         $httpClient = $this->httpClient;
@@ -617,6 +628,7 @@ final class AgentRunner
             budgetExitWrapUpIterations: $budgetExitWrapUpIterations,
             activeProfile: $activeProfile,
             activeProfilePath: $activeProfilePath,
+            profilePreferences: $profilePreferences,
         );
 
         // Attach the budget exit observer so it receives agent.budget_warning events
@@ -715,10 +727,16 @@ final class AgentRunner
 
         // Resolve profile path from profile name (same logic as doRun)
         $resolvedProfilePath = null;
+        $resolvedPreferences = null;
         if ($profile !== null) {
             $candidatePath = rtrim($this->workspacePath, '/') . '/profiles/' . $profile;
             if (is_dir($candidatePath) && is_file($candidatePath . '/soul.md')) {
                 $resolvedProfilePath = $candidatePath;
+
+                $preferencesFile = $candidatePath . '/preferences.json';
+                if (is_file($preferencesFile)) {
+                    $resolvedPreferences = \CoquiBot\Coqui\Config\ProfilePreferences::fromFile($preferencesFile);
+                }
             }
         }
 
@@ -751,6 +769,7 @@ final class AgentRunner
             usageTracker: $this->usageTracker,
             activeProfile: $profile,
             activeProfilePath: $resolvedProfilePath,
+            profilePreferences: $resolvedPreferences,
         );
 
         return [
@@ -1149,6 +1168,7 @@ final class AgentRunner
         string $sessionId,
         string $prompt = '',
         ?SplObserver $observer = null,
+        ?string $profileId = null,
     ): Conversation {
         if ($history->count() === 0) {
             return $history;
@@ -1268,6 +1288,7 @@ final class AgentRunner
                     'auto' => true,
                 ]);
             },
+            profileId: $profileId,
         );
 
         if (!$result->wasSummarized()) {
@@ -1562,6 +1583,7 @@ final class AgentRunner
         Conversation $conversation,
         string $sessionId,
         ?\Closure $notify = null,
+        ?string $profileId = null,
     ): void {
         if ($this->memoryStore === null) {
             return;
@@ -1592,7 +1614,7 @@ final class AgentRunner
             }
 
             $extractor = new MemoryExtractor($this->memoryStore);
-            $saved = $extractor->extractFromConversation($conversation, $provider);
+            $saved = $extractor->extractFromConversation($conversation, $provider, profileId: $profileId);
 
             if ($saved > 0 && $notify !== null) {
                 $notify('agent.memory_extraction', [

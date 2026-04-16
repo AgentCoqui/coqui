@@ -452,3 +452,114 @@ test('creates database directory if it does not exist', function () {
     @rmdir(dirname($nestedPath));
     @rmdir(dirname($nestedPath, 2));
 });
+
+// --- Profile filtering ---
+
+test('save persists profileId and sessionId on memory entry', function () {
+    $entry = new MemoryEntry(
+        content: 'Profile-specific memory',
+        area: 'facts',
+        profileId: 'caelum',
+        sessionId: 'sess-123',
+    );
+
+    $id = $this->store->save($entry);
+    $retrieved = $this->store->getById($id);
+
+    expect($retrieved)->not->toBeNull();
+    expect($retrieved->profileId)->toBe('caelum');
+    expect($retrieved->sessionId)->toBe('sess-123');
+});
+
+test('search with profileId filters to matching and untagged memories', function () {
+    // Save a memory for profile "caelum"
+    $this->store->save(new MemoryEntry(
+        content: 'Caelum prefers curious tone',
+        area: 'preferences',
+        profileId: 'caelum',
+    ));
+
+    // Save a memory for profile "other"
+    $this->store->save(new MemoryEntry(
+        content: 'Other profile setting',
+        area: 'preferences',
+        profileId: 'other',
+    ));
+
+    // Save a legacy (untagged) memory
+    $this->store->save(new MemoryEntry(
+        content: 'Global user preference',
+        area: 'preferences',
+    ));
+
+    // Search with caelum profile — should find caelum + untagged, NOT other
+    $results = $this->store->search('preference', profileId: 'caelum');
+    $contents = array_map(fn(MemoryEntry $e) => $e->content, $results);
+
+    expect($contents)->toContain('Caelum prefers curious tone');
+    expect($contents)->toContain('Global user preference');
+    expect($contents)->not->toContain('Other profile setting');
+});
+
+test('list with profileId filters by profile', function () {
+    $this->store->save(new MemoryEntry(
+        content: 'Caelum fact',
+        area: 'facts',
+        profileId: 'caelum',
+    ));
+    $this->store->save(new MemoryEntry(
+        content: 'Other fact',
+        area: 'facts',
+        profileId: 'other',
+    ));
+    $this->store->save(new MemoryEntry(
+        content: 'Global fact',
+        area: 'facts',
+    ));
+
+    $entries = $this->store->list('facts', profileId: 'caelum');
+    $contents = array_map(fn(MemoryEntry $e) => $e->content, $entries);
+
+    expect($contents)->toContain('Caelum fact');
+    expect($contents)->toContain('Global fact');
+    expect($contents)->not->toContain('Other fact');
+});
+
+test('getCoreSummary with profileId filters by profile', function () {
+    $this->store->save(new MemoryEntry(
+        content: 'Caelum identity note',
+        area: 'identity',
+        metadata: ['importance' => 0.95],
+        profileId: 'caelum',
+    ));
+    $this->store->save(new MemoryEntry(
+        content: 'Other identity note',
+        area: 'identity',
+        metadata: ['importance' => 0.95],
+        profileId: 'other',
+    ));
+
+    $summary = $this->store->getCoreSummary(profileId: 'caelum');
+
+    expect($summary)->toContain('Caelum identity note');
+    expect($summary)->not->toContain('Other identity note');
+});
+
+test('search without profileId returns all memories', function () {
+    $this->store->save(new MemoryEntry(
+        content: 'Caelum note about testing',
+        area: 'facts',
+        profileId: 'caelum',
+    ));
+    $this->store->save(new MemoryEntry(
+        content: 'Other note about testing',
+        area: 'facts',
+        profileId: 'other',
+    ));
+
+    $results = $this->store->search('testing');
+    $contents = array_map(fn(MemoryEntry $e) => $e->content, $results);
+
+    expect($contents)->toContain('Caelum note about testing');
+    expect($contents)->toContain('Other note about testing');
+});

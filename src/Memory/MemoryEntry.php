@@ -20,6 +20,8 @@ final readonly class MemoryEntry
         public ?DateTimeImmutable $createdAt = null,
         public string $type = 'knowledge',
         public ?DateTimeImmutable $validUntil = null,
+        public ?string $profileId = null,
+        public ?string $sessionId = null,
     ) {}
 
     public function withId(string $id): self
@@ -33,6 +35,8 @@ final readonly class MemoryEntry
             $this->createdAt,
             $this->type,
             $this->validUntil,
+            $this->profileId,
+            $this->sessionId,
         );
     }
 
@@ -47,6 +51,8 @@ final readonly class MemoryEntry
             $this->createdAt,
             $this->type,
             $this->validUntil,
+            $this->profileId,
+            $this->sessionId,
         );
     }
 }

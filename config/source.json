@@ -2096,7 +2096,7 @@
             "path": "src/Config/ProfileDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\ProfileDiscovery",
             "layer": "config",
-            "description": "Discovers personality profiles from workspace/profiles/{name}/ directories. A valid profile directory must contain a soul.md file. Uses ProfileParser so soul frontmatter can carry metadata like a profile-level default model while the rendered soul body stays clean. Provides profile existence checks, path resolution, soul.md reading, model lookup, and description extraction.",
+            "description": "Discovers personality profiles from workspace/profiles/{name}/ directories. A valid profile directory must contain a soul.md file. Uses ProfileParser so soul frontmatter can carry metadata like a profile-level default model while the rendered soul body stays clean. Provides profile existence checks, path resolution, soul.md reading, model lookup, description extraction, samples directory discovery, and response sample listing.",
             "methods": [
                 "discoverAll(): array<string, string> — scan workspace/profiles/ for valid profile directories (name → path)",
                 "profileExists(string $name): bool — check if a named profile exists",
@@ -2105,7 +2105,23 @@
                 "readProfileModel(string $name): ?string — load the optional model field from soul.md frontmatter",
                 "availableProfiles(): list<string> — return sorted list of profile names",
                 "invalidateCache(): void — clear cached profile list",
-                "extractDescription(string $name): ?string — extract first paragraph from soul.md as description"
+                "extractDescription(string $name): ?string — extract first paragraph from soul.md as description",
+                "getSamplesDir(string $name): string — return path to profiles/{name}/samples/responses",
+                "listResponseSamples(string $name): array — list sorted .md file paths in samples/responses/"
+            ]
+        },
+        {
+            "path": "src/Config/ProfilePreferences.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ProfilePreferences",
+            "layer": "config",
+            "description": "Readonly value object for profile behavioral settings loaded from preferences.json. Splits settings into prompt_directives (rendered into system prompt as a Preferences section) and behavior (code-level config accessible via getBehavior).",
+            "methods": [
+                "fromFile(string $path): self — load from JSON, returns empty() on failure",
+                "empty(): self — create empty instance",
+                "isEmpty(): bool — true when no directives and no behavior",
+                "hasPromptDirectives(): bool — true when prompt directives exist",
+                "renderPromptSection(): ?string — render ## Preferences markdown block or null",
+                "getBehavior(string $key, mixed $default): mixed — read a behavior setting"
             ]
         },
         {

@@ -232,7 +232,28 @@ final readonly class PromptLoader
     }
 
     /**
-     * Build the body content (everything except soul.md).
+     * Build the backstory.md content (identity context, continuity markers).
+     *
+     * Resolves backstory.md via the standard 3-tier chain (profile → workspace → default).
+     * Returns null if no backstory.md exists in any tier.
+     */
+    public function buildBackstoryContent(): ?string
+    {
+        $path = $this->resolvePromptFile('backstory.md');
+        if ($path === null) {
+            return null;
+        }
+
+        $content = $this->readPromptContent($path);
+        if ($content === null) {
+            return null;
+        }
+
+        return $this->substitutePlaceholders($content);
+    }
+
+    /**
+     * Build the body content (everything except soul.md and backstory.md).
      *
      * Returns base.md + tool sections + security.md + done.md composed
      * in standard priority order.
@@ -283,7 +304,7 @@ final readonly class PromptLoader
     /**
      * Build the complete orchestrator system prompt.
      *
-     * Composes soul → body (base + tools + security + done) in standard order.
+     * Composes soul → backstory → body (base + tools + security + done) in standard order.
      */
     public function buildSystemPrompt(): string
     {
@@ -292,6 +313,11 @@ final readonly class PromptLoader
         $soul = $this->buildSoulContent();
         if ($soul !== null) {
             $sections[] = $soul;
+        }
+
+        $backstory = $this->buildBackstoryContent();
+        if ($backstory !== null) {
+            $sections[] = $backstory;
         }
 
         $body = $this->buildBodyContent();
@@ -321,6 +347,20 @@ final readonly class PromptLoader
                     'title' => 'Soul',
                     'content' => $this->substitutePlaceholders($content),
                     'source' => $soulPath,
+                ];
+            }
+        }
+
+        // Backstory — identity context, continuity markers, relational anchors
+        $backstoryPath = $this->resolvePromptFile('backstory.md');
+        if ($backstoryPath !== null) {
+            $backstoryContent = file_get_contents($backstoryPath);
+            if ($backstoryContent !== false && trim($backstoryContent) !== '') {
+                $sections[] = [
+                    'id' => 'backstory',
+                    'title' => 'Backstory',
+                    'content' => $this->substitutePlaceholders(trim($backstoryContent)),
+                    'source' => $backstoryPath,
                 ];
             }
         }
