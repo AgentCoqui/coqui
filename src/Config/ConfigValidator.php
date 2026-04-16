@@ -26,6 +26,7 @@ final class ConfigValidator
         $errors = [];
 
         $errors = [...$errors, ...$this->validatePrimaryModel($data)];
+        $errors = [...$errors, ...$this->validateDefaultProfile($data)];
         $errors = [...$errors, ...$this->validateRoles($data)];
         $errors = [...$errors, ...$this->validateFallbacks($data)];
         $errors = [...$errors, ...$this->validateProviders($data)];
@@ -73,6 +74,29 @@ final class ConfigValidator
                 'agents.defaults.model.primary must be in "provider/model" format, got: %s',
                 $primary,
             )];
+        }
+
+        return [];
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
+    private function validateDefaultProfile(array $data): array
+    {
+        $profile = $data['agents']['defaults']['profile'] ?? null;
+
+        if ($profile === null) {
+            return [];
+        }
+
+        if (!is_string($profile)) {
+            return ['agents.defaults.profile must be a string'];
+        }
+
+        if (trim($profile) === '') {
+            return ['agents.defaults.profile must be a non-empty string'];
         }
 
         return [];

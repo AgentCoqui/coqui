@@ -96,6 +96,19 @@ final class OpenClawConfig implements ConfigInterface
         return is_string($primary) ? $primary : '';
     }
 
+    public function getDefaultProfile(): ?string
+    {
+        $profile = $this->get('agents.defaults.profile');
+
+        if (!is_string($profile)) {
+            return null;
+        }
+
+        $profile = strtolower(trim($profile));
+
+        return $profile !== '' ? $profile : null;
+    }
+
     /**
      * Get fallback model strings, ordered by priority.
      *
