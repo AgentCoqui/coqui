@@ -40,6 +40,9 @@ final class CodeReviewCycle
         private readonly ?SplObserver $observer = null,
         private readonly ?ToolExecutorInterface $toolExecutor = null,
         private readonly ?ProviderFactory $providerFactory = null,
+        private readonly ?string $activeProfile = null,
+        private readonly ?string $activeProfilePath = null,
+        private readonly ?string $profileIdentityPreamble = null,
     ) {}
 
     /**
@@ -155,7 +158,7 @@ final class CodeReviewCycle
         ?string $sprintContext,
         int $round,
     ): array {
-        $reviewerModelString = $this->roleResolver->resolve(SystemRole::Reviewer->value);
+        $reviewerModelString = $this->roleResolver->resolve(SystemRole::Reviewer->value, $this->activeProfile);
 
         try {
             $factory = $this->providerFactory ?? new ProviderFactory($this->config);
@@ -190,6 +193,8 @@ final class CodeReviewCycle
             maxIterations: self::REVIEWER_MAX_ITERATIONS,
             roleDiscovery: $this->roleDiscovery,
             toolExecutor: $this->toolExecutor,
+            profileIdentityPreamble: $this->profileIdentityPreamble,
+            activeProfilePath: $this->activeProfilePath,
         );
 
         if ($this->observer !== null) {
@@ -227,7 +232,7 @@ final class CodeReviewCycle
         int $maxIterations,
         int $round,
     ): array {
-        $coderModelString = $this->roleResolver->resolve(SystemRole::Coder->value);
+        $coderModelString = $this->roleResolver->resolve(SystemRole::Coder->value, $this->activeProfile);
 
         try {
             $factory = $this->providerFactory ?? new ProviderFactory($this->config);
@@ -262,6 +267,8 @@ final class CodeReviewCycle
             maxIterations: $maxIterations,
             roleDiscovery: $this->roleDiscovery,
             toolExecutor: $this->toolExecutor,
+            profileIdentityPreamble: $this->profileIdentityPreamble,
+            activeProfilePath: $this->activeProfilePath,
         );
 
         if ($this->observer !== null) {

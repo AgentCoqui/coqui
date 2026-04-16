@@ -288,7 +288,7 @@ final class OrchestratorAgent extends AbstractAgent
                 ? 'orchestrator'
                 : $this->activeRole;
             try {
-                $roleProps = $this->roleDiscovery->getRole($effectiveRole);
+                $roleProps = $this->roleDiscovery->getRole($effectiveRole, $this->activeProfilePath);
                 $effectiveAccessLevel = $roleProps->accessLevel;
             } catch (\Throwable) {
                 // Role not found — fall through with 'full' access
@@ -612,6 +612,8 @@ final class OrchestratorAgent extends AbstractAgent
             toolExecutor: $this->childToolExecutor,
             providerFactory: $sharedFactory,
             profileIdentityPreamble: $this->buildProfileIdentityPreamble(),
+            activeProfile: $this->activeProfile,
+            activeProfilePath: $this->activeProfilePath,
         );
 
         // Create credential tool for API key management
@@ -921,8 +923,8 @@ final class OrchestratorAgent extends AbstractAgent
             return null;
         }
 
-        $content = file_get_contents($soulPath);
-        if ($content === false || trim($content) === '') {
+        $content = (new \CoquiBot\Coqui\Config\ProfileParser())->readFile($soulPath)['body'];
+        if (trim($content) === '') {
             return null;
         }
 
@@ -936,7 +938,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         try {
-            return $this->roleDiscovery->readInstructions($this->activeRole);
+            return $this->roleDiscovery->readInstructions($this->activeRole, $this->activeProfilePath);
         } catch (\Throwable) {
             return null;
         }
@@ -1748,7 +1750,7 @@ final class OrchestratorAgent extends AbstractAgent
         $effectiveRole = ($activeRole === null || $activeRole === 'orchestrator') ? 'orchestrator' : $activeRole;
 
         try {
-            $roleProps = $roleDiscovery->getRole($effectiveRole);
+            $roleProps = $roleDiscovery->getRole($effectiveRole, $this->activeProfilePath);
 
             return new RoleToolkitResolver($roleProps->toolkits);
         } catch (\Throwable) {

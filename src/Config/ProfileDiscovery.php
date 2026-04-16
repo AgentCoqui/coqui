@@ -18,9 +18,13 @@ final class ProfileDiscovery
     /** @var array<string, array{name: string, display_name: string, description: string, path: string}>|null */
     private ?array $cache = null;
 
+    private readonly ProfileParser $parser;
+
     public function __construct(
         private readonly string $workspacePath,
-    ) {}
+    ) {
+        $this->parser = new ProfileParser();
+    }
 
     /**
      * Absolute path to the profiles directory.
@@ -131,13 +135,17 @@ final class ProfileDiscovery
     public function readSoul(string $name): string
     {
         $path = $this->getProfilePath($name) . '/soul.md';
-        $content = file_get_contents($path);
 
-        if ($content === false) {
-            throw new \RuntimeException(sprintf('Failed to read soul.md for profile "%s".', $name));
-        }
+        return $this->parser->readFile($path)['body'];
+    }
 
-        return trim($content);
+    public function readProfileModel(string $name): ?string
+    {
+        $path = $this->getProfilePath($name) . '/soul.md';
+        $metadata = $this->parser->readFile($path)['metadata'];
+        $model = $metadata['model'] ?? null;
+
+        return is_string($model) && trim($model) !== '' ? trim($model) : null;
     }
 
     /**
@@ -183,8 +191,13 @@ final class ProfileDiscovery
      */
     private function extractDescriptionFromFile(string $soulPath): string
     {
-        $content = file_get_contents($soulPath);
-        if ($content === false || trim($content) === '') {
+        try {
+            $content = $this->parser->readFile($soulPath)['body'];
+        } catch (\RuntimeException) {
+            return '';
+        }
+
+        if (trim($content) === '') {
             return '';
         }
 

@@ -36,6 +36,7 @@ final class ChildAgent extends AbstractAgent
         ?ToolExecutorInterface $toolExecutor = null,
         ?TickCallbackInterface $tickCallback = null,
         private readonly ?string $profileIdentityPreamble = null,
+        private readonly ?string $activeProfilePath = null,
     ) {
         parent::__construct(
             $provider,
@@ -82,8 +83,8 @@ final class ChildAgent extends AbstractAgent
     private function resolveRoleInstructions(): string
     {
         // Try file-based role discovery first
-        if ($this->roleDiscovery !== null && $this->roleDiscovery->roleExists($this->role)) {
-            return $this->roleDiscovery->readInstructions($this->role);
+        if ($this->roleDiscovery !== null && $this->roleDiscovery->roleExists($this->role, $this->activeProfilePath)) {
+            return $this->roleDiscovery->readInstructions($this->role, $this->activeProfilePath);
         }
 
         // Fall back to hardcoded defaults for backward compatibility

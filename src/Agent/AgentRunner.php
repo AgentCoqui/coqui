@@ -140,6 +140,7 @@ final class AgentRunner
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
         ?string $defaultSprintId = null,
+        ?string $profile = null,
     ): AgentTurnResult {
         return $this->doRun(
             $prompt,
@@ -154,6 +155,7 @@ final class AgentRunner
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
             defaultSprintId: $defaultSprintId,
+            profile: $profile,
         );
     }
 
@@ -199,7 +201,7 @@ final class AgentRunner
 
         // Resolve the model string for turn tracking (use task role if provided)
         $effectiveRole = $role ?? 'orchestrator';
-        $modelString = $this->roleResolver->resolve($effectiveRole);
+        $modelString = $this->roleResolver->resolve($effectiveRole, $profile);
 
         // Create turn record before execution
         $turnId = $this->storage->createTurn($sessionId, $prompt, $modelString);
@@ -258,7 +260,7 @@ final class AgentRunner
             // infrastructure — the only new logic is the trigger condition.
             if ($this->roleDiscovery !== null && $history->count() > 20) {
                 try {
-                    $roleProps = $this->roleDiscovery->getRole($effectiveRole);
+                    $roleProps = $this->roleDiscovery->getRole($effectiveRole, $resolvedProfilePath);
                     if ($roleProps->preSummarize) {
                         $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer);
                     }
@@ -303,7 +305,7 @@ final class AgentRunner
                 ? $this->sanitizeUsage($output->usage, $output, $modelString)
                 : $this->estimateUsage($output, $modelString);
 
-            $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole);
+            $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole, $profile);
             ['iterationLimitReached' => $iterationLimitReached, 'budgetExhausted' => $budgetExhausted] =
                 $this->resolveExitFlags($output, $resolvedMaxIterations);
 
@@ -359,7 +361,7 @@ final class AgentRunner
                         memoryStore: $this->memoryStore,
                     );
                     $factory = $this->providerFactory;
-                    $utilityModel = $this->roleResolver->resolveUtility();
+                    $utilityModel = $this->roleResolver->resolveUtility($profile);
                     if ($utilityModel !== '') {
                         $utilityProvider = $factory->create($utilityModel);
                         $pruneResult = $summarizer->summarizeAndPersist(
@@ -428,11 +430,13 @@ final class AgentRunner
             // Single pass only — feedback is shown to user, no auto-iterate.
             $reviewFeedback = null;
             $reviewApproved = null;
-            if ($this->shouldPostTurnReview($effectiveRole, $fileEdits)) {
+            if ($this->shouldPostTurnReview($effectiveRole, $fileEdits, $profile, $resolvedProfilePath)) {
                 $reviewResult = $this->runPostTurnReview(
                     coderOutput: $output->content,
                     originalTask: $prompt,
                     observer: $observer,
+                    activeProfile: $profile,
+                    activeProfilePath: $resolvedProfilePath,
                 );
                 if ($reviewResult !== null) {
                     $reviewFeedback = $reviewResult->reviewFeedback;
@@ -521,7 +525,7 @@ final class AgentRunner
         ?string $activeProfile = null,
         ?string $activeProfilePath = null,
     ): OrchestratorAgent {
-        $modelString = $this->roleResolver->resolve($role);
+        $modelString = $this->roleResolver->resolve($role, $activeProfile);
         $httpClient = $this->httpClient;
         if ($httpClient instanceof ReactHttpClientAdapter && $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken) {
             $httpClient = $httpClient->withCancellationToken($cancellationToken);
@@ -566,7 +570,7 @@ final class AgentRunner
             currentTurnId: $currentTurnId,
             observer: $observer,
             discovery: $this->discovery,
-            maxIterations: $maxIterations ?? $this->roleResolver->resolveMaxIterations($role),
+            maxIterations: $maxIterations ?? $this->roleResolver->resolveMaxIterations($role, $activeProfile),
             executionPolicy: $executionPolicy,
             sanitizer: $sanitizer,
             onRestart: $onRestart,
@@ -1452,7 +1456,7 @@ final class AgentRunner
      *
      * @param ?array<int, array{file_path: string, operation: string}> $fileEdits
      */
-    private function shouldPostTurnReview(string $role, ?array $fileEdits): bool
+    private function shouldPostTurnReview(string $role, ?array $fileEdits, ?string $activeProfile = null, ?string $activeProfilePath = null): bool
     {
         // Only review when there are actual file changes
         if ($fileEdits === null || $fileEdits === []) {
@@ -1470,7 +1474,7 @@ final class AgentRunner
         // Check role-level auto_review flag
         if ($this->roleDiscovery !== null) {
             try {
-                $properties = $this->roleDiscovery->getRole($role);
+                $properties = $this->roleDiscovery->getRole($role, $activeProfilePath);
                 return $properties->autoReview;
             } catch (\Throwable) {
                 // Fall through
@@ -1490,6 +1494,8 @@ final class AgentRunner
         string $coderOutput,
         string $originalTask,
         ?SplObserver $observer,
+        ?string $activeProfile = null,
+        ?string $activeProfilePath = null,
     ): ?\CoquiBot\Coqui\Contract\CodeReviewResult {
         try {
             $cycle = new CodeReviewCycle(
@@ -1499,6 +1505,8 @@ final class AgentRunner
                 observer: $observer,
                 toolExecutor: $this->toolExecutor,
                 providerFactory: $this->providerFactory,
+                activeProfile: $activeProfile,
+                activeProfilePath: $activeProfilePath,
             );
 
             // Build reviewer toolkits: read-only filesystem + shell search

@@ -96,7 +96,7 @@ final class BootManager
         $this->initializeWorkspace();
         $this->initializeMounts();
         $this->discoverRoles();
-        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery);
+        $this->roleResolver = new RoleResolver($this->config, $this->defaultsLoader, $this->roleDiscovery, $this->profileDiscovery);
         $this->initializeCredentials();
         $this->initializeMemory();
         $this->initializeArtifacts($skipMaintenance);
