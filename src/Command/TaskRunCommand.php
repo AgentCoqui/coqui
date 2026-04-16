@@ -274,6 +274,11 @@ final class TaskRunCommand extends Command
     ): int {
         $toolName = (string) $task['tool_name'];
         $argumentsJson = (string) ($task['tool_arguments'] ?? '{}');
+        $sessionId = (string) ($task['session_id'] ?? '');
+        $session = $sessionId !== '' ? $storage->getSession($sessionId) : null;
+        $taskProfile = is_array($session) && is_string($session['profile'] ?? null) && $session['profile'] !== ''
+            ? $session['profile']
+            : null;
 
         $arguments = json_decode($argumentsJson, true);
         if (!is_array($arguments)) {
@@ -327,6 +332,7 @@ final class TaskRunCommand extends Command
                 boot: $boot,
                 projectRoot: $workDir,
                 unsafeMode: $unsafeMode,
+                activeProfileId: $taskProfile,
             );
 
             $toolResult = $executor->execute($toolName, $arguments);
