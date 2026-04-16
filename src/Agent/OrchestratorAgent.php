@@ -1354,9 +1354,15 @@ final class OrchestratorAgent extends AbstractAgent
     {
         $roleInstructions = $this->resolveActiveRoleInstructions();
         if ($roleInstructions !== null) {
+            $activeRole = $this->activeRole;
+
+            if ($activeRole === null) {
+                throw new \LogicException('Active role must be set when role instructions are resolved.');
+            }
+
             return [new PromptSection(
-                id: 'role.' . $this->activeRole,
-                title: ucfirst(str_replace('-', ' ', $this->activeRole)) . ' Instructions',
+                id: 'role.' . $activeRole,
+                title: ucfirst(str_replace('-', ' ', $activeRole)) . ' Instructions',
                 content: $roleInstructions,
                 priority: PromptSectionPriority::Critical,
                 rationale: 'Specialized roles replace the orchestrator prompt stack for that turn, so their instructions must stay pinned.',

@@ -272,10 +272,6 @@ final class ConfigManager
         $keys = explode('.', $dotKey);
         $lastKey = array_pop($keys);
 
-        if (!is_string($lastKey)) {
-            return;
-        }
-
         $ref = &$data;
 
         foreach ($keys as $key) {
