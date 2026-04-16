@@ -75,6 +75,42 @@ test('runner creates a retry task for failed background task notifications', fun
     expect($stats['perKind']['task.failed']['completed'])->toBe(1);
 });
 
+test('runner retry task inherits profile from target session', function () {
+    $profiledParentSessionId = $this->storage->createSession('orchestrator', 'test/model', 'caelum');
+    $taskSessionId = $this->storage->createSession('coder', 'test/model', 'caelum');
+    $taskId = $this->storage->createTask(
+        sessionId: $taskSessionId,
+        prompt: 'Retry the deployment.',
+        role: 'coder',
+        parentSessionId: $profiledParentSessionId,
+        title: 'Deploy app',
+    );
+    $this->storage->updateTaskStatus($taskId, 'failed', ['error' => 'Connection refused']);
+
+    $notificationId = $this->store->create(
+        sessionId: $profiledParentSessionId,
+        class: 'actionable',
+        kind: 'task.failed',
+        title: 'Task failed: Deploy app',
+        sourceType: 'background_task',
+        sourceId: $taskId,
+    );
+
+    $runner = new NotificationAutomationRunner(
+        store: $this->store,
+        handlers: [new RetryBackgroundTaskAction($this->storage)],
+        runnerId: 'runner-test',
+    );
+
+    $runner->tick();
+
+    $followUp = $this->storage->findTaskByAutomationNotificationId($notificationId);
+    $session = $followUp !== null ? $this->storage->getSession((string) $followUp['session_id']) : null;
+
+    expect($session)->not->toBeNull();
+    expect($session['profile'])->toBe('caelum');
+});
+
 test('runner skips retry when the source task is no longer failed', function () {
     $taskSessionId = $this->storage->createSession('coder', 'test/model');
     $taskId = $this->storage->createTask(
@@ -146,6 +182,40 @@ test('runner creates an investigation task for failed loops', function () {
     expect($followUp['title'])->toContain('Investigate failed loop');
     expect($followUp['prompt'])->toContain($loopId);
     expect($followUp['parent_session_id'])->toBe($this->parentSessionId);
+});
+
+test('runner loop investigation inherits profile from target session', function () {
+    $profiledParentSessionId = $this->storage->createSession('orchestrator', 'test/model', 'caelum');
+    $loopId = $this->loopStore->createLoop(
+        definitionName: 'harness',
+        goal: 'Ship the feature',
+        configuration: ['roles' => []],
+        sessionId: $profiledParentSessionId,
+    );
+    $this->loopStore->updateLoopStatus($loopId, 'failed');
+
+    $notificationId = $this->store->create(
+        sessionId: $profiledParentSessionId,
+        class: 'actionable',
+        kind: 'loop.failed',
+        title: 'Loop failed [harness]',
+        sourceType: 'loop',
+        sourceId: $loopId,
+    );
+
+    $runner = new NotificationAutomationRunner(
+        store: $this->store,
+        handlers: [new EscalateLoopFailureAction($this->storage, $this->loopStore)],
+        runnerId: 'runner-test',
+    );
+
+    $runner->tick();
+
+    $followUp = $this->storage->findTaskByAutomationNotificationId($notificationId);
+    $session = $followUp !== null ? $this->storage->getSession((string) $followUp['session_id']) : null;
+
+    expect($session)->not->toBeNull();
+    expect($session['profile'])->toBe('caelum');
 });
 
 test('reclaim releases expired claims for another processing tick', function () {

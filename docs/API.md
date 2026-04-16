@@ -1236,6 +1236,7 @@ Create a new background task. The task is started immediately if under the concu
 {
   "prompt": "Refactor the authentication module",
   "role": "coder",
+  "profile": "caelum",
   "title": "Auth refactor",
   "parent_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "max_iterations": 25
@@ -1246,8 +1247,9 @@ Create a new background task. The task is started immediately if under the concu
 |-------|------|----------|---------|-------------|
 | `prompt` | string | Yes | — | The task prompt (max 1 MiB) |
 | `role` | string | No | `"orchestrator"` | Agent role for the task. Must be a known role. |
+| `profile` | string | No | `null` | Explicit profile for the task session. Must exist under `profiles/{name}/soul.md`. If `parent_session_id` is provided, it must match the parent session profile. |
 | `title` | string | No | `null` | Human-readable title for the task |
-| `parent_session_id` | string | No | `null` | Link the task to a parent session (must exist) |
+| `parent_session_id` | string | No | `null` | Link the task to a parent session (must exist). The task inherits that session's profile when one is set. |
 | `max_iterations` | int | No | `25` | Maximum agent iterations (1–100) |
 
 **Response `201`**
@@ -1259,6 +1261,7 @@ Create a new background task. The task is started immediately if under the concu
   "status": "running",
   "prompt": "Refactor the authentication module",
   "role": "coder",
+  "profile": "caelum",
   "title": "Auth refactor",
   "created_at": "2026-02-16T14:30:00+00:00"
 }
@@ -2052,6 +2055,7 @@ List all webhook subscriptions. Secrets are masked in responses.
       "secret": "abc1****5678",
       "prompt_template": "A push was made: {{payload}}",
       "role": "orchestrator",
+      "profile": "caelum",
       "max_iterations": 48,
       "enabled": 1,
       "event_filter": "push,pull_request",
@@ -2080,6 +2084,7 @@ Create a webhook subscription. Returns the signing secret (shown only once in fu
   "prompt_template": "Review this push: {{payload}}",
   "source": "github",
   "role": "coder",
+  "profile": "caelum",
   "event_filter": "push,pull_request",
   "description": "GitHub push handler",
   "max_iterations": 30
@@ -2092,6 +2097,7 @@ Create a webhook subscription. Returns the signing secret (shown only once in fu
 | `prompt_template` | string | Yes | — | Template with `{{payload}}`, `{{event_type}}`, `{{summary}}` placeholders |
 | `source` | string | No | `"generic"` | Verification scheme: `generic`, `github`, or `slack` |
 | `role` | string | No | `"orchestrator"` | Agent role for triggered tasks |
+| `profile` | string | No | `null` | Profile assigned to triggered task sessions. Must exist under `profiles/{name}/soul.md`. |
 | `event_filter` | string | No | `null` | Comma-separated event types to accept |
 | `description` | string | No | `null` | Human-readable description |
 | `max_iterations` | int | No | `48` | Max iterations per triggered task (1–100) |
@@ -2112,7 +2118,7 @@ Get a webhook subscription. Secret is masked.
 
 Update a webhook subscription.
 
-**Request Body** — any subset of: `name`, `description`, `source`, `prompt_template`, `role`, `max_iterations`, `enabled`, `event_filter`.
+**Request Body** — any subset of: `name`, `description`, `source`, `prompt_template`, `role`, `profile`, `max_iterations`, `enabled`, `event_filter`.
 
 **Response `200`** — updated webhook object (secret masked).
 

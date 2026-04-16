@@ -237,19 +237,6 @@ test('listAll with profileId filters by profile', function () {
     expect($contents)->not->toContain('Other fact');
 });
 
-test('listAll with profileId filters by profile', function () {
-    $this->store->save(new MemoryEntry(content: 'Caelum fact', area: 'facts', profileId: 'caelum'));
-    $this->store->save(new MemoryEntry(content: 'Other fact', area: 'facts', profileId: 'other'));
-    $this->store->save(new MemoryEntry(content: 'Global fact', area: 'facts'));
-
-    $all = $this->store->listAll(profileId: 'caelum');
-    $contents = array_map(fn(MemoryEntry $e) => $e->content, $all);
-
-    expect($contents)->toContain('Caelum fact');
-    expect($contents)->toContain('Global fact');
-    expect($contents)->not->toContain('Other fact');
-});
-
 test('getCoreSummary excludes legacy session summary memories', function () {
     $this->store->save(new MemoryEntry(content: 'Durable preference', area: 'preferences'));
     $this->store->save(new MemoryEntry(content: 'Legacy session summary', area: 'session_summary'));
@@ -285,19 +272,6 @@ test('getTopImportantMemories excludes legacy session summary memories', functio
 
     expect($contents)->toContain('Top durable memory');
     expect($contents)->not->toContain('Legacy session summary');
-});
-
-test('getTopImportantMemories with profileId filters by profile', function () {
-    $this->store->save(new MemoryEntry(content: 'Caelum important', area: 'identity', metadata: ['importance' => 0.95], profileId: 'caelum'));
-    $this->store->save(new MemoryEntry(content: 'Other important', area: 'identity', metadata: ['importance' => 0.99], profileId: 'other'));
-    $this->store->save(new MemoryEntry(content: 'Global important', area: 'identity', metadata: ['importance' => 0.9]));
-
-    $entries = $this->store->getTopImportantMemories(profileId: 'caelum');
-    $contents = array_map(fn(MemoryEntry $e) => $e->content, $entries);
-
-    expect($contents)->toContain('Caelum important');
-    expect($contents)->toContain('Global important');
-    expect($contents)->not->toContain('Other important');
 });
 
 test('getTopImportantMemories with profileId filters by profile', function () {
@@ -362,19 +336,6 @@ test('listByTags returns empty when given empty tags array', function () {
     $results = $this->store->listByTags([]);
 
     expect($results)->toBeEmpty();
-});
-
-test('listByTags with profileId filters by profile', function () {
-    $this->store->save(new MemoryEntry(content: 'Caelum tag', area: 'facts', metadata: ['tags' => 'shared,caelum'], profileId: 'caelum'));
-    $this->store->save(new MemoryEntry(content: 'Other tag', area: 'facts', metadata: ['tags' => 'shared,other'], profileId: 'other'));
-    $this->store->save(new MemoryEntry(content: 'Global tag', area: 'facts', metadata: ['tags' => 'shared']));
-
-    $results = $this->store->listByTags(['shared'], profileId: 'caelum');
-    $contents = array_map(fn(MemoryEntry $e) => $e->content, $results);
-
-    expect($contents)->toContain('Caelum tag');
-    expect($contents)->toContain('Global tag');
-    expect($contents)->not->toContain('Other tag');
 });
 
 test('listByTags with profileId filters by profile', function () {
@@ -457,21 +418,6 @@ test('forget returns zero when nothing matches', function () {
 
     expect($deleted)->toBe(0);
     expect($this->store->count())->toBe(1);
-});
-
-test('forget with profileId deletes only visible memories', function () {
-    $this->store->save(new MemoryEntry(content: 'Caelum preference to forget', area: 'preferences', profileId: 'caelum'));
-    $this->store->save(new MemoryEntry(content: 'Other preference to forget', area: 'preferences', profileId: 'other'));
-    $this->store->save(new MemoryEntry(content: 'Global preference to forget', area: 'preferences'));
-
-    $deleted = $this->store->forget('forget', profileId: 'caelum');
-    $remaining = $this->store->search('forget');
-    $contents = array_map(fn(MemoryEntry $e) => $e->content, $remaining);
-
-    expect($deleted)->toBe(2);
-    expect($contents)->toContain('Other preference to forget');
-    expect($contents)->not->toContain('Caelum preference to forget');
-    expect($contents)->not->toContain('Global preference to forget');
 });
 
 test('forget with profileId deletes only visible memories', function () {
@@ -651,15 +597,6 @@ test('getCoreSummary with profileId filters by profile', function () {
 
     expect($summary)->toContain('Caelum identity note');
     expect($summary)->not->toContain('Other identity note');
-});
-
-test('count with profileId filters by profile', function () {
-    $this->store->save(new MemoryEntry(content: 'Caelum fact', area: 'facts', profileId: 'caelum'));
-    $this->store->save(new MemoryEntry(content: 'Other fact', area: 'facts', profileId: 'other'));
-    $this->store->save(new MemoryEntry(content: 'Global fact', area: 'facts'));
-
-    expect($this->store->count(profileId: 'caelum'))->toBe(2);
-    expect($this->store->count('facts', 'caelum'))->toBe(2);
 });
 
 test('count with profileId filters by profile', function () {
