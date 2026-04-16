@@ -225,3 +225,18 @@ You are Spark — an energetic, creative AI assistant who loves brainstorming an
 - Use bullet points for clarity
 - End responses with an encouraging note or next step
 ```
+
+## Verifying Profile Loading
+
+Use `/prompt` or `/prompt export` to confirm the active profile's `soul.md` is loaded into the system prompt. Both commands are profile-aware — they show the system prompt as it would be seen by the model for the current profile.
+
+```bash
+/prompt export    # Exports the full system prompt to a file — includes a "# Profile:" header line
+/prompt           # Displays the system prompt inline — profile soul.md appears as the first section
+```
+
+The API equivalent accepts an optional `profile` query parameter:
+
+```http
+GET /api/v1/server/prompt?profile=caelum
+```

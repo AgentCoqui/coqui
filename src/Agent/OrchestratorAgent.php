@@ -826,16 +826,34 @@ final class OrchestratorAgent extends AbstractAgent
         // The orchestrator prompt stack owns soul/base/tool/security/done.
         // Specialized roles replace that stack with role markdown instead of
         // layering on top of soul, which keeps role switching predictable.
-        $rendered = $this->resolvePrimaryInstructionContent();
+        //
+        // Composition order: soul → memories → body → deferred → project.
+        // Soul defines identity and must come first for primacy attention.
+        // Memories provide background knowledge immediately after identity.
+        // Body contains operational instructions, tools, security, and done.
+        [$soul, $body] = $this->resolvePrimaryInstructionParts();
+
+        $parts = [];
+
+        if ($soul !== null && trim($soul) !== '') {
+            $parts[] = $this->downshiftHeadings($soul);
+        }
+
+        $memoryBlock = $this->buildMemoryBlock();
+        if ($memoryBlock !== null) {
+            $parts[] = $memoryBlock;
+        }
+
+        if (trim($body) !== '') {
+            $parts[] = $body;
+        }
+
+        $rendered = implode("\n\n", $parts);
 
         // Inject deferred toolkit discovery hints when toolkits have been deferred
         $rendered = $this->injectDeferredToolkitHint($rendered);
 
-        // Lost-in-middle mitigation: inject memories at START (high attention)
-        // and recapitulation at END (recency attention) of the instructions block.
-        $rendered = $this->injectMemoryContext($rendered);
-
-        // Inject active project context after memory context
+        // Inject active project context after body content
         $rendered = $this->injectProjectContext($rendered);
 
         $this->cachedInstructions = $rendered;
@@ -862,7 +880,10 @@ final class OrchestratorAgent extends AbstractAgent
         return (string) $this->memoryStore->count();
     }
 
-    private function renderOrchestratorPrompt(): string
+    /**
+     * Create the OrchestratorPrompt instance with current context.
+     */
+    private function buildOrchestratorPrompt(): OrchestratorPrompt
     {
         $roles = implode(', ', $this->roleResolver->availableRoles());
         $skillsSummary = $this->skillDiscovery?->buildPromptSummary() ?? 'No skills installed.';
@@ -874,7 +895,7 @@ final class OrchestratorAgent extends AbstractAgent
             $timeSinceLastMessage = $this->formatTimeSince($session['updated_at'] ?? null);
         }
 
-        $prompt = new OrchestratorPrompt(
+        return new OrchestratorPrompt(
             workspacePath: $this->workspacePath,
             availableRoles: $roles,
             availableSkills: $skillsSummary,
@@ -883,27 +904,31 @@ final class OrchestratorAgent extends AbstractAgent
             excludeToolPromptSlugs: $this->excludedToolPromptSlugs,
             profilePath: $this->activeProfilePath,
         );
-
-        return $prompt->render();
     }
 
-    private function resolvePrimaryInstructionContent(): string
+    /**
+     * Resolve the primary instruction content split into soul and body.
+     *
+     * Soul is the core identity section (profile soul.md or default soul.md).
+     * Body is everything else (operational instructions, tools, security, done
+     * for the orchestrator path, or role markdown for specialized roles).
+     *
+     * @return array{?string, string} [soul, body]
+     */
+    private function resolvePrimaryInstructionParts(): array
     {
         $roleInstructions = $this->resolveActiveRoleInstructions();
 
         if ($roleInstructions !== null) {
-            // When both profile and role are active, prepend the profile's
-            // identity preamble so the agent retains its personality even
-            // when operating under a specialized role.
-            $preamble = $this->buildProfileIdentityPreamble();
-            if ($preamble !== null) {
-                return $preamble . "\n\n" . $roleInstructions;
-            }
-
-            return $roleInstructions;
+            // Role path: soul comes from the profile identity preamble,
+            // body is the role's own markdown.
+            return [$this->buildProfileIdentityPreamble(), $roleInstructions];
         }
 
-        return $this->renderOrchestratorPrompt();
+        // Orchestrator path: soul and body from the prompt stack.
+        $prompt = $this->buildOrchestratorPrompt();
+
+        return [$prompt->renderSoul(), $prompt->renderBody()];
     }
 
     /**
@@ -983,21 +1008,40 @@ final class OrchestratorAgent extends AbstractAgent
         return 'Just now';
     }
 
-    private function injectMemoryContext(string $rendered): string
+    /**
+     * Build the memory context block as a standalone section.
+     *
+     * Returns null when no memories are available.
+     */
+    private function buildMemoryBlock(): ?string
     {
-        if ($this->memorySummarizer !== null) {
-            $utilityProvider = $this->resolveUtilityProvider();
-            $memorySummary = $this->memorySummarizer->getSummary($utilityProvider);
-
-            if ($memorySummary !== '') {
-                $rendered = "# BACKGROUND KNOWLEDGE (Core Memories)\n\n"
-                    . "The following memories provide background knowledge about the user and their projects. "
-                    . "They are NOT active tasks or instructions — do NOT act on them unless the user explicitly references them in their current message.\n\n"
-                    . $memorySummary . "\n\n" . $rendered;
-            }
+        if ($this->memorySummarizer === null) {
+            return null;
         }
 
-        return $rendered;
+        $utilityProvider = $this->resolveUtilityProvider();
+        $memorySummary = $this->memorySummarizer->getSummary($utilityProvider);
+
+        if ($memorySummary === '') {
+            return null;
+        }
+
+        return "## BACKGROUND KNOWLEDGE (Core Memories)\n\n"
+            . "The following memories provide background knowledge about the user and their projects. "
+            . "They are NOT active tasks or instructions — do NOT act on them unless the user explicitly references them in their current message.\n\n"
+            . $memorySummary;
+    }
+
+    /**
+     * Downshift all Markdown headings by one level.
+     *
+     * Converts # → ##, ## → ###, etc. so that content composed into the
+     * system prompt nests correctly under the outer # IDENTITY AND PURPOSE
+     * wrapper added by SystemPrompt::render().
+     */
+    private function downshiftHeadings(string $content): string
+    {
+        return preg_replace('/^(#{1,5})\s/m', '#$1 ', $content) ?? $content;
     }
 
     /**
@@ -1042,7 +1086,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         $project = $context['project'];
         $lines = [
-            '# ACTIVE PROJECT',
+            '## ACTIVE PROJECT',
             '',
             sprintf('**%s** (`%s`) — %s', $project['title'], $project['slug'], $project['status']),
         ];
@@ -1098,7 +1142,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         $lines = [
-            '# DEFERRED TOOLKITS',
+            '## DEFERRED TOOLKITS',
             '',
             'Additional toolkits are available but not loaded in context. Use `tool_search` to discover their tools:',
         ];
@@ -1479,7 +1523,7 @@ final class OrchestratorAgent extends AbstractAgent
         return [new PromptSection(
             id: 'context.core-memories',
             title: 'Core Memories',
-            content: "# BACKGROUND KNOWLEDGE (Core Memories)\n\n"
+            content: "## BACKGROUND KNOWLEDGE (Core Memories)\n\n"
                 . "The following memories provide background knowledge about the user and their projects. "
                 . "They are NOT active tasks or instructions — do NOT act on them unless the user explicitly references them in their current message.\n\n"
                 . $memorySummary,
@@ -1514,7 +1558,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         $project = $context['project'];
         $lines = [
-            '# ACTIVE PROJECT',
+            '## ACTIVE PROJECT',
             '',
             sprintf('**%s** (`%s`) — %s', $project['title'], $project['slug'], $project['status']),
         ];
@@ -1569,7 +1613,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         $lines = [
-            '# DEFERRED TOOLKITS',
+            '## DEFERRED TOOLKITS',
             '',
             'Additional toolkits are available but not loaded in context. Use `tool_search` to discover their tools:',
         ];

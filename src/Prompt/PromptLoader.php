@@ -211,23 +211,35 @@ final readonly class PromptLoader
         return null;
     }
     /**
-     * Build the complete orchestrator system prompt.
+     * Build just the soul.md content (core identity section).
      *
-     * Loads soul.md first (core identity), then base.md (operational instructions),
-     * then all tool prompts from tools/, then security.md, then done.md.
+     * Returns the processed soul text (with placeholder substitution and
+     * profile frontmatter stripped), or null if no soul.md exists.
      */
-    public function buildSystemPrompt(): string
+    public function buildSoulContent(): ?string
+    {
+        $soulPath = $this->resolveSoulPath();
+        if ($soulPath === null) {
+            return null;
+        }
+
+        $content = $this->readPromptContent($soulPath, supportsProfileSoulFrontmatter: true);
+        if ($content === null) {
+            return null;
+        }
+
+        return $this->substitutePlaceholders($content);
+    }
+
+    /**
+     * Build the body content (everything except soul.md).
+     *
+     * Returns base.md + tool sections + security.md + done.md composed
+     * in standard priority order.
+     */
+    public function buildBodyContent(): string
     {
         $sections = [];
-
-        // Soul — core identity, values, and personality — always first
-        $soulPath = $this->resolveSoulPath();
-        if ($soulPath !== null) {
-            $content = $this->readPromptContent($soulPath, supportsProfileSoulFrontmatter: true);
-            if ($content !== null) {
-                $sections[] = $this->substitutePlaceholders($content);
-            }
-        }
 
         // Base — operational instructions, environment, delegation rules
         $sections[] = $this->loadWithFallback('base.md');
@@ -263,6 +275,28 @@ final readonly class PromptLoader
             if ($doneContent !== false) {
                 $sections[] = $this->substitutePlaceholders(trim($doneContent));
             }
+        }
+
+        return implode("\n\n", $sections);
+    }
+
+    /**
+     * Build the complete orchestrator system prompt.
+     *
+     * Composes soul → body (base + tools + security + done) in standard order.
+     */
+    public function buildSystemPrompt(): string
+    {
+        $sections = [];
+
+        $soul = $this->buildSoulContent();
+        if ($soul !== null) {
+            $sections[] = $soul;
+        }
+
+        $body = $this->buildBodyContent();
+        if ($body !== '') {
+            $sections[] = $body;
         }
 
         return implode("\n\n", $sections);

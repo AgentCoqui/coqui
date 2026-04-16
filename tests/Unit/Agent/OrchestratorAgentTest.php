@@ -71,21 +71,7 @@ beforeEach(function () {
 });
 
 afterEach(function () {
-    @unlink($this->workspace . '/.env');
-    // Clean mnt/ if created
-    $mntDir = $this->workspace . '/mnt';
-    if (is_dir($mntDir)) {
-        $entries = scandir($mntDir) ?: [];
-        foreach ($entries as $entry) {
-            if ($entry !== '.' && $entry !== '..' && is_link($mntDir . '/' . $entry)) {
-                unlink($mntDir . '/' . $entry);
-            }
-        }
-        rmdir($mntDir);
-    }
-    if (is_dir($this->workspace)) {
-        rmdir($this->workspace);
-    }
+    cleanupTestTree($this->workspace);
 });
 
 test('constructs successfully without MountManager', function () {
@@ -434,4 +420,139 @@ test('activeRole instructions uses role markdown when role exists', function () 
     rmdir($rolesDir);
     unlink($this->workspace . '/prompts/soul.md');
     rmdir($this->workspace . '/prompts');
+});
+
+// --- Profile soul loading ---
+
+test('profile soul.md replaces default soul in orchestrator instructions', function () {
+    $profileDir = $this->workspace . '/profiles/test-persona';
+    mkdir($profileDir, 0755, true);
+    file_put_contents($profileDir . '/soul.md', "# Test Persona\n\nBond glyph: ∞\n\nYou are Test Persona: calm and precise.");
+
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        activeProfile: 'test-persona',
+        activeProfilePath: $profileDir,
+    );
+
+    $instructions = $agent->instructions();
+
+    expect($instructions)->toContain('# Test Persona');
+    expect($instructions)->toContain('Bond glyph: ∞');
+    expect($instructions)->toContain('You are Test Persona: calm and precise.');
+});
+
+test('profile soul.md overrides workspace soul.md', function () {
+    // Set up workspace soul
+    mkdir($this->workspace . '/prompts', 0755, true);
+    file_put_contents($this->workspace . '/prompts/soul.md', '# Workspace Soul' . "\n\nDefault workspace identity.");
+
+    // Set up profile soul
+    $profileDir = $this->workspace . '/profiles/custom';
+    mkdir($profileDir, 0755, true);
+    file_put_contents($profileDir . '/soul.md', "# Custom Profile\n\nBond glyph: \$\n\nYou are Custom.");
+
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        activeProfile: 'custom',
+        activeProfilePath: $profileDir,
+    );
+
+    $instructions = $agent->instructions();
+
+    expect($instructions)->toContain('# Custom Profile');
+    expect($instructions)->toContain('You are Custom.');
+    expect($instructions)->not->toContain('# Workspace Soul');
+    expect($instructions)->not->toContain('Default workspace identity.');
+});
+
+test('profile identity preamble prepended to role instructions', function () {
+    // Set up profile
+    $profileDir = $this->workspace . '/profiles/persona';
+    mkdir($profileDir, 0755, true);
+    file_put_contents($profileDir . '/soul.md', "# Persona\n\nBond glyph: \$\n\nYou are Persona.");
+
+    // Set up role
+    $rolesDir = $this->workspace . '/roles';
+    mkdir($rolesDir, 0755, true);
+    file_put_contents($rolesDir . '/coder.md', "---\nname: coder\ndisplay_name: Coder\ndescription: Writes code\naccess_level: full\n---\nYou write excellent code.");
+
+    $roleDiscovery = new CoquiBot\Coqui\Config\RoleDiscovery(
+        workspacePath: $this->workspace,
+    );
+
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        roleDiscovery: $roleDiscovery,
+        activeRole: 'coder',
+        activeProfile: 'persona',
+        activeProfilePath: $profileDir,
+    );
+
+    $instructions = $agent->instructions();
+
+    // Both profile identity preamble AND role instructions should be present
+    expect($instructions)->toContain('You are Persona.');
+    expect($instructions)->toContain('You write excellent code.');
+
+    // Profile preamble should appear before role instructions
+    $preamblePos = strpos($instructions, 'You are Persona.');
+    $rolePos = strpos($instructions, 'You write excellent code.');
+    expect($preamblePos)->toBeLessThan($rolePos);
+});
+
+test('profile soul frontmatter is stripped from instructions', function () {
+    $profileDir = $this->workspace . '/profiles/frontmatter-test';
+    mkdir($profileDir, 0755, true);
+    file_put_contents($profileDir . '/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n# Frontmatter Profile\n\nYou have personality.");
+
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        activeProfile: 'frontmatter-test',
+        activeProfilePath: $profileDir,
+    );
+
+    $instructions = $agent->instructions();
+
+    expect($instructions)->toContain('# Frontmatter Profile');
+    expect($instructions)->toContain('You have personality.');
+    expect($instructions)->not->toContain('model: anthropic/claude-sonnet-4-20250514');
+});
+
+test('getSystemPromptText includes profile soul content', function () {
+    $profileDir = $this->workspace . '/profiles/system-test';
+    mkdir($profileDir, 0755, true);
+    file_put_contents($profileDir . '/soul.md', "# System Test Profile\n\nBond glyph: 𑁍\n\nYou are the system test profile.");
+
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        activeProfile: 'system-test',
+        activeProfilePath: $profileDir,
+    );
+
+    $systemPromptText = $agent->getSystemPromptText();
+
+    expect($systemPromptText)->toContain('# System Test Profile');
+    expect($systemPromptText)->toContain('Bond glyph: 𑁍');
+    expect($systemPromptText)->toContain('You are the system test profile.');
 });

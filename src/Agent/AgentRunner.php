@@ -635,9 +635,9 @@ final class AgentRunner
      *
      * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, applied_loading_modes: array<string, ToolkitLoadingMode>, budget_snapshot: array<string, mixed>}
      */
-    public function buildPromptPreview(?string $role = null): array
+    public function buildPromptPreview(?string $role = null, ?string $profile = null): array
     {
-        $preview = $this->buildPromptPreviewData($role);
+        $preview = $this->buildPromptPreviewData($role, $profile);
 
         return [
             'prompt' => $preview['prompt'],
@@ -653,17 +653,17 @@ final class AgentRunner
         ];
     }
 
-    public function buildBudgetPreview(?string $role = null): PromptBudgetSnapshot
+    public function buildBudgetPreview(?string $role = null, ?string $profile = null): PromptBudgetSnapshot
     {
-        return $this->buildPromptPreviewData($role)['snapshot'];
+        return $this->buildPromptPreviewData($role, $profile)['snapshot'];
     }
 
     /**
      * @return array{prompt: string, snapshot: PromptBudgetSnapshot, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, agent: OrchestratorAgent}
      */
-    private function buildPromptPreviewData(?string $role = null): array
+    private function buildPromptPreviewData(?string $role = null, ?string $profile = null): array
     {
-        $previewContext = $this->buildPreviewContext($role);
+        $previewContext = $this->buildPreviewContext($role, $profile);
         $agent = $previewContext['agent'];
         $counter = $previewContext['counter'];
         $promptText = $agent->getSystemPromptText();
@@ -704,14 +704,23 @@ final class AgentRunner
     /**
      * @return array{effective_role: string, model_string: string, agent: OrchestratorAgent, counter: \CarmeloSantana\PHPAgents\Contract\TokenCounterInterface}
      */
-    private function buildPreviewContext(?string $role = null): array
+    private function buildPreviewContext(?string $role = null, ?string $profile = null): array
     {
         $effectiveRole = $role ?? 'orchestrator';
-        $modelString = $this->roleResolver->resolve($effectiveRole);
+        $modelString = $this->roleResolver->resolve($effectiveRole, $profile);
         $factory = $this->providerFactory;
         $provider = $factory->create($modelString);
 
         $sanitizer = new ScriptSanitizer(unsafe: false, blacklist: $this->blacklist);
+
+        // Resolve profile path from profile name (same logic as doRun)
+        $resolvedProfilePath = null;
+        if ($profile !== null) {
+            $candidatePath = rtrim($this->workspacePath, '/') . '/profiles/' . $profile;
+            if (is_dir($candidatePath) && is_file($candidatePath . '/soul.md')) {
+                $resolvedProfilePath = $candidatePath;
+            }
+        }
 
         $agent = new OrchestratorAgent(
             provider: $provider,
@@ -740,6 +749,8 @@ final class AgentRunner
             loadingRegistry: $this->loadingRegistry,
             providerFactory: $this->providerFactory,
             usageTracker: $this->usageTracker,
+            activeProfile: $profile,
+            activeProfilePath: $resolvedProfilePath,
         );
 
         return [
@@ -755,9 +766,9 @@ final class AgentRunner
      *
      * @return string Absolute path to the exported file.
      */
-    public function exportPromptToFile(?string $role = null): string
+    public function exportPromptToFile(?string $role = null, ?string $profile = null): string
     {
-        $preview = $this->buildPromptPreview($role);
+        $preview = $this->buildPromptPreview($role, $profile);
         $effectiveRole = $role ?? 'orchestrator';
         $timestamp = date('Y-m-d_H-i-s');
 
@@ -765,6 +776,9 @@ final class AgentRunner
         $lines[] = '# Coqui System Prompt Export';
         $lines[] = '# Generated: ' . date('c');
         $lines[] = '# Role: ' . $effectiveRole;
+        if ($profile !== null) {
+            $lines[] = '# Profile: ' . $profile;
+        }
         $lines[] = '# Tools: ' . $preview['tool_count'] . '  |  Toolkits: ' . $preview['toolkit_count'];
         $lines[] = '# Prompt tokens: ' . number_format($preview['prompt_tokens'])
             . '  |  Tool schema tokens: ' . number_format($preview['tool_tokens'])

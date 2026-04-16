@@ -249,3 +249,61 @@ test('soul.md supports placeholder substitution', function () {
 
     expect($prompt)->toContain('# Soul for /my/workspace');
 });
+
+// --- Profile 3-tier soul resolution ---
+
+test('profile soul.md wins over workspace and default in 3-tier resolution', function () {
+    // Tier 3: default soul already exists from beforeEach
+    // Tier 2: workspace soul
+    $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
+    mkdir($this->workspacePath . '/prompts', 0755, true);
+    file_put_contents($this->workspacePath . '/prompts/soul.md', '# Workspace Soul' . "\n\nWorkspace identity.");
+
+    // Tier 1: profile soul (should win)
+    $profilePath = $this->workspacePath . '/profiles/winner';
+    mkdir($profilePath, 0755, true);
+    file_put_contents($profilePath . '/soul.md', '# Profile Soul' . "\n\nProfile identity wins.");
+
+    $loader = new PromptLoader(
+        promptsDir: $this->promptsDir,
+        workspacePath: $this->workspacePath,
+        profilePath: $profilePath,
+    );
+
+    $soulPath = $loader->resolveSoulPath();
+    $prompt = $loader->buildSystemPrompt();
+    $sections = $loader->buildSystemPromptSections();
+
+    expect($soulPath)->toBe($profilePath . '/soul.md');
+    expect($prompt)->toContain('# Profile Soul');
+    expect($prompt)->toContain('Profile identity wins.');
+    expect($prompt)->not->toContain('# Workspace Soul');
+    expect($prompt)->not->toContain('# Default Soul');
+    expect($sections[0]['source'])->toBe($profilePath . '/soul.md');
+});
+
+test('profile overrides specific prompt files independently', function () {
+    // Profile overrides base.md but NOT security.md — security falls back
+    $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
+    mkdir($this->workspacePath, 0755, true);
+    $profilePath = $this->workspacePath . '/profiles/partial';
+    mkdir($profilePath, 0755, true);
+    file_put_contents($profilePath . '/soul.md', '# Partial Profile');
+    file_put_contents($profilePath . '/base.md', '## Custom Base' . "\n\nProfile-specific base rules.");
+
+    $loader = new PromptLoader(
+        promptsDir: $this->promptsDir,
+        workspacePath: $this->workspacePath,
+        profilePath: $profilePath,
+    );
+
+    $prompt = $loader->buildSystemPrompt();
+
+    // Profile overrides take effect for soul and base
+    expect($prompt)->toContain('# Partial Profile');
+    expect($prompt)->toContain('## Custom Base');
+    expect($prompt)->not->toContain('## Base Instructions'); // default base replaced
+
+    // Security falls through to default (no profile or workspace override)
+    expect($prompt)->toContain('## Security');
+});
