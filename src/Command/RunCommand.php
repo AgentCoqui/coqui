@@ -84,6 +84,7 @@ final class RunCommand extends Command
     private bool $hintsEnabled = true;
     private string $activeRole = 'orchestrator'; // property default must be string literal
     private ?string $activeProfile = null;
+    private ?string $configuredDefaultProfile = null;
     private ?string $activeProjectId = null;
     private ?string $activeProjectSlug = null;
     private bool $multilineMode = false;
@@ -118,6 +119,24 @@ final class RunCommand extends Command
             || filter_var(getenv('COQUI_AUTO_APPROVE'), FILTER_VALIDATE_BOOLEAN);
         $noTerminal = (bool) $input->getOption('no-terminal');
         $this->continueMode = (bool) $input->getOption('continue');
+        $profileOption = $input->getOption('profile');
+        $requestedProfile = null;
+
+        if (is_string($profileOption) && trim($profileOption) !== '') {
+            if ($this->continueMode) {
+                $io->error('Cannot combine --profile with --continue. The --profile flag always starts a new session.');
+                return Command::FAILURE;
+            }
+
+            $sessionOption = $input->getOption('session');
+            if (is_string($sessionOption) && trim($sessionOption) !== '') {
+                $io->error('Cannot combine --profile with --session. The --profile flag always starts a new session.');
+                return Command::FAILURE;
+            }
+
+            $requestedProfile = strtolower(trim($profileOption));
+            $this->activeProfile = $requestedProfile;
+        }
 
         // Validate --continue + --no-terminal combination
         if ($this->continueMode && $noTerminal) {
@@ -141,6 +160,32 @@ final class RunCommand extends Command
 
         $this->boot = new BootManager($this->workDir, $workspaceOverride);
         $this->boot->boot($noTerminal ? null : $io, $configPath);
+
+        if ($requestedProfile !== null) {
+            $profileDiscovery = $this->boot->profileDiscovery();
+            if (!$profileDiscovery->profileExists($requestedProfile)) {
+                $io->error(sprintf(
+                    'Profile "%s" not found. Available: %s',
+                    $requestedProfile,
+                    implode(', ', $profileDiscovery->availableProfiles()) ?: '(none)',
+                ));
+                return Command::FAILURE;
+            }
+        } else {
+            $configuredDefault = $this->boot->config()->getDefaultProfile();
+            if ($configuredDefault !== null) {
+                $profileDiscovery = $this->boot->profileDiscovery();
+                if ($profileDiscovery->profileExists($configuredDefault)) {
+                    $this->configuredDefaultProfile = $configuredDefault;
+                    $this->activeProfile = $configuredDefault;
+                } elseif (!$noTerminal) {
+                    $io->warning(sprintf(
+                        'Configured default profile "%s" was not found in workspace/profiles and will be ignored.',
+                        $configuredDefault,
+                    ));
+                }
+            }
+        }
 
         // Handle --update: apply updates and restart
         if ((bool) $input->getOption('update')) {
@@ -216,30 +261,23 @@ final class RunCommand extends Command
         if ($this->continueMode) {
             // --continue: always resume the last session (from .coqui-session or most recent in DB)
             $this->sessionId = $sessionHandler->loadOrCreateSession($io);
-            $restored = $sessionHandler->restoreActiveRoleFromSession($this->sessionId);
-            if ($restored !== null) {
-                $this->activeRole = $restored;
-            }
-        } elseif ($input->getOption('new')) {
-            $this->sessionId = $sessionHandler->createNewSession();
+        } elseif ($input->getOption('new') || $requestedProfile !== null) {
+            $this->sessionId = $sessionHandler->createNewSession(profile: $this->activeProfile);
         } elseif ($input->getOption('session')) {
             $this->sessionId = $input->getOption('session');
             if ($this->storage->getSession($this->sessionId) === null) {
                 $io->error("Session not found: {$this->sessionId}");
                 return Command::FAILURE;
             }
-            $restored = $sessionHandler->restoreActiveRoleFromSession($this->sessionId);
-            if ($restored !== null) {
-                $this->activeRole = $restored;
-            }
+            $sessionHandler->saveSessionFile($this->sessionId);
             $io->info("Resumed session: {$this->sessionId}");
+        } elseif ($this->configuredDefaultProfile !== null) {
+            $this->sessionId = $sessionHandler->loadOrCreateProfileSession($io, $this->configuredDefaultProfile);
         } else {
             $this->sessionId = $sessionHandler->loadOrCreateSession($io);
-            $restored = $sessionHandler->restoreActiveRoleFromSession($this->sessionId);
-            if ($restored !== null) {
-                $this->activeRole = $restored;
-            }
         }
+
+        $this->applySessionState($sessionHandler);
 
         // Load hints preference from config (default: enabled)
         $hintsConfig = $this->boot->config()->get('agents.defaults.hints', true);
@@ -247,28 +285,6 @@ final class RunCommand extends Command
 
         // Restore active project from session
         $this->restoreActiveProject();
-
-        // Handle --profile CLI flag
-        $profileOption = $input->getOption('profile');
-        if (is_string($profileOption) && $profileOption !== '') {
-            $profileName = strtolower($profileOption);
-            $profileDiscovery = $this->boot->profileDiscovery();
-            if (!$profileDiscovery->profileExists($profileName)) {
-                $io->error(sprintf(
-                    'Profile "%s" not found. Available: %s',
-                    $profileName,
-                    implode(', ', $profileDiscovery->availableProfiles()) ?: '(none)',
-                ));
-                return Command::FAILURE;
-            }
-            $this->activeProfile = $profileName;
-            // Persist profile on the session
-            $this->storage->updateSessionProfile($this->sessionId, $profileName);
-        } else {
-            // Restore profile from session if resuming
-            $session = $this->storage->getSession($this->sessionId);
-            $this->activeProfile = $session['profile'] ?? null;
-        }
 
         // Display safety mode warnings
         if ($this->unsafeMode) {
@@ -634,13 +650,14 @@ final class RunCommand extends Command
                     $this->sessionId = $routeResult->newSessionId;
                     $sessionHandler->saveSessionFile($this->sessionId);
                     $tabCompletion->setSessionId($this->sessionId);
+                    $this->applySessionState($sessionHandler);
                     // Restore project context for resumed session
                     $this->restoreActiveProject();
                 }
                 if ($routeResult->newActiveProjectId !== null) {
                     $this->applyProjectChange($routeResult->newActiveProjectId);
                 }
-                if ($routeResult->newActiveProfile !== null) {
+                if ($routeResult->newSessionId === null && $routeResult->newActiveProfile !== null) {
                     // Empty string means "clear profile", non-empty means set
                     $this->activeProfile = $routeResult->newActiveProfile !== '' ? $routeResult->newActiveProfile : null;
                 }
@@ -728,6 +745,7 @@ final class RunCommand extends Command
         );
 
         // Handle session
+        $sessionHandler = new SessionHandler($this->boot, $this->storage);
         $sessionOption = $input->getOption('session');
         if (is_string($sessionOption) && $sessionOption !== '') {
             $this->sessionId = $sessionOption;
@@ -735,10 +753,14 @@ final class RunCommand extends Command
                 $output->writeln("<error>Session not found: {$this->sessionId}</error>");
                 return Command::FAILURE;
             }
+            $sessionHandler->saveSessionFile($this->sessionId);
+        } elseif ($this->configuredDefaultProfile !== null) {
+            $this->sessionId = $sessionHandler->loadOrCreateProfileSession(null, $this->configuredDefaultProfile);
         } else {
-            $modelString = $this->boot->roleResolver()->resolve(SystemRole::Orchestrator->value);
-            $this->sessionId = $this->storage->createSession(SystemRole::Orchestrator->value, $modelString);
+            $this->sessionId = $sessionHandler->createNewSession(profile: $this->activeProfile);
         }
+
+        $this->applySessionState($sessionHandler);
 
         // Build policy and run
         $policyFactory = new ExecutionPolicyFactory(
@@ -747,7 +769,13 @@ final class RunCommand extends Command
             $this->boot->discovery(),
         );
         $executionPolicy = $policyFactory->build($this->sessionId, $this->autoApprove);
-        $result = $this->agentRunner->run($prompt, $this->sessionId, $executionPolicy);
+        $result = $this->agentRunner->run(
+            $prompt,
+            $this->sessionId,
+            $executionPolicy,
+            role: $this->activeRole !== SystemRole::Orchestrator->value ? $this->activeRole : null,
+            profile: $this->activeProfile,
+        );
 
         // Choose renderer based on --format
         $format = $input->getOption('format');
@@ -789,6 +817,17 @@ final class RunCommand extends Command
 
         $this->activeProjectId = $project['id'];
         $this->activeProjectSlug = $project['slug'];
+    }
+
+    private function applySessionState(SessionHandler $sessionHandler): void
+    {
+        $this->activeRole = SystemRole::Orchestrator->value;
+        $restoredRole = $sessionHandler->restoreActiveRoleFromSession($this->sessionId);
+        if ($restoredRole !== null) {
+            $this->activeRole = $restoredRole;
+        }
+
+        $this->activeProfile = $sessionHandler->restoreActiveProfileFromSession($this->sessionId);
     }
 
     private function buildReadlinePrompt(NotificationPresenter $presenter, ?NotificationStore $notificationStore): string

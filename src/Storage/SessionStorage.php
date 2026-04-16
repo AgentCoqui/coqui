@@ -1192,6 +1192,22 @@ final class SessionStorage
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
     }
 
+    public function getLatestSessionIdForProfile(string $profile): ?string
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id
+            FROM sessions
+            WHERE profile = :profile
+            ORDER BY updated_at DESC
+            LIMIT 1
+        SQL);
+
+        $stmt->execute(['profile' => $profile]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
+    }
+
     // -------------------------------------------------------------------------
     // Background Tasks
     // -------------------------------------------------------------------------

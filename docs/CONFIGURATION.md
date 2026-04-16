@@ -75,6 +75,7 @@ The simplest valid config only needs a primary model:
                 "vision": "gemini/gemini-2.5-flash"
             },
             "workspace": "~/.coqui/.workspace",
+            "profile": "caelum",
             "maxIterations": 256,
             "backgroundTaskMaxIterations": 512,
             "childBackgroundTasks": false,
@@ -188,6 +189,18 @@ The sandboxed directory where Coqui reads and writes files. Supports `~` (home d
 | `/path/to/workspace` | Absolute path to any directory |
 
 **Default behavior** (when not set): uses `~/.coqui/.workspace` in your home directory. This prevents session sprawl across directories.
+
+### `profile`
+
+Optional default startup profile name. The value must match a directory under `workspace/profiles/{name}/` that contains a `soul.md` file.
+
+```json
+{
+    "profile": "caelum"
+}
+```
+
+When set, Coqui tries to reattach the current `.coqui-session` if it already belongs to that profile. Otherwise it resumes the most recent session for that profile or creates a new one.
 
 ### `maxIterations`
 

@@ -150,6 +150,26 @@ test('set updates a single dot-notation key', function () {
     expect($written['agents']['defaults']['model']['primary'])->toBe('anthropic/claude-sonnet-4-20250514');
 });
 
+test('remove deletes a single dot-notation key', function () {
+    $this->manager->load();
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'profile' => 'caelum',
+            ],
+        ],
+    ];
+    $this->manager->save($data);
+
+    $errors = $this->manager->remove('agents.defaults.profile');
+
+    expect($errors)->toBeEmpty();
+
+    $written = json_decode(file_get_contents($this->manager->path()), true);
+    expect(isset($written['agents']['defaults']['profile']))->toBeFalse();
+});
+
 test('toArray returns raw config data', function () {
     $data = [
         'agents' => [

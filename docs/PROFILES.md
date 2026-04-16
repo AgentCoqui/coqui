@@ -54,6 +54,16 @@ Switch the active personality profile. Creates a new session.
 /profile             # Show current profile and available profiles
 ```
 
+### `/profile default [name|none]`
+
+Show or change the configured default profile in `openclaw.json`.
+
+```
+/profile default         # Show the configured default profile
+/profile default caelum  # Set the default startup profile
+/profile default none    # Clear the configured default profile
+```
+
 ### `/profiles`
 
 List all available profiles with descriptions.
@@ -81,6 +91,22 @@ coqui --profile caelum
 ```
 
 This creates a new session with the specified profile active.
+
+## Default Profile Configuration
+
+You can configure a default startup profile in `openclaw.json`:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "profile": "caelum"
+    }
+  }
+}
+```
+
+When set, Coqui reattaches the current `.coqui-session` if it already belongs to that profile. If not, it resumes the latest session for that profile or creates a new one.
 
 ## API
 

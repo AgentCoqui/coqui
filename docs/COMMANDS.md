@@ -28,6 +28,8 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/roles unignore <name>` | Resume receiving built-in updates for a role |
 | `/profile` | Show the current active personality profile |
 | `/profile <name>` | Switch to a personality profile (creates new session) |
+| `/profile default` | Show the configured default startup profile |
+| `/profile default <name|none>` | Set or clear the default startup profile in `openclaw.json` |
 | `/profile reset` | Clear profile, revert to default identity (creates new session) |
 | `/profiles` | List all available personality profiles |
 | `/model [role]` | Show model configuration (optionally for a specific role) |
