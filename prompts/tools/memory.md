@@ -16,6 +16,7 @@ You have a persistent memory system backed by SQLite with importance scoring, co
 - `memory_forget` — Bulk delete memories matching a search query. Use with care.
 - `memory_list` — Browse memories by area or tags. Use `include_archived` to see decayed memories.
 - `memory_restore` — Restore an archived memory by ID.
+- `memory_inspect_profile` — Orchestrator-only cross-profile inspection. Use this to inspect another profile's memories explicitly before any cross-profile maintenance.
 - `extract_memories` — Explicitly analyze recent conversation turns and extract noteworthy memories. Bypasses cooldown. Use when important context was just discussed.
 
 ### Importance Scoring

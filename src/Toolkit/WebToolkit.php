@@ -282,7 +282,11 @@ final class WebToolkit implements ToolkitInterface
             return ToolResult::error('Download queueing requires storage, session, and workspace context.');
         }
 
-        $sessionId = $this->storage->createSession('tool', 'background-tool');
+        $parentSession = $this->storage->getSession($this->parentSessionId);
+        $parentProfile = is_array($parentSession) && is_string($parentSession['profile'] ?? null) && $parentSession['profile'] !== ''
+            ? $parentSession['profile']
+            : null;
+        $sessionId = $this->storage->createSession('tool', 'background-tool', $parentProfile);
         $parentProjectId = $this->storage->getActiveProjectId($this->parentSessionId);
         if ($parentProjectId !== null) {
             $this->storage->setActiveProject($sessionId, $parentProjectId);

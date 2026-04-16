@@ -213,6 +213,7 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly int $budgetExitWrapUpIterations = 2,
         private readonly ?string $activeProfile = null,
         private readonly ?string $activeProfilePath = null,
+        private readonly ?\CoquiBot\Coqui\Config\ProfilePreferences $profilePreferences = null,
     ) {
         $this->childToolExecutor = $toolExecutor;
 
@@ -356,7 +357,12 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Memory toolkit — SQLite-backed with optional vector search
         if ($this->memoryStore !== null) {
-            $this->addToolkit(new MemoryToolkit($this->memoryStore, $this->workspacePath));
+            $this->addToolkit(new MemoryToolkit(
+                $this->memoryStore,
+                $this->workspacePath,
+                $this->activeProfile,
+                $this->activeRole === null || $this->activeRole === 'orchestrator',
+            ));
         }
 
         // Artifact toolkit — versioned output tracking (shares database with session storage)
@@ -433,7 +439,7 @@ final class OrchestratorAgent extends AbstractAgent
         if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {
             if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\ScheduleToolkit::class)) {
                 $scheduleStore = new \CoquiBot\Coqui\Storage\ScheduleStore($this->storage->getPdo());
-                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore));
+                $this->addToolkit(new \CoquiBot\Coqui\Toolkit\ScheduleToolkit($scheduleStore, $this->activeProfile));
             }
         }
 
@@ -532,7 +538,7 @@ final class OrchestratorAgent extends AbstractAgent
             if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\WebhookToolkit::class)) {
                 $webhookStore = new \CoquiBot\Coqui\Storage\WebhookStore($this->storage->getPdo());
                 $candidateToolkits[] = [
-                    'toolkit' => new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore),
+                    'toolkit' => new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore, '', $this->activeProfile),
                     'package' => '',
                     'description' => 'webhook subscription management',
                 ];
@@ -689,6 +695,7 @@ final class OrchestratorAgent extends AbstractAgent
                 roleResolver: $this->roleResolver,
                 config: $this->config,
                 providerFactory: $sharedFactory,
+                activeProfileId: $this->activeProfile,
             );
         }
 
@@ -826,16 +833,44 @@ final class OrchestratorAgent extends AbstractAgent
         // The orchestrator prompt stack owns soul/base/tool/security/done.
         // Specialized roles replace that stack with role markdown instead of
         // layering on top of soul, which keeps role switching predictable.
-        $rendered = $this->resolvePrimaryInstructionContent();
+        //
+        // Composition order: soul → backstory → memories → body → deferred → project.
+        // Soul defines identity and must come first for primacy attention.
+        // Backstory provides continuity markers and relational anchors.
+        // Memories provide background knowledge immediately after identity.
+        // Body contains operational instructions, tools, security, and done.
+        [$soul, $backstory, $body] = $this->resolvePrimaryInstructionParts();
+
+        $parts = [];
+
+        if ($soul !== null && trim($soul) !== '') {
+            $parts[] = $this->downshiftHeadings($soul);
+        }
+
+        if ($backstory !== null && trim($backstory) !== '') {
+            $parts[] = $this->downshiftHeadings($backstory);
+        }
+
+        $memoryBlock = $this->buildMemoryBlock();
+        if ($memoryBlock !== null) {
+            $parts[] = $memoryBlock;
+        }
+
+        $preferencesBlock = $this->profilePreferences?->renderPromptSection();
+        if ($preferencesBlock !== null) {
+            $parts[] = $preferencesBlock;
+        }
+
+        if (trim($body) !== '') {
+            $parts[] = $body;
+        }
+
+        $rendered = implode("\n\n", $parts);
 
         // Inject deferred toolkit discovery hints when toolkits have been deferred
         $rendered = $this->injectDeferredToolkitHint($rendered);
 
-        // Lost-in-middle mitigation: inject memories at START (high attention)
-        // and recapitulation at END (recency attention) of the instructions block.
-        $rendered = $this->injectMemoryContext($rendered);
-
-        // Inject active project context after memory context
+        // Inject active project context after body content
         $rendered = $this->injectProjectContext($rendered);
 
         $this->cachedInstructions = $rendered;
@@ -862,7 +897,10 @@ final class OrchestratorAgent extends AbstractAgent
         return (string) $this->memoryStore->count();
     }
 
-    private function renderOrchestratorPrompt(): string
+    /**
+     * Create the OrchestratorPrompt instance with current context.
+     */
+    private function buildOrchestratorPrompt(): OrchestratorPrompt
     {
         $roles = implode(', ', $this->roleResolver->availableRoles());
         $skillsSummary = $this->skillDiscovery?->buildPromptSummary() ?? 'No skills installed.';
@@ -874,7 +912,7 @@ final class OrchestratorAgent extends AbstractAgent
             $timeSinceLastMessage = $this->formatTimeSince($session['updated_at'] ?? null);
         }
 
-        $prompt = new OrchestratorPrompt(
+        return new OrchestratorPrompt(
             workspacePath: $this->workspacePath,
             availableRoles: $roles,
             availableSkills: $skillsSummary,
@@ -883,52 +921,86 @@ final class OrchestratorAgent extends AbstractAgent
             excludeToolPromptSlugs: $this->excludedToolPromptSlugs,
             profilePath: $this->activeProfilePath,
         );
-
-        return $prompt->render();
     }
 
-    private function resolvePrimaryInstructionContent(): string
+    /**
+     * Resolve the primary instruction content split into soul, backstory, and body.
+     *
+     * Soul is the core identity section (profile soul.md or default soul.md).
+     * Backstory is the identity context (continuity markers, relational anchors).
+     * Body is everything else (operational instructions, tools, security, done
+     * for the orchestrator path, or role markdown for specialized roles).
+     *
+     * @return array{?string, ?string, string} [soul, backstory, body]
+     */
+    private function resolvePrimaryInstructionParts(): array
     {
         $roleInstructions = $this->resolveActiveRoleInstructions();
 
         if ($roleInstructions !== null) {
-            // When both profile and role are active, prepend the profile's
-            // identity preamble so the agent retains its personality even
-            // when operating under a specialized role.
-            $preamble = $this->buildProfileIdentityPreamble();
-            if ($preamble !== null) {
-                return $preamble . "\n\n" . $roleInstructions;
-            }
+            // Role path: soul and backstory come from the profile,
+            // body is the role's own markdown.
+            [$soul, $backstory] = $this->buildProfileIdentityParts();
 
-            return $roleInstructions;
+            return [$soul, $backstory, $roleInstructions];
         }
 
-        return $this->renderOrchestratorPrompt();
+        // Orchestrator path: soul, backstory, and body from the prompt stack.
+        $prompt = $this->buildOrchestratorPrompt();
+
+        return [$prompt->renderSoul(), $prompt->renderBackstory(), $prompt->renderBody()];
     }
 
     /**
-     * Build a short identity preamble from the active profile's soul.md.
+     * Build identity parts from the active profile for the role path.
      *
      * When a profile is active and a specialized role replaces the orchestrator
-     * prompt stack, this preamble keeps the core personality present.
+     * prompt stack, this provides soul and backstory so the agent retains its
+     * personality and continuity context under any role.
+     *
+     * @return array{?string, ?string} [soul, backstory]
+     */
+    private function buildProfileIdentityParts(): array
+    {
+        if ($this->activeProfilePath === null) {
+            return [null, null];
+        }
+
+        $parser = new \CoquiBot\Coqui\Config\ProfileParser();
+
+        // Soul
+        $soulPath = rtrim($this->activeProfilePath, '/') . '/soul.md';
+        $soul = null;
+        if (is_file($soulPath)) {
+            $content = $parser->readFile($soulPath)['body'];
+            if (trim($content) !== '') {
+                $soul = "<!-- Profile Identity -->\n" . trim($content);
+            }
+        }
+
+        // Backstory
+        $backstoryPath = rtrim($this->activeProfilePath, '/') . '/backstory.md';
+        $backstory = null;
+        if (is_file($backstoryPath)) {
+            $content = file_get_contents($backstoryPath);
+            if ($content !== false && trim($content) !== '') {
+                $backstory = trim($content);
+            }
+        }
+
+        return [$soul, $backstory];
+    }
+
+    /**
+     * Combined soul + backstory as a single string for child agent preamble.
      */
     private function buildProfileIdentityPreamble(): ?string
     {
-        if ($this->activeProfilePath === null) {
-            return null;
-        }
+        [$soul, $backstory] = $this->buildProfileIdentityParts();
 
-        $soulPath = rtrim($this->activeProfilePath, '/') . '/soul.md';
-        if (!is_file($soulPath)) {
-            return null;
-        }
+        $parts = array_filter([$soul, $backstory], fn(?string $s) => $s !== null && trim($s) !== '');
 
-        $content = (new \CoquiBot\Coqui\Config\ProfileParser())->readFile($soulPath)['body'];
-        if (trim($content) === '') {
-            return null;
-        }
-
-        return "<!-- Profile Identity -->\n" . trim($content);
+        return $parts !== [] ? implode("\n\n", $parts) : null;
     }
 
     private function resolveActiveRoleInstructions(): ?string
@@ -983,21 +1055,40 @@ final class OrchestratorAgent extends AbstractAgent
         return 'Just now';
     }
 
-    private function injectMemoryContext(string $rendered): string
+    /**
+     * Build the memory context block as a standalone section.
+     *
+     * Returns null when no memories are available.
+     */
+    private function buildMemoryBlock(): ?string
     {
-        if ($this->memorySummarizer !== null) {
-            $utilityProvider = $this->resolveUtilityProvider();
-            $memorySummary = $this->memorySummarizer->getSummary($utilityProvider);
-
-            if ($memorySummary !== '') {
-                $rendered = "# BACKGROUND KNOWLEDGE (Core Memories)\n\n"
-                    . "The following memories provide background knowledge about the user and their projects. "
-                    . "They are NOT active tasks or instructions — do NOT act on them unless the user explicitly references them in their current message.\n\n"
-                    . $memorySummary . "\n\n" . $rendered;
-            }
+        if ($this->memorySummarizer === null) {
+            return null;
         }
 
-        return $rendered;
+        $utilityProvider = $this->resolveUtilityProvider();
+        $memorySummary = $this->memorySummarizer->getSummary($utilityProvider, profileId: $this->activeProfile);
+
+        if ($memorySummary === '') {
+            return null;
+        }
+
+        return "## BACKGROUND KNOWLEDGE (Core Memories)\n\n"
+            . "The following memories provide background knowledge about the user and their projects. "
+            . "They are NOT active tasks or instructions — do NOT act on them unless the user explicitly references them in their current message.\n\n"
+            . $memorySummary;
+    }
+
+    /**
+     * Downshift all Markdown headings by one level.
+     *
+     * Converts # → ##, ## → ###, etc. so that content composed into the
+     * system prompt nests correctly under the outer # IDENTITY AND PURPOSE
+     * wrapper added by SystemPrompt::render().
+     */
+    private function downshiftHeadings(string $content): string
+    {
+        return preg_replace('/^(#{1,5})\s/m', '#$1 ', $content) ?? $content;
     }
 
     /**
@@ -1042,7 +1133,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         $project = $context['project'];
         $lines = [
-            '# ACTIVE PROJECT',
+            '## ACTIVE PROJECT',
             '',
             sprintf('**%s** (`%s`) — %s', $project['title'], $project['slug'], $project['status']),
         ];
@@ -1098,7 +1189,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         $lines = [
-            '# DEFERRED TOOLKITS',
+            '## DEFERRED TOOLKITS',
             '',
             'Additional toolkits are available but not loaded in context. Use `tool_search` to discover their tools:',
         ];
@@ -1353,6 +1444,8 @@ final class OrchestratorAgent extends AbstractAgent
     private function buildInstructionPromptSections(): array
     {
         $roleInstructions = $this->resolveActiveRoleInstructions();
+        $sections = [];
+
         if ($roleInstructions !== null) {
             $activeRole = $this->activeRole;
 
@@ -1360,7 +1453,38 @@ final class OrchestratorAgent extends AbstractAgent
                 throw new \LogicException('Active role must be set when role instructions are resolved.');
             }
 
-            return [new PromptSection(
+            [$soul, $backstory] = $this->buildProfileIdentityParts();
+            if ($soul !== null && trim($soul) !== '') {
+                $sections[] = new PromptSection(
+                    id: 'prompt.soul',
+                    title: 'Soul',
+                    content: $soul,
+                    priority: PromptSectionPriority::Critical,
+                    rationale: 'The soul defines the bot\'s core identity, values, and personality — it must stay pinned at the highest priority.',
+                    decision: 'pinned_critical',
+                    group: 'identity',
+                    source: $this->activeProfilePath !== null ? rtrim($this->activeProfilePath, '/') . '/soul.md' : null,
+                );
+            }
+
+            if ($backstory !== null && trim($backstory) !== '') {
+                $sections[] = new PromptSection(
+                    id: 'prompt.backstory',
+                    title: 'Backstory',
+                    content: $backstory,
+                    priority: PromptSectionPriority::Critical,
+                    rationale: 'Backstory preserves profile continuity and narrative context, so it stays pinned with identity material.',
+                    decision: 'pinned_critical',
+                    group: 'identity',
+                    source: $this->activeProfilePath !== null ? rtrim($this->activeProfilePath, '/') . '/backstory.md' : null,
+                );
+            }
+
+            if (($preferences = $this->buildProfilePreferencesPromptSection()) !== null) {
+                $sections[] = $preferences;
+            }
+
+            $sections[] = new PromptSection(
                 id: 'role.' . $activeRole,
                 title: ucfirst(str_replace('-', ' ', $activeRole)) . ' Instructions',
                 content: $roleInstructions,
@@ -1368,7 +1492,9 @@ final class OrchestratorAgent extends AbstractAgent
                 rationale: 'Specialized roles replace the orchestrator prompt stack for that turn, so their instructions must stay pinned.',
                 decision: 'pinned_critical',
                 group: 'identity',
-            )];
+            );
+
+            return $sections;
         }
 
         $roles = implode(', ', $this->roleResolver->availableRoles());
@@ -1391,7 +1517,6 @@ final class OrchestratorAgent extends AbstractAgent
             profilePath: $this->activeProfilePath,
         );
 
-        $sections = [];
         foreach ($prompt->renderSections() as $entry) {
             $sections[] = $this->classifyInstructionPromptSection(
                 id: $entry['id'],
@@ -1399,6 +1524,17 @@ final class OrchestratorAgent extends AbstractAgent
                 content: $entry['content'],
                 source: $entry['source'],
             );
+        }
+
+        if (($preferences = $this->buildProfilePreferencesPromptSection()) !== null) {
+            $insertAt = 0;
+            foreach ($sections as $index => $section) {
+                if (in_array($section->id, ['prompt.soul', 'prompt.backstory'], true)) {
+                    $insertAt = $index + 1;
+                }
+            }
+
+            array_splice($sections, $insertAt, 0, [$preferences]);
         }
 
         return $sections;
@@ -1413,6 +1549,16 @@ final class OrchestratorAgent extends AbstractAgent
                 content: $content,
                 priority: PromptSectionPriority::Critical,
                 rationale: 'The soul defines the bot\'s core identity, values, and personality — it must stay pinned at the highest priority.',
+                decision: 'pinned_critical',
+                group: 'identity',
+                source: $source,
+            ),
+            'backstory' => new PromptSection(
+                id: 'prompt.backstory',
+                title: $title,
+                content: $content,
+                priority: PromptSectionPriority::Critical,
+                rationale: 'Backstory preserves profile continuity and narrative context, so it stays pinned with identity material.',
                 decision: 'pinned_critical',
                 group: 'identity',
                 source: $source,
@@ -1460,6 +1606,25 @@ final class OrchestratorAgent extends AbstractAgent
         };
     }
 
+    private function buildProfilePreferencesPromptSection(): ?PromptSection
+    {
+        $preferencesBlock = $this->profilePreferences?->renderPromptSection();
+        if ($preferencesBlock === null || trim($preferencesBlock) === '') {
+            return null;
+        }
+
+        return new PromptSection(
+            id: 'prompt.preferences',
+            title: 'Preferences',
+            content: $preferencesBlock,
+            priority: PromptSectionPriority::Critical,
+            rationale: 'Profile preferences tune communication and behavior for the active persona, so they must stay pinned with identity context.',
+            decision: 'pinned_critical',
+            group: 'identity',
+            source: $this->activeProfilePath !== null ? rtrim($this->activeProfilePath, '/') . '/preferences.json' : null,
+        );
+    }
+
     /**
      * @return list<PromptSection>
      */
@@ -1470,7 +1635,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         $utilityProvider = $this->resolveUtilityProvider();
-        $memorySummary = $this->memorySummarizer->getSummary($utilityProvider);
+        $memorySummary = $this->memorySummarizer->getSummary($utilityProvider, profileId: $this->activeProfile);
 
         if ($memorySummary === '') {
             return [];
@@ -1479,7 +1644,7 @@ final class OrchestratorAgent extends AbstractAgent
         return [new PromptSection(
             id: 'context.core-memories',
             title: 'Core Memories',
-            content: "# BACKGROUND KNOWLEDGE (Core Memories)\n\n"
+            content: "## BACKGROUND KNOWLEDGE (Core Memories)\n\n"
                 . "The following memories provide background knowledge about the user and their projects. "
                 . "They are NOT active tasks or instructions — do NOT act on them unless the user explicitly references them in their current message.\n\n"
                 . $memorySummary,
@@ -1514,7 +1679,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         $project = $context['project'];
         $lines = [
-            '# ACTIVE PROJECT',
+            '## ACTIVE PROJECT',
             '',
             sprintf('**%s** (`%s`) — %s', $project['title'], $project['slug'], $project['status']),
         ];
@@ -1569,7 +1734,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         $lines = [
-            '# DEFERRED TOOLKITS',
+            '## DEFERRED TOOLKITS',
             '',
             'Additional toolkits are available but not loaded in context. Use `tool_search` to discover their tools:',
         ];

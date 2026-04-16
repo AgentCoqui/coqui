@@ -329,6 +329,40 @@ test('http_download queues a background task when session context is available',
     }
 });
 
+test('http_download inherits profile from parent session for queued task session', function () {
+    $workspacePath = webCreateTempPath('web-toolkit-workspace');
+    $dbPath = webCreateTempPath('web-toolkit-db') . '.sqlite';
+    mkdir($workspacePath, 0777, true);
+
+    try {
+        $storage = new SessionStorage($dbPath);
+        $parentSessionId = $storage->createSession('orchestrator', 'test-model', 'caelum');
+        $toolkit = new WebToolkit(
+            storage: $storage,
+            parentSessionId: $parentSessionId,
+            workspacePath: $workspacePath,
+        );
+        $tool = webFindTool($toolkit, 'http_download');
+
+        $result = $tool->execute([
+            'url' => 'https://example.com/report.pdf',
+            'filename' => 'report.pdf',
+        ]);
+
+        $data = json_decode($result->content, true);
+        $session = $storage->getSession((string) $data['session_id']);
+
+        expect($result->status)->toBe(ToolResultStatus::Success);
+        expect($session)->not->toBeNull();
+        expect($session['profile'])->toBe('caelum');
+    } finally {
+        webDeletePath($workspacePath);
+        if (file_exists($dbPath)) {
+            unlink($dbPath);
+        }
+    }
+});
+
 // ---------------------------------------------------------------
 // Guidelines
 // ---------------------------------------------------------------

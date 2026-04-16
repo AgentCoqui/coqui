@@ -303,7 +303,11 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
 
         // Create a lightweight session for event tracking
         $model = 'background-tool';
-        $sessionId = $this->storage->createSession('tool', $model);
+        $parentSession = $this->storage->getSession($this->parentSessionId);
+        $parentProfile = is_array($parentSession) && is_string($parentSession['profile'] ?? null) && $parentSession['profile'] !== ''
+            ? $parentSession['profile']
+            : null;
+        $sessionId = $this->storage->createSession('tool', $model, $parentProfile);
 
         // Create the task record with tool metadata
         $taskId = $this->storage->createTask(

@@ -117,11 +117,13 @@ final class ScheduleManager
         $prompt = (string) ($schedule['prompt'] ?? '');
         $maxIterations = (int) ($schedule['max_iterations'] ?? 48);
         $scheduleName = (string) ($schedule['name'] ?? 'schedule');
+        $activeProfile = $this->extractScheduleProfile($schedule);
 
         // Create a session for this scheduled task
         $sessionId = $this->storage->createSession(
             modelRole: $role,
             model: '',
+            profile: $activeProfile,
         );
 
         // Create the background task linked to the schedule
@@ -139,5 +141,30 @@ final class ScheduleManager
 
         // Track in-flight to prevent double-enqueue
         $this->inFlight[$scheduleId] = true;
+    }
+
+    /**
+     * @param array<string, mixed> $schedule
+     */
+    private function extractScheduleProfile(array $schedule): ?string
+    {
+        $metadata = $schedule['metadata'] ?? null;
+        if (!is_string($metadata) || trim($metadata) === '') {
+            return null;
+        }
+
+        try {
+            $decoded = json_decode($metadata, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return null;
+        }
+
+        if (!is_array($decoded)) {
+            return null;
+        }
+
+        $profile = $decoded['profile'] ?? null;
+
+        return is_string($profile) && $profile !== '' ? $profile : null;
     }
 }

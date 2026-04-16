@@ -309,7 +309,7 @@ final class ApiCommand extends Command
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
-        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver());
+        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery());
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
         $evaluationHandler = new EvaluationHandler($evaluationStore);
         $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $qualityStatus);
@@ -328,7 +328,7 @@ final class ApiCommand extends Command
         $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
         $scheduleHandler = new ScheduleHandler($scheduleStore);
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
-        $webhookMgmtHandler = new WebhookManagementHandler($webhookStore);
+        $webhookMgmtHandler = new WebhookManagementHandler($webhookStore, $boot->profileDiscovery());
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
             ? new ApiLoopHandler($loopStore, $loopDiscovery)
