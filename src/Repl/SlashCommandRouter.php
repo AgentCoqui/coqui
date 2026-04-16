@@ -90,8 +90,8 @@ final class SlashCommandRouter
             '/task-cancel' => $this->handleTaskCancel($io, $arg),
             '/update' => $this->handleUpdate($io),
             '/toolkits' => $this->handleToolkits($io, $arg),
-            '/budget' => $this->handleBudget($io, $arg, $activeRole),
-            '/prompt' => $this->handlePrompt($io, $arg, $activeRole),
+            '/budget' => $this->handleBudget($io, $arg, $activeRole, $activeProfile),
+            '/prompt' => $this->handlePrompt($io, $arg, $activeRole, $activeProfile),
             '/summarize' => $this->handleSummarize($io, $arg, $sessionId),
             '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId),
             '/roles' => $this->handleRoles($io, $arg, $activeRole),
@@ -224,17 +224,17 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handlePrompt(SymfonyStyle $io, string $arg, string $activeRole): RouteResult
+    private function handlePrompt(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
     {
         $role = $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null;
 
         if (trim($arg) === 'export') {
-            $filePath = $this->agentRunner->exportPromptToFile($role);
+            $filePath = $this->agentRunner->exportPromptToFile($role, $activeProfile);
             $io->success('Prompt exported to: ' . $filePath);
             return RouteResult::continue();
         }
 
-        $preview = $this->agentRunner->buildPromptPreview($role);
+        $preview = $this->agentRunner->buildPromptPreview($role, $activeProfile);
         $io->section('System Prompt');
         $io->write(MarkdownRenderer::render($preview['prompt']));
         $io->newLine();
@@ -252,14 +252,14 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleBudget(SymfonyStyle $io, string $arg, string $activeRole): RouteResult
+    private function handleBudget(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
     {
         $requestedRole = trim($arg);
         $role = $requestedRole !== ''
             ? $requestedRole
             : ($activeRole !== SystemRole::Orchestrator->value ? $activeRole : null);
 
-        $this->budget->handle($io, $role);
+        $this->budget->handle($io, $role, $activeProfile);
 
         return RouteResult::continue();
     }
