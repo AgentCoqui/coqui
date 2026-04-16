@@ -60,6 +60,16 @@ final readonly class OrchestratorPrompt
     }
 
     /**
+     * Return the backstory section (identity context, continuity markers).
+     *
+     * Returns null if no backstory.md exists in any tier.
+     */
+    public function renderBackstory(): ?string
+    {
+        return $this->loader->buildBackstoryContent();
+    }
+
+    /**
      * Return the body sections (base + tools + security + done).
      */
     public function renderBody(): string

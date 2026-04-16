@@ -213,6 +213,7 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly int $budgetExitWrapUpIterations = 2,
         private readonly ?string $activeProfile = null,
         private readonly ?string $activeProfilePath = null,
+        private readonly ?\CoquiBot\Coqui\Config\ProfilePreferences $profilePreferences = null,
     ) {
         $this->childToolExecutor = $toolExecutor;
 
@@ -356,7 +357,7 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Memory toolkit — SQLite-backed with optional vector search
         if ($this->memoryStore !== null) {
-            $this->addToolkit(new MemoryToolkit($this->memoryStore, $this->workspacePath));
+            $this->addToolkit(new MemoryToolkit($this->memoryStore, $this->workspacePath, $this->activeProfile));
         }
 
         // Artifact toolkit — versioned output tracking (shares database with session storage)
@@ -689,6 +690,7 @@ final class OrchestratorAgent extends AbstractAgent
                 roleResolver: $this->roleResolver,
                 config: $this->config,
                 providerFactory: $sharedFactory,
+                activeProfileId: $this->activeProfile,
             );
         }
 
@@ -827,11 +829,12 @@ final class OrchestratorAgent extends AbstractAgent
         // Specialized roles replace that stack with role markdown instead of
         // layering on top of soul, which keeps role switching predictable.
         //
-        // Composition order: soul → memories → body → deferred → project.
+        // Composition order: soul → backstory → memories → body → deferred → project.
         // Soul defines identity and must come first for primacy attention.
+        // Backstory provides continuity markers and relational anchors.
         // Memories provide background knowledge immediately after identity.
         // Body contains operational instructions, tools, security, and done.
-        [$soul, $body] = $this->resolvePrimaryInstructionParts();
+        [$soul, $backstory, $body] = $this->resolvePrimaryInstructionParts();
 
         $parts = [];
 
@@ -839,9 +842,18 @@ final class OrchestratorAgent extends AbstractAgent
             $parts[] = $this->downshiftHeadings($soul);
         }
 
+        if ($backstory !== null && trim($backstory) !== '') {
+            $parts[] = $this->downshiftHeadings($backstory);
+        }
+
         $memoryBlock = $this->buildMemoryBlock();
         if ($memoryBlock !== null) {
             $parts[] = $memoryBlock;
+        }
+
+        $preferencesBlock = $this->profilePreferences?->renderPromptSection();
+        if ($preferencesBlock !== null) {
+            $parts[] = $preferencesBlock;
         }
 
         if (trim($body) !== '') {
@@ -907,53 +919,83 @@ final class OrchestratorAgent extends AbstractAgent
     }
 
     /**
-     * Resolve the primary instruction content split into soul and body.
+     * Resolve the primary instruction content split into soul, backstory, and body.
      *
      * Soul is the core identity section (profile soul.md or default soul.md).
+     * Backstory is the identity context (continuity markers, relational anchors).
      * Body is everything else (operational instructions, tools, security, done
      * for the orchestrator path, or role markdown for specialized roles).
      *
-     * @return array{?string, string} [soul, body]
+     * @return array{?string, ?string, string} [soul, backstory, body]
      */
     private function resolvePrimaryInstructionParts(): array
     {
         $roleInstructions = $this->resolveActiveRoleInstructions();
 
         if ($roleInstructions !== null) {
-            // Role path: soul comes from the profile identity preamble,
+            // Role path: soul and backstory come from the profile,
             // body is the role's own markdown.
-            return [$this->buildProfileIdentityPreamble(), $roleInstructions];
+            [$soul, $backstory] = $this->buildProfileIdentityParts();
+
+            return [$soul, $backstory, $roleInstructions];
         }
 
-        // Orchestrator path: soul and body from the prompt stack.
+        // Orchestrator path: soul, backstory, and body from the prompt stack.
         $prompt = $this->buildOrchestratorPrompt();
 
-        return [$prompt->renderSoul(), $prompt->renderBody()];
+        return [$prompt->renderSoul(), $prompt->renderBackstory(), $prompt->renderBody()];
     }
 
     /**
-     * Build a short identity preamble from the active profile's soul.md.
+     * Build identity parts from the active profile for the role path.
      *
      * When a profile is active and a specialized role replaces the orchestrator
-     * prompt stack, this preamble keeps the core personality present.
+     * prompt stack, this provides soul and backstory so the agent retains its
+     * personality and continuity context under any role.
+     *
+     * @return array{?string, ?string} [soul, backstory]
+     */
+    private function buildProfileIdentityParts(): array
+    {
+        if ($this->activeProfilePath === null) {
+            return [null, null];
+        }
+
+        $parser = new \CoquiBot\Coqui\Config\ProfileParser();
+
+        // Soul
+        $soulPath = rtrim($this->activeProfilePath, '/') . '/soul.md';
+        $soul = null;
+        if (is_file($soulPath)) {
+            $content = $parser->readFile($soulPath)['body'];
+            if (trim($content) !== '') {
+                $soul = "<!-- Profile Identity -->\n" . trim($content);
+            }
+        }
+
+        // Backstory
+        $backstoryPath = rtrim($this->activeProfilePath, '/') . '/backstory.md';
+        $backstory = null;
+        if (is_file($backstoryPath)) {
+            $content = file_get_contents($backstoryPath);
+            if ($content !== false && trim($content) !== '') {
+                $backstory = trim($content);
+            }
+        }
+
+        return [$soul, $backstory];
+    }
+
+    /**
+     * Combined soul + backstory as a single string for child agent preamble.
      */
     private function buildProfileIdentityPreamble(): ?string
     {
-        if ($this->activeProfilePath === null) {
-            return null;
-        }
+        [$soul, $backstory] = $this->buildProfileIdentityParts();
 
-        $soulPath = rtrim($this->activeProfilePath, '/') . '/soul.md';
-        if (!is_file($soulPath)) {
-            return null;
-        }
+        $parts = array_filter([$soul, $backstory], fn(?string $s) => $s !== null && trim($s) !== '');
 
-        $content = (new \CoquiBot\Coqui\Config\ProfileParser())->readFile($soulPath)['body'];
-        if (trim($content) === '') {
-            return null;
-        }
-
-        return "<!-- Profile Identity -->\n" . trim($content);
+        return $parts !== [] ? implode("\n\n", $parts) : null;
     }
 
     private function resolveActiveRoleInstructions(): ?string
@@ -1020,7 +1062,7 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         $utilityProvider = $this->resolveUtilityProvider();
-        $memorySummary = $this->memorySummarizer->getSummary($utilityProvider);
+        $memorySummary = $this->memorySummarizer->getSummary($utilityProvider, profileId: $this->activeProfile);
 
         if ($memorySummary === '') {
             return null;

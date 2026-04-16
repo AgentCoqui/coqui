@@ -112,6 +112,7 @@ final class ConversationSummarizer
         ?string $focus = null,
         ?string $workflowContext = null,
         ?\Closure $onExtraction = null,
+        ?string $profileId = null,
     ): ConversationSummaryResult {
         // Load active (non-summarized) message rows for cleanup after summarization.
         // Uses getActiveMessages() so the ID-marking logic operates on the same
@@ -133,7 +134,7 @@ final class ConversationSummarizer
         if ($this->memoryStore !== null) {
             try {
                 $extractor = new MemoryExtractor($this->memoryStore);
-                $saved = $extractor->extractFromConversation($conversation, $provider, bypassCooldown: true);
+                $saved = $extractor->extractFromConversation($conversation, $provider, bypassCooldown: true, profileId: $profileId);
 
                 if ($saved > 0 && $onExtraction !== null) {
                     $onExtraction($saved, 'summarization');

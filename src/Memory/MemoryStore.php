@@ -103,8 +103,8 @@ final class MemoryStore
         $validUntil = $entry->validUntil?->format('Y-m-d\TH:i:s');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO memories (id, content, area, tags, metadata, importance, memory_type, valid_until, created_at, updated_at)
-            VALUES (:id, :content, :area, :tags, :metadata, :importance, :memory_type, :valid_until, :created_at, :updated_at)
+            INSERT INTO memories (id, content, area, tags, metadata, importance, memory_type, valid_until, profile_id, session_id, created_at, updated_at)
+            VALUES (:id, :content, :area, :tags, :metadata, :importance, :memory_type, :valid_until, :profile_id, :session_id, :created_at, :updated_at)
         SQL);
 
         $stmt->execute([
@@ -116,6 +116,8 @@ final class MemoryStore
             ':importance' => $importance,
             ':memory_type' => $memoryType,
             ':valid_until' => $validUntil,
+            ':profile_id' => $entry->profileId,
+            ':session_id' => $entry->sessionId,
             ':created_at' => $now,
             ':updated_at' => $now,
         ]);
@@ -140,7 +142,7 @@ final class MemoryStore
      *
      * @return MemoryEntry[]
      */
-    public function search(string $query, int $limit = 10, float $threshold = 0.7): array
+    public function search(string $query, int $limit = 10, float $threshold = 0.7, ?string $profileId = null): array
     {
         $this->ensureTables();
 
@@ -152,11 +154,11 @@ final class MemoryStore
 
         // Collect vector candidates (if embedding provider available)
         if ($this->embeddingProvider !== null) {
-            $candidates = $this->vectorSearchCandidates($query, $limit * 2, $threshold);
+            $candidates = $this->vectorSearchCandidates($query, $limit * 2, $threshold, $profileId);
         }
 
         // Merge FTS candidates (deduplicates by ID, vector results take priority)
-        foreach ($this->ftsSearchCandidates($query, $limit * 2) as $id => $candidate) {
+        foreach ($this->ftsSearchCandidates($query, $limit * 2, $profileId) as $id => $candidate) {
             if (!isset($candidates[$id])) {
                 $candidates[$id] = $candidate;
             }
@@ -164,7 +166,7 @@ final class MemoryStore
 
         // LIKE fallback if nothing found from vector + FTS
         if (empty($candidates)) {
-            $candidates = $this->likeSearchCandidates($query, $limit * 2);
+            $candidates = $this->likeSearchCandidates($query, $limit * 2, $profileId);
         }
 
         if (empty($candidates)) {
@@ -268,15 +270,17 @@ final class MemoryStore
      *
      * @return MemoryEntry[]
      */
-    public function list(string $area = 'main', int $limit = 50): array
+    public function list(string $area = 'main', int $limit = 50, ?string $profileId = null): array
     {
         $this->ensureTables();
 
+        $profileClause = $this->buildProfileClause($profileId);
+
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at
+                   importance, access_count, last_accessed_at, profile_id, session_id
             FROM memories
-            WHERE area = :area AND archived_at IS NULL
+            WHERE area = :area AND archived_at IS NULL{$profileClause}
             ORDER BY importance DESC, updated_at DESC
             LIMIT :limit
         SQL);
@@ -348,7 +352,8 @@ final class MemoryStore
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at, archived_at
+                   importance, access_count, last_accessed_at, archived_at,
+                   profile_id, session_id
             FROM memories
             WHERE id = :id
         SQL);
@@ -391,7 +396,7 @@ final class MemoryStore
         $where = implode(' OR ', $conditions);
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at
+                   importance, access_count, last_accessed_at, profile_id, session_id
             FROM memories
             WHERE ({$where}) AND archived_at IS NULL
             ORDER BY importance DESC, updated_at DESC
@@ -418,7 +423,7 @@ final class MemoryStore
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at
+                   importance, access_count, last_accessed_at, profile_id, session_id
             FROM memories
             WHERE archived_at IS NULL
             ORDER BY importance DESC, updated_at DESC
@@ -463,21 +468,22 @@ final class MemoryStore
     * Prioritizes continuity-heavy areas such as identity and developmental arc
     * ahead of more general preferences, facts, and project context.
      */
-    public function getCoreSummary(int $limit = 30): string
+    public function getCoreSummary(int $limit = 30, ?string $profileId = null): string
     {
         $this->ensureTables();
 
         $now = (new DateTimeImmutable())->format('Y-m-d\TH:i:s');
+        $profileClause = $this->buildProfileClause($profileId);
 
         // Fetch active knowledge memories — exclude task-type and expired memories
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at
+                   importance, access_count, last_accessed_at, profile_id, session_id
             FROM memories
             WHERE archived_at IS NULL
               AND area != :excluded_area
               AND memory_type != 'task'
-              AND (valid_until IS NULL OR valid_until > :now)
+              AND (valid_until IS NULL OR valid_until > :now){$profileClause}
             ORDER BY importance DESC, access_count DESC, updated_at DESC
             LIMIT :limit
         SQL);
@@ -605,7 +611,7 @@ final class MemoryStore
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at
+                   importance, access_count, last_accessed_at, profile_id, session_id
             FROM memories
             WHERE archived_at IS NULL AND area != :excluded_area
             ORDER BY importance DESC, access_count DESC, updated_at DESC
@@ -800,6 +806,7 @@ final class MemoryStore
         $summaryMigrations = [
             'ALTER TABLE memory_summary ADD COLUMN last_extraction_at TEXT',
             'ALTER TABLE memory_summary ADD COLUMN cache_version INTEGER NOT NULL DEFAULT 0',
+            'ALTER TABLE memory_summary ADD COLUMN profile_hash INTEGER NOT NULL DEFAULT 0',
         ];
 
         foreach ($summaryMigrations as $sql) {
@@ -809,6 +816,22 @@ final class MemoryStore
                 // Column already exists
             }
         }
+
+        // Migrate: add profile and session attribution columns
+        $profileMigrations = [
+            'ALTER TABLE memories ADD COLUMN profile_id TEXT',
+            'ALTER TABLE memories ADD COLUMN session_id TEXT',
+        ];
+
+        foreach ($profileMigrations as $sql) {
+            try {
+                $this->db->exec($sql);
+            } catch (\PDOException) {
+                // Column already exists
+            }
+        }
+
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_memories_profile ON memories(profile_id)');
 
         $this->tablesCreated = true;
     }
@@ -873,7 +896,7 @@ final class MemoryStore
     /**
      * @return array<string, array<string, mixed>> Candidates keyed by memory ID
      */
-    private function vectorSearchCandidates(string $query, int $limit, float $threshold): array
+    private function vectorSearchCandidates(string $query, int $limit, float $threshold, ?string $profileId = null): array
     {
         try {
             $queryEmbedding = $this->embeddingProvider?->embedText($query);
@@ -885,14 +908,16 @@ final class MemoryStore
             return [];
         }
 
+        $profileClause = $this->buildProfileClause($profileId, 'm');
+
         // Load all embeddings for active memories and compute cosine similarity in PHP
         $stmt = $this->db->query(<<<SQL
             SELECT e.memory_id, e.embedding, e.dimensions,
                    m.content, m.area, m.tags, m.metadata, m.created_at, m.updated_at,
-                   m.importance, m.access_count, m.last_accessed_at
+                   m.importance, m.access_count, m.last_accessed_at, m.profile_id, m.session_id
             FROM memory_embeddings e
             JOIN memories m ON m.id = e.memory_id
-            WHERE m.archived_at IS NULL
+            WHERE m.archived_at IS NULL{$profileClause}
         SQL);
 
         if ($stmt === false) {
@@ -929,22 +954,24 @@ final class MemoryStore
     /**
      * @return array<string, array<string, mixed>> Candidates keyed by memory ID
      */
-    private function ftsSearchCandidates(string $query, int $limit): array
+    private function ftsSearchCandidates(string $query, int $limit, ?string $profileId = null): array
     {
         $sanitized = $this->sanitizeFtsQuery($query);
 
         if ($sanitized === '') {
-            return $this->likeSearchCandidates($query, $limit);
+            return $this->likeSearchCandidates($query, $limit, $profileId);
         }
+
+        $profileClause = $this->buildProfileClause($profileId, 'm');
 
         try {
             $stmt = $this->db->prepare(<<<SQL
                 SELECT l.memory_id, m.content, m.area, m.tags, m.metadata, m.created_at, m.updated_at,
-                       m.importance, m.access_count, m.last_accessed_at
+                       m.importance, m.access_count, m.last_accessed_at, m.profile_id, m.session_id
                 FROM memories_fts f
                 JOIN memories_fts_lookup l ON l.rowid = f.rowid
                 JOIN memories m ON m.id = l.memory_id
-                WHERE memories_fts MATCH :query AND m.archived_at IS NULL
+                WHERE memories_fts MATCH :query AND m.archived_at IS NULL{$profileClause}
                 ORDER BY rank
                 LIMIT :limit
             SQL);
@@ -978,7 +1005,7 @@ final class MemoryStore
             // FTS query syntax error — fall back to LIKE
         }
 
-        return $this->likeSearchCandidates($query, $limit);
+        return $this->likeSearchCandidates($query, $limit, $profileId);
     }
 
     /**
@@ -986,13 +1013,15 @@ final class MemoryStore
      *
      * @return array<string, array<string, mixed>> Candidates keyed by memory ID
      */
-    private function likeSearchCandidates(string $query, int $limit): array
+    private function likeSearchCandidates(string $query, int $limit, ?string $profileId = null): array
     {
+        $profileClause = $this->buildProfileClause($profileId);
+
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
-                   importance, access_count, last_accessed_at
+                   importance, access_count, last_accessed_at, profile_id, session_id
             FROM memories
-            WHERE (content LIKE :query OR tags LIKE :query) AND archived_at IS NULL
+            WHERE (content LIKE :query OR tags LIKE :query) AND archived_at IS NULL{$profileClause}
             ORDER BY updated_at DESC
             LIMIT :limit
         SQL);
@@ -1081,6 +1110,8 @@ final class MemoryStore
             id: $candidate['id'] ?? null,
             score: $candidate['composite'] ?? $candidate['similarity'] ?? null,
             createdAt: isset($candidate['created_at']) ? new DateTimeImmutable($candidate['created_at']) : null,
+            profileId: $candidate['profile_id'] ?? null,
+            sessionId: $candidate['session_id'] ?? null,
         );
     }
 
@@ -1125,6 +1156,25 @@ final class MemoryStore
         $terms = array_map(fn(string $w) => '"' . $w . '"', $words);
 
         return implode(' OR ', $terms);
+    }
+
+    /**
+    /**
+     * Build a SQL WHERE clause fragment for profile filtering.
+     *
+     * When a profile is active, returns memories belonging to that profile
+     * plus untagged (legacy) memories. When null, returns no additional filter.
+     */
+    private function buildProfileClause(?string $profileId, string $alias = ''): string
+    {
+        if ($profileId === null) {
+            return '';
+        }
+
+        $col = $alias !== '' ? "{$alias}.profile_id" : 'profile_id';
+        $escaped = $this->db->quote($profileId);
+
+        return " AND ({$col} = {$escaped} OR {$col} IS NULL)";
     }
 
     /**
@@ -1195,6 +1245,8 @@ final class MemoryStore
             validUntil: is_string($row['valid_until'] ?? null) && $row['valid_until'] !== ''
                 ? new DateTimeImmutable($row['valid_until'])
                 : null,
+            profileId: $row['profile_id'] ?? null,
+            sessionId: $row['session_id'] ?? null,
         );
     }
 

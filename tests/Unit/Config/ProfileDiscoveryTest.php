@@ -142,3 +142,40 @@ test('invalidateCache re-discovers profiles after changes', function () {
     $discovery->invalidateCache();
     expect($discovery->discoverAll())->toHaveCount(2);
 });
+
+test('getSamplesDir returns correct path', function () {
+    $profilesDir = $this->workspacePath . '/profiles';
+    mkdir($profilesDir . '/alpha', 0755, true);
+    file_put_contents($profilesDir . '/alpha/soul.md', '# Alpha');
+
+    $discovery = new ProfileDiscovery($this->workspacePath);
+
+    expect($discovery->getSamplesDir('alpha'))->toBe($profilesDir . '/alpha/samples/responses');
+});
+
+test('listResponseSamples returns empty when no samples directory', function () {
+    $profilesDir = $this->workspacePath . '/profiles';
+    mkdir($profilesDir . '/alpha', 0755, true);
+    file_put_contents($profilesDir . '/alpha/soul.md', '# Alpha');
+
+    $discovery = new ProfileDiscovery($this->workspacePath);
+
+    expect($discovery->listResponseSamples('alpha'))->toBe([]);
+});
+
+test('listResponseSamples finds markdown files in samples/responses', function () {
+    $profilesDir = $this->workspacePath . '/profiles';
+    $samplesDir = $profilesDir . '/alpha/samples/responses';
+    mkdir($samplesDir, 0755, true);
+    file_put_contents($profilesDir . '/alpha/soul.md', '# Alpha');
+    file_put_contents($samplesDir . '/greeting.md', '# Hello there');
+    file_put_contents($samplesDir . '/farewell.md', '# Goodbye');
+    file_put_contents($samplesDir . '/notes.txt', 'Not a markdown file');
+
+    $discovery = new ProfileDiscovery($this->workspacePath);
+    $samples = $discovery->listResponseSamples('alpha');
+
+    expect($samples)->toHaveCount(2);
+    expect($samples[0])->toContain('farewell.md');
+    expect($samples[1])->toContain('greeting.md');
+});

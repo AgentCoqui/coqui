@@ -35,6 +35,7 @@ final class MemoryToolkit implements ToolkitInterface
     public function __construct(
         private readonly MemoryStore $memoryStore,
         private readonly ?string $workspacePath = null,
+        private readonly ?string $activeProfileId = null,
     ) {}
 
     public function tools(): array
@@ -168,6 +169,7 @@ final class MemoryToolkit implements ToolkitInterface
                     metadata: $metadata,
                     type: $type,
                     validUntil: $validUntil,
+                    profileId: $this->activeProfileId,
                 );
 
                 $id = $this->memoryStore->save($entry);
@@ -201,6 +203,7 @@ final class MemoryToolkit implements ToolkitInterface
                 $results = $this->memoryStore->search(
                     $query,
                     limit: (int) ($input['limit'] ?? 10),
+                    profileId: $this->activeProfileId,
                 );
 
                 if (empty($results)) {
@@ -346,7 +349,7 @@ final class MemoryToolkit implements ToolkitInterface
                     $tagList = array_map('trim', explode(',', $tags));
                     $entries = $this->memoryStore->listByTags($tagList, $limit);
                 } elseif ($area !== null) {
-                    $entries = $this->memoryStore->list($area, $limit);
+                    $entries = $this->memoryStore->list($area, $limit, profileId: $this->activeProfileId);
                 } else {
                     $entries = $this->memoryStore->listAll($limit);
                 }
