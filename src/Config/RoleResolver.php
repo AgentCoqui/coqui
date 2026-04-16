@@ -17,7 +17,7 @@ use CoquiBot\Coqui\Contract\SystemRole;
  */
 final class RoleResolver
 {
-    /** @var array<string, string> */
+    /** @var array<string, string|array<string, mixed>> */
     private array $roles;
 
     private string $primaryModel;
@@ -284,12 +284,12 @@ final class RoleResolver
         foreach ($this->roles as $role => $model) {
             if (isset($result[$role])) {
                 // System role — update model only
-                $result[$role]['model'] = $this->config->resolveModel($model);
+                $result[$role]['model'] = $this->resolve($role);
                 continue;
             }
             $result[$role] = [
                 'name' => $role,
-                'model' => $this->config->resolveModel($model),
+                'model' => $this->resolve($role),
                 'max_iterations' => $this->resolveMaxIterations($role),
             ];
         }
