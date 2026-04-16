@@ -114,7 +114,10 @@ final readonly class WebhookHandler
 
         // Create background task
         $role = (string) ($webhook['role'] ?? 'orchestrator');
-        $sessionId = $this->storage->createSession($role, 'webhook');
+        $profile = is_string($webhook['profile'] ?? null) && $webhook['profile'] !== ''
+            ? (string) $webhook['profile']
+            : null;
+        $sessionId = $this->storage->createSession($role, 'webhook', $profile);
 
         $taskId = $this->storage->createTask(
             sessionId: $sessionId,
@@ -248,7 +251,7 @@ final readonly class WebhookHandler
     {
         $normalized = [];
         foreach ($request->getHeaders() as $name => $values) {
-            $normalized[strtolower($name)] = implode(', ', $values);
+            $normalized[strtolower((string) $name)] = implode(', ', $values);
         }
         return $normalized;
     }

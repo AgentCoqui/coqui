@@ -28,6 +28,7 @@ final class WebhookStore
     {
         $this->db = $db;
         $this->createTables();
+        $this->migrate();
     }
 
     private function createTables(): void
@@ -41,6 +42,7 @@ final class WebhookStore
                 secret TEXT NOT NULL,
                 prompt_template TEXT NOT NULL,
                 role TEXT NOT NULL DEFAULT 'orchestrator',
+                profile TEXT,
                 max_iterations INTEGER NOT NULL DEFAULT 48,
                 enabled INTEGER NOT NULL DEFAULT 1,
                 event_filter TEXT,
@@ -82,6 +84,16 @@ final class WebhookStore
         SQL);
     }
 
+    private function migrate(): void
+    {
+        $stmt = $this->db->query('PRAGMA table_info(webhook_subscriptions)');
+        $columns = $stmt !== false ? array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'name') : [];
+
+        if (!in_array('profile', $columns, true)) {
+            $this->db->exec('ALTER TABLE webhook_subscriptions ADD COLUMN profile TEXT');
+        }
+    }
+
     // =========================================================================
     // Subscription CRUD
     // =========================================================================
@@ -96,6 +108,7 @@ final class WebhookStore
         string $promptTemplate,
         string $source = 'generic',
         string $role = 'orchestrator',
+        ?string $profile = null,
         int $maxIterations = 48,
         ?string $description = null,
         ?string $secret = null,
@@ -109,8 +122,8 @@ final class WebhookStore
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO webhook_subscriptions
                 (id, name, description, source, secret, prompt_template, role,
-                 max_iterations, enabled, event_filter, created_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
+                 profile, max_iterations, enabled, event_filter, created_by, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)
         SQL);
 
         $stmt->execute([
@@ -121,6 +134,7 @@ final class WebhookStore
             $secret,
             $promptTemplate,
             $role,
+            $profile,
             $maxIterations,
             $eventFilter,
             $createdBy,
@@ -165,6 +179,7 @@ final class WebhookStore
         ?string $source = null,
         ?string $promptTemplate = null,
         ?string $role = null,
+        ?string $profile = null,
         ?int $maxIterations = null,
         ?bool $enabled = null,
         ?string $eventFilter = null,
@@ -197,6 +212,10 @@ final class WebhookStore
         if ($role !== null) {
             $sets[] = 'role = ?';
             $params[] = $role;
+        }
+        if ($profile !== null) {
+            $sets[] = 'profile = ?';
+            $params[] = $profile !== '' ? $profile : null;
         }
         if ($maxIterations !== null) {
             $sets[] = 'max_iterations = ?';

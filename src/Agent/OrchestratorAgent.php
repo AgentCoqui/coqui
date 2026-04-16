@@ -538,7 +538,7 @@ final class OrchestratorAgent extends AbstractAgent
             if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\WebhookToolkit::class)) {
                 $webhookStore = new \CoquiBot\Coqui\Storage\WebhookStore($this->storage->getPdo());
                 $candidateToolkits[] = [
-                    'toolkit' => new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore),
+                    'toolkit' => new \CoquiBot\Coqui\Toolkit\WebhookToolkit($webhookStore, '', $this->activeProfile),
                     'package' => '',
                     'description' => 'webhook subscription management',
                 ];

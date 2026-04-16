@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -32,6 +33,7 @@ final readonly class TaskHandler
         private SessionStorage $storage,
         private BackgroundTaskManager $taskManager,
         private RoleResolver $roleResolver,
+        private ProfileDiscovery $profileDiscovery,
     ) {}
 
     /**
@@ -70,18 +72,46 @@ final readonly class TaskHandler
         $title = isset($body['title']) ? trim((string) $body['title']) : null;
         $parentSessionId = isset($body['parent_session_id']) ? (string) $body['parent_session_id'] : null;
         $maxIterations = isset($body['max_iterations']) ? max(1, min((int) $body['max_iterations'], CoquiDefaults::BACKGROUND_TASK_MAX_ITERATIONS)) : 25;
+        $requestedProfile = isset($body['profile']) ? strtolower(trim((string) $body['profile'])) : null;
+        if ($requestedProfile === '') {
+            $requestedProfile = null;
+        }
 
         // Validate parent session exists if provided
-        if ($parentSessionId !== null && $this->storage->getSession($parentSessionId) === null) {
+        $parentSession = null;
+        if ($parentSessionId !== null) {
+            $parentSession = $this->storage->getSession($parentSessionId);
+        }
+
+        if ($parentSessionId !== null && $parentSession === null) {
             return Router::errorResponse(
                 ApiErrorCode::SESSION_NOT_FOUND,
                 'Parent session not found',
             );
         }
 
+        $inheritedProfile = is_array($parentSession) && is_string($parentSession['profile'] ?? null) && $parentSession['profile'] !== ''
+            ? $parentSession['profile']
+            : null;
+
+        if ($requestedProfile !== null && $inheritedProfile !== null && $requestedProfile !== $inheritedProfile) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                sprintf('Requested profile "%s" conflicts with parent session profile "%s".', $requestedProfile, $inheritedProfile),
+            );
+        }
+
+        $profile = $requestedProfile ?? $inheritedProfile;
+        if ($profile !== null && !$this->profileDiscovery->profileExists($profile)) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or omit the profile.', $profile),
+            );
+        }
+
         // Create the dedicated session for this task
-        $model = $this->roleResolver->resolve($role);
-        $sessionId = $this->storage->createSession($role, $model);
+        $model = $this->roleResolver->resolve($role, $profile);
+        $sessionId = $this->storage->createSession($role, $model, $profile);
 
         // Create the task record
         $taskId = $this->storage->createTask(
@@ -104,6 +134,7 @@ final readonly class TaskHandler
             'status' => $started ? 'running' : 'pending',
             'prompt' => $prompt,
             'role' => $role,
+            'profile' => $profile,
             'title' => $title,
             'created_at' => $task['created_at'] ?? date('c'),
         ], 201);

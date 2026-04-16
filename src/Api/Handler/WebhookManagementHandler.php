@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Config\ProfileDiscovery;
 
 use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\Coqui\Utility\SecretMasker;
@@ -29,6 +30,7 @@ final readonly class WebhookManagementHandler
 
     public function __construct(
         private WebhookStore $webhookStore,
+        private ProfileDiscovery $profileDiscovery,
 
     ) {}
 
@@ -101,11 +103,23 @@ final readonly class WebhookManagementHandler
             );
         }
 
+        $profile = isset($body['profile']) ? strtolower(trim((string) $body['profile'])) : null;
+        if ($profile === '') {
+            $profile = null;
+        }
+        if ($profile !== null && !$this->profileDiscovery->profileExists($profile)) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or omit the profile.', $profile),
+            );
+        }
+
         $id = $this->webhookStore->create(
             name: $name,
             promptTemplate: $promptTemplate,
             source: $source,
             role: (string) ($body['role'] ?? 'orchestrator'),
+            profile: $profile,
             maxIterations: max(1, (int) ($body['max_iterations'] ?? 48)),
             description: isset($body['description']) ? trim((string) $body['description']) : null,
             secret: isset($body['secret']) ? (string) $body['secret'] : null,
@@ -163,6 +177,19 @@ final readonly class WebhookManagementHandler
             }
         }
 
+        $profile = null;
+        if (array_key_exists('profile', $body)) {
+            $profile = strtolower(trim((string) $body['profile']));
+            if ($profile === '') {
+                $profile = '';
+            } elseif (!$this->profileDiscovery->profileExists($profile)) {
+                return Router::errorResponse(
+                    ApiErrorCode::VALIDATION_ERROR,
+                    sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or omit the profile.', $profile),
+                );
+            }
+        }
+
         $this->webhookStore->update(
             id: $id,
             name: isset($body['name']) ? trim((string) $body['name']) : null,
@@ -170,6 +197,7 @@ final readonly class WebhookManagementHandler
             source: $body['source'] ?? null,
             promptTemplate: isset($body['prompt_template']) ? trim((string) $body['prompt_template']) : null,
             role: $body['role'] ?? null,
+            profile: $profile,
             maxIterations: isset($body['max_iterations']) ? max(1, (int) $body['max_iterations']) : null,
             enabled: isset($body['enabled']) ? (bool) $body['enabled'] : null,
             eventFilter: isset($body['event_filter']) ? trim((string) $body['event_filter']) : null,
