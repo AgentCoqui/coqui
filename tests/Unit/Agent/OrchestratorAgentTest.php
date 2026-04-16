@@ -8,8 +8,13 @@ use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Provider\Response;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
 use CoquiBot\Coqui\Config\MountManager;
+use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\MountDefinition;
+use CoquiBot\Coqui\Memory\MemoryEntry;
+use CoquiBot\Coqui\Memory\MemoryStore;
+use CoquiBot\Coqui\Memory\MemorySummarizer;
 
 beforeEach(function () {
     $this->workspace = sys_get_temp_dir() . '/coqui-agent-test-' . bin2hex(random_bytes(4));
@@ -276,6 +281,88 @@ test('prompt section breakdown includes pending notifications when set', functio
     $ids = array_column($breakdown, 'id');
 
     expect($ids)->toContain('context.pending-notifications');
+});
+
+test('instructions include profile preferences and scoped core memories', function () {
+    $profilePath = $this->workspace . '/profiles/caelum';
+    mkdir($profilePath, 0755, true);
+    file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
+    file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
+
+    $preferencesPath = $profilePath . '/preferences.json';
+    file_put_contents($preferencesPath, json_encode([
+        'prompt_directives' => [
+            'Tone' => 'Warm and curious',
+        ],
+    ], JSON_THROW_ON_ERROR));
+
+    $memoryDbPath = sys_get_temp_dir() . '/coqui-agent-memory-' . bin2hex(random_bytes(4)) . '.db';
+    $memoryStore = new MemoryStore($memoryDbPath);
+    $memoryStore->save(new MemoryEntry(content: 'Caelum memory', area: 'identity', metadata: ['importance' => 0.95], profileId: 'caelum'));
+    $memoryStore->save(new MemoryEntry(content: 'Other memory', area: 'identity', metadata: ['importance' => 0.95], profileId: 'other'));
+
+    try {
+        $agent = new OrchestratorAgent(
+            provider: $this->provider,
+            roleResolver: $this->roleResolver,
+            config: $this->config,
+            projectRoot: $this->projectRoot,
+            workspacePath: $this->workspace,
+            memoryStore: $memoryStore,
+            memorySummarizer: new MemorySummarizer($memoryStore),
+            activeProfile: 'caelum',
+            activeProfilePath: $profilePath,
+            profilePreferences: ProfilePreferences::fromFile($preferencesPath),
+        );
+
+        $instructions = $agent->instructions();
+
+        expect($instructions)->toContain('## Preferences');
+        expect($instructions)->toContain('Warm and curious');
+        expect($instructions)->toContain('Caelum memory');
+        expect($instructions)->not->toContain('Other memory');
+    } finally {
+        cleanupSqliteTestDb($memoryDbPath);
+    }
+});
+
+test('role prompt section breakdown includes profile identity backstory and preferences', function () {
+    $profilePath = $this->workspace . '/profiles/caelum';
+    mkdir($profilePath, 0755, true);
+    file_put_contents($profilePath . '/soul.md', '# Caelum' . "\n\nA calm companion.");
+    file_put_contents($profilePath . '/backstory.md', '# Origin' . "\n\nBorn from continuity.");
+
+    $preferencesPath = $profilePath . '/preferences.json';
+    file_put_contents($preferencesPath, json_encode([
+        'prompt_directives' => [
+            'Tone' => 'Warm and curious',
+        ],
+    ], JSON_THROW_ON_ERROR));
+
+    $rolesDir = $this->workspace . '/roles';
+    mkdir($rolesDir, 0755, true);
+    file_put_contents($rolesDir . '/coder.md', "---\nname: coder\ndisplay_name: Coder\ndescription: Writes code\naccess_level: full\n---\nYou write excellent code.");
+
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+        roleDiscovery: new RoleDiscovery($this->workspace, $this->projectRoot),
+        activeRole: 'coder',
+        activeProfile: 'caelum',
+        activeProfilePath: $profilePath,
+        profilePreferences: ProfilePreferences::fromFile($preferencesPath),
+    );
+
+    $breakdown = $agent->getPromptSectionBreakdown(new HeuristicCounter());
+    $ids = array_column($breakdown, 'id');
+
+    expect($ids)->toContain('prompt.soul');
+    expect($ids)->toContain('prompt.backstory');
+    expect($ids)->toContain('prompt.preferences');
+    expect($ids)->toContain('role.coder');
 });
 
 test('getSpawnTool returns SpawnAgentTool', function () {

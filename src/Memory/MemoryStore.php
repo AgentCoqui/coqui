@@ -250,9 +250,9 @@ final class MemoryStore
      *
      * @return int Number of deleted entries
      */
-    public function forget(string $query, float $threshold = 0.7): int
+    public function forget(string $query, float $threshold = 0.7, ?string $profileId = null): int
     {
-        $matches = $this->search($query, limit: 100, threshold: $threshold);
+        $matches = $this->search($query, limit: 100, threshold: $threshold, profileId: $profileId);
         $count = 0;
 
         foreach ($matches as $entry) {
@@ -376,7 +376,7 @@ final class MemoryStore
      * @param string[] $tags
      * @return MemoryEntry[]
      */
-    public function listByTags(array $tags, int $limit = 50): array
+    public function listByTags(array $tags, int $limit = 50, ?string $profileId = null): array
     {
         $this->ensureTables();
 
@@ -394,11 +394,12 @@ final class MemoryStore
         }
 
         $where = implode(' OR ', $conditions);
+        $profileClause = $this->buildProfileClause($profileId);
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
                    importance, access_count, last_accessed_at, profile_id, session_id
             FROM memories
-            WHERE ({$where}) AND archived_at IS NULL
+            WHERE ({$where}) AND archived_at IS NULL{$profileClause}
             ORDER BY importance DESC, updated_at DESC
             LIMIT :limit
         SQL);
@@ -417,15 +418,17 @@ final class MemoryStore
      *
      * @return MemoryEntry[]
      */
-    public function listAll(int $limit = 100): array
+    public function listAll(int $limit = 100, ?string $profileId = null): array
     {
         $this->ensureTables();
+
+        $profileClause = $this->buildProfileClause($profileId);
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
                    importance, access_count, last_accessed_at, profile_id, session_id
             FROM memories
-            WHERE archived_at IS NULL
+            WHERE archived_at IS NULL{$profileClause}
             ORDER BY importance DESC, updated_at DESC
             LIMIT :limit
         SQL);
@@ -439,12 +442,14 @@ final class MemoryStore
     /**
      * Count total memories, optionally filtered by area.
      */
-    public function count(?string $area = null): int
+    public function count(?string $area = null, ?string $profileId = null): int
     {
         $this->ensureTables();
 
+        $profileClause = $this->buildProfileClause($profileId);
+
         if ($area !== null) {
-            $stmt = $this->db->prepare('SELECT COUNT(*) FROM memories WHERE area = :area AND archived_at IS NULL');
+            $stmt = $this->db->prepare('SELECT COUNT(*) FROM memories WHERE area = :area AND archived_at IS NULL' . $profileClause);
             if ($stmt === false) {
                 return 0;
             }
@@ -453,7 +458,7 @@ final class MemoryStore
             return (int) $stmt->fetchColumn();
         }
 
-        $stmt = $this->db->query('SELECT COUNT(*) FROM memories WHERE archived_at IS NULL');
+        $stmt = $this->db->query('SELECT COUNT(*) FROM memories WHERE archived_at IS NULL' . $profileClause);
         if ($stmt === false) {
             return 0;
         }
@@ -605,15 +610,17 @@ final class MemoryStore
      *
      * @return MemoryEntry[]
      */
-    public function getTopImportantMemories(int $limit = 5): array
+    public function getTopImportantMemories(int $limit = 5, ?string $profileId = null): array
     {
         $this->ensureTables();
+
+        $profileClause = $this->buildProfileClause($profileId);
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, content, area, tags, metadata, created_at, updated_at,
                    importance, access_count, last_accessed_at, profile_id, session_id
             FROM memories
-            WHERE archived_at IS NULL AND area != :excluded_area
+            WHERE archived_at IS NULL AND area != :excluded_area{$profileClause}
             ORDER BY importance DESC, access_count DESC, updated_at DESC
             LIMIT :limit
         SQL);

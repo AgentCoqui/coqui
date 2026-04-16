@@ -26,8 +26,11 @@ final readonly class BudgetHandler
             $role = isset($params['role']) && is_string($params['role']) && $params['role'] !== ''
                 ? $params['role']
                 : null;
+            $profile = isset($params['profile']) && is_string($params['profile']) && $params['profile'] !== ''
+                ? $params['profile']
+                : null;
 
-            return Router::jsonResponse($this->agentRunner->buildBudgetPreview($role)->toArray());
+            return Router::jsonResponse($this->agentRunner->buildBudgetPreview($role, $profile)->toArray());
         } catch (\Throwable $e) {
             return Router::errorResponse(
                 ApiErrorCode::INTERNAL_ERROR,
