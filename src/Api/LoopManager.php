@@ -132,11 +132,16 @@ final class LoopManager
         // shared work scope so ArtifactToolkit/TodoToolkit/SprintToolkit can
         // access cross-stage data.
         $workScopeSessionId = $stageResult->sessionId;
+        $workScopeSession = $workScopeSessionId !== null ? $this->storage->getSession($workScopeSessionId) : null;
+        $activeProfile = is_array($workScopeSession) && is_string($workScopeSession['profile'] ?? null) && $workScopeSession['profile'] !== ''
+            ? $workScopeSession['profile']
+            : null;
 
         // Create a fresh execution session for this stage's background task
         $sessionId = $this->storage->createSession(
             modelRole: $stageResult->role,
             model: '',
+            profile: $activeProfile,
         );
 
         // Propagate active project context from parent session to task session

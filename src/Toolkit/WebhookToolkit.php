@@ -25,6 +25,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
     public function __construct(
         private WebhookStore $webhookStore,
         private string $apiBaseUrl = '',
+        private ?string $activeProfileId = null,
     ) {}
 
     public function tools(): array
@@ -268,6 +269,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
             promptTemplate: $promptTemplate,
             source: $source,
             role: $role,
+            profile: $this->activeProfileId,
             maxIterations: $maxIterations,
             description: $description,
             eventFilter: $eventFilter !== '' ? $eventFilter : null,
@@ -283,6 +285,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
             'url' => "{$baseUrl}/api/v1/webhooks/incoming/{$name}",
             'secret' => $webhook['secret'] ?? '',
             'source' => $source,
+            'profile' => $webhook['profile'] ?? null,
             'message' => "Webhook '{$name}' created. Configure the external service with the URL and secret above.",
         ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }

@@ -249,3 +249,122 @@ test('soul.md supports placeholder substitution', function () {
 
     expect($prompt)->toContain('# Soul for /my/workspace');
 });
+
+// --- Profile 3-tier soul resolution ---
+
+test('profile soul.md wins over workspace and default in 3-tier resolution', function () {
+    // Tier 3: default soul already exists from beforeEach
+    // Tier 2: workspace soul
+    $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
+    mkdir($this->workspacePath . '/prompts', 0755, true);
+    file_put_contents($this->workspacePath . '/prompts/soul.md', '# Workspace Soul' . "\n\nWorkspace identity.");
+
+    // Tier 1: profile soul (should win)
+    $profilePath = $this->workspacePath . '/profiles/winner';
+    mkdir($profilePath, 0755, true);
+    file_put_contents($profilePath . '/soul.md', '# Profile Soul' . "\n\nProfile identity wins.");
+
+    $loader = new PromptLoader(
+        promptsDir: $this->promptsDir,
+        workspacePath: $this->workspacePath,
+        profilePath: $profilePath,
+    );
+
+    $soulPath = $loader->resolveSoulPath();
+    $prompt = $loader->buildSystemPrompt();
+    $sections = $loader->buildSystemPromptSections();
+
+    expect($soulPath)->toBe($profilePath . '/soul.md');
+    expect($prompt)->toContain('# Profile Soul');
+    expect($prompt)->toContain('Profile identity wins.');
+    expect($prompt)->not->toContain('# Workspace Soul');
+    expect($prompt)->not->toContain('# Default Soul');
+    expect($sections[0]['source'])->toBe($profilePath . '/soul.md');
+});
+
+test('profile overrides specific prompt files independently', function () {
+    // Profile overrides base.md but NOT security.md — security falls back
+    $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
+    mkdir($this->workspacePath, 0755, true);
+    $profilePath = $this->workspacePath . '/profiles/partial';
+    mkdir($profilePath, 0755, true);
+    file_put_contents($profilePath . '/soul.md', '# Partial Profile');
+    file_put_contents($profilePath . '/base.md', '## Custom Base' . "\n\nProfile-specific base rules.");
+
+    $loader = new PromptLoader(
+        promptsDir: $this->promptsDir,
+        workspacePath: $this->workspacePath,
+        profilePath: $profilePath,
+    );
+
+    $prompt = $loader->buildSystemPrompt();
+
+    // Profile overrides take effect for soul and base
+    expect($prompt)->toContain('# Partial Profile');
+    expect($prompt)->toContain('## Custom Base');
+    expect($prompt)->not->toContain('## Base Instructions'); // default base replaced
+
+    // Security falls through to default (no profile or workspace override)
+    expect($prompt)->toContain('## Security');
+});
+
+test('buildBackstoryContent returns null when no backstory.md exists', function () {
+    $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
+    mkdir($this->workspacePath, 0755, true);
+
+    $loader = new PromptLoader(
+        promptsDir: $this->promptsDir,
+        workspacePath: $this->workspacePath,
+    );
+
+    expect($loader->buildBackstoryContent())->toBeNull();
+});
+
+test('buildBackstoryContent resolves from profile directory', function () {
+    $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
+    mkdir($this->workspacePath, 0755, true);
+
+    $profilePath = sys_get_temp_dir() . '/coqui-profile-backstory-' . bin2hex(random_bytes(4));
+    mkdir($profilePath, 0755, true);
+    file_put_contents($profilePath . '/backstory.md', '# Origin Story' . "\n\nI emerged from curiosity.");
+
+    $loader = new PromptLoader(
+        promptsDir: $this->promptsDir,
+        workspacePath: $this->workspacePath,
+        profilePath: $profilePath,
+    );
+
+    $backstory = $loader->buildBackstoryContent();
+
+    expect($backstory)->toContain('Origin Story');
+    expect($backstory)->toContain('I emerged from curiosity');
+});
+
+test('buildSystemPrompt includes backstory between soul and body', function () {
+    $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
+    mkdir($this->workspacePath, 0755, true);
+
+    $profilePath = sys_get_temp_dir() . '/coqui-profile-backstory2-' . bin2hex(random_bytes(4));
+    mkdir($profilePath, 0755, true);
+    file_put_contents($profilePath . '/soul.md', '# Test Soul' . "\n\nI am a test agent.");
+    file_put_contents($profilePath . '/backstory.md', '# Backstory' . "\n\nMy origin story.");
+
+    $loader = new PromptLoader(
+        promptsDir: $this->promptsDir,
+        workspacePath: $this->workspacePath,
+        profilePath: $profilePath,
+    );
+
+    $prompt = $loader->buildSystemPrompt();
+
+    expect($prompt)->toContain('Test Soul');
+    expect($prompt)->toContain('My origin story');
+
+    // Backstory should appear after soul but before base
+    $soulPos = strpos($prompt, 'Test Soul');
+    $backstoryPos = strpos($prompt, 'My origin story');
+    $basePos = strpos($prompt, 'Base Instructions');
+
+    expect($backstoryPos)->toBeGreaterThan($soulPos);
+    expect($basePos)->toBeGreaterThan($backstoryPos);
+});

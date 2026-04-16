@@ -167,6 +167,47 @@ final class ProfileDiscovery
     }
 
     /**
+     * Absolute path to the samples/responses/ directory for a profile.
+     */
+    public function getSamplesDir(string $name): string
+    {
+        return $this->getProfilePath($name) . '/samples/responses';
+    }
+
+    /**
+     * List response sample files for a profile.
+     *
+     * @return list<string> Absolute paths to .md files in samples/responses/
+     */
+    public function listResponseSamples(string $name): array
+    {
+        $dir = $this->getSamplesDir($name);
+        if (!is_dir($dir)) {
+            return [];
+        }
+
+        $entries = scandir($dir);
+        if ($entries === false) {
+            return [];
+        }
+
+        $samples = [];
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..') {
+                continue;
+            }
+
+            $path = $dir . '/' . $entry;
+            if (is_file($path) && str_ends_with($entry, '.md')) {
+                $samples[] = $path;
+            }
+        }
+
+        sort($samples);
+        return $samples;
+    }
+
+    /**
      * Extract a brief description from the first paragraph of soul.md.
      *
      * Accepts a profile name and looks up its soul.md path. Returns null if

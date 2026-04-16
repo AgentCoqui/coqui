@@ -50,6 +50,34 @@ final readonly class OrchestratorPrompt
     }
 
     /**
+     * Return just the soul section (core identity, personality).
+     *
+     * Returns null if no soul.md exists in any tier.
+     */
+    public function renderSoul(): ?string
+    {
+        return $this->loader->buildSoulContent();
+    }
+
+    /**
+     * Return the backstory section (identity context, continuity markers).
+     *
+     * Returns null if no backstory.md exists in any tier.
+     */
+    public function renderBackstory(): ?string
+    {
+        return $this->loader->buildBackstoryContent();
+    }
+
+    /**
+     * Return the body sections (base + tools + security + done).
+     */
+    public function renderBody(): string
+    {
+        return $this->loader->buildBodyContent();
+    }
+
+    /**
      * @return array<int, array{id: string, title: string, content: string, source: string}>
      */
     public function renderSections(): array

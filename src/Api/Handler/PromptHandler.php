@@ -35,7 +35,10 @@ final readonly class PromptHandler
             $role = isset($params['role']) && is_string($params['role']) && $params['role'] !== ''
                 ? $params['role']
                 : null;
-            $preview = $this->agentRunner->buildPromptPreview($role);
+            $profile = isset($params['profile']) && is_string($params['profile']) && $params['profile'] !== ''
+                ? $params['profile']
+                : null;
+            $preview = $this->agentRunner->buildPromptPreview($role, $profile);
 
             return Router::jsonResponse([
                 'prompt'            => $preview['prompt'],

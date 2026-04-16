@@ -5,6 +5,7 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Config\OpenClawConfig;
+use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Utility\PromptSizeValidator;
@@ -13,6 +14,9 @@ use React\Http\Message\ServerRequest;
 function createTaskHandlerFixture(): array
 {
     $dbPath = sys_get_temp_dir() . '/coqui-task-handler-' . bin2hex(random_bytes(8)) . '.db';
+    $workspacePath = sys_get_temp_dir() . '/coqui-task-handler-ws-' . bin2hex(random_bytes(8));
+    mkdir($workspacePath . '/profiles/caelum', 0755, true);
+    file_put_contents($workspacePath . '/profiles/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
     $storage = new SessionStorage($dbPath);
     $config = OpenClawConfig::fromArray([
         'agents' => [
@@ -37,8 +41,9 @@ function createTaskHandlerFixture(): array
 
     return [
         'dbPath' => $dbPath,
+        'workspacePath' => $workspacePath,
         'storage' => $storage,
-        'handler' => new TaskHandler($storage, $taskManager, $roleResolver),
+        'handler' => new TaskHandler($storage, $taskManager, $roleResolver, new ProfileDiscovery($workspacePath)),
     ];
 }
 
@@ -46,6 +51,10 @@ function cleanupTaskHandlerFixture(array $fixture): void
 {
     $fixture['handler'] = null;
     $fixture['storage'] = null;
+
+    if (isset($fixture['workspacePath'])) {
+        cleanupTestTree($fixture['workspacePath']);
+    }
 
     if (file_exists($fixture['dbPath'])) {
         unlink($fixture['dbPath']);
@@ -78,6 +87,61 @@ test('task handler create returns a pending task when concurrency is unavailable
         expect($task['status'])->toBe('pending');
         expect($session['model_role'])->toBe('coder');
         expect($session['model'])->toBe('anthropic/claude-3-5-sonnet');
+    } finally {
+        cleanupTaskHandlerFixture($fixture);
+    }
+});
+
+test('task handler create inherits profile from parent session', function () {
+    $fixture = createTaskHandlerFixture();
+
+    try {
+        $parentSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/tasks',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'prompt' => 'Review the recent changes',
+                'role' => 'coder',
+                'parent_session_id' => $parentSessionId,
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+        $session = $fixture['storage']->getSession($body['session_id']);
+
+        expect($response->getStatusCode())->toBe(201);
+        expect($body['profile'])->toBe('caelum');
+        expect($session['profile'])->toBe('caelum');
+    } finally {
+        cleanupTaskHandlerFixture($fixture);
+    }
+});
+
+test('task handler create accepts explicit profile without parent session', function () {
+    $fixture = createTaskHandlerFixture();
+
+    try {
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/tasks',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'prompt' => 'Review the recent changes',
+                'role' => 'coder',
+                'profile' => 'caelum',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+        $session = $fixture['storage']->getSession($body['session_id']);
+
+        expect($response->getStatusCode())->toBe(201);
+        expect($body['profile'])->toBe('caelum');
+        expect($session['profile'])->toBe('caelum');
     } finally {
         cleanupTaskHandlerFixture($fixture);
     }

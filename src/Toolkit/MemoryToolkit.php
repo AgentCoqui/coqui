@@ -35,6 +35,8 @@ final class MemoryToolkit implements ToolkitInterface
     public function __construct(
         private readonly MemoryStore $memoryStore,
         private readonly ?string $workspacePath = null,
+        private readonly ?string $activeProfileId = null,
+        private readonly bool $allowCrossProfileMutation = false,
     ) {}
 
     public function tools(): array
@@ -49,6 +51,10 @@ final class MemoryToolkit implements ToolkitInterface
             $this->memoryRestoreTool(),
         ];
 
+        if ($this->allowCrossProfileMutation) {
+            $tools[] = $this->memoryInspectProfileTool();
+        }
+
         if ($this->workspacePath !== null) {
             $tools[] = $this->memoryImportTool();
         }
@@ -58,7 +64,7 @@ final class MemoryToolkit implements ToolkitInterface
 
     public function guidelines(): string
     {
-        $count = $this->memoryStore->count();
+        $count = $this->memoryStore->count(profileId: $this->activeProfileId);
         $vectorStatus = $this->memoryStore->hasVectorSearch()
             ? 'Semantic vector search is **active** — search queries are matched by meaning, not just keywords.'
             : 'Vector search is not configured — search uses keyword matching (FTS5). Results are still good but exact phrasing helps.';
@@ -112,6 +118,7 @@ final class MemoryToolkit implements ToolkitInterface
         - Search before saving to avoid duplicates
         - Update existing memories when information changes rather than creating new ones
         - Set high importance for critical identity anchors, enduring preferences, and project constraints
+        - When available, use `memory_inspect_profile` before touching another profile's memories so cross-profile work stays explicit and auditable
         </MEMORY-GUIDELINES>
         GUIDELINES;
     }
@@ -168,6 +175,7 @@ final class MemoryToolkit implements ToolkitInterface
                     metadata: $metadata,
                     type: $type,
                     validUntil: $validUntil,
+                    profileId: $this->activeProfileId,
                 );
 
                 $id = $this->memoryStore->save($entry);
@@ -201,6 +209,7 @@ final class MemoryToolkit implements ToolkitInterface
                 $results = $this->memoryStore->search(
                     $query,
                     limit: (int) ($input['limit'] ?? 10),
+                    profileId: $this->activeProfileId,
                 );
 
                 if (empty($results)) {
@@ -251,6 +260,11 @@ final class MemoryToolkit implements ToolkitInterface
                     ? max(0.0, min(1.0, (float) $input['importance']))
                     : null;
 
+                $existing = $this->memoryStore->getById($id);
+                if ($existing !== null && !$this->canMutateMemory($existing)) {
+                    return ToolResult::error($this->crossProfileMutationError($id, $existing->profileId));
+                }
+
                 $updated = $this->memoryStore->update(
                     id: $id,
                     content: $content,
@@ -289,6 +303,10 @@ final class MemoryToolkit implements ToolkitInterface
                     return ToolResult::error("Memory {$id} not found.");
                 }
 
+                if (!$this->canMutateMemory($existing)) {
+                    return ToolResult::error($this->crossProfileMutationError($id, $existing->profileId));
+                }
+
                 $this->memoryStore->delete($id);
 
                 return ToolResult::success("Memory {$id} deleted.");
@@ -312,7 +330,7 @@ final class MemoryToolkit implements ToolkitInterface
                     return ToolResult::error('Query cannot be empty.');
                 }
 
-                $count = $this->memoryStore->forget($query);
+                $count = $this->memoryStore->forget($query, profileId: $this->activeProfileId);
 
                 return ToolResult::success("Forgot {$count} memories matching \"{$query}\".");
             },
@@ -344,11 +362,11 @@ final class MemoryToolkit implements ToolkitInterface
 
                 if ($tags !== null && trim($tags) !== '') {
                     $tagList = array_map('trim', explode(',', $tags));
-                    $entries = $this->memoryStore->listByTags($tagList, $limit);
+                    $entries = $this->memoryStore->listByTags($tagList, $limit, profileId: $this->activeProfileId);
                 } elseif ($area !== null) {
-                    $entries = $this->memoryStore->list($area, $limit);
+                    $entries = $this->memoryStore->list($area, $limit, profileId: $this->activeProfileId);
                 } else {
-                    $entries = $this->memoryStore->listAll($limit);
+                    $entries = $this->memoryStore->listAll($limit, profileId: $this->activeProfileId);
                 }
 
                 // Include archived memories if requested
@@ -372,7 +390,7 @@ final class MemoryToolkit implements ToolkitInterface
                     $entries,
                 );
 
-                $total = $this->memoryStore->count();
+                $total = $this->memoryStore->count(profileId: $this->activeProfileId);
                 $header = "Showing " . count($entries) . " of {$total} total memories:";
 
                 return ToolResult::success("{$header}\n\n" . implode("\n\n---\n\n", $formatted));
@@ -396,6 +414,11 @@ final class MemoryToolkit implements ToolkitInterface
                     return ToolResult::error('Memory ID is required.');
                 }
 
+                $existing = $this->memoryStore->getById($id);
+                if ($existing !== null && !$this->canMutateMemory($existing)) {
+                    return ToolResult::error($this->crossProfileMutationError($id, $existing->profileId));
+                }
+
                 $restored = $this->memoryStore->restoreMemory($id);
 
                 return $restored
@@ -403,6 +426,154 @@ final class MemoryToolkit implements ToolkitInterface
                     : ToolResult::error("Memory {$id} not found or is not archived.");
             },
         );
+    }
+
+    private function memoryInspectProfileTool(): ToolInterface
+    {
+        return new Tool(
+            name: 'memory_inspect_profile',
+            description: 'Orchestrator-only: inspect memories belonging to a specific profile without switching the active profile. Supports semantic search via query or direct listing by area/tags.',
+            parameters: [
+                new StringParameter('profile', 'The profile whose memories to inspect', required: true),
+                new StringParameter('query', 'Optional search query for semantic/keyword matching within that profile', required: false),
+                new EnumParameter(
+                    'area',
+                    'Optional area filter when listing memories',
+                    MemoryStore::userFacingAreas(),
+                    required: false,
+                ),
+                new StringParameter('tags', 'Optional comma-separated tags filter when listing memories', required: false),
+                new NumberParameter('limit', 'Max results to return (default: 10)', required: false, integer: true),
+            ],
+            callback: function (array $input): ToolResult {
+                $profile = trim((string) ($input['profile'] ?? ''));
+                if ($profile === '') {
+                    return ToolResult::error('Profile is required.');
+                }
+
+                $limit = max(1, (int) ($input['limit'] ?? 10));
+                $query = trim((string) ($input['query'] ?? ''));
+                $profileEntries = $this->filterExactProfileEntries(
+                    $this->memoryStore->listAll(max($limit * 10, 100), profileId: $profile),
+                    $profile,
+                );
+
+                if ($query !== '') {
+                    $entries = $this->filterExactProfileEntries(
+                        $this->memoryStore->search($query, limit: max($limit * 5, $limit), profileId: $profile),
+                        $profile,
+                    );
+
+                    if ($entries === []) {
+                        $entries = array_values(array_filter(
+                            $profileEntries,
+                            static fn(MemoryEntry $entry): bool => self::matchesInspectionQuery($entry, $query),
+                        ));
+                    }
+                } else {
+                    $area = isset($input['area']) && is_string($input['area']) && $input['area'] !== ''
+                        ? $input['area']
+                        : null;
+                    $tags = trim((string) ($input['tags'] ?? ''));
+
+                    if ($tags !== '') {
+                        $tagList = array_filter(array_map('trim', explode(',', $tags)));
+                        $entries = array_values(array_filter(
+                            $profileEntries,
+                            static function (MemoryEntry $entry) use ($tagList): bool {
+                                $entryTags = strtolower((string) ($entry->metadata['tags'] ?? ''));
+                                foreach ($tagList as $tag) {
+                                    if (str_contains($entryTags, strtolower($tag))) {
+                                        return true;
+                                    }
+                                }
+
+                                return false;
+                            },
+                        ));
+                    } elseif ($area !== null) {
+                        $entries = array_values(array_filter(
+                            $profileEntries,
+                            static fn(MemoryEntry $entry): bool => $entry->area === $area,
+                        ));
+                    } else {
+                        $entries = $profileEntries;
+                    }
+                }
+
+                $entries = array_slice($entries, 0, $limit);
+                if ($entries === []) {
+                    return ToolResult::success(sprintf('No memories found for profile "%s".', $profile));
+                }
+
+                $formatted = array_map(
+                    function (MemoryEntry $e): string {
+                        $tags = ($e->metadata['tags'] ?? '') !== '' ? " [tags: {$e->metadata['tags']}]" : '';
+                        $score = $e->score !== null ? sprintf(' (relevance: %.0f%%)', $e->score * 100) : '';
+                        return "**[{$e->area}]** (id: {$e->id}){$score}{$tags}\n{$e->content}";
+                    },
+                    $entries,
+                );
+
+                return ToolResult::success(
+                    sprintf(
+                        "Profile \"%s\" memories (%d shown):\n\n%s",
+                        $profile,
+                        count($entries),
+                        implode("\n\n---\n\n", $formatted),
+                    ),
+                );
+            },
+        );
+    }
+
+    private function canMutateMemory(MemoryEntry $entry): bool
+    {
+        if ($this->activeProfileId === null || $this->allowCrossProfileMutation) {
+            return true;
+        }
+
+        return $entry->profileId === null || $entry->profileId === $this->activeProfileId;
+    }
+
+    private function crossProfileMutationError(string $id, ?string $memoryProfileId): string
+    {
+        $profileLabel = $memoryProfileId ?? 'shared';
+
+        return sprintf(
+            'Memory %s belongs to profile "%s" and cannot be changed from the active profile.',
+            $id,
+            $profileLabel,
+        );
+    }
+
+    /**
+    * @param array<MemoryEntry> $entries
+    * @return list<MemoryEntry>
+     */
+    private function filterExactProfileEntries(array $entries, string $profile): array
+    {
+        return array_values(array_filter(
+            $entries,
+            static fn(MemoryEntry $entry): bool => $entry->profileId === $profile,
+        ));
+    }
+
+    private static function matchesInspectionQuery(MemoryEntry $entry, string $query): bool
+    {
+        $haystacks = [
+            $entry->content,
+            $entry->area,
+            (string) ($entry->metadata['tags'] ?? ''),
+        ];
+
+        foreach ($haystacks as $haystack) {
+            if ($haystack !== '' && mb_stripos($haystack, $query) !== false) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function memoryImportTool(): ToolInterface

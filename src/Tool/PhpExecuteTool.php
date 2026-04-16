@@ -445,10 +445,16 @@ final class PhpExecuteTool implements ToolInterface
         }
 
         $disableFunctionsDirective = 'disable_functions=' . implode(',', self::DISABLED_WRITE_FUNCTIONS);
+        $disableCliOpcacheDirective = 'opcache.enable_cli=0';
+        $disableJitDirective = 'opcache.jit=0';
+        $disableJitBufferDirective = 'opcache.jit_buffer_size=0';
 
         $commandLine = 'php'
             . ' -d ' . escapeshellarg($openBasedirDirective)
-            . ' -d ' . escapeshellarg($disableFunctionsDirective);
+            . ' -d ' . escapeshellarg($disableFunctionsDirective)
+            . ' -d ' . escapeshellarg($disableCliOpcacheDirective)
+            . ' -d ' . escapeshellarg($disableJitDirective)
+            . ' -d ' . escapeshellarg($disableJitBufferDirective);
 
         if ($lintOnly) {
             $commandLine .= ' -l';

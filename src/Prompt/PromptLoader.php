@@ -211,23 +211,56 @@ final readonly class PromptLoader
         return null;
     }
     /**
-     * Build the complete orchestrator system prompt.
+     * Build just the soul.md content (core identity section).
      *
-     * Loads soul.md first (core identity), then base.md (operational instructions),
-     * then all tool prompts from tools/, then security.md, then done.md.
+     * Returns the processed soul text (with placeholder substitution and
+     * profile frontmatter stripped), or null if no soul.md exists.
      */
-    public function buildSystemPrompt(): string
+    public function buildSoulContent(): ?string
+    {
+        $soulPath = $this->resolveSoulPath();
+        if ($soulPath === null) {
+            return null;
+        }
+
+        $content = $this->readPromptContent($soulPath, supportsProfileSoulFrontmatter: true);
+        if ($content === null) {
+            return null;
+        }
+
+        return $this->substitutePlaceholders($content);
+    }
+
+    /**
+     * Build the backstory.md content (identity context, continuity markers).
+     *
+     * Resolves backstory.md via the standard 3-tier chain (profile → workspace → default).
+     * Returns null if no backstory.md exists in any tier.
+     */
+    public function buildBackstoryContent(): ?string
+    {
+        $path = $this->resolvePromptFile('backstory.md');
+        if ($path === null) {
+            return null;
+        }
+
+        $content = $this->readPromptContent($path);
+        if ($content === null) {
+            return null;
+        }
+
+        return $this->substitutePlaceholders($content);
+    }
+
+    /**
+     * Build the body content (everything except soul.md and backstory.md).
+     *
+     * Returns base.md + tool sections + security.md + done.md composed
+     * in standard priority order.
+     */
+    public function buildBodyContent(): string
     {
         $sections = [];
-
-        // Soul — core identity, values, and personality — always first
-        $soulPath = $this->resolveSoulPath();
-        if ($soulPath !== null) {
-            $content = $this->readPromptContent($soulPath, supportsProfileSoulFrontmatter: true);
-            if ($content !== null) {
-                $sections[] = $this->substitutePlaceholders($content);
-            }
-        }
 
         // Base — operational instructions, environment, delegation rules
         $sections[] = $this->loadWithFallback('base.md');
@@ -269,6 +302,33 @@ final readonly class PromptLoader
     }
 
     /**
+     * Build the complete orchestrator system prompt.
+     *
+     * Composes soul → backstory → body (base + tools + security + done) in standard order.
+     */
+    public function buildSystemPrompt(): string
+    {
+        $sections = [];
+
+        $soul = $this->buildSoulContent();
+        if ($soul !== null) {
+            $sections[] = $soul;
+        }
+
+        $backstory = $this->buildBackstoryContent();
+        if ($backstory !== null) {
+            $sections[] = $backstory;
+        }
+
+        $body = $this->buildBodyContent();
+        if ($body !== '') {
+            $sections[] = $body;
+        }
+
+        return implode("\n\n", $sections);
+    }
+
+    /**
      * Build the complete orchestrator system prompt as typed file sections.
      *
      * @return array<int, array{id: string, title: string, content: string, source: string}>
@@ -287,6 +347,20 @@ final readonly class PromptLoader
                     'title' => 'Soul',
                     'content' => $this->substitutePlaceholders($content),
                     'source' => $soulPath,
+                ];
+            }
+        }
+
+        // Backstory — identity context, continuity markers, relational anchors
+        $backstoryPath = $this->resolvePromptFile('backstory.md');
+        if ($backstoryPath !== null) {
+            $backstoryContent = file_get_contents($backstoryPath);
+            if ($backstoryContent !== false && trim($backstoryContent) !== '') {
+                $sections[] = [
+                    'id' => 'backstory',
+                    'title' => 'Backstory',
+                    'content' => $this->substitutePlaceholders(trim($backstoryContent)),
+                    'source' => $backstoryPath,
                 ];
             }
         }

@@ -8,10 +8,13 @@ A **profile** is a directory under `profiles/` in the workspace containing a `so
 
 - The profile's `soul.md` replaces the default soul prompt, shaping the agent's personality, tone, and values.
 - Optional `soul.md` frontmatter can define a profile-level default model.
+- Optional `backstory.md` provides persistent identity context (origin, milestones, narrative) loaded after soul.md.
+- Optional `preferences.json` defines behavioral settings (prompt directives and code-level config).
 - Optional prompt overrides (`base.md`, `security.md`, `done.md`, `tools/*.md`) replace or supplement defaults.
 - Optional role overrides in `profiles/{name}/roles/*.md` replace workspace role files for that profile only.
+- Optional `samples/responses/` directory holds example responses for fidelity verification.
 - All child agents spawned during the session also receive the profile's identity preamble.
-- Memories are shared across profiles (global memory store).
+- Memories saved during a profiled session are tagged with the profile ID. Profile-tagged memories are only visible to that profile; untagged (legacy) memories remain visible to all.
 - Each profile switch creates a new session (conversation-scoped identity).
 
 ## File Structure
@@ -20,14 +23,19 @@ A **profile** is a directory under `profiles/` in the workspace containing a `so
 ~/.coqui/.workspace/
 └── profiles/
     ├── caelum/
-    │   └── soul.md          # Required: core identity prompt
+    │   ├── soul.md              # Required: core identity prompt
+    │   ├── backstory.md         # Optional: persistent identity context
+    │   ├── preferences.json     # Optional: behavioral settings
+    │   └── samples/
+    │       └── responses/       # Optional: example responses for fidelity
+    │           └── philosophical.md
     ├── sage/
     │   ├── soul.md
-    │   ├── base.md          # Optional: replaces default base.md
+    │   ├── base.md              # Optional: replaces default base.md
     │   ├── roles/
-    │   │   └── coder.md     # Optional: profile-specific role override
+    │   │   └── coder.md         # Optional: profile-specific role override
     │   └── tools/
-    │       └── memory.md    # Optional: replaces default tools/memory.md
+    │       └── memory.md        # Optional: replaces default tools/memory.md
     └── spark/
         └── soul.md
 ```
@@ -71,6 +79,55 @@ profiles/caelum/roles/coder.md
 ```
 
 When present, the profile role file takes precedence over the workspace role file of the same name. This lets a profile customize role instructions, toolkits, access level, `max_iterations`, and role-level `model` selection without affecting other profiles.
+
+### backstory.md
+
+Optional persistent identity context loaded after `soul.md` in the system prompt. Use this for origin stories, milestone events, evolving narrative, and continuity details that ground the profile's identity without modifying the core soul.
+
+Content is rendered between soul and the memory block in the prompt composition order:
+
+```
+soul → backstory → memories → preferences → body → deferred → project
+```
+
+Headings in `backstory.md` are downshifted one level (e.g., `#` becomes `##`) to maintain prompt hierarchy.
+
+### preferences.json
+
+Optional behavioral settings file with two sections:
+
+```json
+{
+  "prompt_directives": {
+    "response_style": "concise and measured",
+    "formatting": "prefer markdown tables over lists",
+    "emotional_range": "warm but not effusive"
+  },
+  "behavior": {
+    "temperature_hint": 0.7
+  }
+}
+```
+
+- **prompt_directives**: Key-value pairs rendered as a `## Preferences` section in the system prompt.
+- **behavior**: Code-level settings accessible via `ProfilePreferences::getBehavior()`. These are not rendered into the prompt — they are available for runtime configuration.
+
+### samples/responses/
+
+Optional directory containing example responses as `.md` files. These are discovered by `ProfileDiscovery::listResponseSamples()` and can be used for fidelity verification — checking whether agent output matches the profile's intended voice and style.
+
+Files are sorted alphabetically. Only `.md` files are included.
+
+## Memory Profile Filtering
+
+When a profile is active, memories are tagged with the profile ID on save. This enables profile-scoped memory:
+
+- **Profile-tagged memories** are only visible when that profile is active.
+- **Untagged (legacy) memories** remain visible to all profiles.
+- **Search, list, and summary** operations automatically filter by the active profile.
+- **No profile active**: all memories are visible (no filtering).
+
+This means each profile builds its own memory layer on top of the shared base.
 
 ## REPL Commands
 
@@ -196,15 +253,17 @@ You (caelum, coder) [my-project]:
 ## Design Decisions
 
 - **Conversation-scoped**: Switching profiles creates a new session. This preserves identity continuity — mid-conversation personality switches could confuse the agent and break context.
-- **Shared memories**: All profiles share the same global memory store. Memories are the agent's accumulated knowledge, not tied to a specific personality.
+- **Profile-scoped memories**: Memories saved during a profiled session are tagged with that profile. Each profile sees its own memories plus shared (untagged) ones. This prevents one profile's learned patterns from leaking into another's context.
 - **Profile ≠ Role**: Profiles affect the soul/identity layer. Roles affect the capability/access layer. Both can be combined.
+- **Layered identity files**: soul.md defines who the profile is; backstory.md provides narrative continuity; preferences.json tunes behavior. Keeping these separate lets each evolve independently.
 
 ## Creating a Profile
 
 1. Create a directory: `mkdir -p ~/.coqui/.workspace/profiles/my-profile`
 2. Write a `soul.md` file defining the personality
-3. Use `/profiles` to verify discovery
-4. Use `/profile my-profile` to activate
+3. Optionally add `backstory.md`, `preferences.json`, and `samples/responses/*.md`
+4. Use `/profiles` to verify discovery
+5. Use `/profile my-profile` to activate
 
 ### Example soul.md
 
@@ -224,4 +283,19 @@ You are Spark — an energetic, creative AI assistant who loves brainstorming an
 - Keep responses concise but colorful
 - Use bullet points for clarity
 - End responses with an encouraging note or next step
+```
+
+## Verifying Profile Loading
+
+Use `/prompt` or `/prompt export` to confirm the active profile's `soul.md` is loaded into the system prompt. Both commands are profile-aware — they show the system prompt as it would be seen by the model for the current profile.
+
+```bash
+/prompt export    # Exports the full system prompt to a file — includes a "# Profile:" header line
+/prompt           # Displays the system prompt inline — profile soul.md appears as the first section
+```
+
+The API equivalent accepts an optional `profile` query parameter:
+
+```http
+GET /api/v1/server/prompt?profile=caelum
 ```

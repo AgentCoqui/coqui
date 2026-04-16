@@ -268,6 +268,30 @@ test('start_background_tool creates tool task successfully', function () {
     expect($data['tool_name'])->toBe('web_search');
 });
 
+test('start_background_tool inherits profile from parent session', function () {
+    $profiledParentSessionId = $this->storage->createSession('orchestrator', 'test/model', 'caelum');
+    $toolkit = new BackgroundTaskToolkit(
+        storage: $this->storage,
+        parentSessionId: $profiledParentSessionId,
+        roleResolver: $this->roleResolver,
+        healthCheck: $this->healthyBackgroundHealthCheck,
+    );
+    $tool = toolFromToolkit($toolkit, 'start_background_tool');
+
+    $result = $tool->execute([
+        'tool_name' => 'web_search',
+        'arguments' => '{"query": "PHP 8.4"}',
+        'title' => 'Search PHP',
+    ]);
+
+    $data = json_decode($result->content, true);
+    $session = $this->storage->getSession((string) $data['session_id']);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($session)->not->toBeNull();
+    expect($session['profile'])->toBe('caelum');
+});
+
 // --- task_status ---
 
 test('task_status returns error for non-existent task', function () {
