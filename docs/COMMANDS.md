@@ -26,6 +26,12 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/roles update [name]` | Apply pending built-in role updates |
 | `/roles ignore <name>` | Ignore future built-in updates for a role |
 | `/roles unignore <name>` | Resume receiving built-in updates for a role |
+| `/profile` | Show the current active personality profile |
+| `/profile <name>` | Switch to a personality profile (creates new session) |
+| `/profile default` | Show the configured default startup profile |
+| `/profile default <name|none>` | Set or clear the default startup profile in `openclaw.json` |
+| `/profile reset` | Clear profile, revert to default identity (creates new session) |
+| `/profiles` | List all available personality profiles |
 | `/model [role]` | Show model configuration (optionally for a specific role) |
 
 ### Configuration & System
@@ -155,7 +161,10 @@ Run a single prompt without the interactive REPL:
 ```bash
 coqui run --no-terminal --prompt "List all PHP files in src/"
 coqui run --no-terminal --prompt "Summarize this project" --format json
+printf '%s' 'Summarize this project with a very large prompt body' | coqui run --no-terminal --format json
 ```
+
+For very large prompts, prefer piping via stdin instead of `--prompt`. Coqui does not truncate headless input, but shell and OS argv limits can prevent very large `--prompt` values from reaching the process intact.
 
 ### `coqui api`
 

@@ -17,7 +17,7 @@ use CoquiBot\Coqui\Contract\SystemRole;
  */
 final class RoleResolver
 {
-    /** @var array<string, string> */
+    /** @var array<string, string|array<string, mixed>> */
     private array $roles;
 
     private string $primaryModel;
@@ -26,6 +26,7 @@ final class RoleResolver
         private readonly ConfigInterface $config,
         ?DefaultsLoader $defaults = null,
         private readonly ?RoleDiscovery $roleDiscovery = null,
+        private readonly ?ProfileDiscovery $profileDiscovery = null,
     ) {
         $roles = $this->config->get('agents.defaults.roles', []);
         $this->roles = is_array($roles) ? $roles : [];
@@ -40,24 +41,29 @@ final class RoleResolver
      *
      * Priority: role file model field → openclaw.json → primary model.
      */
-    public function resolve(string $role): string
+    public function resolve(string $role, ?string $profile = null): string
     {
-        // 1. Check if the role file defines a model override
-        if ($this->roleDiscovery !== null) {
-            try {
-                $properties = $this->roleDiscovery->getRole($role);
-                if ($properties->model !== null) {
-                    return $this->config->resolveModel($properties->model);
-                }
-            } catch (\Throwable) {
-                // Fall through to config-based resolution
-            }
+        $profileRole = $this->resolveProfileRoleProperties($role, $profile);
+        if ($profileRole?->model !== null) {
+            return $this->config->resolveModel($profileRole->model);
         }
 
-        // 2. Check openclaw.json roles mapping
-        $modelOrAlias = $this->roles[$role] ?? $this->primaryModel;
+        $globalRole = $this->resolveGlobalRoleProperties($role);
+        if ($globalRole?->model !== null) {
+            return $this->config->resolveModel($globalRole->model);
+        }
 
-        return $this->config->resolveModel($modelOrAlias);
+        $configuredRoleModel = $this->resolveConfiguredRoleModel($role);
+        if ($configuredRoleModel !== null) {
+            return $this->config->resolveModel($configuredRoleModel);
+        }
+
+        $profileModel = $this->resolveProfileModel($profile);
+        if ($profileModel !== null) {
+            return $this->config->resolveModel($profileModel);
+        }
+
+        return $this->config->resolveModel($this->primaryModel);
     }
 
     /**
@@ -69,7 +75,7 @@ final class RoleResolver
      * 2. title-generator role (preserves role file model override)
      * 3. Primary model fallback
      */
-    public function resolveUtility(): string
+    public function resolveUtility(?string $profile = null): string
     {
         if ($this->config instanceof OpenClawConfig) {
             $utilityModel = $this->config->getUtilityModel();
@@ -78,7 +84,7 @@ final class RoleResolver
             }
         }
 
-        return $this->resolve(SystemRole::TitleGenerator->value);
+        return $this->resolve(SystemRole::TitleGenerator->value, $profile);
     }
 
     /**
@@ -101,18 +107,16 @@ final class RoleResolver
      *
      * A return value of 0 means unlimited (sentinel handled by AbstractAgent).
      */
-    public function resolveMaxIterations(string $role): int
+    public function resolveMaxIterations(string $role, ?string $profile = null): int
     {
-        // 1. Check if the role file defines a max_iterations override
-        if ($this->roleDiscovery !== null) {
-            try {
-                $properties = $this->roleDiscovery->getRole($role);
-                if ($properties->maxIterations !== null) {
-                    return $properties->maxIterations;
-                }
-            } catch (\Throwable) {
-                // Fall through to config-based resolution
-            }
+        $profileRole = $this->resolveProfileRoleProperties($role, $profile);
+        if ($profileRole?->maxIterations !== null) {
+            return $profileRole->maxIterations;
+        }
+
+        $globalRole = $this->resolveGlobalRoleProperties($role);
+        if ($globalRole?->maxIterations !== null) {
+            return $globalRole->maxIterations;
         }
 
         // 2. Check openclaw.json global default
@@ -124,6 +128,65 @@ final class RoleResolver
 
         // 3. Hardcoded fallback
         return CoquiDefaults::MAX_ITERATIONS;
+    }
+
+    private function resolveConfiguredRoleModel(string $role): ?string
+    {
+        $configured = $this->roles[$role] ?? null;
+
+        if (is_string($configured) && $configured !== '') {
+            return $configured;
+        }
+
+        if (is_array($configured)) {
+            $model = $configured['model'] ?? null;
+            if (is_string($model) && $model !== '') {
+                return $model;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveProfileModel(?string $profile): ?string
+    {
+        if ($profile === null || $this->profileDiscovery === null) {
+            return null;
+        }
+
+        try {
+            return $this->profileDiscovery->readProfileModel($profile);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function resolveProfileRoleProperties(string $role, ?string $profile): ?\CoquiBot\Coqui\Contract\RoleProperties
+    {
+        if ($profile === null || $this->roleDiscovery === null || $this->profileDiscovery === null) {
+            return null;
+        }
+
+        try {
+            $profilePath = $this->profileDiscovery->getProfilePath($profile);
+
+            return $this->roleDiscovery->getProfileRole($role, $profilePath);
+        } catch (\Throwable) {
+            return null;
+        }
+    }
+
+    private function resolveGlobalRoleProperties(string $role): ?\CoquiBot\Coqui\Contract\RoleProperties
+    {
+        if ($this->roleDiscovery === null) {
+            return null;
+        }
+
+        try {
+            return $this->roleDiscovery->getRole($role);
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     /**
@@ -221,12 +284,12 @@ final class RoleResolver
         foreach ($this->roles as $role => $model) {
             if (isset($result[$role])) {
                 // System role — update model only
-                $result[$role]['model'] = $this->config->resolveModel($model);
+                $result[$role]['model'] = $this->resolve($role);
                 continue;
             }
             $result[$role] = [
                 'name' => $role,
-                'model' => $this->config->resolveModel($model),
+                'model' => $this->resolve($role),
                 'max_iterations' => $this->resolveMaxIterations($role),
             ];
         }

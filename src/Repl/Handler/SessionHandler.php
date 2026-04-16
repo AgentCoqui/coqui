@@ -21,10 +21,10 @@ final class SessionHandler
         private readonly SessionStorage $storage,
     ) {}
 
-    public function createNewSession(): string
+    public function createNewSession(string $role = 'orchestrator', ?string $profile = null): string
     {
-        $modelString = $this->boot->roleResolver()->resolve('orchestrator');
-        $sessionId = $this->storage->createSession('orchestrator', $modelString);
+        $modelString = $this->boot->roleResolver()->resolve($role);
+        $sessionId = $this->storage->createSession($role, $modelString, $profile);
         $this->saveSessionFile($sessionId);
 
         return $sessionId;
@@ -57,6 +57,40 @@ final class SessionHandler
         return $sessionId;
     }
 
+    public function loadOrCreateProfileSession(?SymfonyStyle $io, string $profile, string $role = 'orchestrator'): string
+    {
+        $sessionFile = $this->boot->workspacePath() . '/' . self::SESSION_FILE;
+        if (file_exists($sessionFile)) {
+            $fileContent = file_get_contents($sessionFile);
+            if ($fileContent !== false) {
+                $sessionId = trim($fileContent);
+                $session = $this->storage->getSession($sessionId);
+                if (is_array($session) && ($session['profile'] ?? null) === $profile) {
+                    if ($io !== null) {
+                        $io->info(sprintf('Resumed attached profile session "%s": %s...', $profile, substr($sessionId, 0, 8)));
+                    }
+                    return $sessionId;
+                }
+            }
+        }
+
+        $latestId = $this->storage->getLatestSessionIdForProfile($profile);
+        if ($latestId !== null) {
+            $this->saveSessionFile($latestId);
+            if ($io !== null) {
+                $io->info(sprintf('Resumed latest profile session "%s": %s...', $profile, substr($latestId, 0, 8)));
+            }
+            return $latestId;
+        }
+
+        $sessionId = $this->createNewSession($role, $profile);
+        if ($io !== null) {
+            $io->info(sprintf('Created new profile session "%s": %s...', $profile, substr($sessionId, 0, 8)));
+        }
+
+        return $sessionId;
+    }
+
     public function saveSessionFile(?string $sessionId = null): void
     {
         if ($sessionId === null) {
@@ -79,6 +113,18 @@ final class SessionHandler
         }
 
         return null;
+    }
+
+    public function restoreActiveProfileFromSession(string $sessionId): ?string
+    {
+        $session = $this->storage->getSession($sessionId);
+        if ($session === null) {
+            return null;
+        }
+
+        $storedProfile = $session['profile'] ?? null;
+
+        return is_string($storedProfile) && $storedProfile !== '' ? $storedProfile : null;
     }
 
     public function showHistory(SymfonyStyle $io, string $sessionId): void

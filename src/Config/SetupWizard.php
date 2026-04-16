@@ -87,17 +87,20 @@ final class SetupWizard
         // Step 8: Configure workspace
         $workspace = $this->configureWorkspace();
 
-        // Step 9: Update preferences (ENV-based, not in openclaw.json)
+        // Step 9: Default profile
+        $defaultProfile = $this->configureDefaultProfile($workspace);
+
+        // Step 10: Update preferences (ENV-based, not in openclaw.json)
         $this->configureUpdatePreferences();
 
-        // Step 10: Generate API key for HTTP API server
+        // Step 11: Generate API key for HTTP API server
         $this->configureApiKey();
 
-        // Step 11: Configure directory mounts
+        // Step 12: Configure directory mounts
         $mounts = $this->configureMounts();
 
         // Build and preview
-        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, $memoryAutoExtract, $summarizationConfig);
+        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, $memoryAutoExtract, $summarizationConfig, $defaultProfile);
 
         $this->io->section('Configuration Preview');
         $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -169,6 +172,7 @@ final class SetupWizard
             'child_bg'  => 'Child Background Tasks (allow child agents to spawn background tasks)',
             'summarization' => 'Summarization (auto-summarization mode and thresholds)',
             'workspace' => 'Workspace Directory',
+            'profile'   => 'Default Profile',
             'updates'   => 'Update Preferences (check/auto-update on startup)',
             'api_key'   => 'API Server Key',
             'mounts'    => 'Directory Mounts',
@@ -241,6 +245,13 @@ final class SetupWizard
             $workspace = is_string($defaults['workspace'] ?? null) ? $defaults['workspace'] : $this->defaults->defaultWorkspace();
         }
 
+        if (in_array('profile', $selectedKeys, true) || in_array('workspace', $selectedKeys, true)) {
+            $currentDefaultProfile = is_string($defaults['profile'] ?? null) ? $defaults['profile'] : null;
+            $defaultProfile = $this->configureDefaultProfile($workspace, $currentDefaultProfile);
+        } else {
+            $defaultProfile = is_string($defaults['profile'] ?? null) ? $defaults['profile'] : null;
+        }
+
         // --- Updates (ENV-based, no config output) ---
         if (in_array('updates', $selectedKeys, true)) {
             $this->configureUpdatePreferences();
@@ -259,7 +270,17 @@ final class SetupWizard
         }
 
         // Build the new config, merging with existing for non-edited sections
-        $config = $this->buildEditedConfig($existingConfig, $primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, in_array('providers', $selectedKeys, true), $summarizationConfig);
+        $config = $this->buildEditedConfig(
+            $existingConfig,
+            $primaryModel,
+            $roles,
+            $workspace,
+            $mounts,
+            $childBackgroundTasks,
+            in_array('providers', $selectedKeys, true),
+            $summarizationConfig,
+            $defaultProfile,
+        );
 
         $this->io->section('Configuration Preview');
         $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -295,6 +316,7 @@ final class SetupWizard
         bool $childBackgroundTasks,
         bool $providersEdited,
         array $summarizationConfig = [],
+        ?string $defaultProfile = null,
     ): array {
         $config = $existingConfig;
 
@@ -302,6 +324,12 @@ final class SetupWizard
         $config['agents']['defaults']['workspace'] = $workspace;
         $config['agents']['defaults']['model']['primary'] = $primaryModel;
         $config['agents']['defaults']['roles'] = $roles;
+
+        if ($defaultProfile !== null && trim($defaultProfile) !== '') {
+            $config['agents']['defaults']['profile'] = strtolower(trim($defaultProfile));
+        } else {
+            unset($config['agents']['defaults']['profile']);
+        }
 
         if ($childBackgroundTasks) {
             $config['agents']['defaults']['childBackgroundTasks'] = true;
@@ -754,6 +782,44 @@ final class SetupWizard
     }
 
     /**
+     * Step 9: Configure the default profile for startup.
+     */
+    private function configureDefaultProfile(string $workspace, ?string $currentDefaultProfile = null): ?string
+    {
+        $profileDiscovery = new ProfileDiscovery($workspace);
+        $profiles = $profileDiscovery->availableProfiles();
+
+        if ($profiles === []) {
+            return null;
+        }
+
+        $normalizedCurrent = is_string($currentDefaultProfile) ? strtolower(trim($currentDefaultProfile)) : null;
+        if ($normalizedCurrent !== null && !in_array($normalizedCurrent, $profiles, true)) {
+            $normalizedCurrent = null;
+        }
+
+        if (count($profiles) < 2) {
+            return $normalizedCurrent;
+        }
+
+        $this->io->section('Step 9: Default Profile');
+        $this->io->text([
+            'Multiple profiles were found in the workspace.',
+            'Choose which profile Coqui should attach by default when starting a new attached session.',
+        ]);
+
+        $choices = ['No default profile'];
+        foreach ($profiles as $profile) {
+            $choices[] = $profile;
+        }
+
+        $defaultChoice = $normalizedCurrent ?? 'No default profile';
+        $selected = $this->choice('Default startup profile', $choices, $defaultChoice);
+
+        return $selected === 'No default profile' ? null : strtolower(trim($selected));
+    }
+
+    /**
      * Resolve the user's home directory for display purposes.
      */
     private function resolveHome(): string
@@ -765,11 +831,11 @@ final class SetupWizard
     }
 
     /**
-     * Step 9: Configure update preferences (stored as ENV vars, not in openclaw.json).
+    * Step 10: Configure update preferences (stored as ENV vars, not in openclaw.json).
      */
     private function configureUpdatePreferences(): void
     {
-        $this->io->section('Step 9: Updates');
+        $this->io->section('Step 10: Updates');
 
         $this->io->text('Coqui can check for dependency updates on startup and optionally apply them automatically.');
 
@@ -791,7 +857,7 @@ final class SetupWizard
     }
 
     /**
-     * Step 10: Generate an API key for the HTTP API server.
+    * Step 11: Generate an API key for the HTTP API server.
      *
      * The key is stored in the workspace .env file via CredentialResolver.
      * Required for running `coqui api` — the server refuses to start
@@ -806,7 +872,7 @@ final class SetupWizard
             return;
         }
 
-        $this->io->section('Step 10: API Server Key');
+        $this->io->section('Step 11: API Server Key');
 
         $this->io->text([
             'The HTTP API server requires an API key for authentication.',
@@ -836,7 +902,7 @@ final class SetupWizard
     }
 
     /**
-     * Step 11: Configure directory mounts for agent workspace access.
+    * Step 12: Configure directory mounts for agent workspace access.
      *
      * Guides the user through adding local directories that the agent can
      * access via symlinks under workspace/mnt/. Supports adding multiple
@@ -846,7 +912,7 @@ final class SetupWizard
      */
     private function configureMounts(): array
     {
-        $this->io->section('Step 11: Directory Mounts');
+        $this->io->section('Step 12: Directory Mounts');
 
         $this->io->text([
             'Mounts give the agent access to directories outside the workspace.',
@@ -1089,7 +1155,7 @@ final class SetupWizard
      * @param array<string, mixed> $summarizationConfig
      * @return array<string, mixed>
      */
-    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $childBackgroundTasks = false, bool $memoryAutoExtract = false, array $summarizationConfig = []): array
+    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $childBackgroundTasks = false, bool $memoryAutoExtract = false, array $summarizationConfig = [], ?string $defaultProfile = null): array
     {
         $modelDefinitions = [];
 
@@ -1165,6 +1231,10 @@ final class SetupWizard
             ],
             'roles' => $roles,
         ];
+
+        if ($defaultProfile !== null && trim($defaultProfile) !== '') {
+            $defaults['profile'] = strtolower(trim($defaultProfile));
+        }
 
         if ($childBackgroundTasks) {
             $defaults['childBackgroundTasks'] = true;

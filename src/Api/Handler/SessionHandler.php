@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Psr\Http\Message\ServerRequestInterface;
@@ -26,6 +27,7 @@ final readonly class SessionHandler
     public function __construct(
         private SessionStorage $storage,
         private RoleResolver $roleResolver,
+        private ProfileDiscovery $profileDiscovery,
     ) {}
 
     /**
@@ -54,6 +56,14 @@ final readonly class SessionHandler
             ? (string) $body['model_role']
             : 'orchestrator';
 
+        $profile = is_array($body) && isset($body['profile'])
+            ? strtolower(trim((string) $body['profile']))
+            : null;
+
+        if ($profile === '') {
+            $profile = null;
+        }
+
         // Validate that the role exists
         if (!$this->roleResolver->hasRole($modelRole)) {
             return Router::errorResponse(
@@ -62,13 +72,21 @@ final readonly class SessionHandler
             );
         }
 
+        if ($profile !== null && !$this->profileDiscovery->profileExists($profile)) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or use GET /api/v1/sessions without a profile.', $profile),
+            );
+        }
+
         $model = $this->roleResolver->resolve($modelRole);
-        $sessionId = $this->storage->createSession($modelRole, $model);
+        $sessionId = $this->storage->createSession($modelRole, $model, $profile);
 
         return Router::jsonResponse([
             'id' => $sessionId,
             'model_role' => $modelRole,
             'model' => $model,
+            'profile' => $profile,
         ], 201);
     }
 
@@ -115,8 +133,29 @@ final readonly class SessionHandler
             if ($role === '') {
                 return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'model_role cannot be empty');
             }
+
+             if (!$this->roleResolver->hasRole($role)) {
+                return Router::errorResponse(
+                    ApiErrorCode::VALIDATION_ERROR,
+                    sprintf('Unknown role "%s". Use GET /api/v1/config/roles to see available roles.', $role),
+                );
+            }
+
             $modelString = $this->roleResolver->resolve($role);
             $this->storage->updateSessionRole($id, $role, $modelString);
+        }
+
+        if (array_key_exists('profile', $body)) {
+            $profile = strtolower(trim((string) ($body['profile'] ?? '')));
+
+            if ($profile !== '' && !$this->profileDiscovery->profileExists($profile)) {
+                return Router::errorResponse(
+                    ApiErrorCode::VALIDATION_ERROR,
+                    sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or clear the profile with an empty string.', $profile),
+                );
+            }
+
+            $this->storage->updateSessionProfile($id, $profile !== '' ? $profile : null);
         }
 
         // Return the updated session

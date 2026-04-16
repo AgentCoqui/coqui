@@ -3,7 +3,49 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\OpenClawConfig;
+use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+
+function createRoleResolverTestRole(string $path, string $name, string $model, ?int $maxIterations = null): void
+{
+    $lines = [
+        '---',
+        "name: {$name}",
+        'display_name: ' . ucfirst($name),
+        "description: {$name} role",
+        'access_level: full',
+        "model: {$model}",
+    ];
+
+    if ($maxIterations !== null) {
+        $lines[] = "max_iterations: {$maxIterations}";
+    }
+
+    $lines[] = '---';
+    $lines[] = '';
+    $lines[] = "# {$name}";
+
+    file_put_contents($path, implode("\n", $lines));
+}
+
+function removeRoleResolverTestTree(string $dir): void
+{
+    if (!is_dir($dir)) {
+        return;
+    }
+
+    foreach (scandir($dir) ?: [] as $entry) {
+        if ($entry === '.' || $entry === '..') {
+            continue;
+        }
+
+        $path = $dir . '/' . $entry;
+        is_dir($path) ? removeRoleResolverTestTree($path) : unlink($path);
+    }
+
+    rmdir($dir);
+}
 
 test('resolves configured role to model', function () {
     $config = OpenClawConfig::fromArray([
@@ -129,4 +171,70 @@ test('resolves aliases through config', function () {
     $resolver = new RoleResolver($config);
 
     expect($resolver->resolve('coder'))->toBe('anthropic/claude-sonnet-4-20250514');
+});
+
+test('uses profile soul frontmatter model when no role-specific override exists', function () {
+    $workspacePath = sys_get_temp_dir() . '/coqui-role-resolver-' . bin2hex(random_bytes(4));
+    $projectRoot = $workspacePath . '/project';
+    mkdir($workspacePath . '/profiles/artist', 0755, true);
+    mkdir($projectRoot . '/config/roles', 0755, true);
+    file_put_contents($workspacePath . '/profiles/artist/soul.md', "---\nmodel: openai/gpt-4.1-mini\n---\n# Artist\n");
+
+    try {
+        $config = OpenClawConfig::fromArray([
+            'agents' => [
+                'defaults' => [
+                    'model' => ['primary' => 'ollama/qwen3:latest'],
+                ],
+            ],
+        ]);
+
+        $resolver = new RoleResolver(
+            $config,
+            null,
+            new RoleDiscovery($workspacePath, $projectRoot),
+            new ProfileDiscovery($workspacePath),
+        );
+
+        expect($resolver->resolve('reviewer', 'artist'))->toBe('openai/gpt-4.1-mini');
+    } finally {
+        removeRoleResolverTestTree($workspacePath);
+    }
+});
+
+test('profile role override beats global role config and profile default model', function () {
+    $workspacePath = sys_get_temp_dir() . '/coqui-role-resolver-' . bin2hex(random_bytes(4));
+    $projectRoot = $workspacePath . '/project';
+    mkdir($workspacePath . '/roles', 0755, true);
+    mkdir($workspacePath . '/profiles/artist/roles', 0755, true);
+    mkdir($projectRoot . '/config/roles', 0755, true);
+
+    file_put_contents($workspacePath . '/profiles/artist/soul.md', "---\nmodel: ollama/mistral:latest\n---\n# Artist\n");
+    createRoleResolverTestRole($workspacePath . '/roles/coder.md', 'coder', 'openai/gpt-4o');
+    createRoleResolverTestRole($workspacePath . '/profiles/artist/roles/coder.md', 'coder', 'anthropic/claude-sonnet-4-20250514', 11);
+
+    try {
+        $config = OpenClawConfig::fromArray([
+            'agents' => [
+                'defaults' => [
+                    'model' => ['primary' => 'ollama/qwen3:latest'],
+                    'roles' => [
+                        'coder' => 'google/gemini-2.5-pro',
+                    ],
+                ],
+            ],
+        ]);
+
+        $resolver = new RoleResolver(
+            $config,
+            null,
+            new RoleDiscovery($workspacePath, $projectRoot),
+            new ProfileDiscovery($workspacePath),
+        );
+
+        expect($resolver->resolve('coder', 'artist'))->toBe('anthropic/claude-sonnet-4-20250514');
+        expect($resolver->resolveMaxIterations('coder', 'artist'))->toBe(11);
+    } finally {
+        removeRoleResolverTestTree($workspacePath);
+    }
 });

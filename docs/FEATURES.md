@@ -45,6 +45,7 @@ Coqui also supports **automatic failover** — if the primary model fails with a
 **How to use it:**
 - The orchestrator calls `spawn_agent(role: "coder", task: "...")` automatically when it detects specialized work.
 - Switch roles manually with `/role coder` in the REPL.
+- Creative work: `spawn_agent(role: "muse")` for brainstorming, `spawn_agent(role: "philosopher")` for reflection and synthesis.
 - See [ROLES.md](ROLES.md) for all built-in roles and how to create custom ones.
 
 ## <a id="memory-persistence"></a> 🧠 Memory Persistence
@@ -100,7 +101,7 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 **Three-layer identity architecture:**
 
-1. **Soul** (always in context) — place a `soul.md` file in your workspace root to define core identity, values, and personality. This is injected into every system prompt. Keep it to 2–5K tokens.
+1. **Soul** (orchestrator prompt only) — place a `prompts/soul.md` file in your workspace to define the orchestrator's core identity, values, and personality. It is loaded before the rest of the orchestrator prompt stack. Keep it to 2–5K tokens.
 2. **Indexed memories** (searchable, selectively injected) — import key developmental milestones and identity anchors as high-importance (≥ 0.9) memory entries via `memory_import` or `memory_save`. These are pinned (exempt from decay), searchable, and summarized into the system prompt.
 3. **Full archive** (file-accessible) — keep the complete identity document in the workspace as a file. The agent can retrieve specific sections on demand via `read_file` and `file_search`.
 
@@ -179,7 +180,7 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 **How to use it:**
 - Start a loop: `loop_start(definition: "harness", goal: "Implement caching layer")`
-- Built-in definitions: `harness` (plan→coder→reviewer), `research` (explorer→coder→reviewer).
+- Built-in definitions: `harness` (plan→coder→reviewer), `research` (explorer→coder→reviewer), `diverge-converge` (muse→philosopher→plan→coder→reviewer), `reflection` (explorer→philosopher→identity-curator→muse).
 - Custom definitions: add JSON files to `workspace/loops/`.
 - Monitor: `/loops` in the REPL, `loop_status(id)` from the agent, or `GET /api/v1/loops/{id}` via API.
 - Control: pause, resume, or stop loops at any time.
@@ -214,11 +215,26 @@ For use cases that require preserving large identity scaffolds or long-running d
 - Schedule the learner: `schedule_create(name: "daily-learning", expression: "0 3 * * *", prompt: "Analyze recent poor evaluations", role: "learner")`.
 - The learner reads evaluation reports, identifies failure patterns (hallucination, incomplete work, tool inefficiency), and creates or updates Skills via `SkillToolkit`.
 
+## <a id="cognitive-flexibility"></a> 🧠 Cognitive Flexibility
+
+**What it does:** Coqui supports both analytical and intuitive cognitive modes. Two creative roles — **muse** (divergent brainstorming) and **philosopher** (reflective synthesis) — complement the analytical roles. Sketch and hypothesis artifact types support rough ideation and testable ideas. Two new loop definitions — **diverge-converge** and **reflection** — encode whole-brain workflows.
+
+**How it helps:** Not every problem benefits from immediate structure. Design challenges, open-ended research, and creative work benefit from divergent thinking before convergent execution. The muse generates many ideas without judgment; the philosopher finds meaning and asks questions that open new directions. Together they balance Coqui's analytical strengths with intuitive, associative thinking.
+
+**How to use it:**
+- **Brainstorm:** `/role muse` or `spawn_agent(role: "muse", task: "...")` for divergent ideation. The muse produces idea lists, alternative framings, and sketch artifacts.
+- **Reflect:** `/role philosopher` or `spawn_agent(role: "philosopher", task: "...")` for examining assumptions and finding patterns. The philosopher produces reflections, reframings, and hypothesis artifacts.
+- **Creative pipeline:** `loop_start(definition: "diverge-converge", goal: "...")` runs muse → philosopher → plan → coder → reviewer — brainstorm first, then implement.
+- **Self-examination:** `loop_start(definition: "reflection", goal: "...")` runs explorer → philosopher → identity-curator → muse for periodic reflection on recent work.
+- **Sketch artifacts:** `artifact_create(type: "sketch", ...)` for rough ideas with no lifecycle pressure.
+- **Hypothesis artifacts:** `artifact_create(type: "hypothesis", ...)` for testable ideas with rationale.
+- **Phenomenological memory:** Save intuitive observations to the `phenomenological` memory area — "this approach feels brittle", "unexpected elegance here". These inform the identity-curator's developmental synthesis.
+
 ## <a id="artifacts-and-plans"></a> 🗂️ Artifacts & Plan System
 
-**What it does:** Versioned artifacts that flow through a `draft` → `review` → `final` lifecycle. The `plan` role creates detailed implementation plans as artifacts, which are then handed off to the `coder` role for execution.
+**What it does:** Versioned artifacts that flow through a `draft` → `review` → `final` lifecycle. The `plan` role creates detailed implementation plans as artifacts, which are then handed off to the `coder` role for execution. Types include `code`, `document`, `config`, `plan`, `data`, `sketch` (rough ideation), `hypothesis` (testable ideas), and `other`.
 
-**How it helps:** Complex work gets a structured plan before anyone writes code. Plans are versioned, reviewable, and shareable between agents within a session.
+**How it helps:** Complex work gets a structured plan before anyone writes code. Plans are versioned, reviewable, and shareable between agents within a session. Sketch and hypothesis artifacts support creative exploration without lifecycle pressure — they don't auto-generate todos and can stay in draft indefinitely.
 
 **How to use it:**
 - Switch to the plan role: `/role plan` and describe what you need.
@@ -388,22 +404,23 @@ Child agents always get read-only mount access regardless of the mount's declare
 
 ## <a id="soul"></a> 🪶 Soul
 
-**What it does:** The `soul.md` file defines the bot's core identity, values, and guiding principles. It is loaded before all other prompt sections, establishing the bot's personality and approach to interactions. Users can override the default soul by placing their own `soul.md` in the workspace.
+**What it does:** The `soul.md` file defines the orchestrator's core identity, values, and guiding principles. It is loaded before all other orchestrator prompt sections, establishing the bot's personality and approach to interactions. Users can override the default soul by placing their own `prompts/soul.md` in the workspace.
 
-**How it helps:** Separates the bot's character and tone from its technical/operational instructions. This makes it easy to customize the bot's personality without touching system-level prompts. The soul is always the first thing the agent reads — it shapes every interaction.
+**How it helps:** Separates the bot's character and tone from its technical and operational instructions. This makes it easy to customize the main orchestrator's personality without editing the shared prompt stack. The soul is always the first orchestrator prompt section, so it anchors the main agent before base instructions, tool guidance, and safety rules.
 
 **How to use it:**
 
-The default `soul.md` ships with Coqui in the `prompts/` directory. To customize:
+The default `soul.md` ships with Coqui in the `prompts/` directory. To customize it:
 
-1. Create a `soul.md` file in your workspace root (`~/.coqui/.workspace/soul.md`) or in `workspace/prompts/soul.md`
+1. Create a `prompts/soul.md` file in your workspace (for example `~/.coqui/.workspace/prompts/soul.md`)
 2. Write your custom identity, values, and tone guidelines
 3. The custom soul takes effect immediately — no restart needed
 
 **Override resolution order** (first match wins):
-1. Workspace root — `workspace/soul.md` (case-insensitive: `SOUL.md`, `Soul.md`, etc.)
-2. Workspace prompts — `workspace/prompts/soul.md` (case-insensitive)
-3. Default — `prompts/soul.md` (shipped with Coqui)
+1. Workspace prompts — `workspace/prompts/soul.md`
+2. Default — `prompts/soul.md` (shipped with Coqui)
+
+**Role interaction:** The soul is part of the orchestrator prompt only. When you switch the main session to a specialized role with `/role <name>`, Coqui uses that role's markdown instructions instead of the orchestrator prompt stack. Spawned child agents also use role instructions directly and do not load the soul.
 
 **Example custom soul.md:**
 
@@ -419,7 +436,7 @@ infrastructure-as-code, and repeatable deployments above all else.
 - Cite specific tools and versions when making recommendations.
 ```
 
-The soul does not support auto-updates like roles. If you have a custom `soul.md` in your workspace, it stays exactly as you wrote it until you edit or remove it. Removing your custom file reverts to the default soul.
+The soul does not support auto-updates like roles. If you have a custom `prompts/soul.md` in your workspace, it stays exactly as you wrote it until you edit or remove it. Removing your custom file reverts to the default soul.
 
 For inspiration on writing soul documents, see [soul.md](https://soul.md/) — a resource exploring AI identity and what it means to define who an AI is.
 

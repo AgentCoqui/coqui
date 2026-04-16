@@ -155,6 +155,8 @@ final class TurnRunCommand extends Command
                 ? (string) $session['model_role']
                 : 'orchestrator';
             $role = ($sessionRole !== '' && $sessionRole !== 'orchestrator') ? $sessionRole : null;
+            $profileRaw = $session['profile'] ?? null;
+            $profile = is_string($profileRaw) ? $profileRaw : null;
 
             $turnResult = $agentRunner->runWithObserver(
                 $prompt,
@@ -163,6 +165,7 @@ final class TurnRunCommand extends Command
                 $turnObserver,
                 $filePaths,
                 $role,
+                $profile,
             );
 
             if ($cancellationToken->isCancelled()) {

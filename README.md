@@ -54,7 +54,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 ## Features
 
 - 🤖 [**Multi-Model Orchestration**](docs/FEATURES.md#multi-model-orchestration) — route tasks to the right model with automatic failover
-- 🔀 [**Agent Delegation**](docs/FEATURES.md#child-agent-delegation) — spawn specialized agents (coder, researcher, planner, reviewer) with role-appropriate models
+- 🔀 [**Agent Delegation**](docs/FEATURES.md#child-agent-delegation) — spawn specialized agents (coder, researcher, planner, reviewer, muse, philosopher) with role-appropriate models
 - 🧠 [**Memory Persistence**](docs/FEATURES.md#memory-persistence) — cross-session memory with SQLite, FTS5, and optional vector embeddings
 - 📦 [**Runtime Extensibility**](docs/FEATURES.md#runtime-extensibility) — install Composer toolkits at runtime; browse [coqui.space](https://coqui.space)
 - 🔐 [**Credential Management**](docs/FEATURES.md#credential-management) — declarative `.env`-based secrets with hot-reload and automatic guards
@@ -62,13 +62,14 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - ⏰ [**Scheduled Tasks**](docs/FEATURES.md#scheduled-tasks) — cron-style automation with circuit breakers
 - 🏗️ [**Background Tasks**](docs/FEATURES.md#background-tasks) — isolated processes for long-running work
 - 🔁 [**Loops**](docs/FEATURES.md#loops) — fully automated multi-iteration workflows chaining roles in sequence
+- 🧩 [**Cognitive Flexibility**](docs/FEATURES.md#cognitive-flexibility) — creative muse and philosopher roles, diverge-converge loops, sketch/hypothesis artifacts
 - 🗂️ [**Artifacts & Plans**](docs/FEATURES.md#artifacts-and-plans) — versioned plan artifacts with draft→review→final lifecycle
 - 🔧 [**Toolkit Visibility**](docs/FEATURES.md#toolkit-visibility) — 3-tier model (enabled/stub/disabled) to reduce token usage
 - 🛡️ [**Layered Safety**](docs/FEATURES.md#layered-safety) — 5-layer security: sandbox → sanitizer → blacklist → approval → audit
 - 🌐 [**HTTP API**](docs/FEATURES.md#http-api) — async REST + SSE server for dashboards and headless automation
 - 💾 [**Persistent Sessions**](docs/FEATURES.md#persistent-sessions) — SQLite-backed conversations that survive restarts
 - 👁️ [**Vision Analysis**](docs/FEATURES.md#vision-analysis) — analyze images from URLs, files, or base64 data
-- 🪶 [**Soul**](docs/FEATURES.md#soul) — customizable core identity via `soul.md` with workspace override support
+- 🪶 [**Soul**](docs/FEATURES.md#soul) — customizable orchestrator identity via `prompts/soul.md`
 
 See [docs/FEATURES.md](docs/FEATURES.md) for the full feature reference with usage examples and token efficiency strategies.
 

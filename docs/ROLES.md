@@ -2,6 +2,8 @@
 
 Roles control how Coqui agents behave. Each role defines an access level, available toolkits, iteration budget, and instruction set. The orchestrator delegates work to child agents by spawning them with a specific role.
 
+The orchestrator is the only role that uses the full orchestrator prompt stack, including `prompts/soul.md`. When you switch the main session to a specialized role with `/role <name>`, Coqui uses that role's markdown instructions instead of layering them on top of the soul. Spawned child agents follow the same rule and use role instructions directly.
+
 ## Access Levels
 
 Every role has an `access_level` that determines what the agent can do:
@@ -88,6 +90,30 @@ Fast, read-only codebase analyst. Investigates specific areas using filesystem r
 | Toolkits | `+*, -MemoryToolkit, -spawn_agent, -php_execute` |
 
 Activate: Delegated via `spawn_agent(role: "explorer")`.
+
+### muse
+
+Creative divergent thinking agent for brainstorming, associative exploration, and ideation. Generates many ideas without evaluating them — finds unexpected connections using metaphor, analogy, and lateral thinking. Produces sketch artifacts for rough idea capture. Cannot fail — all creative output is valid.
+
+| Property | Value |
+| --- | --- |
+| Access Level | `readonly-shell` |
+| Max Iterations | `32` |
+| Toolkits | `+*, -SessionEvaluationToolkit, -LearningToolkit, -ShellToolkit, -php_execute` |
+
+Activate: `/role muse` or delegated via `spawn_agent(role: "muse")`. Also used as the divergence stage in the `diverge-converge` and `reflection` loops.
+
+### philosopher
+
+Reflective synthesis agent for examining assumptions, shifting perspectives, and finding meaning. Steps back from execution to ask questions that open new directions. Produces hypothesis artifacts for testable ideas with rationale. Outputs understanding, not action items.
+
+| Property | Value |
+| --- | --- |
+| Access Level | `readonly` |
+| Max Iterations | `24` |
+| Toolkits | `+*, -SessionEvaluationToolkit, -LearningToolkit, -ShellToolkit, -php_execute` |
+
+Activate: `/role philosopher` or delegated via `spawn_agent(role: "philosopher")`. Also used as the synthesis stage in the `diverge-converge` and `reflection` loops.
 
 ### evaluator
 
