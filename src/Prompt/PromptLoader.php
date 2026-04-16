@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Prompt;
 
+use CoquiBot\Coqui\Config\ProfileParser;
+
 /**
  * Discovers and composes system prompts from markdown files.
  *
@@ -221,9 +223,9 @@ final readonly class PromptLoader
         // Soul — core identity, values, and personality — always first
         $soulPath = $this->resolveSoulPath();
         if ($soulPath !== null) {
-            $content = file_get_contents($soulPath);
-            if ($content !== false) {
-                $sections[] = $this->substitutePlaceholders(trim($content));
+            $content = $this->readPromptContent($soulPath, supportsProfileSoulFrontmatter: true);
+            if ($content !== null) {
+                $sections[] = $this->substitutePlaceholders($content);
             }
         }
 
@@ -278,12 +280,12 @@ final readonly class PromptLoader
         // Soul — core identity, values, personality (profile → workspace → default)
         $soulPath = $this->resolveSoulPath();
         if ($soulPath !== null) {
-            $content = file_get_contents($soulPath);
-            if ($content !== false) {
+            $content = $this->readPromptContent($soulPath, supportsProfileSoulFrontmatter: true);
+            if ($content !== null) {
                 $sections[] = [
                     'id' => 'soul',
                     'title' => 'Soul',
-                    'content' => $this->substitutePlaceholders(trim($content)),
+                    'content' => $this->substitutePlaceholders($content),
                     'source' => $soulPath,
                 ];
             }
@@ -364,6 +366,20 @@ final readonly class PromptLoader
         }
 
         return $this->substitutePlaceholders(trim($content));
+    }
+
+    private function readPromptContent(string $path, bool $supportsProfileSoulFrontmatter = false): ?string
+    {
+        if ($supportsProfileSoulFrontmatter && $this->profilePath !== null) {
+            $expectedProfileSoulPath = rtrim($this->profilePath, '/') . '/soul.md';
+            if ($path === $expectedProfileSoulPath) {
+                return (new ProfileParser())->readFile($path)['body'];
+            }
+        }
+
+        $content = file_get_contents($path);
+
+        return $content === false ? null : trim($content);
     }
 
     /**

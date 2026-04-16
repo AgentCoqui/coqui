@@ -129,7 +129,11 @@ final class TaskRunCommand extends Command
         if ($taskSprintId === '') {
             $taskSprintId = null;
         }
-        $resolvedMax = $boot->roleResolver()->resolveMaxIterations($role);
+        $session = $storage->getSession($sessionId);
+        $taskProfile = is_array($session) && is_string($session['profile'] ?? null) && $session['profile'] !== ''
+            ? $session['profile']
+            : null;
+        $resolvedMax = $boot->roleResolver()->resolveMaxIterations($role, $taskProfile);
         $dbMax = isset($task['max_iterations']) ? (int) $task['max_iterations'] : $resolvedMax;
         // Background tasks are always clamped for safety (even if role allows unlimited)
         $cap = $boot->config()->getBackgroundTaskMaxIterations();
@@ -187,6 +191,7 @@ final class TaskRunCommand extends Command
                 workScopeSessionId: $workScopeSessionId,
                 defaultProjectId: $taskProjectId,
                 defaultSprintId: $taskSprintId,
+                profile: $taskProfile,
             );
 
             if ($cancellationToken->isCancelled()) {

@@ -128,6 +128,27 @@ test('buildSystemPrompt uses workspace soul.md override', function () {
     expect($prompt)->not->toContain('# Default Soul');
 });
 
+test('buildSystemPrompt strips profile soul frontmatter from rendered output', function () {
+    $this->workspacePath = sys_get_temp_dir() . '/coqui-ws-' . bin2hex(random_bytes(4));
+    $profilePath = $this->workspacePath . '/profiles/artist';
+    mkdir($profilePath, 0755, true);
+    file_put_contents($profilePath . '/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n# Artist Soul\n\nCreate with style.");
+
+    $loader = new PromptLoader(
+        promptsDir: $this->promptsDir,
+        workspacePath: $this->workspacePath,
+        profilePath: $profilePath,
+    );
+
+    $prompt = $loader->buildSystemPrompt();
+    $sections = $loader->buildSystemPromptSections();
+
+    expect($prompt)->toContain('# Artist Soul');
+    expect($prompt)->not->toContain('model: anthropic/claude-sonnet-4-20250514');
+    expect($sections[0]['content'])->toContain('# Artist Soul');
+    expect($sections[0]['content'])->not->toContain('model: anthropic/claude-sonnet-4-20250514');
+});
+
 test('buildSystemPrompt works without soul.md', function () {
     unlink($this->promptsDir . '/soul.md');
 

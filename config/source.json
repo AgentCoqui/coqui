@@ -37,7 +37,7 @@
             "path": "src/Agent/ChildAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\ChildAgent",
             "layer": "agent",
-            "description": "Flexible child agent spawned by SpawnAgentTool. Receives role, a typed child handoff envelope or legacy task string, and toolkits at construction time. Loads role instructions from file-based roles via RoleDiscovery, falling back to hardcoded instructions for backward compatibility.",
+            "description": "Flexible child agent spawned by SpawnAgentTool. Receives role, a typed child handoff envelope or legacy task string, and toolkits at construction time. Loads role instructions from file-based roles via RoleDiscovery, including profile-specific overrides when an active profile path is present, and falls back to hardcoded instructions for backward compatibility.",
             "methods": [
                 "instructions(): string — resolves role instructions from file or hardcoded fallback + task injection",
                 "requiredCapabilities(): ModelCapability[] — Text + Tools",
@@ -986,7 +986,7 @@
             "path": "src/Tool/SpawnAgentTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SpawnAgentTool",
             "layer": "tool",
-            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/readonly-shell/minimal) to determine toolkit assignment. Full-access children inherit the parent's shellAllowedCommands and shellDeniedCommands. readonly-shell children receive ShellToolkit restricted to READ_ONLY_SHELL_COMMANDS (grep, cat, head, tail, wc, ls, uniq, diff). Normalizes task and context input into a typed ChildAgentHandoff envelope before invoking the child, passes through the injected ToolExecutorInterface for executor consistency, and persists handoff metadata on child run records. Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
+            "description": "Spawns child agents with role-specific models and toolkits. Uses RoleDiscovery access_level (full/readonly/readonly-shell/minimal) to determine toolkit assignment, honoring profile-specific role overrides and profile-level model defaults when an active profile is present. Full-access children inherit the parent's shellAllowedCommands and shellDeniedCommands. readonly-shell children receive ShellToolkit restricted to READ_ONLY_SHELL_COMMANDS (grep, cat, head, tail, wc, ls, uniq, diff). Normalizes task and context input into a typed ChildAgentHandoff envelope before invoking the child, passes through the injected ToolExecutorInterface for executor consistency, and persists handoff metadata on child run records. Applies per-package visibility from ToolkitVisibilityRegistry (Disabled skipped, Stub treated as Enabled since children lack tool_search). Discovered toolkits are wrapped with child-mode credential guards. Optionally includes BackgroundTaskToolkit for full-access children when agents.defaults.childBackgroundTasks is enabled.",
             "methods": [
                 "execute(array $input): ToolResult — resolves role to model, builds toolkits, runs child agent",
                 "buildToolkits(string $role): ToolkitInterface[] — returns toolkits based on access_level with visibility filtering, credential guards in child mode, and optional BackgroundTaskToolkit",
@@ -2031,7 +2031,7 @@
             "path": "src/Prompt/PromptLoader.php",
             "fqcn": "CoquiBot\\Coqui\\Prompt\\PromptLoader",
             "layer": "prompt",
-            "description": "Discovers and composes system prompts from markdown files. Loads prompt sections from the prompts/ directory, supports placeholder substitution, and assembles the final system prompt. Soul resolution: soul.md defines the bot's core identity and is loaded before base.md. Users can override it by placing a soul.md (case-insensitive) in their workspace root or workspace/prompts/. Resolution order: workspace root → workspace/prompts/ → default prompts/soul.md.",
+            "description": "Discovers and composes system prompts from markdown files. Loads prompt sections from the prompts/ directory, supports placeholder substitution, and assembles the final system prompt. Soul resolution: soul.md defines the bot's core identity and is loaded before base.md. Active profiles can override soul.md and other prompt files, and profile soul frontmatter is stripped before prompt rendering so metadata like model selection does not leak into instructions.",
             "methods": [
                 "load(string $filename): string — load and render a single prompt file with placeholder substitution",
                 "loadSection(string $section, string $filename): string — load a subsection file from a subdirectory",
@@ -2080,11 +2080,11 @@
             "path": "src/Config/RoleDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleDiscovery",
             "layer": "config",
-            "description": "Boot-time role discovery. Scans workspace/roles/ for .md files, parses metadata only (progressive disclosure). Seeds built-in roles from config/roles/ on first boot with optional RoleUpdateTracker for hash recording. Seeds package-distributed roles via seedPackageRoles(). Provides CRUD operations with backup support for updates.",
+            "description": "Boot-time role discovery. Scans workspace/roles/ for .md files, parses metadata only (progressive disclosure), and can also resolve profile-specific role overrides from profiles/{name}/roles/. Seeds built-in roles from config/roles/ on first boot with optional RoleUpdateTracker for hash recording. Seeds package-distributed roles via seedPackageRoles(). Provides CRUD operations with backup support for updates.",
             "methods": [
                 "discoverAll(): array<string, RoleProperties> — scan and cache all roles",
-                "getRole(string $name): RoleProperties — get role or throw RoleNotFoundException",
-                "readInstructions(string $name): string — load role body for activation",
+                "getRole(string $name, ?string $profilePath = null): RoleProperties — get role or throw RoleNotFoundException, preferring a profile override when provided",
+                "readInstructions(string $name, ?string $profilePath = null): string — load role body for activation",
                 "seedBuiltinRoles(?RoleUpdateTracker): void — copy config/roles/ to workspace/roles/, optionally recording hashes",
                 "seedPackageRoles(array $packageRolePaths): void — copy package-distributed .md role files to workspace/roles/ if not already present, invalidates cache",
                 "createRole(array, string): RoleProperties — create new role file",
@@ -2096,15 +2096,26 @@
             "path": "src/Config/ProfileDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\ProfileDiscovery",
             "layer": "config",
-            "description": "Discovers personality profiles from workspace/profiles/{name}/ directories. A valid profile directory must contain a soul.md file. Provides profile existence checks, path resolution, soul.md reading, and description extraction.",
+            "description": "Discovers personality profiles from workspace/profiles/{name}/ directories. A valid profile directory must contain a soul.md file. Uses ProfileParser so soul frontmatter can carry metadata like a profile-level default model while the rendered soul body stays clean. Provides profile existence checks, path resolution, soul.md reading, model lookup, and description extraction.",
             "methods": [
                 "discoverAll(): array<string, string> — scan workspace/profiles/ for valid profile directories (name → path)",
                 "profileExists(string $name): bool — check if a named profile exists",
                 "getProfilePath(string $name): string — return absolute path to profile directory",
                 "readSoul(string $name): string — load soul.md content for a profile",
+                "readProfileModel(string $name): ?string — load the optional model field from soul.md frontmatter",
                 "availableProfiles(): list<string> — return sorted list of profile names",
                 "invalidateCache(): void — clear cached profile list",
                 "extractDescription(string $name): ?string — extract first paragraph from soul.md as description"
+            ]
+        },
+        {
+            "path": "src/Config/ProfileParser.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ProfileParser",
+            "layer": "config",
+            "description": "Parses optional YAML frontmatter from profile soul files. Returns both metadata and the markdown body so profile-level settings like model selection can be read without leaking frontmatter into rendered prompts.",
+            "methods": [
+                "parse(string $content): array{metadata: array<string, mixed>, body: string} — parse inline profile soul content",
+                "readFile(string $filePath): array{metadata: array<string, mixed>, body: string} — parse a profile soul file from disk"
             ]
         },
         {

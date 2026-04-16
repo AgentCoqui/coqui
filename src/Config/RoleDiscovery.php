@@ -27,6 +27,9 @@ final class RoleDiscovery
     /** @var array<string, RoleProperties>|null Cached discovery results keyed by name */
     private ?array $discovered = null;
 
+    /** @var array<string, array<string, RoleProperties>> Cached profile role results keyed by profile path */
+    private array $profileDiscovered = [];
+
     public function __construct(
         string $workspacePath,
         ?string $projectRoot = null,
@@ -93,8 +96,15 @@ final class RoleDiscovery
      *
      * @throws RoleNotFoundException If the role name is not found.
      */
-    public function getRole(string $name): RoleProperties
+    public function getRole(string $name, ?string $profilePath = null): RoleProperties
     {
+        if ($profilePath !== null) {
+            $profileRole = $this->getProfileRole($name, $profilePath);
+            if ($profileRole !== null) {
+                return $profileRole;
+            }
+        }
+
         $roles = $this->discoverAll();
 
         if (isset($roles[$name])) {
@@ -109,9 +119,9 @@ final class RoleDiscovery
      *
      * @throws RoleNotFoundException If the role name is not found.
      */
-    public function readInstructions(string $name): string
+    public function readInstructions(string $name, ?string $profilePath = null): string
     {
-        $role = $this->getRole($name);
+        $role = $this->getRole($name, $profilePath);
 
         return $this->parser->readBody($role->path);
     }
@@ -119,10 +129,10 @@ final class RoleDiscovery
     /**
      * Check if a role exists.
      */
-    public function roleExists(string $name): bool
+    public function roleExists(string $name, ?string $profilePath = null): bool
     {
         try {
-            $this->getRole($name);
+            $this->getRole($name, $profilePath);
             return true;
         } catch (RoleNotFoundException) {
             return false;
@@ -134,9 +144,23 @@ final class RoleDiscovery
      *
      * @return string[]
      */
-    public function availableRoles(): array
+    public function availableRoles(?string $profilePath = null): array
     {
-        return array_keys($this->discoverAll());
+        $roles = array_keys($this->discoverAll());
+
+        if ($profilePath !== null) {
+            $roles = array_unique([...$roles, ...array_keys($this->discoverProfileRoles($profilePath))]);
+            sort($roles);
+        }
+
+        return $roles;
+    }
+
+    public function getProfileRole(string $name, string $profilePath): ?RoleProperties
+    {
+        $roles = $this->discoverProfileRoles($profilePath);
+
+        return $roles[$name] ?? null;
     }
 
     /**
@@ -371,6 +395,49 @@ final class RoleDiscovery
     public function invalidateCache(): void
     {
         $this->discovered = null;
+        $this->profileDiscovered = [];
+    }
+
+    /**
+     * @return array<string, RoleProperties>
+     */
+    private function discoverProfileRoles(string $profilePath): array
+    {
+        if (isset($this->profileDiscovered[$profilePath])) {
+            return $this->profileDiscovered[$profilePath];
+        }
+
+        $rolesDir = rtrim($profilePath, '/') . '/roles';
+        $this->profileDiscovered[$profilePath] = [];
+
+        if (!is_dir($rolesDir)) {
+            return $this->profileDiscovered[$profilePath];
+        }
+
+        $entries = scandir($rolesDir);
+        if ($entries === false) {
+            return $this->profileDiscovered[$profilePath];
+        }
+
+        foreach ($entries as $entry) {
+            if ($entry === '.' || $entry === '..' || !str_ends_with($entry, '.md')) {
+                continue;
+            }
+
+            $filePath = $rolesDir . '/' . $entry;
+            if (!is_file($filePath)) {
+                continue;
+            }
+
+            try {
+                $properties = $this->parser->readProperties($filePath);
+                $this->profileDiscovered[$profilePath][$properties->name] = $properties;
+            } catch (RoleParseException) {
+                continue;
+            }
+        }
+
+        return $this->profileDiscovered[$profilePath];
     }
 
     /**
