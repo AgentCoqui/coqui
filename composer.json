@@ -1,7 +1,6 @@
 {
   "name": "coquibot/coqui",
   "description": "Personal operating system — lightweight agent runtime with multi-model orchestration and persistent sessions",
-  "version": "0.0.1",
   "type": "project",
   "license": "MIT",
   "authors": [

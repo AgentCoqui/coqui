@@ -140,14 +140,11 @@ info "Development files removed"
 
 # ─── Inject version ──────────────────────────────────────────────────────────
 
-step "Setting version to ${VERSION}"
+step "Writing build version ${VERSION}"
 
-(
-    cd "${STAGE_DIR}"
-    composer config version "${VERSION}" --no-interaction 2>/dev/null
-)
+printf '%s\n' "${VERSION}" > "${STAGE_DIR}/config/version.txt"
 
-info "composer.json version set to ${VERSION}"
+info "config/version.txt set to ${VERSION}"
 
 # ─── Production Composer install ──────────────────────────────────────────────
 

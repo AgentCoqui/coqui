@@ -5,17 +5,17 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use Composer\InstalledVersions;
 use CoquiBot\Coqui\Command\ApiCommand;
 use CoquiBot\Coqui\Command\BenchmarkCommand;
 use CoquiBot\Coqui\Command\DoctorCommand;
 use CoquiBot\Coqui\Command\RunCommand;
 use CoquiBot\Coqui\Command\SetupCommand;
+use CoquiBot\Coqui\Support\AppVersion;
 use CoquiBot\Coqui\Command\TaskRunCommand;
 use CoquiBot\Coqui\Command\TurnRunCommand;
 use Symfony\Component\Console\Application;
 
-$version = InstalledVersions::getPrettyVersion('coquibot/coqui') ?? 'dev';
+$version = AppVersion::current();
 $app = new Application('coqui', $version);
 $app->addCommand(new RunCommand());
 $app->addCommand(new SetupCommand());
