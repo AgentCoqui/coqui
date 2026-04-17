@@ -10,6 +10,7 @@ use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\ScheduleStore;
+use CoquiBot\Coqui\Support\AppVersion;
 use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\Coqui\Support\RuntimeIdentity;
 use Psr\Http\Message\ServerRequestInterface;
@@ -80,15 +81,7 @@ final readonly class HealthHandler
 
     private static function version(): string
     {
-        $composerJson = dirname(__DIR__, 3) . '/composer.json';
-
-        if (!file_exists($composerJson)) {
-            return 'dev';
-        }
-
-        $data = json_decode(file_get_contents($composerJson) ?: '{}', true);
-
-        return is_array($data) && isset($data['version']) ? (string) $data['version'] : 'dev';
+        return AppVersion::current();
     }
 
     /**

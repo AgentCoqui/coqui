@@ -10,9 +10,12 @@
 
 FROM php:8.4-cli
 
+ARG COQUI_VERSION=dev
+
 LABEL maintainer="Coqui Bot <carmelo@coquibot.ai>"
 LABEL description="Coqui — PHP 8.4 CLI + Composer"
 LABEL org.opencontainers.image.source="https://github.com/AgentCoqui/coqui"
+LABEL org.opencontainers.image.version="${COQUI_VERSION}"
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -112,6 +115,8 @@ RUN composer install \
     --optimize-autoloader
 
 COPY --chown=coqui:coqui . /app
+
+RUN printf '%s\n' "${COQUI_VERSION}" > /app/config/version.txt
 
 # Regenerate the classmap now that source files are present.
 # The composer install above runs before COPY to cache the vendor layer, but the

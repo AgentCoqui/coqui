@@ -47,6 +47,18 @@ jobs:
             # sha for traceability
             type=sha,prefix=
 
+      - name: Resolve runtime version
+        id: runtime-version
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" && "${GITHUB_REF_NAME}" == v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="dev-${GITHUB_SHA::7}"
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -55,5 +67,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            COQUI_VERSION=${{ steps.runtime-version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
