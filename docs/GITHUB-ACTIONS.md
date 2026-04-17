@@ -28,6 +28,10 @@ The workflow installs: `pdo_sqlite`, `mbstring`, `curl`, `xml`, `zip`, `pcntl`. 
 
 Composer dependencies are cached by PHP version using the `actions/cache` action. The cache key hashes `composer.lock` (Coqui is a project and commits its lockfile for reproducible builds).
 
+### Release Version Source
+
+Release builds derive the application version from the git tag (`v1.2.3` becomes `1.2.3`) and inject it into `config/version.txt` inside the staged build. The root `composer.json` is not used as a manually maintained application version source.
+
 ## Relationship to php-agents
 
 Coqui depends on `carmelosantana/php-agents` (installed from Packagist). Running Coqui's test suite indirectly exercises php-agents. However, php-agents has its own independent CI workflow — changes to that library are validated in isolation without running the full Coqui suite.

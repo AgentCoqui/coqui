@@ -11,6 +11,7 @@
         "observer": "Observers — real-time event rendering for terminal output",
         "storage": "Storage — SQLite-backed session and audit persistence",
         "coqui-space": "Coqui Space — marketplace integration for discovering, installing, and managing skills and toolkits",
+        "support": "Support — reusable cross-cutting utilities for runtime identity, filesystem, JSON, strings, process management, and version resolution",
         "prompt": "Prompt — system prompt composition, soul resolution, placeholder substitution"
     },
     "files": [
@@ -2748,6 +2749,15 @@
                 "static truncate(string, int, string): string — truncate with newline normalization and mb_* safety",
                 "static truncateNullable(?string, int, string): ?string — nullable-safe truncate variant",
                 "static slug(string): string — kebab-case conversion with transliteration"
+            ]
+        },
+        {
+            "path": "src/Support/AppVersion.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\AppVersion",
+            "layer": "support",
+            "description": "Centralized application version resolver. Prefers the COQUI_VERSION environment override, then an injected config/version.txt artifact used by release archives and Docker images, then an exact git tag on source checkouts, and finally falls back to dev. Used by the CLI and API version surfaces so runtime reporting stays consistent without manual composer.json version bumps.",
+            "methods": [
+                "static current(?string): string — resolve the current application version from environment, injected file, exact git tag, or dev fallback"
             ]
         },
         {

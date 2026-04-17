@@ -87,9 +87,9 @@ jobs:
           mkdir -p BUILD/coqui
           git archive HEAD | tar -x -C BUILD/coqui
 
-      - name: Set version in composer.json
+      - name: Write build version file
         working-directory: BUILD/coqui
-        run: composer config version "${{ steps.version.outputs.version }}" --no-interaction
+        run: printf '%s\n' "${{ steps.version.outputs.version }}" > config/version.txt
 
       - name: Install production dependencies
         working-directory: BUILD/coqui
