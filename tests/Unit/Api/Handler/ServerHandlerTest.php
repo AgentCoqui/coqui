@@ -146,3 +146,48 @@ test('health handler includes quality automation summary', function () {
         cleanupServerHandlerFixture($fixture);
     }
 });
+
+test('server info and health share the same app version source', function () {
+    $fixture = createServerHandlerFixture();
+    $original = getenv('COQUI_VERSION');
+    putenv('COQUI_VERSION=7.8.9');
+
+    try {
+        $serverHandler = new ServerHandler(
+            storage: $fixture['storage'],
+            startTime: microtime(true) - 5,
+            turnManager: $fixture['turnManager'],
+            workspacePath: $fixture['workspacePath'],
+            databasePath: $fixture['dbPath'],
+            taskManager: $fixture['taskManager'],
+            qualityAutomation: $fixture['qualityStatus'],
+        );
+        $healthHandler = new HealthHandler(
+            startTime: microtime(true) - 5,
+            turnManager: $fixture['turnManager'],
+            workspacePath: $fixture['workspacePath'],
+            databasePath: $fixture['dbPath'],
+            taskManager: $fixture['taskManager'],
+            scheduleStore: $fixture['scheduleStore'],
+            webhookStore: null,
+            qualityAutomation: $fixture['qualityStatus'],
+        );
+
+        $serverResponse = $serverHandler->info(new ServerRequest('GET', '/api/v1/server/info'));
+        $healthResponse = $healthHandler(new ServerRequest('GET', '/api/v1/health'));
+
+        $serverBody = json_decode((string) $serverResponse->getBody(), true);
+        $healthBody = json_decode((string) $healthResponse->getBody(), true);
+
+        expect($serverBody['version'])->toBe('7.8.9');
+        expect($healthBody['version'])->toBe('7.8.9');
+    } finally {
+        if ($original === false) {
+            putenv('COQUI_VERSION');
+        } else {
+            putenv("COQUI_VERSION={$original}");
+        }
+
+        cleanupServerHandlerFixture($fixture);
+    }
+});
