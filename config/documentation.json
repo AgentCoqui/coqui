@@ -358,325 +358,325 @@
                     "heading": "Background Tasks",
                     "level": 3,
                     "line_start": 1321,
-                    "line_end": 1326
+                    "line_end": 1328
                 },
                 {
                     "heading": "`POST /api/v1/tasks`",
                     "level": 4,
-                    "line_start": 1327,
-                    "line_end": 1387
+                    "line_start": 1329,
+                    "line_end": 1389
                 },
                 {
                     "heading": "`GET /api/v1/tasks`",
                     "level": 4,
-                    "line_start": 1388,
-                    "line_end": 1424
+                    "line_start": 1390,
+                    "line_end": 1426
                 },
                 {
                     "heading": "`GET /api/v1/tasks/{id}`",
                     "level": 4,
-                    "line_start": 1425,
-                    "line_end": 1455
+                    "line_start": 1427,
+                    "line_end": 1457
                 },
                 {
                     "heading": "`GET /api/v1/tasks/{id}/events`",
                     "level": 4,
-                    "line_start": 1456,
-                    "line_end": 1498
+                    "line_start": 1458,
+                    "line_end": 1500
                 },
                 {
                     "heading": "`POST /api/v1/tasks/{id}/input`",
                     "level": 4,
-                    "line_start": 1499,
-                    "line_end": 1534
+                    "line_start": 1501,
+                    "line_end": 1536
                 },
                 {
                     "heading": "`POST /api/v1/tasks/{id}/cancel`",
                     "level": 4,
-                    "line_start": 1535,
-                    "line_end": 1573
+                    "line_start": 1537,
+                    "line_end": 1575
                 },
                 {
                     "heading": "Todos",
                     "level": 3,
-                    "line_start": 1574,
-                    "line_end": 1577
+                    "line_start": 1576,
+                    "line_end": 1579
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/todos`",
                     "level": 4,
-                    "line_start": 1578,
-                    "line_end": 1615
+                    "line_start": 1580,
+                    "line_end": 1617
                 },
                 {
                     "heading": "`POST /api/v1/sessions/{id}/todos`",
                     "level": 4,
-                    "line_start": 1616,
-                    "line_end": 1657
+                    "line_start": 1618,
+                    "line_end": 1659
                 },
                 {
                     "heading": "`POST /api/v1/sessions/{id}/todos/bulk`",
                     "level": 4,
-                    "line_start": 1658,
-                    "line_end": 1700
+                    "line_start": 1660,
+                    "line_end": 1702
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/todos/stats`",
                     "level": 4,
-                    "line_start": 1701,
-                    "line_end": 1716
+                    "line_start": 1703,
+                    "line_end": 1718
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/todos/{todoId}`",
                     "level": 4,
-                    "line_start": 1717,
-                    "line_end": 1743
+                    "line_start": 1719,
+                    "line_end": 1745
                 },
                 {
                     "heading": "`PATCH /api/v1/sessions/{id}/todos/{todoId}`",
                     "level": 4,
-                    "line_start": 1744,
-                    "line_end": 1772
+                    "line_start": 1746,
+                    "line_end": 1774
                 },
                 {
                     "heading": "`PATCH /api/v1/sessions/{id}/todos/bulk`",
                     "level": 4,
-                    "line_start": 1773,
-                    "line_end": 1804
+                    "line_start": 1775,
+                    "line_end": 1806
                 },
                 {
                     "heading": "`POST /api/v1/sessions/{id}/todos/{todoId}/complete`",
                     "level": 4,
-                    "line_start": 1805,
-                    "line_end": 1816
+                    "line_start": 1807,
+                    "line_end": 1818
                 },
                 {
                     "heading": "`DELETE /api/v1/sessions/{id}/todos/{todoId}`",
                     "level": 4,
-                    "line_start": 1817,
-                    "line_end": 1828
+                    "line_start": 1819,
+                    "line_end": 1830
                 },
                 {
                     "heading": "Artifacts",
                     "level": 3,
-                    "line_start": 1829,
-                    "line_end": 1834
+                    "line_start": 1831,
+                    "line_end": 1836
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/artifacts`",
                     "level": 4,
-                    "line_start": 1835,
-                    "line_end": 1868
+                    "line_start": 1837,
+                    "line_end": 1870
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/artifacts/{artifactId}`",
                     "level": 4,
-                    "line_start": 1869,
-                    "line_end": 1885
+                    "line_start": 1871,
+                    "line_end": 1887
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions`",
                     "level": 4,
-                    "line_start": 1886,
-                    "line_end": 1914
+                    "line_start": 1888,
+                    "line_end": 1916
                 },
                 {
                     "heading": "Schedules",
                     "level": 3,
-                    "line_start": 1915,
-                    "line_end": 1920
+                    "line_start": 1917,
+                    "line_end": 1924
                 },
                 {
                     "heading": "`GET /api/v1/schedules`",
                     "level": 4,
-                    "line_start": 1921,
-                    "line_end": 1965
+                    "line_start": 1925,
+                    "line_end": 1969
                 },
                 {
                     "heading": "`GET /api/v1/schedules/{id}`",
                     "level": 4,
-                    "line_start": 1966,
-                    "line_end": 1976
+                    "line_start": 1970,
+                    "line_end": 1980
                 },
                 {
                     "heading": "Loops",
                     "level": 3,
-                    "line_start": 1977,
-                    "line_end": 1982
+                    "line_start": 1981,
+                    "line_end": 1988
                 },
                 {
                     "heading": "`GET /api/v1/loops`",
                     "level": 4,
-                    "line_start": 1983,
-                    "line_end": 2012
+                    "line_start": 1989,
+                    "line_end": 2018
                 },
                 {
                     "heading": "`GET /api/v1/loops/definitions`",
                     "level": 4,
-                    "line_start": 2013,
-                    "line_end": 2035
+                    "line_start": 2019,
+                    "line_end": 2041
                 },
                 {
                     "heading": "`GET /api/v1/loops/{id}`",
                     "level": 4,
-                    "line_start": 2036,
-                    "line_end": 2058
+                    "line_start": 2042,
+                    "line_end": 2064
                 },
                 {
                     "heading": "`GET /api/v1/loops/{id}/iterations`",
                     "level": 4,
-                    "line_start": 2059,
-                    "line_end": 2080
+                    "line_start": 2065,
+                    "line_end": 2086
                 },
                 {
                     "heading": "`GET /api/v1/loops/{id}/iterations/{iterationId}`",
                     "level": 4,
-                    "line_start": 2081,
-                    "line_end": 2108
+                    "line_start": 2087,
+                    "line_end": 2114
                 },
                 {
                     "heading": "Webhooks",
                     "level": 3,
-                    "line_start": 2109,
-                    "line_end": 2112
+                    "line_start": 2115,
+                    "line_end": 2120
                 },
                 {
                     "heading": "`POST /api/v1/webhooks/incoming/{name}`",
                     "level": 4,
-                    "line_start": 2113,
-                    "line_end": 2138
+                    "line_start": 2121,
+                    "line_end": 2146
                 },
                 {
                     "heading": "`GET /api/v1/webhooks`",
                     "level": 4,
-                    "line_start": 2139,
-                    "line_end": 2172
+                    "line_start": 2147,
+                    "line_end": 2180
                 },
                 {
                     "heading": "`POST /api/v1/webhooks`",
                     "level": 4,
-                    "line_start": 2173,
-                    "line_end": 2206
+                    "line_start": 2181,
+                    "line_end": 2214
                 },
                 {
                     "heading": "`GET /api/v1/webhooks/{id}`",
                     "level": 4,
-                    "line_start": 2207,
-                    "line_end": 2214
+                    "line_start": 2215,
+                    "line_end": 2222
                 },
                 {
                     "heading": "`PUT /api/v1/webhooks/{id}`",
                     "level": 4,
-                    "line_start": 2215,
-                    "line_end": 2226
+                    "line_start": 2223,
+                    "line_end": 2234
                 },
                 {
                     "heading": "`DELETE /api/v1/webhooks/{id}`",
                     "level": 4,
-                    "line_start": 2227,
-                    "line_end": 2240
+                    "line_start": 2235,
+                    "line_end": 2248
                 },
                 {
                     "heading": "`POST /api/v1/webhooks/{id}/rotate`",
                     "level": 4,
-                    "line_start": 2241,
-                    "line_end": 2255
+                    "line_start": 2249,
+                    "line_end": 2263
                 },
                 {
                     "heading": "`GET /api/v1/webhooks/{id}/deliveries`",
                     "level": 4,
-                    "line_start": 2256,
-                    "line_end": 2286
+                    "line_start": 2264,
+                    "line_end": 2294
                 },
                 {
                     "heading": "Toolkit Management",
                     "level": 2,
-                    "line_start": 2287,
-                    "line_end": 2298
+                    "line_start": 2295,
+                    "line_end": 2306
                 },
                 {
                     "heading": "Protected Tools",
                     "level": 3,
-                    "line_start": 2299,
-                    "line_end": 2311
+                    "line_start": 2307,
+                    "line_end": 2319
                 },
                 {
                     "heading": "`GET /api/v1/toolkits`",
                     "level": 4,
-                    "line_start": 2312,
-                    "line_end": 2367
+                    "line_start": 2320,
+                    "line_end": 2375
                 },
                 {
                     "heading": "`POST /api/v1/toolkits/visibility`",
                     "level": 4,
-                    "line_start": 2368,
-                    "line_end": 2417
+                    "line_start": 2376,
+                    "line_end": 2425
                 },
                 {
                     "heading": "`GET /api/v1/server/prompt`",
                     "level": 4,
-                    "line_start": 2418,
-                    "line_end": 2507
+                    "line_start": 2426,
+                    "line_end": 2515
                 },
                 {
                     "heading": "`GET /api/v1/server/backstory`",
                     "level": 4,
-                    "line_start": 2508,
-                    "line_end": 2611
+                    "line_start": 2516,
+                    "line_end": 2619
                 },
                 {
                     "heading": "Middleware",
                     "level": 2,
-                    "line_start": 2612,
-                    "line_end": 2613
+                    "line_start": 2620,
+                    "line_end": 2621
                 },
                 {
                     "heading": "Rate Limiting",
                     "level": 3,
-                    "line_start": 2614,
-                    "line_end": 2652
+                    "line_start": 2622,
+                    "line_end": 2660
                 },
                 {
                     "heading": "Request Size Limit",
                     "level": 3,
-                    "line_start": 2653,
-                    "line_end": 2665
+                    "line_start": 2661,
+                    "line_end": 2673
                 },
                 {
                     "heading": "Content-Type Enforcement",
                     "level": 3,
-                    "line_start": 2666,
-                    "line_end": 2676
+                    "line_start": 2674,
+                    "line_end": 2684
                 },
                 {
                     "heading": "CORS",
                     "level": 2,
-                    "line_start": 2677,
-                    "line_end": 2686
+                    "line_start": 2685,
+                    "line_end": 2694
                 },
                 {
                     "heading": "Safety",
                     "level": 2,
-                    "line_start": 2687,
-                    "line_end": 2694
+                    "line_start": 2695,
+                    "line_end": 2702
                 },
                 {
                     "heading": "Concurrency",
                     "level": 2,
-                    "line_start": 2695,
-                    "line_end": 2698
+                    "line_start": 2703,
+                    "line_end": 2706
                 },
                 {
                     "heading": "REPL Command Mapping",
                     "level": 2,
-                    "line_start": 2699,
-                    "line_end": 2727
+                    "line_start": 2707,
+                    "line_end": 2735
                 },
                 {
                     "heading": "Quick Reference",
                     "level": 2,
-                    "line_start": 2728,
-                    "line_end": 2796
+                    "line_start": 2736,
+                    "line_end": 2804
                 }
             ]
         },
@@ -2516,79 +2516,79 @@
                     "heading": "Read This First",
                     "level": 2,
                     "line_start": 17,
-                    "line_end": 37
+                    "line_end": 36
                 },
                 {
                     "heading": "Architecture in One Page",
                     "level": 2,
-                    "line_start": 38,
-                    "line_end": 54
+                    "line_start": 37,
+                    "line_end": 53
                 },
                 {
                     "heading": "Working with AI Agents on This Repo",
                     "level": 2,
-                    "line_start": 55,
-                    "line_end": 72
+                    "line_start": 54,
+                    "line_end": 71
                 },
                 {
                     "heading": "Source of Truth Rules",
                     "level": 2,
-                    "line_start": 73,
-                    "line_end": 87
+                    "line_start": 72,
+                    "line_end": 86
                 },
                 {
                     "heading": "Platform Support",
                     "level": 2,
-                    "line_start": 88,
-                    "line_end": 99
+                    "line_start": 87,
+                    "line_end": 98
                 },
                 {
                     "heading": "Dependency Management",
                     "level": 2,
-                    "line_start": 100,
-                    "line_end": 117
+                    "line_start": 99,
+                    "line_end": 116
                 },
                 {
                     "heading": "Coding Standards",
                     "level": 2,
-                    "line_start": 118,
-                    "line_end": 138
+                    "line_start": 117,
+                    "line_end": 137
                 },
                 {
                     "heading": "Safety Constraints",
                     "level": 2,
-                    "line_start": 139,
-                    "line_end": 152
+                    "line_start": 138,
+                    "line_end": 151
                 },
                 {
                     "heading": "Testing Expectations",
                     "level": 2,
-                    "line_start": 153,
-                    "line_end": 174
+                    "line_start": 152,
+                    "line_end": 173
                 },
                 {
                     "heading": "Documentation Policy",
                     "level": 2,
-                    "line_start": 175,
-                    "line_end": 195
+                    "line_start": 174,
+                    "line_end": 194
                 },
                 {
                     "heading": "Source Map Maintenance",
                     "level": 2,
-                    "line_start": 196,
-                    "line_end": 206
+                    "line_start": 195,
+                    "line_end": 205
                 },
                 {
                     "heading": "Practical Change Checklist",
                     "level": 2,
-                    "line_start": 207,
-                    "line_end": 217
+                    "line_start": 206,
+                    "line_end": 216
                 },
                 {
                     "heading": "Keep This File Lean",
                     "level": 2,
-                    "line_start": 218,
-                    "line_end": 220
+                    "line_start": 217,
+                    "line_end": 219
                 }
             ]
         },
@@ -2793,25 +2793,25 @@
                     "heading": "Documentation",
                     "level": 2,
                     "line_start": 479,
-                    "line_end": 497
+                    "line_end": 496
                 },
                 {
                     "heading": "Community",
                     "level": 2,
-                    "line_start": 498,
-                    "line_end": 504
+                    "line_start": 497,
+                    "line_end": 503
                 },
                 {
                     "heading": "Contributing",
                     "level": 2,
-                    "line_start": 505,
-                    "line_end": 516
+                    "line_start": 504,
+                    "line_end": 515
                 },
                 {
                     "heading": "License",
                     "level": 2,
-                    "line_start": 517,
-                    "line_end": 519
+                    "line_start": 516,
+                    "line_end": 518
                 }
             ]
         }

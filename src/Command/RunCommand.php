@@ -47,6 +47,7 @@ use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\PromptInspectionService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -421,6 +422,7 @@ final class RunCommand extends Command
                 ],
             ),
             agentRunner: $this->agentRunner,
+            promptInspection: new PromptInspectionService($this->agentRunner, $this->boot->workspacePath(), $this->workDir),
             onHintsToggle: function () use ($io): void {
                 $this->hintsEnabled = !$this->hintsEnabled;
                 $this->boot->configManager()->set('agents.defaults.hints', $this->hintsEnabled);
