@@ -152,7 +152,7 @@ final class OdsExtractor implements ExtractorInterface
             }
 
             if ($paragraphs !== []) {
-                return implode(' ', $paragraphs);
+                return implode('<br>', $paragraphs);
             }
         }
 

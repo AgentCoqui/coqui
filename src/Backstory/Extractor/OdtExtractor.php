@@ -31,19 +31,22 @@ final class OdtExtractor implements ExtractorInterface
                 return ExtractorResult::fail('ODT document contains no extractable text');
             }
 
-            $paragraphs = [];
+            $blocks = [];
             foreach ($paragraphNodes as $paragraphNode) {
                 $text = OpenDocumentArchiveReader::extractNodeText($paragraphNode);
                 if ($text !== '') {
-                    $paragraphs[] = $text;
+                    $blocks[] = [
+                        'content' => $this->renderBlock($paragraphNode, $text),
+                        'is_list_item' => $this->listDepth($paragraphNode) > 0,
+                    ];
                 }
             }
 
-            if ($paragraphs === []) {
+            if ($blocks === []) {
                 return ExtractorResult::fail('ODT document contains no extractable text');
             }
 
-            $content = implode("\n\n", $paragraphs);
+            $content = $this->joinBlocks($blocks);
 
             return ExtractorResult::ok($content, BackstoryTextReader::estimateTokens($content));
         } finally {
@@ -59,5 +62,52 @@ final class OdtExtractor implements ExtractorInterface
     public static function isRuntimeSupported(): bool
     {
         return OpenDocumentArchiveReader::isRuntimeSupported();
+    }
+
+    private function renderBlock(\SimpleXMLElement $node, string $text): string
+    {
+        if (OpenDocumentArchiveReader::localName($node) === 'h') {
+            $level = (int) OpenDocumentArchiveReader::attributeValue(
+                $node,
+                OpenDocumentArchiveReader::TEXT_NS,
+                'outline-level',
+            );
+            $level = max(1, min(3, $level));
+
+            return str_repeat('#', 3 + $level) . ' ' . $text;
+        }
+
+        $listDepth = $this->listDepth($node);
+        if ($listDepth > 0) {
+            return str_repeat('  ', $listDepth - 1) . '- ' . $text;
+        }
+
+        return $text;
+    }
+
+    private function listDepth(\SimpleXMLElement $node): int
+    {
+        $ancestors = $node->xpath('ancestor::*[local-name()="list"]');
+
+        return is_array($ancestors) ? count($ancestors) : 0;
+    }
+
+    /**
+     * @param list<array{content: string, is_list_item: bool}> $blocks
+     */
+    private function joinBlocks(array $blocks): string
+    {
+        $content = '';
+
+        foreach ($blocks as $index => $block) {
+            if ($index > 0) {
+                $previous = $blocks[$index - 1];
+                $content .= $previous['is_list_item'] && $block['is_list_item'] ? "\n" : "\n\n";
+            }
+
+            $content .= $block['content'];
+        }
+
+        return $content;
     }
 }
