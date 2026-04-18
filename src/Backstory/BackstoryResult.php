@@ -18,5 +18,6 @@ final readonly class BackstoryResult
         public int $totalTokens,
         public float $generationTimeMs,
         public array $errors = [],
+        public int $unsupportedFiles = 0,
     ) {}
 }

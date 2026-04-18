@@ -158,3 +158,34 @@ test('entries have correct absolute paths', function () {
 
     expect($entries[0]->absolutePath)->toBe($this->tempDir . '/file.txt');
 });
+
+test('inspect reports unsupported files without hiding supported ones', function () {
+    file_put_contents($this->tempDir . '/01-supported.txt', 'hello');
+    file_put_contents($this->tempDir . '/02-unsupported.exe', 'binary-ish');
+    mkdir($this->tempDir . '/folder', 0755, true);
+    file_put_contents($this->tempDir . '/folder/note.bin', 'bits');
+
+    $discovery = new BackstoryFileDiscovery();
+    $inventory = $discovery->inspect($this->tempDir);
+
+    expect($inventory->totalFiles())->toBe(3);
+    expect($inventory->supportedFiles())->toBe(1);
+    expect($inventory->unsupportedFiles())->toBe(2);
+    expect(array_map(fn(BackstoryFileEntry $e) => $e->relativePath, $inventory->supportedEntries))
+        ->toBe(['01-supported.txt']);
+    expect(array_map(static fn($e) => $e->relativePath, $inventory->unsupportedEntries))
+        ->toBe(['02-unsupported.exe', 'folder/note.bin']);
+    expect($inventory->unsupportedEntries[0]->reason)->toBe('Unsupported extension: .exe');
+});
+
+test('inspect reports files without extensions as unsupported', function () {
+    file_put_contents($this->tempDir . '/README', 'plain');
+
+    $discovery = new BackstoryFileDiscovery();
+    $inventory = $discovery->inspect($this->tempDir);
+
+    expect($inventory->supportedEntries)->toBe([]);
+    expect($inventory->unsupportedEntries)->toHaveCount(1);
+    expect($inventory->unsupportedEntries[0]->extension)->toBe('');
+    expect($inventory->unsupportedEntries[0]->reason)->toBe('Unsupported file without an extension');
+});

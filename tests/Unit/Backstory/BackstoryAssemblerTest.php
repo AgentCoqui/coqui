@@ -369,3 +369,75 @@ test('generate handles empty files gracefully', function () {
     expect($output)->toContain('### File: /notempty.txt');
     expect($output)->toContain('content');
 });
+
+test('generate records unsupported files in manifest without including them in output', function () {
+    file_put_contents($this->backstoryDir . '/story.txt', 'content');
+    file_put_contents($this->backstoryDir . '/payload.exe', 'skip me');
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->totalFiles)->toBe(2);
+    expect($result->failedFiles)->toBe(0);
+    expect($result->unsupportedFiles)->toBe(1);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('### File: /story.txt');
+    expect($output)->not->toContain('payload.exe');
+
+    $manifest = BackstoryManifest::load(BackstoryManifest::manifestPath($this->profilePath));
+    expect($manifest->unsupportedFiles)->toHaveCount(1);
+    expect($manifest->unsupportedFiles[0]['relative_path'])->toBe('payload.exe');
+    expect($manifest->unsupportedFiles[0]['reason'])->toBe('Unsupported extension: .exe');
+});
+
+test('generate persists manifest when only unsupported files exist', function () {
+    file_put_contents($this->backstoryDir . '/payload.exe', 'skip me');
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->totalFiles)->toBe(1);
+    expect($result->failedFiles)->toBe(0);
+    expect($result->unsupportedFiles)->toBe(1);
+    expect(is_file($this->profilePath . '/backstory.md'))->toBeFalse();
+
+    $manifest = BackstoryManifest::load(BackstoryManifest::manifestPath($this->profilePath));
+    expect($manifest->totalFiles)->toBe(1);
+    expect($manifest->unsupportedFileCount())->toBe(1);
+});
+
+test('needsRegeneration returns true after unsupported file addition', function () {
+    file_put_contents($this->backstoryDir . '/file.txt', 'content');
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    file_put_contents($this->backstoryDir . '/ignored.exe', 'skip me');
+
+    expect($assembler->needsRegeneration($this->profilePath))->toBeTrue();
+});
+
+test('generate handles copied real-profile fixture corpus', function () {
+    $fixtureDir = dirname(__DIR__, 2) . '/Fixtures/Backstory/real-profile-sample';
+    $fixtureFiles = array_values(array_filter(
+        scandir($fixtureDir) ?: [],
+        static fn(string $file): bool => $file !== '.' && $file !== '..',
+    ));
+
+    foreach ($fixtureFiles as $fixtureFile) {
+        copy($fixtureDir . '/' . $fixtureFile, $this->backstoryDir . '/' . $fixtureFile);
+    }
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->totalFiles)->toBe(count($fixtureFiles));
+    expect($result->failedFiles)->toBe(0);
+    expect($result->unsupportedFiles)->toBe(0);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    foreach ($fixtureFiles as $fixtureFile) {
+        expect($output)->toContain('### File: /' . $fixtureFile);
+    }
+});

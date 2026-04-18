@@ -151,22 +151,24 @@ profiles/caelum/
 | `.yaml`, `.yml` | Wrapped in a ` ```yaml ` code fence |
 | `.csv`, `.tsv` | Converted to a markdown table |
 | `.sql` | Parses simple `CREATE TABLE` + `INSERT ... VALUES` statements into markdown tables when possible; preserves unsupported or malformed statements as fenced `sql` |
-| `.xlsx` | Optionally converted into markdown tables per worksheet when ZIP support is available |
-| `.pptx` | Optionally converted into per-slide markdown sections, using the first text block as the slide title, when ZIP support is available |
+| `.xlsx`, `.xlsm` | Optionally converted into markdown tables per worksheet when ZIP support is available |
+| `.pptx`, `.pptm` | Optionally converted into per-slide markdown sections, using the first text block as the slide title, when ZIP support is available |
 | `.html`, `.htm` | Sanitized and converted to markdown via `league/html-to-markdown` |
 | `.xml` | Rendered as a markdown outline for simple documents, otherwise wrapped in a ` ```xml ` code fence |
 | `.rtf` | Converted to plain text with conservative RTF control-word stripping |
 | Common code files | Wrapped in fenced code blocks with language hints and never executed |
 | `.pdf` | Text extracted via `smalot/pdfparser` |
-| `.docx` | Text extracted via `phpoffice/phpword` |
+| `.docx`, `.docm` | Text extracted via `phpoffice/phpword` |
 
 Code file support covers common text-based source extensions such as `.php`, `.js`, `.ts`, `.jsx`, `.tsx`, `.py`, `.rb`, `.java`, `.c`, `.cpp`, `.cs`, `.go`, `.rs`, `.sh`, `.zsh`, `.ps1`, `.css`, `.scss`, `.less`, and similar formats.
 
 HTML, XML, RTF, SQL, code files, and optional `.xlsx`/`.pptx` input are always treated as read-only input. Coqui converts them into markdown or fenced text for inclusion in `backstory.md`; it does not execute scripts, formulas, macros, or embedded code while generating the backstory.
 
-`.xlsx` support is optional and depends on PHP ZIP support. When available, Coqui reads cached worksheet values and converts each populated worksheet into a markdown table. It does not evaluate spreadsheet formulas.
+`.xlsx` and `.xlsm` support are optional and depend on PHP ZIP support. When available, Coqui reads cached worksheet values and converts each populated worksheet into a markdown table. It does not evaluate spreadsheet formulas or execute macros.
 
-`.pptx` support is also optional and depends on PHP ZIP support. When available, Coqui extracts readable slide text in presentation order and renders each populated slide as a markdown section. It does not execute macros or embedded active content.
+`.pptx` and `.pptm` support are also optional and depend on PHP ZIP support. When available, Coqui extracts readable slide text in presentation order and renders each populated slide as a markdown section. It does not execute macros or embedded active content.
+
+Unsupported files inside `backstory/` are skipped under a strict allowlist model. Coqui records them in `.backstory-manifest.json` and surfaces them in `/backstory` and `/backstory failed` so users can see what was ignored and why.
 
 ### Sort Order
 
@@ -179,7 +181,7 @@ Files are sorted using a **numbered-first natural sort**:
 
 ### Change Detection
 
-A `.backstory-manifest.json` file tracks SHA-256 hashes of all source files. Generation is skipped when the content hash matches, making startup fast even with hundreds of source files.
+A `.backstory-manifest.json` file tracks SHA-256 hashes of all discovered source files, including skipped unsupported files. Generation is skipped when the content hash matches, making startup fast even with hundreds of source files while still noticing newly added unsupported inputs.
 
 ### Auto-Regeneration
 
@@ -190,7 +192,7 @@ At startup, Coqui checks if the active profile's backstory needs regeneration. I
 ```bash
 /backstory              # Show backstory generation status and file summary
 /backstory generate     # Force regeneration regardless of change detection
-/backstory failed       # Show files that failed extraction with error details
+/backstory failed       # Show files that failed extraction or were skipped as unsupported
 ```
 
 The `/prompt` command also includes a backstory summary line when a manifest exists.

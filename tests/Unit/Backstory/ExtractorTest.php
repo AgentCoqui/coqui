@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Backstory\Extractor\JsonExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\YamlExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\CsvExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\CodeBlockExtractor;
+use CoquiBot\Coqui\Backstory\Extractor\DocxExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\ExtractorFactory;
 use CoquiBot\Coqui\Backstory\Extractor\HtmlExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\PptxExtractor;
@@ -266,6 +267,21 @@ test('RtfExtractor rejects invalid rtf files', function () {
     expect($result->error)->toContain('Invalid RTF');
 });
 
+// --- DocxExtractor ---
+
+test('DocxExtractor reads docm files as Word OOXML documents', function () {
+    $path = $this->tempDir . '/story.docm';
+    createTestDocx($path, ['First paragraph', 'Second paragraph']);
+
+    $extractor = new DocxExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('First paragraph');
+    expect($result->content)->toContain('Second paragraph');
+    expect($extractor->supportedExtensions())->toContain('docm');
+});
+
 // --- CodeBlockExtractor ---
 
 test('CodeBlockExtractor wraps source files in fenced blocks', function () {
@@ -452,6 +468,27 @@ test('XlsxExtractor fails when workbook has no data rows', function () {
     expect($result->error)->toContain('no extractable rows');
 });
 
+test('XlsxExtractor reads xlsm files using the same safe OOXML path', function () {
+    if (!XlsxExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    $path = $this->tempDir . '/book.xlsm';
+    createTestXlsx($path, [
+        'Timeline' => [
+            ['Year', 'Event'],
+            ['2026', 'Audit'],
+        ],
+    ]);
+
+    $extractor = new XlsxExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('| 2026 | Audit |');
+    expect($extractor->supportedExtensions())->toContain('xlsm');
+});
+
 // --- PptxExtractor ---
 
 test('PptxExtractor converts slide text into markdown sections', function () {
@@ -499,6 +536,28 @@ test('PptxExtractor fails when slides contain no text', function () {
     expect($result->error)->toContain('no extractable slide text');
 });
 
+test('PptxExtractor reads pptm files using the same safe OOXML path', function () {
+    if (!PptxExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    $path = $this->tempDir . '/deck.pptm';
+    createTestPptx($path, [
+        [
+            'title' => 'Signals',
+            'bullets' => ['No macros executed'],
+        ],
+    ]);
+
+    $extractor = new PptxExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('#### Slide 1: Signals');
+    expect($result->content)->toContain('- No macros executed');
+    expect($extractor->supportedExtensions())->toContain('pptm');
+});
+
 // --- ExtractorFactory ---
 
 test('ExtractorFactory maps extensions to extractors', function () {
@@ -517,11 +576,14 @@ test('ExtractorFactory maps extensions to extractors', function () {
     expect($factory->get('rtf'))->toBeInstanceOf(RtfExtractor::class);
     expect($factory->get('sql'))->toBeInstanceOf(SqlExtractor::class);
     expect($factory->get('py'))->toBeInstanceOf(CodeBlockExtractor::class);
+    expect($factory->get('docm'))->toBeInstanceOf(DocxExtractor::class);
     if (XlsxExtractor::isRuntimeSupported()) {
         expect($factory->get('xlsx'))->toBeInstanceOf(XlsxExtractor::class);
+        expect($factory->get('xlsm'))->toBeInstanceOf(XlsxExtractor::class);
     }
     if (PptxExtractor::isRuntimeSupported()) {
         expect($factory->get('pptx'))->toBeInstanceOf(PptxExtractor::class);
+        expect($factory->get('pptm'))->toBeInstanceOf(PptxExtractor::class);
     }
 });
 
@@ -535,7 +597,10 @@ test('ExtractorFactory isSupported', function () {
     expect($factory->isSupported('txt'))->toBeTrue();
     expect($factory->isSupported('TXT'))->toBeTrue();
     expect($factory->isSupported('php'))->toBeTrue();
+    expect($factory->isSupported('docm'))->toBeTrue();
     expect($factory->isSupported('xlsx'))->toBe(XlsxExtractor::isRuntimeSupported());
+    expect($factory->isSupported('xlsm'))->toBe(XlsxExtractor::isRuntimeSupported());
     expect($factory->isSupported('pptx'))->toBe(PptxExtractor::isRuntimeSupported());
+    expect($factory->isSupported('pptm'))->toBe(PptxExtractor::isRuntimeSupported());
     expect($factory->isSupported('exe'))->toBeFalse();
 });

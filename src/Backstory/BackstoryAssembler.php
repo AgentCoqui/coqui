@@ -38,12 +38,14 @@ final class BackstoryAssembler
         $outputPath = rtrim($profilePath, '/') . '/backstory.md';
         $manifestPath = BackstoryManifest::manifestPath($profilePath);
 
-        $entries = $this->discovery->discover($backstoryDir);
+        $inventory = $this->discovery->inspect($backstoryDir);
 
-        if ($entries === []) {
-            // No source files — clean up generated output if it existed
-            if (is_file($outputPath) && is_file($manifestPath)) {
+        if ($inventory->isEmpty()) {
+            if (is_file($outputPath)) {
                 unlink($outputPath);
+            }
+
+            if (is_file($manifestPath)) {
                 unlink($manifestPath);
             }
 
@@ -55,20 +57,38 @@ final class BackstoryAssembler
             );
         }
 
+        if ($inventory->supportedEntries === []) {
+            if (is_file($outputPath)) {
+                unlink($outputPath);
+            }
+
+            $manifest = $this->buildManifest($inventory, [], [], 0, 0);
+            $manifest->save($manifestPath);
+
+            return new BackstoryResult(
+                totalFiles: $inventory->totalFiles(),
+                failedFiles: 0,
+                totalTokens: 0,
+                generationTimeMs: self::elapsedMs($startTime),
+                unsupportedFiles: $inventory->unsupportedFiles(),
+            );
+        }
+
         // Streaming write — avoids holding entire backstory in memory
         $handle = fopen($outputPath, 'w');
         if ($handle === false) {
             return new BackstoryResult(
-                totalFiles: count($entries),
-                failedFiles: count($entries),
+                totalFiles: $inventory->totalFiles(),
+                failedFiles: $inventory->supportedFiles(),
                 totalTokens: 0,
                 generationTimeMs: self::elapsedMs($startTime),
                 errors: [['relative_path' => 'backstory.md', 'error' => 'Failed to open output file for writing']],
+                unsupportedFiles: $inventory->unsupportedFiles(),
             );
         }
 
         try {
-            return $this->writeBackstory($handle, $entries, $manifestPath, $startTime);
+            return $this->writeBackstory($handle, $inventory, $manifestPath, $startTime);
         } finally {
             fclose($handle);
         }
@@ -86,17 +106,18 @@ final class BackstoryAssembler
 
         $outputPath = rtrim($profilePath, '/') . '/backstory.md';
         $manifestPath = BackstoryManifest::manifestPath($profilePath);
+        $inventory = $this->discovery->inspect($backstoryDir);
 
-        // No manifest or no output → needs generation
-        if (!is_file($manifestPath) || !is_file($outputPath)) {
-            // Only if there are actually source files
-            return $this->discovery->discover($backstoryDir) !== [];
+        if (!is_file($manifestPath)) {
+            return !$inventory->isEmpty();
         }
 
         $manifest = BackstoryManifest::load($manifestPath);
-        $entries = $this->discovery->discover($backstoryDir);
+        if (!is_file($outputPath) && $manifest->supportedFilesCount() > 0) {
+            return true;
+        }
 
-        return $manifest->hasChanged($entries);
+        return $manifest->hasChanged($inventory->supportedEntries, $inventory->unsupportedEntries);
     }
 
     /**
@@ -122,10 +143,11 @@ final class BackstoryAssembler
 
     /**
      * @param resource $handle
-     * @param list<BackstoryFileEntry> $entries
      */
-    private function writeBackstory($handle, array $entries, string $manifestPath, int $startTime): BackstoryResult
+    private function writeBackstory($handle, BackstorySourceInventory $inventory, string $manifestPath, int $startTime): BackstoryResult
     {
+        $entries = $inventory->supportedEntries;
+
         fwrite($handle, "## Backstory\n\n");
 
         $manifestFiles = [];
@@ -200,15 +222,7 @@ final class BackstoryAssembler
         fwrite($handle, "\n");
 
         // Build and save manifest
-        $manifest = new BackstoryManifest(
-            generatedAt: date('c'),
-            contentHash: BackstoryManifest::computeContentHash($entries),
-            files: $manifestFiles,
-            errors: $manifestErrors,
-            totalTokens: $totalTokens,
-            totalFiles: count($entries),
-            failedFiles: $failedCount,
-        );
+        $manifest = $this->buildManifest($inventory, $manifestFiles, $manifestErrors, $totalTokens, $failedCount);
         $manifest->save($manifestPath);
 
         $resultErrors = array_map(
@@ -217,11 +231,53 @@ final class BackstoryAssembler
         );
 
         return new BackstoryResult(
-            totalFiles: count($entries),
+            totalFiles: $inventory->totalFiles(),
             failedFiles: $failedCount,
             totalTokens: $totalTokens,
             generationTimeMs: self::elapsedMs($startTime),
             errors: $resultErrors,
+            unsupportedFiles: $inventory->unsupportedFiles(),
+        );
+    }
+
+    /**
+     * @param array<int, array{relative_path: string, sha256: string, size_bytes: int, modified_at: string, token_estimate: int, status: string, error: string|null}> $manifestFiles
+     * @param array<int, array{relative_path: string, error: string, timestamp: string}> $manifestErrors
+     */
+    private function buildManifest(
+        BackstorySourceInventory $inventory,
+        array $manifestFiles,
+        array $manifestErrors,
+        int $totalTokens,
+        int $failedCount,
+    ): BackstoryManifest {
+        $unsupportedFiles = array_map(
+            static function (BackstoryUnsupportedFileEntry $entry): array {
+                $fileHash = hash_file('sha256', $entry->absolutePath);
+                $fileSize = filesize($entry->absolutePath);
+                $fileMtime = filemtime($entry->absolutePath);
+
+                return [
+                    'relative_path' => $entry->relativePath,
+                    'extension' => $entry->extension,
+                    'sha256' => $fileHash !== false ? $fileHash : '',
+                    'size_bytes' => $fileSize !== false ? $fileSize : 0,
+                    'modified_at' => $fileMtime !== false ? date('c', $fileMtime) : '',
+                    'reason' => $entry->reason,
+                ];
+            },
+            $inventory->unsupportedEntries,
+        );
+
+        return new BackstoryManifest(
+            generatedAt: date('c'),
+            contentHash: BackstoryManifest::computeContentHash($inventory->supportedEntries, $inventory->unsupportedEntries),
+            files: $manifestFiles,
+            errors: $manifestErrors,
+            unsupportedFiles: $unsupportedFiles,
+            totalTokens: $totalTokens,
+            totalFiles: $inventory->totalFiles(),
+            failedFiles: $failedCount,
         );
     }
 

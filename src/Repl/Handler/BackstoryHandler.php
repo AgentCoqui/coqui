@@ -70,6 +70,8 @@ final class BackstoryHandler
             ['Source folder' => $backstoryDir],
             ['Generated at' => $manifest->generatedAt],
             ['Total files' => (string) $manifest->totalFiles],
+            ['Supported files' => (string) $manifest->supportedFilesCount()],
+            ['Unsupported files' => (string) $manifest->unsupportedFileCount()],
             ['Failed files' => (string) $manifest->failedFiles],
             ['Estimated tokens' => number_format($manifest->totalTokens)],
         );
@@ -92,6 +94,24 @@ final class BackstoryHandler
 
             $io->table(
                 ['File', 'Size', 'Tokens', 'Status', 'Modified'],
+                $rows,
+            );
+        }
+
+        if ($manifest->unsupportedFiles !== []) {
+            $rows = [];
+            foreach ($manifest->unsupportedFiles as $file) {
+                $rows[] = [
+                    $file['relative_path'],
+                    $file['extension'] !== '' ? '.' . $file['extension'] : '—',
+                    $file['reason'],
+                    self::formatTimestamp($file['modified_at']),
+                ];
+            }
+
+            $io->newLine();
+            $io->table(
+                ['Skipped file', 'Extension', 'Reason', 'Modified'],
                 $rows,
             );
         }
@@ -120,20 +140,30 @@ final class BackstoryHandler
         $result = $this->assembler->generate($profilePath);
 
         if ($result->totalFiles === 0) {
-            $io->info('No supported files found in backstory source folder.');
+            $io->info('No source files found in backstory source folder.');
             return RouteResult::continue();
         }
 
         $io->newLine();
         $io->definitionList(
-            ['Files processed' => (string) $result->totalFiles],
-            ['Failed' => (string) $result->failedFiles],
+            ['Files discovered' => (string) $result->totalFiles],
+            ['Supported files' => (string) ($result->totalFiles - $result->unsupportedFiles)],
+            ['Unsupported files' => (string) $result->unsupportedFiles],
+            ['Failed extractions' => (string) $result->failedFiles],
             ['Estimated tokens' => number_format($result->totalTokens)],
             ['Generation time' => sprintf('%.1f ms', $result->generationTimeMs)],
         );
 
-        if ($result->failedFiles > 0) {
-            $io->warning(sprintf('%d file(s) failed to extract. Run /backstory failed for details.', $result->failedFiles));
+        if ($result->failedFiles > 0 || $result->unsupportedFiles > 0) {
+            $messages = [];
+            if ($result->failedFiles > 0) {
+                $messages[] = sprintf('%d failed extraction(s)', $result->failedFiles);
+            }
+            if ($result->unsupportedFiles > 0) {
+                $messages[] = sprintf('%d unsupported file(s) skipped', $result->unsupportedFiles);
+            }
+
+            $io->warning(implode('; ', $messages) . '. Run /backstory failed for details.');
         } else {
             $io->success('Backstory generated successfully.');
         }
@@ -149,26 +179,49 @@ final class BackstoryHandler
             return RouteResult::continue();
         }
 
-        if ($manifest->errors === []) {
-            $io->success('No failed files in the last generation.');
+        if ($manifest->errors === [] && $manifest->unsupportedFiles === []) {
+            $io->success('No failed or unsupported files in the last generation.');
             return RouteResult::continue();
         }
 
-        $io->section(sprintf('Backstory Failed Files — %s', $activeProfile));
+        $io->section(sprintf('Backstory Issues — %s', $activeProfile));
 
-        $rows = [];
-        foreach ($manifest->errors as $error) {
-            $rows[] = [
-                $error['relative_path'],
-                $error['error'],
-                self::formatTimestamp($error['timestamp']),
-            ];
+        if ($manifest->errors !== []) {
+            $rows = [];
+            foreach ($manifest->errors as $error) {
+                $rows[] = [
+                    $error['relative_path'],
+                    $error['error'],
+                    self::formatTimestamp($error['timestamp']),
+                ];
+            }
+
+            $io->table(
+                ['Failed file', 'Error', 'Timestamp'],
+                $rows,
+            );
         }
 
-        $io->table(
-            ['File', 'Error', 'Timestamp'],
-            $rows,
-        );
+        if ($manifest->unsupportedFiles !== []) {
+            $rows = [];
+            foreach ($manifest->unsupportedFiles as $file) {
+                $rows[] = [
+                    $file['relative_path'],
+                    $file['extension'] !== '' ? '.' . $file['extension'] : '—',
+                    $file['reason'],
+                    self::formatTimestamp($file['modified_at']),
+                ];
+            }
+
+            if ($manifest->errors !== []) {
+                $io->newLine();
+            }
+
+            $io->table(
+                ['Skipped file', 'Extension', 'Reason', 'Modified'],
+                $rows,
+            );
+        }
 
         return RouteResult::continue();
     }

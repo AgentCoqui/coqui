@@ -446,7 +446,7 @@
             "path": "src/Repl/Handler/BackstoryHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\BackstoryHandler",
             "layer": "command",
-            "description": "Handles /backstory REPL command. Subcommands: overview (default), generate (force regeneration), failed (show extraction errors). Also provides getManifestSummary() for /prompt integration.",
+            "description": "Handles /backstory REPL command. Subcommands: overview (default), generate (force regeneration), failed (show extraction errors and skipped unsupported files). Also provides getManifestSummary() for /prompt integration.",
             "methods": [
                 "handle(SymfonyStyle, string): void — dispatches /backstory subcommands",
                 "getManifestSummary(): ?string — one-line manifest summary for /prompt display"
@@ -456,7 +456,7 @@
             "path": "src/Backstory/BackstoryAssembler.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryAssembler",
             "layer": "feature",
-            "description": "Orchestrates backstory generation. Discovers source files, extracts content, writes backstory.md via streaming writes, and saves a change-detection manifest.",
+            "description": "Orchestrates backstory generation. Discovers supported and unsupported source files, extracts supported content, writes backstory.md via streaming writes, and saves a change-detection manifest that also records skipped unsupported inputs.",
             "methods": [
                 "generate(string): BackstoryResult — generate backstory.md from backstory/ source directory",
                 "needsRegeneration(string): bool — check if source files have changed since last generation",
@@ -468,21 +468,24 @@
             "path": "src/Backstory/BackstoryFileDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryFileDiscovery",
             "layer": "feature",
-            "description": "Discovers and sorts files in a backstory source directory. Numbered prefixes first (natural sort), then alphabetical. Files before subdirectories at each level. Recursive.",
+            "description": "Discovers and sorts files in a backstory source directory. Numbered prefixes first (natural sort), then alphabetical. Files before subdirectories at each level. Recursive. Produces either a supported-file list or a full inventory that includes skipped unsupported files.",
             "methods": [
-                "discover(string): list<BackstoryFileEntry> — discover and sort all supported files"
+                "discover(string): list<BackstoryFileEntry> — discover and sort all supported files",
+                "inspect(string): BackstorySourceInventory — discover supported files plus skipped unsupported files with reasons"
             ]
         },
         {
             "path": "src/Backstory/BackstoryManifest.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryManifest",
             "layer": "feature",
-            "description": "Tracks file hashes and metadata for backstory change detection. Stored as .backstory-manifest.json alongside backstory.md.",
+            "description": "Tracks file hashes and metadata for backstory change detection. Stored as .backstory-manifest.json alongside backstory.md. Records both extracted files and skipped unsupported files so hidden gaps stay visible.",
             "methods": [
                 "static load(string): self — load manifest from disk",
                 "save(string): void — write manifest to disk",
-                "hasChanged(list<BackstoryFileEntry>): bool — check if content hash differs",
-                "static computeContentHash(list<BackstoryFileEntry>): string — SHA-256 composite hash"
+                "hasChanged(list<BackstoryFileEntry>, list<BackstoryUnsupportedFileEntry>=[]): bool — check if content hash differs",
+                "static computeContentHash(list<BackstoryFileEntry>, list<BackstoryUnsupportedFileEntry>=[]): string — SHA-256 composite hash",
+                "unsupportedFileCount(): int — count skipped unsupported files recorded in the manifest",
+                "supportedFilesCount(): int — count supported files represented by the manifest"
             ]
         },
         {
@@ -492,10 +495,22 @@
             "description": "Value object for a discovered backstory source file (relativePath, absolutePath, extension)."
         },
         {
+            "path": "src/Backstory/BackstoryUnsupportedFileEntry.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryUnsupportedFileEntry",
+            "layer": "feature",
+            "description": "Value object for a discovered backstory source file that was skipped because its extension is unsupported. Carries relativePath, absolutePath, extension, and a human-readable skip reason."
+        },
+        {
+            "path": "src/Backstory/BackstorySourceInventory.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstorySourceInventory",
+            "layer": "feature",
+            "description": "Readonly discovery result for a backstory tree. Holds supported entries plus skipped unsupported entries and exposes convenience counters for total, supported, and unsupported file counts."
+        },
+        {
             "path": "src/Backstory/BackstoryResult.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryResult",
             "layer": "feature",
-            "description": "Value object for backstory generation results (totalFiles, failedFiles, totalTokens, generationTimeMs, errors)."
+            "description": "Value object for backstory generation results (totalFiles, failedFiles, totalTokens, generationTimeMs, errors, unsupportedFiles)."
         },
         {
             "path": "src/Backstory/Extractor/BackstoryTextReader.php",
@@ -539,9 +554,9 @@
             "path": "src/Backstory/Extractor/XlsxExtractor.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\XlsxExtractor",
             "layer": "feature",
-            "description": "Optionally reads XLSX workbooks through ZipArchive and OOXML parsing. Each populated worksheet is converted into a markdown table using cached cell values only.",
+            "description": "Optionally reads XLSX and XLSM workbooks through ZipArchive and OOXML parsing. Each populated worksheet is converted into a markdown table using cached cell values only.",
             "methods": [
-                "extract(string): ExtractorResult — convert xlsx worksheets into markdown tables",
+                "extract(string): ExtractorResult — convert xlsx/xlsm worksheets into markdown tables",
                 "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
             ]
         },
@@ -549,9 +564,9 @@
             "path": "src/Backstory/Extractor/PptxExtractor.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\PptxExtractor",
             "layer": "feature",
-            "description": "Optionally reads PPTX decks through ZipArchive and OOXML parsing. Each populated slide is converted into a markdown section using extracted slide text only.",
+            "description": "Optionally reads PPTX and PPTM decks through ZipArchive and OOXML parsing. Each populated slide is converted into a markdown section using extracted slide text only.",
             "methods": [
-                "extract(string): ExtractorResult — convert pptx slides into markdown sections",
+                "extract(string): ExtractorResult — convert pptx/pptm slides into markdown sections",
                 "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
             ]
         },
@@ -577,7 +592,7 @@
             "path": "src/Backstory/Extractor/ExtractorFactory.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\ExtractorFactory",
             "layer": "feature",
-            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, sql, optional xlsx/pptx, html/htm, xml, rtf, common code-file extensions, pdf, and docx.",
+            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, sql, optional xlsx/xlsm/pptx/pptm, html/htm, xml, rtf, common code-file extensions, pdf, and docx/docm.",
             "methods": [
                 "get(string): ?ExtractorInterface — get extractor for extension",
                 "isSupported(string): bool — check if extension is supported"

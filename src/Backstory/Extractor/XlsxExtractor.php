@@ -8,7 +8,7 @@ use SimpleXMLElement;
 use ZipArchive;
 
 /**
- * Extracts worksheet data from XLSX files into markdown tables.
+ * Extracts worksheet data from spreadsheet OOXML files into markdown tables.
  *
  * This extractor is optional at runtime and depends on ZipArchive support.
  */
@@ -74,7 +74,7 @@ final class XlsxExtractor implements ExtractorInterface
 
     public function supportedExtensions(): array
     {
-        return ['xlsx'];
+        return ['xlsx', 'xlsm'];
     }
 
     public static function isRuntimeSupported(): bool
