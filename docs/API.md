@@ -269,6 +269,8 @@ List sessions, ordered by most recently updated.
 
 Create a new session.
 
+This endpoint always creates a fresh session. For REPL-style "resume the last active interactive session for this scope or create one" behavior, use `POST /api/v1/sessions/resolve`.
+
 **Request Body**
 
 ```json
@@ -300,6 +302,54 @@ Create a new session.
 {
   "error": "Unknown model_role 'nonexistent'. Available roles: orchestrator, coder",
   "code": "validation_error"
+}
+```
+
+#### `POST /api/v1/sessions/resolve`
+
+Resolve the latest interactive session for a scope, or create one if none exists.
+
+This mirrors REPL startup behavior:
+
+- Omit `profile` to target the unprofiled interactive session pool.
+- Pass `profile` to target a profile-specific interactive session pool.
+- Background-task sessions are excluded from reuse.
+
+**Request Body**
+
+```json
+{
+  "model_role": "orchestrator",
+  "profile": "caelum"
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `model_role` | string | No | `"orchestrator"` | Role used only when a new session must be created. Existing scoped sessions keep their stored role and model. |
+| `profile` | string | No | `null` | Personality profile scope. Omit to resolve the unprofiled session pool. |
+
+**Response `200`** — existing session reused:
+
+```json
+{
+  "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "model_role": "orchestrator",
+  "model": "openai/gpt-5",
+  "profile": "caelum",
+  "created": false
+}
+```
+
+**Response `201`** — new session created:
+
+```json
+{
+  "id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
+  "model_role": "orchestrator",
+  "model": "openai/gpt-5",
+  "profile": "caelum",
+  "created": true
 }
 ```
 
@@ -977,6 +1027,31 @@ Get a single role with full details. System roles return metadata without instru
 ```
 
 Role creation, updates, and deletion are REPL-only operations in the current API design.
+
+#### `GET /api/v1/config/profiles`
+
+Lists discovered profiles so clients can offer a profile picker instead of manual text entry.
+
+**Response `200`**
+
+```json
+{
+  "profiles": [
+    {
+      "name": "caelum",
+      "display_name": "Caelum",
+      "description": "A calm companion."
+    },
+    {
+      "name": "trinity",
+      "display_name": "Trinity",
+      "description": "A precise hacker and guide."
+    }
+  ],
+  "count": 2,
+  "default_profile": "caelum"
+}
+```
 
 #### `GET /api/v1/config/models`
 
