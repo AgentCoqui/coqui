@@ -484,8 +484,7 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 | [Commands](docs/COMMANDS.md) | REPL slash commands and CLI reference |
 | [Roles](docs/ROLES.md) | Built-in roles, access levels, and custom role creation |
 | [Configuration](docs/CONFIGURATION.md) | `openclaw.json` reference |
-| [API](docs/API.md) | Canonical HTTP API reference |
-| [App API Usage](docs/APP-API-USAGE.md) | Client integration patterns for apps and dashboards |
+| [API](docs/API.md) | Canonical HTTP API reference and client integration guide |
 | [REPL/API Divergences](docs/REPL-API-DIVERGENCES.md) | Features intentionally kept out of the HTTP surface |
 | [Background Tasks](docs/BACKGROUND-TASKS.md) | Background task architecture and usage |
 | [Loops](docs/LOOPS.md) | Loop definitions, runtime model, and inspection |

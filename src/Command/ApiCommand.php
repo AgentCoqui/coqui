@@ -14,6 +14,7 @@ use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Agent\QualityAutomationCoordinator;
 use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
+use CoquiBot\Coqui\Api\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
@@ -39,6 +40,7 @@ use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
+use CoquiBot\Coqui\Backstory\BackstoryInspectionService;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
@@ -56,6 +58,7 @@ use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\WebhookStore;
+use CoquiBot\Coqui\Support\PromptInspectionService;
 use React\EventLoop\Loop;
 use React\Http\HttpServer;
 use React\Http\Middleware\LimitConcurrentRequestsMiddleware;
@@ -322,8 +325,10 @@ final class ApiCommand extends Command
             includeConfigManager: true,
             includeVisibilityRegistry: true,
         );
+        $promptInspectionService = new PromptInspectionService($previewRunner, $boot->workspacePath(), $workDir);
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
-        $promptHandler = new PromptHandler($previewRunner);
+        $promptHandler = new PromptHandler($promptInspectionService);
+        $backstoryHandler = new BackstoryHandler(new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery()));
         $budgetHandler = new BudgetHandler($previewRunner);
         $artifactHandler = new ArtifactHandler($artifactStore);
         $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
@@ -337,7 +342,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -508,6 +513,7 @@ final class ApiCommand extends Command
         ServerHandler $server,
         ToolkitHandler $toolkit,
         PromptHandler $prompt,
+        BackstoryHandler $backstory,
         BudgetHandler $budget,
         ArtifactHandler $artifact,
         \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
@@ -581,6 +587,7 @@ final class ApiCommand extends Command
         $router->get($v1 . '/server/stats', [$server, 'stats']);
         $router->get($v1 . '/server/quality', [$server, 'quality']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
+        $router->get($v1 . '/server/backstory', [$backstory, 'get']);
         $router->get($v1 . '/server/budget', [$budget, 'get']);
 
         // Artifacts (read-only — create/update/delete are REPL-only)

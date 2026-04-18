@@ -1,6 +1,6 @@
 # Coqui HTTP API
 
-> **REPL-first**: The terminal REPL is Coqui's primary interface. The API exists as a background-task executor and monitoring surface. Mutating operations (loops, schedules, roles, config) should be performed through the REPL or agent tools. The API provides read-only inspection of most resources plus core session/message/task operations. See [REPL-API-DIVERGENCES.md](REPL-API-DIVERGENCES.md) for details.
+> **REPL-first**: The terminal REPL is Coqui's primary interface. The API provides the stable application-facing execution and inspection surface. User-facing read and monitoring workflows are documented here. Bot-oriented mutations and terminal-only control flows such as config editing, restart, and most loop or schedule mutations remain REPL-first or tool-driven.
 
 The Coqui HTTP API provides programmatic access to Coqui's AI agent capabilities. It enables headless operation, remote session management, and real-time streaming of agent responses via Server-Sent Events (SSE).
 
@@ -202,17 +202,40 @@ Use this document as the canonical HTTP API reference. The current API is best s
 
 ### Recommended Integration Flow
 
-1. Call `POST /api/v1/sessions` to create a session.
-2. Call `POST /api/v1/sessions/{id}/messages` to send prompts.
-3. Prefer SSE for interactive clients so you can surface iterations, tool calls, warnings, and completion metadata in real time.
-4. Use `GET /api/v1/sessions/{id}/messages` and `GET /api/v1/sessions/{id}/turns` for history and audit views.
-5. Treat loops, schedules, role editing, and most workflow mutations as REPL-first operations even if read APIs exist.
+1. If your client exposes personalities, call `GET /api/v1/config/profiles` first.
+2. Prefer `POST /api/v1/sessions/resolve` for sticky app sessions, or `POST /api/v1/sessions` when you explicitly need a fresh conversation.
+3. Upload files with `POST /api/v1/sessions/{id}/files` before sending a prompt when the turn needs images or document context.
+4. Call `POST /api/v1/sessions/{id}/messages` to send prompts.
+5. Prefer SSE for interactive clients so you can surface iterations, tool calls, warnings, and completion metadata in real time.
+6. Use `GET /api/v1/sessions/{id}/messages`, `GET /api/v1/sessions/{id}/turns`, and the read-oriented inspection endpoints for history, audit, and runtime visibility.
 
 ### Streaming vs Blocking
 
 - Default behavior is `text/event-stream` with an initial `connected` event followed by agent lifecycle events and a final `complete` event.
 - Add `?stream=false` when your client wants one blocking JSON response instead of incremental updates.
 - Only one active run is allowed per session; concurrent prompts to the same session return `409 agent_busy`.
+
+### Concurrency Rules
+
+Coqui can process different sessions concurrently, but only one active run is allowed per session.
+
+- Session A and Session B can both run at the same time.
+- Session A cannot accept a second prompt until its current turn completes.
+- Busy-session collisions return `409` with code `agent_busy`.
+
+Client recommendation:
+
+1. Treat each session as a serialized conversation lane.
+2. Queue prompts per session on the client side.
+3. Use separate sessions for separate conversations or tabs.
+
+### File Upload Workflow
+
+Use session file uploads when your client needs to attach images or documents to a prompt.
+
+1. Upload via `POST /api/v1/sessions/{id}/files`.
+2. Capture the returned file IDs.
+3. Pass those IDs in the `files` array when sending a message.
 
 ## Endpoints
 
@@ -2394,12 +2417,13 @@ Set the visibility of a package or an individual tool.
 
 #### `GET /api/v1/server/prompt`
 
-Return the fully constructed system prompt that the agent would receive on its next turn, together with tool and toolkit counts. Useful for debugging context size and inspecting which tools are active.
+Return the fully constructed system prompt that the agent would receive on its next turn, together with tool and toolkit counts plus prompt-source metadata. Useful for debugging context size, inspecting which files are contributing to the prompt, and tracking which folders are consuming the prompt budget.
 
 **Response `200`**
 
 ```json
 {
+  "profile": "caelum",
   "prompt": "You are Coqui, an autonomous AI agent...\n\n## Available Tools\n...",
   "tool_count": 42,
   "toolkit_count": 7,
@@ -2414,12 +2438,63 @@ Return the fully constructed system prompt that the agent would receive on its n
       "tools_tokens": 480,
       "total_tokens": 800
     }
-  ]
+  ],
+  "prompt_sources": {
+    "files": [
+      {
+        "scope": "project",
+        "path": "prompts/base.md",
+        "tokens": 510,
+        "size_bytes": 2921,
+        "last_modified_at": "2026-04-18T20:45:00+00:00",
+        "section_count": 1,
+        "sections": [
+          {
+            "id": "prompt.base",
+            "title": "Base Prompt",
+            "group": "identity",
+            "tokens": 510
+          }
+        ]
+      }
+    ],
+    "folders": [
+      {
+        "scope": "project",
+        "path": "prompts",
+        "tokens": 2170,
+        "file_count": 6,
+        "size_bytes": 11842,
+        "last_modified_at": "2026-04-18T20:45:00+00:00"
+      }
+    ],
+    "synthetic": [
+      {
+        "source_type": "generated",
+        "source": null,
+        "label": "Core Memories",
+        "tokens": 160,
+        "section_count": 1,
+        "sections": [
+          {
+            "id": "context.core-memories",
+            "title": "Core Memories",
+            "group": "memory",
+            "tokens": 160
+          }
+        ]
+      }
+    ],
+    "file_backed_tokens": 4090,
+    "synthetic_tokens": 160,
+    "last_modified_at": "2026-04-18T20:45:00+00:00"
+  }
 }
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `profile` | string\|null | Explicit profile scope used to render the prompt preview |
 | `prompt` | string | Full rendered system prompt text |
 | `tool_count` | int | Number of tools currently in the agent's context (enabled + stub) |
 | `toolkit_count` | int | Number of toolkit packages contributing tools |
@@ -2427,6 +2502,103 @@ Return the fully constructed system prompt that the agent would receive on its n
 | `tool_tokens` | int | Estimated token count for all tool schemas (standalone + toolkit) |
 | `total_tokens` | int | Sum of `prompt_tokens` and `tool_tokens` |
 | `toolkit_breakdown` | array | Per-toolkit token breakdown with guidelines and tool schema counts |
+| `budget` | object | Full prompt budget snapshot, including prompt sections and loading decisions |
+| `prompt_sources` | object | File, folder, and synthetic-source breakdown for prompt token usage |
+
+#### `GET /api/v1/server/backstory`
+
+Return the generated `backstory.md` content and the manifest metadata for a profile, including per-file token counts, folder rollups, unsupported files, and regeneration status.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `profile` | string | `null` | Profile to inspect. When omitted, the endpoint returns an explicit `available: false` payload because unprofiled sessions do not have a backstory. |
+
+**Response `200`** — profiled backstory:
+
+```json
+{
+  "profile": "caelum",
+  "available": true,
+  "reason": null,
+  "source_folder": "profiles/caelum/backstory",
+  "generated_backstory_path": "profiles/caelum/backstory.md",
+  "source_folder_exists": true,
+  "has_generated_backstory": true,
+  "generated_at": "2026-04-18T20:50:00+00:00",
+  "last_modified_at": "2026-04-18T20:49:10+00:00",
+  "content_hash": "sha256:abc123...",
+  "needs_regeneration": false,
+  "total_files": 3,
+  "supported_file_count": 2,
+  "successful_file_count": 2,
+  "unsupported_file_count": 1,
+  "failed_file_count": 0,
+  "total_tokens": 820,
+  "total_size_bytes": 5821,
+  "content": "## Backstory\n\n### File: /intro.md\n...",
+  "files": [
+    {
+      "path": "profiles/caelum/backstory/intro.md",
+      "relative_path": "intro.md",
+      "size_bytes": 211,
+      "token_estimate": 164,
+      "status": "ok",
+      "error": null,
+      "modified_at": "2026-04-18T20:49:10+00:00",
+      "sha256": "..."
+    }
+  ],
+  "folders": [
+    {
+      "path": "",
+      "total_tokens": 492,
+      "total_size_bytes": 401,
+      "file_count": 1,
+      "unsupported_file_count": 1,
+      "failed_file_count": 0,
+      "last_modified_at": "2026-04-18T20:49:10+00:00"
+    }
+  ],
+  "unsupported_files": [
+    {
+      "path": "profiles/caelum/backstory/image.png",
+      "relative_path": "image.png",
+      "extension": "png",
+      "reason": "Unsupported file type",
+      "size_bytes": 2048,
+      "modified_at": "2026-04-18T20:48:00+00:00",
+      "sha256": "..."
+    }
+  ],
+  "errors": []
+}
+```
+
+**Response `200`** — no active profile:
+
+```json
+{
+  "profile": null,
+  "available": false,
+  "reason": "no_active_profile",
+  "content": null,
+  "files": [],
+  "folders": [],
+  "unsupported_files": [],
+  "errors": []
+}
+```
+
+**Response `400`** — unknown profile:
+
+```json
+{
+  "error": "Unknown profile \"missing\".",
+  "code": "validation_error"
+}
+```
 
 **Response `500`** — if prompt construction fails:
 
@@ -2544,13 +2716,14 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/toolkits stub <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to stub |
 | `/toolkits disable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to disabled |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
+| `/backstory` | `GET /api/v1/server/backstory?profile=<name>` | Returns generated backstory content and source breakdowns |
 | `/budget` | `GET /api/v1/server/budget` | Returns prompt and toolkit budget info |
 | `/loops` | `GET /api/v1/loops` | Lists all loops with status and progress |
 | `/loops definitions` | `GET /api/v1/loops/definitions` | Shows available loop definitions |
 | `/loops status <id>` | `GET /api/v1/loops/{id}` | Detailed status of a specific loop |
 | `/schedules` | `GET /api/v1/schedules` | Lists schedules |
 
-Mutating REPL workflows such as `/config edit`, `/roles update`, `/loops pause`, `/loops resume`, `/loops stop`, and most schedule management remain REPL-first by design. See [REPL-API-DIVERGENCES.md](REPL-API-DIVERGENCES.md) for the current boundary.
+Mutating REPL workflows such as `/config edit`, `/roles update`, `/loops pause`, `/loops resume`, `/loops stop`, and most schedule management remain REPL-first by design.
 
 ## Quick Reference
 
@@ -2594,6 +2767,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, `/loops pause`,
 | `GET` | `/api/v1/server/quality` | Yes | Quality and health summary |
 | `GET` | `/api/v1/server/info` | Yes | Server capabilities and commands |
 | `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt |
+| `GET` | `/api/v1/server/backstory` | Yes | Get generated backstory content and manifest metadata |
 | `GET` | `/api/v1/server/budget` | Yes | Get prompt and toolkit budget state |
 | `GET` | `/api/v1/toolkits` | Yes | List toolkits and tools with visibility |
 | `POST` | `/api/v1/toolkits/visibility` | Yes | Set package or tool visibility |
