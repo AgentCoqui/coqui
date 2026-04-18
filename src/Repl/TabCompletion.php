@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl;
 
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\CoquiSpace\SpaceInstallCompletionCache;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -385,6 +386,16 @@ final class TabCompletion
     {
         if (count($parts) === 2) {
             return $this->completeChoices($this->commandSpec('/space')->firstArguments, $parts[1]);
+        }
+
+        if (count($parts) === 3 && $parts[1] === 'install') {
+            $spaceToolkit = $this->boot->spaceToolkit();
+            if ($spaceToolkit === null) {
+                return [];
+            }
+
+            return (new SpaceInstallCompletionCache($this->boot->workspacePath(), $spaceToolkit->client()))
+                ->suggestTargets($parts[2]);
         }
 
         if (count($parts) === 3 && in_array($parts[1], ['remove', 'update'], true)) {

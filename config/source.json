@@ -302,7 +302,7 @@
             "path": "src/Repl/TabCompletion.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\TabCompletion",
             "layer": "command",
-            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, todos, projects, profiles, schedules, and loop definitions.",
+            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, todos, projects, profiles, schedules, loop definitions, toolkit visibility metadata, and cached Coqui Space install suggestions.",
             "methods": [
                 "register(): void — installs readline_completion_function",
                 "setSessionId(string): void — updates session for todo completions",
@@ -317,6 +317,15 @@
             "methods": [
                 "handle(SymfonyStyle, ?string): void — renders prompt-budget telemetry for the active or requested role"
             ]
+                "path": "src/CoquiSpace/SpaceInstallCompletionCache.php",
+                "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\SpaceInstallCompletionCache",
+                "layer": "coqui-space",
+                "description": "Workspace-backed JSON cache for `/space install` tab completion. Reuses recent Coqui Space search results so install suggestions stay responsive without hitting the marketplace on every repeated prefix.",
+                "methods": [
+                    "suggestTargets(string): array — returns cached-or-fresh owner/name and vendor/package completion candidates for the current install prefix"
+                ]
+            },
+            {
         },
         {
             "path": "src/Repl/Handler/SessionHandler.php",
