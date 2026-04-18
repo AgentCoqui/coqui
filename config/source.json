@@ -536,6 +536,16 @@
             ]
         },
         {
+            "path": "src/Backstory/Extractor/XlsxExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\XlsxExtractor",
+            "layer": "feature",
+            "description": "Optionally reads XLSX workbooks through ZipArchive and OOXML parsing. Each populated worksheet is converted into a markdown table using cached cell values only.",
+            "methods": [
+                "extract(string): ExtractorResult — convert xlsx worksheets into markdown tables",
+                "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
+            ]
+        },
+        {
             "path": "src/Backstory/Extractor/CodeBlockExtractor.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\CodeBlockExtractor",
             "layer": "feature",
@@ -548,7 +558,7 @@
             "path": "src/Backstory/Extractor/ExtractorFactory.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\ExtractorFactory",
             "layer": "feature",
-            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, html/htm, xml, rtf, common code-file extensions, pdf, and docx.",
+            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, optional xlsx, html/htm, xml, rtf, common code-file extensions, pdf, and docx.",
             "methods": [
                 "get(string): ?ExtractorInterface — get extractor for extension",
                 "isSupported(string): bool — check if extension is supported"

@@ -138,6 +138,32 @@ test('generate handles utf16 text input', function () {
     expect($output)->toContain('Encoded backstory');
 });
 
+test('generate handles xlsx files when zip support is available', function () {
+    if (!class_exists(\CoquiBot\Coqui\Backstory\Extractor\XlsxExtractor::class)
+        || !\CoquiBot\Coqui\Backstory\Extractor\XlsxExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    createTestXlsx($this->backstoryDir . '/timeline.xlsx', [
+        'Timeline' => [
+            ['Year', 'Event'],
+            ['2024', 'Launch'],
+            ['2025', 'Expansion'],
+        ],
+    ]);
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->failedFiles)->toBe(0);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('### File: /timeline.xlsx');
+    expect($output)->toContain('#### Sheet: Timeline');
+    expect($output)->toContain('| Year | Event |');
+    expect($output)->toContain('| 2024 | Launch |');
+});
+
 test('generate records failed files in manifest', function () {
     file_put_contents($this->backstoryDir . '/bad.json', 'not valid json');
 

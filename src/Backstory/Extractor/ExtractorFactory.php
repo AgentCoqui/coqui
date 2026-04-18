@@ -28,6 +28,10 @@ final class ExtractorFactory
             new DocxExtractor(),
         ];
 
+        if (XlsxExtractor::isRuntimeSupported()) {
+            $extractors[] = new XlsxExtractor();
+        }
+
         foreach ($extractors as $extractor) {
             foreach ($extractor->supportedExtensions() as $ext) {
                 $this->map[$ext] = $extractor;
