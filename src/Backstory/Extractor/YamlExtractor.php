@@ -11,20 +11,19 @@ final class YamlExtractor implements ExtractorInterface
 {
     public function extract(string $absolutePath): ExtractorResult
     {
-        $content = file_get_contents($absolutePath);
-
-        if ($content === false) {
-            return ExtractorResult::fail('Failed to read file');
+        $result = BackstoryTextReader::read($absolutePath);
+        if (!$result->success || $result->content === null) {
+            return $result;
         }
 
-        $content = trim($content);
+        $content = trim($result->content);
         if ($content === '') {
             return ExtractorResult::fail('File is empty');
         }
 
-        $output = "```yaml\n" . $content . "\n```";
+        $output = BackstoryTextReader::toCodeFence($content, 'yaml');
 
-        return ExtractorResult::ok($output, self::estimateTokens($output));
+        return ExtractorResult::ok($output, BackstoryTextReader::estimateTokens($output));
     }
 
     public function supportedExtensions(): array
@@ -32,8 +31,4 @@ final class YamlExtractor implements ExtractorInterface
         return ['yaml', 'yml'];
     }
 
-    private static function estimateTokens(string $text): int
-    {
-        return (int) ceil(mb_strlen($text) / 4);
-    }
 }

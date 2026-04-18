@@ -498,10 +498,57 @@
             "description": "Value object for backstory generation results (totalFiles, failedFiles, totalTokens, generationTimeMs, errors)."
         },
         {
+            "path": "src/Backstory/Extractor/BackstoryTextReader.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\BackstoryTextReader",
+            "layer": "feature",
+            "description": "Shared helper for text-based backstory extractors. Normalizes encodings to UTF-8, rejects binary-like input, estimates token counts, and builds fenced code blocks.",
+            "methods": [
+                "static read(string): ExtractorResult — load and normalize text input for extractor use",
+                "static estimateTokens(string): int — rough token estimate for extracted text",
+                "static toCodeFence(string, string=): string — wrap content in a fenced code block"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/HtmlExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\HtmlExtractor",
+            "layer": "feature",
+            "description": "Sanitizes HTML input by removing unsafe nodes and attributes, then converts the remaining content to markdown using league/html-to-markdown.",
+            "methods": [
+                "extract(string): ExtractorResult — sanitize and convert html/htm files to markdown"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/XmlExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\XmlExtractor",
+            "layer": "feature",
+            "description": "Parses XML safely with DOMDocument. Simple documents become a markdown outline; complex or mixed-content documents fall back to a fenced xml block.",
+            "methods": [
+                "extract(string): ExtractorResult — render xml as markdown outline or fenced xml fallback"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/RtfExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\RtfExtractor",
+            "layer": "feature",
+            "description": "Performs conservative plain-text extraction from RTF documents by decoding common control words and escaped characters without executing embedded content.",
+            "methods": [
+                "extract(string): ExtractorResult — convert rtf files into plain text"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/CodeBlockExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\CodeBlockExtractor",
+            "layer": "feature",
+            "description": "Wraps common source-code files in fenced code blocks with language hints so programming-related backstory content remains readable and inert.",
+            "methods": [
+                "extract(string): ExtractorResult — convert supported code files into fenced markdown blocks"
+            ]
+        },
+        {
             "path": "src/Backstory/Extractor/ExtractorFactory.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\ExtractorFactory",
             "layer": "feature",
-            "description": "Maps file extensions to content extractors. Supports txt, md, json, yaml/yml, csv/tsv, pdf, docx.",
+            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, html/htm, xml, rtf, common code-file extensions, pdf, and docx.",
             "methods": [
                 "get(string): ?ExtractorInterface — get extractor for extension",
                 "isSupported(string): bool — check if extension is supported"

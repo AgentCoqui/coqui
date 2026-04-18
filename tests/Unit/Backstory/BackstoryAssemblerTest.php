@@ -102,6 +102,42 @@ test('generate handles markdown files as passthrough', function () {
     expect($output)->toContain('Some important notes.');
 });
 
+test('generate handles extended text-like formats and code blocks', function () {
+    file_put_contents($this->backstoryDir . '/profile.html', '<h2>Identity</h2><p>Curious and <strong>steady</strong>.</p>');
+    file_put_contents($this->backstoryDir . '/history.xml', '<timeline><year>2024</year><event>Launch</event></timeline>');
+    file_put_contents($this->backstoryDir . '/voice.mdx', '# Voice\n\n<Quote>Measured.</Quote>');
+    file_put_contents($this->backstoryDir . '/notes.rtf', '{\rtf1\ansi Profile note\par Second line}');
+    file_put_contents($this->backstoryDir . '/example.py', "def greet():\n    return 'hello'\n");
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->totalFiles)->toBe(5);
+    expect($result->failedFiles)->toBe(0);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('## Identity');
+    expect($output)->toContain('Curious and **steady**.');
+    expect($output)->toContain('- timeline');
+    expect($output)->toContain('- year: 2024');
+    expect($output)->toContain('<Quote>Measured.</Quote>');
+    expect($output)->toContain('Profile note');
+    expect($output)->toContain('```python');
+});
+
+test('generate handles utf16 text input', function () {
+    $content = "\xFF\xFE" . mb_convert_encoding('Encoded backstory', 'UTF-16LE', 'UTF-8');
+    file_put_contents($this->backstoryDir . '/utf16.txt', $content);
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->failedFiles)->toBe(0);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('Encoded backstory');
+});
+
 test('generate records failed files in manifest', function () {
     file_put_contents($this->backstoryDir . '/bad.json', 'not valid json');
 

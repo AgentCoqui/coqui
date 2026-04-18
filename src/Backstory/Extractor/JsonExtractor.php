@@ -11,13 +11,12 @@ final class JsonExtractor implements ExtractorInterface
 {
     public function extract(string $absolutePath): ExtractorResult
     {
-        $content = file_get_contents($absolutePath);
-
-        if ($content === false) {
-            return ExtractorResult::fail('Failed to read file');
+        $result = BackstoryTextReader::read($absolutePath);
+        if (!$result->success || $result->content === null) {
+            return $result;
         }
 
-        $content = trim($content);
+        $content = trim($result->content);
         if ($content === '') {
             return ExtractorResult::fail('File is empty');
         }
@@ -28,9 +27,9 @@ final class JsonExtractor implements ExtractorInterface
             return ExtractorResult::fail('Invalid JSON: ' . json_last_error_msg());
         }
 
-        $output = "```json\n" . $content . "\n```";
+        $output = BackstoryTextReader::toCodeFence($content, 'json');
 
-        return ExtractorResult::ok($output, self::estimateTokens($output));
+        return ExtractorResult::ok($output, BackstoryTextReader::estimateTokens($output));
     }
 
     public function supportedExtensions(): array
@@ -38,8 +37,4 @@ final class JsonExtractor implements ExtractorInterface
         return ['json'];
     }
 
-    private static function estimateTokens(string $text): int
-    {
-        return (int) ceil(mb_strlen($text) / 4);
-    }
 }
