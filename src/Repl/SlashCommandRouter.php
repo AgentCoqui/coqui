@@ -253,10 +253,17 @@ final class SlashCommandRouter
         if ($activeProfile !== null) {
             $summary = $this->backstory->getManifestSummary($activeProfile);
             if ($summary !== null) {
+                $issueSuffix = '';
+                $issueCount = $summary['failed_files'] + $summary['unsupported_files'];
+                if ($issueCount > 0) {
+                    $issueSuffix = sprintf(', %d issue(s)', $issueCount);
+                }
+
                 $io->text(sprintf(
-                    '<fg=gray>Backstory:</> %d file(s), ~%s tokens (use /backstory for details)',
+                    '<fg=gray>Backstory:</> %d file(s), ~%s tokens%s (use /backstory for details)',
                     $summary['total_files'],
                     number_format($summary['total_tokens']),
+                    $issueSuffix,
                 ));
             }
         }

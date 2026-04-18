@@ -446,7 +446,7 @@
             "path": "src/Repl/Handler/BackstoryHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\BackstoryHandler",
             "layer": "command",
-            "description": "Handles /backstory REPL command. Subcommands: overview (default), generate (force regeneration), failed (show extraction errors and skipped unsupported files). Also provides getManifestSummary() for /prompt integration.",
+            "description": "Handles /backstory REPL command. Subcommands: overview (default), generate (force regeneration), failed (show extraction errors and skipped unsupported files). The overview and prompt summary now surface issue counts so users can discover problems without another command. Also provides getManifestSummary() for /prompt integration.",
             "methods": [
                 "handle(SymfonyStyle, string): void — dispatches /backstory subcommands",
                 "getManifestSummary(): ?string — one-line manifest summary for /prompt display"
@@ -524,6 +524,47 @@
             ]
         },
         {
+            "path": "src/Backstory/Extractor/OpenDocumentArchiveReader.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\OpenDocumentArchiveReader",
+            "layer": "feature",
+            "description": "Shared helper for OpenDocument extractors. Loads content.xml from ODT/ODS/ODP archives, parses XML safely, normalizes text, and exposes small helpers for namespaced attributes and repeat counts.",
+            "methods": [
+                "static isRuntimeSupported(): bool — check whether ZipArchive support is available",
+                "static loadContentXml(ZipArchive): ?SimpleXMLElement — load and parse content.xml from an OpenDocument archive",
+                "static extractNodeText(SimpleXMLElement): string — normalize descendant text from an OpenDocument node"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/OdtExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\OdtExtractor",
+            "layer": "feature",
+            "description": "Optionally reads ODT documents through ZipArchive and OpenDocument XML parsing. Paragraphs and headings from content.xml become markdown paragraphs.",
+            "methods": [
+                "extract(string): ExtractorResult — convert odt paragraphs into markdown text",
+                "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/OdsExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\OdsExtractor",
+            "layer": "feature",
+            "description": "Optionally reads ODS spreadsheets through ZipArchive and OpenDocument XML parsing. Each populated sheet is converted into a markdown table from visible cell values only.",
+            "methods": [
+                "extract(string): ExtractorResult — convert ods sheets into markdown tables",
+                "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/OdpExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\OdpExtractor",
+            "layer": "feature",
+            "description": "Optionally reads ODP presentation decks through ZipArchive and OpenDocument XML parsing. Each populated slide is converted into a markdown section using extracted slide text only.",
+            "methods": [
+                "extract(string): ExtractorResult — convert odp slides into markdown sections",
+                "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
+            ]
+        },
+        {
             "path": "src/Backstory/Extractor/HtmlExtractor.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\HtmlExtractor",
             "layer": "feature",
@@ -592,7 +633,7 @@
             "path": "src/Backstory/Extractor/ExtractorFactory.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\ExtractorFactory",
             "layer": "feature",
-            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, sql, optional xlsx/xlsm/pptx/pptm, html/htm, xml, rtf, common code-file extensions, pdf, and docx/docm.",
+            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, sql, optional odt/ods/odp/xlsx/xlsm/pptx/pptm, html/htm, xml, rtf, common code-file extensions, pdf, and docx/docm.",
             "methods": [
                 "get(string): ?ExtractorInterface — get extractor for extension",
                 "isSupported(string): bool — check if extension is supported"

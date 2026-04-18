@@ -11,6 +11,9 @@ use CoquiBot\Coqui\Backstory\Extractor\CodeBlockExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\DocxExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\ExtractorFactory;
 use CoquiBot\Coqui\Backstory\Extractor\HtmlExtractor;
+use CoquiBot\Coqui\Backstory\Extractor\OdpExtractor;
+use CoquiBot\Coqui\Backstory\Extractor\OdsExtractor;
+use CoquiBot\Coqui\Backstory\Extractor\OdtExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\PptxExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\RtfExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\SqlExtractor;
@@ -280,6 +283,101 @@ test('DocxExtractor reads docm files as Word OOXML documents', function () {
     expect($result->content)->toContain('First paragraph');
     expect($result->content)->toContain('Second paragraph');
     expect($extractor->supportedExtensions())->toContain('docm');
+});
+
+test('OdtExtractor reads text paragraphs from odt files', function () {
+    if (!OdtExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    $path = $this->tempDir . '/story.odt';
+    createTestOdt($path, ['Quiet beginning', 'Second marker']);
+
+    $extractor = new OdtExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('Quiet beginning');
+    expect($result->content)->toContain('Second marker');
+});
+
+test('OdsExtractor converts sheets into markdown tables', function () {
+    if (!OdsExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    $path = $this->tempDir . '/book.ods';
+    createTestOds($path, [
+        'Timeline' => [
+            ['Year', 'Event'],
+            ['2026', 'OpenDocument support'],
+        ],
+    ]);
+
+    $extractor = new OdsExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('#### Sheet: Timeline');
+    expect($result->content)->toContain('| Year | Event |');
+    expect($result->content)->toContain('| 2026 | OpenDocument support |');
+});
+
+test('OdsExtractor fails when workbook has no data rows', function () {
+    if (!OdsExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    $path = $this->tempDir . '/empty.ods';
+    createTestOds($path, [
+        'Sheet1' => [
+            ['Header'],
+        ],
+    ]);
+
+    $extractor = new OdsExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeFalse();
+    expect($result->error)->toContain('no extractable rows');
+});
+
+test('OdpExtractor converts slides into markdown sections', function () {
+    if (!OdpExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    $path = $this->tempDir . '/deck.odp';
+    createTestOdp($path, [
+        [
+            'title' => 'Signals',
+            'bullets' => ['Archive stays read-only'],
+        ],
+    ]);
+
+    $extractor = new OdpExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('#### Slide 1: Signals');
+    expect($result->content)->toContain('- Archive stays read-only');
+});
+
+test('OdpExtractor fails when slides contain no text', function () {
+    if (!OdpExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    $path = $this->tempDir . '/blank.odp';
+    createTestOdp($path, [
+        [],
+    ]);
+
+    $extractor = new OdpExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeFalse();
+    expect($result->error)->toContain('no extractable slide text');
 });
 
 // --- CodeBlockExtractor ---
@@ -577,6 +675,15 @@ test('ExtractorFactory maps extensions to extractors', function () {
     expect($factory->get('sql'))->toBeInstanceOf(SqlExtractor::class);
     expect($factory->get('py'))->toBeInstanceOf(CodeBlockExtractor::class);
     expect($factory->get('docm'))->toBeInstanceOf(DocxExtractor::class);
+    if (OdtExtractor::isRuntimeSupported()) {
+        expect($factory->get('odt'))->toBeInstanceOf(OdtExtractor::class);
+    }
+    if (OdsExtractor::isRuntimeSupported()) {
+        expect($factory->get('ods'))->toBeInstanceOf(OdsExtractor::class);
+    }
+    if (OdpExtractor::isRuntimeSupported()) {
+        expect($factory->get('odp'))->toBeInstanceOf(OdpExtractor::class);
+    }
     if (XlsxExtractor::isRuntimeSupported()) {
         expect($factory->get('xlsx'))->toBeInstanceOf(XlsxExtractor::class);
         expect($factory->get('xlsm'))->toBeInstanceOf(XlsxExtractor::class);
@@ -598,6 +705,9 @@ test('ExtractorFactory isSupported', function () {
     expect($factory->isSupported('TXT'))->toBeTrue();
     expect($factory->isSupported('php'))->toBeTrue();
     expect($factory->isSupported('docm'))->toBeTrue();
+    expect($factory->isSupported('odt'))->toBe(OdtExtractor::isRuntimeSupported());
+    expect($factory->isSupported('ods'))->toBe(OdsExtractor::isRuntimeSupported());
+    expect($factory->isSupported('odp'))->toBe(OdpExtractor::isRuntimeSupported());
     expect($factory->isSupported('xlsx'))->toBe(XlsxExtractor::isRuntimeSupported());
     expect($factory->isSupported('xlsm'))->toBe(XlsxExtractor::isRuntimeSupported());
     expect($factory->isSupported('pptx'))->toBe(PptxExtractor::isRuntimeSupported());

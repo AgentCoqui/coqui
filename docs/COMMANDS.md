@@ -65,7 +65,7 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 
 | Command | Description |
 | --- | --- |
-| `/backstory` | Show backstory generation status, file summary, and skipped unsupported files |
+| `/backstory` | Show backstory generation status, file summary, skipped unsupported files, and any current issue summary |
 | `/backstory generate` | Force regeneration of `backstory.md` from source files |
 | `/backstory failed` | Show files that failed extraction or were skipped as unsupported |
 

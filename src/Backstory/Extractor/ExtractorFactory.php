@@ -37,6 +37,18 @@ final class ExtractorFactory
             $extractors[] = new PptxExtractor();
         }
 
+        if (OdtExtractor::isRuntimeSupported()) {
+            $extractors[] = new OdtExtractor();
+        }
+
+        if (OdsExtractor::isRuntimeSupported()) {
+            $extractors[] = new OdsExtractor();
+        }
+
+        if (OdpExtractor::isRuntimeSupported()) {
+            $extractors[] = new OdpExtractor();
+        }
+
         foreach ($extractors as $extractor) {
             foreach ($extractor->supportedExtensions() as $ext) {
                 $this->map[$ext] = $extractor;
