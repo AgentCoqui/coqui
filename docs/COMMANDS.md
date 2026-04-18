@@ -61,6 +61,14 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/prompt` | Print the fully rendered system prompt with tool/toolkit/token counts |
 | `/prompt export` | Export system prompt and tool schemas to a file in the workspace |
 
+### Backstory Generator
+
+| Command | Description |
+| --- | --- |
+| `/backstory` | Show backstory generation status and file summary |
+| `/backstory generate` | Force regeneration of `backstory.md` from source files |
+| `/backstory failed` | Show files that failed extraction with error details |
+
 ### Background Tasks
 
 | Command | Description |

@@ -84,6 +84,8 @@ When present, the profile role file takes precedence over the workspace role fil
 
 Optional persistent identity context loaded after `soul.md` in the system prompt. Use this for origin stories, milestone events, evolving narrative, and continuity details that ground the profile's identity without modifying the core soul.
 
+`backstory.md` can be written manually or **generated automatically** from a `backstory/` source directory. See [Backstory Generator](#backstory-generator) below.
+
 Content is rendered between soul and the memory block in the prompt composition order:
 
 ```
@@ -117,6 +119,66 @@ Optional behavioral settings file with two sections:
 Optional directory containing example responses as `.md` files. These are discovered by `ProfileDiscovery::listResponseSamples()` and can be used for fidelity verification — checking whether agent output matches the profile's intended voice and style.
 
 Files are sorted alphabetically. Only `.md` files are included.
+
+## Backstory Generator
+
+The backstory generator assembles `backstory.md` automatically from a `backstory/` source directory inside the profile. This lets you maintain backstory content as individual files — organized by topic, timeline, or any structure — and have them combined into a single prompt-ready document.
+
+### Source Directory Layout
+
+```text
+profiles/caelum/
+├── soul.md
+├── backstory.md          ← generated output
+├── .backstory-manifest.json  ← change-detection manifest
+└── backstory/            ← source files
+    ├── 01-origin.md
+    ├── 02-milestones.csv
+    ├── 03-values.yaml
+    ├── personality/
+    │   ├── 01-traits.txt
+    │   └── 02-quirks.json
+    └── timeline.md
+```
+
+### Supported File Types
+
+| Extension | Treatment |
+| --- | --- |
+| `.txt` | Included as plain text |
+| `.md` | Passed through as-is |
+| `.json` | Wrapped in a ` ```json ` code fence (validates JSON) |
+| `.yaml`, `.yml` | Wrapped in a ` ```yaml ` code fence |
+| `.csv`, `.tsv` | Converted to a markdown table |
+| `.pdf` | Text extracted via `smalot/pdfparser` |
+| `.docx` | Text extracted via `phpoffice/phpword` |
+
+### Sort Order
+
+Files are sorted using a **numbered-first natural sort**:
+
+1. Files with numeric prefixes (e.g., `01-intro.txt`) sort first, in natural order
+2. Unnumbered files follow alphabetically
+3. Files at each directory level appear before subdirectory contents
+4. Hidden files and directories (starting with `.`) are skipped
+
+### Change Detection
+
+A `.backstory-manifest.json` file tracks SHA-256 hashes of all source files. Generation is skipped when the content hash matches, making startup fast even with hundreds of source files.
+
+### Auto-Regeneration
+
+At startup, Coqui checks if the active profile's backstory needs regeneration. If source files have changed since the last build, `backstory.md` is regenerated automatically before the first turn.
+
+### REPL Commands
+
+```bash
+/backstory              # Show backstory generation status and file summary
+/backstory generate     # Force regeneration regardless of change detection
+/backstory failed       # Show files that failed extraction with error details
+```
+
+The `/prompt` command also includes a backstory summary line when a manifest exists.
 
 ## Memory Profile Filtering
 

@@ -23,6 +23,7 @@ use CoquiBot\Coqui\Repl\AgentTurnExecutor;
 use CoquiBot\Coqui\Repl\ExecutionPolicyFactory;
 use CoquiBot\Coqui\Repl\MultilineReader;
 use CoquiBot\Coqui\Repl\NotificationPresenter;
+use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
@@ -185,6 +186,11 @@ final class RunCommand extends Command
                     ));
                 }
             }
+        }
+
+        // Auto-regenerate backstory if source files changed
+        if ($this->activeProfile !== null) {
+            $this->autoRegenerateBackstory($noTerminal ? null : $io);
         }
 
         // Handle --update: apply updates and restart
@@ -400,6 +406,7 @@ final class RunCommand extends Command
             project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
             profile: new ProfileHandler($this->boot, $this->storage),
+            backstory: new BackstoryHandler($this->boot),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             space: new SpaceHandler($this->boot),
             config: new ConfigHandler($this->boot, $this->workDir),
@@ -704,6 +711,39 @@ final class RunCommand extends Command
                     return $turnResult->exitCode ?? Command::SUCCESS;
                 }
             }
+        }
+    }
+
+    /**
+     * Auto-regenerate backstory.md if source files have changed since last generation.
+     */
+    private function autoRegenerateBackstory(?SymfonyStyle $io): void
+    {
+        $profileDiscovery = $this->boot->profileDiscovery();
+        if (!$profileDiscovery->profileExists($this->activeProfile ?? '')) {
+            return;
+        }
+
+        $profilePath = $profileDiscovery->getProfilePath($this->activeProfile ?? '');
+        $assembler = new \CoquiBot\Coqui\Backstory\BackstoryAssembler();
+
+        if (!$assembler->needsRegeneration($profilePath)) {
+            return;
+        }
+
+        $io?->text('<fg=gray>Backstory source files changed — regenerating...</>');
+        $result = $assembler->generate($profilePath);
+
+        if ($result->totalFiles > 0 && $io !== null) {
+            $msg = sprintf(
+                'Backstory generated: %d file(s), ~%s tokens',
+                $result->totalFiles,
+                number_format($result->totalTokens),
+            );
+            if ($result->failedFiles > 0) {
+                $msg .= sprintf(' (%d failed — run /backstory failed)', $result->failedFiles);
+            }
+            $io->text('<fg=gray>' . $msg . '</>');
         }
     }
 
