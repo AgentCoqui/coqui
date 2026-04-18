@@ -10,6 +10,7 @@ use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\JsonHelper;
 use CoquiBot\Coqui\Utility\PromptSizeValidator;
@@ -34,6 +35,7 @@ final readonly class TaskHandler
         private BackgroundTaskManager $taskManager,
         private RoleResolver $roleResolver,
         private ProfileDiscovery $profileDiscovery,
+        private ?ProjectStore $projectStore = null,
     ) {}
 
     /**
@@ -109,6 +111,40 @@ final readonly class TaskHandler
             );
         }
 
+        $projectId = isset($body['project_id']) ? trim((string) $body['project_id']) : null;
+        if ($projectId === '') {
+            $projectId = null;
+        }
+
+        $sprintId = isset($body['sprint_id']) ? trim((string) $body['sprint_id']) : null;
+        if ($sprintId === '') {
+            $sprintId = null;
+        }
+
+        if (($projectId !== null || $sprintId !== null) && $this->projectStore === null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Project system not initialized');
+        }
+
+        if ($this->projectStore !== null) {
+            if ($projectId !== null && $this->projectStore->getProject($projectId) === null) {
+                return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Project not found');
+            }
+
+            if ($sprintId !== null) {
+                $sprint = $this->projectStore->getSprint($sprintId);
+                if ($sprint === null) {
+                    return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Sprint not found');
+                }
+
+                $sprintProjectId = (string) $sprint['project_id'];
+                if ($projectId !== null && $projectId !== $sprintProjectId) {
+                    return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Sprint does not belong to the specified project');
+                }
+
+                $projectId ??= $sprintProjectId;
+            }
+        }
+
         // Create the dedicated session for this task
         $model = $this->roleResolver->resolve($role, $profile);
         $sessionId = $this->storage->createSession($role, $model, $profile);
@@ -121,6 +157,8 @@ final readonly class TaskHandler
             parentSessionId: $parentSessionId,
             title: $title,
             maxIterations: $maxIterations,
+            projectId: $projectId,
+            sprintId: $sprintId,
         );
 
         // Try to start immediately (returns false if at max concurrency)
@@ -136,6 +174,8 @@ final readonly class TaskHandler
             'role' => $role,
             'profile' => $profile,
             'title' => $title,
+            'project_id' => $projectId,
+            'sprint_id' => $sprintId,
             'created_at' => $task['created_at'] ?? date('c'),
         ], 201);
     }

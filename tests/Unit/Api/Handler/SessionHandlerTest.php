@@ -7,6 +7,7 @@ use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use React\Http\Message\ServerRequest;
 
@@ -279,6 +280,25 @@ test('session handler resolve creates a scoped session when none exists', functi
         expect($body['profile'])->toBe('caelum');
         expect($session)->not->toBeNull();
         expect($session['profile'])->toBe('caelum');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler get returns active project id when present', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $projectStore = new ProjectStore($fixture['storage']->getPdo());
+        $projectId = $projectStore->createProject('Career Ops', 'career-ops');
+        $fixture['storage']->setActiveProject($sessionId, $projectId);
+
+        $response = $fixture['handler']->get(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId), $sessionId);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['active_project_id'])->toBe($projectId);
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }

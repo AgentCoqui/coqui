@@ -65,6 +65,7 @@ final readonly class SessionHandler
             'model_role' => $modelRole,
             'model' => $model,
             'profile' => $profile,
+            'active_project_id' => null,
         ], 201);
     }
 
@@ -91,6 +92,7 @@ final readonly class SessionHandler
                     'model_role' => $session['model_role'],
                     'model' => $session['model'],
                     'profile' => $session['profile'] ?? null,
+                    'active_project_id' => $session['active_project_id'] ?? null,
                     'created' => false,
                 ]);
             }
@@ -104,6 +106,7 @@ final readonly class SessionHandler
             'model_role' => $modelRole,
             'model' => $model,
             'profile' => $profile,
+            'active_project_id' => null,
             'created' => true,
         ], 201);
     }

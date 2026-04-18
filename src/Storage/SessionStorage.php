@@ -307,7 +307,7 @@ final class SessionStorage
             : '';
 
         $stmt = $this->db->prepare(<<<SQL
-            SELECT s.id, s.model_role, s.model, s.title, s.profile, s.created_at, s.updated_at, s.token_count
+            SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count
             FROM sessions s
             {$join}
             {$filter}
@@ -327,7 +327,7 @@ final class SessionStorage
     public function getSession(string $id): ?array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, model_role, model, title, profile, created_at, updated_at, token_count
+            SELECT id, model_role, model, title, profile, active_project_id, created_at, updated_at, token_count
             FROM sessions
             WHERE id = :id
         SQL);

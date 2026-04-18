@@ -23,11 +23,13 @@ use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler as ApiLoopHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
+use CoquiBot\Coqui\Api\Handler\ProjectHandler;
 use CoquiBot\Coqui\Api\Handler\PromptHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Api\Handler\ServerHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
+use CoquiBot\Coqui\Api\Handler\SessionProjectHandler;
 use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Api\Handler\ToolkitHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
@@ -313,7 +315,7 @@ final class ApiCommand extends Command
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
-        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery());
+        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
         $evaluationHandler = new EvaluationHandler($evaluationStore);
         $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $qualityStatus);
@@ -335,6 +337,8 @@ final class ApiCommand extends Command
         $scheduleHandler = new ScheduleHandler($scheduleStore);
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
         $webhookMgmtHandler = new WebhookManagementHandler($webhookStore, $boot->profileDiscovery());
+        $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore) : null;
+        $sessionProjectHandler = $projectStore !== null ? new SessionProjectHandler($storage, $projectStore) : null;
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
             ? new ApiLoopHandler($loopStore, $loopDiscovery)
@@ -342,7 +346,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -521,6 +525,8 @@ final class ApiCommand extends Command
         WebhookHandler $webhook,
         WebhookManagementHandler $webhookMgmt,
         ?ApiLoopHandler $loop,
+        ?ProjectHandler $project,
+        ?SessionProjectHandler $sessionProject,
     ): void {
         $v1 = '/api/v1';
 
@@ -534,6 +540,10 @@ final class ApiCommand extends Command
         $router->get($v1 . '/sessions/{id}', [$session, 'get']);
         $router->patch($v1 . '/sessions/{id}', [$session, 'update']);
         $router->delete($v1 . '/sessions/{id}', [$session, 'delete']);
+        if ($sessionProject !== null) {
+            $router->get($v1 . '/sessions/{id}/project', [$sessionProject, 'get']);
+            $router->patch($v1 . '/sessions/{id}/project', [$sessionProject, 'update']);
+        }
 
         // Messages
         $router->get($v1 . '/sessions/{id}/messages', [$message, 'list']);
@@ -573,6 +583,12 @@ final class ApiCommand extends Command
         $router->get($v1 . '/tasks/{id}/events', [$task, 'events']);
         $router->post($v1 . '/tasks/{id}/input', [$task, 'addInput']);
         $router->post($v1 . '/tasks/{id}/cancel', [$task, 'cancel']);
+        if ($project !== null) {
+            $router->get($v1 . '/projects', [$project, 'list']);
+            $router->get($v1 . '/projects/{idOrSlug}', [$project, 'get']);
+            $router->get($v1 . '/projects/{idOrSlug}/sprints', [$project, 'sprints']);
+            $router->get($v1 . '/sprints/{id}', [$project, 'sprint']);
+        }
 
         // Child runs
         $router->get($v1 . '/sessions/{id}/child-runs', [$session, 'childRuns']);
