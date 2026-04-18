@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl\Handler;
 
 use CoquiBot\Coqui\Backstory\BackstoryAssembler;
+use CoquiBot\Coqui\Backstory\BackstoryInspectionService;
 use CoquiBot\Coqui\Backstory\BackstoryManifest;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Repl\RouteResult;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -16,11 +18,13 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 final class BackstoryHandler
 {
     private readonly BackstoryAssembler $assembler;
+    private readonly BackstoryInspectionService $inspectionService;
 
     public function __construct(
         private readonly BootManager $boot,
     ) {
         $this->assembler = new BackstoryAssembler();
+        $this->inspectionService = new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery(), $this->assembler);
     }
 
     public function handle(SymfonyStyle $io, string $arg, ?string $activeProfile): RouteResult
@@ -48,18 +52,17 @@ final class BackstoryHandler
 
     private function handleOverview(SymfonyStyle $io, string $profilePath, string $activeProfile): RouteResult
     {
-        $backstoryDir = BackstoryManifest::backstoryDir($profilePath);
-        if (!is_dir($backstoryDir)) {
+        $backstory = $this->inspectionService->inspect($activeProfile);
+        if (($backstory['source_folder_exists'] ?? false) !== true) {
             $io->info(sprintf(
                 'No backstory source folder found for profile "%s". Create one at: %s',
                 $activeProfile,
-                $backstoryDir,
+                BackstoryManifest::backstoryDir($profilePath),
             ));
             return RouteResult::continue();
         }
 
-        $manifest = $this->assembler->getManifest($profilePath);
-        if ($manifest === null || $manifest->generatedAt === '') {
+        if (($backstory['has_generated_backstory'] ?? false) !== true) {
             $io->warning('Backstory source folder exists but has not been generated yet. Run /backstory generate');
             return RouteResult::continue();
         }
@@ -67,45 +70,82 @@ final class BackstoryHandler
         $io->section(sprintf('Backstory — %s', $activeProfile));
 
         $io->definitionList(
-            ['Source folder' => $backstoryDir],
-            ['Generated at' => $manifest->generatedAt],
-            ['Total files' => (string) $manifest->totalFiles],
-            ['Supported files' => (string) $manifest->supportedFilesCount()],
-            ['Unsupported files' => (string) $manifest->unsupportedFileCount()],
-            ['Failed files' => (string) $manifest->failedFiles],
-            ['Estimated tokens' => number_format($manifest->totalTokens)],
+            ['Source folder' => (string) ($backstory['source_folder'] ?? '')],
+            ['Generated file' => (string) ($backstory['generated_backstory_path'] ?? '')],
+            ['Generated at' => self::formatNullableTimestamp(is_string($backstory['generated_at'] ?? null) ? $backstory['generated_at'] : null)],
+            ['Last modified' => self::formatNullableTimestamp(is_string($backstory['last_modified_at'] ?? null) ? $backstory['last_modified_at'] : null)],
+            ['Total files' => (string) ($backstory['total_files'] ?? 0)],
+            ['Supported files' => (string) ($backstory['supported_file_count'] ?? 0)],
+            ['Unsupported files' => (string) ($backstory['unsupported_file_count'] ?? 0)],
+            ['Failed files' => (string) ($backstory['failed_file_count'] ?? 0)],
+            ['Estimated tokens' => number_format((int) ($backstory['total_tokens'] ?? 0))],
+            ['Total size' => self::formatBytes((int) ($backstory['total_size_bytes'] ?? 0))],
+            ['Needs regeneration' => ($backstory['needs_regeneration'] ?? false) ? 'yes' : 'no'],
         );
 
-        if ($manifest->files !== []) {
+        if (($backstory['folders'] ?? []) !== []) {
             $rows = [];
-            foreach ($manifest->files as $file) {
-                $status = $file['status'] === 'ok'
+            foreach ($backstory['folders'] as $folder) {
+                if (!is_array($folder)) {
+                    continue;
+                }
+
+                $rows[] = [
+                    self::formatFolderPath((string) ($folder['path'] ?? '')),
+                    number_format((int) ($folder['total_tokens'] ?? 0)),
+                    (string) ($folder['file_count'] ?? 0),
+                    (string) ($folder['unsupported_file_count'] ?? 0),
+                    (string) ($folder['failed_file_count'] ?? 0),
+                    self::formatBytes((int) ($folder['total_size_bytes'] ?? 0)),
+                    self::formatNullableTimestamp(is_string($folder['last_modified_at'] ?? null) ? $folder['last_modified_at'] : null),
+                ];
+            }
+
+            $io->table(
+                ['Folder', 'Tokens', 'Files', 'Skipped', 'Failed', 'Size', 'Modified'],
+                $rows,
+            );
+        }
+
+        if (($backstory['files'] ?? []) !== []) {
+            $rows = [];
+            foreach ($backstory['files'] as $file) {
+                if (!is_array($file)) {
+                    continue;
+                }
+
+                $status = ($file['status'] ?? 'unknown') === 'ok'
                     ? '<fg=green>ok</>'
                     : '<fg=red>failed</>';
 
                 $rows[] = [
-                    $file['relative_path'],
-                    self::formatBytes($file['size_bytes']),
-                    number_format($file['token_estimate']),
+                    (string) ($file['relative_path'] ?? ''),
+                    self::formatBytes((int) ($file['size_bytes'] ?? 0)),
+                    number_format((int) ($file['token_estimate'] ?? 0)),
                     $status,
-                    self::formatTimestamp($file['modified_at']),
+                    self::formatNullableTimestamp(is_string($file['modified_at'] ?? null) ? $file['modified_at'] : null),
                 ];
             }
 
+            $io->newLine();
             $io->table(
                 ['File', 'Size', 'Tokens', 'Status', 'Modified'],
                 $rows,
             );
         }
 
-        if ($manifest->unsupportedFiles !== []) {
+        if (($backstory['unsupported_files'] ?? []) !== []) {
             $rows = [];
-            foreach ($manifest->unsupportedFiles as $file) {
+            foreach ($backstory['unsupported_files'] as $file) {
+                if (!is_array($file)) {
+                    continue;
+                }
+
                 $rows[] = [
-                    $file['relative_path'],
-                    $file['extension'] !== '' ? '.' . $file['extension'] : '—',
-                    $file['reason'],
-                    self::formatTimestamp($file['modified_at']),
+                    (string) ($file['relative_path'] ?? ''),
+                    ($file['extension'] ?? '') !== '' ? '.' . $file['extension'] : '—',
+                    (string) ($file['reason'] ?? ''),
+                    self::formatNullableTimestamp(is_string($file['modified_at'] ?? null) ? $file['modified_at'] : null),
                 ];
             }
 
@@ -116,20 +156,26 @@ final class BackstoryHandler
             );
         }
 
-        if ($manifest->failedFiles > 0 || $manifest->unsupportedFileCount() > 0) {
+        if (($backstory['content'] ?? null) !== null && trim((string) $backstory['content']) !== '') {
+            $io->newLine();
+            $io->section('Generated Backstory');
+            $io->write(MarkdownRenderer::render((string) $backstory['content']));
+            $io->newLine();
+        }
+
+        if (($backstory['failed_file_count'] ?? 0) > 0 || ($backstory['unsupported_file_count'] ?? 0) > 0) {
             $messages = [];
-            if ($manifest->failedFiles > 0) {
-                $messages[] = sprintf('%d failed extraction(s)', $manifest->failedFiles);
+            if (($backstory['failed_file_count'] ?? 0) > 0) {
+                $messages[] = sprintf('%d failed extraction(s)', (int) $backstory['failed_file_count']);
             }
-            if ($manifest->unsupportedFileCount() > 0) {
-                $messages[] = sprintf('%d unsupported file(s) skipped', $manifest->unsupportedFileCount());
+            if (($backstory['unsupported_file_count'] ?? 0) > 0) {
+                $messages[] = sprintf('%d unsupported file(s) skipped', (int) $backstory['unsupported_file_count']);
             }
 
             $io->warning(implode('; ', $messages) . '. Run /backstory failed for details.');
         }
 
-        $needsRegen = $this->assembler->needsRegeneration($profilePath);
-        if ($needsRegen) {
+        if (($backstory['needs_regeneration'] ?? false) === true) {
             $io->warning('Source files have changed since last generation. Run /backstory generate to update.');
         }
 
@@ -204,7 +250,7 @@ final class BackstoryHandler
                 $rows[] = [
                     $error['relative_path'],
                     $error['error'],
-                    self::formatTimestamp($error['timestamp']),
+                    self::formatNullableTimestamp($error['timestamp']),
                 ];
             }
 
@@ -221,7 +267,7 @@ final class BackstoryHandler
                     $file['relative_path'],
                     $file['extension'] !== '' ? '.' . $file['extension'] : '—',
                     $file['reason'],
-                    self::formatTimestamp($file['modified_at']),
+                    self::formatNullableTimestamp($file['modified_at']),
                 ];
             }
 
@@ -271,9 +317,9 @@ final class BackstoryHandler
         return round($bytes / 1048576, 1) . ' MB';
     }
 
-    private static function formatTimestamp(string $timestamp): string
+    public static function formatNullableTimestamp(?string $timestamp): string
     {
-        if ($timestamp === '') {
+        if ($timestamp === null || $timestamp === '') {
             return '—';
         }
 
@@ -285,6 +331,11 @@ final class BackstoryHandler
         return $dt->format('Y-m-d H:i');
     }
 
+    private static function formatFolderPath(string $path): string
+    {
+        return $path !== '' ? $path : '.';
+    }
+
     /**
      * Get a brief manifest summary for display in /prompt output.
      *
@@ -292,21 +343,20 @@ final class BackstoryHandler
      */
     public function getManifestSummary(string $profileName): ?array
     {
-        $profilePath = $this->resolveProfilePath($profileName);
-        if ($profilePath === null) {
+        if ($this->resolveProfilePath($profileName) === null) {
             return null;
         }
 
-        $manifest = $this->assembler->getManifest($profilePath);
-        if ($manifest === null || $manifest->totalFiles === 0) {
+        $backstory = $this->inspectionService->inspect($profileName);
+        if (($backstory['has_generated_backstory'] ?? false) !== true || (int) ($backstory['total_files'] ?? 0) === 0) {
             return null;
         }
 
         return [
-            'total_files' => $manifest->totalFiles,
-            'total_tokens' => $manifest->totalTokens,
-            'failed_files' => $manifest->failedFiles,
-            'unsupported_files' => $manifest->unsupportedFileCount(),
+            'total_files' => (int) ($backstory['total_files'] ?? 0),
+            'total_tokens' => (int) ($backstory['total_tokens'] ?? 0),
+            'failed_files' => (int) ($backstory['failed_file_count'] ?? 0),
+            'unsupported_files' => (int) ($backstory['unsupported_file_count'] ?? 0),
         ];
     }
 }

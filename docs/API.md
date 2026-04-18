@@ -1322,6 +1322,8 @@ The `tables` field validates that all expected database tables exist. If any are
 
 Background tasks run long-running agent work in separate processes. Each task gets its own dedicated session and runs via `bin/coqui task:run`. Tasks are managed by the `BackgroundTaskManager` which handles process lifecycle, concurrency limits, and crash recovery.
 
+Task execution depends on the API server process being up and healthy. The REPL can create and monitor tasks, but it does not execute them itself.
+
 For architecture details, see [BACKGROUND-TASKS.md](BACKGROUND-TASKS.md).
 
 #### `POST /api/v1/tasks`
@@ -1918,6 +1920,8 @@ Schedules enable autonomous, timer-driven execution via cron-style expressions. 
 
 The HTTP API currently exposes schedules as read-only monitoring resources. Create, update, delete, trigger, enable, and disable actions are REPL-first.
 
+Schedule evaluation only happens inside the API server event loop. If the API server is not running, schedules remain persisted but no due work is dispatched.
+
 #### `GET /api/v1/schedules`
 
 List all schedules with optional filters.
@@ -1979,6 +1983,8 @@ Schedule mutation endpoints are not part of the current HTTP surface.
 Loops are fully automated, multi-iteration workflows that string together existing agent roles in sequence. Each role processes the output of the previous one, repeating until a termination condition is met.
 
 The HTTP API currently exposes loops as read-only monitoring resources. Loop creation and lifecycle control stay in the REPL or agent-tool workflow.
+
+Loop stage advancement only happens while the API server is running. `LoopManager` advances stages asynchronously and spawns the background tasks that execute them.
 
 #### `GET /api/v1/loops`
 
@@ -2109,6 +2115,8 @@ Get a specific iteration with all its stage details.
 ### Webhooks
 
 Webhooks receive signed HTTP POST requests from external services and automatically spawn background tasks. Signature verification supports GitHub, Slack, and generic HMAC schemes.
+
+Incoming webhook delivery is an API-server responsibility. The REPL can manage webhook records through commands and tools, but it does not host an HTTP listener.
 
 #### `POST /api/v1/webhooks/incoming/{name}`
 

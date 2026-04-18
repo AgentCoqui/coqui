@@ -22,7 +22,6 @@ Use these documents as the canonical references:
 - [docs/COMMANDS.md](docs/COMMANDS.md): REPL, CLI, and launcher commands
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md): `openclaw.json`, models, workspace, mounts, runtime settings
 - [docs/API.md](docs/API.md): canonical HTTP API reference and client integration guidance
-- [docs/REPL-API-DIVERGENCES.md](docs/REPL-API-DIVERGENCES.md): intentional REPL/API boundary
 - [docs/TESTING.md](docs/TESTING.md): test strategy and test commands
 - [docs/TOOLKITS.md](docs/TOOLKITS.md): toolkit authoring and discovery
 - [docs/ROLES.md](docs/ROLES.md): role system and role files

@@ -24,6 +24,7 @@ use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
+use CoquiBot\Coqui\Support\PromptInspectionService;
 use CoquiBot\Coqui\Contract\SystemRole;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -55,6 +56,7 @@ final class SlashCommandRouter
         private readonly LoopHandler $loop,
         private readonly BackstoryHandler $backstory,
         private readonly AgentRunner $agentRunner,
+        private readonly PromptInspectionService $promptInspection,
         private readonly \Closure $onHintsToggle,
         private readonly \Closure $onMultilineToggle,
     ) {}
@@ -237,7 +239,7 @@ final class SlashCommandRouter
             return RouteResult::continue();
         }
 
-        $preview = $this->agentRunner->buildPromptPreview($role, $activeProfile);
+        $preview = $this->promptInspection->inspect($role, $activeProfile);
         $io->section('System Prompt');
         $io->write(MarkdownRenderer::render($preview['prompt']));
         $io->newLine();
@@ -268,11 +270,80 @@ final class SlashCommandRouter
             }
         }
 
+        $this->renderPromptSourceTables($io, $preview['prompt_sources']);
+
         $io->newLine();
-        PromptUsageBar::renderSectionBreakdown($io, $preview['budget_snapshot']);
+        PromptUsageBar::renderSectionBreakdown($io, $preview['budget']);
         $io->newLine();
-        PromptUsageBar::renderContextImpact($io, $preview['budget_snapshot']);
+        PromptUsageBar::renderContextImpact($io, $preview['budget']);
         return RouteResult::continue();
+    }
+
+    /**
+     * @param array<string, mixed> $promptSources
+     */
+    private function renderPromptSourceTables(SymfonyStyle $io, array $promptSources): void
+    {
+        $fileRows = [];
+        foreach (array_slice($promptSources['files'] ?? [], 0, 8) as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $fileRows[] = [
+                ($entry['scope'] ?? 'unknown') . ':' . ($entry['path'] ?? ''),
+                number_format((int) ($entry['tokens'] ?? 0)),
+                (string) ($entry['section_count'] ?? 0),
+                BackstoryHandler::formatNullableTimestamp(is_string($entry['last_modified_at'] ?? null) ? $entry['last_modified_at'] : null),
+            ];
+        }
+
+        $folderRows = [];
+        foreach (array_slice($promptSources['folders'] ?? [], 0, 6) as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $path = (string) ($entry['path'] ?? '');
+            $folderRows[] = [
+                ($entry['scope'] ?? 'unknown') . ':' . ($path !== '' ? $path : '.'),
+                number_format((int) ($entry['tokens'] ?? 0)),
+                (string) ($entry['file_count'] ?? 0),
+                BackstoryHandler::formatNullableTimestamp(is_string($entry['last_modified_at'] ?? null) ? $entry['last_modified_at'] : null),
+            ];
+        }
+
+        $syntheticRows = [];
+        foreach (array_slice($promptSources['synthetic'] ?? [], 0, 6) as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $syntheticRows[] = [
+                (string) ($entry['label'] ?? 'Generated'),
+                number_format((int) ($entry['tokens'] ?? 0)),
+                (string) ($entry['section_count'] ?? 0),
+            ];
+        }
+
+        if ($fileRows === [] && $folderRows === [] && $syntheticRows === []) {
+            return;
+        }
+
+        $io->newLine();
+        if ($folderRows !== []) {
+            $io->table(['Folder', 'Tokens', 'Files', 'Modified'], $folderRows);
+        }
+
+        if ($fileRows !== []) {
+            $io->newLine();
+            $io->table(['Prompt File', 'Tokens', 'Sections', 'Modified'], $fileRows);
+        }
+
+        if ($syntheticRows !== []) {
+            $io->newLine();
+            $io->table(['Generated Source', 'Tokens', 'Sections'], $syntheticRows);
+        }
     }
 
     private function handleBudget(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
