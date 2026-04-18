@@ -164,6 +164,36 @@ test('generate handles xlsx files when zip support is available', function () {
     expect($output)->toContain('| 2024 | Launch |');
 });
 
+test('generate handles pptx files when zip support is available', function () {
+    if (!class_exists(\CoquiBot\Coqui\Backstory\Extractor\PptxExtractor::class)
+        || !\CoquiBot\Coqui\Backstory\Extractor\PptxExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    createTestPptx($this->backstoryDir . '/briefing.pptx', [
+        [
+            'title' => 'Identity',
+            'bullets' => ['Quietly formidable', 'Pattern beneath the surface'],
+        ],
+        [
+            'title' => 'Continuity',
+            'bullets' => ['Shared memories', 'Separate histories'],
+        ],
+    ]);
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->failedFiles)->toBe(0);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('### File: /briefing.pptx');
+    expect($output)->toContain('#### Slide 1: Identity');
+    expect($output)->not->toContain('- Identity');
+    expect($output)->toContain('- Quietly formidable');
+    expect($output)->toContain('#### Slide 2: Continuity');
+});
+
 test('generate records failed files in manifest', function () {
     file_put_contents($this->backstoryDir . '/bad.json', 'not valid json');
 

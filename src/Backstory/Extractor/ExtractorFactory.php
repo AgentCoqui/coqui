@@ -32,6 +32,10 @@ final class ExtractorFactory
             $extractors[] = new XlsxExtractor();
         }
 
+        if (PptxExtractor::isRuntimeSupported()) {
+            $extractors[] = new PptxExtractor();
+        }
+
         foreach ($extractors as $extractor) {
             foreach ($extractor->supportedExtensions() as $ext) {
                 $this->map[$ext] = $extractor;

@@ -546,6 +546,16 @@
             ]
         },
         {
+            "path": "src/Backstory/Extractor/PptxExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\PptxExtractor",
+            "layer": "feature",
+            "description": "Optionally reads PPTX decks through ZipArchive and OOXML parsing. Each populated slide is converted into a markdown section using extracted slide text only.",
+            "methods": [
+                "extract(string): ExtractorResult — convert pptx slides into markdown sections",
+                "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
+            ]
+        },
+        {
             "path": "src/Backstory/Extractor/CodeBlockExtractor.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\CodeBlockExtractor",
             "layer": "feature",
@@ -558,7 +568,7 @@
             "path": "src/Backstory/Extractor/ExtractorFactory.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\ExtractorFactory",
             "layer": "feature",
-            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, optional xlsx, html/htm, xml, rtf, common code-file extensions, pdf, and docx.",
+            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, optional xlsx/pptx, html/htm, xml, rtf, common code-file extensions, pdf, and docx.",
             "methods": [
                 "get(string): ?ExtractorInterface — get extractor for extension",
                 "isSupported(string): bool — check if extension is supported"

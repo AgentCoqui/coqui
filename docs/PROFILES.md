@@ -151,6 +151,7 @@ profiles/caelum/
 | `.yaml`, `.yml` | Wrapped in a ` ```yaml ` code fence |
 | `.csv`, `.tsv` | Converted to a markdown table |
 | `.xlsx` | Optionally converted into markdown tables per worksheet when ZIP support is available |
+| `.pptx` | Optionally converted into per-slide markdown sections, using the first text block as the slide title, when ZIP support is available |
 | `.html`, `.htm` | Sanitized and converted to markdown via `league/html-to-markdown` |
 | `.xml` | Rendered as a markdown outline for simple documents, otherwise wrapped in a ` ```xml ` code fence |
 | `.rtf` | Converted to plain text with conservative RTF control-word stripping |
@@ -160,9 +161,11 @@ profiles/caelum/
 
 Code file support covers common text-based source extensions such as `.php`, `.js`, `.ts`, `.jsx`, `.tsx`, `.py`, `.rb`, `.java`, `.c`, `.cpp`, `.cs`, `.go`, `.rs`, `.sh`, `.zsh`, `.ps1`, `.sql`, `.css`, `.scss`, `.less`, and similar formats.
 
-HTML, XML, RTF, code files, and optional `.xlsx` input are always treated as read-only input. Coqui converts them into markdown or fenced text for inclusion in `backstory.md`; it does not execute scripts, formulas, macros, or embedded code while generating the backstory.
+HTML, XML, RTF, code files, and optional `.xlsx`/`.pptx` input are always treated as read-only input. Coqui converts them into markdown or fenced text for inclusion in `backstory.md`; it does not execute scripts, formulas, macros, or embedded code while generating the backstory.
 
 `.xlsx` support is optional and depends on PHP ZIP support. When available, Coqui reads cached worksheet values and converts each populated worksheet into a markdown table. It does not evaluate spreadsheet formulas.
+
+`.pptx` support is also optional and depends on PHP ZIP support. When available, Coqui extracts readable slide text in presentation order and renders each populated slide as a markdown section. It does not execute macros or embedded active content.
 
 ### Sort Order
 
