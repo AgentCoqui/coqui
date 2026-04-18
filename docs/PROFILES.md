@@ -15,7 +15,7 @@ A **profile** is a directory under `profiles/` in the workspace containing a `so
 - Optional `samples/responses/` directory holds example responses for fidelity verification.
 - All child agents spawned during the session also receive the profile's identity preamble.
 - Memories saved during a profiled session are tagged with the profile ID. Profile-tagged memories are only visible to that profile; untagged (legacy) memories remain visible to all.
-- Each profile switch creates a new session (conversation-scoped identity).
+- Profile startup and `/profile` switching reuse the last active interactive session for that profile when available, and create one only when needed.
 
 ## File Structure
 
@@ -217,7 +217,7 @@ This means each profile builds its own memory layer on top of the shared base.
 
 ### `/profile [name|reset]`
 
-Switch the active personality profile. Creates a new session.
+Switch the active personality profile. Coqui resumes that profile's last active interactive session when available, or creates one if needed. Resetting a profile returns to the unprofiled interactive session pool.
 
 ```bash
 /profile caelum      # Switch to the "caelum" profile
@@ -262,7 +262,7 @@ Start Coqui with a specific profile:
 coqui --profile caelum
 ```
 
-This creates a new session with the specified profile active.
+This resumes the last active interactive session for the specified profile, or creates a new one if none exists.
 
 ## Default Profile Configuration
 
@@ -279,6 +279,8 @@ You can configure a default startup profile in `openclaw.json`:
 ```
 
 When set, Coqui reattaches the current `.coqui-session` if it already belongs to that profile. If not, it resumes the latest session for that profile or creates a new one.
+
+Session selection is SQLite-backed: Coqui picks the most recently active interactive session for the requested scope. Plain startup with no profile uses the unprofiled session pool, while profiled startup uses the matching profile pool. `.coqui-session` remains a convenience pointer for the currently attached session.
 
 ## API
 
@@ -336,7 +338,7 @@ You (caelum, coder) [my-project]:
 
 ## Design Decisions
 
-- **Conversation-scoped**: Switching profiles creates a new session. This preserves identity continuity — mid-conversation personality switches could confuse the agent and break context.
+- **Scoped session reuse**: Each profile keeps its own last-active interactive session stream, while unprofiled usage keeps a separate unprofiled stream. This lets users move between identities without losing their session history for each scope.
 - **Profile-scoped memories**: Memories saved during a profiled session are tagged with that profile. Each profile sees its own memories plus shared (untagged) ones. This prevents one profile's learned patterns from leaking into another's context.
 - **Profile ≠ Role**: Profiles affect the soul/identity layer. Roles affect the capability/access layer. Both can be combined.
 - **Layered identity files**: soul.md defines who the profile is; backstory.md provides narrative continuity; preferences.json tunes behavior. Keeping these separate lets each evolve independently.

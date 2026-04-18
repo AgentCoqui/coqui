@@ -106,7 +106,7 @@ final class RunCommand extends Command
             ->addOption('prompt', 'p', InputOption::VALUE_REQUIRED, 'Prompt to send in --no-terminal mode')
             ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'Output format for --no-terminal mode (text or json)', 'text')
             ->addOption('continue', null, InputOption::VALUE_NONE, 'Resume the last session and automatically send "Continue." as the first prompt')
-            ->addOption('profile', null, InputOption::VALUE_REQUIRED, 'Start with a personality profile (creates a new session)');
+            ->addOption('profile', null, InputOption::VALUE_REQUIRED, 'Start with a personality profile (resumes or creates its last active session)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -125,13 +125,13 @@ final class RunCommand extends Command
 
         if (is_string($profileOption) && trim($profileOption) !== '') {
             if ($this->continueMode) {
-                $io->error('Cannot combine --profile with --continue. The --profile flag always starts a new session.');
+                $io->error('Cannot combine --profile with --continue. The --profile flag already resumes or creates the selected profile session.');
                 return Command::FAILURE;
             }
 
             $sessionOption = $input->getOption('session');
             if (is_string($sessionOption) && trim($sessionOption) !== '') {
-                $io->error('Cannot combine --profile with --session. The --profile flag always starts a new session.');
+                $io->error('Cannot combine --profile with --session. The --session flag already selects an explicit session.');
                 return Command::FAILURE;
             }
 
@@ -265,10 +265,12 @@ final class RunCommand extends Command
         // Handle session
         $sessionHandler = new SessionHandler($this->boot, $this->storage);
         if ($this->continueMode) {
-            // --continue: always resume the last session (from .coqui-session or most recent in DB)
-            $this->sessionId = $sessionHandler->loadOrCreateSession($io);
-        } elseif ($input->getOption('new') || $requestedProfile !== null) {
+            // --continue: resume the attached interactive session if present, otherwise the latest interactive session
+            $this->sessionId = $sessionHandler->loadOrCreateAttachedSession($io);
+        } elseif ($input->getOption('new')) {
             $this->sessionId = $sessionHandler->createNewSession(profile: $this->activeProfile);
+        } elseif ($requestedProfile !== null) {
+            $this->sessionId = $sessionHandler->loadOrCreateProfileSession($io, $requestedProfile);
         } elseif ($input->getOption('session')) {
             $this->sessionId = $input->getOption('session');
             if ($this->storage->getSession($this->sessionId) === null) {
@@ -405,7 +407,7 @@ final class RunCommand extends Command
             ),
             project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
-            profile: new ProfileHandler($this->boot, $this->storage),
+            profile: new ProfileHandler($this->boot, $sessionHandler),
             backstory: new BackstoryHandler($this->boot),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             space: new SpaceHandler($this->boot),
@@ -794,10 +796,12 @@ final class RunCommand extends Command
                 return Command::FAILURE;
             }
             $sessionHandler->saveSessionFile($this->sessionId);
+        } elseif ($this->activeProfile !== null) {
+            $this->sessionId = $sessionHandler->loadOrCreateProfileSession(null, $this->activeProfile);
         } elseif ($this->configuredDefaultProfile !== null) {
             $this->sessionId = $sessionHandler->loadOrCreateProfileSession(null, $this->configuredDefaultProfile);
         } else {
-            $this->sessionId = $sessionHandler->createNewSession(profile: $this->activeProfile);
+            $this->sessionId = $sessionHandler->loadOrCreateSession(null);
         }
 
         $this->applySessionState($sessionHandler);

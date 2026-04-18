@@ -23,70 +23,40 @@ final class SessionHandler
 
     public function createNewSession(string $role = 'orchestrator', ?string $profile = null): string
     {
-        $modelString = $this->boot->roleResolver()->resolve($role);
+        $modelString = $this->boot->roleResolver()->resolve($role, $profile);
         $sessionId = $this->storage->createSession($role, $modelString, $profile);
         $this->saveSessionFile($sessionId);
 
         return $sessionId;
     }
 
-    public function loadOrCreateSession(SymfonyStyle $io): string
+    public function loadOrCreateSession(?SymfonyStyle $io, string $role = 'orchestrator'): string
     {
-        $sessionFile = $this->boot->workspacePath() . '/' . self::SESSION_FILE;
-        if (file_exists($sessionFile)) {
-            $fileContent = file_get_contents($sessionFile);
-            if ($fileContent !== false) {
-                $sessionId = trim($fileContent);
-                if ($this->storage->getSession($sessionId) !== null) {
-                    $io->info('Resumed previous session: ' . substr($sessionId, 0, 8) . '...');
-                    return $sessionId;
-                }
-            }
-        }
-
-        $latestId = $this->storage->getLatestSessionId();
-        if ($latestId !== null) {
-            $this->saveSessionFile($latestId);
-            $io->info('Resumed latest session: ' . substr($latestId, 0, 8) . '...');
-            return $latestId;
-        }
-
-        $sessionId = $this->createNewSession();
-        $io->info('Created new session: ' . substr($sessionId, 0, 8) . '...');
-
-        return $sessionId;
+        return $this->loadOrCreateScopedSession($io, null, $role);
     }
 
     public function loadOrCreateProfileSession(?SymfonyStyle $io, string $profile, string $role = 'orchestrator'): string
     {
-        $sessionFile = $this->boot->workspacePath() . '/' . self::SESSION_FILE;
-        if (file_exists($sessionFile)) {
-            $fileContent = file_get_contents($sessionFile);
-            if ($fileContent !== false) {
-                $sessionId = trim($fileContent);
-                $session = $this->storage->getSession($sessionId);
-                if (is_array($session) && ($session['profile'] ?? null) === $profile) {
-                    if ($io !== null) {
-                        $io->info(sprintf('Resumed attached profile session "%s": %s...', $profile, substr($sessionId, 0, 8)));
-                    }
-                    return $sessionId;
-                }
-            }
+        return $this->loadOrCreateScopedSession($io, $profile, $role);
+    }
+
+    public function loadOrCreateAttachedSession(?SymfonyStyle $io, string $role = 'orchestrator'): string
+    {
+        $attachedId = $this->loadAttachedInteractiveSessionId();
+        if ($attachedId !== null) {
+            $this->writeInfo($io, 'Resumed previous session: ' . substr($attachedId, 0, 8) . '...');
+            return $attachedId;
         }
 
-        $latestId = $this->storage->getLatestSessionIdForProfile($profile);
+        $latestId = $this->storage->getLatestInteractiveSessionId();
         if ($latestId !== null) {
             $this->saveSessionFile($latestId);
-            if ($io !== null) {
-                $io->info(sprintf('Resumed latest profile session "%s": %s...', $profile, substr($latestId, 0, 8)));
-            }
+            $this->writeInfo($io, 'Resumed latest session: ' . substr($latestId, 0, 8) . '...');
             return $latestId;
         }
 
-        $sessionId = $this->createNewSession($role, $profile);
-        if ($io !== null) {
-            $io->info(sprintf('Created new profile session "%s": %s...', $profile, substr($sessionId, 0, 8)));
-        }
+        $sessionId = $this->createNewSession($role);
+        $this->writeInfo($io, 'Created new session: ' . substr($sessionId, 0, 8) . '...');
 
         return $sessionId;
     }
@@ -218,5 +188,110 @@ final class SessionHandler
         $this->saveSessionFile($arg);
         $io->success('Resumed session: ' . $arg);
         return $arg;
+    }
+
+    private function loadOrCreateScopedSession(?SymfonyStyle $io, ?string $profile, string $role): string
+    {
+        $attachedId = $this->loadAttachedInteractiveSessionIdForScope($profile);
+        if ($attachedId !== null) {
+            $this->writeInfo($io, $this->attachedScopeMessage($profile, $attachedId));
+            return $attachedId;
+        }
+
+        $latestId = $profile === null
+            ? $this->storage->getLatestInteractiveUnprofiledSessionId()
+            : $this->storage->getLatestInteractiveSessionIdForProfile($profile);
+
+        if ($latestId !== null) {
+            $this->saveSessionFile($latestId);
+            $this->writeInfo($io, $this->latestScopeMessage($profile, $latestId));
+            return $latestId;
+        }
+
+        $sessionId = $this->createNewSession($role, $profile);
+        $this->writeInfo($io, $this->createdScopeMessage($profile, $sessionId));
+
+        return $sessionId;
+    }
+
+    private function loadAttachedInteractiveSessionId(): ?string
+    {
+        $sessionId = $this->readSessionFile();
+        if ($sessionId === null) {
+            return null;
+        }
+
+        if ($this->storage->getSession($sessionId) === null) {
+            return null;
+        }
+
+        return $this->storage->isInteractiveSession($sessionId) ? $sessionId : null;
+    }
+
+    private function loadAttachedInteractiveSessionIdForScope(?string $profile): ?string
+    {
+        $sessionId = $this->loadAttachedInteractiveSessionId();
+        if ($sessionId === null) {
+            return null;
+        }
+
+        $session = $this->storage->getSession($sessionId);
+        if (!is_array($session)) {
+            return null;
+        }
+
+        $sessionProfile = $session['profile'] ?? null;
+        $resolvedProfile = is_string($sessionProfile) && $sessionProfile !== '' ? $sessionProfile : null;
+
+        return $resolvedProfile === $profile ? $sessionId : null;
+    }
+
+    private function readSessionFile(): ?string
+    {
+        $sessionFile = $this->boot->workspacePath() . '/' . self::SESSION_FILE;
+        if (!file_exists($sessionFile)) {
+            return null;
+        }
+
+        $fileContent = file_get_contents($sessionFile);
+        if ($fileContent === false) {
+            return null;
+        }
+
+        $sessionId = trim($fileContent);
+
+        return $sessionId !== '' ? $sessionId : null;
+    }
+
+    private function writeInfo(?SymfonyStyle $io, string $message): void
+    {
+        $io?->info($message);
+    }
+
+    private function attachedScopeMessage(?string $profile, string $sessionId): string
+    {
+        if ($profile === null) {
+            return 'Resumed attached unprofiled session: ' . substr($sessionId, 0, 8) . '...';
+        }
+
+        return sprintf('Resumed attached profile session "%s": %s...', $profile, substr($sessionId, 0, 8));
+    }
+
+    private function latestScopeMessage(?string $profile, string $sessionId): string
+    {
+        if ($profile === null) {
+            return 'Resumed latest unprofiled session: ' . substr($sessionId, 0, 8) . '...';
+        }
+
+        return sprintf('Resumed latest profile session "%s": %s...', $profile, substr($sessionId, 0, 8));
+    }
+
+    private function createdScopeMessage(?string $profile, string $sessionId): string
+    {
+        if ($profile === null) {
+            return 'Created new unprofiled session: ' . substr($sessionId, 0, 8) . '...';
+        }
+
+        return sprintf('Created new profile session "%s": %s...', $profile, substr($sessionId, 0, 8));
     }
 }
