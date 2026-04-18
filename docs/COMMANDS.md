@@ -27,10 +27,10 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/roles ignore <name>` | Ignore future built-in updates for a role |
 | `/roles unignore <name>` | Resume receiving built-in updates for a role |
 | `/profile` | Show the current active personality profile |
-| `/profile <name>` | Switch to a personality profile (creates new session) |
+| `/profile <name>` | Switch to a personality profile (resumes its last active session or creates one) |
 | `/profile default` | Show the configured default startup profile |
 | `/profile default <name|none>` | Set or clear the default startup profile in `openclaw.json` |
-| `/profile reset` | Clear profile, revert to default identity (creates new session) |
+| `/profile reset` | Clear profile, revert to default identity (resumes the last unprofiled session or creates one) |
 | `/profiles` | List all available personality profiles |
 | `/model [role]` | Show model configuration (optionally for a specific role) |
 
@@ -140,6 +140,7 @@ Start the interactive REPL. This is the default when no subcommand is specified.
 coqui                          # Start the REPL (default)
 coqui run --new                # Start a fresh session
 coqui run --session abc123     # Resume a specific session
+coqui run --profile caelum     # Resume or create the last active session for a profile
 coqui run --auto-approve       # Skip tool confirmation prompts
 coqui run --continue           # Resume last session and auto-send "Continue."
 ```

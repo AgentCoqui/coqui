@@ -210,6 +210,8 @@ final class SessionStorage
         // Migration: personality profile per session
         $this->migrateAddColumn('sessions', 'profile', 'TEXT DEFAULT NULL');
 
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_profile_updated ON sessions(profile, updated_at DESC)');
+
         // Migration: child-run metadata for typed handoffs and provenance
         $this->migrateAddColumn('child_runs', 'metadata', 'TEXT DEFAULT NULL');
 
@@ -1206,6 +1208,79 @@ final class SessionStorage
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
+    }
+
+    public function getLatestInteractiveUnprofiledSessionId(): ?string
+    {
+        $stmt = $this->db->query(<<<SQL
+            SELECT s.id
+            FROM sessions s
+            LEFT JOIN background_tasks bt ON bt.session_id = s.id
+            WHERE bt.id IS NULL
+              AND s.profile IS NULL
+            ORDER BY s.updated_at DESC
+            LIMIT 1
+        SQL);
+
+        if ($stmt === false) {
+            return null;
+        }
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
+    }
+
+    public function getLatestInteractiveSessionId(): ?string
+    {
+        $stmt = $this->db->query(<<<SQL
+            SELECT s.id
+            FROM sessions s
+            LEFT JOIN background_tasks bt ON bt.session_id = s.id
+            WHERE bt.id IS NULL
+            ORDER BY s.updated_at DESC
+            LIMIT 1
+        SQL);
+
+        if ($stmt === false) {
+            return null;
+        }
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
+    }
+
+    public function getLatestInteractiveSessionIdForProfile(string $profile): ?string
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT s.id
+            FROM sessions s
+            LEFT JOIN background_tasks bt ON bt.session_id = s.id
+            WHERE bt.id IS NULL
+              AND s.profile = :profile
+            ORDER BY s.updated_at DESC
+            LIMIT 1
+        SQL);
+
+        $stmt->execute(['profile' => $profile]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return is_array($row) && isset($row['id']) ? (string) $row['id'] : null;
+    }
+
+    public function isInteractiveSession(string $sessionId): bool
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT 1
+            FROM background_tasks
+            WHERE session_id = :session_id
+            LIMIT 1
+        SQL);
+
+        $stmt->execute(['session_id' => $sessionId]);
+
+        return $stmt->fetchColumn() === false;
     }
 
     // -------------------------------------------------------------------------
