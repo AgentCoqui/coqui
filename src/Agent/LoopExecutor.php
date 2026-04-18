@@ -61,6 +61,33 @@ final class LoopExecutor
         ?string $sprintId = null,
         ?int $maxIterationsOverride = null,
     ): string {
+        if ($sprintId !== null && $sprintId !== '') {
+            $sprint = $this->projectStore->getSprint($sprintId);
+            if ($sprint === null) {
+                throw new \InvalidArgumentException(sprintf('Sprint "%s" not found', $sprintId));
+            }
+
+            $sprintProjectId = (string) $sprint['project_id'];
+
+            if ($projectId !== null && $projectId !== '' && $projectId !== $sprintProjectId) {
+                throw new \InvalidArgumentException('Sprint does not belong to the specified project');
+            }
+
+            if ($projectSlug !== null && $projectSlug !== '') {
+                $project = $this->projectStore->getProject($projectSlug);
+                if ($project === null) {
+                    throw new \InvalidArgumentException(sprintf('Project with slug "%s" not found', $projectSlug));
+                }
+
+                if ((string) $project['id'] !== $sprintProjectId) {
+                    throw new \InvalidArgumentException('Sprint does not belong to the specified project');
+                }
+            }
+
+            $projectId ??= $sprintProjectId;
+            $projectSlug = null;
+        }
+
         // Extract declared parameters from the raw definition
         $declaredParams = [];
         foreach ($rawDefinition['parameters'] ?? [] as $paramData) {
