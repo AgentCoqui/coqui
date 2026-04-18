@@ -605,9 +605,9 @@
             "path": "src/Backstory/Extractor/PptxExtractor.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\PptxExtractor",
             "layer": "feature",
-            "description": "Optionally reads PPTX and PPTM decks through ZipArchive and OOXML parsing. Each populated slide is converted into a markdown section using extracted slide text only.",
+            "description": "Optionally reads PPTX and PPTM decks through ZipArchive and OOXML parsing. Each populated slide is converted into a markdown section using extracted slide text, with speaker notes appended when present.",
             "methods": [
-                "extract(string): ExtractorResult — convert pptx/pptm slides into markdown sections",
+                "extract(string): ExtractorResult — convert pptx/pptm slides and optional speaker notes into markdown sections",
                 "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
             ]
         },

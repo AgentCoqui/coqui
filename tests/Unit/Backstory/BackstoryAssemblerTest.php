@@ -218,6 +218,33 @@ test('generate handles pptx files when zip support is available', function () {
     expect($output)->toContain('#### Slide 2: Continuity');
 });
 
+test('generate includes speaker notes from pptx files when present', function () {
+    if (!class_exists(\CoquiBot\Coqui\Backstory\Extractor\PptxExtractor::class)
+        || !\CoquiBot\Coqui\Backstory\Extractor\PptxExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    createTestPptx($this->backstoryDir . '/briefing-notes.pptx', [
+        [
+            'title' => 'Identity',
+            'bullets' => ['Quietly formidable'],
+            'notes' => ['Mention continuity anchor', 'Reference fallback plan'],
+        ],
+    ]);
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->failedFiles)->toBe(0);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('### File: /briefing-notes.pptx');
+    expect($output)->toContain('#### Slide 1: Identity');
+    expect($output)->toContain('##### Speaker Notes');
+    expect($output)->toContain('- Mention continuity anchor');
+    expect($output)->toContain('- Reference fallback plan');
+});
+
 test('generate handles open document formats when zip support is available', function () {
     if (!\CoquiBot\Coqui\Backstory\Extractor\OdtExtractor::isRuntimeSupported()) {
         test()->markTestSkipped('ZipArchive is not available');

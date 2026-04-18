@@ -47,22 +47,33 @@ final class PptxExtractor implements ExtractorInterface
                 }
 
                 $paragraphs = $this->readSlideParagraphs($slideXml);
-                if ($paragraphs === []) {
+                $speakerNotes = $this->readSpeakerNotes($zip, $slide['path']);
+                if ($paragraphs === [] && $speakerNotes === []) {
                     continue;
                 }
 
-                $title = $paragraphs[0];
-                if ($title === '') {
-                    continue;
+                $title = 'Slide ' . ($index + 1);
+                if ($paragraphs !== []) {
+                    $title = array_shift($paragraphs);
+                    if ($title === '') {
+                        $title = 'Slide ' . ($index + 1);
+                    }
                 }
-
-                $paragraphs = array_slice($paragraphs, 1);
 
                 $sectionLines = ['#### Slide ' . ($index + 1) . ': ' . $title];
                 if ($paragraphs !== []) {
                     $sectionLines[] = '';
                     foreach ($paragraphs as $paragraph) {
                         $sectionLines[] = '- ' . $paragraph;
+                    }
+                }
+
+                if ($speakerNotes !== []) {
+                    $sectionLines[] = '';
+                    $sectionLines[] = '##### Speaker Notes';
+                    $sectionLines[] = '';
+                    foreach ($speakerNotes as $note) {
+                        $sectionLines[] = '- ' . $note;
                     }
                 }
 
@@ -119,16 +130,63 @@ final class PptxExtractor implements ExtractorInterface
                 continue;
             }
 
-            $normalized = str_replace('\\', '/', $target);
-            $normalized = preg_replace('#^/+#', '', $normalized) ?? $normalized;
-            if (!str_starts_with($normalized, 'ppt/')) {
-                $normalized = 'ppt/' . ltrim($normalized, '/');
-            }
-
-            $relationships[$id] = $normalized;
+            $relationships[$id] = $this->resolvePartTarget('ppt/presentation.xml', $target);
         }
 
         return $relationships;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function readSpeakerNotes(ZipArchive $zip, string $slidePath): array
+    {
+        $notesPath = $this->readNotesSlidePath($zip, $slidePath);
+        if ($notesPath === null) {
+            return [];
+        }
+
+        $notesXml = $zip->getFromName($notesPath);
+        if (!is_string($notesXml)) {
+            return [];
+        }
+
+        return $this->readSlideParagraphs($notesXml);
+    }
+
+    private function readNotesSlidePath(ZipArchive $zip, string $slidePath): ?string
+    {
+        $relationshipsPath = dirname($slidePath) . '/_rels/' . basename($slidePath) . '.rels';
+        $relationshipsXml = $zip->getFromName($relationshipsPath);
+        if (!is_string($relationshipsXml)) {
+            return null;
+        }
+
+        $xml = $this->loadXml($relationshipsXml);
+        if ($xml === null) {
+            return null;
+        }
+
+        $relationshipNodes = $xml->xpath('/*[local-name()="Relationships"]/*[local-name()="Relationship"]');
+        if (!is_array($relationshipNodes)) {
+            return null;
+        }
+
+        foreach ($relationshipNodes as $relationship) {
+            $type = trim((string) $relationship['Type']);
+            if (!str_ends_with($type, '/notesSlide')) {
+                continue;
+            }
+
+            $target = trim((string) $relationship['Target']);
+            if ($target === '') {
+                continue;
+            }
+
+            return $this->resolvePartTarget($slidePath, $target);
+        }
+
+        return null;
     }
 
     /**
@@ -230,5 +288,35 @@ final class PptxExtractor implements ExtractorInterface
         }
 
         return $this->normalizeXmlText(implode(' ', $parts));
+    }
+
+    private function resolvePartTarget(string $sourcePartPath, string $target): string
+    {
+        $normalizedTarget = str_replace('\\', '/', $target);
+        $normalizedTarget = preg_replace('#^/+#', '', $normalizedTarget) ?? $normalizedTarget;
+        if (str_starts_with($normalizedTarget, 'ppt/')) {
+            return $normalizedTarget;
+        }
+
+        $segments = [];
+        $directory = dirname($sourcePartPath);
+        if ($directory !== '.' && $directory !== '') {
+            $segments = explode('/', trim($directory, '/'));
+        }
+
+        foreach (explode('/', $normalizedTarget) as $segment) {
+            if ($segment === '' || $segment === '.') {
+                continue;
+            }
+
+            if ($segment === '..') {
+                array_pop($segments);
+                continue;
+            }
+
+            $segments[] = $segment;
+        }
+
+        return implode('/', $segments);
     }
 }
