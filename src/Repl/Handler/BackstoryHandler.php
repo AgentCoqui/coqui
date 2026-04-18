@@ -7,7 +7,7 @@ namespace CoquiBot\Coqui\Repl\Handler;
 use CoquiBot\Coqui\Backstory\BackstoryAssembler;
 use CoquiBot\Coqui\Backstory\BackstoryInspectionService;
 use CoquiBot\Coqui\Backstory\BackstoryManifest;
-use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Repl\RouteResult;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -21,10 +21,13 @@ final class BackstoryHandler
     private readonly BackstoryInspectionService $inspectionService;
 
     public function __construct(
-        private readonly BootManager $boot,
+        private readonly ProfileDiscovery $profileDiscovery,
+        private readonly string $workspacePath,
+        ?BackstoryAssembler $assembler = null,
+        ?BackstoryInspectionService $inspectionService = null,
     ) {
-        $this->assembler = new BackstoryAssembler();
-        $this->inspectionService = new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery(), $this->assembler);
+        $this->assembler = $assembler ?? new BackstoryAssembler();
+        $this->inspectionService = $inspectionService ?? new BackstoryInspectionService($this->workspacePath, $this->profileDiscovery, $this->assembler);
     }
 
     public function handle(SymfonyStyle $io, string $arg, ?string $activeProfile): RouteResult
@@ -298,12 +301,11 @@ final class BackstoryHandler
 
     private function resolveProfilePath(string $profileName): ?string
     {
-        $profileDiscovery = $this->boot->profileDiscovery();
-        if (!$profileDiscovery->profileExists($profileName)) {
+        if (!$this->profileDiscovery->profileExists($profileName)) {
             return null;
         }
 
-        return $profileDiscovery->getProfilePath($profileName);
+        return $this->profileDiscovery->getProfilePath($profileName);
     }
 
     private static function formatBytes(int $bytes): string

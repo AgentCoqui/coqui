@@ -19,6 +19,7 @@ final readonly class ReplCommandSpec
         public string $description,
         public array $aliases = [],
         public array $firstArguments = [],
+        public string $section = 'General',
     ) {}
 
     /**

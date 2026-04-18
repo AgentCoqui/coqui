@@ -23,6 +23,7 @@ use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
+use CoquiBot\Coqui\Support\PromptInspectionService;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -52,6 +53,7 @@ function createSlashCommandRouterForHelpTest(): SlashCommandRouter
         $instantiate(LoopHandler::class),
         $instantiate(BackstoryHandler::class),
         $instantiate(AgentRunner::class),
+        $instantiate(PromptInspectionService::class),
         static function (): void {},
         static function (?bool $enable = null): void {},
     );
@@ -67,11 +69,17 @@ test('slash command router renders the shared help table end to end', function (
 
     expect($result->shouldContinue)->toBeTrue();
 
-    foreach (ReplCommandCatalog::helpRows() as [$usage, $description]) {
-        expect($display)->toContain($usage);
+    foreach (ReplCommandCatalog::helpSections() as $section => $rows) {
+        expect($display)->toContain($section);
 
-        if ($usage === '/quit') {
-            expect($display)->toContain('Aliases: /exit, /q');
+        foreach ($rows as [$usage, $description]) {
+            expect($display)->toContain($usage);
+
+            if ($usage === '/quit') {
+                expect($display)->toContain('Aliases: /exit, /q');
+            }
         }
     }
+
+    expect($display)->toContain('Advanced automation commands remain available');
 });
