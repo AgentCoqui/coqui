@@ -33,20 +33,8 @@ final class OdpExtractor implements ExtractorInterface
 
             $sections = [];
             foreach ($slideNodes as $index => $slideNode) {
-                $paragraphNodes = $slideNode->xpath('.//*[local-name()="p"]');
-                if (!is_array($paragraphNodes) || $paragraphNodes === []) {
-                    continue;
-                }
-
-                $paragraphs = [];
-                foreach ($paragraphNodes as $paragraphNode) {
-                    $text = OpenDocumentArchiveReader::extractNodeText($paragraphNode);
-                    if ($text !== '') {
-                        $paragraphs[] = $text;
-                    }
-                }
-
-                if ($paragraphs === []) {
+                $frameParagraphGroups = $this->extractFrameParagraphGroups($slideNode);
+                if ($frameParagraphGroups === []) {
                     continue;
                 }
 
@@ -55,7 +43,8 @@ final class OdpExtractor implements ExtractorInterface
                     OpenDocumentArchiveReader::DRAW_NS,
                     'name',
                 );
-                $title = array_shift($paragraphs);
+                $title = $this->resolveTitle($frameParagraphGroups, $defaultTitle, $index);
+                $paragraphs = $this->flattenParagraphGroups($frameParagraphGroups);
 
                 $sectionLines = ['#### Slide ' . ($index + 1) . ': ' . $title];
                 if ($paragraphs !== []) {
@@ -88,5 +77,91 @@ final class OdpExtractor implements ExtractorInterface
     public static function isRuntimeSupported(): bool
     {
         return OpenDocumentArchiveReader::isRuntimeSupported();
+    }
+
+    /**
+     * @return list<list<string>>
+     */
+    private function extractFrameParagraphGroups(\SimpleXMLElement $slideNode): array
+    {
+        $frameNodes = $slideNode->xpath('.//*[local-name()="frame"]');
+        if (!is_array($frameNodes)) {
+            return [];
+        }
+
+        $groups = [];
+        foreach ($frameNodes as $frameNode) {
+            $paragraphNodes = $frameNode->xpath('.//*[local-name()="text-box"]//*[local-name()="p"]');
+            if (!is_array($paragraphNodes) || $paragraphNodes === []) {
+                continue;
+            }
+
+            $group = [];
+            foreach ($paragraphNodes as $paragraphNode) {
+                $text = OpenDocumentArchiveReader::extractNodeText($paragraphNode);
+                if ($text !== '') {
+                    $group[] = $text;
+                }
+            }
+
+            if ($group !== []) {
+                $groups[] = $group;
+            }
+        }
+
+        return $groups;
+    }
+
+    /**
+     * @param list<list<string>> $frameParagraphGroups
+     */
+    private function resolveTitle(array &$frameParagraphGroups, string $defaultTitle, int $slideIndex): string
+    {
+        $fallbackTitle = $defaultTitle !== '' ? $defaultTitle : 'Slide ' . ($slideIndex + 1);
+        if ($frameParagraphGroups === []) {
+            return $fallbackTitle;
+        }
+
+        $firstGroup = $frameParagraphGroups[0];
+        $useFirstParagraphAsTitle = count($frameParagraphGroups) > 1 && count($firstGroup) === 1;
+        if (!$useFirstParagraphAsTitle && self::isGenericSlideName($defaultTitle)) {
+            $useFirstParagraphAsTitle = true;
+        }
+
+        if ($useFirstParagraphAsTitle) {
+            $title = array_shift($frameParagraphGroups[0]);
+            if ($frameParagraphGroups[0] === []) {
+                array_shift($frameParagraphGroups);
+            }
+
+            return $title ?? $fallbackTitle;
+        }
+
+        return $fallbackTitle;
+    }
+
+    /**
+     * @param list<list<string>> $frameParagraphGroups
+     * @return list<string>
+     */
+    private function flattenParagraphGroups(array $frameParagraphGroups): array
+    {
+        $paragraphs = [];
+        foreach ($frameParagraphGroups as $group) {
+            foreach ($group as $paragraph) {
+                $paragraphs[] = $paragraph;
+            }
+        }
+
+        return $paragraphs;
+    }
+
+    private static function isGenericSlideName(string $title): bool
+    {
+        if ($title === '') {
+            return true;
+        }
+
+        return preg_match('/^(slide|page)\s*\d+$/i', $title) === 1;
     }
 }

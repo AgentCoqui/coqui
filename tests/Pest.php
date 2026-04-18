@@ -126,6 +126,21 @@ function createTestOdt(string $path, array $paragraphs): void
 	$zip->close();
 }
 
+function createRawOdt(string $path, string $textBodyXml): void
+{
+	$zip = new ZipArchive();
+	$opened = $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+	expect($opened)->toBeTrue();
+
+	$zip->addFromString('mimetype', 'application/vnd.oasis.opendocument.text');
+	$zip->addFromString('content.xml', '<?xml version="1.0" encoding="UTF-8"?>'
+		. '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">'
+		. '<office:body><office:text>' . $textBodyXml . '</office:text></office:body>'
+		. '</office:document-content>');
+
+	$zip->close();
+}
+
 /**
 	* @param array<string, list<list<string>>> $sheets
 	*/
@@ -156,6 +171,21 @@ function createTestOds(string $path, array $sheets): void
 	$zip->addFromString('content.xml', '<?xml version="1.0" encoding="UTF-8"?>'
 		. '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">'
 		. '<office:body><office:spreadsheet>' . implode('', $tables) . '</office:spreadsheet></office:body>'
+		. '</office:document-content>');
+
+	$zip->close();
+}
+
+function createRawOds(string $path, string $spreadsheetXml): void
+{
+	$zip = new ZipArchive();
+	$opened = $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+	expect($opened)->toBeTrue();
+
+	$zip->addFromString('mimetype', 'application/vnd.oasis.opendocument.spreadsheet');
+	$zip->addFromString('content.xml', '<?xml version="1.0" encoding="UTF-8"?>'
+		. '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">'
+		. '<office:body><office:spreadsheet>' . $spreadsheetXml . '</office:spreadsheet></office:body>'
 		. '</office:document-content>');
 
 	$zip->close();
@@ -194,6 +224,21 @@ function createTestOdp(string $path, array $slides): void
 	$zip->addFromString('content.xml', '<?xml version="1.0" encoding="UTF-8"?>'
 		. '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">'
 		. '<office:body><office:presentation>' . implode('', $pages) . '</office:presentation></office:body>'
+		. '</office:document-content>');
+
+	$zip->close();
+}
+
+function createRawOdp(string $path, string $presentationXml): void
+{
+	$zip = new ZipArchive();
+	$opened = $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+	expect($opened)->toBeTrue();
+
+	$zip->addFromString('mimetype', 'application/vnd.oasis.opendocument.presentation');
+	$zip->addFromString('content.xml', '<?xml version="1.0" encoding="UTF-8"?>'
+		. '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">'
+		. '<office:body><office:presentation>' . $presentationXml . '</office:presentation></office:body>'
 		. '</office:document-content>');
 
 	$zip->close();

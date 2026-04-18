@@ -301,6 +301,37 @@ test('OdtExtractor reads text paragraphs from odt files', function () {
     expect($result->content)->toContain('Second marker');
 });
 
+test('OdtExtractor preserves heading and list structure from LibreOffice documents', function () {
+        if (!OdtExtractor::isRuntimeSupported()) {
+                test()->markTestSkipped('ZipArchive is not available');
+        }
+
+        $path = $this->tempDir . '/structured.odt';
+        createRawOdt($path, <<<'XML'
+<text:h text:outline-level="1">Origin</text:h>
+<text:p>Quiet beginning</text:p>
+<text:list>
+    <text:list-item><text:p>First marker</text:p></text:list-item>
+    <text:list-item>
+        <text:p>Second marker</text:p>
+        <text:list>
+            <text:list-item><text:p>Nested marker</text:p></text:list-item>
+        </text:list>
+    </text:list-item>
+</text:list>
+XML);
+
+        $extractor = new OdtExtractor();
+        $result = $extractor->extract($path);
+
+        expect($result->success)->toBeTrue();
+        expect($result->content)->toContain('#### Origin');
+        expect($result->content)->toContain('Quiet beginning');
+        expect($result->content)->toContain('- First marker');
+        expect($result->content)->toContain('- Second marker');
+        expect($result->content)->toContain('  - Nested marker');
+});
+
 test('OdsExtractor converts sheets into markdown tables', function () {
     if (!OdsExtractor::isRuntimeSupported()) {
         test()->markTestSkipped('ZipArchive is not available');
@@ -321,6 +352,35 @@ test('OdsExtractor converts sheets into markdown tables', function () {
     expect($result->content)->toContain('#### Sheet: Timeline');
     expect($result->content)->toContain('| Year | Event |');
     expect($result->content)->toContain('| 2026 | OpenDocument support |');
+});
+
+test('OdsExtractor preserves repeated rows and multiline cells from LibreOffice sheets', function () {
+        if (!OdsExtractor::isRuntimeSupported()) {
+                test()->markTestSkipped('ZipArchive is not available');
+        }
+
+        $path = $this->tempDir . '/repeated.ods';
+        createRawOds($path, <<<'XML'
+<table:table table:name="Timeline">
+    <table:table-row>
+        <table:table-cell office:value-type="string"><text:p>Alias</text:p></table:table-cell>
+        <table:table-cell office:value-type="string"><text:p>Window</text:p></table:table-cell>
+        <table:table-cell table:number-columns-repeated="1024"/>
+    </table:table-row>
+    <table:table-row table:number-rows-repeated="2">
+        <table:table-cell office:value-type="string"><text:p>Kade</text:p></table:table-cell>
+        <table:table-cell office:value-type="string"><text:p>0400Z</text:p><text:p>0600Z</text:p></table:table-cell>
+        <table:table-cell table:number-columns-repeated="1024"/>
+    </table:table-row>
+</table:table>
+XML);
+
+        $extractor = new OdsExtractor();
+        $result = $extractor->extract($path);
+
+        expect($result->success)->toBeTrue();
+        expect($result->content)->toContain('| Alias | Window |');
+        expect(substr_count($result->content, '| Kade | 0400Z<br>0600Z |'))->toBe(2);
 });
 
 test('OdsExtractor fails when workbook has no data rows', function () {
@@ -361,6 +421,32 @@ test('OdpExtractor converts slides into markdown sections', function () {
     expect($result->success)->toBeTrue();
     expect($result->content)->toContain('#### Slide 1: Signals');
     expect($result->content)->toContain('- Archive stays read-only');
+});
+
+test('OdpExtractor falls back to non-generic slide names when no title frame is present', function () {
+        if (!OdpExtractor::isRuntimeSupported()) {
+                test()->markTestSkipped('ZipArchive is not available');
+        }
+
+        $path = $this->tempDir . '/named-slide.odp';
+        createRawOdp($path, <<<'XML'
+<draw:page draw:name="System Map">
+    <draw:frame>
+        <draw:text-box>
+            <text:p>Quietly formidable</text:p>
+            <text:p>Pattern beneath the surface</text:p>
+        </draw:text-box>
+    </draw:frame>
+</draw:page>
+XML);
+
+        $extractor = new OdpExtractor();
+        $result = $extractor->extract($path);
+
+        expect($result->success)->toBeTrue();
+        expect($result->content)->toContain('#### Slide 1: System Map');
+        expect($result->content)->toContain('- Quietly formidable');
+        expect($result->content)->toContain('- Pattern beneath the surface');
 });
 
 test('OdpExtractor fails when slides contain no text', function () {

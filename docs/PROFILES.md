@@ -151,9 +151,9 @@ profiles/caelum/
 | `.yaml`, `.yml` | Wrapped in a ` ```yaml ` code fence |
 | `.csv`, `.tsv` | Converted to a markdown table |
 | `.sql` | Parses simple `CREATE TABLE` + `INSERT ... VALUES` statements into markdown tables when possible; preserves unsupported or malformed statements as fenced `sql` |
-| `.odt` | Optionally converted into plain markdown paragraphs when ZIP support is available |
-| `.ods` | Optionally converted into markdown tables per sheet when ZIP support is available |
-| `.odp` | Optionally converted into per-slide markdown sections when ZIP support is available |
+| `.odt` | Optionally converted into markdown with paragraph, heading, and list structure preserved when ZIP support is available |
+| `.ods` | Optionally converted into markdown tables per sheet, preserving multiline cells when ZIP support is available |
+| `.odp` | Optionally converted into per-slide markdown sections with slide-title fallbacks when ZIP support is available |
 | `.xlsx`, `.xlsm` | Optionally converted into markdown tables per worksheet when ZIP support is available |
 | `.pptx`, `.pptm` | Optionally converted into per-slide markdown sections, using the first text block as the slide title, when ZIP support is available |
 | `.html`, `.htm` | Sanitized and converted to markdown via `league/html-to-markdown` |
