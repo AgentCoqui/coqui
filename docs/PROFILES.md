@@ -150,6 +150,7 @@ profiles/caelum/
 | `.json` | Wrapped in a ` ```json ` code fence (validates JSON) |
 | `.yaml`, `.yml` | Wrapped in a ` ```yaml ` code fence |
 | `.csv`, `.tsv` | Converted to a markdown table |
+| `.sql` | Parses simple `CREATE TABLE` + `INSERT ... VALUES` statements into markdown tables when possible; preserves unsupported or malformed statements as fenced `sql` |
 | `.xlsx` | Optionally converted into markdown tables per worksheet when ZIP support is available |
 | `.pptx` | Optionally converted into per-slide markdown sections, using the first text block as the slide title, when ZIP support is available |
 | `.html`, `.htm` | Sanitized and converted to markdown via `league/html-to-markdown` |
@@ -159,9 +160,9 @@ profiles/caelum/
 | `.pdf` | Text extracted via `smalot/pdfparser` |
 | `.docx` | Text extracted via `phpoffice/phpword` |
 
-Code file support covers common text-based source extensions such as `.php`, `.js`, `.ts`, `.jsx`, `.tsx`, `.py`, `.rb`, `.java`, `.c`, `.cpp`, `.cs`, `.go`, `.rs`, `.sh`, `.zsh`, `.ps1`, `.sql`, `.css`, `.scss`, `.less`, and similar formats.
+Code file support covers common text-based source extensions such as `.php`, `.js`, `.ts`, `.jsx`, `.tsx`, `.py`, `.rb`, `.java`, `.c`, `.cpp`, `.cs`, `.go`, `.rs`, `.sh`, `.zsh`, `.ps1`, `.css`, `.scss`, `.less`, and similar formats.
 
-HTML, XML, RTF, code files, and optional `.xlsx`/`.pptx` input are always treated as read-only input. Coqui converts them into markdown or fenced text for inclusion in `backstory.md`; it does not execute scripts, formulas, macros, or embedded code while generating the backstory.
+HTML, XML, RTF, SQL, code files, and optional `.xlsx`/`.pptx` input are always treated as read-only input. Coqui converts them into markdown or fenced text for inclusion in `backstory.md`; it does not execute scripts, formulas, macros, or embedded code while generating the backstory.
 
 `.xlsx` support is optional and depends on PHP ZIP support. When available, Coqui reads cached worksheet values and converts each populated worksheet into a markdown table. It does not evaluate spreadsheet formulas.
 

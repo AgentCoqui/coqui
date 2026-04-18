@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Backstory\Extractor\ExtractorFactory;
 use CoquiBot\Coqui\Backstory\Extractor\HtmlExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\PptxExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\RtfExtractor;
+use CoquiBot\Coqui\Backstory\Extractor\SqlExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\XlsxExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\XmlExtractor;
 
@@ -279,6 +280,128 @@ test('CodeBlockExtractor wraps source files in fenced blocks', function () {
     expect($result->content)->toContain("def greet():\n    return 'hi'");
 });
 
+test('CodeBlockExtractor no longer claims sql files', function () {
+    $extractor = new CodeBlockExtractor();
+
+    expect($extractor->supportedExtensions())->not->toContain('sql');
+});
+
+// --- SqlExtractor ---
+
+test('SqlExtractor converts simple table inserts into markdown tables', function () {
+    $path = $this->tempDir . '/financials.sql';
+    file_put_contents($path, <<<'SQL'
+CREATE TABLE financials (
+    year INT,
+    revenue DECIMAL(10, 2),
+    profit DECIMAL(10, 2)
+);
+INSERT INTO financials (year, revenue, profit) VALUES
+    (2018, 1000000.00, 200000.00),
+    (2019, 1500000.00, 300000.00);
+SQL);
+
+    $extractor = new SqlExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('#### Table: financials');
+    expect($result->content)->toContain('| year | revenue | profit |');
+    expect($result->content)->toContain('| 2018 | 1000000.00 | 200000.00 |');
+    expect($result->content)->not->toContain('#### Unparsed SQL');
+});
+
+test('SqlExtractor uses create table schema for sqlite style inserts', function () {
+    $path = $this->tempDir . '/notes.sql';
+    file_put_contents($path, <<<'SQL'
+CREATE TABLE notes (
+    id INTEGER,
+    note TEXT
+);
+INSERT INTO notes VALUES (1, 'hello; world');
+SQL);
+
+    $extractor = new SqlExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('| id | note |');
+    expect($result->content)->toContain('| 1 | hello; world |');
+});
+
+test('SqlExtractor supports quoted postgres identifiers', function () {
+    $path = $this->tempDir . '/quoted.sql';
+    file_put_contents($path, <<<'SQL'
+CREATE TABLE "Revenue Rollup" (
+    "year" INT,
+    "profit" NUMERIC(10, 2)
+);
+INSERT INTO "Revenue Rollup" ("year", "profit") VALUES (2024, 400.25);
+SQL);
+
+    $extractor = new SqlExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('#### Table: Revenue Rollup');
+    expect($result->content)->toContain('| year | profit |');
+    expect($result->content)->toContain('| 2024 | 400.25 |');
+});
+
+test('SqlExtractor preserves unsupported statements per statement in source order', function () {
+    $path = $this->tempDir . '/mixed.sql';
+    file_put_contents($path, <<<'SQL'
+CREATE TABLE financials (
+    year INT,
+    revenue DECIMAL(10, 2)
+);
+INSERT INTO financials VALUES (2024, 100.00);
+SELECT * FROM financials;
+SQL);
+
+    $extractor = new SqlExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('#### Table: financials');
+    expect($result->content)->toContain('#### Unparsed SQL');
+    expect($result->content)->toContain('```sql');
+    expect($result->content)->toContain('SELECT * FROM financials;');
+    expect(strpos($result->content, '#### Table: financials'))->toBeLessThan(strpos($result->content, 'SELECT * FROM financials;'));
+});
+
+test('SqlExtractor ignores semicolons in comments and strings when splitting statements', function () {
+    $path = $this->tempDir . '/comments.sql';
+    file_put_contents($path, <<<'SQL'
+-- comment with a semicolon;
+CREATE TABLE messages (
+    id INT,
+    body TEXT
+);
+INSERT INTO messages VALUES (1, 'semi;colon');
+/* another; comment */
+SELECT 1;
+SQL);
+
+    $extractor = new SqlExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('| 1 | semi;colon |');
+    expect($result->content)->toContain('SELECT 1;');
+});
+
+test('SqlExtractor fails on empty file', function () {
+    $path = $this->tempDir . '/empty.sql';
+    file_put_contents($path, '');
+
+    $extractor = new SqlExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeFalse();
+    expect($result->error)->toContain('empty');
+});
+
 // --- XlsxExtractor ---
 
 test('XlsxExtractor converts workbook sheets into markdown tables', function () {
@@ -392,6 +515,7 @@ test('ExtractorFactory maps extensions to extractors', function () {
     expect($factory->get('html'))->toBeInstanceOf(HtmlExtractor::class);
     expect($factory->get('xml'))->toBeInstanceOf(XmlExtractor::class);
     expect($factory->get('rtf'))->toBeInstanceOf(RtfExtractor::class);
+    expect($factory->get('sql'))->toBeInstanceOf(SqlExtractor::class);
     expect($factory->get('py'))->toBeInstanceOf(CodeBlockExtractor::class);
     if (XlsxExtractor::isRuntimeSupported()) {
         expect($factory->get('xlsx'))->toBeInstanceOf(XlsxExtractor::class);

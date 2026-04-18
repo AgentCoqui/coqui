@@ -565,10 +565,19 @@
             ]
         },
         {
+            "path": "src/Backstory/Extractor/SqlExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\SqlExtractor",
+            "layer": "feature",
+            "description": "Parses simple table-oriented SQL into markdown tables and preserves unsupported statements as fenced sql blocks without executing any SQL.",
+            "methods": [
+                "extract(string): ExtractorResult — convert parseable sql statements into markdown tables and preserve unparsed statements"
+            ]
+        },
+        {
             "path": "src/Backstory/Extractor/ExtractorFactory.php",
             "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\ExtractorFactory",
             "layer": "feature",
-            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, optional xlsx/pptx, html/htm, xml, rtf, common code-file extensions, pdf, and docx.",
+            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, sql, optional xlsx/pptx, html/htm, xml, rtf, common code-file extensions, pdf, and docx.",
             "methods": [
                 "get(string): ?ExtractorInterface — get extractor for extension",
                 "isSupported(string): bool — check if extension is supported"
