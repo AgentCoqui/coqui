@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Backstory\Extractor\CodeBlockExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\ExtractorFactory;
 use CoquiBot\Coqui\Backstory\Extractor\HtmlExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\RtfExtractor;
+use CoquiBot\Coqui\Backstory\Extractor\XlsxExtractor;
 use CoquiBot\Coqui\Backstory\Extractor\XmlExtractor;
 
 beforeEach(function () {
@@ -277,6 +278,56 @@ test('CodeBlockExtractor wraps source files in fenced blocks', function () {
     expect($result->content)->toContain("def greet():\n    return 'hi'");
 });
 
+// --- XlsxExtractor ---
+
+test('XlsxExtractor converts workbook sheets into markdown tables', function () {
+    if (!XlsxExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    $path = $this->tempDir . '/book.xlsx';
+    createTestXlsx($path, [
+        'Timeline' => [
+            ['Year', 'Event'],
+            ['2024', 'Launch'],
+            ['2025', 'Expansion'],
+        ],
+        'Values' => [
+            ['Trait', 'Level'],
+            ['Curiosity', 'High'],
+        ],
+    ]);
+
+    $extractor = new XlsxExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('#### Sheet: Timeline');
+    expect($result->content)->toContain('| Year | Event |');
+    expect($result->content)->toContain('| 2024 | Launch |');
+    expect($result->content)->toContain('#### Sheet: Values');
+    expect($result->content)->toContain('| Trait | Level |');
+});
+
+test('XlsxExtractor fails when workbook has no data rows', function () {
+    if (!XlsxExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    $path = $this->tempDir . '/empty.xlsx';
+    createTestXlsx($path, [
+        'Sheet1' => [
+            ['Header'],
+        ],
+    ]);
+
+    $extractor = new XlsxExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeFalse();
+    expect($result->error)->toContain('no extractable rows');
+});
+
 // --- ExtractorFactory ---
 
 test('ExtractorFactory maps extensions to extractors', function () {
@@ -294,6 +345,9 @@ test('ExtractorFactory maps extensions to extractors', function () {
     expect($factory->get('xml'))->toBeInstanceOf(XmlExtractor::class);
     expect($factory->get('rtf'))->toBeInstanceOf(RtfExtractor::class);
     expect($factory->get('py'))->toBeInstanceOf(CodeBlockExtractor::class);
+    if (XlsxExtractor::isRuntimeSupported()) {
+        expect($factory->get('xlsx'))->toBeInstanceOf(XlsxExtractor::class);
+    }
 });
 
 test('ExtractorFactory returns null for unsupported extension', function () {
@@ -306,5 +360,112 @@ test('ExtractorFactory isSupported', function () {
     expect($factory->isSupported('txt'))->toBeTrue();
     expect($factory->isSupported('TXT'))->toBeTrue();
     expect($factory->isSupported('php'))->toBeTrue();
+    expect($factory->isSupported('xlsx'))->toBe(XlsxExtractor::isRuntimeSupported());
     expect($factory->isSupported('exe'))->toBeFalse();
 });
+
+/**
+ * @param array<string, list<list<string>>> $sheets
+ */
+function createTestXlsx(string $path, array $sheets): void
+{
+    $zip = new ZipArchive();
+    $opened = $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+    expect($opened)->toBeTrue();
+
+    $sharedStringMap = [];
+    $sharedStrings = [];
+    $sheetXml = [];
+    $sheetIndex = 1;
+
+    foreach ($sheets as $sheetName => $rows) {
+        $sheetRows = [];
+        foreach ($rows as $rowIndex => $row) {
+            $cells = [];
+            foreach ($row as $columnIndex => $value) {
+                $key = (string) $value;
+                if (!array_key_exists($key, $sharedStringMap)) {
+                    $sharedStringMap[$key] = count($sharedStrings);
+                    $sharedStrings[] = $key;
+                }
+
+                $cellRef = columnLetter($columnIndex + 1) . ($rowIndex + 1);
+                $cells[] = '<c r="' . $cellRef . '" t="s"><v>' . $sharedStringMap[$key] . '</v></c>';
+            }
+
+            $sheetRows[] = '<row r="' . ($rowIndex + 1) . '">' . implode('', $cells) . '</row>';
+        }
+
+        $sheetXml[] = [
+            'id' => $sheetIndex,
+            'name' => $sheetName,
+            'xml' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+                . '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                . '<sheetData>' . implode('', $sheetRows) . '</sheetData>'
+                . '</worksheet>',
+        ];
+        $sheetIndex++;
+    }
+
+    $workbookSheets = [];
+    $workbookRelationships = [];
+
+    foreach ($sheetXml as $sheet) {
+        $workbookSheets[] = '<sheet name="' . htmlspecialchars($sheet['name'], ENT_XML1) . '" sheetId="' . $sheet['id'] . '" r:id="rId' . $sheet['id'] . '"/>';
+        $workbookRelationships[] = '<Relationship Id="rId' . $sheet['id'] . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet' . $sheet['id'] . '.xml"/>';
+        $zip->addFromString('xl/worksheets/sheet' . $sheet['id'] . '.xml', $sheet['xml']);
+    }
+
+    $sharedStringItems = array_map(
+        static fn(string $value): string => '<si><t>' . htmlspecialchars($value, ENT_XML1) . '</t></si>',
+        $sharedStrings,
+    );
+
+    $zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?>'
+        . '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        . '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        . '<Default Extension="xml" ContentType="application/xml"/>'
+        . '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
+        . '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'
+        . implode('', array_map(
+            static fn(array $sheet): string => '<Override PartName="/xl/worksheets/sheet' . $sheet['id'] . '.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+            $sheetXml,
+        ))
+        . '</Types>');
+
+    $zip->addFromString('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?>'
+        . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        . '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'
+        . '</Relationships>');
+
+    $zip->addFromString('xl/workbook.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+        . '<sheets>' . implode('', $workbookSheets) . '</sheets>'
+        . '</workbook>');
+
+    $zip->addFromString('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8"?>'
+        . '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        . implode('', $workbookRelationships)
+        . '<Relationship Id="rIdSharedStrings" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/>'
+        . '</Relationships>');
+
+    $zip->addFromString('xl/sharedStrings.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        . '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' . count($sharedStrings) . '" uniqueCount="' . count($sharedStrings) . '">'
+        . implode('', $sharedStringItems)
+        . '</sst>');
+
+    $zip->close();
+}
+
+function columnLetter(int $index): string
+{
+    $letters = '';
+
+    while ($index > 0) {
+        $index--;
+        $letters = chr(($index % 26) + 65) . $letters;
+        $index = intdiv($index, 26);
+    }
+
+    return $letters;
+}
