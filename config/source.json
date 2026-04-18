@@ -443,6 +443,71 @@
             ]
         },
         {
+            "path": "src/Repl/Handler/BackstoryHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\BackstoryHandler",
+            "layer": "command",
+            "description": "Handles /backstory REPL command. Subcommands: overview (default), generate (force regeneration), failed (show extraction errors). Also provides getManifestSummary() for /prompt integration.",
+            "methods": [
+                "handle(SymfonyStyle, string): void — dispatches /backstory subcommands",
+                "getManifestSummary(): ?string — one-line manifest summary for /prompt display"
+            ]
+        },
+        {
+            "path": "src/Backstory/BackstoryAssembler.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryAssembler",
+            "layer": "feature",
+            "description": "Orchestrates backstory generation. Discovers source files, extracts content, writes backstory.md via streaming writes, and saves a change-detection manifest.",
+            "methods": [
+                "generate(string): BackstoryResult — generate backstory.md from backstory/ source directory",
+                "needsRegeneration(string): bool — check if source files have changed since last generation",
+                "getManifest(string): ?BackstoryManifest — load manifest for a profile",
+                "static hasBackstoryDir(string): bool — check if profile has a backstory/ directory"
+            ]
+        },
+        {
+            "path": "src/Backstory/BackstoryFileDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryFileDiscovery",
+            "layer": "feature",
+            "description": "Discovers and sorts files in a backstory source directory. Numbered prefixes first (natural sort), then alphabetical. Files before subdirectories at each level. Recursive.",
+            "methods": [
+                "discover(string): list<BackstoryFileEntry> — discover and sort all supported files"
+            ]
+        },
+        {
+            "path": "src/Backstory/BackstoryManifest.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryManifest",
+            "layer": "feature",
+            "description": "Tracks file hashes and metadata for backstory change detection. Stored as .backstory-manifest.json alongside backstory.md.",
+            "methods": [
+                "static load(string): self — load manifest from disk",
+                "save(string): void — write manifest to disk",
+                "hasChanged(list<BackstoryFileEntry>): bool — check if content hash differs",
+                "static computeContentHash(list<BackstoryFileEntry>): string — SHA-256 composite hash"
+            ]
+        },
+        {
+            "path": "src/Backstory/BackstoryFileEntry.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryFileEntry",
+            "layer": "feature",
+            "description": "Value object for a discovered backstory source file (relativePath, absolutePath, extension)."
+        },
+        {
+            "path": "src/Backstory/BackstoryResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryResult",
+            "layer": "feature",
+            "description": "Value object for backstory generation results (totalFiles, failedFiles, totalTokens, generationTimeMs, errors)."
+        },
+        {
+            "path": "src/Backstory/Extractor/ExtractorFactory.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\ExtractorFactory",
+            "layer": "feature",
+            "description": "Maps file extensions to content extractors. Supports txt, md, json, yaml/yml, csv/tsv, pdf, docx.",
+            "methods": [
+                "get(string): ?ExtractorInterface — get extractor for extension",
+                "isSupported(string): bool — check if extension is supported"
+            ]
+        },
+        {
             "path": "src/Command/SetupCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\SetupCommand",
             "layer": "command",

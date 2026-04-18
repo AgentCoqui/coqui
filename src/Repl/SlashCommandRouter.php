@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Repl;
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Renderer\PromptUsageBar;
+use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
@@ -52,6 +53,7 @@ final class SlashCommandRouter
         private readonly WebhookHandler $webhook,
         private readonly EvaluationHandler $evaluation,
         private readonly LoopHandler $loop,
+        private readonly BackstoryHandler $backstory,
         private readonly AgentRunner $agentRunner,
         private readonly \Closure $onHintsToggle,
         private readonly \Closure $onMultilineToggle,
@@ -97,6 +99,7 @@ final class SlashCommandRouter
             '/roles' => $this->handleRoles($io, $arg, $activeRole),
             '/profile' => $this->handleProfile($io, $arg, $activeRole, $activeProfile),
             '/profiles' => $this->handleProfiles($io, $activeProfile),
+            '/backstory' => $this->handleBackstory($io, $arg, $activeProfile),
             '/space' => $this->handleSpace($io, $arg),
             '/schedules' => $this->handleSchedules($io, $arg),
             '/quality' => $this->handleQuality($io),
@@ -245,6 +248,19 @@ final class SlashCommandRouter
             '<fg=gray>Tool schema tokens:</> ' . number_format($preview['tool_tokens']),
             '<fg=gray>Estimated total:</> ' . number_format($preview['total_tokens']),
         ]);
+
+        // Show backstory summary if generated from source files
+        if ($activeProfile !== null) {
+            $summary = $this->backstory->getManifestSummary($activeProfile);
+            if ($summary !== null) {
+                $io->text(sprintf(
+                    '<fg=gray>Backstory:</> %d file(s), ~%s tokens (use /backstory for details)',
+                    $summary['total_files'],
+                    number_format($summary['total_tokens']),
+                ));
+            }
+        }
+
         $io->newLine();
         PromptUsageBar::renderSectionBreakdown($io, $preview['budget_snapshot']);
         $io->newLine();
@@ -293,6 +309,11 @@ final class SlashCommandRouter
     private function handleProfiles(SymfonyStyle $io, ?string $activeProfile): RouteResult
     {
         return $this->profile->handleProfiles($io, $activeProfile);
+    }
+
+    private function handleBackstory(SymfonyStyle $io, string $arg, ?string $activeProfile): RouteResult
+    {
+        return $this->backstory->handle($io, $arg, $activeProfile);
     }
 
     private function handleSpace(SymfonyStyle $io, string $arg): RouteResult
@@ -400,6 +421,7 @@ final class SlashCommandRouter
                 ['/roles unignore <name>', 'Resume receiving updates for a role'],
                 ['/profile [name|reset]', 'Switch personality profile (creates new session). No argument shows current'],
                 ['/profiles', 'List all available personality profiles'],
+                ['/backstory [generate|failed]', 'Manage backstory generation from source files'],
                 ['/space [search|install|remove|installed|skills|toolkits|update]', 'Coqui Space marketplace'],
                 ['/schedules', 'List scheduled tasks with status and next run time'],
                 ['/quality', 'Show quality automation schedules and learner follow-up state'],

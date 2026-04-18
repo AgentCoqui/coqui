@@ -1,0 +1,255 @@
+<?php
+
+declare(strict_types=1);
+
+use CoquiBot\Coqui\Backstory\BackstoryAssembler;
+use CoquiBot\Coqui\Backstory\BackstoryManifest;
+
+beforeEach(function () {
+    $this->tempDir = sys_get_temp_dir() . '/coqui-backstory-assembler-' . bin2hex(random_bytes(4));
+    $this->profilePath = $this->tempDir . '/profiles/test';
+    $this->backstoryDir = $this->profilePath . '/backstory';
+    mkdir($this->backstoryDir, 0755, true);
+});
+
+afterEach(function () {
+    cleanupTestTree($this->tempDir);
+});
+
+test('generate creates backstory.md from text files', function () {
+    file_put_contents($this->backstoryDir . '/file1.txt', 'First content.');
+    file_put_contents($this->backstoryDir . '/file2.txt', 'Second content.');
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->totalFiles)->toBe(2);
+    expect($result->failedFiles)->toBe(0);
+    expect($result->totalTokens)->toBeGreaterThan(0);
+    expect($result->generationTimeMs)->toBeGreaterThanOrEqual(0.0);
+    expect($result->errors)->toBe([]);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('## Backstory');
+    expect($output)->toContain('### File: /file1.txt');
+    expect($output)->toContain('First content.');
+    expect($output)->toContain('### File: /file2.txt');
+    expect($output)->toContain('Second content.');
+});
+
+test('generate creates manifest file', function () {
+    file_put_contents($this->backstoryDir . '/file1.txt', 'Content.');
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    $manifestPath = BackstoryManifest::manifestPath($this->profilePath);
+    expect(is_file($manifestPath))->toBeTrue();
+
+    $manifest = BackstoryManifest::load($manifestPath);
+    expect($manifest->totalFiles)->toBe(1);
+    expect($manifest->failedFiles)->toBe(0);
+    expect($manifest->generatedAt)->not->toBe('');
+    expect($manifest->contentHash)->toStartWith('sha256:');
+    expect($manifest->files)->toHaveCount(1);
+    expect($manifest->files[0]['status'])->toBe('ok');
+});
+
+test('generate handles json files with code fences', function () {
+    file_put_contents($this->backstoryDir . '/data.json', '{"name": "Test"}');
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('```json');
+    expect($output)->toContain('{"name": "Test"}');
+    expect($output)->toContain('```');
+});
+
+test('generate handles yaml files with code fences', function () {
+    file_put_contents($this->backstoryDir . '/config.yaml', "key: value\nlist:\n  - item1");
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('```yaml');
+    expect($output)->toContain('key: value');
+});
+
+test('generate handles csv files as markdown tables', function () {
+    file_put_contents($this->backstoryDir . '/data.csv', "Year,Event\n1978,Born\n1996,Business");
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('| Year | Event |');
+    expect($output)->toContain('| --- | --- |');
+    expect($output)->toContain('| 1978 | Born |');
+    expect($output)->toContain('| 1996 | Business |');
+});
+
+test('generate handles markdown files as passthrough', function () {
+    file_put_contents($this->backstoryDir . '/notes.md', "# My Notes\n\nSome important notes.");
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('# My Notes');
+    expect($output)->toContain('Some important notes.');
+});
+
+test('generate records failed files in manifest', function () {
+    file_put_contents($this->backstoryDir . '/bad.json', 'not valid json');
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->failedFiles)->toBe(1);
+    expect($result->errors)->toHaveCount(1);
+    expect($result->errors[0]['relative_path'])->toBe('bad.json');
+    expect($result->errors[0]['error'])->toContain('Invalid JSON');
+
+    $manifest = BackstoryManifest::load(BackstoryManifest::manifestPath($this->profilePath));
+    expect($manifest->failedFiles)->toBe(1);
+    expect($manifest->errors)->toHaveCount(1);
+});
+
+test('generate respects sort order with numbered files', function () {
+    file_put_contents($this->backstoryDir . '/zebra.txt', 'Z');
+    file_put_contents($this->backstoryDir . '/01-first.txt', 'A');
+    file_put_contents($this->backstoryDir . '/02-second.txt', 'B');
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+
+    $pos01 = strpos($output, '### File: /01-first.txt');
+    $pos02 = strpos($output, '### File: /02-second.txt');
+    $posZ = strpos($output, '### File: /zebra.txt');
+
+    expect($pos01)->toBeLessThan($pos02);
+    expect($pos02)->toBeLessThan($posZ);
+});
+
+test('needsRegeneration returns false without backstory dir', function () {
+    $assembler = new BackstoryAssembler();
+    expect($assembler->needsRegeneration($this->tempDir . '/no-profile'))->toBeFalse();
+});
+
+test('needsRegeneration returns true without manifest', function () {
+    file_put_contents($this->backstoryDir . '/file.txt', 'content');
+
+    $assembler = new BackstoryAssembler();
+    expect($assembler->needsRegeneration($this->profilePath))->toBeTrue();
+});
+
+test('needsRegeneration returns false after fresh generation', function () {
+    file_put_contents($this->backstoryDir . '/file.txt', 'content');
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    expect($assembler->needsRegeneration($this->profilePath))->toBeFalse();
+});
+
+test('needsRegeneration returns true after file modification', function () {
+    file_put_contents($this->backstoryDir . '/file.txt', 'content');
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    // Modify a source file
+    file_put_contents($this->backstoryDir . '/file.txt', 'modified content');
+
+    expect($assembler->needsRegeneration($this->profilePath))->toBeTrue();
+});
+
+test('needsRegeneration returns true after file addition', function () {
+    file_put_contents($this->backstoryDir . '/file1.txt', 'content');
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    // Add a new file
+    file_put_contents($this->backstoryDir . '/file2.txt', 'new content');
+
+    expect($assembler->needsRegeneration($this->profilePath))->toBeTrue();
+});
+
+test('generate with no source files cleans up', function () {
+    // Generate once with files
+    file_put_contents($this->backstoryDir . '/file.txt', 'content');
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    expect(is_file($this->profilePath . '/backstory.md'))->toBeTrue();
+
+    // Remove source files and regenerate
+    unlink($this->backstoryDir . '/file.txt');
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->totalFiles)->toBe(0);
+    expect(is_file($this->profilePath . '/backstory.md'))->toBeFalse();
+});
+
+test('generate handles nested directories', function () {
+    mkdir($this->backstoryDir . '/01-chapter', 0755, true);
+    file_put_contents($this->backstoryDir . '/01-chapter/001-intro.txt', 'Introduction');
+    file_put_contents($this->backstoryDir . '/01-chapter/002-body.txt', 'Body text');
+    file_put_contents($this->backstoryDir . '/summary.txt', 'Top level summary');
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('### File: /summary.txt');
+    expect($output)->toContain('### File: /01-chapter/001-intro.txt');
+    expect($output)->toContain('### File: /01-chapter/002-body.txt');
+    expect($output)->toContain('Introduction');
+    expect($output)->toContain('Body text');
+    expect($output)->toContain('Top level summary');
+});
+
+test('getManifest returns null without manifest file', function () {
+    $assembler = new BackstoryAssembler();
+    expect($assembler->getManifest($this->profilePath))->toBeNull();
+});
+
+test('getManifest returns manifest after generation', function () {
+    file_put_contents($this->backstoryDir . '/file.txt', 'content');
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath);
+
+    $manifest = $assembler->getManifest($this->profilePath);
+    expect($manifest)->not->toBeNull();
+    expect($manifest->totalFiles)->toBe(1);
+});
+
+test('hasBackstoryDir returns false for missing dir', function () {
+    expect(BackstoryAssembler::hasBackstoryDir($this->tempDir . '/no-profile'))->toBeFalse();
+});
+
+test('hasBackstoryDir returns true when dir exists', function () {
+    expect(BackstoryAssembler::hasBackstoryDir($this->profilePath))->toBeTrue();
+});
+
+test('generate handles empty files gracefully', function () {
+    file_put_contents($this->backstoryDir . '/empty.txt', '');
+    file_put_contents($this->backstoryDir . '/notempty.txt', 'content');
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->totalFiles)->toBe(2);
+    expect($result->failedFiles)->toBe(1); // empty file fails
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('### File: /notempty.txt');
+    expect($output)->toContain('content');
+});
