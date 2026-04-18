@@ -88,6 +88,22 @@ function createFakeComposerBinary(): string
 }
 
 /**
+	* @param list<string> $paragraphs
+	*/
+function createTestDocx(string $path, array $paragraphs): void
+{
+	$document = new \PhpOffice\PhpWord\PhpWord();
+	$section = $document->addSection();
+
+	foreach ($paragraphs as $paragraph) {
+		$section->addText($paragraph);
+	}
+
+	$writer = \PhpOffice\PhpWord\IOFactory::createWriter($document, 'Word2007');
+	$writer->save($path);
+}
+
+/**
 	* @param array<string, list<list<string>>> $sheets
 	*/
 function createTestXlsx(string $path, array $sheets): void

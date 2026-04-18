@@ -7,7 +7,7 @@ namespace CoquiBot\Coqui\Backstory\Extractor;
 use PhpOffice\PhpWord\IOFactory;
 
 /**
- * Extracts text content from DOCX files.
+ * Extracts text content from Word OOXML documents.
  */
 final class DocxExtractor implements ExtractorInterface
 {
@@ -39,7 +39,7 @@ final class DocxExtractor implements ExtractorInterface
 
     public function supportedExtensions(): array
     {
-        return ['docx'];
+        return ['docx', 'docm'];
     }
 
     private function extractElementText(object $element): string

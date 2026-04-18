@@ -1,0 +1,75 @@
+{
+    "schema_version": "0.9-beta",
+    "metadata": {
+        "generator": "Vector_Hush_Cache_v2.3",
+        "issued": "1998-03",
+        "scope": "Grayline courier net, Dax Rook branch",
+        "authority": "Vector_Hush_Cache_Operations"
+    },
+    "signal_layers": {
+        "L1_marker": {
+            "type": "static_hex",
+            "pattern": "V_HUSH_CACHE_[0-9]{4}",
+            "purpose": "Cache attribution for routing verification",
+            "examples": [
+                "V_HUSH_CACHE_941",
+                "V_HUSH_CACHE_942"
+            ]
+        },
+        "L2_handoff": {
+            "type": "alias_burst",
+            "target": "Ione_Kade_Courier_Handler",
+            "time_window": "0400-0600Z",
+            "fallback": "Ghost_Handset_Log_Override"
+        },
+        "L3_watchdog": {
+            "type": "beacon_sequence",
+            "active": true,
+            "respond_to": "unknown_signature",
+            "handler": "Night_Tension_Protocol"
+        }
+    },
+    "relay_map": {
+        "Vector_Hush_Cache": {
+            "primary_operator": "Dax_Rook",
+            "location_pattern": "high-rise_maintenance_spine",
+            "access_protocol": "badge_auth_token_8914-AX",
+            "expiration": "3_cycles",
+            "note": "Static microsite with embedded routing cues"
+        },
+        "Ghost_Handset_Log": {
+            "primary_operator": "Korin_Ash",
+            "location_pattern": "substation_rooftop",
+            "access_protocol": "timestamped_dialtone_0420",
+            "fallback_location": "sealed_archive_loft",
+            "note": "Fallback communications for L2 handoff failure"
+        }
+    },
+    "courier_sequence": {
+        "entry": {
+            "step_1": "Validate L1_marker presence in received cache microsite",
+            "step_2": "Extract L2_handoff alias burst from page comment block",
+            "step_3": "Cross-reference with current Ione_Kade routing window",
+            "step_4": "Confirm L3_watchdog suppression via acknowledged beacon"
+        },
+        "exit": {
+            "step_1": "Store L1_marker hash for next cycle",
+            "step_2": "Emit acknowledgement to Night_Tension_Protocol",
+            "step_3": "Rotate cache reference within 3 cycles"
+        }
+    },
+    "known_anomalies": {
+        "EliThorne_Trace_04": {
+            "description": "Passive network mapping attempting to correlate cache access vector behavior",
+            "mitigation": "Rotate cache manifest references; avoid static IP persistence"
+        },
+        "badge_8914-AX_missing": {
+            "description": "Physical cache access point tied to expired maintenance badge",
+            "mitigation": "Do not attempt physical retrieval without valid vector key"
+        }
+    },
+    "test_vector": {
+        "signature": "V_HUSH_CACHE_941+TEST_CYCLE_ONE",
+        "expect_response": "HUMINT_LIVE_BEACON_DETECTED_NIGHT_TENSION"
+    }
+}

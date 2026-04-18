@@ -8,7 +8,7 @@ use SimpleXMLElement;
 use ZipArchive;
 
 /**
- * Extracts slide text from PPTX decks into markdown sections.
+ * Extracts slide text from presentation OOXML decks into markdown sections.
  *
  * This extractor is optional at runtime and depends on ZipArchive support.
  */
@@ -83,7 +83,7 @@ final class PptxExtractor implements ExtractorInterface
 
     public function supportedExtensions(): array
     {
-        return ['pptx'];
+        return ['pptx', 'pptm'];
     }
 
     public static function isRuntimeSupported(): bool

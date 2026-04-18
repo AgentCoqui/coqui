@@ -31,27 +31,39 @@ final readonly class BackstoryFileDiscovery
      */
     public function discover(string $backstoryDir): array
     {
+        return $this->inspect($backstoryDir)->supportedEntries;
+    }
+
+    public function inspect(string $backstoryDir): BackstorySourceInventory
+    {
         if (!is_dir($backstoryDir)) {
-            return [];
+            return new BackstorySourceInventory([], []);
         }
 
-        $entries = [];
-        $this->scanDirectory($backstoryDir, $backstoryDir, $entries);
+        $supportedEntries = [];
+        $unsupportedEntries = [];
+        $this->scanDirectory($backstoryDir, $backstoryDir, $supportedEntries, $unsupportedEntries);
 
-        return $entries;
+        return new BackstorySourceInventory($supportedEntries, $unsupportedEntries);
     }
 
     /**
-     * @param list<BackstoryFileEntry> $entries Accumulator
+     * @param list<BackstoryFileEntry> $supportedEntries Accumulator
+     * @param list<BackstoryUnsupportedFileEntry> $unsupportedEntries Accumulator
      */
-    private function scanDirectory(string $rootDir, string $currentDir, array &$entries): void
+    private function scanDirectory(
+        string $rootDir,
+        string $currentDir,
+        array &$supportedEntries,
+        array &$unsupportedEntries,
+    ): void
     {
         $items = scandir($currentDir);
         if ($items === false) {
             return;
         }
 
-        // Separate files and directories, filtering out dots and hidden files
+        // Separate files and directories, filtering out dots and hidden files.
         $files = [];
         $dirs = [];
 
@@ -63,28 +75,36 @@ final readonly class BackstoryFileDiscovery
             $fullPath = $currentDir . '/' . $item;
 
             if (is_file($fullPath)) {
-                $ext = strtolower(pathinfo($item, PATHINFO_EXTENSION));
-                if ($this->factory->isSupported($ext)) {
-                    $files[] = $item;
-                }
+                $files[] = $item;
             } elseif (is_dir($fullPath)) {
                 $dirs[] = $item;
             }
         }
 
-        // Sort files: numbered first (natural sort), then unnumbered (alpha)
+        // Sort files: numbered first (natural sort), then unnumbered (alpha).
         usort($files, self::numberedFirstComparator(...));
 
-        // Add files at this level first
+        // Add files at this level first.
         foreach ($files as $file) {
             $absolutePath = $currentDir . '/' . $file;
             $relativePath = ltrim(substr($absolutePath, strlen($rootDir)), '/');
             $ext = strtolower(pathinfo($file, PATHINFO_EXTENSION));
 
-            $entries[] = new BackstoryFileEntry(
+            if ($this->factory->isSupported($ext)) {
+                $supportedEntries[] = new BackstoryFileEntry(
+                    relativePath: $relativePath,
+                    absolutePath: $absolutePath,
+                    extension: $ext,
+                );
+
+                continue;
+            }
+
+            $unsupportedEntries[] = new BackstoryUnsupportedFileEntry(
                 relativePath: $relativePath,
                 absolutePath: $absolutePath,
                 extension: $ext,
+                reason: self::unsupportedReason($ext),
             );
         }
 
@@ -93,7 +113,7 @@ final readonly class BackstoryFileDiscovery
 
         // Recurse into subdirectories
         foreach ($dirs as $dir) {
-            $this->scanDirectory($rootDir, $currentDir . '/' . $dir, $entries);
+            $this->scanDirectory($rootDir, $currentDir . '/' . $dir, $supportedEntries, $unsupportedEntries);
         }
     }
 
@@ -124,5 +144,14 @@ final readonly class BackstoryFileDiscovery
     private static function hasNumericPrefix(string $name): bool
     {
         return $name !== '' && ctype_digit($name[0]);
+    }
+
+    private static function unsupportedReason(string $extension): string
+    {
+        if ($extension === '') {
+            return 'Unsupported file without an extension';
+        }
+
+        return 'Unsupported extension: .' . $extension;
     }
 }
