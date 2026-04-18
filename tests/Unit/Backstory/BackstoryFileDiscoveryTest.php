@@ -44,13 +44,24 @@ test('discover finds supported files', function () {
 test('discover ignores unsupported extensions', function () {
     file_put_contents($this->tempDir . '/file1.txt', 'hello');
     file_put_contents($this->tempDir . '/file2.exe', 'binary');
-    file_put_contents($this->tempDir . '/file3.php', '<?php');
 
     $discovery = new BackstoryFileDiscovery();
     $entries = $discovery->discover($this->tempDir);
 
     expect($entries)->toHaveCount(1);
     expect($entries[0]->relativePath)->toBe('file1.txt');
+});
+
+test('discover includes supported code file extensions', function () {
+    file_put_contents($this->tempDir . '/story.mdx', '# Story');
+    file_put_contents($this->tempDir . '/script.php', '<?php echo "hi";');
+    file_put_contents($this->tempDir . '/notes.xml', '<root><name>Alice</name></root>');
+
+    $discovery = new BackstoryFileDiscovery();
+    $entries = $discovery->discover($this->tempDir);
+
+    expect(array_map(fn(BackstoryFileEntry $e) => $e->relativePath, $entries))
+        ->toBe(['notes.xml', 'script.php', 'story.mdx']);
 });
 
 test('discover ignores hidden files and directories', function () {

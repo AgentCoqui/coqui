@@ -145,13 +145,21 @@ profiles/caelum/
 
 | Extension | Treatment |
 | --- | --- |
-| `.txt` | Included as plain text |
-| `.md` | Passed through as-is |
+| `.txt` | Included as plain text with UTF-8, UTF-16, and common legacy encodings normalized to UTF-8 |
+| `.md`, `.mdx` | Passed through as-is after text normalization |
 | `.json` | Wrapped in a ` ```json ` code fence (validates JSON) |
 | `.yaml`, `.yml` | Wrapped in a ` ```yaml ` code fence |
 | `.csv`, `.tsv` | Converted to a markdown table |
+| `.html`, `.htm` | Sanitized and converted to markdown via `league/html-to-markdown` |
+| `.xml` | Rendered as a markdown outline for simple documents, otherwise wrapped in a ` ```xml ` code fence |
+| `.rtf` | Converted to plain text with conservative RTF control-word stripping |
+| Common code files | Wrapped in fenced code blocks with language hints and never executed |
 | `.pdf` | Text extracted via `smalot/pdfparser` |
 | `.docx` | Text extracted via `phpoffice/phpword` |
+
+Code file support covers common text-based source extensions such as `.php`, `.js`, `.ts`, `.jsx`, `.tsx`, `.py`, `.rb`, `.java`, `.c`, `.cpp`, `.cs`, `.go`, `.rs`, `.sh`, `.zsh`, `.ps1`, `.sql`, `.css`, `.scss`, `.less`, and similar formats.
+
+HTML, XML, RTF, and code files are always treated as read-only input. Coqui converts them into markdown or fenced text for inclusion in `backstory.md`; it does not execute scripts, formulas, or embedded code while generating the backstory.
 
 ### Sort Order
 
