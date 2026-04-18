@@ -264,14 +264,8 @@ final class RunCommand extends Command
 
         // Handle session
         $sessionHandler = new SessionHandler($this->boot, $this->storage);
-        if ($this->continueMode) {
-            // --continue: resume the attached interactive session if present, otherwise the latest interactive session
-            $this->sessionId = $sessionHandler->loadOrCreateAttachedSession($io);
-        } elseif ($input->getOption('new')) {
-            $this->sessionId = $sessionHandler->createNewSession(profile: $this->activeProfile);
-        } elseif ($requestedProfile !== null) {
-            $this->sessionId = $sessionHandler->loadOrCreateProfileSession($io, $requestedProfile);
-        } elseif ($input->getOption('session')) {
+        $sessionOption = $input->getOption('session');
+        if (is_string($sessionOption) && $sessionOption !== '') {
             $this->sessionId = $input->getOption('session');
             if ($this->storage->getSession($this->sessionId) === null) {
                 $io->error("Session not found: {$this->sessionId}");
@@ -279,10 +273,8 @@ final class RunCommand extends Command
             }
             $sessionHandler->saveSessionFile($this->sessionId);
             $io->info("Resumed session: {$this->sessionId}");
-        } elseif ($this->configuredDefaultProfile !== null) {
-            $this->sessionId = $sessionHandler->loadOrCreateProfileSession($io, $this->configuredDefaultProfile);
         } else {
-            $this->sessionId = $sessionHandler->loadOrCreateSession($io);
+            $this->sessionId = $this->resolveAutomaticStartupSessionId($input, $sessionHandler, $io, headless: false);
         }
 
         $this->applySessionState($sessionHandler);
@@ -796,12 +788,8 @@ final class RunCommand extends Command
                 return Command::FAILURE;
             }
             $sessionHandler->saveSessionFile($this->sessionId);
-        } elseif ($this->activeProfile !== null) {
-            $this->sessionId = $sessionHandler->loadOrCreateProfileSession(null, $this->activeProfile);
-        } elseif ($this->configuredDefaultProfile !== null) {
-            $this->sessionId = $sessionHandler->loadOrCreateProfileSession(null, $this->configuredDefaultProfile);
         } else {
-            $this->sessionId = $sessionHandler->loadOrCreateSession(null);
+            $this->sessionId = $this->resolveAutomaticStartupSessionId($input, $sessionHandler, null, headless: true);
         }
 
         $this->applySessionState($sessionHandler);
@@ -1022,5 +1010,35 @@ final class RunCommand extends Command
             $this->activeProjectId = $project['id'];
             $this->activeProjectSlug = $project['slug'];
         }
+    }
+
+    private function resolveAutomaticStartupSessionId(
+        InputInterface $input,
+        SessionHandler $sessionHandler,
+        ?SymfonyStyle $io,
+        bool $headless,
+    ): string {
+        if (!$headless && $this->continueMode) {
+            return $sessionHandler->loadOrCreateAttachedSession($io);
+        }
+
+        if (!$headless && (bool) $input->getOption('new')) {
+            return $sessionHandler->createNewSession(profile: $this->activeProfile);
+        }
+
+        $profileOption = $input->getOption('profile');
+        $requestedProfile = is_string($profileOption) && trim($profileOption) !== ''
+            ? strtolower(trim($profileOption))
+            : null;
+
+        if ($requestedProfile !== null) {
+            return $sessionHandler->loadOrCreateProfileSession($io, $requestedProfile);
+        }
+
+        if ($this->configuredDefaultProfile !== null) {
+            return $sessionHandler->loadOrCreateProfileSession($io, $this->configuredDefaultProfile);
+        }
+
+        return $sessionHandler->loadOrCreateSession($io);
     }
 }

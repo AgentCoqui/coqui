@@ -299,10 +299,10 @@
             "path": "src/Repl/Handler/SessionHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\SessionHandler",
             "layer": "command",
-            "description": "Handles session-related REPL commands: /new, /history, /sessions, /resume, /model. Manages session file persistence and session restoration.",
+            "description": "Handles session-related REPL commands: /new, /history, /sessions, /resume, /model. Owns workspace .coqui-session persistence plus scoped interactive session resolution for unprofiled, profiled, and attached-session startup flows.",
             "methods": [
                 "createNewSession(): string — creates a new session and returns its ID",
-                "loadOrCreateSession(SymfonyStyle): string — loads session from file or creates new one",
+                "loadOrCreateSession(SymfonyStyle): string — resolves the last active unprofiled interactive session or creates one",
                 "showHistory(SymfonyStyle, string): void — displays session conversation history",
                 "listSessions(SymfonyStyle, string): void — lists recent sessions",
                 "resume(SymfonyStyle, string): ?string — resumes a session by ID prefix"
@@ -1790,12 +1790,13 @@
             "path": "src/Api/Handler/SessionHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SessionHandler",
             "layer": "command",
-            "description": "Session CRUD endpoints: GET /api/v1/sessions (list), POST /api/v1/sessions (create), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (update title), DELETE /api/v1/sessions/{id} (delete), GET /api/v1/sessions/{id}/child-runs (child agent runs).",
+            "description": "Session API endpoints: GET /api/v1/sessions (list), POST /api/v1/sessions (always create), POST /api/v1/sessions/resolve (reuse the latest interactive session for a profile or unprofiled scope, or create one), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (update title/role/profile while keeping the resolved model in sync), DELETE /api/v1/sessions/{id} (delete), GET /api/v1/sessions/{id}/child-runs (child agent runs).",
             "methods": [
                 "list(request): Response",
                 "create(request): Response",
+                "resolve(request): Response — return the latest interactive session for a scope or create one",
                 "get(request, id): Response",
-                "update(request, id): Response — PATCH to update session title",
+                "update(request, id): Response — PATCH to update title/role/profile and refresh resolved model metadata",
                 "delete(request, id): Response",
                 "childRuns(request, id): Response — list child agent runs for a session"
             ]
@@ -1903,10 +1904,11 @@
             "path": "src/Api/Handler/ConfigHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ConfigHandler",
             "layer": "command",
-            "description": "Configuration endpoints: GET /api/v1/config (sanitized config with apiKeys masked), GET /api/v1/config/models (available models with metadata). Role management moved to RoleHandler.",
+            "description": "Configuration read-only endpoints: GET /api/v1/config (sanitized config with apiKeys masked), GET /api/v1/config/models (available models with metadata), and GET /api/v1/config/profiles (discovered profiles plus configured default profile). Role management moved to RoleHandler.",
             "methods": [
                 "get(request): Response",
-                "models(request): Response"
+                "models(request): Response",
+                "profiles(request): Response — list discovered profiles and the configured default profile"
             ]
         },
         {

@@ -306,6 +306,7 @@ final class ApiCommand extends Command
         $configHandler = new ConfigHandler(
             $boot->config(),
             new ConfigValidator(),
+            $boot->profileDiscovery(),
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
@@ -523,6 +524,7 @@ final class ApiCommand extends Command
         // Sessions
         $router->get($v1 . '/sessions', [$session, 'list']);
         $router->post($v1 . '/sessions', [$session, 'create']);
+        $router->post($v1 . '/sessions/resolve', [$session, 'resolve']);
         $router->get($v1 . '/sessions/{id}', [$session, 'get']);
         $router->patch($v1 . '/sessions/{id}', [$session, 'update']);
         $router->delete($v1 . '/sessions/{id}', [$session, 'delete']);
@@ -546,6 +548,7 @@ final class ApiCommand extends Command
         $router->get($v1 . '/config', [$config, 'get']);
         $router->post($v1 . '/config/validate', [$config, 'validate']);
         $router->get($v1 . '/config/models', [$config, 'models']);
+        $router->get($v1 . '/config/profiles', [$config, 'profiles']);
 
         // Roles (read-only — create/update/delete are REPL-only)
         $router->get($v1 . '/config/roles', [$role, 'list']);

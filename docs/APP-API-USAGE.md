@@ -23,11 +23,14 @@ The HTTP API is session-based.
 
 The most common application flow is:
 
-1. Create a session.
-2. Send prompts to that session.
-3. Consume either SSE events or a blocking JSON response.
-4. Inspect turns, messages, artifacts, todos, or task status as needed.
-5. Delete the session when the conversation is no longer needed.
+1. Discover available profiles if your app exposes personality switching.
+2. Create a session or resolve the last active session for the selected scope.
+3. Send prompts to that session.
+4. Consume either SSE events or a blocking JSON response.
+5. Inspect turns, messages, artifacts, todos, or task status as needed.
+6. Delete the session when the conversation is no longer needed.
+
+If your app wants REPL-like sticky session behavior, prefer `POST /api/v1/sessions/resolve` over `POST /api/v1/sessions`.
 
 ## Server Startup and Auth
 
@@ -64,6 +67,25 @@ curl -H "Authorization: Bearer YOUR_API_KEY" http://127.0.0.1:3300/api/v1/sessio
 
 ## Recommended Client Workflow
 
+### 0. Discover profiles and resolve the desired scope
+
+If your app supports profiles, populate the picker with `GET /api/v1/config/profiles`, then resolve the correct session scope with `POST /api/v1/sessions/resolve`.
+
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  http://127.0.0.1:3300/api/v1/config/profiles
+```
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"profile":"caelum"}' \
+  http://127.0.0.1:3300/api/v1/sessions/resolve
+```
+
+Omit `profile` to resolve the unprofiled session pool instead. The response includes `created: true|false` so the client can tell whether it resumed an existing scoped session or started a new one.
+
 ### 1. Create a session
 
 ```bash
@@ -73,6 +95,8 @@ curl -X POST \
   -d '{"model_role":"orchestrator"}' \
   http://127.0.0.1:3300/api/v1/sessions
 ```
+
+Use this endpoint only when the client explicitly wants a fresh conversation. For last-active-per-profile behavior, use `POST /api/v1/sessions/resolve` instead.
 
 ### 2. Send a prompt
 
