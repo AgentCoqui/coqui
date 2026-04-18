@@ -215,14 +215,17 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full CLI reference including `a
 | `/sessions` | List all saved sessions |
 | `/resume <id>` | Resume a session by ID |
 | `/role [name]` | Show/switch active role |
+| `/profile [name]` | Show/switch the active profile |
 | `/toolkits` | Manage toolkit visibility |
+| `/prompt` | Inspect or export the rendered system prompt |
+| `/projects` | List projects or switch the active project |
 | `/tasks [status]` | List background tasks |
 | `/todos [status]` | Show session todos |
 | `/schedules` | List scheduled tasks |
 | `/loops` | List and manage automated loops |
 | `/space` | Coqui Space marketplace |
+| `/help` | Show the compact command reference |
 | `/summarize` | Summarize conversation for token savings |
-| `/help` | List all commands |
 | `/quit` | Exit Coqui |
 
 See [docs/COMMANDS.md](docs/COMMANDS.md) for the full command reference with examples.
