@@ -279,6 +279,7 @@ List sessions, ordered by most recently updated.
       "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
       "model_role": "orchestrator",
       "model": "openai/gpt-5",
+      "active_project_id": null,
       "created_at": "2026-02-16T14:30:00+00:00",
       "updated_at": "2026-02-16T15:45:12+00:00",
       "token_count": 12450
@@ -315,7 +316,8 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": "caelum"
+  "profile": "caelum",
+  "active_project_id": null
 }
 ```
 
@@ -360,6 +362,7 @@ This mirrors REPL startup behavior:
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
   "profile": "caelum",
+  "active_project_id": null,
   "created": false
 }
 ```
@@ -372,6 +375,7 @@ This mirrors REPL startup behavior:
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
   "profile": "caelum",
+  "active_project_id": null,
   "created": true
 }
 ```
@@ -387,6 +391,7 @@ Get session details.
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
+  "active_project_id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "created_at": "2026-02-16T14:30:00+00:00",
   "updated_at": "2026-02-16T15:45:12+00:00",
   "token_count": 12450
@@ -428,6 +433,7 @@ Returns the updated session object:
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
   "title": "My refactoring session",
+  "active_project_id": null,
   "created_at": "2026-02-16T14:30:00+00:00",
   "updated_at": "2026-02-16T15:45:12+00:00",
   "token_count": 12450
@@ -464,6 +470,53 @@ Delete a session and all its associated data.
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
 }
 ```
+
+#### `GET /api/v1/sessions/{id}/project`
+
+Get the session's active project, if one is set.
+
+**Response `200`**
+
+```json
+{
+  "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "active_project_id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "project": {
+    "id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "title": "Career Ops",
+    "slug": "career-ops",
+    "status": "active"
+  }
+}
+```
+
+#### `PATCH /api/v1/sessions/{id}/project`
+
+Set or clear the session's active project.
+
+**Request Body**
+
+```json
+{
+  "project_slug": "career-ops"
+}
+```
+
+Alternative clear form:
+
+```json
+{
+  "clear": true
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `project_id` | string | No | Project ID to activate |
+| `project_slug` | string | No | Project slug to activate |
+| `clear` | bool | No | Clear the active project instead of setting one |
+
+Provide exactly one of `project_id`, `project_slug`, or `clear=true`.
 
 #### Conversation Summarization
 
@@ -1318,6 +1371,39 @@ Database-level statistics from SQLite.
 
 The `tables` field validates that all expected database tables exist. If any are missing, `ok` is `false` and the table names are listed in `missing`.
 
+### Projects & Sprints
+
+Projects organize work across sessions. Sprints break project work into ordered chunks and provide stable identifiers for loops, tasks, and todo workflows.
+
+#### `GET /api/v1/projects`
+
+List projects, optionally filtered by status.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `status` | string | `null` | Filter by `active`, `completed`, or `archived` |
+| `limit` | int | `50` | Max projects to return (capped at 200) |
+
+#### `GET /api/v1/projects/{idOrSlug}`
+
+Get a project by ID or slug. The response includes summary sprint counts and the currently active sprint, if any.
+
+#### `GET /api/v1/projects/{idOrSlug}/sprints`
+
+List sprints for one project.
+
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `status` | string | `null` | Optional sprint status filter |
+
+#### `GET /api/v1/sprints/{id}`
+
+Get a sprint by ID, including its parent project summary.
+
 ### Background Tasks
 
 Background tasks run long-running agent work in separate processes. Each task gets its own dedicated session and runs via `bin/coqui task:run`. Tasks are managed by the `BackgroundTaskManager` which handles process lifecycle, concurrency limits, and crash recovery.
@@ -1339,7 +1425,9 @@ Create a new background task. The task is started immediately if under the concu
   "profile": "caelum",
   "title": "Auth refactor",
   "parent_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
-  "max_iterations": 25
+  "max_iterations": 25,
+  "project_id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "sprint_id": "s1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
 }
 ```
 
@@ -1351,6 +1439,8 @@ Create a new background task. The task is started immediately if under the concu
 | `title` | string | No | `null` | Human-readable title for the task |
 | `parent_session_id` | string | No | `null` | Link the task to a parent session (must exist). The task inherits that session's profile when one is set. |
 | `max_iterations` | int | No | `25` | Maximum agent iterations (1–100) |
+| `project_id` | string | No | `null` | Attach the task to an existing project |
+| `sprint_id` | string | No | `null` | Attach the task to an existing sprint. When provided, the sprint must exist and belong to the specified project if `project_id` is also set. |
 
 **Response `201`**
 
@@ -1363,6 +1453,8 @@ Create a new background task. The task is started immediately if under the concu
   "role": "coder",
   "profile": "caelum",
   "title": "Auth refactor",
+  "project_id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "sprint_id": "s1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "created_at": "2026-02-16T14:30:00+00:00"
 }
 ```
@@ -1438,6 +1530,8 @@ Get detailed information about a specific task, including live process status.
   "prompt": "Refactor the authentication module",
   "role": "coder",
   "title": "Auth refactor",
+  "project_id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "sprint_id": "s1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "process_alive": true,
   "created_at": "2026-02-16T14:30:00+00:00",
   "completed_at": null
@@ -2718,6 +2812,8 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/tasks` | `GET /api/v1/tasks` | Lists background tasks |
 | `/task <id>` | `GET /api/v1/tasks/{id}` | Gets task detail |
 | `/task-cancel <id>` | `POST /api/v1/tasks/{id}/cancel` | Cancels a running or pending task |
+| `/projects` | `GET /api/v1/projects` | Lists projects |
+| `/sprints` | `GET /api/v1/projects/{idOrSlug}/sprints` | Lists sprints for a project |
 | `/help` | `GET /api/v1/server/info` | Returns available commands and server capabilities |
 | `/toolkits` | `GET /api/v1/toolkits` | Lists all toolkit packages and tools with visibility |
 | `/toolkits enable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to enabled |
@@ -2743,6 +2839,8 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, `/loops pause`,
 | `GET` | `/api/v1/sessions/{id}` | Yes | Get session |
 | `PATCH` | `/api/v1/sessions/{id}` | Yes | Update session (title) |
 | `DELETE` | `/api/v1/sessions/{id}` | Yes | Delete session |
+| `GET` | `/api/v1/sessions/{id}/project` | Yes | Get the session active project |
+| `PATCH` | `/api/v1/sessions/{id}/project` | Yes | Set or clear the session active project |
 | `GET` | `/api/v1/sessions/{id}/messages` | Yes | List messages |
 | `POST` | `/api/v1/sessions/{id}/messages` | Yes | Send prompt (`SSE` by default, `?stream=false` for blocking) |
 | `DELETE` | `/api/v1/sessions/{id}/messages/{messageId}` | Yes | Delete a message |
@@ -2768,6 +2866,10 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, `/loops pause`,
 | `GET` | `/api/v1/tasks/{id}/events` | Yes | Stream task events (SSE) |
 | `POST` | `/api/v1/tasks/{id}/input` | Yes | Inject input into running task |
 | `POST` | `/api/v1/tasks/{id}/cancel` | Yes | Cancel a task |
+| `GET` | `/api/v1/projects` | Yes | List projects |
+| `GET` | `/api/v1/projects/{idOrSlug}` | Yes | Get project detail |
+| `GET` | `/api/v1/projects/{idOrSlug}/sprints` | Yes | List sprints for a project |
+| `GET` | `/api/v1/sprints/{id}` | Yes | Get sprint detail |
 | `GET` | `/api/v1/evaluations` | Yes | List saved evaluation reports |
 | `GET` | `/api/v1/evaluations/stats` | Yes | Get evaluation aggregates |
 | `GET` | `/api/v1/evaluations/{id}` | Yes | Get evaluation detail |
