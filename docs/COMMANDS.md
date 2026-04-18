@@ -39,6 +39,7 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | Command | Description |
 | --- | --- |
 | `/config` | Show current configuration |
+| `/config show` | Show the raw `openclaw.json` file |
 | `/config edit` | Reconfigure via setup wizard, then restart |
 | `/restart` | Restart Coqui (re-reads config, re-discovers toolkits) |
 | `/update` | Check for and apply dependency updates, then restart |
@@ -58,6 +59,10 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/toolkits enable tool:<name>` | Set an individual tool to `enabled` |
 | `/toolkits stub tool:<name>` | Set an individual tool to `stub` |
 | `/toolkits disable tool:<name>` | Set an individual tool to `disabled` |
+| `/toolkits promote <ToolkitClass>` | Force a toolkit to load eagerly regardless of budget |
+| `/toolkits demote <ToolkitClass>` | Force a toolkit to stay deferred regardless of budget |
+| `/toolkits auto <ToolkitClass>` | Return a toolkit to automatic budget-gated loading |
+| `/budget [role]` | Show prompt-budget telemetry and toolkit loading decisions |
 | `/prompt` | Print the fully rendered system prompt with tool/toolkit/token counts |
 | `/prompt export` | Export system prompt and tool schemas to a file in the workspace |
 
@@ -82,6 +87,22 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | Command | Description |
 | --- | --- |
 | `/todos [status]` | Show session todos with progress stats. Filter by `pending`, `in_progress`, `completed`, or `cancelled` |
+| `/todos delete <id\|all>` | Delete one todo by ID prefix, or all todos in the current session |
+| `/todos complete <id\|all>` | Mark one todo, or all actionable todos, as completed |
+| `/todos cancel <id>` | Mark a todo as cancelled |
+| `/todos clear` | Remove completed and cancelled todos |
+
+### Projects & Sprints
+
+| Command | Description |
+| --- | --- |
+| `/projects` | List all projects and mark the active project |
+| `/projects active` | List only active projects |
+| `/projects completed` | List only completed projects |
+| `/projects archived` | List only archived projects |
+| `/projects <slug\|id>` | Switch the active project for the current session |
+| `/projects clear` | Clear the active project for the current session |
+| `/sprints [project_slug]` | List sprints for active projects, or one project when a slug is provided |
 
 ### Scheduling & Automation
 
@@ -93,13 +114,21 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/schedules delete <name\|id\|all>` | Delete a schedule (or all schedules) |
 | `/schedules trigger <name\|id\|all>` | Force-trigger a schedule on the next API tick |
 | `/loops` | List all loops with status and progress |
+| `/loops running` | List only running loops |
+| `/loops paused` | List only paused loops |
+| `/loops completed` | List only completed loops |
+| `/loops failed` | List only failed loops |
+| `/loops cancelled` | List only cancelled loops |
+| `/loops start <definition> <goal>` | Start a loop from a discovered definition with a goal |
 | `/loops definitions` | Show available loop definitions |
+| `/loops defs` | Alias for `/loops definitions` |
 | `/loops status <id>` | Detailed status of a specific loop |
 | `/loops pause <id\|all>` | Pause running loop(s) |
 | `/loops resume <id\|all>` | Resume paused loop(s) |
 | `/loops stop <id\|all>` | Stop/cancel loop(s) |
 | `/webhooks` | List webhook subscriptions with status and trigger counts |
 | `/evaluations [grade]` | List session evaluation reports, optionally filtered by grade |
+| `/quality` | Show quality automation schedules and learner follow-up state |
 | `/hints` | Toggle command hints in the input area |
 | `/multiline` | Toggle multiline compose mode (double-Enter submits, bracketed paste auto-detected) |
 | `/multiline on` | Enable multiline compose mode |
@@ -120,13 +149,14 @@ Options can be combined: `/summarize recent 5 focus "database schema"`.
 | Command | Description |
 | --- | --- |
 | `/space` | Show Coqui Space help |
+| `/space status` | Show Coqui Space connectivity and installed package counts |
 | `/space search <query>` | Search the marketplace for toolkits and skills |
 | `/space install <package>` | Install a package from Coqui Space |
 | `/space remove <package>` | Remove an installed package |
 | `/space installed` | List installed marketplace packages |
 | `/space skills` | List available skills from installed packages |
 | `/space toolkits` | List available toolkits from installed packages |
-| `/space update` | Update all installed marketplace packages |
+| `/space update <package>` | Update one installed skill or toolkit |
 
 ## CLI Commands
 
