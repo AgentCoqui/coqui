@@ -104,6 +104,102 @@ function createTestDocx(string $path, array $paragraphs): void
 }
 
 /**
+	* @param list<string> $paragraphs
+	*/
+function createTestOdt(string $path, array $paragraphs): void
+{
+	$zip = new ZipArchive();
+	$opened = $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+	expect($opened)->toBeTrue();
+
+	$body = implode('', array_map(
+		static fn(string $paragraph): string => '<text:p>' . htmlspecialchars($paragraph, ENT_XML1) . '</text:p>',
+		$paragraphs,
+	));
+
+	$zip->addFromString('mimetype', 'application/vnd.oasis.opendocument.text');
+	$zip->addFromString('content.xml', '<?xml version="1.0" encoding="UTF-8"?>'
+		. '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">'
+		. '<office:body><office:text>' . $body . '</office:text></office:body>'
+		. '</office:document-content>');
+
+	$zip->close();
+}
+
+/**
+	* @param array<string, list<list<string>>> $sheets
+	*/
+function createTestOds(string $path, array $sheets): void
+{
+	$zip = new ZipArchive();
+	$opened = $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+	expect($opened)->toBeTrue();
+
+	$tables = [];
+	foreach ($sheets as $sheetName => $rows) {
+		$rowXml = [];
+		foreach ($rows as $row) {
+			$cells = [];
+			foreach ($row as $value) {
+				$cells[] = '<table:table-cell office:value-type="string"><text:p>'
+					. htmlspecialchars((string) $value, ENT_XML1)
+					. '</text:p></table:table-cell>';
+			}
+
+			$rowXml[] = '<table:table-row>' . implode('', $cells) . '</table:table-row>';
+		}
+
+		$tables[] = '<table:table table:name="' . htmlspecialchars($sheetName, ENT_XML1) . '">' . implode('', $rowXml) . '</table:table>';
+	}
+
+	$zip->addFromString('mimetype', 'application/vnd.oasis.opendocument.spreadsheet');
+	$zip->addFromString('content.xml', '<?xml version="1.0" encoding="UTF-8"?>'
+		. '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">'
+		. '<office:body><office:spreadsheet>' . implode('', $tables) . '</office:spreadsheet></office:body>'
+		. '</office:document-content>');
+
+	$zip->close();
+}
+
+/**
+	* @param list<array{title?: string, bullets?: list<string>}> $slides
+	*/
+function createTestOdp(string $path, array $slides): void
+{
+	$zip = new ZipArchive();
+	$opened = $zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE);
+	expect($opened)->toBeTrue();
+
+	$pages = [];
+	foreach ($slides as $index => $slide) {
+		$paragraphs = [];
+		$title = trim((string) ($slide['title'] ?? ''));
+		if ($title !== '') {
+			$paragraphs[] = '<text:p>' . htmlspecialchars($title, ENT_XML1) . '</text:p>';
+		}
+
+		foreach ($slide['bullets'] ?? [] as $bullet) {
+			$bullet = trim($bullet);
+			if ($bullet !== '') {
+				$paragraphs[] = '<text:p>' . htmlspecialchars($bullet, ENT_XML1) . '</text:p>';
+			}
+		}
+
+		$pages[] = '<draw:page draw:name="Slide ' . ($index + 1) . '"><draw:frame><draw:text-box>'
+			. implode('', $paragraphs)
+			. '</draw:text-box></draw:frame></draw:page>';
+	}
+
+	$zip->addFromString('mimetype', 'application/vnd.oasis.opendocument.presentation');
+	$zip->addFromString('content.xml', '<?xml version="1.0" encoding="UTF-8"?>'
+		. '<office:document-content xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0">'
+		. '<office:body><office:presentation>' . implode('', $pages) . '</office:presentation></office:body>'
+		. '</office:document-content>');
+
+	$zip->close();
+}
+
+/**
 	* @param array<string, list<list<string>>> $sheets
 	*/
 function createTestXlsx(string $path, array $sheets): void

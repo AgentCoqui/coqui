@@ -218,6 +218,40 @@ test('generate handles pptx files when zip support is available', function () {
     expect($output)->toContain('#### Slide 2: Continuity');
 });
 
+test('generate handles open document formats when zip support is available', function () {
+    if (!\CoquiBot\Coqui\Backstory\Extractor\OdtExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    createTestOdt($this->backstoryDir . '/origin.odt', ['Quiet beginning', 'Signal noted']);
+    createTestOds($this->backstoryDir . '/routes.ods', [
+        'Routes' => [
+            ['Alias', 'Window'],
+            ['Kade', '0400-0600Z'],
+        ],
+    ]);
+    createTestOdp($this->backstoryDir . '/briefing.odp', [
+        [
+            'title' => 'Continuity',
+            'bullets' => ['No active content executed'],
+        ],
+    ]);
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->failedFiles)->toBe(0);
+    expect($result->unsupportedFiles)->toBe(0);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('### File: /origin.odt');
+    expect($output)->toContain('Quiet beginning');
+    expect($output)->toContain('### File: /routes.ods');
+    expect($output)->toContain('| Alias | Window |');
+    expect($output)->toContain('### File: /briefing.odp');
+    expect($output)->toContain('#### Slide 1: Continuity');
+});
+
 test('generate records failed files in manifest', function () {
     file_put_contents($this->backstoryDir . '/bad.json', 'not valid json');
 

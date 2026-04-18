@@ -32,7 +32,7 @@
     "phpstan/phpstan": "^2.0"
   },
   "suggest": {
-    "ext-zip": "Required for optional .xlsx/.pptx backstory extraction",
+    "ext-zip": "Required for optional .odt/.ods/.odp/.xlsx/.pptx backstory extraction",
     "ext-pcntl": "Required for background task cancellation via SIGTERM",
     "ext-posix": "Required for background task process management"
   },

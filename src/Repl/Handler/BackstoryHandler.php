@@ -116,6 +116,18 @@ final class BackstoryHandler
             );
         }
 
+        if ($manifest->failedFiles > 0 || $manifest->unsupportedFileCount() > 0) {
+            $messages = [];
+            if ($manifest->failedFiles > 0) {
+                $messages[] = sprintf('%d failed extraction(s)', $manifest->failedFiles);
+            }
+            if ($manifest->unsupportedFileCount() > 0) {
+                $messages[] = sprintf('%d unsupported file(s) skipped', $manifest->unsupportedFileCount());
+            }
+
+            $io->warning(implode('; ', $messages) . '. Run /backstory failed for details.');
+        }
+
         $needsRegen = $this->assembler->needsRegeneration($profilePath);
         if ($needsRegen) {
             $io->warning('Source files have changed since last generation. Run /backstory generate to update.');
@@ -233,7 +245,7 @@ final class BackstoryHandler
             'Usage:',
             '  /backstory            Show backstory manifest and status',
             '  /backstory generate   Generate backstory.md from source files',
-            '  /backstory failed     Show files that failed during last generation',
+            '  /backstory failed     Show failed and unsupported files from the last generation',
         ]);
         return RouteResult::continue();
     }
@@ -276,7 +288,7 @@ final class BackstoryHandler
     /**
      * Get a brief manifest summary for display in /prompt output.
      *
-     * @return array{total_files: int, total_tokens: int}|null
+    * @return array{total_files: int, total_tokens: int, failed_files: int, unsupported_files: int}|null
      */
     public function getManifestSummary(string $profileName): ?array
     {
@@ -293,6 +305,8 @@ final class BackstoryHandler
         return [
             'total_files' => $manifest->totalFiles,
             'total_tokens' => $manifest->totalTokens,
+            'failed_files' => $manifest->failedFiles,
+            'unsupported_files' => $manifest->unsupportedFileCount(),
         ];
     }
 }
