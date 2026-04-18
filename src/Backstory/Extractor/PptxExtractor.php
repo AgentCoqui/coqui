@@ -51,10 +51,12 @@ final class PptxExtractor implements ExtractorInterface
                     continue;
                 }
 
-                $title = array_shift($paragraphs);
-                if (!is_string($title) || $title === '') {
+                $title = $paragraphs[0];
+                if ($title === '') {
                     continue;
                 }
+
+                $paragraphs = array_slice($paragraphs, 1);
 
                 $sectionLines = ['#### Slide ' . ($index + 1) . ': ' . $title];
                 if ($paragraphs !== []) {
