@@ -125,6 +125,30 @@ test('generate handles extended text-like formats and code blocks', function () 
     expect($output)->toContain('```python');
 });
 
+test('generate handles sql files with mixed parsed and preserved statements', function () {
+    file_put_contents($this->backstoryDir . '/financials.sql', <<<'SQL'
+CREATE TABLE financials (
+    year INT,
+    revenue DECIMAL(10, 2),
+    profit DECIMAL(10, 2)
+);
+INSERT INTO financials VALUES (2024, 100.00, 20.00);
+SELECT * FROM financials;
+SQL);
+
+    $assembler = new BackstoryAssembler();
+    $result = $assembler->generate($this->profilePath);
+
+    expect($result->failedFiles)->toBe(0);
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('### File: /financials.sql');
+    expect($output)->toContain('#### Table: financials');
+    expect($output)->toContain('| year | revenue | profit |');
+    expect($output)->toContain('#### Unparsed SQL');
+    expect($output)->toContain('SELECT * FROM financials;');
+});
+
 test('generate handles utf16 text input', function () {
     $content = "\xFF\xFE" . mb_convert_encoding('Encoded backstory', 'UTF-16LE', 'UTF-8');
     file_put_contents($this->backstoryDir . '/utf16.txt', $content);

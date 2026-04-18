@@ -42,7 +42,6 @@ final class CodeBlockExtractor implements ExtractorInterface
         'rs' => 'rust',
         'scss' => 'scss',
         'sh' => 'bash',
-        'sql' => 'sql',
         'swift' => 'swift',
         'ts' => 'typescript',
         'tsx' => 'tsx',

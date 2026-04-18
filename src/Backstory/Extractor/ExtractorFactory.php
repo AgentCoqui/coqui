@@ -23,6 +23,7 @@ final class ExtractorFactory
             new HtmlExtractor(),
             new XmlExtractor(),
             new RtfExtractor(),
+            new SqlExtractor(),
             new CodeBlockExtractor(),
             new PdfExtractor(),
             new DocxExtractor(),
