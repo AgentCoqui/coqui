@@ -152,10 +152,10 @@ profiles/caelum/
 | `.csv`, `.tsv` | Converted to a markdown table |
 | `.sql` | Parses simple `CREATE TABLE` + `INSERT ... VALUES` statements into markdown tables when possible; preserves unsupported or malformed statements as fenced `sql` |
 | `.odt` | Optionally converted into markdown with paragraph, heading, and list structure preserved when ZIP support is available |
-| `.ods` | Optionally converted into markdown tables per sheet, preserving multiline cells when ZIP support is available |
+| `.ods` | Optionally converted into markdown tables per sheet, preserving multiline cells and merged-cell readability when ZIP support is available |
 | `.odp` | Optionally converted into per-slide markdown sections with slide-title fallbacks when ZIP support is available |
 | `.xlsx`, `.xlsm` | Optionally converted into markdown tables per worksheet when ZIP support is available |
-| `.pptx`, `.pptm` | Optionally converted into per-slide markdown sections, using the first text block as the slide title, when ZIP support is available |
+| `.pptx`, `.pptm` | Optionally converted into per-slide markdown sections with speaker notes appended when ZIP support is available |
 | `.html`, `.htm` | Sanitized and converted to markdown via `league/html-to-markdown` |
 | `.xml` | Rendered as a markdown outline for simple documents, otherwise wrapped in a ` ```xml ` code fence |
 | `.rtf` | Converted to plain text with conservative RTF control-word stripping |
@@ -171,7 +171,7 @@ HTML, XML, RTF, SQL, code files, and optional `.xlsx`/`.pptx` input are always t
 
 `.xlsx` and `.xlsm` support are optional and depend on PHP ZIP support. When available, Coqui reads cached worksheet values and converts each populated worksheet into a markdown table. It does not evaluate spreadsheet formulas or execute macros.
 
-`.pptx` and `.pptm` support are also optional and depend on PHP ZIP support. When available, Coqui extracts readable slide text in presentation order and renders each populated slide as a markdown section. It does not execute macros or embedded active content.
+`.pptx` and `.pptm` support are also optional and depend on PHP ZIP support. When available, Coqui extracts readable slide text in presentation order, appends speaker notes when present, and renders each populated slide as a markdown section. It does not execute macros or embedded active content.
 
 Unsupported files inside `backstory/` are skipped under a strict allowlist model. Coqui records them in `.backstory-manifest.json` and surfaces them in `/backstory` and `/backstory failed` so users can see what was ignored and why.
 

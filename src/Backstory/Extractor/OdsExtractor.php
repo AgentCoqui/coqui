@@ -116,6 +116,8 @@ final class OdsExtractor implements ExtractorInterface
         }
 
         $cells = [];
+        $pendingCoveredValue = '';
+        $pendingCoveredCount = 0;
         foreach ($cellNodes as $cellNode) {
             $repeatColumns = OpenDocumentArchiveReader::repeatCount(
                 $cellNode,
@@ -123,9 +125,30 @@ final class OdsExtractor implements ExtractorInterface
                 'number-columns-repeated',
             );
 
-            $value = OpenDocumentArchiveReader::localName($cellNode) === 'covered-table-cell'
-                ? ''
-                : $this->extractCellValue($cellNode);
+            if (OpenDocumentArchiveReader::localName($cellNode) === 'covered-table-cell') {
+                $coveredRepeats = min($repeatColumns, $pendingCoveredCount);
+                for ($i = 0; $i < $coveredRepeats; $i++) {
+                    $cells[] = $pendingCoveredValue;
+                }
+
+                for ($i = $coveredRepeats; $i < $repeatColumns; $i++) {
+                    $cells[] = '';
+                }
+
+                $pendingCoveredCount = max(0, $pendingCoveredCount - $coveredRepeats);
+                continue;
+            }
+
+            $value = $this->extractCellValue($cellNode);
+            $pendingCoveredValue = $value;
+            $pendingCoveredCount = max(
+                0,
+                (int) OpenDocumentArchiveReader::attributeValue(
+                    $cellNode,
+                    OpenDocumentArchiveReader::TABLE_NS,
+                    'number-columns-spanned',
+                ) - 1,
+            );
 
             for ($i = 0; $i < $repeatColumns; $i++) {
                 $cells[] = $value;

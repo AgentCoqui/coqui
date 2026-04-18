@@ -383,6 +383,35 @@ XML);
         expect(substr_count($result->content, '| Kade | 0400Z<br>0600Z |'))->toBe(2);
 });
 
+test('OdsExtractor expands merged LibreOffice cells for markdown readability', function () {
+        if (!OdsExtractor::isRuntimeSupported()) {
+                test()->markTestSkipped('ZipArchive is not available');
+        }
+
+        $path = $this->tempDir . '/merged.ods';
+        createRawOds($path, <<<'XML'
+<table:table table:name="Merge Map">
+    <table:table-row>
+        <table:table-cell office:value-type="string" table:number-columns-spanned="2"><text:p>Region</text:p></table:table-cell>
+        <table:covered-table-cell/>
+        <table:table-cell office:value-type="string"><text:p>Status</text:p></table:table-cell>
+    </table:table-row>
+    <table:table-row>
+        <table:table-cell office:value-type="string" table:number-columns-spanned="2"><text:p>North Wing</text:p></table:table-cell>
+        <table:covered-table-cell/>
+        <table:table-cell office:value-type="string"><text:p>Stable</text:p></table:table-cell>
+    </table:table-row>
+</table:table>
+XML);
+
+        $extractor = new OdsExtractor();
+        $result = $extractor->extract($path);
+
+        expect($result->success)->toBeTrue();
+        expect($result->content)->toContain('| Region | Region | Status |');
+        expect($result->content)->toContain('| North Wing | North Wing | Stable |');
+});
+
 test('OdsExtractor fails when workbook has no data rows', function () {
     if (!OdsExtractor::isRuntimeSupported()) {
         test()->markTestSkipped('ZipArchive is not available');
@@ -740,6 +769,31 @@ test('PptxExtractor reads pptm files using the same safe OOXML path', function (
     expect($result->content)->toContain('#### Slide 1: Signals');
     expect($result->content)->toContain('- No macros executed');
     expect($extractor->supportedExtensions())->toContain('pptm');
+});
+
+test('PptxExtractor includes speaker notes when present', function () {
+    if (!PptxExtractor::isRuntimeSupported()) {
+        test()->markTestSkipped('ZipArchive is not available');
+    }
+
+    $path = $this->tempDir . '/notes-deck.pptx';
+    createTestPptx($path, [
+        [
+            'title' => 'Signals',
+            'bullets' => ['Archive stays read-only'],
+            'notes' => ['Emphasize continuity', 'Mention fallback paths'],
+        ],
+    ]);
+
+    $extractor = new PptxExtractor();
+    $result = $extractor->extract($path);
+
+    expect($result->success)->toBeTrue();
+    expect($result->content)->toContain('#### Slide 1: Signals');
+    expect($result->content)->toContain('- Archive stays read-only');
+    expect($result->content)->toContain('##### Speaker Notes');
+    expect($result->content)->toContain('- Emphasize continuity');
+    expect($result->content)->toContain('- Mention fallback paths');
 });
 
 // --- ExtractorFactory ---

@@ -338,7 +338,7 @@ function createTestXlsx(string $path, array $sheets): void
 }
 
 /**
-	* @param list<array{title?: string, bullets?: list<string>}> $slides
+	* @param list<array{title?: string, bullets?: list<string>, notes?: list<string>}> $slides
 	*/
 function createTestPptx(string $path, array $slides): void
 {
@@ -347,6 +347,7 @@ function createTestPptx(string $path, array $slides): void
 	expect($opened)->toBeTrue();
 
 	$slideXml = [];
+	$notesXml = [];
 	$slideIndex = 1;
 
 	foreach ($slides as $slide) {
@@ -365,6 +366,7 @@ function createTestPptx(string $path, array $slides): void
 
 		$slideXml[] = [
 			'id' => $slideIndex,
+			'has_notes' => ($slide['notes'] ?? []) !== [],
 			'xml' => '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
 				. '<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
 				. '<p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>'
@@ -372,6 +374,24 @@ function createTestPptx(string $path, array $slides): void
 				. '<p:txBody><a:bodyPr/><a:lstStyle/>' . implode('', $paragraphs) . '</p:txBody></p:sp>'
 				. '</p:spTree></p:cSld></p:sld>',
 		];
+
+		$notesParagraphs = [];
+		foreach ($slide['notes'] ?? [] as $note) {
+			$note = trim($note);
+			if ($note !== '') {
+				$notesParagraphs[] = createPptxParagraph($note);
+			}
+		}
+
+		if ($notesParagraphs !== []) {
+			$notesXml[$slideIndex] = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+				. '<p:notes xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
+				. '<p:cSld><p:spTree><p:nvGrpSpPr><p:cNvPr id="1" name=""/><p:cNvGrpSpPr/><p:nvPr/></p:nvGrpSpPr><p:grpSpPr/>'
+				. '<p:sp><p:nvSpPr><p:cNvPr id="3" name="Notes TextBox ' . $slideIndex . '"/><p:cNvSpPr txBox="1"/><p:nvPr/></p:nvSpPr><p:spPr/>'
+				. '<p:txBody><a:bodyPr/><a:lstStyle/>' . implode('', $notesParagraphs) . '</p:txBody></p:sp>'
+				. '</p:spTree></p:cSld></p:notes>';
+		}
+
 		$slideIndex++;
 	}
 
@@ -381,6 +401,19 @@ function createTestPptx(string $path, array $slides): void
 		$slideIds[] = '<p:sldId id="' . (255 + $slide['id']) . '" r:id="rId' . $slide['id'] . '"/>';
 		$slideRelationships[] = '<Relationship Id="rId' . $slide['id'] . '" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide' . $slide['id'] . '.xml"/>';
 		$zip->addFromString('ppt/slides/slide' . $slide['id'] . '.xml', $slide['xml']);
+
+		$slideLevelRelationships = [];
+		if ($slide['has_notes']) {
+			$slideLevelRelationships[] = '<Relationship Id="rIdNotes" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/notesSlide" Target="../notesSlides/notesSlide' . $slide['id'] . '.xml"/>';
+			$zip->addFromString('ppt/notesSlides/notesSlide' . $slide['id'] . '.xml', $notesXml[$slide['id']]);
+		}
+
+		if ($slideLevelRelationships !== []) {
+			$zip->addFromString('ppt/slides/_rels/slide' . $slide['id'] . '.xml.rels', '<?xml version="1.0" encoding="UTF-8"?>'
+				. '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+				. implode('', $slideLevelRelationships)
+				. '</Relationships>');
+		}
 	}
 
 	$zip->addFromString('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?>'
@@ -391,6 +424,10 @@ function createTestPptx(string $path, array $slides): void
 		. implode('', array_map(
 			static fn(array $slide): string => '<Override PartName="/ppt/slides/slide' . $slide['id'] . '.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>',
 			$slideXml,
+		))
+		. implode('', array_map(
+			static fn(int $slideId): string => '<Override PartName="/ppt/notesSlides/notesSlide' . $slideId . '.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml"/>',
+			array_keys($notesXml),
 		))
 		. '</Types>');
 
