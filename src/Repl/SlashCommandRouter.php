@@ -472,10 +472,13 @@ final class SlashCommandRouter
 
     private function handleHelp(SymfonyStyle $io): RouteResult
     {
-        $io->table(
-            ['Command', 'Description'],
-            ReplCommandCatalog::helpRows(),
-        );
+        foreach (ReplCommandCatalog::helpSections() as $section => $rows) {
+            $io->section($section);
+            $io->table(['Command', 'Description'], $rows);
+            $io->newLine();
+        }
+
+        $io->text('<fg=gray>Advanced automation commands remain available, but they are intended for operator workflows, monitoring, or agent-assisted orchestration rather than routine chat interaction.</>');
         return RouteResult::continue();
     }
 

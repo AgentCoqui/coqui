@@ -316,7 +316,7 @@ final class RunCommand extends Command
         if ($this->hintsEnabled) {
             $io->section('REPL');
             $bannerLines[] = '';
-            $bannerLines[] = '<fg=gray>Commands: /config, /new, /sessions, /roles, /tasks, /help, /update, /restart, /quit</>';
+            $bannerLines[] = '<fg=gray>Commands: /new, /sessions, /role, /profile, /prompt, /backstory, /help, /quit</>';
         }
 
         $io->text($bannerLines);
@@ -401,7 +401,7 @@ final class RunCommand extends Command
             project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
             profile: new ProfileHandler($this->boot, $sessionHandler),
-            backstory: new BackstoryHandler($this->boot),
+            backstory: new BackstoryHandler($this->boot->profileDiscovery(), $this->boot->workspacePath()),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             space: new SpaceHandler($this->boot),
             config: new ConfigHandler($this->boot, $this->workDir),

@@ -912,109 +912,109 @@
                     "heading": "Scheduling & Automation",
                     "level": 3,
                     "line_start": 107,
-                    "line_end": 136
+                    "line_end": 138
                 },
                 {
                     "heading": "Context Management",
                     "level": 3,
-                    "line_start": 137,
-                    "line_end": 146
+                    "line_start": 139,
+                    "line_end": 148
                 },
                 {
                     "heading": "Marketplace",
                     "level": 3,
-                    "line_start": 147,
-                    "line_end": 160
+                    "line_start": 149,
+                    "line_end": 162
                 },
                 {
                     "heading": "CLI Commands",
                     "level": 2,
-                    "line_start": 161,
-                    "line_end": 164
+                    "line_start": 163,
+                    "line_end": 166
                 },
                 {
                     "heading": "`coqui run`",
                     "level": 3,
-                    "line_start": 165,
-                    "line_end": 195
+                    "line_start": 167,
+                    "line_end": 197
                 },
                 {
                     "heading": "Headless Mode",
                     "level": 4,
-                    "line_start": 196,
-                    "line_end": 207
+                    "line_start": 198,
+                    "line_end": 209
                 },
                 {
                     "heading": "`coqui api`",
                     "level": 3,
-                    "line_start": 208,
-                    "line_end": 228
+                    "line_start": 210,
+                    "line_end": 230
                 },
                 {
                     "heading": "`coqui setup`",
                     "level": 3,
-                    "line_start": 229,
-                    "line_end": 242
+                    "line_start": 231,
+                    "line_end": 244
                 },
                 {
                     "heading": "`coqui doctor`",
                     "level": 3,
-                    "line_start": 243,
-                    "line_end": 260
+                    "line_start": 245,
+                    "line_end": 262
                 },
                 {
                     "heading": "`coqui benchmark`",
                     "level": 3,
-                    "line_start": 261,
-                    "line_end": 277
+                    "line_start": 263,
+                    "line_end": 279
                 },
                 {
                     "heading": "Launcher",
                     "level": 2,
-                    "line_start": 278,
-                    "line_end": 281
+                    "line_start": 280,
+                    "line_end": 283
                 },
                 {
                     "heading": "Modes",
                     "level": 3,
-                    "line_start": 282,
-                    "line_end": 293
+                    "line_start": 284,
+                    "line_end": 295
                 },
                 {
                     "heading": "Launcher Flags",
                     "level": 3,
-                    "line_start": 294,
-                    "line_end": 308
+                    "line_start": 296,
+                    "line_end": 310
                 },
                 {
                     "heading": "Exit Code Behavior",
                     "level": 3,
-                    "line_start": 309,
-                    "line_end": 316
+                    "line_start": 311,
+                    "line_end": 318
                 },
                 {
                     "heading": "Signal Handling",
                     "level": 2,
-                    "line_start": 317,
-                    "line_end": 318
+                    "line_start": 319,
+                    "line_end": 320
                 },
                 {
                     "heading": "At the REPL prompt",
                     "level": 3,
-                    "line_start": 319,
-                    "line_end": 327
+                    "line_start": 321,
+                    "line_end": 329
                 },
                 {
                     "heading": "During agent execution",
                     "level": 3,
-                    "line_start": 328,
-                    "line_end": 335
+                    "line_start": 330,
+                    "line_end": 337
                 },
                 {
                     "heading": "See Also",
                     "level": 2,
-                    "line_start": 336,
-                    "line_end": 341
+                    "line_start": 338,
+                    "line_end": 343
                 }
             ]
         },

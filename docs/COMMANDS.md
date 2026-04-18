@@ -63,14 +63,14 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/toolkits demote <ToolkitClass>` | Force a toolkit to stay deferred regardless of budget |
 | `/toolkits auto <ToolkitClass>` | Return a toolkit to automatic budget-gated loading |
 | `/budget [role]` | Show prompt-budget telemetry and toolkit loading decisions |
-| `/prompt` | Print the fully rendered system prompt with tool/toolkit/token counts |
+| `/prompt` | Print the fully rendered system prompt with tool/toolkit/token counts plus file and folder breakdowns |
 | `/prompt export` | Export system prompt and tool schemas to a file in the workspace |
 
 ### Backstory Generator
 
 | Command | Description |
 | --- | --- |
-| `/backstory` | Show backstory generation status, file summary, skipped unsupported files, and any current issue summary |
+| `/backstory` | Show generated backstory content, file and folder summaries, skipped unsupported files, and current issue summary |
 | `/backstory generate` | Force regeneration of `backstory.md` from source files |
 | `/backstory failed` | Show files that failed extraction or were skipped as unsupported |
 
@@ -106,27 +106,29 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 
 ### Scheduling & Automation
 
+Inspection commands in this section are user-facing. Mutation and lifecycle controls are still available, but they are best treated as advanced automation or operator workflows rather than routine chat interaction.
+
 | Command | Description |
 | --- | --- |
 | `/schedules` | List scheduled tasks with status, cron expression, next/last run time |
-| `/schedules enable <name\|id\|all>` | Enable a schedule (or all disabled schedules) |
-| `/schedules disable <name\|id\|all>` | Disable a schedule (or all enabled schedules) |
-| `/schedules delete <name\|id\|all>` | Delete a schedule (or all schedules) |
-| `/schedules trigger <name\|id\|all>` | Force-trigger a schedule on the next API tick |
+| `/schedules enable <name\|id\|all>` | Advanced operator control: enable a schedule (or all disabled schedules) |
+| `/schedules disable <name\|id\|all>` | Advanced operator control: disable a schedule (or all enabled schedules) |
+| `/schedules delete <name\|id\|all>` | Advanced operator control: delete a schedule (or all schedules) |
+| `/schedules trigger <name\|id\|all>` | Advanced operator control: force-trigger a schedule on the next API tick |
 | `/loops` | List all loops with status and progress |
 | `/loops running` | List only running loops |
 | `/loops paused` | List only paused loops |
 | `/loops completed` | List only completed loops |
 | `/loops failed` | List only failed loops |
 | `/loops cancelled` | List only cancelled loops |
-| `/loops start <definition> <goal>` | Start a loop from a discovered definition with a goal |
+| `/loops start <definition> <goal>` | Advanced automation control: start a loop from a discovered definition with a goal |
 | `/loops definitions` | Show available loop definitions |
 | `/loops defs` | Alias for `/loops definitions` |
 | `/loops status <id>` | Detailed status of a specific loop |
-| `/loops pause <id\|all>` | Pause running loop(s) |
-| `/loops resume <id\|all>` | Resume paused loop(s) |
-| `/loops stop <id\|all>` | Stop/cancel loop(s) |
-| `/webhooks` | List webhook subscriptions with status and trigger counts |
+| `/loops pause <id\|all>` | Advanced automation control: pause running loop(s) |
+| `/loops resume <id\|all>` | Advanced automation control: resume paused loop(s) |
+| `/loops stop <id\|all>` | Advanced automation control: stop/cancel loop(s) |
+| `/webhooks` | List webhook subscriptions with status and trigger counts for monitoring |
 | `/evaluations [grade]` | List session evaluation reports, optionally filtered by grade |
 | `/quality` | Show quality automation schedules and learner follow-up state |
 | `/hints` | Toggle command hints in the input area |
