@@ -341,7 +341,7 @@ final class ApiCommand extends Command
         $sessionProjectHandler = $projectStore !== null ? new SessionProjectHandler($storage, $projectStore) : null;
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
-            ? new ApiLoopHandler($loopStore, $loopDiscovery)
+            ? new ApiLoopHandler($loopStore, $loopDiscovery, $loopExecutor ?? null, $storage, $projectStore)
             : null;
 
         // Build router

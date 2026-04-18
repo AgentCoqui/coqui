@@ -2076,9 +2076,67 @@ Schedule mutation endpoints are not part of the current HTTP surface.
 
 Loops are fully automated, multi-iteration workflows that string together existing agent roles in sequence. Each role processes the output of the previous one, repeating until a termination condition is met.
 
-The HTTP API currently exposes loops as read-only monitoring resources. Loop creation and lifecycle control stay in the REPL or agent-tool workflow.
-
 Loop stage advancement only happens while the API server is running. `LoopManager` advances stages asynchronously and spawns the background tasks that execute them.
+
+#### `POST /api/v1/loops`
+
+Create and start a loop.
+
+Use `session_id` when the loop should inherit the session's active project and downstream profile context. Use `project_id` or `project_slug` to pin the loop to a project directly. Use `sprint_id` to bind the first iteration to an existing sprint; when only `sprint_id` is supplied, the loop inherits that sprint's project automatically.
+
+**Request Body**
+
+```json
+{
+  "definition": "harness",
+  "goal": "Implement loop lifecycle endpoints",
+  "session_id": "sess_123",
+  "parameters": {
+    "subject": "loop lifecycle API"
+  },
+  "max_iterations": 3,
+  "sprint_id": "spr_123"
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "loop": {
+    "id": "abc123",
+    "definition_name": "harness",
+    "goal": "Implement loop lifecycle endpoints",
+    "session_id": "sess_123",
+    "project_id": "proj_123",
+    "status": "running",
+    "current_iteration": 1,
+    "current_stage": 0,
+    "max_iterations": 3,
+    "metadata": {
+      "dispatch": {
+        "status": "pending"
+      }
+    }
+  },
+  "iteration": {
+    "id": "iter123",
+    "loop_id": "abc123",
+    "iteration_number": 1,
+    "sprint_id": "spr_123",
+    "status": "running"
+  },
+  "stages": [
+    {
+      "id": "stage123",
+      "iteration_id": "iter123",
+      "stage_index": 0,
+      "role": "plan",
+      "status": "pending"
+    }
+  ]
+}
+```
 
 #### `GET /api/v1/loops`
 
@@ -2122,10 +2180,31 @@ List available loop definitions.
     {
       "name": "harness",
       "description": "Generator-evaluator pattern",
-      "roles": ["plan", "coder", "reviewer"],
+      "parameters": [
+        {
+          "name": "subject",
+          "description": "What to work on",
+          "required": true
+        }
+      ],
+      "roles": [
+        {
+          "role": "plan",
+          "prompt": "Plan work for {{subject}}.",
+          "max_iterations": null
+        },
+        {
+          "role": "reviewer",
+          "prompt": "Review progress for {{subject}}.",
+          "max_iterations": null
+        }
+      ],
       "termination": {
         "type": "evaluation_bound",
-        "value": "APPROVED"
+        "value": {
+          "criteria": "Explicit approval required",
+          "max_review_rounds": 4
+        }
       }
     }
   ],
@@ -2141,20 +2220,89 @@ Get detailed loop status including current iteration and stage information.
 
 ```json
 {
-  "id": "abc123",
-  "definition": "harness",
-  "goal": "Implement a new caching layer",
-  "status": "running",
-  "current_iteration": 2,
-  "current_stage": 1,
-  "configuration": { ... },
-  "created_at": "2026-02-16T14:00:00Z",
-  "updated_at": "2026-02-16T14:30:00Z"
+  "loop": {
+    "id": "abc123",
+    "definition_name": "harness",
+    "goal": "Implement a new caching layer",
+    "status": "running",
+    "current_iteration": 2,
+    "current_stage": 1,
+    "configuration": "{...}",
+    "metadata": {
+      "dispatch": {
+        "status": "running"
+      }
+    }
+  },
+  "iteration": {
+    "id": "iter456",
+    "loop_id": "abc123",
+    "iteration_number": 2,
+    "status": "running"
+  },
+  "stages": [
+    {
+      "id": "stage123",
+      "iteration_id": "iter456",
+      "stage_index": 0,
+      "role": "plan",
+      "status": "completed"
+    },
+    {
+      "id": "stage124",
+      "iteration_id": "iter456",
+      "stage_index": 1,
+      "role": "reviewer",
+      "status": "pending"
+    }
+  ]
 }
 ```
 
+#### `POST /api/v1/loops/{id}/pause`
 
-Loop mutation endpoints are not part of the current HTTP surface.
+Pause a running loop.
+
+**Response `200`**
+
+```json
+{
+  "id": "abc123",
+  "status": "paused"
+}
+```
+
+**Response `409`** — loop is not currently running.
+
+#### `POST /api/v1/loops/{id}/resume`
+
+Resume a paused loop.
+
+**Response `200`**
+
+```json
+{
+  "id": "abc123",
+  "status": "running"
+}
+```
+
+**Response `409`** — loop is not currently paused.
+
+#### `POST /api/v1/loops/{id}/stop`
+
+Cancel a running or paused loop.
+
+**Response `200`**
+
+```json
+{
+  "id": "abc123",
+  "status": "cancelled"
+}
+```
+
+**Response `409`** — loop is already terminal.
 
 #### `GET /api/v1/loops/{id}/iterations`
 
@@ -2825,9 +2973,12 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/loops` | `GET /api/v1/loops` | Lists all loops with status and progress |
 | `/loops definitions` | `GET /api/v1/loops/definitions` | Shows available loop definitions |
 | `/loops status <id>` | `GET /api/v1/loops/{id}` | Detailed status of a specific loop |
+| `/loops pause <id>` | `POST /api/v1/loops/{id}/pause` | Pauses a running loop |
+| `/loops resume <id>` | `POST /api/v1/loops/{id}/resume` | Resumes a paused loop |
+| `/loops stop <id>` | `POST /api/v1/loops/{id}/stop` | Cancels a running or paused loop |
 | `/schedules` | `GET /api/v1/schedules` | Lists schedules |
 
-Mutating REPL workflows such as `/config edit`, `/roles update`, `/loops pause`, `/loops resume`, `/loops stop`, and most schedule management remain REPL-first by design.
+Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedule management remain REPL-first by design.
 
 ## Quick Reference
 
@@ -2883,9 +3034,13 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, `/loops pause`,
 | `POST` | `/api/v1/toolkits/visibility` | Yes | Set package or tool visibility |
 | `GET` | `/api/v1/schedules` | Yes | List schedules |
 | `GET` | `/api/v1/schedules/{id}` | Yes | Get schedule |
+| `POST` | `/api/v1/loops` | Yes | Create and start a loop |
 | `GET` | `/api/v1/loops` | Yes | List loops |
 | `GET` | `/api/v1/loops/definitions` | Yes | List loop definitions |
 | `GET` | `/api/v1/loops/{id}` | Yes | Get loop details |
+| `POST` | `/api/v1/loops/{id}/pause` | Yes | Pause a running loop |
+| `POST` | `/api/v1/loops/{id}/resume` | Yes | Resume a paused loop |
+| `POST` | `/api/v1/loops/{id}/stop` | Yes | Cancel a running or paused loop |
 | `GET` | `/api/v1/loops/{id}/iterations` | Yes | List loop iterations |
 | `GET` | `/api/v1/loops/{id}/iterations/{iterationId}` | Yes | Get iteration with stages |
 | `POST` | `/api/v1/webhooks/incoming/{name}` | No* | Receive webhook (signature-verified) |
