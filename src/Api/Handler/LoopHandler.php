@@ -6,29 +6,164 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Storage\LoopStore;
+use CoquiBot\Coqui\Storage\ProjectStore;
+use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\JsonHelper;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
 /**
- * Loop read-only API endpoints.
+ * Loop API endpoints.
  *
+ * POST   /api/v1/loops                    — create loop
  * GET    /api/v1/loops                    — list loops
- * GET    /api/v1/loops/definitions         — list available definitions
+ * GET    /api/v1/loops/definitions        — list available definitions
  * GET    /api/v1/loops/{id}               — get loop status
- * GET    /api/v1/loops/{id}/iterations     — list iterations
+ * POST   /api/v1/loops/{id}/pause         — pause loop
+ * POST   /api/v1/loops/{id}/resume        — resume loop
+ * POST   /api/v1/loops/{id}/stop          — cancel loop
+ * GET    /api/v1/loops/{id}/iterations    — list iterations
  * GET    /api/v1/loops/{id}/iterations/{iterationId} — get iteration with stages
- *
- * Mutating operations (create, delete, pause, resume, stop) are REPL-only.
  */
 final readonly class LoopHandler
 {
     public function __construct(
         private LoopStore $store,
         private LoopDiscovery $discovery,
+        private ?LoopExecutor $executor = null,
+        private ?SessionStorage $storage = null,
+        private ?ProjectStore $projectStore = null,
     ) {}
+
+    /**
+     * POST /api/v1/loops
+     */
+    public function create(ServerRequestInterface $request): Response
+    {
+        if ($this->executor === null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Loop execution is not available');
+        }
+
+        $body = json_decode((string) $request->getBody(), true);
+        if (!is_array($body)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+        }
+
+        $definition = trim((string) ($body['definition'] ?? ''));
+        $goal = trim((string) ($body['goal'] ?? ''));
+
+        if ($definition === '') {
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'definition is required');
+        }
+
+        if ($goal === '') {
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'goal is required');
+        }
+
+        if (!$this->discovery->exists($definition)) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop definition not found');
+        }
+
+        $sessionId = isset($body['session_id']) ? trim((string) $body['session_id']) : null;
+        if ($sessionId === '') {
+            $sessionId = null;
+        }
+
+        if ($sessionId !== null) {
+            if ($this->storage === null || $this->storage->getSession($sessionId) === null) {
+                return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+            }
+        }
+
+        $projectId = isset($body['project_id']) ? trim((string) $body['project_id']) : null;
+        if ($projectId === '') {
+            $projectId = null;
+        }
+
+        $projectSlug = isset($body['project_slug']) ? trim((string) $body['project_slug']) : null;
+        if ($projectSlug === '') {
+            $projectSlug = null;
+        }
+
+        if ($projectId !== null && $projectSlug !== null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Specify either project_id or project_slug, not both');
+        }
+
+        $sprintId = isset($body['sprint_id']) ? trim((string) $body['sprint_id']) : null;
+        if ($sprintId === '') {
+            $sprintId = null;
+        }
+
+        if ($this->projectStore !== null) {
+            if ($projectId !== null && $this->projectStore->getProject($projectId) === null) {
+                return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Project not found');
+            }
+
+            if ($projectSlug !== null && $this->projectStore->getProject($projectSlug) === null) {
+                return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Project not found');
+            }
+
+            if ($sprintId !== null && $this->projectStore->getSprint($sprintId) === null) {
+                return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Sprint not found');
+            }
+        }
+
+        $rawParameters = $body['parameters'] ?? [];
+        if (!is_array($rawParameters)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'parameters must be an object');
+        }
+
+        $parameters = [];
+        foreach ($rawParameters as $key => $value) {
+            if (!is_string($key)) {
+                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'parameters must be an object');
+            }
+
+            if (is_array($value) || is_object($value)) {
+                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'parameter values must be scalar');
+            }
+
+            $parameters[$key] = (string) $value;
+        }
+
+        $maxIterations = null;
+        if (array_key_exists('max_iterations', $body) && $body['max_iterations'] !== null && $body['max_iterations'] !== '') {
+            $maxIterations = (int) $body['max_iterations'];
+            if ($maxIterations < 1) {
+                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'max_iterations must be greater than 0');
+            }
+        }
+
+        try {
+            $loopId = $this->executor->startLoop(
+                rawDefinition: $this->discovery->getRawDefinition($definition),
+                goal: $goal,
+                sessionId: $sessionId,
+                parameters: $parameters,
+                projectId: $projectId,
+                projectSlug: $projectSlug,
+                sprintId: $sprintId,
+                maxIterationsOverride: $maxIterations,
+            );
+        } catch (\InvalidArgumentException $e) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $e->getMessage());
+        } catch (\RuntimeException $e) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, $e->getMessage());
+        }
+
+        $state = $this->store->getCurrentState($loopId);
+        if ($state === null) {
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Loop created but state could not be loaded');
+        }
+
+        $state['loop'] = $this->normalizeLoop($state['loop']);
+        $state['stages'] = array_map(fn(array $stage): array => $this->normalizeStage($stage), $state['stages']);
+
+        return Router::jsonResponse($state, 201);
+    }
 
     /**
      * GET /api/v1/loops?status=running
@@ -62,6 +197,10 @@ final readonly class LoopHandler
             $result[] = [
                 'name' => $def->name,
                 'description' => $def->description,
+                'parameters' => array_map(
+                    static fn($parameter) => $parameter->toArray(),
+                    $def->parameters,
+                ),
                 'roles' => array_map(fn($r) => [
                     'role' => $r->role,
                     'prompt' => $r->prompt,
@@ -91,6 +230,49 @@ final readonly class LoopHandler
         $state['stages'] = array_map(fn(array $stage): array => $this->normalizeStage($stage), $state['stages']);
 
         return Router::jsonResponse($state);
+    }
+
+    /**
+     * POST /api/v1/loops/{id}/pause
+     */
+    public function pause(ServerRequestInterface $request, string $id): Response
+    {
+        return $this->transitionLoop($id, 'running', 'paused');
+    }
+
+    /**
+     * POST /api/v1/loops/{id}/resume
+     */
+    public function resume(ServerRequestInterface $request, string $id): Response
+    {
+        return $this->transitionLoop($id, 'paused', 'running');
+    }
+
+    /**
+     * POST /api/v1/loops/{id}/stop
+     */
+    public function stop(ServerRequestInterface $request, string $id): Response
+    {
+        $loop = $this->store->getLoop($id);
+        if ($loop === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
+        }
+
+        $status = (string) $loop['status'];
+        if (!in_array($status, ['running', 'paused'], true)) {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, sprintf('Cannot stop loop while status is "%s".', $status));
+        }
+
+        if ($this->executor !== null) {
+            $this->executor->cancelLoop($id);
+        } else {
+            $this->store->updateLoopStatus($id, 'cancelled');
+        }
+
+        return Router::jsonResponse([
+            'id' => $id,
+            'status' => 'cancelled',
+        ]);
     }
 
     /**
@@ -131,17 +313,56 @@ final readonly class LoopHandler
     }
 
     /**
-     * Register read-only loop routes on the router.
+     * Register loop routes on the router.
      */
     public function register(Router $router): void
     {
         $v1 = '/api/v1';
 
+        if ($this->executor !== null) {
+            $router->post($v1 . '/loops', [$this, 'create']);
+        }
         $router->get($v1 . '/loops', [$this, 'list']);
         $router->get($v1 . '/loops/definitions', [$this, 'definitions']);
         $router->get($v1 . '/loops/{id}', [$this, 'get']);
+        if ($this->executor !== null) {
+            $router->post($v1 . '/loops/{id}/pause', [$this, 'pause']);
+            $router->post($v1 . '/loops/{id}/resume', [$this, 'resume']);
+            $router->post($v1 . '/loops/{id}/stop', [$this, 'stop']);
+        }
         $router->get($v1 . '/loops/{id}/iterations', [$this, 'iterations']);
         $router->get($v1 . '/loops/{id}/iterations/{iterationId}', [$this, 'iteration']);
+    }
+
+    private function transitionLoop(string $id, string $expectedStatus, string $newStatus): Response
+    {
+        $loop = $this->store->getLoop($id);
+        if ($loop === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
+        }
+
+        $status = (string) $loop['status'];
+        if ($status !== $expectedStatus) {
+            return Router::errorResponse(
+                ApiErrorCode::CONFLICT,
+                sprintf('Cannot transition loop from "%s" to "%s".', $status, $newStatus),
+            );
+        }
+
+        if ($this->executor !== null) {
+            if ($newStatus === 'paused') {
+                $this->executor->pauseLoop($id);
+            } else {
+                $this->executor->resumeLoop($id);
+            }
+        } else {
+            $this->store->updateLoopStatus($id, $newStatus);
+        }
+
+        return Router::jsonResponse([
+            'id' => $id,
+            'status' => $newStatus,
+        ]);
     }
 
     /**

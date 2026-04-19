@@ -10,6 +10,7 @@ use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
+use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -45,7 +46,8 @@ function createProfileHandlerFixture(): array
             ],
         ],
     ]));
-    $boot = testBootManagerForProfiles($profileDiscovery, $roleResolver, $configManager, $config);
+    $boot = testBootManagerForProfiles($workspacePath, $profileDiscovery, $roleResolver, $configManager, $config);
+    $sessionHandler = new SessionHandler($boot, $storage);
     $output = new BufferedOutput();
 
     return [
@@ -54,7 +56,7 @@ function createProfileHandlerFixture(): array
         'projectRoot' => $projectRoot,
         'storage' => $storage,
         'configManager' => $configManager,
-        'handler' => new ProfileHandler($boot, $storage),
+        'handler' => new ProfileHandler($boot, $sessionHandler),
         'io' => new SymfonyStyle(new ArrayInput([]), $output),
         'output' => $output,
     ];
@@ -66,13 +68,14 @@ function cleanupProfileHandlerFixture(array $fixture): void
     cleanupTestTree($fixture['workspacePath']);
 }
 
-function testBootManagerForProfiles(ProfileDiscovery $profileDiscovery, RoleResolver $roleResolver, ConfigManager $configManager, OpenClawConfig $config): BootManager
+function testBootManagerForProfiles(string $workspacePath, ProfileDiscovery $profileDiscovery, RoleResolver $roleResolver, ConfigManager $configManager, OpenClawConfig $config): BootManager
 {
     $reflection = new ReflectionClass(BootManager::class);
     /** @var BootManager $boot */
     $boot = $reflection->newInstanceWithoutConstructor();
 
-    $initializer = function () use ($profileDiscovery, $roleResolver, $configManager, $config): void {
+    $initializer = function () use ($workspacePath, $profileDiscovery, $roleResolver, $configManager, $config): void {
+        $this->workspacePath = $workspacePath;
         $this->profileDiscovery = $profileDiscovery;
         $this->roleResolver = $roleResolver;
         $this->configManager = $configManager;

@@ -15,7 +15,7 @@ A **profile** is a directory under `profiles/` in the workspace containing a `so
 - Optional `samples/responses/` directory holds example responses for fidelity verification.
 - All child agents spawned during the session also receive the profile's identity preamble.
 - Memories saved during a profiled session are tagged with the profile ID. Profile-tagged memories are only visible to that profile; untagged (legacy) memories remain visible to all.
-- Each profile switch creates a new session (conversation-scoped identity).
+- Profile startup and `/profile` switching reuse the last active interactive session for that profile when available, and create one only when needed.
 
 ## File Structure
 
@@ -84,6 +84,8 @@ When present, the profile role file takes precedence over the workspace role fil
 
 Optional persistent identity context loaded after `soul.md` in the system prompt. Use this for origin stories, milestone events, evolving narrative, and continuity details that ground the profile's identity without modifying the core soul.
 
+`backstory.md` can be written manually or **generated automatically** from a `backstory/` source directory. See [Backstory Generator](#backstory-generator) below.
+
 Content is rendered between soul and the memory block in the prompt composition order:
 
 ```
@@ -118,6 +120,88 @@ Optional directory containing example responses as `.md` files. These are discov
 
 Files are sorted alphabetically. Only `.md` files are included.
 
+## Backstory Generator
+
+The backstory generator assembles `backstory.md` automatically from a `backstory/` source directory inside the profile. This lets you maintain backstory content as individual files — organized by topic, timeline, or any structure — and have them combined into a single prompt-ready document.
+
+### Source Directory Layout
+
+```text
+profiles/caelum/
+├── soul.md
+├── backstory.md          ← generated output
+├── .backstory-manifest.json  ← change-detection manifest
+└── backstory/            ← source files
+    ├── 01-origin.md
+    ├── 02-milestones.csv
+    ├── 03-values.yaml
+    ├── personality/
+    │   ├── 01-traits.txt
+    │   └── 02-quirks.json
+    └── timeline.md
+```
+
+### Supported File Types
+
+| Extension | Treatment |
+| --- | --- |
+| `.txt` | Included as plain text with UTF-8, UTF-16, and common legacy encodings normalized to UTF-8 |
+| `.md`, `.mdx` | Passed through as-is after text normalization |
+| `.json` | Wrapped in a ` ```json ` code fence (validates JSON) |
+| `.yaml`, `.yml` | Wrapped in a ` ```yaml ` code fence |
+| `.csv`, `.tsv` | Converted to a markdown table |
+| `.sql` | Parses simple `CREATE TABLE` + `INSERT ... VALUES` statements into markdown tables when possible; preserves unsupported or malformed statements as fenced `sql` |
+| `.odt` | Optionally converted into markdown with paragraph, heading, and list structure preserved when ZIP support is available |
+| `.ods` | Optionally converted into markdown tables per sheet, preserving multiline cells and merged-cell readability when ZIP support is available |
+| `.odp` | Optionally converted into per-slide markdown sections with slide-title fallbacks when ZIP support is available |
+| `.xlsx`, `.xlsm` | Optionally converted into markdown tables per worksheet when ZIP support is available |
+| `.pptx`, `.pptm` | Optionally converted into per-slide markdown sections with speaker notes appended when ZIP support is available |
+| `.html`, `.htm` | Sanitized and converted to markdown via `league/html-to-markdown` |
+| `.xml` | Rendered as a markdown outline for simple documents, otherwise wrapped in a ` ```xml ` code fence |
+| `.rtf` | Converted to plain text with conservative RTF control-word stripping |
+| Common code files | Wrapped in fenced code blocks with language hints and never executed |
+| `.pdf` | Text extracted via `smalot/pdfparser` |
+| `.docx`, `.docm` | Text extracted via `phpoffice/phpword` |
+
+Code file support covers common text-based source extensions such as `.php`, `.js`, `.ts`, `.jsx`, `.tsx`, `.py`, `.rb`, `.java`, `.c`, `.cpp`, `.cs`, `.go`, `.rs`, `.sh`, `.zsh`, `.ps1`, `.css`, `.scss`, `.less`, and similar formats.
+
+HTML, XML, RTF, SQL, code files, and optional `.xlsx`/`.pptx` input are always treated as read-only input. Coqui converts them into markdown or fenced text for inclusion in `backstory.md`; it does not execute scripts, formulas, macros, or embedded code while generating the backstory.
+
+`.odt`, `.ods`, and `.odp` support are also optional and depend on PHP ZIP support. When available, Coqui reads OpenDocument `content.xml` data only. It does not execute embedded scripts, macros, formulas, or active content.
+
+`.xlsx` and `.xlsm` support are optional and depend on PHP ZIP support. When available, Coqui reads cached worksheet values and converts each populated worksheet into a markdown table. It does not evaluate spreadsheet formulas or execute macros.
+
+`.pptx` and `.pptm` support are also optional and depend on PHP ZIP support. When available, Coqui extracts readable slide text in presentation order, appends speaker notes when present, and renders each populated slide as a markdown section. It does not execute macros or embedded active content.
+
+Unsupported files inside `backstory/` are skipped under a strict allowlist model. Coqui records them in `.backstory-manifest.json` and surfaces them in `/backstory` and `/backstory failed` so users can see what was ignored and why.
+
+### Sort Order
+
+Files are sorted using a **numbered-first natural sort**:
+
+1. Files with numeric prefixes (e.g., `01-intro.txt`) sort first, in natural order
+2. Unnumbered files follow alphabetically
+3. Files at each directory level appear before subdirectory contents
+4. Hidden files and directories (starting with `.`) are skipped
+
+### Change Detection
+
+A `.backstory-manifest.json` file tracks SHA-256 hashes of all discovered source files, including skipped unsupported files. Generation is skipped when the content hash matches, making startup fast even with hundreds of source files while still noticing newly added unsupported inputs.
+
+### Auto-Regeneration
+
+At startup, Coqui checks if the active profile's backstory needs regeneration. If source files have changed since the last build, `backstory.md` is regenerated automatically before the first turn.
+
+### REPL Commands
+
+```bash
+/backstory              # Show backstory generation status and file summary
+/backstory generate     # Force regeneration regardless of change detection
+/backstory failed       # Show files that failed extraction or were skipped as unsupported
+```
+
+The `/prompt` command also includes a backstory summary line when a manifest exists.
+
 ## Memory Profile Filtering
 
 When a profile is active, memories are tagged with the profile ID on save. This enables profile-scoped memory:
@@ -133,7 +217,7 @@ This means each profile builds its own memory layer on top of the shared base.
 
 ### `/profile [name|reset]`
 
-Switch the active personality profile. Creates a new session.
+Switch the active personality profile. Coqui resumes that profile's last active interactive session when available, or creates one if needed. Resetting a profile returns to the unprofiled interactive session pool.
 
 ```bash
 /profile caelum      # Switch to the "caelum" profile
@@ -178,7 +262,7 @@ Start Coqui with a specific profile:
 coqui --profile caelum
 ```
 
-This creates a new session with the specified profile active.
+This resumes the last active interactive session for the specified profile, or creates a new one if none exists.
 
 ## Default Profile Configuration
 
@@ -195,6 +279,8 @@ You can configure a default startup profile in `openclaw.json`:
 ```
 
 When set, Coqui reattaches the current `.coqui-session` if it already belongs to that profile. If not, it resumes the latest session for that profile or creates a new one.
+
+Session selection is SQLite-backed: Coqui picks the most recently active interactive session for the requested scope. Plain startup with no profile uses the unprofiled session pool, while profiled startup uses the matching profile pool. `.coqui-session` remains a convenience pointer for the currently attached session.
 
 ## API
 
@@ -252,7 +338,7 @@ You (caelum, coder) [my-project]:
 
 ## Design Decisions
 
-- **Conversation-scoped**: Switching profiles creates a new session. This preserves identity continuity — mid-conversation personality switches could confuse the agent and break context.
+- **Scoped session reuse**: Each profile keeps its own last-active interactive session stream, while unprofiled usage keeps a separate unprofiled stream. This lets users move between identities without losing their session history for each scope.
 - **Profile-scoped memories**: Memories saved during a profiled session are tagged with that profile. Each profile sees its own memories plus shared (untagged) ones. This prevents one profile's learned patterns from leaking into another's context.
 - **Profile ≠ Role**: Profiles affect the soul/identity layer. Roles affect the capability/access layer. Both can be combined.
 - **Layered identity files**: soul.md defines who the profile is; backstory.md provides narrative continuity; preferences.json tunes behavior. Keeping these separate lets each evolve independently.

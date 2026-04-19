@@ -63,6 +63,21 @@ function testBootManagerForSessionHandler(string $workspacePath, RoleResolver $r
     return $boot;
 }
 
+function setSessionUpdatedAt(SessionStorage $storage, string $sessionId, string $timestamp): void
+{
+    $storage->getPdo()
+        ->prepare('UPDATE sessions SET updated_at = :updated_at WHERE id = :id')
+        ->execute([
+            'updated_at' => $timestamp,
+            'id' => $sessionId,
+        ]);
+}
+
+function attachBackgroundTaskToSession(SessionStorage $storage, string $sessionId): void
+{
+    $storage->createTask($sessionId, 'Background task');
+}
+
 test('session handler creates and attaches a new default profile session when none exists', function () {
     $fixture = createReplSessionHandlerFixture();
 
@@ -90,6 +105,100 @@ test('session handler reuses the attached session when it matches the default pr
 
         expect($resolvedSessionId)->toBe($sessionId);
         expect($fixture['output']->fetch())->toContain('Resumed attached profile session "caelum"');
+    } finally {
+        cleanupReplSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler falls back to the latest matching profile session when attached session is out of scope', function () {
+    $fixture = createReplSessionHandlerFixture();
+
+    try {
+        $attachedSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $targetSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $olderSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+
+        setSessionUpdatedAt($fixture['storage'], $olderSessionId, '2026-01-01T00:00:00+00:00');
+        setSessionUpdatedAt($fixture['storage'], $targetSessionId, '2026-01-03T00:00:00+00:00');
+        setSessionUpdatedAt($fixture['storage'], $attachedSessionId, '2026-01-04T00:00:00+00:00');
+
+        file_put_contents($fixture['workspacePath'] . '/.coqui-session', $attachedSessionId);
+
+        $resolvedSessionId = $fixture['handler']->loadOrCreateProfileSession($fixture['io'], 'caelum');
+
+        expect($resolvedSessionId)->toBe($targetSessionId);
+        expect(trim((string) file_get_contents($fixture['workspacePath'] . '/.coqui-session')))->toBe($targetSessionId);
+        expect($fixture['output']->fetch())->toContain('Resumed latest profile session "caelum"');
+    } finally {
+        cleanupReplSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler resumes the latest unprofiled session for plain startup', function () {
+    $fixture = createReplSessionHandlerFixture();
+
+    try {
+        $profileSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'trinity');
+        $unprofiledSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $olderUnprofiledSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+
+        setSessionUpdatedAt($fixture['storage'], $olderUnprofiledSessionId, '2026-01-01T00:00:00+00:00');
+        setSessionUpdatedAt($fixture['storage'], $unprofiledSessionId, '2026-01-03T00:00:00+00:00');
+        setSessionUpdatedAt($fixture['storage'], $profileSessionId, '2026-01-04T00:00:00+00:00');
+
+        file_put_contents($fixture['workspacePath'] . '/.coqui-session', $profileSessionId);
+
+        $resolvedSessionId = $fixture['handler']->loadOrCreateSession($fixture['io']);
+
+        expect($resolvedSessionId)->toBe($unprofiledSessionId);
+        expect(trim((string) file_get_contents($fixture['workspacePath'] . '/.coqui-session')))->toBe($unprofiledSessionId);
+        expect($fixture['output']->fetch())->toContain('Resumed latest unprofiled session');
+    } finally {
+        cleanupReplSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler ignores attached and latest background task sessions for unprofiled resume', function () {
+    $fixture = createReplSessionHandlerFixture();
+
+    try {
+        $interactiveSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+
+        attachBackgroundTaskToSession($fixture['storage'], $backgroundSessionId);
+
+        setSessionUpdatedAt($fixture['storage'], $interactiveSessionId, '2026-01-02T00:00:00+00:00');
+        setSessionUpdatedAt($fixture['storage'], $backgroundSessionId, '2026-01-05T00:00:00+00:00');
+
+        file_put_contents($fixture['workspacePath'] . '/.coqui-session', $backgroundSessionId);
+
+        $resolvedSessionId = $fixture['handler']->loadOrCreateSession($fixture['io']);
+
+        expect($resolvedSessionId)->toBe($interactiveSessionId);
+        expect($fixture['output']->fetch())->toContain('Resumed latest unprofiled session');
+    } finally {
+        cleanupReplSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler ignores background task sessions for profile resume', function () {
+    $fixture = createReplSessionHandlerFixture();
+
+    try {
+        $interactiveSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+
+        attachBackgroundTaskToSession($fixture['storage'], $backgroundSessionId);
+
+        setSessionUpdatedAt($fixture['storage'], $interactiveSessionId, '2026-01-02T00:00:00+00:00');
+        setSessionUpdatedAt($fixture['storage'], $backgroundSessionId, '2026-01-05T00:00:00+00:00');
+
+        file_put_contents($fixture['workspacePath'] . '/.coqui-session', $backgroundSessionId);
+
+        $resolvedSessionId = $fixture['handler']->loadOrCreateProfileSession($fixture['io'], 'caelum');
+
+        expect($resolvedSessionId)->toBe($interactiveSessionId);
+        expect($fixture['output']->fetch())->toContain('Resumed latest profile session "caelum"');
     } finally {
         cleanupReplSessionHandlerFixture($fixture);
     }

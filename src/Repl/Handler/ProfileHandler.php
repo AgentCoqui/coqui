@@ -7,25 +7,22 @@ namespace CoquiBot\Coqui\Repl\Handler;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Repl\RouteResult;
-use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
  * Handles /profile and /profiles slash commands.
- *
- * Switching profiles creates a new session (conversation-scoped identity).
  */
 final class ProfileHandler
 {
     public function __construct(
         private readonly BootManager $boot,
-        private readonly SessionStorage $storage,
+        private readonly SessionHandler $session,
     ) {}
 
     /**
      * Handle /profile [name|reset].
      *
-     * Returns a RouteResult with the new profile and a new session ID when switching.
+        * Returns a RouteResult with the new profile and a scoped session ID when switching.
      */
     public function handleProfile(
         SymfonyStyle $io,
@@ -66,13 +63,11 @@ final class ProfileHandler
             return RouteResult::continue();
         }
 
-        // Create a new session for the profile switch (conversation-scoped identity)
-        $modelString = $this->boot->roleResolver()->resolve($activeRole);
-        $sessionId = $this->storage->createSession($activeRole, $modelString, $profileName);
+        $sessionId = $this->session->loadOrCreateProfileSession($io, $profileName, $activeRole);
 
         $description = $profileDiscovery->extractDescription($profileName);
         $io->success(sprintf(
-            'Switched to profile "%s"%s (new session started)',
+            'Switched to profile "%s"%s',
             $profileName,
             $description !== null ? ' — ' . $description : '',
         ));
@@ -141,11 +136,9 @@ final class ProfileHandler
             return RouteResult::continue();
         }
 
-        // Create a new session without profile (conversation-scoped)
-        $modelString = $this->boot->roleResolver()->resolve($activeRole);
-        $sessionId = $this->storage->createSession($activeRole, $modelString);
+        $sessionId = $this->session->loadOrCreateSession($io, $activeRole);
 
-        $io->success('Profile cleared. Reverted to default identity (new session started).');
+        $io->success('Profile cleared. Reverted to default identity.');
 
         return RouteResult::stateChange(
             newSessionId: $sessionId,

@@ -11,7 +11,6 @@ $projectRoot = dirname(__DIR__);
 
 $files = [
     ['path' => 'docs/API.md', 'title' => 'Coqui HTTP API', 'description' => 'Complete REST API reference with all endpoints, authentication, SSE streaming, rate limiting, CORS, and safety documentation'],
-    ['path' => 'docs/APP-API-USAGE.md', 'title' => 'Building Applications with the Coqui API', 'description' => 'Architecture overview, session lifecycle, SSE parsing, file uploads, and integration patterns for building apps on the Coqui API'],
     ['path' => 'docs/BACKGROUND-TASKS.md', 'title' => 'Background Tasks', 'description' => 'Background task system: lifecycle, concurrency, crash recovery, agent tools, REPL commands, and API endpoints'],
     ['path' => 'docs/COMMANDS.md', 'title' => 'Commands Reference', 'description' => 'All REPL slash commands, CLI commands, launcher modes, signal handling, and exit code behavior'],
     ['path' => 'docs/CONFIGURATION.md', 'title' => 'Configuration', 'description' => 'openclaw.json schema, agent defaults, model providers, API config, environment overrides, and setup wizard'],

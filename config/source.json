@@ -218,9 +218,31 @@
             "path": "src/Repl/SlashCommandRouter.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\SlashCommandRouter",
             "layer": "command",
-            "description": "Routes REPL slash commands to the appropriate handler class. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
+            "description": "Routes REPL slash commands to the appropriate handler class. Help output is generated from ReplCommandCatalog so the compact /help surface stays aligned with tab completion and routed commands. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
             "methods": [
                 "route(string, string, string, SymfonyStyle): RouteResult — dispatches a slash command string to the matching handler"
+            ]
+        },
+        {
+            "path": "src/Repl/ReplCommandSpec.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\ReplCommandSpec",
+            "layer": "command",
+            "description": "Readonly value object describing one REPL slash command. Carries canonical name, help usage string, description, aliases, and first-argument completion hints so help output and completion share the same metadata.",
+            "methods": [
+                "allNames(): array — returns canonical name plus aliases",
+                "helpDescription(): string — appends alias information for compact help output"
+            ]
+        },
+        {
+            "path": "src/Repl/ReplCommandCatalog.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\ReplCommandCatalog",
+            "layer": "command",
+            "description": "Static registry of canonical REPL slash-command metadata. Serves as the shared source of truth for compact /help rows, top-level command completion, aliases, and common first-argument choices.",
+            "methods": [
+                "static all(): array — returns all command specs in display order",
+                "static find(string): ?ReplCommandSpec — resolves a command or alias to its canonical spec",
+                "static topLevelCommands(): array — returns canonical command names plus aliases for completion",
+                "static helpRows(): array — returns compact help-table rows"
             ]
         },
         {
@@ -280,10 +302,11 @@
             "path": "src/Repl/TabCompletion.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\TabCompletion",
             "layer": "command",
-            "description": "Readline tab-completion for REPL slash commands. Provides context-aware completions for /role, /roles, /toolkits, /todos, /schedules, /budget, /quality, and top-level commands.",
+            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, todos, projects, profiles, schedules, loop definitions, toolkit visibility metadata, and cached Coqui Space install suggestions.",
             "methods": [
                 "register(): void — installs readline_completion_function",
-                "setSessionId(string): void — updates session for todo completions"
+                "setSessionId(string): void — updates session for todo completions",
+                "complete(string): array — returns suggestions for a command line buffer"
             ]
         },
         {
@@ -294,15 +317,24 @@
             "methods": [
                 "handle(SymfonyStyle, ?string): void — renders prompt-budget telemetry for the active or requested role"
             ]
+                "path": "src/CoquiSpace/SpaceInstallCompletionCache.php",
+                "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\SpaceInstallCompletionCache",
+                "layer": "coqui-space",
+                "description": "Workspace-backed JSON cache for `/space install` tab completion. Reuses recent Coqui Space search results so install suggestions stay responsive without hitting the marketplace on every repeated prefix.",
+                "methods": [
+                    "suggestTargets(string): array — returns cached-or-fresh owner/name and vendor/package completion candidates for the current install prefix"
+                ]
+            },
+            {
         },
         {
             "path": "src/Repl/Handler/SessionHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\SessionHandler",
             "layer": "command",
-            "description": "Handles session-related REPL commands: /new, /history, /sessions, /resume, /model. Manages session file persistence and session restoration.",
+            "description": "Handles session-related REPL commands: /new, /history, /sessions, /resume, /model. Owns workspace .coqui-session persistence plus scoped interactive session resolution for unprofiled, profiled, and attached-session startup flows.",
             "methods": [
                 "createNewSession(): string — creates a new session and returns its ID",
-                "loadOrCreateSession(SymfonyStyle): string — loads session from file or creates new one",
+                "loadOrCreateSession(SymfonyStyle): string — resolves the last active unprofiled interactive session or creates one",
                 "showHistory(SymfonyStyle, string): void — displays session conversation history",
                 "listSessions(SymfonyStyle, string): void — lists recent sessions",
                 "resume(SymfonyStyle, string): ?string — resumes a session by ID prefix"
@@ -440,6 +472,203 @@
             "description": "Handles /evaluations REPL command. Displays evaluation reports with optional grade filtering.",
             "methods": [
                 "handle(SymfonyStyle, string): void — /evaluations listing with optional grade filter"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/BackstoryHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\BackstoryHandler",
+            "layer": "command",
+            "description": "Handles /backstory REPL command. Subcommands: overview (default), generate (force regeneration), failed (show extraction errors and skipped unsupported files). The overview and prompt summary now surface issue counts so users can discover problems without another command. Also provides getManifestSummary() for /prompt integration.",
+            "methods": [
+                "handle(SymfonyStyle, string): void — dispatches /backstory subcommands",
+                "getManifestSummary(): ?string — one-line manifest summary for /prompt display"
+            ]
+        },
+        {
+            "path": "src/Backstory/BackstoryAssembler.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryAssembler",
+            "layer": "feature",
+            "description": "Orchestrates backstory generation. Discovers supported and unsupported source files, extracts supported content, writes backstory.md via streaming writes, and saves a change-detection manifest that also records skipped unsupported inputs.",
+            "methods": [
+                "generate(string): BackstoryResult — generate backstory.md from backstory/ source directory",
+                "needsRegeneration(string): bool — check if source files have changed since last generation",
+                "getManifest(string): ?BackstoryManifest — load manifest for a profile",
+                "static hasBackstoryDir(string): bool — check if profile has a backstory/ directory"
+            ]
+        },
+        {
+            "path": "src/Backstory/BackstoryFileDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryFileDiscovery",
+            "layer": "feature",
+            "description": "Discovers and sorts files in a backstory source directory. Numbered prefixes first (natural sort), then alphabetical. Files before subdirectories at each level. Recursive. Produces either a supported-file list or a full inventory that includes skipped unsupported files.",
+            "methods": [
+                "discover(string): list<BackstoryFileEntry> — discover and sort all supported files",
+                "inspect(string): BackstorySourceInventory — discover supported files plus skipped unsupported files with reasons"
+            ]
+        },
+        {
+            "path": "src/Backstory/BackstoryManifest.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryManifest",
+            "layer": "feature",
+            "description": "Tracks file hashes and metadata for backstory change detection. Stored as .backstory-manifest.json alongside backstory.md. Records both extracted files and skipped unsupported files so hidden gaps stay visible.",
+            "methods": [
+                "static load(string): self — load manifest from disk",
+                "save(string): void — write manifest to disk",
+                "hasChanged(list<BackstoryFileEntry>, list<BackstoryUnsupportedFileEntry>=[]): bool — check if content hash differs",
+                "static computeContentHash(list<BackstoryFileEntry>, list<BackstoryUnsupportedFileEntry>=[]): string — SHA-256 composite hash",
+                "unsupportedFileCount(): int — count skipped unsupported files recorded in the manifest",
+                "supportedFilesCount(): int — count supported files represented by the manifest"
+            ]
+        },
+        {
+            "path": "src/Backstory/BackstoryFileEntry.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryFileEntry",
+            "layer": "feature",
+            "description": "Value object for a discovered backstory source file (relativePath, absolutePath, extension)."
+        },
+        {
+            "path": "src/Backstory/BackstoryUnsupportedFileEntry.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryUnsupportedFileEntry",
+            "layer": "feature",
+            "description": "Value object for a discovered backstory source file that was skipped because its extension is unsupported. Carries relativePath, absolutePath, extension, and a human-readable skip reason."
+        },
+        {
+            "path": "src/Backstory/BackstorySourceInventory.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstorySourceInventory",
+            "layer": "feature",
+            "description": "Readonly discovery result for a backstory tree. Holds supported entries plus skipped unsupported entries and exposes convenience counters for total, supported, and unsupported file counts."
+        },
+        {
+            "path": "src/Backstory/BackstoryResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\BackstoryResult",
+            "layer": "feature",
+            "description": "Value object for backstory generation results (totalFiles, failedFiles, totalTokens, generationTimeMs, errors, unsupportedFiles)."
+        },
+        {
+            "path": "src/Backstory/Extractor/BackstoryTextReader.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\BackstoryTextReader",
+            "layer": "feature",
+            "description": "Shared helper for text-based backstory extractors. Normalizes encodings to UTF-8, rejects binary-like input, estimates token counts, and builds fenced code blocks.",
+            "methods": [
+                "static read(string): ExtractorResult — load and normalize text input for extractor use",
+                "static estimateTokens(string): int — rough token estimate for extracted text",
+                "static toCodeFence(string, string=): string — wrap content in a fenced code block"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/OpenDocumentArchiveReader.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\OpenDocumentArchiveReader",
+            "layer": "feature",
+            "description": "Shared helper for OpenDocument extractors. Loads content.xml from ODT/ODS/ODP archives, parses XML safely, normalizes text, and exposes small helpers for namespaced attributes and repeat counts.",
+            "methods": [
+                "static isRuntimeSupported(): bool — check whether ZipArchive support is available",
+                "static loadContentXml(ZipArchive): ?SimpleXMLElement — load and parse content.xml from an OpenDocument archive",
+                "static extractNodeText(SimpleXMLElement): string — normalize descendant text from an OpenDocument node"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/OdtExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\OdtExtractor",
+            "layer": "feature",
+            "description": "Optionally reads ODT documents through ZipArchive and OpenDocument XML parsing. Paragraphs and headings from content.xml become markdown paragraphs.",
+            "methods": [
+                "extract(string): ExtractorResult — convert odt paragraphs into markdown text",
+                "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/OdsExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\OdsExtractor",
+            "layer": "feature",
+            "description": "Optionally reads ODS spreadsheets through ZipArchive and OpenDocument XML parsing. Each populated sheet is converted into a markdown table from visible cell values only.",
+            "methods": [
+                "extract(string): ExtractorResult — convert ods sheets into markdown tables",
+                "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/OdpExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\OdpExtractor",
+            "layer": "feature",
+            "description": "Optionally reads ODP presentation decks through ZipArchive and OpenDocument XML parsing. Each populated slide is converted into a markdown section using extracted slide text only.",
+            "methods": [
+                "extract(string): ExtractorResult — convert odp slides into markdown sections",
+                "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/HtmlExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\HtmlExtractor",
+            "layer": "feature",
+            "description": "Sanitizes HTML input by removing unsafe nodes and attributes, then converts the remaining content to markdown using league/html-to-markdown.",
+            "methods": [
+                "extract(string): ExtractorResult — sanitize and convert html/htm files to markdown"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/XmlExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\XmlExtractor",
+            "layer": "feature",
+            "description": "Parses XML safely with DOMDocument. Simple documents become a markdown outline; complex or mixed-content documents fall back to a fenced xml block.",
+            "methods": [
+                "extract(string): ExtractorResult — render xml as markdown outline or fenced xml fallback"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/RtfExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\RtfExtractor",
+            "layer": "feature",
+            "description": "Performs conservative plain-text extraction from RTF documents by decoding common control words and escaped characters without executing embedded content.",
+            "methods": [
+                "extract(string): ExtractorResult — convert rtf files into plain text"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/XlsxExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\XlsxExtractor",
+            "layer": "feature",
+            "description": "Optionally reads XLSX and XLSM workbooks through ZipArchive and OOXML parsing. Each populated worksheet is converted into a markdown table using cached cell values only.",
+            "methods": [
+                "extract(string): ExtractorResult — convert xlsx/xlsm worksheets into markdown tables",
+                "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/PptxExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\PptxExtractor",
+            "layer": "feature",
+            "description": "Optionally reads PPTX and PPTM decks through ZipArchive and OOXML parsing. Each populated slide is converted into a markdown section using extracted slide text, with speaker notes appended when present.",
+            "methods": [
+                "extract(string): ExtractorResult — convert pptx/pptm slides and optional speaker notes into markdown sections",
+                "static isRuntimeSupported(): bool — check whether ZipArchive support is available"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/CodeBlockExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\CodeBlockExtractor",
+            "layer": "feature",
+            "description": "Wraps common source-code files in fenced code blocks with language hints so programming-related backstory content remains readable and inert.",
+            "methods": [
+                "extract(string): ExtractorResult — convert supported code files into fenced markdown blocks"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/SqlExtractor.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\SqlExtractor",
+            "layer": "feature",
+            "description": "Parses simple table-oriented SQL into markdown tables and preserves unsupported statements as fenced sql blocks without executing any SQL.",
+            "methods": [
+                "extract(string): ExtractorResult — convert parseable sql statements into markdown tables and preserve unparsed statements"
+            ]
+        },
+        {
+            "path": "src/Backstory/Extractor/ExtractorFactory.php",
+            "fqcn": "CoquiBot\\Coqui\\Backstory\\Extractor\\ExtractorFactory",
+            "layer": "feature",
+            "description": "Maps file extensions to content extractors. Supports txt, md/mdx, json, yaml/yml, csv/tsv, sql, optional odt/ods/odp/xlsx/xlsm/pptx/pptm, html/htm, xml, rtf, common code-file extensions, pdf, and docx/docm.",
+            "methods": [
+                "get(string): ?ExtractorInterface — get extractor for extension",
+                "isSupported(string): bool — check if extension is supported"
             ]
         },
         {
@@ -1593,12 +1822,13 @@
             "path": "src/Api/Handler/SessionHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SessionHandler",
             "layer": "command",
-            "description": "Session CRUD endpoints: GET /api/v1/sessions (list), POST /api/v1/sessions (create), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (update title), DELETE /api/v1/sessions/{id} (delete), GET /api/v1/sessions/{id}/child-runs (child agent runs).",
+            "description": "Session API endpoints: GET /api/v1/sessions (list), POST /api/v1/sessions (always create), POST /api/v1/sessions/resolve (reuse the latest interactive session for a profile or unprofiled scope, or create one), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (update title/role/profile while keeping the resolved model in sync), DELETE /api/v1/sessions/{id} (delete), GET /api/v1/sessions/{id}/child-runs (child agent runs).",
             "methods": [
                 "list(request): Response",
                 "create(request): Response",
+                "resolve(request): Response — return the latest interactive session for a scope or create one",
                 "get(request, id): Response",
-                "update(request, id): Response — PATCH to update session title",
+                "update(request, id): Response — PATCH to update title/role/profile and refresh resolved model metadata",
                 "delete(request, id): Response",
                 "childRuns(request, id): Response — list child agent runs for a session"
             ]
@@ -1706,10 +1936,11 @@
             "path": "src/Api/Handler/ConfigHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ConfigHandler",
             "layer": "command",
-            "description": "Configuration endpoints: GET /api/v1/config (sanitized config with apiKeys masked), GET /api/v1/config/models (available models with metadata). Role management moved to RoleHandler.",
+            "description": "Configuration read-only endpoints: GET /api/v1/config (sanitized config with apiKeys masked), GET /api/v1/config/models (available models with metadata), and GET /api/v1/config/profiles (discovered profiles plus configured default profile). Role management moved to RoleHandler.",
             "methods": [
                 "get(request): Response",
-                "models(request): Response"
+                "models(request): Response",
+                "profiles(request): Response — list discovered profiles and the configured default profile"
             ]
         },
         {

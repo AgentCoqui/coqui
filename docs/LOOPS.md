@@ -2,7 +2,7 @@
 
 Fully automated, multi-role iteration cycles that run hands-off until a termination condition is met.
 
-> Loop orchestration uses `LoopExecutor` as the shared engine. The REPL drives loops synchronously; the API drives them asynchronously via `LoopManager` with a 5-second ReactPHP timer. See [REPL-API-DIVERGENCES.md](REPL-API-DIVERGENCES.md) for details.
+> Loop orchestration uses `LoopExecutor` as the shared engine. Loop creation and control remain REPL-first or tool-driven, while the API exposes read-only inspection and advances loop stages asynchronously via `LoopManager` on a 5-second ReactPHP timer.
 
 ## Overview
 
