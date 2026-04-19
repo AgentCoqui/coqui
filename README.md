@@ -24,11 +24,9 @@
 </p>
 <!-- markdownlint-enable MD033 -->
 
-> **Book a 1:1 call** — paid sessions for real-time implementation help, AI agent consulting, or just to support Coqui's active development. [Schedule time →](https://cal.com/carmelosantana/coqui-1:1)
+Coqui is your personal operating system — a lightweight, hackable agent runtime for coding, research, and everything in between.
 
-Your personal operating system — a lightweight, hackable agent runtime for coding, research, and everything in between.
-
-Coqui is an always-on AI agent that lives in your terminal. Automate workflows, manage long-running projects, persist memory across sessions, schedule recurring tasks, and extend its abilities at runtime — powered by [`php-agents`](https://github.com/carmelosantana/php-agents) and any mix of locally hosted or cloud LLMs. Whether you're writing code, running consciousness research, or organizing your life, Coqui adapts to how you work.
+Automate workflows, manage long-running projects, persist memory across sessions, schedule recurring tasks, and extend its functionality with toolkits and skills. Whether you're writing code, running consciousness research, or organizing your life, Coqui adapts to how you work.
 
 > Coqui is a WIP and under rapid development. Be careful when running this tool. Always test in a safe environment.
 
@@ -506,12 +504,14 @@ We're building a community where people share agents, ask for help, and collabor
 We'd love your help making Coqui even mightier:
 
 - **Build new toolkits** — create Composer packages that implement `ToolkitInterface`
-- **Add child agent roles** — define new specialized roles with tailored system prompts
+- **Add loops & background tasks** — automate multi-iteration workflows and long-running processes
 - **Improve tools** — enhance existing tools or add new ones in `src/Tool/`
 - **Write tests** — expand coverage in `tests/Unit/`
 - **Fix bugs & improve docs** — every contribution counts
 
 See [AGENTS.md](AGENTS.md) for code conventions and architecture guidelines.
+
+> **Book a 1:1 call** — paid sessions for real-time implementation help, AI agent consulting, or just to support Coqui's active development. [Schedule time →](https://cal.com/carmelosantana/coqui-1:1)
 
 ## License
 
