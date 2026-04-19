@@ -2012,9 +2012,46 @@ List all versions of an artifact.
 
 Schedules enable autonomous, timer-driven execution via cron-style expressions. The API server evaluates due schedules every 60 seconds and creates background tasks automatically. A circuit breaker auto-disables schedules after consecutive failures.
 
-The HTTP API currently exposes schedules as read-only monitoring resources. Create, update, delete, trigger, enable, and disable actions are REPL-first.
-
 Schedule evaluation only happens inside the API server event loop. If the API server is not running, schedules remain persisted but no due work is dispatched.
+
+Filesystem-backed schedules synced from `workspace/schedules/*.json` remain read-only from mutation endpoints. When a schedule comes from a JSON file, update, delete, enable, disable, and trigger requests return `409 conflict` with the source path.
+
+#### `POST /api/v1/schedules`
+
+Create a schedule.
+
+**Request Body**
+
+```json
+{
+  "name": "daily-review",
+  "schedule_expression": "0 9 * * 1-5",
+  "prompt": "Review recent changes.",
+  "role": "orchestrator",
+  "max_iterations": 12,
+  "timezone": "UTC",
+  "max_failures": 5
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "schedule": {
+    "id": "a1b2c3d4",
+    "name": "daily-review",
+    "schedule_expression": "0 9 * * 1-5",
+    "prompt": "Review recent changes.",
+    "role": "orchestrator",
+    "max_iterations": 12,
+    "enabled": 1,
+    "created_by": "api",
+    "timezone": "UTC",
+    "max_failures": 5
+  }
+}
+```
 
 #### `GET /api/v1/schedules`
 
@@ -2069,8 +2106,60 @@ Get a schedule by ID.
 
 **Response `404`** — schedule not found.
 
+#### `PATCH /api/v1/schedules/{id}`
 
-Schedule mutation endpoints are not part of the current HTTP surface.
+Update a mutable schedule.
+
+Use this endpoint for definition fields such as `name`, `description`, `schedule_expression`, `prompt`, `role`, `max_iterations`, `timezone`, and `max_failures`. Use the action endpoints below for enabled state changes.
+
+**Response `200`** — updated schedule object.
+
+**Response `409`** — filesystem-backed schedule.
+
+#### `DELETE /api/v1/schedules/{id}`
+
+Delete a mutable schedule.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true
+}
+```
+
+**Response `409`** — filesystem-backed schedule.
+
+#### `POST /api/v1/schedules/{id}/enable`
+
+Enable a mutable schedule and recompute its next run time.
+
+**Response `200`** — updated schedule object.
+
+#### `POST /api/v1/schedules/{id}/disable`
+
+Disable a mutable schedule.
+
+**Response `200`** — updated schedule object.
+
+#### `POST /api/v1/schedules/{id}/trigger`
+
+Force a mutable schedule to run on the next scheduler tick.
+
+**Response `200`**
+
+```json
+{
+  "schedule": {
+    "id": "a1b2c3d4",
+    "name": "daily-review",
+    "next_run_at": "2026-02-16T09:15:00Z"
+  },
+  "message": "Schedule will fire on the next API scheduler tick."
+}
+```
+
+**Response `409`** — filesystem-backed schedule.
 
 ### Loops
 
@@ -2977,6 +3066,16 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/loops resume <id>` | `POST /api/v1/loops/{id}/resume` | Resumes a paused loop |
 | `/loops stop <id>` | `POST /api/v1/loops/{id}/stop` | Cancels a running or paused loop |
 | `/schedules` | `GET /api/v1/schedules` | Lists schedules |
+| `/schedules status <id>` | `GET /api/v1/schedules/{id}` | Shows schedule details |
+| `/schedules enable <id>` | `POST /api/v1/schedules/{id}/enable` | Enables a mutable schedule |
+| `/schedules disable <id>` | `POST /api/v1/schedules/{id}/disable` | Disables a mutable schedule |
+| `/schedules trigger <id>` | `POST /api/v1/schedules/{id}/trigger` | Forces a mutable schedule to run on the next tick |
+| `/webhooks status <id>` | `GET /api/v1/webhooks/{id}` | Shows webhook details |
+| `/webhooks deliveries <id>` | `GET /api/v1/webhooks/{id}/deliveries` | Shows recent delivery logs |
+| `/webhooks enable <id>` | `PUT /api/v1/webhooks/{id}` | Enables a webhook subscription |
+| `/webhooks disable <id>` | `PUT /api/v1/webhooks/{id}` | Disables a webhook subscription |
+| `/webhooks delete <id>` | `DELETE /api/v1/webhooks/{id}` | Deletes a webhook subscription |
+| `/webhooks rotate <id>` | `POST /api/v1/webhooks/{id}/rotate` | Rotates a webhook signing secret |
 
 Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedule management remain REPL-first by design.
 
@@ -3034,6 +3133,12 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/toolkits/visibility` | Yes | Set package or tool visibility |
 | `GET` | `/api/v1/schedules` | Yes | List schedules |
 | `GET` | `/api/v1/schedules/{id}` | Yes | Get schedule |
+| `POST` | `/api/v1/schedules` | Yes | Create schedule |
+| `PATCH` | `/api/v1/schedules/{id}` | Yes | Update mutable schedule |
+| `DELETE` | `/api/v1/schedules/{id}` | Yes | Delete mutable schedule |
+| `POST` | `/api/v1/schedules/{id}/enable` | Yes | Enable mutable schedule |
+| `POST` | `/api/v1/schedules/{id}/disable` | Yes | Disable mutable schedule |
+| `POST` | `/api/v1/schedules/{id}/trigger` | Yes | Force mutable schedule to run on next tick |
 | `POST` | `/api/v1/loops` | Yes | Create and start a loop |
 | `GET` | `/api/v1/loops` | Yes | List loops |
 | `GET` | `/api/v1/loops/definitions` | Yes | List loop definitions |
@@ -3058,4 +3163,4 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/sessions/{id}/todos/stats` | Yes | Get todo statistics |
 | `GET` | `/api/v1/sessions/{id}/todos/{todoId}` | Yes | Get todo detail |
 
-Mutation-heavy workflows for roles, schedules, loops, artifacts, todos, summarization, restart, and update continue to live in the REPL and agent tool layer rather than the HTTP API.
+Mutation-heavy workflows for roles, artifacts, todos, summarization, restart, and update continue to live in the REPL and agent tool layer rather than the HTTP API.

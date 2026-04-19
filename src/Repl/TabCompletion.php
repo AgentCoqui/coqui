@@ -10,6 +10,7 @@ use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\WebhookStore;
 
 /**
  * Registers readline tab-completion for REPL slash commands.
@@ -75,6 +76,7 @@ final class TabCompletion
             '/toolkits' => $this->completeToolkits($parts),
             '/schedules' => $this->completeSchedules($parts),
             '/loops' => $this->completeLoops($parts),
+            '/webhooks' => $this->completeWebhooks($parts),
             '/summarize' => $this->completeSummarize($parts),
             '/role' => $this->completeRole($parts),
             '/roles' => $this->completeRoles($parts),
@@ -198,12 +200,37 @@ final class TabCompletion
         }
 
         if (count($parts) === 3 && in_array($parts[1], $subcommands, true)) {
-            $candidates = ['all'];
+            $candidates = in_array($parts[1], ['enable', 'disable', 'delete', 'trigger'], true) ? ['all'] : [];
             $scheduleStore = new ScheduleStore($this->storage->getPdo());
 
             foreach ($scheduleStore->list() as $schedule) {
                 $candidates[] = $schedule['name'];
                 $candidates[] = $schedule['id'];
+            }
+
+            return $this->completeChoices($candidates, $parts[2]);
+        }
+
+        return [];
+    }
+
+    /**
+     * @param array<string> $parts
+     * @return list<string>
+     */
+    private function completeWebhooks(array $parts): array
+    {
+        if (count($parts) === 2) {
+            return $this->completeChoices($this->commandSpec('/webhooks')->firstArguments, $parts[1]);
+        }
+
+        if (count($parts) === 3 && in_array($parts[1], $this->commandSpec('/webhooks')->firstArguments, true)) {
+            $webhookStore = new WebhookStore($this->storage->getPdo());
+            $candidates = [];
+
+            foreach ($webhookStore->list() as $webhook) {
+                $candidates[] = $webhook['name'];
+                $candidates[] = $webhook['id'];
             }
 
             return $this->completeChoices($candidates, $parts[2]);
