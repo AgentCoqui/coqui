@@ -45,6 +45,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libzip-dev \
     libonig-dev \
     libreadline-dev \
+    libfreetype6-dev \
+    libjpeg62-turbo-dev \
+    libpng-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------------------------
@@ -52,8 +55,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # -----------------------------------------------------------------------------
 # Most extensions are already built into php:8.4-cli:
 #   curl, mbstring, xml, pdo_sqlite, readline, opcache, json, openssl
-# Only zip and pcntl need to be installed separately.
+# Only gd, zip, and pcntl need to be installed separately.
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg
+
 RUN docker-php-ext-install \
+    gd \
     zip \
     pcntl
 
