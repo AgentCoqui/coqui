@@ -215,14 +215,17 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full CLI reference including `a
 | `/sessions` | List all saved sessions |
 | `/resume <id>` | Resume a session by ID |
 | `/role [name]` | Show/switch active role |
+| `/profile [name]` | Show/switch the active profile |
 | `/toolkits` | Manage toolkit visibility |
+| `/prompt` | Inspect or export the rendered system prompt |
+| `/projects` | List projects or switch the active project |
 | `/tasks [status]` | List background tasks |
 | `/todos [status]` | Show session todos |
 | `/schedules` | List scheduled tasks |
 | `/loops` | List and manage automated loops |
 | `/space` | Coqui Space marketplace |
+| `/help` | Show the compact command reference |
 | `/summarize` | Summarize conversation for token savings |
-| `/help` | List all commands |
 | `/quit` | Exit Coqui |
 
 See [docs/COMMANDS.md](docs/COMMANDS.md) for the full command reference with examples.
@@ -481,9 +484,7 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 | [Commands](docs/COMMANDS.md) | REPL slash commands and CLI reference |
 | [Roles](docs/ROLES.md) | Built-in roles, access levels, and custom role creation |
 | [Configuration](docs/CONFIGURATION.md) | `openclaw.json` reference |
-| [API](docs/API.md) | Canonical HTTP API reference |
-| [App API Usage](docs/APP-API-USAGE.md) | Client integration patterns for apps and dashboards |
-| [REPL/API Divergences](docs/REPL-API-DIVERGENCES.md) | Features intentionally kept out of the HTTP surface |
+| [API](docs/API.md) | Canonical HTTP API reference and client integration guide |
 | [Background Tasks](docs/BACKGROUND-TASKS.md) | Background task architecture and usage |
 | [Loops](docs/LOOPS.md) | Loop definitions, runtime model, and inspection |
 | [Todos](docs/TODOS.md) | Planning and todo workflow |

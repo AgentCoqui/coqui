@@ -23,6 +23,7 @@ use CoquiBot\Coqui\Repl\AgentTurnExecutor;
 use CoquiBot\Coqui\Repl\ExecutionPolicyFactory;
 use CoquiBot\Coqui\Repl\MultilineReader;
 use CoquiBot\Coqui\Repl\NotificationPresenter;
+use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
@@ -46,6 +47,7 @@ use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\PromptInspectionService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -105,7 +107,7 @@ final class RunCommand extends Command
             ->addOption('prompt', 'p', InputOption::VALUE_REQUIRED, 'Prompt to send in --no-terminal mode')
             ->addOption('format', 'f', InputOption::VALUE_REQUIRED, 'Output format for --no-terminal mode (text or json)', 'text')
             ->addOption('continue', null, InputOption::VALUE_NONE, 'Resume the last session and automatically send "Continue." as the first prompt')
-            ->addOption('profile', null, InputOption::VALUE_REQUIRED, 'Start with a personality profile (creates a new session)');
+            ->addOption('profile', null, InputOption::VALUE_REQUIRED, 'Start with a personality profile (resumes or creates its last active session)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -124,13 +126,13 @@ final class RunCommand extends Command
 
         if (is_string($profileOption) && trim($profileOption) !== '') {
             if ($this->continueMode) {
-                $io->error('Cannot combine --profile with --continue. The --profile flag always starts a new session.');
+                $io->error('Cannot combine --profile with --continue. The --profile flag already resumes or creates the selected profile session.');
                 return Command::FAILURE;
             }
 
             $sessionOption = $input->getOption('session');
             if (is_string($sessionOption) && trim($sessionOption) !== '') {
-                $io->error('Cannot combine --profile with --session. The --profile flag always starts a new session.');
+                $io->error('Cannot combine --profile with --session. The --session flag already selects an explicit session.');
                 return Command::FAILURE;
             }
 
@@ -185,6 +187,11 @@ final class RunCommand extends Command
                     ));
                 }
             }
+        }
+
+        // Auto-regenerate backstory if source files changed
+        if ($this->activeProfile !== null) {
+            $this->autoRegenerateBackstory($noTerminal ? null : $io);
         }
 
         // Handle --update: apply updates and restart
@@ -258,12 +265,8 @@ final class RunCommand extends Command
 
         // Handle session
         $sessionHandler = new SessionHandler($this->boot, $this->storage);
-        if ($this->continueMode) {
-            // --continue: always resume the last session (from .coqui-session or most recent in DB)
-            $this->sessionId = $sessionHandler->loadOrCreateSession($io);
-        } elseif ($input->getOption('new') || $requestedProfile !== null) {
-            $this->sessionId = $sessionHandler->createNewSession(profile: $this->activeProfile);
-        } elseif ($input->getOption('session')) {
+        $sessionOption = $input->getOption('session');
+        if (is_string($sessionOption) && $sessionOption !== '') {
             $this->sessionId = $input->getOption('session');
             if ($this->storage->getSession($this->sessionId) === null) {
                 $io->error("Session not found: {$this->sessionId}");
@@ -271,10 +274,8 @@ final class RunCommand extends Command
             }
             $sessionHandler->saveSessionFile($this->sessionId);
             $io->info("Resumed session: {$this->sessionId}");
-        } elseif ($this->configuredDefaultProfile !== null) {
-            $this->sessionId = $sessionHandler->loadOrCreateProfileSession($io, $this->configuredDefaultProfile);
         } else {
-            $this->sessionId = $sessionHandler->loadOrCreateSession($io);
+            $this->sessionId = $this->resolveAutomaticStartupSessionId($input, $sessionHandler, $io, headless: false);
         }
 
         $this->applySessionState($sessionHandler);
@@ -315,7 +316,7 @@ final class RunCommand extends Command
         if ($this->hintsEnabled) {
             $io->section('REPL');
             $bannerLines[] = '';
-            $bannerLines[] = '<fg=gray>Commands: /config, /new, /sessions, /roles, /tasks, /help, /update, /restart, /quit</>';
+            $bannerLines[] = '<fg=gray>Commands: /new, /sessions, /role, /profile, /prompt, /backstory, /help, /quit</>';
         }
 
         $io->text($bannerLines);
@@ -399,7 +400,8 @@ final class RunCommand extends Command
             ),
             project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
-            profile: new ProfileHandler($this->boot, $this->storage),
+            profile: new ProfileHandler($this->boot, $sessionHandler),
+            backstory: new BackstoryHandler($this->boot->profileDiscovery(), $this->boot->workspacePath()),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             space: new SpaceHandler($this->boot),
             config: new ConfigHandler($this->boot, $this->workDir),
@@ -420,6 +422,7 @@ final class RunCommand extends Command
                 ],
             ),
             agentRunner: $this->agentRunner,
+            promptInspection: new PromptInspectionService($this->agentRunner, $this->boot->workspacePath(), $this->workDir),
             onHintsToggle: function () use ($io): void {
                 $this->hintsEnabled = !$this->hintsEnabled;
                 $this->boot->configManager()->set('agents.defaults.hints', $this->hintsEnabled);
@@ -708,6 +711,39 @@ final class RunCommand extends Command
     }
 
     /**
+     * Auto-regenerate backstory.md if source files have changed since last generation.
+     */
+    private function autoRegenerateBackstory(?SymfonyStyle $io): void
+    {
+        $profileDiscovery = $this->boot->profileDiscovery();
+        if (!$profileDiscovery->profileExists($this->activeProfile ?? '')) {
+            return;
+        }
+
+        $profilePath = $profileDiscovery->getProfilePath($this->activeProfile ?? '');
+        $assembler = new \CoquiBot\Coqui\Backstory\BackstoryAssembler();
+
+        if (!$assembler->needsRegeneration($profilePath)) {
+            return;
+        }
+
+        $io?->text('<fg=gray>Backstory source files changed — regenerating...</>');
+        $result = $assembler->generate($profilePath);
+
+        if ($result->totalFiles > 0 && $io !== null) {
+            $msg = sprintf(
+                'Backstory generated: %d file(s), ~%s tokens',
+                $result->totalFiles,
+                number_format($result->totalTokens),
+            );
+            if ($result->failedFiles > 0) {
+                $msg .= sprintf(' (%d failed — run /backstory failed)', $result->failedFiles);
+            }
+            $io->text('<fg=gray>' . $msg . '</>');
+        }
+    }
+
+    /**
      * Run a single prompt without the REPL (--no-terminal mode).
      */
     private function runHeadless(InputInterface $input, OutputInterface $output): int
@@ -754,10 +790,8 @@ final class RunCommand extends Command
                 return Command::FAILURE;
             }
             $sessionHandler->saveSessionFile($this->sessionId);
-        } elseif ($this->configuredDefaultProfile !== null) {
-            $this->sessionId = $sessionHandler->loadOrCreateProfileSession(null, $this->configuredDefaultProfile);
         } else {
-            $this->sessionId = $sessionHandler->createNewSession(profile: $this->activeProfile);
+            $this->sessionId = $this->resolveAutomaticStartupSessionId($input, $sessionHandler, null, headless: true);
         }
 
         $this->applySessionState($sessionHandler);
@@ -978,5 +1012,35 @@ final class RunCommand extends Command
             $this->activeProjectId = $project['id'];
             $this->activeProjectSlug = $project['slug'];
         }
+    }
+
+    private function resolveAutomaticStartupSessionId(
+        InputInterface $input,
+        SessionHandler $sessionHandler,
+        ?SymfonyStyle $io,
+        bool $headless,
+    ): string {
+        if (!$headless && $this->continueMode) {
+            return $sessionHandler->loadOrCreateAttachedSession($io);
+        }
+
+        if (!$headless && (bool) $input->getOption('new')) {
+            return $sessionHandler->createNewSession(profile: $this->activeProfile);
+        }
+
+        $profileOption = $input->getOption('profile');
+        $requestedProfile = is_string($profileOption) && trim($profileOption) !== ''
+            ? strtolower(trim($profileOption))
+            : null;
+
+        if ($requestedProfile !== null) {
+            return $sessionHandler->loadOrCreateProfileSession($io, $requestedProfile);
+        }
+
+        if ($this->configuredDefaultProfile !== null) {
+            return $sessionHandler->loadOrCreateProfileSession($io, $this->configuredDefaultProfile);
+        }
+
+        return $sessionHandler->loadOrCreateSession($io);
     }
 }

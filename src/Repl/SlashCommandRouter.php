@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Repl;
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Renderer\PromptUsageBar;
+use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
@@ -23,6 +24,7 @@ use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
+use CoquiBot\Coqui\Support\PromptInspectionService;
 use CoquiBot\Coqui\Contract\SystemRole;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -52,7 +54,9 @@ final class SlashCommandRouter
         private readonly WebhookHandler $webhook,
         private readonly EvaluationHandler $evaluation,
         private readonly LoopHandler $loop,
+        private readonly BackstoryHandler $backstory,
         private readonly AgentRunner $agentRunner,
+        private readonly PromptInspectionService $promptInspection,
         private readonly \Closure $onHintsToggle,
         private readonly \Closure $onMultilineToggle,
     ) {}
@@ -97,6 +101,7 @@ final class SlashCommandRouter
             '/roles' => $this->handleRoles($io, $arg, $activeRole),
             '/profile' => $this->handleProfile($io, $arg, $activeRole, $activeProfile),
             '/profiles' => $this->handleProfiles($io, $activeProfile),
+            '/backstory' => $this->handleBackstory($io, $arg, $activeProfile),
             '/space' => $this->handleSpace($io, $arg),
             '/schedules' => $this->handleSchedules($io, $arg),
             '/quality' => $this->handleQuality($io),
@@ -234,7 +239,7 @@ final class SlashCommandRouter
             return RouteResult::continue();
         }
 
-        $preview = $this->agentRunner->buildPromptPreview($role, $activeProfile);
+        $preview = $this->promptInspection->inspect($role, $activeProfile);
         $io->section('System Prompt');
         $io->write(MarkdownRenderer::render($preview['prompt']));
         $io->newLine();
@@ -245,11 +250,100 @@ final class SlashCommandRouter
             '<fg=gray>Tool schema tokens:</> ' . number_format($preview['tool_tokens']),
             '<fg=gray>Estimated total:</> ' . number_format($preview['total_tokens']),
         ]);
+
+        // Show backstory summary if generated from source files
+        if ($activeProfile !== null) {
+            $summary = $this->backstory->getManifestSummary($activeProfile);
+            if ($summary !== null) {
+                $issueSuffix = '';
+                $issueCount = $summary['failed_files'] + $summary['unsupported_files'];
+                if ($issueCount > 0) {
+                    $issueSuffix = sprintf(', %d issue(s)', $issueCount);
+                }
+
+                $io->text(sprintf(
+                    '<fg=gray>Backstory:</> %d file(s), ~%s tokens%s (use /backstory for details)',
+                    $summary['total_files'],
+                    number_format($summary['total_tokens']),
+                    $issueSuffix,
+                ));
+            }
+        }
+
+        $this->renderPromptSourceTables($io, $preview['prompt_sources']);
+
         $io->newLine();
-        PromptUsageBar::renderSectionBreakdown($io, $preview['budget_snapshot']);
+        PromptUsageBar::renderSectionBreakdown($io, $preview['budget']);
         $io->newLine();
-        PromptUsageBar::renderContextImpact($io, $preview['budget_snapshot']);
+        PromptUsageBar::renderContextImpact($io, $preview['budget']);
         return RouteResult::continue();
+    }
+
+    /**
+     * @param array<string, mixed> $promptSources
+     */
+    private function renderPromptSourceTables(SymfonyStyle $io, array $promptSources): void
+    {
+        $fileRows = [];
+        foreach (array_slice($promptSources['files'] ?? [], 0, 8) as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $fileRows[] = [
+                ($entry['scope'] ?? 'unknown') . ':' . ($entry['path'] ?? ''),
+                number_format((int) ($entry['tokens'] ?? 0)),
+                (string) ($entry['section_count'] ?? 0),
+                BackstoryHandler::formatNullableTimestamp(is_string($entry['last_modified_at'] ?? null) ? $entry['last_modified_at'] : null),
+            ];
+        }
+
+        $folderRows = [];
+        foreach (array_slice($promptSources['folders'] ?? [], 0, 6) as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $path = (string) ($entry['path'] ?? '');
+            $folderRows[] = [
+                ($entry['scope'] ?? 'unknown') . ':' . ($path !== '' ? $path : '.'),
+                number_format((int) ($entry['tokens'] ?? 0)),
+                (string) ($entry['file_count'] ?? 0),
+                BackstoryHandler::formatNullableTimestamp(is_string($entry['last_modified_at'] ?? null) ? $entry['last_modified_at'] : null),
+            ];
+        }
+
+        $syntheticRows = [];
+        foreach (array_slice($promptSources['synthetic'] ?? [], 0, 6) as $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+
+            $syntheticRows[] = [
+                (string) ($entry['label'] ?? 'Generated'),
+                number_format((int) ($entry['tokens'] ?? 0)),
+                (string) ($entry['section_count'] ?? 0),
+            ];
+        }
+
+        if ($fileRows === [] && $folderRows === [] && $syntheticRows === []) {
+            return;
+        }
+
+        $io->newLine();
+        if ($folderRows !== []) {
+            $io->table(['Folder', 'Tokens', 'Files', 'Modified'], $folderRows);
+        }
+
+        if ($fileRows !== []) {
+            $io->newLine();
+            $io->table(['Prompt File', 'Tokens', 'Sections', 'Modified'], $fileRows);
+        }
+
+        if ($syntheticRows !== []) {
+            $io->newLine();
+            $io->table(['Generated Source', 'Tokens', 'Sections'], $syntheticRows);
+        }
     }
 
     private function handleBudget(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
@@ -293,6 +387,11 @@ final class SlashCommandRouter
     private function handleProfiles(SymfonyStyle $io, ?string $activeProfile): RouteResult
     {
         return $this->profile->handleProfiles($io, $activeProfile);
+    }
+
+    private function handleBackstory(SymfonyStyle $io, string $arg, ?string $activeProfile): RouteResult
+    {
+        return $this->backstory->handle($io, $arg, $activeProfile);
     }
 
     private function handleSpace(SymfonyStyle $io, string $arg): RouteResult
@@ -373,47 +472,13 @@ final class SlashCommandRouter
 
     private function handleHelp(SymfonyStyle $io): RouteResult
     {
-        $io->table(
-            ['Command', 'Description'],
-            [
-                ['/new', 'Start a new session'],
-                ['/history', 'Show conversation history'],
-                ['/sessions', 'List all sessions'],
-                ['/resume <id>', 'Resume a session'],
-                ['/model', 'Show model configuration'],
-                ['/config', 'Show config (use /config edit to reconfigure + restart)'],
-                ['/tasks [status]', 'List background tasks (optionally filter by status)'],
-                ['/task <id>', 'Show background task status and recent events'],
-                ['/task-cancel <id>', 'Cancel a pending or running background task'],
-                ['/todos [status]', 'Show session todos (optionally filter by pending/in_progress/completed/cancelled)'],
-                ['/projects [status]', 'List projects (optionally filter by active/completed/archived)'],
-                ['/sprints [project_slug]', 'List sprints for a project (all projects if no slug given)'],
-                ['/toolkits [enable|stub|disable <pkg|tool:name>]', 'Manage toolkit visibility'],
-                ['/budget [role]', 'Show prompt-budget telemetry and toolkit loading decisions'],
-                ['/prompt', 'Show the full system prompt sent to the LLM'],
-                ['/prompt export', 'Export system prompt and tool schemas to a file in the workspace'],
-                ['/role [name]', 'Switch active role (e.g. /role coder). No argument shows current role'],
-                ['/role edit <name>', 'Open a role file in your editor'],
-                ['/roles', 'List all roles with visibility and update status'],
-                ['/roles update [name]', 'Apply pending built-in role updates'],
-                ['/roles ignore <name>', 'Ignore future updates for a role'],
-                ['/roles unignore <name>', 'Resume receiving updates for a role'],
-                ['/profile [name|reset]', 'Switch personality profile (creates new session). No argument shows current'],
-                ['/profiles', 'List all available personality profiles'],
-                ['/space [search|install|remove|installed|skills|toolkits|update]', 'Coqui Space marketplace'],
-                ['/schedules', 'List scheduled tasks with status and next run time'],
-                ['/quality', 'Show quality automation schedules and learner follow-up state'],
-                ['/webhooks', 'List webhook subscriptions with status and trigger counts'],
-                ['/evaluations', 'List session evaluation reports with grades and scores'],
-                ['/loops [start <def> <goal>|status|definitions|pause|resume|stop <id|all>]', 'Manage automated loop workflows'],
-                ['/summarize [recent N] [focus "topic"]', 'Summarize conversation history to save tokens'],
-                ['/multiline [on|off]', 'Toggle multiline compose mode (double Enter to submit)'],
-                ['/hints', 'Toggle command hints in the input area'],
-                ['/update', 'Check for and apply dependency updates'],
-                ['/restart', 'Restart Coqui (re-reads config, re-discovers toolkits)'],
-                ['/quit', 'Exit Coqui'],
-            ],
-        );
+        foreach (ReplCommandCatalog::helpSections() as $section => $rows) {
+            $io->section($section);
+            $io->table(['Command', 'Description'], $rows);
+            $io->newLine();
+        }
+
+        $io->text('<fg=gray>Advanced automation commands remain available, but they are intended for operator workflows, monitoring, or agent-assisted orchestration rather than routine chat interaction.</>');
         return RouteResult::continue();
     }
 

@@ -159,6 +159,36 @@ test('startLoop creates project in project store', function () {
     expect($project['description'])->toBe('Build feature');
 });
 
+test('startLoop infers project from sprint when only sprint is provided', function () {
+    $projectId = $this->projectStore->createProject('Career Ops', 'career-ops');
+    $sprintId = $this->projectStore->createSprint($projectId, 'Loop API');
+
+    $loopId = $this->executor->startLoop(
+        $this->harnessDefinition,
+        'Build feature',
+        sprintId: $sprintId,
+    );
+
+    $loop = $this->loopStore->getLoop($loopId);
+    $iterations = $this->loopStore->listIterations($loopId);
+
+    expect($loop['project_id'])->toBe($projectId);
+    expect($iterations[0]['sprint_id'])->toBe($sprintId);
+});
+
+test('startLoop rejects sprint and project mismatch', function () {
+    $projectId = $this->projectStore->createProject('Career Ops', 'career-ops');
+    $otherProjectId = $this->projectStore->createProject('Website', 'website');
+    $sprintId = $this->projectStore->createSprint($projectId, 'Loop API');
+
+    $this->executor->startLoop(
+        $this->harnessDefinition,
+        'Build feature',
+        projectId: $otherProjectId,
+        sprintId: $sprintId,
+    );
+})->throws(\InvalidArgumentException::class, 'Sprint does not belong to the specified project');
+
 // ──────────────────────────────────────────────
 //  prepareNextStage
 // ──────────────────────────────────────────────

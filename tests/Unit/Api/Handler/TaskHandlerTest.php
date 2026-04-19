@@ -7,6 +7,7 @@ use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Utility\PromptSizeValidator;
 use React\Http\Message\ServerRequest;
@@ -18,6 +19,7 @@ function createTaskHandlerFixture(): array
     mkdir($workspacePath . '/profiles/caelum', 0755, true);
     file_put_contents($workspacePath . '/profiles/caelum/soul.md', '# Caelum' . "\n\nA calm companion.");
     $storage = new SessionStorage($dbPath);
+    $projectStore = new ProjectStore($storage->getPdo());
     $config = OpenClawConfig::fromArray([
         'agents' => [
             'defaults' => [
@@ -43,7 +45,8 @@ function createTaskHandlerFixture(): array
         'dbPath' => $dbPath,
         'workspacePath' => $workspacePath,
         'storage' => $storage,
-        'handler' => new TaskHandler($storage, $taskManager, $roleResolver, new ProfileDiscovery($workspacePath)),
+        'projectStore' => $projectStore,
+        'handler' => new TaskHandler($storage, $taskManager, $roleResolver, new ProfileDiscovery($workspacePath), $projectStore),
     ];
 }
 
@@ -356,6 +359,69 @@ test('task handler cancel updates pending task state through the manager', funct
         expect($response->getStatusCode())->toBe(200);
         expect($body['status'])->toBe('cancelling');
         expect($task['status'])->toBe('cancelled');
+    } finally {
+        cleanupTaskHandlerFixture($fixture);
+    }
+});
+
+test('task handler create accepts project and sprint context', function () {
+    $fixture = createTaskHandlerFixture();
+
+    try {
+        $projectId = $fixture['projectStore']->createProject('Career Ops', 'career-ops');
+        $sprintId = $fixture['projectStore']->createSprint($projectId, 'Pipeline Sprint');
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/tasks',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'prompt' => 'Review pipeline progress',
+                'role' => 'coder',
+                'project_id' => $projectId,
+                'sprint_id' => $sprintId,
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+        $task = $fixture['storage']->getTask($body['id']);
+
+        expect($response->getStatusCode())->toBe(201);
+        expect($body['project_id'])->toBe($projectId);
+        expect($body['sprint_id'])->toBe($sprintId);
+        expect($task['project_id'])->toBe($projectId);
+        expect($task['sprint_id'])->toBe($sprintId);
+    } finally {
+        cleanupTaskHandlerFixture($fixture);
+    }
+});
+
+test('task handler create rejects mismatched sprint and project context', function () {
+    $fixture = createTaskHandlerFixture();
+
+    try {
+        $projectId = $fixture['projectStore']->createProject('Career Ops', 'career-ops');
+        $otherProjectId = $fixture['projectStore']->createProject('Marketing', 'marketing');
+        $sprintId = $fixture['projectStore']->createSprint($otherProjectId, 'Campaign Sprint');
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/tasks',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'prompt' => 'Review pipeline progress',
+                'role' => 'coder',
+                'project_id' => $projectId,
+                'sprint_id' => $sprintId,
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['code'])->toBe('validation_error');
     } finally {
         cleanupTaskHandlerFixture($fixture);
     }

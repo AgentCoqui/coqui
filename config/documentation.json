@@ -100,650 +100,583 @@
                     "heading": "Recommended Integration Flow",
                     "level": 3,
                     "line_start": 203,
-                    "line_end": 210
+                    "line_end": 211
                 },
                 {
                     "heading": "Streaming vs Blocking",
                     "level": 3,
-                    "line_start": 211,
-                    "line_end": 216
+                    "line_start": 212,
+                    "line_end": 217
+                },
+                {
+                    "heading": "Concurrency Rules",
+                    "level": 3,
+                    "line_start": 218,
+                    "line_end": 231
+                },
+                {
+                    "heading": "File Upload Workflow",
+                    "level": 3,
+                    "line_start": 232,
+                    "line_end": 239
                 },
                 {
                     "heading": "Endpoints",
                     "level": 2,
-                    "line_start": 217,
-                    "line_end": 218
+                    "line_start": 240,
+                    "line_end": 241
                 },
                 {
                     "heading": "Health",
                     "level": 3,
-                    "line_start": 219,
-                    "line_end": 220
+                    "line_start": 242,
+                    "line_end": 243
                 },
                 {
                     "heading": "`GET /api/v1/health`",
                     "level": 4,
-                    "line_start": 221,
-                    "line_end": 235
+                    "line_start": 244,
+                    "line_end": 258
                 },
                 {
                     "heading": "Sessions",
                     "level": 3,
-                    "line_start": 236,
-                    "line_end": 239
+                    "line_start": 259,
+                    "line_end": 262
                 },
                 {
                     "heading": "`GET /api/v1/sessions`",
                     "level": 4,
-                    "line_start": 240,
-                    "line_end": 267
+                    "line_start": 263,
+                    "line_end": 290
                 },
                 {
                     "heading": "`POST /api/v1/sessions`",
                     "level": 4,
-                    "line_start": 268,
-                    "line_end": 302
+                    "line_start": 291,
+                    "line_end": 330
+                },
+                {
+                    "heading": "`POST /api/v1/sessions/resolve`",
+                    "level": 4,
+                    "line_start": 331,
+                    "line_end": 378
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}`",
                     "level": 4,
-                    "line_start": 303,
-                    "line_end": 328
+                    "line_start": 379,
+                    "line_end": 404
                 },
                 {
                     "heading": "`PATCH /api/v1/sessions/{id}`",
                     "level": 4,
-                    "line_start": 329,
-                    "line_end": 378
+                    "line_start": 405,
+                    "line_end": 454
                 },
                 {
                     "heading": "`DELETE /api/v1/sessions/{id}`",
                     "level": 4,
-                    "line_start": 379,
-                    "line_end": 391
+                    "line_start": 455,
+                    "line_end": 467
                 },
                 {
                     "heading": "Conversation Summarization",
                     "level": 4,
-                    "line_start": 392,
-                    "line_end": 406
+                    "line_start": 468,
+                    "line_end": 482
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/messages`",
                     "level": 4,
-                    "line_start": 407,
-                    "line_end": 453
+                    "line_start": 483,
+                    "line_end": 529
                 },
                 {
                     "heading": "`POST /api/v1/sessions/{id}/messages`",
                     "level": 4,
-                    "line_start": 454,
-                    "line_end": 599
+                    "line_start": 530,
+                    "line_end": 675
                 },
                 {
                     "heading": "`DELETE /api/v1/sessions/{id}/messages/{messageId}`",
                     "level": 4,
-                    "line_start": 600,
-                    "line_end": 619
+                    "line_start": 676,
+                    "line_end": 695
                 },
                 {
                     "heading": "Files",
                     "level": 3,
-                    "line_start": 620,
-                    "line_end": 636
+                    "line_start": 696,
+                    "line_end": 712
                 },
                 {
                     "heading": "`POST /api/v1/sessions/{id}/files`",
                     "level": 4,
-                    "line_start": 637,
-                    "line_end": 702
+                    "line_start": 713,
+                    "line_end": 778
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/files`",
                     "level": 4,
-                    "line_start": 703,
-                    "line_end": 725
+                    "line_start": 779,
+                    "line_end": 801
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/files/{fileId}`",
                     "level": 4,
-                    "line_start": 726,
-                    "line_end": 743
+                    "line_start": 802,
+                    "line_end": 819
                 },
                 {
                     "heading": "`DELETE /api/v1/sessions/{id}/files/{fileId}`",
                     "level": 4,
-                    "line_start": 744,
-                    "line_end": 762
+                    "line_start": 820,
+                    "line_end": 838
                 },
                 {
                     "heading": "Turns",
                     "level": 3,
-                    "line_start": 763,
-                    "line_end": 766
+                    "line_start": 839,
+                    "line_end": 842
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/turns`",
                     "level": 4,
-                    "line_start": 767,
-                    "line_end": 804
+                    "line_start": 843,
+                    "line_end": 880
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/turns/{turnId}`",
                     "level": 4,
-                    "line_start": 805,
-                    "line_end": 840
+                    "line_start": 881,
+                    "line_end": 916
                 },
                 {
                     "heading": "Configuration",
                     "level": 3,
-                    "line_start": 841,
-                    "line_end": 844
+                    "line_start": 917,
+                    "line_end": 920
                 },
                 {
                     "heading": "`GET /api/v1/config`",
                     "level": 4,
-                    "line_start": 845,
-                    "line_end": 879
+                    "line_start": 921,
+                    "line_end": 955
                 },
                 {
                     "heading": "`POST /api/v1/config/validate`",
                     "level": 4,
-                    "line_start": 880,
-                    "line_end": 907
+                    "line_start": 956,
+                    "line_end": 983
                 },
                 {
                     "heading": "`GET /api/v1/config/roles`",
                     "level": 4,
-                    "line_start": 908,
-                    "line_end": 945
+                    "line_start": 984,
+                    "line_end": 1021
                 },
                 {
                     "heading": "`GET /api/v1/config/roles/{name}`",
                     "level": 4,
-                    "line_start": 946,
-                    "line_end": 977
+                    "line_start": 1022,
+                    "line_end": 1053
+                },
+                {
+                    "heading": "`GET /api/v1/config/profiles`",
+                    "level": 4,
+                    "line_start": 1054,
+                    "line_end": 1078
                 },
                 {
                     "heading": "`GET /api/v1/config/models`",
                     "level": 4,
-                    "line_start": 978,
-                    "line_end": 1006
+                    "line_start": 1079,
+                    "line_end": 1107
                 },
                 {
                     "heading": "Credentials",
                     "level": 3,
-                    "line_start": 1007,
-                    "line_end": 1010
+                    "line_start": 1108,
+                    "line_end": 1111
                 },
                 {
                     "heading": "`GET /api/v1/credentials`",
                     "level": 4,
-                    "line_start": 1011,
-                    "line_end": 1032
+                    "line_start": 1112,
+                    "line_end": 1133
                 },
                 {
                     "heading": "`POST /api/v1/credentials`",
                     "level": 4,
-                    "line_start": 1033,
-                    "line_end": 1068
+                    "line_start": 1134,
+                    "line_end": 1169
                 },
                 {
                     "heading": "`DELETE /api/v1/credentials/{key}`",
                     "level": 4,
-                    "line_start": 1069,
-                    "line_end": 1090
+                    "line_start": 1170,
+                    "line_end": 1191
                 },
                 {
                     "heading": "`GET /api/v1/credentials/requirements`",
                     "level": 4,
-                    "line_start": 1091,
-                    "line_end": 1131
+                    "line_start": 1192,
+                    "line_end": 1232
                 },
                 {
                     "heading": "Child Runs",
                     "level": 3,
-                    "line_start": 1132,
-                    "line_end": 1135
+                    "line_start": 1233,
+                    "line_end": 1236
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/child-runs`",
                     "level": 4,
-                    "line_start": 1136,
-                    "line_end": 1166
+                    "line_start": 1237,
+                    "line_end": 1267
                 },
                 {
                     "heading": "Server",
                     "level": 3,
-                    "line_start": 1167,
-                    "line_end": 1170
+                    "line_start": 1268,
+                    "line_end": 1271
                 },
                 {
                     "heading": "`GET /api/v1/server/info`",
                     "level": 4,
-                    "line_start": 1171,
-                    "line_end": 1195
+                    "line_start": 1272,
+                    "line_end": 1296
                 },
                 {
                     "heading": "`GET /api/v1/server/stats`",
                     "level": 4,
-                    "line_start": 1196,
-                    "line_end": 1219
+                    "line_start": 1297,
+                    "line_end": 1320
                 },
                 {
                     "heading": "Background Tasks",
                     "level": 3,
-                    "line_start": 1220,
-                    "line_end": 1225
+                    "line_start": 1321,
+                    "line_end": 1328
                 },
                 {
                     "heading": "`POST /api/v1/tasks`",
                     "level": 4,
-                    "line_start": 1226,
-                    "line_end": 1283
+                    "line_start": 1329,
+                    "line_end": 1389
                 },
                 {
                     "heading": "`GET /api/v1/tasks`",
                     "level": 4,
-                    "line_start": 1284,
-                    "line_end": 1320
+                    "line_start": 1390,
+                    "line_end": 1426
                 },
                 {
                     "heading": "`GET /api/v1/tasks/{id}`",
                     "level": 4,
-                    "line_start": 1321,
-                    "line_end": 1351
+                    "line_start": 1427,
+                    "line_end": 1457
                 },
                 {
                     "heading": "`GET /api/v1/tasks/{id}/events`",
                     "level": 4,
-                    "line_start": 1352,
-                    "line_end": 1394
+                    "line_start": 1458,
+                    "line_end": 1500
                 },
                 {
                     "heading": "`POST /api/v1/tasks/{id}/input`",
                     "level": 4,
-                    "line_start": 1395,
-                    "line_end": 1430
+                    "line_start": 1501,
+                    "line_end": 1536
                 },
                 {
                     "heading": "`POST /api/v1/tasks/{id}/cancel`",
                     "level": 4,
-                    "line_start": 1431,
-                    "line_end": 1469
+                    "line_start": 1537,
+                    "line_end": 1575
                 },
                 {
                     "heading": "Todos",
                     "level": 3,
-                    "line_start": 1470,
-                    "line_end": 1473
+                    "line_start": 1576,
+                    "line_end": 1579
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/todos`",
                     "level": 4,
-                    "line_start": 1474,
-                    "line_end": 1511
+                    "line_start": 1580,
+                    "line_end": 1617
                 },
                 {
                     "heading": "`POST /api/v1/sessions/{id}/todos`",
                     "level": 4,
-                    "line_start": 1512,
-                    "line_end": 1553
+                    "line_start": 1618,
+                    "line_end": 1659
                 },
                 {
                     "heading": "`POST /api/v1/sessions/{id}/todos/bulk`",
                     "level": 4,
-                    "line_start": 1554,
-                    "line_end": 1596
+                    "line_start": 1660,
+                    "line_end": 1702
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/todos/stats`",
                     "level": 4,
-                    "line_start": 1597,
-                    "line_end": 1612
+                    "line_start": 1703,
+                    "line_end": 1718
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/todos/{todoId}`",
                     "level": 4,
-                    "line_start": 1613,
-                    "line_end": 1639
+                    "line_start": 1719,
+                    "line_end": 1745
                 },
                 {
                     "heading": "`PATCH /api/v1/sessions/{id}/todos/{todoId}`",
                     "level": 4,
-                    "line_start": 1640,
-                    "line_end": 1668
+                    "line_start": 1746,
+                    "line_end": 1774
                 },
                 {
                     "heading": "`PATCH /api/v1/sessions/{id}/todos/bulk`",
                     "level": 4,
-                    "line_start": 1669,
-                    "line_end": 1700
+                    "line_start": 1775,
+                    "line_end": 1806
                 },
                 {
                     "heading": "`POST /api/v1/sessions/{id}/todos/{todoId}/complete`",
                     "level": 4,
-                    "line_start": 1701,
-                    "line_end": 1712
+                    "line_start": 1807,
+                    "line_end": 1818
                 },
                 {
                     "heading": "`DELETE /api/v1/sessions/{id}/todos/{todoId}`",
                     "level": 4,
-                    "line_start": 1713,
-                    "line_end": 1724
+                    "line_start": 1819,
+                    "line_end": 1830
                 },
                 {
                     "heading": "Artifacts",
                     "level": 3,
-                    "line_start": 1725,
-                    "line_end": 1730
+                    "line_start": 1831,
+                    "line_end": 1836
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/artifacts`",
                     "level": 4,
-                    "line_start": 1731,
-                    "line_end": 1764
+                    "line_start": 1837,
+                    "line_end": 1870
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/artifacts/{artifactId}`",
                     "level": 4,
-                    "line_start": 1765,
-                    "line_end": 1781
+                    "line_start": 1871,
+                    "line_end": 1887
                 },
                 {
                     "heading": "`GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions`",
                     "level": 4,
-                    "line_start": 1782,
-                    "line_end": 1810
+                    "line_start": 1888,
+                    "line_end": 1916
                 },
                 {
                     "heading": "Schedules",
                     "level": 3,
-                    "line_start": 1811,
-                    "line_end": 1816
+                    "line_start": 1917,
+                    "line_end": 1924
                 },
                 {
                     "heading": "`GET /api/v1/schedules`",
                     "level": 4,
-                    "line_start": 1817,
-                    "line_end": 1861
+                    "line_start": 1925,
+                    "line_end": 1969
                 },
                 {
                     "heading": "`GET /api/v1/schedules/{id}`",
                     "level": 4,
-                    "line_start": 1862,
-                    "line_end": 1872
+                    "line_start": 1970,
+                    "line_end": 1980
                 },
                 {
                     "heading": "Loops",
                     "level": 3,
-                    "line_start": 1873,
-                    "line_end": 1878
+                    "line_start": 1981,
+                    "line_end": 1988
                 },
                 {
                     "heading": "`GET /api/v1/loops`",
                     "level": 4,
-                    "line_start": 1879,
-                    "line_end": 1908
+                    "line_start": 1989,
+                    "line_end": 2018
                 },
                 {
                     "heading": "`GET /api/v1/loops/definitions`",
                     "level": 4,
-                    "line_start": 1909,
-                    "line_end": 1931
+                    "line_start": 2019,
+                    "line_end": 2041
                 },
                 {
                     "heading": "`GET /api/v1/loops/{id}`",
                     "level": 4,
-                    "line_start": 1932,
-                    "line_end": 1954
+                    "line_start": 2042,
+                    "line_end": 2064
                 },
                 {
                     "heading": "`GET /api/v1/loops/{id}/iterations`",
                     "level": 4,
-                    "line_start": 1955,
-                    "line_end": 1976
+                    "line_start": 2065,
+                    "line_end": 2086
                 },
                 {
                     "heading": "`GET /api/v1/loops/{id}/iterations/{iterationId}`",
                     "level": 4,
-                    "line_start": 1977,
-                    "line_end": 2004
+                    "line_start": 2087,
+                    "line_end": 2114
                 },
                 {
                     "heading": "Webhooks",
                     "level": 3,
-                    "line_start": 2005,
-                    "line_end": 2008
+                    "line_start": 2115,
+                    "line_end": 2120
                 },
                 {
                     "heading": "`POST /api/v1/webhooks/incoming/{name}`",
                     "level": 4,
-                    "line_start": 2009,
-                    "line_end": 2034
+                    "line_start": 2121,
+                    "line_end": 2146
                 },
                 {
                     "heading": "`GET /api/v1/webhooks`",
                     "level": 4,
-                    "line_start": 2035,
-                    "line_end": 2067
+                    "line_start": 2147,
+                    "line_end": 2180
                 },
                 {
                     "heading": "`POST /api/v1/webhooks`",
                     "level": 4,
-                    "line_start": 2068,
-                    "line_end": 2099
+                    "line_start": 2181,
+                    "line_end": 2214
                 },
                 {
                     "heading": "`GET /api/v1/webhooks/{id}`",
                     "level": 4,
-                    "line_start": 2100,
-                    "line_end": 2107
+                    "line_start": 2215,
+                    "line_end": 2222
                 },
                 {
                     "heading": "`PUT /api/v1/webhooks/{id}`",
                     "level": 4,
-                    "line_start": 2108,
-                    "line_end": 2119
+                    "line_start": 2223,
+                    "line_end": 2234
                 },
                 {
                     "heading": "`DELETE /api/v1/webhooks/{id}`",
                     "level": 4,
-                    "line_start": 2120,
-                    "line_end": 2133
+                    "line_start": 2235,
+                    "line_end": 2248
                 },
                 {
                     "heading": "`POST /api/v1/webhooks/{id}/rotate`",
                     "level": 4,
-                    "line_start": 2134,
-                    "line_end": 2148
+                    "line_start": 2249,
+                    "line_end": 2263
                 },
                 {
                     "heading": "`GET /api/v1/webhooks/{id}/deliveries`",
                     "level": 4,
-                    "line_start": 2149,
-                    "line_end": 2179
+                    "line_start": 2264,
+                    "line_end": 2294
                 },
                 {
                     "heading": "Toolkit Management",
                     "level": 2,
-                    "line_start": 2180,
-                    "line_end": 2191
+                    "line_start": 2295,
+                    "line_end": 2306
                 },
                 {
                     "heading": "Protected Tools",
                     "level": 3,
-                    "line_start": 2192,
-                    "line_end": 2204
+                    "line_start": 2307,
+                    "line_end": 2319
                 },
                 {
                     "heading": "`GET /api/v1/toolkits`",
                     "level": 4,
-                    "line_start": 2205,
-                    "line_end": 2260
+                    "line_start": 2320,
+                    "line_end": 2375
                 },
                 {
                     "heading": "`POST /api/v1/toolkits/visibility`",
                     "level": 4,
-                    "line_start": 2261,
-                    "line_end": 2310
+                    "line_start": 2376,
+                    "line_end": 2425
                 },
                 {
                     "heading": "`GET /api/v1/server/prompt`",
                     "level": 4,
-                    "line_start": 2311,
-                    "line_end": 2355
+                    "line_start": 2426,
+                    "line_end": 2515
+                },
+                {
+                    "heading": "`GET /api/v1/server/backstory`",
+                    "level": 4,
+                    "line_start": 2516,
+                    "line_end": 2619
                 },
                 {
                     "heading": "Middleware",
                     "level": 2,
-                    "line_start": 2356,
-                    "line_end": 2357
+                    "line_start": 2620,
+                    "line_end": 2621
                 },
                 {
                     "heading": "Rate Limiting",
                     "level": 3,
-                    "line_start": 2358,
-                    "line_end": 2396
+                    "line_start": 2622,
+                    "line_end": 2660
                 },
                 {
                     "heading": "Request Size Limit",
                     "level": 3,
-                    "line_start": 2397,
-                    "line_end": 2409
+                    "line_start": 2661,
+                    "line_end": 2673
                 },
                 {
                     "heading": "Content-Type Enforcement",
                     "level": 3,
-                    "line_start": 2410,
-                    "line_end": 2420
+                    "line_start": 2674,
+                    "line_end": 2684
                 },
                 {
                     "heading": "CORS",
                     "level": 2,
-                    "line_start": 2421,
-                    "line_end": 2430
+                    "line_start": 2685,
+                    "line_end": 2694
                 },
                 {
                     "heading": "Safety",
                     "level": 2,
-                    "line_start": 2431,
-                    "line_end": 2438
+                    "line_start": 2695,
+                    "line_end": 2702
                 },
                 {
                     "heading": "Concurrency",
                     "level": 2,
-                    "line_start": 2439,
-                    "line_end": 2442
+                    "line_start": 2703,
+                    "line_end": 2706
                 },
                 {
                     "heading": "REPL Command Mapping",
                     "level": 2,
-                    "line_start": 2443,
-                    "line_end": 2470
+                    "line_start": 2707,
+                    "line_end": 2735
                 },
                 {
                     "heading": "Quick Reference",
                     "level": 2,
-                    "line_start": 2471,
-                    "line_end": 2538
-                }
-            ]
-        },
-        {
-            "path": "docs/APP-API-USAGE.md",
-            "title": "Building Applications with the Coqui API",
-            "description": "Architecture overview, session lifecycle, SSE parsing, file uploads, and integration patterns for building apps on the Coqui API",
-            "sections": [
-                {
-                    "heading": "Building Applications with the Coqui API",
-                    "level": 1,
-                    "line_start": 1,
-                    "line_end": 6
-                },
-                {
-                    "heading": "Start Here",
-                    "level": 2,
-                    "line_start": 7,
-                    "line_end": 14
-                },
-                {
-                    "heading": "Mental Model",
-                    "level": 2,
-                    "line_start": 15,
-                    "line_end": 31
-                },
-                {
-                    "heading": "Server Startup and Auth",
-                    "level": 2,
-                    "line_start": 32,
-                    "line_end": 64
-                },
-                {
-                    "heading": "Recommended Client Workflow",
-                    "level": 2,
-                    "line_start": 65,
-                    "line_end": 66
-                },
-                {
-                    "heading": "1. Create a session",
-                    "level": 3,
-                    "line_start": 67,
-                    "line_end": 76
-                },
-                {
-                    "heading": "2. Send a prompt",
-                    "level": 3,
-                    "line_start": 77,
-                    "line_end": 99
-                },
-                {
-                    "heading": "3. Inspect persisted state",
-                    "level": 3,
-                    "line_start": 100,
-                    "line_end": 110
-                },
-                {
-                    "heading": "Streaming Behavior",
-                    "level": 2,
-                    "line_start": 111,
-                    "line_end": 137
-                },
-                {
-                    "heading": "Blocking Mode",
-                    "level": 2,
-                    "line_start": 138,
-                    "line_end": 153
-                },
-                {
-                    "heading": "Concurrency Rules",
-                    "level": 2,
-                    "line_start": 154,
-                    "line_end": 167
-                },
-                {
-                    "heading": "File Upload Workflow",
-                    "level": 2,
-                    "line_start": 168,
-                    "line_end": 197
-                },
-                {
-                    "heading": "Error Handling",
-                    "level": 2,
-                    "line_start": 198,
-                    "line_end": 226
-                },
-                {
-                    "heading": "What the HTTP API Does Not Cover",
-                    "level": 2,
-                    "line_start": 227,
-                    "line_end": 242
-                },
-                {
-                    "heading": "Integration Checklist",
-                    "level": 2,
-                    "line_start": 243,
-                    "line_end": 252
+                    "line_start": 2736,
+                    "line_end": 2804
                 }
             ]
         },
@@ -786,127 +719,127 @@
                     "heading": "Enabling Background Tasks",
                     "level": 2,
                     "line_start": 55,
-                    "line_end": 66
+                    "line_end": 68
                 },
                 {
                     "heading": "Requirements",
                     "level": 3,
-                    "line_start": 67,
-                    "line_end": 72
+                    "line_start": 69,
+                    "line_end": 74
                 },
                 {
                     "heading": "Using Background Tasks",
                     "level": 2,
-                    "line_start": 73,
-                    "line_end": 74
+                    "line_start": 75,
+                    "line_end": 76
                 },
                 {
                     "heading": "Via the LLM Agent",
                     "level": 3,
-                    "line_start": 75,
-                    "line_end": 86
+                    "line_start": 77,
+                    "line_end": 88
                 },
                 {
                     "heading": "Available Agent Tools",
                     "level": 4,
-                    "line_start": 87,
-                    "line_end": 98
+                    "line_start": 89,
+                    "line_end": 100
                 },
                 {
                     "heading": "Background Tool Execution",
                     "level": 3,
-                    "line_start": 99,
-                    "line_end": 119
+                    "line_start": 101,
+                    "line_end": 121
                 },
                 {
                     "heading": "Via REPL Slash Commands",
                     "level": 3,
-                    "line_start": 120,
-                    "line_end": 131
+                    "line_start": 122,
+                    "line_end": 133
                 },
                 {
                     "heading": "Via the HTTP API",
                     "level": 3,
-                    "line_start": 132,
-                    "line_end": 135
+                    "line_start": 134,
+                    "line_end": 137
                 },
                 {
                     "heading": "Create a Task",
                     "level": 4,
-                    "line_start": 136,
-                    "line_end": 163
+                    "line_start": 138,
+                    "line_end": 165
                 },
                 {
                     "heading": "List Tasks",
                     "level": 4,
-                    "line_start": 164,
-                    "line_end": 175
+                    "line_start": 166,
+                    "line_end": 177
                 },
                 {
                     "heading": "Get Task Details",
                     "level": 4,
-                    "line_start": 176,
-                    "line_end": 182
+                    "line_start": 178,
+                    "line_end": 184
                 },
                 {
                     "heading": "Stream Task Events (SSE)",
                     "level": 4,
-                    "line_start": 183,
-                    "line_end": 217
+                    "line_start": 185,
+                    "line_end": 219
                 },
                 {
                     "heading": "Inject Input into a Running Task",
                     "level": 4,
-                    "line_start": 218,
-                    "line_end": 228
+                    "line_start": 220,
+                    "line_end": 230
                 },
                 {
                     "heading": "Cancel a Task",
                     "level": 4,
-                    "line_start": 229,
-                    "line_end": 237
+                    "line_start": 231,
+                    "line_end": 239
                 },
                 {
                     "heading": "API Reference",
                     "level": 2,
-                    "line_start": 238,
-                    "line_end": 248
+                    "line_start": 240,
+                    "line_end": 250
                 },
                 {
                     "heading": "Create Task Request Body",
                     "level": 3,
-                    "line_start": 249,
-                    "line_end": 258
+                    "line_start": 251,
+                    "line_end": 260
                 },
                 {
                     "heading": "Task Status Response",
                     "level": 3,
-                    "line_start": 259,
-                    "line_end": 277
+                    "line_start": 261,
+                    "line_end": 279
                 },
                 {
                     "heading": "Architecture",
                     "level": 2,
-                    "line_start": 278,
-                    "line_end": 301
+                    "line_start": 280,
+                    "line_end": 303
                 },
                 {
                     "heading": "Why Process Isolation?",
                     "level": 3,
-                    "line_start": 302,
-                    "line_end": 308
+                    "line_start": 304,
+                    "line_end": 310
                 },
                 {
                     "heading": "Event Retention",
                     "level": 3,
-                    "line_start": 309,
-                    "line_end": 316
+                    "line_start": 311,
+                    "line_end": 318
                 },
                 {
                     "heading": "Key Components",
                     "level": 3,
-                    "line_start": 317,
-                    "line_end": 327
+                    "line_start": 319,
+                    "line_end": 329
                 }
             ]
         },
@@ -937,139 +870,151 @@
                     "heading": "Agent & Roles",
                     "level": 3,
                     "line_start": 18,
-                    "line_end": 30
+                    "line_end": 36
                 },
                 {
                     "heading": "Configuration & System",
                     "level": 3,
-                    "line_start": 31,
-                    "line_end": 43
+                    "line_start": 37,
+                    "line_end": 50
                 },
                 {
                     "heading": "Tool & Toolkit Management",
                     "level": 3,
-                    "line_start": 44,
-                    "line_end": 57
+                    "line_start": 51,
+                    "line_end": 68
+                },
+                {
+                    "heading": "Backstory Generator",
+                    "level": 3,
+                    "line_start": 69,
+                    "line_end": 76
                 },
                 {
                     "heading": "Background Tasks",
                     "level": 3,
-                    "line_start": 58,
-                    "line_end": 65
+                    "line_start": 77,
+                    "line_end": 84
                 },
                 {
                     "heading": "Planning & Todos",
                     "level": 3,
-                    "line_start": 66,
-                    "line_end": 71
+                    "line_start": 85,
+                    "line_end": 94
+                },
+                {
+                    "heading": "Projects & Sprints",
+                    "level": 3,
+                    "line_start": 95,
+                    "line_end": 106
                 },
                 {
                     "heading": "Scheduling & Automation",
                     "level": 3,
-                    "line_start": 72,
-                    "line_end": 90
+                    "line_start": 107,
+                    "line_end": 138
                 },
                 {
                     "heading": "Context Management",
                     "level": 3,
-                    "line_start": 91,
-                    "line_end": 100
+                    "line_start": 139,
+                    "line_end": 148
                 },
                 {
                     "heading": "Marketplace",
                     "level": 3,
-                    "line_start": 101,
-                    "line_end": 113
+                    "line_start": 149,
+                    "line_end": 162
                 },
                 {
                     "heading": "CLI Commands",
                     "level": 2,
-                    "line_start": 114,
-                    "line_end": 117
+                    "line_start": 163,
+                    "line_end": 166
                 },
                 {
                     "heading": "`coqui run`",
                     "level": 3,
-                    "line_start": 118,
-                    "line_end": 147
+                    "line_start": 167,
+                    "line_end": 197
                 },
                 {
                     "heading": "Headless Mode",
                     "level": 4,
-                    "line_start": 148,
-                    "line_end": 156
+                    "line_start": 198,
+                    "line_end": 209
                 },
                 {
                     "heading": "`coqui api`",
                     "level": 3,
-                    "line_start": 157,
-                    "line_end": 177
+                    "line_start": 210,
+                    "line_end": 230
                 },
                 {
                     "heading": "`coqui setup`",
                     "level": 3,
-                    "line_start": 178,
-                    "line_end": 191
+                    "line_start": 231,
+                    "line_end": 244
                 },
                 {
                     "heading": "`coqui doctor`",
                     "level": 3,
-                    "line_start": 192,
-                    "line_end": 209
+                    "line_start": 245,
+                    "line_end": 262
                 },
                 {
                     "heading": "`coqui benchmark`",
                     "level": 3,
-                    "line_start": 210,
-                    "line_end": 226
+                    "line_start": 263,
+                    "line_end": 279
                 },
                 {
                     "heading": "Launcher",
                     "level": 2,
-                    "line_start": 227,
-                    "line_end": 230
+                    "line_start": 280,
+                    "line_end": 283
                 },
                 {
                     "heading": "Modes",
                     "level": 3,
-                    "line_start": 231,
-                    "line_end": 242
+                    "line_start": 284,
+                    "line_end": 295
                 },
                 {
                     "heading": "Launcher Flags",
                     "level": 3,
-                    "line_start": 243,
-                    "line_end": 257
+                    "line_start": 296,
+                    "line_end": 310
                 },
                 {
                     "heading": "Exit Code Behavior",
                     "level": 3,
-                    "line_start": 258,
-                    "line_end": 265
+                    "line_start": 311,
+                    "line_end": 318
                 },
                 {
                     "heading": "Signal Handling",
                     "level": 2,
-                    "line_start": 266,
-                    "line_end": 267
+                    "line_start": 319,
+                    "line_end": 320
                 },
                 {
                     "heading": "At the REPL prompt",
                     "level": 3,
-                    "line_start": 268,
-                    "line_end": 276
+                    "line_start": 321,
+                    "line_end": 329
                 },
                 {
                     "heading": "During agent execution",
                     "level": 3,
-                    "line_start": 277,
-                    "line_end": 284
+                    "line_start": 330,
+                    "line_end": 337
                 },
                 {
                     "heading": "See Also",
                     "level": 2,
-                    "line_start": 285,
-                    "line_end": 290
+                    "line_start": 338,
+                    "line_end": 343
                 }
             ]
         },
@@ -1112,187 +1057,193 @@
                     "heading": "Full Config Reference",
                     "level": 3,
                     "line_start": 60,
-                    "line_end": 130
+                    "line_end": 131
                 },
                 {
                     "heading": "Agent Defaults (`agents.defaults`)",
                     "level": 2,
-                    "line_start": 131,
-                    "line_end": 132
+                    "line_start": 132,
+                    "line_end": 133
                 },
                 {
                     "heading": "`model`",
                     "level": 3,
-                    "line_start": 133,
-                    "line_end": 154
+                    "line_start": 134,
+                    "line_end": 155
                 },
                 {
                     "heading": "`roles`",
                     "level": 3,
-                    "line_start": 155,
-                    "line_end": 180
+                    "line_start": 156,
+                    "line_end": 181
                 },
                 {
                     "heading": "`workspace`",
                     "level": 3,
-                    "line_start": 181,
-                    "line_end": 191
+                    "line_start": 182,
+                    "line_end": 192
+                },
+                {
+                    "heading": "`profile`",
+                    "level": 3,
+                    "line_start": 193,
+                    "line_end": 204
                 },
                 {
                     "heading": "`maxIterations`",
                     "level": 3,
-                    "line_start": 192,
-                    "line_end": 199
+                    "line_start": 205,
+                    "line_end": 212
                 },
                 {
                     "heading": "`backgroundTaskMaxIterations`",
                     "level": 3,
-                    "line_start": 200,
-                    "line_end": 215
+                    "line_start": 213,
+                    "line_end": 228
                 },
                 {
                     "heading": "`childBackgroundTasks`",
                     "level": 3,
-                    "line_start": 216,
-                    "line_end": 231
+                    "line_start": 229,
+                    "line_end": 244
                 },
                 {
                     "heading": "`shellAllowedCommands`",
                     "level": 3,
-                    "line_start": 232,
-                    "line_end": 250
+                    "line_start": 245,
+                    "line_end": 263
                 },
                 {
                     "heading": "`allowSudo`",
                     "level": 3,
-                    "line_start": 251,
-                    "line_end": 266
+                    "line_start": 264,
+                    "line_end": 279
                 },
                 {
                     "heading": "`blacklist`",
                     "level": 3,
-                    "line_start": 267,
-                    "line_end": 279
+                    "line_start": 280,
+                    "line_end": 292
                 },
                 {
                     "heading": "`mounts`",
                     "level": 3,
-                    "line_start": 280,
-                    "line_end": 314
+                    "line_start": 293,
+                    "line_end": 327
                 },
                 {
                     "heading": "`memory`",
                     "level": 3,
-                    "line_start": 315,
-                    "line_end": 333
+                    "line_start": 328,
+                    "line_end": 346
                 },
                 {
                     "heading": "`context`",
                     "level": 3,
-                    "line_start": 334,
-                    "line_end": 371
+                    "line_start": 347,
+                    "line_end": 386
                 },
                 {
                     "heading": "`evaluation`",
                     "level": 3,
-                    "line_start": 372,
-                    "line_end": 393
+                    "line_start": 387,
+                    "line_end": 408
                 },
                 {
                     "heading": "Model Providers (`models.providers`)",
                     "level": 2,
-                    "line_start": 394,
-                    "line_end": 397
+                    "line_start": 409,
+                    "line_end": 412
                 },
                 {
                     "heading": "Provider Configuration",
                     "level": 3,
-                    "line_start": 398,
-                    "line_end": 406
+                    "line_start": 413,
+                    "line_end": 421
                 },
                 {
                     "heading": "Supported Providers",
                     "level": 3,
-                    "line_start": 407,
-                    "line_end": 421
+                    "line_start": 422,
+                    "line_end": 436
                 },
                 {
                     "heading": "Model Catalog",
                     "level": 3,
-                    "line_start": 422,
-                    "line_end": 456
+                    "line_start": 437,
+                    "line_end": 471
                 },
                 {
                     "heading": "`models.mode`",
                     "level": 3,
-                    "line_start": 457,
-                    "line_end": 467
+                    "line_start": 472,
+                    "line_end": 482
                 },
                 {
                     "heading": "API Configuration (`api`)",
                     "level": 2,
-                    "line_start": 468,
-                    "line_end": 476
+                    "line_start": 483,
+                    "line_end": 491
                 },
                 {
                     "heading": "Environment Variable Overrides",
                     "level": 2,
-                    "line_start": 477,
-                    "line_end": 497
+                    "line_start": 492,
+                    "line_end": 512
                 },
                 {
                     "heading": "OpenClaw Compatibility",
                     "level": 2,
-                    "line_start": 498,
-                    "line_end": 501
+                    "line_start": 513,
+                    "line_end": 516
                 },
                 {
                     "heading": "Shared Format (OpenClaw Standard)",
                     "level": 3,
-                    "line_start": 502,
-                    "line_end": 511
+                    "line_start": 517,
+                    "line_end": 526
                 },
                 {
                     "heading": "Coqui Extensions",
                     "level": 3,
-                    "line_start": 512,
-                    "line_end": 528
+                    "line_start": 527,
+                    "line_end": 543
                 },
                 {
                     "heading": "Drop-in Migration",
                     "level": 3,
-                    "line_start": 529,
-                    "line_end": 541
+                    "line_start": 544,
+                    "line_end": 556
                 },
                 {
                     "heading": "Managing Config",
                     "level": 2,
-                    "line_start": 542,
-                    "line_end": 543
+                    "line_start": 557,
+                    "line_end": 558
                 },
                 {
                     "heading": "Setup Wizard",
                     "level": 3,
-                    "line_start": 544,
-                    "line_end": 557
+                    "line_start": 559,
+                    "line_end": 572
                 },
                 {
                     "heading": "REPL Commands",
                     "level": 3,
-                    "line_start": 558,
-                    "line_end": 566
+                    "line_start": 573,
+                    "line_end": 581
                 },
                 {
                     "heading": "Credential Management",
                     "level": 3,
-                    "line_start": 567,
-                    "line_end": 576
+                    "line_start": 582,
+                    "line_end": 591
                 },
                 {
                     "heading": "Architecture Notes",
                     "level": 2,
-                    "line_start": 577,
-                    "line_end": 584
+                    "line_start": 592,
+                    "line_end": 599
                 }
             ]
         },
@@ -1305,181 +1256,187 @@
                     "heading": "Coqui Features",
                     "level": 1,
                     "line_start": 1,
-                    "line_end": 6
+                    "line_end": 8
                 },
                 {
                     "heading": "<a id=\"multi-model-orchestration\"></a> \ud83e\udd16 Multi-Model Orchestration",
                     "level": 2,
-                    "line_start": 7,
-                    "line_end": 34
+                    "line_start": 9,
+                    "line_end": 38
                 },
                 {
                     "heading": "<a id=\"child-agent-delegation\"></a> \ud83d\udd00 Child Agent Delegation",
                     "level": 2,
-                    "line_start": 35,
-                    "line_end": 45
+                    "line_start": 39,
+                    "line_end": 50
                 },
                 {
                     "heading": "<a id=\"memory-persistence\"></a> \ud83e\udde0 Memory Persistence",
                     "level": 2,
-                    "line_start": 46,
-                    "line_end": 57
+                    "line_start": 51,
+                    "line_end": 107
                 },
                 {
                     "heading": "<a id=\"runtime-extensibility\"></a> \ud83d\udce6 Runtime Extensibility",
                     "level": 2,
-                    "line_start": 58,
-                    "line_end": 69
+                    "line_start": 108,
+                    "line_end": 119
                 },
                 {
                     "heading": "<a id=\"credential-management\"></a> \ud83d\udd10 Credential Management",
                     "level": 2,
-                    "line_start": 70,
-                    "line_end": 77
+                    "line_start": 120,
+                    "line_end": 127
                 },
                 {
                     "heading": "<a id=\"skills-system\"></a> \ud83d\udccb Skills System",
                     "level": 2,
-                    "line_start": 78,
-                    "line_end": 89
+                    "line_start": 128,
+                    "line_end": 139
                 },
                 {
                     "heading": "<a id=\"scheduled-tasks\"></a> \u23f0 Scheduled Tasks",
                     "level": 2,
-                    "line_start": 90,
-                    "line_end": 101
+                    "line_start": 140,
+                    "line_end": 151
                 },
                 {
                     "heading": "<a id=\"webhooks\"></a> \ud83d\udd17 Webhooks",
                     "level": 2,
-                    "line_start": 102,
-                    "line_end": 112
+                    "line_start": 152,
+                    "line_end": 162
                 },
                 {
                     "heading": "<a id=\"background-tasks\"></a> \ud83c\udfd7\ufe0f Background Tasks",
                     "level": 2,
-                    "line_start": 113,
-                    "line_end": 124
+                    "line_start": 163,
+                    "line_end": 174
                 },
                 {
                     "heading": "<a id=\"loops\"></a> \ud83d\udd01 Loops",
                     "level": 2,
-                    "line_start": 125,
-                    "line_end": 138
+                    "line_start": 175,
+                    "line_end": 188
                 },
                 {
                     "heading": "<a id=\"vision-analysis\"></a> \ud83d\udc41\ufe0f Vision Analysis",
                     "level": 2,
-                    "line_start": 139,
-                    "line_end": 146
+                    "line_start": 189,
+                    "line_end": 196
                 },
                 {
                     "heading": "<a id=\"session-evaluation\"></a> \ud83d\udcca Session Evaluation",
                     "level": 2,
-                    "line_start": 147,
-                    "line_end": 157
+                    "line_start": 197,
+                    "line_end": 207
                 },
                 {
                     "heading": "<a id=\"self-learning\"></a> \ud83d\udcda Self-Learning Loop",
                     "level": 2,
-                    "line_start": 158,
-                    "line_end": 167
+                    "line_start": 208,
+                    "line_end": 217
+                },
+                {
+                    "heading": "<a id=\"cognitive-flexibility\"></a> \ud83e\udde0 Cognitive Flexibility",
+                    "level": 2,
+                    "line_start": 218,
+                    "line_end": 232
                 },
                 {
                     "heading": "<a id=\"artifacts-and-plans\"></a> \ud83d\uddc2\ufe0f Artifacts & Plan System",
                     "level": 2,
-                    "line_start": 168,
-                    "line_end": 180
+                    "line_start": 233,
+                    "line_end": 245
                 },
                 {
                     "heading": "<a id=\"todo-system\"></a> \u2705 Todo System",
                     "level": 2,
-                    "line_start": 181,
-                    "line_end": 193
+                    "line_start": 246,
+                    "line_end": 258
                 },
                 {
                     "heading": "<a id=\"toolkit-visibility\"></a> \ud83d\udd27 Toolkit Visibility",
                     "level": 2,
-                    "line_start": 194,
-                    "line_end": 205
+                    "line_start": 259,
+                    "line_end": 270
                 },
                 {
                     "heading": "<a id=\"role-scoped-filtering\"></a> \ud83c\udfad Role-Scoped Toolkit Filtering",
                     "level": 2,
-                    "line_start": 206,
-                    "line_end": 213
+                    "line_start": 271,
+                    "line_end": 278
                 },
                 {
                     "heading": "<a id=\"conversation-summarization\"></a> \ud83d\udd04 Conversation Summarization",
                     "level": 2,
-                    "line_start": 214,
-                    "line_end": 225
+                    "line_start": 279,
+                    "line_end": 290
                 },
                 {
                     "heading": "<a id=\"context-window-management\"></a> \ud83d\udcd0 Context Window Management",
                     "level": 2,
-                    "line_start": 226,
-                    "line_end": 233
+                    "line_start": 291,
+                    "line_end": 298
                 },
                 {
                     "heading": "<a id=\"layered-safety\"></a> \ud83d\udee1\ufe0f Layered Safety",
                     "level": 2,
-                    "line_start": 234,
-                    "line_end": 251
+                    "line_start": 299,
+                    "line_end": 318
                 },
                 {
                     "heading": "<a id=\"http-api\"></a> \ud83c\udf10 HTTP API",
                     "level": 2,
-                    "line_start": 252,
-                    "line_end": 262
+                    "line_start": 319,
+                    "line_end": 329
                 },
                 {
                     "heading": "<a id=\"persistent-sessions\"></a> \ud83d\udcbe Persistent Sessions",
                     "level": 2,
-                    "line_start": 263,
-                    "line_end": 273
+                    "line_start": 330,
+                    "line_end": 340
                 },
                 {
                     "heading": "<a id=\"automatic-updates\"></a> \ud83d\udd04 Automatic Updates",
                     "level": 2,
-                    "line_start": 274,
-                    "line_end": 284
+                    "line_start": 341,
+                    "line_end": 351
                 },
                 {
                     "heading": "<a id=\"health-diagnostics\"></a> \ud83e\ude7a Health Diagnostics",
                     "level": 2,
-                    "line_start": 285,
-                    "line_end": 297
+                    "line_start": 352,
+                    "line_end": 364
                 },
                 {
                     "heading": "<a id=\"mount-system\"></a> \ud83d\udcc2 Mount System",
                     "level": 2,
-                    "line_start": 298,
-                    "line_end": 324
+                    "line_start": 365,
+                    "line_end": 391
                 },
                 {
                     "heading": "<a id=\"coqui-space\"></a> \ud83c\udfea Coqui Space Marketplace",
                     "level": 2,
-                    "line_start": 325,
-                    "line_end": 337
+                    "line_start": 392,
+                    "line_end": 404
                 },
                 {
                     "heading": "<a id=\"soul\"></a> \ud83e\udeb6 Soul",
                     "level": 2,
-                    "line_start": 338,
-                    "line_end": 374
+                    "line_start": 405,
+                    "line_end": 442
                 },
                 {
                     "heading": "<a id=\"token-efficiency\"></a> \ud83d\udcb0 Token Efficiency",
                     "level": 2,
-                    "line_start": 375,
-                    "line_end": 388
+                    "line_start": 443,
+                    "line_end": 456
                 },
                 {
                     "heading": "See Also",
                     "level": 2,
-                    "line_start": 389,
-                    "line_end": 397
+                    "line_start": 457,
+                    "line_end": 465
                 }
             ]
         },
@@ -1519,106 +1476,112 @@
                     "line_end": 30
                 },
                 {
-                    "heading": "Relationship to php-agents",
-                    "level": 2,
+                    "heading": "Release Version Source",
+                    "level": 3,
                     "line_start": 31,
                     "line_end": 34
                 },
                 {
-                    "heading": "Branch Protection",
+                    "heading": "Relationship to php-agents",
                     "level": 2,
                     "line_start": 35,
-                    "line_end": 48
+                    "line_end": 38
+                },
+                {
+                    "heading": "Branch Protection",
+                    "level": 2,
+                    "line_start": 39,
+                    "line_end": 52
                 },
                 {
                     "heading": "Testing Locally",
                     "level": 2,
-                    "line_start": 49,
-                    "line_end": 52
+                    "line_start": 53,
+                    "line_end": 56
                 },
                 {
                     "heading": "Prerequisites",
                     "level": 3,
-                    "line_start": 53,
-                    "line_end": 59
+                    "line_start": 57,
+                    "line_end": 63
                 },
                 {
                     "heading": "macOS",
                     "level": 3,
-                    "line_start": 60,
-                    "line_end": 91
+                    "line_start": 64,
+                    "line_end": 95
                 },
                 {
                     "heading": "Linux (Ubuntu)",
                     "level": 3,
-                    "line_start": 92,
-                    "line_end": 129
+                    "line_start": 96,
+                    "line_end": 133
                 },
                 {
                     "heading": "Using Docker",
                     "level": 3,
-                    "line_start": 130,
-                    "line_end": 145
+                    "line_start": 134,
+                    "line_end": 149
                 },
                 {
                     "heading": "Using the Test Script",
                     "level": 3,
-                    "line_start": 146,
-                    "line_end": 167
+                    "line_start": 150,
+                    "line_end": 171
                 },
                 {
                     "heading": "Coverage Reporting",
                     "level": 2,
-                    "line_start": 168,
-                    "line_end": 186
+                    "line_start": 172,
+                    "line_end": 190
                 },
                 {
                     "heading": "Workflow File Reference",
                     "level": 2,
-                    "line_start": 187,
-                    "line_end": 196
+                    "line_start": 191,
+                    "line_end": 200
                 },
                 {
                     "heading": "Platform Support",
                     "level": 2,
-                    "line_start": 197,
-                    "line_end": 204
+                    "line_start": 201,
+                    "line_end": 208
                 },
                 {
                     "heading": "Troubleshooting",
                     "level": 2,
-                    "line_start": 205,
-                    "line_end": 206
+                    "line_start": 209,
+                    "line_end": 210
                 },
                 {
                     "heading": "Tests pass locally but fail in CI",
                     "level": 3,
-                    "line_start": 207,
-                    "line_end": 212
+                    "line_start": 211,
+                    "line_end": 216
                 },
                 {
                     "heading": "PHPStan fails in CI but not locally",
                     "level": 3,
-                    "line_start": 213,
-                    "line_end": 218
+                    "line_start": 217,
+                    "line_end": 222
                 },
                 {
                     "heading": "Coverage command fails locally",
                     "level": 3,
-                    "line_start": 219,
-                    "line_end": 225
+                    "line_start": 223,
+                    "line_end": 229
                 },
                 {
                     "heading": "Missing ext-pdo_sqlite",
                     "level": 3,
-                    "line_start": 226,
-                    "line_end": 235
+                    "line_start": 230,
+                    "line_end": 239
                 },
                 {
                     "heading": "Cache issues",
                     "level": 3,
-                    "line_start": 236,
-                    "line_end": 238
+                    "line_start": 240,
+                    "line_end": 242
                 }
             ]
         },
@@ -1631,133 +1594,145 @@
                     "heading": "Roles Reference",
                     "level": 1,
                     "line_start": 1,
-                    "line_end": 4
+                    "line_end": 6
                 },
                 {
                     "heading": "Access Levels",
                     "level": 2,
-                    "line_start": 5,
-                    "line_end": 15
+                    "line_start": 7,
+                    "line_end": 17
                 },
                 {
                     "heading": "Built-in Roles",
                     "level": 2,
-                    "line_start": 16,
-                    "line_end": 17
+                    "line_start": 18,
+                    "line_end": 19
                 },
                 {
                     "heading": "orchestrator",
                     "level": 3,
-                    "line_start": 18,
-                    "line_end": 29
+                    "line_start": 20,
+                    "line_end": 31
                 },
                 {
                     "heading": "coder",
                     "level": 3,
-                    "line_start": 30,
-                    "line_end": 41
+                    "line_start": 32,
+                    "line_end": 45
                 },
                 {
                     "heading": "assistant",
                     "level": 3,
-                    "line_start": 42,
-                    "line_end": 53
+                    "line_start": 46,
+                    "line_end": 57
                 },
                 {
                     "heading": "plan",
                     "level": 3,
-                    "line_start": 54,
-                    "line_end": 65
+                    "line_start": 58,
+                    "line_end": 69
                 },
                 {
                     "heading": "reviewer",
                     "level": 3,
-                    "line_start": 66,
-                    "line_end": 77
+                    "line_start": 70,
+                    "line_end": 81
                 },
                 {
                     "heading": "explorer",
                     "level": 3,
-                    "line_start": 78,
-                    "line_end": 89
+                    "line_start": 82,
+                    "line_end": 93
+                },
+                {
+                    "heading": "muse",
+                    "level": 3,
+                    "line_start": 94,
+                    "line_end": 105
+                },
+                {
+                    "heading": "philosopher",
+                    "level": 3,
+                    "line_start": 106,
+                    "line_end": 117
                 },
                 {
                     "heading": "evaluator",
                     "level": 3,
-                    "line_start": 90,
-                    "line_end": 101
+                    "line_start": 118,
+                    "line_end": 129
                 },
                 {
                     "heading": "learner",
                     "level": 3,
-                    "line_start": 102,
-                    "line_end": 113
+                    "line_start": 130,
+                    "line_end": 141
                 },
                 {
                     "heading": "vision",
                     "level": 3,
-                    "line_start": 114,
-                    "line_end": 125
+                    "line_start": 142,
+                    "line_end": 153
                 },
                 {
                     "heading": "title-generator *(template)*",
                     "level": 3,
-                    "line_start": 126,
-                    "line_end": 135
+                    "line_start": 154,
+                    "line_end": 163
                 },
                 {
                     "heading": "plan-todo-generator *(template)*",
                     "level": 3,
-                    "line_start": 136,
-                    "line_end": 145
+                    "line_start": 164,
+                    "line_end": 173
                 },
                 {
                     "heading": "Role-to-Model Mapping",
                     "level": 2,
-                    "line_start": 146,
-                    "line_end": 170
+                    "line_start": 174,
+                    "line_end": 198
                 },
                 {
                     "heading": "Creating Custom Roles",
                     "level": 2,
-                    "line_start": 171,
-                    "line_end": 174
+                    "line_start": 199,
+                    "line_end": 202
                 },
                 {
                     "heading": "Frontmatter Schema",
                     "level": 3,
-                    "line_start": 175,
-                    "line_end": 202
+                    "line_start": 203,
+                    "line_end": 230
                 },
                 {
                     "heading": "Toolkit Filter Patterns",
                     "level": 3,
-                    "line_start": 203,
-                    "line_end": 225
+                    "line_start": 231,
+                    "line_end": 253
                 },
                 {
                     "heading": "Writing Role Instructions",
                     "level": 3,
-                    "line_start": 226,
-                    "line_end": 234
+                    "line_start": 254,
+                    "line_end": 262
                 },
                 {
                     "heading": "Role Iteration Budget",
                     "level": 3,
-                    "line_start": 235,
-                    "line_end": 243
+                    "line_start": 263,
+                    "line_end": 271
                 },
                 {
                     "heading": "Role Update Tracking",
                     "level": 2,
-                    "line_start": 244,
-                    "line_end": 253
+                    "line_start": 272,
+                    "line_end": 281
                 },
                 {
                     "heading": "See Also",
                     "level": 2,
-                    "line_start": 254,
-                    "line_end": 258
+                    "line_start": 282,
+                    "line_end": 286
                 }
             ]
         },
@@ -1782,331 +1757,331 @@
                     "heading": "What Is a Skill?",
                     "level": 2,
                     "line_start": 25,
-                    "line_end": 58
+                    "line_end": 59
                 },
                 {
                     "heading": "Quick Start",
                     "level": 2,
-                    "line_start": 59,
-                    "line_end": 60
+                    "line_start": 60,
+                    "line_end": 61
                 },
                 {
                     "heading": "Using the Built-in Tool",
                     "level": 3,
-                    "line_start": 61,
-                    "line_end": 76
+                    "line_start": 62,
+                    "line_end": 77
                 },
                 {
                     "heading": "Manual Creation",
                     "level": 3,
-                    "line_start": 77,
-                    "line_end": 120
+                    "line_start": 78,
+                    "line_end": 121
                 },
                 {
                     "heading": "The SKILL.md Format",
                     "level": 2,
-                    "line_start": 121,
-                    "line_end": 137
+                    "line_start": 122,
+                    "line_end": 138
                 },
                 {
                     "heading": "Minimal Example",
                     "level": 3,
-                    "line_start": 138,
-                    "line_end": 154
+                    "line_start": 139,
+                    "line_end": 155
                 },
                 {
                     "heading": "Full Example",
                     "level": 3,
-                    "line_start": 155,
-                    "line_end": 173
+                    "line_start": 156,
+                    "line_end": 174
                 },
                 {
                     "heading": "Frontmatter Reference",
                     "level": 2,
-                    "line_start": 174,
-                    "line_end": 184
+                    "line_start": 175,
+                    "line_end": 185
                 },
                 {
                     "heading": "`name`",
                     "level": 3,
-                    "line_start": 185,
-                    "line_end": 211
+                    "line_start": 186,
+                    "line_end": 212
                 },
                 {
                     "heading": "`description`",
                     "level": 3,
-                    "line_start": 212,
-                    "line_end": 229
+                    "line_start": 213,
+                    "line_end": 230
                 },
                 {
                     "heading": "`license`",
                     "level": 3,
-                    "line_start": 230,
-                    "line_end": 239
+                    "line_start": 231,
+                    "line_end": 240
                 },
                 {
                     "heading": "`compatibility`",
                     "level": 3,
-                    "line_start": 240,
-                    "line_end": 251
+                    "line_start": 241,
+                    "line_end": 252
                 },
                 {
                     "heading": "`metadata`",
                     "level": 3,
-                    "line_start": 252,
-                    "line_end": 264
+                    "line_start": 253,
+                    "line_end": 265
                 },
                 {
                     "heading": "`allowed-tools`",
                     "level": 3,
-                    "line_start": 265,
-                    "line_end": 272
+                    "line_start": 266,
+                    "line_end": 273
                 },
                 {
                     "heading": "Body Content",
                     "level": 2,
-                    "line_start": 273,
-                    "line_end": 278
+                    "line_start": 274,
+                    "line_end": 279
                 },
                 {
                     "heading": "Recommended Sections",
                     "level": 3,
-                    "line_start": 279,
-                    "line_end": 321
+                    "line_start": 280,
+                    "line_end": 322
                 },
                 {
                     "heading": "What Makes Good Instructions",
                     "level": 3,
-                    "line_start": 322,
-                    "line_end": 329
+                    "line_start": 323,
+                    "line_end": 330
                 },
                 {
                     "heading": "Creating Skills",
                     "level": 2,
-                    "line_start": 330,
-                    "line_end": 331
+                    "line_start": 331,
+                    "line_end": 332
                 },
                 {
-                    "heading": "With skill_create (Recommended)",
+                    "heading": "With coqui_skills (Recommended)",
                     "level": 3,
-                    "line_start": 332,
-                    "line_end": 344
+                    "line_start": 333,
+                    "line_end": 345
                 },
                 {
                     "heading": "Manually",
                     "level": 3,
-                    "line_start": 345,
-                    "line_end": 365
+                    "line_start": 346,
+                    "line_end": 366
                 },
                 {
                     "heading": "From a Template",
                     "level": 3,
-                    "line_start": 366,
-                    "line_end": 375
+                    "line_start": 367,
+                    "line_end": 376
                 },
                 {
                     "heading": "Optional Directories",
                     "level": 2,
-                    "line_start": 376,
-                    "line_end": 393
+                    "line_start": 377,
+                    "line_end": 394
                 },
                 {
                     "heading": "scripts/",
                     "level": 3,
-                    "line_start": 394,
-                    "line_end": 407
+                    "line_start": 395,
+                    "line_end": 408
                 },
                 {
                     "heading": "references/",
                     "level": 3,
-                    "line_start": 408,
-                    "line_end": 415
+                    "line_start": 409,
+                    "line_end": 416
                 },
                 {
                     "heading": "assets/",
                     "level": 3,
-                    "line_start": 416,
-                    "line_end": 419
+                    "line_start": 417,
+                    "line_end": 420
                 },
                 {
                     "heading": "Progressive Disclosure",
                     "level": 2,
-                    "line_start": 420,
-                    "line_end": 436
+                    "line_start": 421,
+                    "line_end": 437
                 },
                 {
                     "heading": "Naming Rules",
                     "level": 2,
-                    "line_start": 437,
-                    "line_end": 450
+                    "line_start": 438,
+                    "line_end": 451
                 },
                 {
                     "heading": "Validation",
                     "level": 2,
-                    "line_start": 451,
-                    "line_end": 458
+                    "line_start": 452,
+                    "line_end": 459
                 },
                 {
                     "heading": "Validation Checks",
                     "level": 3,
-                    "line_start": 459,
-                    "line_end": 473
+                    "line_start": 460,
+                    "line_end": 474
                 },
                 {
                     "heading": "What Happens on Invalid Skills",
                     "level": 3,
-                    "line_start": 474,
-                    "line_end": 479
+                    "line_start": 475,
+                    "line_end": 480
                 },
                 {
                     "heading": "Skill Tools",
                     "level": 2,
-                    "line_start": 480,
-                    "line_end": 483
+                    "line_start": 481,
+                    "line_end": 484
                 },
                 {
-                    "heading": "skill_list",
+                    "heading": "list",
                     "level": 3,
-                    "line_start": 484,
-                    "line_end": 493
+                    "line_start": 485,
+                    "line_end": 494
                 },
                 {
-                    "heading": "skill_read",
+                    "heading": "read",
                     "level": 3,
-                    "line_start": 494,
-                    "line_end": 503
+                    "line_start": 495,
+                    "line_end": 504
                 },
                 {
-                    "heading": "skill_create",
+                    "heading": "create",
                     "level": 3,
-                    "line_start": 504,
-                    "line_end": 525
+                    "line_start": 505,
+                    "line_end": 528
                 },
                 {
                     "heading": "How Discovery Works",
                     "level": 2,
-                    "line_start": 526,
-                    "line_end": 527
+                    "line_start": 529,
+                    "line_end": 530
                 },
                 {
                     "heading": "Boot Sequence",
                     "level": 3,
-                    "line_start": 528,
-                    "line_end": 541
+                    "line_start": 531,
+                    "line_end": 544
                 },
                 {
                     "heading": "System Prompt Injection",
                     "level": 3,
-                    "line_start": 542,
-                    "line_end": 560
+                    "line_start": 545,
+                    "line_end": 563
                 },
                 {
                     "heading": "Registration",
                     "level": 3,
-                    "line_start": 561,
-                    "line_end": 564
+                    "line_start": 564,
+                    "line_end": 567
                 },
                 {
                     "heading": "File Layout",
                     "level": 3,
-                    "line_start": 565,
-                    "line_end": 579
+                    "line_start": 568,
+                    "line_end": 582
                 },
                 {
                     "heading": "Cache Invalidation",
                     "level": 3,
-                    "line_start": 580,
-                    "line_end": 585
+                    "line_start": 583,
+                    "line_end": 588
                 },
                 {
                     "heading": "Best Practices",
                     "level": 2,
-                    "line_start": 586,
-                    "line_end": 587
+                    "line_start": 589,
+                    "line_end": 590
                 },
                 {
                     "heading": "Writing Effective Skills",
                     "level": 3,
-                    "line_start": 588,
-                    "line_end": 607
+                    "line_start": 591,
+                    "line_end": 610
                 },
                 {
                     "heading": "Keeping Skills Lightweight",
                     "level": 3,
-                    "line_start": 608,
-                    "line_end": 615
+                    "line_start": 611,
+                    "line_end": 618
                 },
                 {
                     "heading": "Organizing Skills",
                     "level": 3,
-                    "line_start": 616,
-                    "line_end": 622
+                    "line_start": 619,
+                    "line_end": 625
                 },
                 {
                     "heading": "Reusable Patterns",
                     "level": 3,
-                    "line_start": 623,
-                    "line_end": 638
+                    "line_start": 626,
+                    "line_end": 641
                 },
                 {
                     "heading": "Examples",
                     "level": 2,
-                    "line_start": 639,
-                    "line_end": 640
+                    "line_start": 642,
+                    "line_end": 643
                 },
                 {
                     "heading": "Say Hello (Prompt-Only)",
                     "level": 3,
-                    "line_start": 641,
-                    "line_end": 679
+                    "line_start": 644,
+                    "line_end": 682
                 },
                 {
                     "heading": "Code Review (With References)",
                     "level": 3,
-                    "line_start": 680,
-                    "line_end": 729
+                    "line_start": 683,
+                    "line_end": 732
                 },
                 {
                     "heading": "Data Pipeline (With Scripts)",
                     "level": 3,
-                    "line_start": 730,
-                    "line_end": 773
+                    "line_start": 733,
+                    "line_end": 776
                 },
                 {
                     "heading": "Troubleshooting",
                     "level": 2,
-                    "line_start": 774,
-                    "line_end": 775
+                    "line_start": 777,
+                    "line_end": 778
                 },
                 {
                     "heading": "Skill not appearing in skill_list",
                     "level": 3,
-                    "line_start": 776,
-                    "line_end": 783
+                    "line_start": 779,
+                    "line_end": 786
                 },
                 {
                     "heading": "Skill not being activated",
                     "level": 3,
-                    "line_start": 784,
-                    "line_end": 790
+                    "line_start": 787,
+                    "line_end": 793
                 },
                 {
                     "heading": "Validation errors on skill_create",
                     "level": 3,
-                    "line_start": 791,
-                    "line_end": 798
+                    "line_start": 794,
+                    "line_end": 801
                 },
                 {
                     "heading": "SKILL.md parse errors",
                     "level": 3,
-                    "line_start": 799,
-                    "line_end": 805
+                    "line_start": 802,
+                    "line_end": 808
                 },
                 {
                     "heading": "Key Source Files",
                     "level": 3,
-                    "line_start": 806,
-                    "line_end": 818
+                    "line_start": 809,
+                    "line_end": 821
                 }
             ]
         },
@@ -2541,79 +2516,79 @@
                     "heading": "Read This First",
                     "level": 2,
                     "line_start": 17,
-                    "line_end": 37
+                    "line_end": 36
                 },
                 {
                     "heading": "Architecture in One Page",
                     "level": 2,
-                    "line_start": 38,
-                    "line_end": 54
+                    "line_start": 37,
+                    "line_end": 53
                 },
                 {
                     "heading": "Working with AI Agents on This Repo",
                     "level": 2,
-                    "line_start": 55,
-                    "line_end": 72
+                    "line_start": 54,
+                    "line_end": 71
                 },
                 {
                     "heading": "Source of Truth Rules",
                     "level": 2,
-                    "line_start": 73,
-                    "line_end": 87
+                    "line_start": 72,
+                    "line_end": 86
                 },
                 {
                     "heading": "Platform Support",
                     "level": 2,
-                    "line_start": 88,
-                    "line_end": 99
+                    "line_start": 87,
+                    "line_end": 98
                 },
                 {
                     "heading": "Dependency Management",
                     "level": 2,
-                    "line_start": 100,
-                    "line_end": 117
+                    "line_start": 99,
+                    "line_end": 116
                 },
                 {
                     "heading": "Coding Standards",
                     "level": 2,
-                    "line_start": 118,
-                    "line_end": 138
+                    "line_start": 117,
+                    "line_end": 137
                 },
                 {
                     "heading": "Safety Constraints",
                     "level": 2,
-                    "line_start": 139,
-                    "line_end": 152
+                    "line_start": 138,
+                    "line_end": 151
                 },
                 {
                     "heading": "Testing Expectations",
                     "level": 2,
-                    "line_start": 153,
-                    "line_end": 174
+                    "line_start": 152,
+                    "line_end": 173
                 },
                 {
                     "heading": "Documentation Policy",
                     "level": 2,
-                    "line_start": 175,
-                    "line_end": 195
+                    "line_start": 174,
+                    "line_end": 194
                 },
                 {
                     "heading": "Source Map Maintenance",
                     "level": 2,
-                    "line_start": 196,
-                    "line_end": 206
+                    "line_start": 195,
+                    "line_end": 205
                 },
                 {
                     "heading": "Practical Change Checklist",
                     "level": 2,
-                    "line_start": 207,
-                    "line_end": 217
+                    "line_start": 206,
+                    "line_end": 216
                 },
                 {
                     "heading": "Keep This File Lean",
                     "level": 2,
-                    "line_start": 218,
-                    "line_end": 220
+                    "line_start": 217,
+                    "line_end": 219
                 }
             ]
         },
@@ -2629,202 +2604,214 @@
                     "line_end": 36
                 },
                 {
-                    "heading": "Features",
+                    "heading": "Why Coqui?",
                     "level": 2,
                     "line_start": 37,
-                    "line_end": 57
+                    "line_end": 45
+                },
+                {
+                    "heading": "Why PHP?",
+                    "level": 2,
+                    "line_start": 46,
+                    "line_end": 53
+                },
+                {
+                    "heading": "Features",
+                    "level": 2,
+                    "line_start": 54,
+                    "line_end": 75
                 },
                 {
                     "heading": "Requirements",
                     "level": 2,
-                    "line_start": 58,
-                    "line_end": 65
+                    "line_start": 76,
+                    "line_end": 83
                 },
                 {
                     "heading": "Installation",
                     "level": 2,
-                    "line_start": 66,
-                    "line_end": 71
+                    "line_start": 84,
+                    "line_end": 89
                 },
                 {
                     "heading": "Linux / macOS / WSL2",
                     "level": 3,
-                    "line_start": 72,
-                    "line_end": 77
+                    "line_start": 90,
+                    "line_end": 95
                 },
                 {
                     "heading": "Windows (PowerShell)",
                     "level": 3,
-                    "line_start": 78,
-                    "line_end": 85
+                    "line_start": 96,
+                    "line_end": 103
                 },
                 {
                     "heading": "Update",
                     "level": 3,
-                    "line_start": 86,
-                    "line_end": 89
+                    "line_start": 104,
+                    "line_end": 107
                 },
                 {
                     "heading": "Inspect before running",
                     "level": 3,
-                    "line_start": 90,
-                    "line_end": 94
+                    "line_start": 108,
+                    "line_end": 112
                 },
                 {
                     "heading": "Development Install",
                     "level": 3,
-                    "line_start": 95,
-                    "line_end": 114
+                    "line_start": 113,
+                    "line_end": 132
                 },
                 {
                     "heading": "Quick Start",
                     "level": 2,
-                    "line_start": 115,
-                    "line_end": 162
+                    "line_start": 133,
+                    "line_end": 180
                 },
                 {
                     "heading": "Getting Started",
                     "level": 3,
-                    "line_start": 163,
-                    "line_end": 174
+                    "line_start": 181,
+                    "line_end": 192
                 },
                 {
                     "heading": "CLI Options",
                     "level": 3,
-                    "line_start": 175,
-                    "line_end": 191
+                    "line_start": 193,
+                    "line_end": 209
                 },
                 {
                     "heading": "REPL Commands",
                     "level": 2,
-                    "line_start": 192,
-                    "line_end": 211
+                    "line_start": 210,
+                    "line_end": 232
                 },
                 {
                     "heading": "Providers & OpenClaw Config",
                     "level": 2,
-                    "line_start": 212,
-                    "line_end": 219
+                    "line_start": 233,
+                    "line_end": 240
                 },
                 {
                     "heading": "Supported Providers",
                     "level": 3,
-                    "line_start": 220,
-                    "line_end": 237
+                    "line_start": 241,
+                    "line_end": 258
                 },
                 {
                     "heading": "Provider Setup",
                     "level": 3,
-                    "line_start": 238,
-                    "line_end": 277
+                    "line_start": 259,
+                    "line_end": 298
                 },
                 {
                     "heading": "Role-Based Model Routing",
                     "level": 3,
-                    "line_start": 278,
-                    "line_end": 301
+                    "line_start": 299,
+                    "line_end": 322
                 },
                 {
                     "heading": "Model Aliases",
                     "level": 3,
-                    "line_start": 302,
-                    "line_end": 315
+                    "line_start": 323,
+                    "line_end": 336
                 },
                 {
                     "heading": "Built-in Tools",
                     "level": 2,
-                    "line_start": 316,
-                    "line_end": 336
+                    "line_start": 337,
+                    "line_end": 357
                 },
                 {
                     "heading": "Extending Coqui",
                     "level": 2,
-                    "line_start": 337,
-                    "line_end": 342
+                    "line_start": 358,
+                    "line_end": 363
                 },
                 {
                     "heading": "Performance",
                     "level": 2,
-                    "line_start": 343,
-                    "line_end": 354
+                    "line_start": 364,
+                    "line_end": 375
                 },
                 {
                     "heading": "OPcache & JIT",
                     "level": 3,
-                    "line_start": 355,
-                    "line_end": 366
+                    "line_start": 376,
+                    "line_end": 387
                 },
                 {
                     "heading": "Benchmarking",
                     "level": 3,
-                    "line_start": 367,
-                    "line_end": 376
+                    "line_start": 388,
+                    "line_end": 397
                 },
                 {
                     "heading": "SQLite Tuning",
                     "level": 3,
-                    "line_start": 377,
-                    "line_end": 380
+                    "line_start": 398,
+                    "line_end": 401
                 },
                 {
                     "heading": "Docker",
                     "level": 2,
-                    "line_start": 381,
-                    "line_end": 386
+                    "line_start": 402,
+                    "line_end": 407
                 },
                 {
                     "heading": "Quick Start (Docker)",
                     "level": 3,
-                    "line_start": 387,
-                    "line_end": 408
+                    "line_start": 408,
+                    "line_end": 429
                 },
                 {
                     "heading": "Connect to Ollama",
                     "level": 3,
-                    "line_start": 409,
-                    "line_end": 416
+                    "line_start": 430,
+                    "line_end": 437
                 },
                 {
                     "heading": "Useful Commands",
                     "level": 3,
-                    "line_start": 417,
-                    "line_end": 434
+                    "line_start": 438,
+                    "line_end": 455
                 },
                 {
                     "heading": "Configuration",
                     "level": 3,
-                    "line_start": 435,
-                    "line_end": 446
+                    "line_start": 456,
+                    "line_end": 467
                 },
                 {
                     "heading": "File Overview",
                     "level": 3,
-                    "line_start": 447,
-                    "line_end": 457
+                    "line_start": 468,
+                    "line_end": 478
                 },
                 {
                     "heading": "Documentation",
                     "level": 2,
-                    "line_start": 458,
-                    "line_end": 477
+                    "line_start": 479,
+                    "line_end": 496
                 },
                 {
                     "heading": "Community",
                     "level": 2,
-                    "line_start": 478,
-                    "line_end": 484
+                    "line_start": 497,
+                    "line_end": 503
                 },
                 {
                     "heading": "Contributing",
                     "level": 2,
-                    "line_start": 485,
-                    "line_end": 496
+                    "line_start": 504,
+                    "line_end": 515
                 },
                 {
                     "heading": "License",
                     "level": 2,
-                    "line_start": 497,
-                    "line_end": 499
+                    "line_start": 516,
+                    "line_end": 518
                 }
             ]
         }

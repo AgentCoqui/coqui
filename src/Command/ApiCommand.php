@@ -14,6 +14,7 @@ use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Agent\QualityAutomationCoordinator;
 use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
+use CoquiBot\Coqui\Api\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
@@ -22,11 +23,13 @@ use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler as ApiLoopHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
+use CoquiBot\Coqui\Api\Handler\ProjectHandler;
 use CoquiBot\Coqui\Api\Handler\PromptHandler;
 use CoquiBot\Coqui\Api\Handler\RoleHandler;
 use CoquiBot\Coqui\Api\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Api\Handler\ServerHandler;
 use CoquiBot\Coqui\Api\Handler\SessionHandler;
+use CoquiBot\Coqui\Api\Handler\SessionProjectHandler;
 use CoquiBot\Coqui\Api\Handler\TaskHandler;
 use CoquiBot\Coqui\Api\Handler\ToolkitHandler;
 use CoquiBot\Coqui\Api\Handler\TurnHandler;
@@ -39,6 +42,7 @@ use CoquiBot\Coqui\Api\Middleware\RateLimitMiddleware;
 use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
+use CoquiBot\Coqui\Backstory\BackstoryInspectionService;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
@@ -56,6 +60,7 @@ use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\WebhookStore;
+use CoquiBot\Coqui\Support\PromptInspectionService;
 use React\EventLoop\Loop;
 use React\Http\HttpServer;
 use React\Http\Middleware\LimitConcurrentRequestsMiddleware;
@@ -306,10 +311,11 @@ final class ApiCommand extends Command
         $configHandler = new ConfigHandler(
             $boot->config(),
             new ConfigValidator(),
+            $boot->profileDiscovery(),
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
-        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery());
+        $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
         $evaluationHandler = new EvaluationHandler($evaluationStore);
         $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $qualityStatus);
@@ -321,22 +327,26 @@ final class ApiCommand extends Command
             includeConfigManager: true,
             includeVisibilityRegistry: true,
         );
+        $promptInspectionService = new PromptInspectionService($previewRunner, $boot->workspacePath(), $workDir);
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
-        $promptHandler = new PromptHandler($previewRunner);
+        $promptHandler = new PromptHandler($promptInspectionService);
+        $backstoryHandler = new BackstoryHandler(new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery()));
         $budgetHandler = new BudgetHandler($previewRunner);
         $artifactHandler = new ArtifactHandler($artifactStore);
         $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
         $scheduleHandler = new ScheduleHandler($scheduleStore);
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
         $webhookMgmtHandler = new WebhookManagementHandler($webhookStore, $boot->profileDiscovery());
+        $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore) : null;
+        $sessionProjectHandler = $projectStore !== null ? new SessionProjectHandler($storage, $projectStore) : null;
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
-            ? new ApiLoopHandler($loopStore, $loopDiscovery)
+            ? new ApiLoopHandler($loopStore, $loopDiscovery, $loopExecutor ?? null, $storage, $projectStore)
             : null;
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $budgetHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -489,8 +499,8 @@ final class ApiCommand extends Command
     /**
      * Register all API routes on the router.
      *
-     * Read-only endpoints for loops, schedules, roles, config, todos, and artifacts.
-     * Mutating operations for these resources are REPL-only.
+    * Routes are registered here as the canonical API surface for sessions,
+    * orchestration resources, config inspection, and operator controls.
      */
     private function registerRoutes(
         Router $router,
@@ -507,6 +517,7 @@ final class ApiCommand extends Command
         ServerHandler $server,
         ToolkitHandler $toolkit,
         PromptHandler $prompt,
+        BackstoryHandler $backstory,
         BudgetHandler $budget,
         ArtifactHandler $artifact,
         \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
@@ -514,6 +525,8 @@ final class ApiCommand extends Command
         WebhookHandler $webhook,
         WebhookManagementHandler $webhookMgmt,
         ?ApiLoopHandler $loop,
+        ?ProjectHandler $project,
+        ?SessionProjectHandler $sessionProject,
     ): void {
         $v1 = '/api/v1';
 
@@ -523,9 +536,14 @@ final class ApiCommand extends Command
         // Sessions
         $router->get($v1 . '/sessions', [$session, 'list']);
         $router->post($v1 . '/sessions', [$session, 'create']);
+        $router->post($v1 . '/sessions/resolve', [$session, 'resolve']);
         $router->get($v1 . '/sessions/{id}', [$session, 'get']);
         $router->patch($v1 . '/sessions/{id}', [$session, 'update']);
         $router->delete($v1 . '/sessions/{id}', [$session, 'delete']);
+        if ($sessionProject !== null) {
+            $router->get($v1 . '/sessions/{id}/project', [$sessionProject, 'get']);
+            $router->patch($v1 . '/sessions/{id}/project', [$sessionProject, 'update']);
+        }
 
         // Messages
         $router->get($v1 . '/sessions/{id}/messages', [$message, 'list']);
@@ -546,6 +564,7 @@ final class ApiCommand extends Command
         $router->get($v1 . '/config', [$config, 'get']);
         $router->post($v1 . '/config/validate', [$config, 'validate']);
         $router->get($v1 . '/config/models', [$config, 'models']);
+        $router->get($v1 . '/config/profiles', [$config, 'profiles']);
 
         // Roles (read-only — create/update/delete are REPL-only)
         $router->get($v1 . '/config/roles', [$role, 'list']);
@@ -564,6 +583,12 @@ final class ApiCommand extends Command
         $router->get($v1 . '/tasks/{id}/events', [$task, 'events']);
         $router->post($v1 . '/tasks/{id}/input', [$task, 'addInput']);
         $router->post($v1 . '/tasks/{id}/cancel', [$task, 'cancel']);
+        if ($project !== null) {
+            $router->get($v1 . '/projects', [$project, 'list']);
+            $router->get($v1 . '/projects/{idOrSlug}', [$project, 'get']);
+            $router->get($v1 . '/projects/{idOrSlug}/sprints', [$project, 'sprints']);
+            $router->get($v1 . '/sprints/{id}', [$project, 'sprint']);
+        }
 
         // Child runs
         $router->get($v1 . '/sessions/{id}/child-runs', [$session, 'childRuns']);
@@ -578,6 +603,7 @@ final class ApiCommand extends Command
         $router->get($v1 . '/server/stats', [$server, 'stats']);
         $router->get($v1 . '/server/quality', [$server, 'quality']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
+        $router->get($v1 . '/server/backstory', [$backstory, 'get']);
         $router->get($v1 . '/server/budget', [$budget, 'get']);
 
         // Artifacts (read-only — create/update/delete are REPL-only)
@@ -594,15 +620,21 @@ final class ApiCommand extends Command
         $router->get($v1 . '/toolkits', [$toolkit, 'list']);
         $router->post($v1 . '/toolkits/visibility', [$toolkit, 'setVisibility']);
 
-        // Schedules (read-only — create/update/delete/trigger are REPL-only)
+        // Schedules
+        $router->post($v1 . '/schedules', [$schedule, 'create']);
         $router->get($v1 . '/schedules', [$schedule, 'list']);
         $router->get($v1 . '/schedules/{id}', [$schedule, 'get']);
+        $router->patch($v1 . '/schedules/{id}', [$schedule, 'update']);
+        $router->delete($v1 . '/schedules/{id}', [$schedule, 'delete']);
+        $router->post($v1 . '/schedules/{id}/enable', [$schedule, 'enable']);
+        $router->post($v1 . '/schedules/{id}/disable', [$schedule, 'disable']);
+        $router->post($v1 . '/schedules/{id}/trigger', [$schedule, 'trigger']);
 
         // Webhooks (incoming receiver + management CRUD)
         $webhook->register($router);
         $webhookMgmt->register($router);
 
-        // Loops (read-only — create/pause/resume/stop are REPL-only)
+        // Loops
         $loop?->register($router);
     }
 

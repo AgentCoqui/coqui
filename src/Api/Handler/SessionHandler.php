@@ -17,6 +17,7 @@ use React\Http\Message\Response;
  *
  * GET    /api/v1/sessions                    — list sessions
  * POST   /api/v1/sessions                    — create session
+ * POST   /api/v1/sessions/resolve            — resolve or create scoped interactive session
  * GET    /api/v1/sessions/{id}               — get session detail
  * PATCH  /api/v1/sessions/{id}               — update session (title)
  * DELETE /api/v1/sessions/{id}               — delete session
@@ -51,35 +52,12 @@ final readonly class SessionHandler
      */
     public function create(ServerRequestInterface $request): Response
     {
-        $body = json_decode((string) $request->getBody(), true);
-        $modelRole = is_array($body) && isset($body['model_role'])
-            ? (string) $body['model_role']
-            : 'orchestrator';
-
-        $profile = is_array($body) && isset($body['profile'])
-            ? strtolower(trim((string) $body['profile']))
-            : null;
-
-        if ($profile === '') {
-            $profile = null;
+        [$modelRole, $profile, $error] = $this->resolveRequestedSessionScope($request);
+        if ($error instanceof Response) {
+            return $error;
         }
 
-        // Validate that the role exists
-        if (!$this->roleResolver->hasRole($modelRole)) {
-            return Router::errorResponse(
-                ApiErrorCode::VALIDATION_ERROR,
-                sprintf('Unknown role "%s". Use GET /api/v1/config/roles to see available roles.', $modelRole),
-            );
-        }
-
-        if ($profile !== null && !$this->profileDiscovery->profileExists($profile)) {
-            return Router::errorResponse(
-                ApiErrorCode::VALIDATION_ERROR,
-                sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or use GET /api/v1/sessions without a profile.', $profile),
-            );
-        }
-
-        $model = $this->roleResolver->resolve($modelRole);
+        $model = $this->roleResolver->resolve($modelRole, $profile);
         $sessionId = $this->storage->createSession($modelRole, $model, $profile);
 
         return Router::jsonResponse([
@@ -87,6 +65,49 @@ final readonly class SessionHandler
             'model_role' => $modelRole,
             'model' => $model,
             'profile' => $profile,
+            'active_project_id' => null,
+        ], 201);
+    }
+
+    /**
+     * POST /api/v1/sessions/resolve  { "model_role"?: "orchestrator", "profile"?: "caelum" }
+     */
+    public function resolve(ServerRequestInterface $request): Response
+    {
+        [$modelRole, $profile, $error] = $this->resolveRequestedSessionScope($request);
+        if ($error instanceof Response) {
+            return $error;
+        }
+
+        $sessionId = $profile === null
+            ? $this->storage->getLatestInteractiveUnprofiledSessionId()
+            : $this->storage->getLatestInteractiveSessionIdForProfile($profile);
+
+        if ($sessionId !== null) {
+            $session = $this->storage->getSession($sessionId);
+
+            if ($session !== null) {
+                return Router::jsonResponse([
+                    'id' => $session['id'],
+                    'model_role' => $session['model_role'],
+                    'model' => $session['model'],
+                    'profile' => $session['profile'] ?? null,
+                    'active_project_id' => $session['active_project_id'] ?? null,
+                    'created' => false,
+                ]);
+            }
+        }
+
+        $model = $this->roleResolver->resolve($modelRole, $profile);
+        $createdSessionId = $this->storage->createSession($modelRole, $model, $profile);
+
+        return Router::jsonResponse([
+            'id' => $createdSessionId,
+            'model_role' => $modelRole,
+            'model' => $model,
+            'profile' => $profile,
+            'active_project_id' => null,
+            'created' => true,
         ], 201);
     }
 
@@ -141,10 +162,10 @@ final readonly class SessionHandler
                 );
             }
 
-            $modelString = $this->roleResolver->resolve($role);
-            $this->storage->updateSessionRole($id, $role, $modelString);
+            $session['model_role'] = $role;
         }
 
+        $resolvedProfile = $this->normalizeProfileValue($session['profile'] ?? null);
         if (array_key_exists('profile', $body)) {
             $profile = strtolower(trim((string) ($body['profile'] ?? '')));
 
@@ -155,8 +176,13 @@ final readonly class SessionHandler
                 );
             }
 
-            $this->storage->updateSessionProfile($id, $profile !== '' ? $profile : null);
+            $resolvedProfile = $profile !== '' ? $profile : null;
+            $this->storage->updateSessionProfile($id, $resolvedProfile);
         }
+
+        $resolvedRole = (string) ($session['model_role'] ?? 'orchestrator');
+        $resolvedModel = $this->roleResolver->resolve($resolvedRole, $resolvedProfile);
+        $this->storage->updateSessionRole($id, $resolvedRole, $resolvedModel);
 
         // Return the updated session
         $updated = $this->storage->getSession($id);
@@ -198,5 +224,59 @@ final readonly class SessionHandler
             'child_runs' => $runs,
             'count' => count($runs),
         ]);
+    }
+
+    /**
+     * @return array{0: string, 1: ?string, 2: ?Response}
+     */
+    private function resolveRequestedSessionScope(ServerRequestInterface $request): array
+    {
+        $body = json_decode((string) $request->getBody(), true);
+        $modelRole = is_array($body) && isset($body['model_role'])
+            ? trim((string) $body['model_role'])
+            : 'orchestrator';
+
+        if ($modelRole === '') {
+            return ['orchestrator', null, Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'model_role cannot be empty')];
+        }
+
+        $profile = is_array($body) && array_key_exists('profile', $body)
+            ? $this->normalizeProfileValue($body['profile'])
+            : null;
+
+        if (!$this->roleResolver->hasRole($modelRole)) {
+            return [
+                $modelRole,
+                $profile,
+                Router::errorResponse(
+                    ApiErrorCode::VALIDATION_ERROR,
+                    sprintf('Unknown role "%s". Use GET /api/v1/config/roles to see available roles.', $modelRole),
+                ),
+            ];
+        }
+
+        if ($profile !== null && !$this->profileDiscovery->profileExists($profile)) {
+            return [
+                $modelRole,
+                $profile,
+                Router::errorResponse(
+                    ApiErrorCode::VALIDATION_ERROR,
+                    sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or clear the profile.', $profile),
+                ),
+            ];
+        }
+
+        return [$modelRole, $profile, null];
+    }
+
+    private function normalizeProfileValue(mixed $value): ?string
+    {
+        if (!is_string($value)) {
+            return null;
+        }
+
+        $profile = strtolower(trim($value));
+
+        return $profile !== '' ? $profile : null;
     }
 }

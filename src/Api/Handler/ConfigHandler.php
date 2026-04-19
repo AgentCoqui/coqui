@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\OpenClawConfig;
+use CoquiBot\Coqui\Config\ProfileDiscovery;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -17,6 +18,7 @@ use React\Http\Message\Response;
  * GET  /api/v1/config           — get full config (sanitized)
  * POST /api/v1/config/validate  — dry-run validation
  * GET  /api/v1/config/models    — list available models
+ * GET  /api/v1/config/profiles  — list available profiles
  *
  * Config updates (PUT /api/v1/config) are REPL-only.
  * Role management moved to RoleHandler (/api/v1/config/roles/*).
@@ -26,6 +28,7 @@ final readonly class ConfigHandler
     public function __construct(
         private OpenClawConfig $config,
         private ConfigValidator $validator,
+        private ProfileDiscovery $profileDiscovery,
     ) {}
 
     /**
@@ -113,6 +116,27 @@ final readonly class ConfigHandler
             'models' => $models,
             'count' => count($models),
             'primary' => $this->config->getPrimaryModel(),
+        ]);
+    }
+
+    /**
+     * GET /api/v1/config/profiles — list available profiles with descriptions.
+     */
+    public function profiles(ServerRequestInterface $request): Response
+    {
+        $profiles = array_values(array_map(
+            static fn(array $profile): array => [
+                'name' => $profile['name'],
+                'display_name' => $profile['display_name'],
+                'description' => $profile['description'],
+            ],
+            $this->profileDiscovery->discoverAll(),
+        ));
+
+        return Router::jsonResponse([
+            'profiles' => $profiles,
+            'count' => count($profiles),
+            'default_profile' => $this->config->getDefaultProfile(),
         ]);
     }
 
