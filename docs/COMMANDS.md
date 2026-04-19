@@ -111,6 +111,7 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 | Command | Description |
 | --- | --- |
 | `/schedules` | List scheduled tasks with status, cron expression, next/last run time |
+| `/schedules status <name\|id>` | Show detailed schedule configuration, runtime state, and prompt text |
 | `/schedules enable <name\|id\|all>` | Advanced operator control: enable a schedule (or all disabled schedules) |
 | `/schedules disable <name\|id\|all>` | Advanced operator control: disable a schedule (or all enabled schedules) |
 | `/schedules delete <name\|id\|all>` | Advanced operator control: delete a schedule (or all schedules) |
@@ -129,6 +130,12 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 | `/loops resume <id\|all>` | Advanced automation control: resume paused loop(s) |
 | `/loops stop <id\|all>` | Advanced automation control: stop/cancel loop(s) |
 | `/webhooks` | List webhook subscriptions with status and trigger counts for monitoring |
+| `/webhooks status <name\|id>` | Show webhook configuration, secret mask, and trigger state |
+| `/webhooks deliveries <name\|id>` | Show recent delivery logs for one webhook |
+| `/webhooks enable <name\|id>` | Advanced operator control: enable a webhook subscription |
+| `/webhooks disable <name\|id>` | Advanced operator control: disable a webhook subscription |
+| `/webhooks delete <name\|id>` | Advanced operator control: delete a webhook subscription |
+| `/webhooks rotate <name\|id>` | Advanced operator control: rotate a webhook signing secret |
 | `/evaluations [grade]` | List session evaluation reports, optionally filtered by grade |
 | `/quality` | Show quality automation schedules and learner follow-up state |
 | `/hints` | Toggle command hints in the input area |

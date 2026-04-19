@@ -11,7 +11,7 @@ use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
- * Handles /schedules and all subcommands (enable, disable, delete, trigger).
+ * Handles /schedules and all subcommands (status, enable, disable, delete, trigger).
  */
 final class ScheduleHandler
 {
@@ -29,12 +29,57 @@ final class ScheduleHandler
         $target = trim($argParts[1] ?? '');
 
         match ($action) {
+            'status' => $this->handleStatus($io, $scheduleStore, $target),
             'enable' => $this->handleEnable($io, $scheduleStore, $target),
             'disable' => $this->handleDisable($io, $scheduleStore, $target),
             'delete' => $this->handleDelete($io, $scheduleStore, $target),
             'trigger' => $this->handleTrigger($io, $scheduleStore, $target),
             default => $this->handleList($io, $scheduleStore),
         };
+    }
+
+    private function handleStatus(SymfonyStyle $io, ScheduleStore $store, string $target): void
+    {
+        if ($target === '') {
+            $io->error('Usage: /schedules status <name|id>');
+            return;
+        }
+
+        $schedule = $this->resolveByIdOrName($store, $target);
+        if ($schedule === null) {
+            $io->error("No schedule found matching '{$target}'.");
+            return;
+        }
+
+        $io->section(sprintf('Schedule: %s', $schedule['name']));
+        $io->definitionList(
+            ['ID' => (string) $schedule['id']],
+            ['Enabled' => ((int) $schedule['enabled']) === 1 ? 'yes' : 'no'],
+            ['Source' => (string) ($schedule['source'] ?? ScheduleStore::SOURCE_SYSTEM)],
+            ['Expression' => (string) $schedule['schedule_expression']],
+            ['Timezone' => (string) ($schedule['timezone'] ?? 'UTC')],
+            ['Role' => (string) ($schedule['role'] ?? 'orchestrator')],
+            ['Max iterations' => (string) ($schedule['max_iterations'] ?? 48)],
+            ['Max failures' => (string) ($schedule['max_failures'] ?? 3)],
+            ['Next run' => (string) ($schedule['next_run_at'] ?? 'never')],
+            ['Last run' => (string) ($schedule['last_run_at'] ?? 'never')],
+            ['Last task' => (string) ($schedule['last_task_id'] ?? '-')],
+            ['Last status' => (string) ($schedule['last_status'] ?? '-')],
+            ['Run count' => (string) ($schedule['run_count'] ?? 0)],
+            ['Failure count' => (string) ($schedule['failure_count'] ?? 0)],
+        );
+
+        if (($schedule['description'] ?? null) !== null && trim((string) $schedule['description']) !== '') {
+            $io->text('<fg=cyan>Description:</>');
+            $io->writeln((string) $schedule['description']);
+        }
+
+        if ($this->isFilesystemSchedule($schedule) && ($schedule['source_path'] ?? null) !== null) {
+            $io->text(sprintf('<fg=cyan>Source file:</> %s', (string) $schedule['source_path']));
+        }
+
+        $io->text('<fg=cyan>Prompt:</>');
+        $io->writeln((string) $schedule['prompt']);
     }
 
     private function handleList(SymfonyStyle $io, ScheduleStore $store): void
@@ -224,6 +269,15 @@ final class ScheduleHandler
         $schedule = $this->resolveByIdOrName($store, $target);
         if ($schedule === null) {
             $io->error("No schedule found matching '{$target}'.");
+            return;
+        }
+
+        if ($this->isFilesystemSchedule($schedule)) {
+            $io->warning(sprintf(
+                "Schedule '%s' is defined by a filesystem file (%s). Trigger it by changing the source definition or using the HTTP API's discovery surface to inspect it.",
+                $schedule['name'],
+                basename((string) $schedule['source_path']),
+            ));
             return;
         }
 

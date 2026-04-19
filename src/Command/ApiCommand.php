@@ -499,8 +499,8 @@ final class ApiCommand extends Command
     /**
      * Register all API routes on the router.
      *
-     * Read-only endpoints for loops, schedules, roles, config, todos, and artifacts.
-     * Mutating operations for these resources are REPL-only.
+    * Routes are registered here as the canonical API surface for sessions,
+    * orchestration resources, config inspection, and operator controls.
      */
     private function registerRoutes(
         Router $router,
@@ -620,15 +620,21 @@ final class ApiCommand extends Command
         $router->get($v1 . '/toolkits', [$toolkit, 'list']);
         $router->post($v1 . '/toolkits/visibility', [$toolkit, 'setVisibility']);
 
-        // Schedules (read-only — create/update/delete/trigger are REPL-only)
+        // Schedules
+        $router->post($v1 . '/schedules', [$schedule, 'create']);
         $router->get($v1 . '/schedules', [$schedule, 'list']);
         $router->get($v1 . '/schedules/{id}', [$schedule, 'get']);
+        $router->patch($v1 . '/schedules/{id}', [$schedule, 'update']);
+        $router->delete($v1 . '/schedules/{id}', [$schedule, 'delete']);
+        $router->post($v1 . '/schedules/{id}/enable', [$schedule, 'enable']);
+        $router->post($v1 . '/schedules/{id}/disable', [$schedule, 'disable']);
+        $router->post($v1 . '/schedules/{id}/trigger', [$schedule, 'trigger']);
 
         // Webhooks (incoming receiver + management CRUD)
         $webhook->register($router);
         $webhookMgmt->register($router);
 
-        // Loops (read-only — create/pause/resume/stop are REPL-only)
+        // Loops
         $loop?->register($router);
     }
 
