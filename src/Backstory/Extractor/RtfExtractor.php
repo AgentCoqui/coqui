@@ -59,7 +59,12 @@ final class RtfExtractor implements ExtractorInterface
         $content = preg_replace_callback(
             "/\\\\'([0-9a-fA-F]{2})/",
             static function (array $matches): string {
-                return mb_convert_encoding(chr((int) hexdec($matches[1])), 'UTF-8', 'Windows-1252');
+                $byte = hexdec($matches[1]);
+                if (!is_int($byte) || $byte < 0 || $byte > 255) {
+                    return '';
+                }
+
+                return mb_convert_encoding(chr($byte), 'UTF-8', 'Windows-1252');
             },
             $content,
         ) ?? $content;
