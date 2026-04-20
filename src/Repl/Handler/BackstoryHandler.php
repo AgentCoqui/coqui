@@ -8,7 +8,6 @@ use CoquiBot\Coqui\Backstory\BackstoryAssembler;
 use CoquiBot\Coqui\Backstory\BackstoryInspectionService;
 use CoquiBot\Coqui\Backstory\BackstoryManifest;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
-use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Repl\RouteResult;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -157,13 +156,6 @@ final class BackstoryHandler
                 ['Skipped file', 'Extension', 'Reason', 'Modified'],
                 $rows,
             );
-        }
-
-        if (($backstory['content'] ?? null) !== null && trim((string) $backstory['content']) !== '') {
-            $io->newLine();
-            $io->section('Generated Backstory');
-            $io->write(MarkdownRenderer::render((string) $backstory['content']));
-            $io->newLine();
         }
 
         if (($backstory['failed_file_count'] ?? 0) > 0 || ($backstory['unsupported_file_count'] ?? 0) > 0) {

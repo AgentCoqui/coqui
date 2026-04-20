@@ -216,6 +216,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full CLI reference including `a
 | `/profile [name]` | Show/switch the active profile |
 | `/toolkits` | Manage toolkit visibility |
 | `/prompt` | Inspect or export the rendered system prompt |
+| `/image` | Generate and manage workspace images |
 | `/projects` | List projects or switch the active project |
 | `/tasks [status]` | List background tasks |
 | `/todos [status]` | Show session todos |
@@ -351,7 +352,7 @@ Coqui ships with a rich set of tools organized into toolkits:
 | **Packages** | `composer`, `packagist` | Dependency management and package search |
 | **Credentials** | `credentials` | Secure `.env`-based secret storage |
 
-Toolkits from [Coqui Space](https://coqui.space) add more: GitHub, Brave Search, browser automation, Canva, Cloudflare, and more.
+Toolkits from [Coqui Space](https://coqui.space) and local workspace packages add more: GitHub, Brave Search, browser automation, Canva, Cloudflare, image generation, and more.
 
 ## Extending Coqui
 

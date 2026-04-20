@@ -79,6 +79,30 @@ test('getImageModel returns null when not configured', function () {
     expect($config->getImageModel())->toBeNull();
 });
 
+test('getImageConfig returns configured image defaults', function () {
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'imageModel' => [
+                    'primary' => 'openai/gpt-image-1.5',
+                    'fallbacks' => ['ollama/x/z-image-turbo'],
+                    'vendors' => [
+                        'openai' => ['model' => 'gpt-image-1.5'],
+                    ],
+                ],
+            ],
+        ],
+    ]);
+
+    expect($config->getImageConfig())->toBe([
+        'primary' => 'openai/gpt-image-1.5',
+        'fallbacks' => ['ollama/x/z-image-turbo'],
+        'vendors' => [
+            'openai' => ['model' => 'gpt-image-1.5'],
+        ],
+    ]);
+});
+
 test('getDefaultProfile returns normalized configured profile', function () {
     $config = OpenClawConfig::fromArray([
         'agents' => [

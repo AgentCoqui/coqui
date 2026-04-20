@@ -15,6 +15,7 @@ use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
+use CoquiBot\Coqui\Repl\Handler\ImageHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
@@ -139,6 +140,7 @@ function createPromptBackstoryRouterFixture(): array
         $instantiate(EvaluationHandler::class),
         $instantiate(LoopHandler::class),
         new BackstoryHandler(new ProfileDiscovery($workspacePath), $workspacePath, $assembler),
+        $instantiate(ImageHandler::class),
         $runner,
         new PromptInspectionService($runner, $workspacePath, $projectRoot),
         static function (): void {},
@@ -179,7 +181,7 @@ test('slash command router renders prompt output from the shared inspection payl
     }
 });
 
-test('slash command router renders backstory output from the shared inspection payload', function (): void {
+test('slash command router renders backstory metadata from the shared inspection payload', function (): void {
     $fixture = createPromptBackstoryRouterFixture();
 
     try {
@@ -191,10 +193,12 @@ test('slash command router renders backstory output from the shared inspection p
 
         expect($result->shouldContinue)->toBeTrue();
         expect($display)->toContain('Backstory — caelum');
-        expect($display)->toContain('Generated Backstory');
+        expect($display)->toContain('Source folder');
+        expect($display)->toContain('Generated file');
         expect($display)->toContain('intro.md');
         expect($display)->toContain('nested');
-        expect($display)->toContain('Caelum remembers details');
+        expect($display)->not->toContain('Generated Backstory');
+        expect($display)->not->toContain('Caelum remembers details');
     } finally {
         cleanupPromptBackstoryRouterFixture($fixture);
     }

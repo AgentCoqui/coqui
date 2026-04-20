@@ -70,9 +70,25 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 
 | Command | Description |
 | --- | --- |
-| `/backstory` | Show generated backstory content, file and folder summaries, skipped unsupported files, and current issue summary |
+| `/backstory` | Show backstory generation status, file and folder summaries, skipped unsupported files, and current issue summary |
 | `/backstory generate` | Force regeneration of `backstory.md` from source files |
 | `/backstory failed` | Show files that failed extraction or were skipped as unsupported |
+
+### Images
+
+| Command | Description |
+| --- | --- |
+| `/image` | Show image command help and available subcommands |
+| `/image generate <prompt>` | Generate an image through the installed image toolkit and save it into the workspace image library |
+| `/image list` | List saved image records, optionally filtered with `--profile` or `--vendor` |
+| `/image search <query>` | Search saved image records by prompt, tags, owner, profile, model, vendor, or path |
+| `/image get <record-id>` | Show one saved image record |
+| `/image tag <record-id> <tag1,tag2>` | Update tags and optional category for a saved image record |
+| `/image config` | Show resolved image-generation defaults, workspace paths, and vendor settings |
+
+`/image generate` accepts option flags such as `--model=vendor/model`, `--vendor=openai|ollama`, `--tags=a,b`, `--category=name`, `--file-hint=name`, `--save-dir=images/custom`, `--size=1024x1024`, and `--quality=standard|hd`.
+
+When the resolved model is an Ollama image model that is not installed locally, Coqui now asks for confirmation before running `ollama pull` and shows a controlled download status instead of dumping the raw pull stream into the REPL.
 
 ### Background Tasks
 

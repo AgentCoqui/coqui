@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
+use CoquiBot\Coqui\Repl\Handler\ImageHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
@@ -55,6 +56,7 @@ final class SlashCommandRouter
         private readonly EvaluationHandler $evaluation,
         private readonly LoopHandler $loop,
         private readonly BackstoryHandler $backstory,
+        private readonly ImageHandler $image,
         private readonly AgentRunner $agentRunner,
         private readonly PromptInspectionService $promptInspection,
         private readonly \Closure $onHintsToggle,
@@ -102,6 +104,7 @@ final class SlashCommandRouter
             '/profile' => $this->handleProfile($io, $arg, $activeRole, $activeProfile),
             '/profiles' => $this->handleProfiles($io, $activeProfile),
             '/backstory' => $this->handleBackstory($io, $arg, $activeProfile),
+            '/image' => $this->handleImage($io, $arg, $activeProfile, $sessionId),
             '/space' => $this->handleSpace($io, $arg),
             '/schedules' => $this->handleSchedules($io, $arg),
             '/quality' => $this->handleQuality($io),
@@ -392,6 +395,12 @@ final class SlashCommandRouter
     private function handleBackstory(SymfonyStyle $io, string $arg, ?string $activeProfile): RouteResult
     {
         return $this->backstory->handle($io, $arg, $activeProfile);
+    }
+
+    private function handleImage(SymfonyStyle $io, string $arg, ?string $activeProfile, string $sessionId): RouteResult
+    {
+        $this->image->handle($io, $arg, $activeProfile, $sessionId);
+        return RouteResult::continue();
     }
 
     private function handleSpace(SymfonyStyle $io, string $arg): RouteResult

@@ -317,15 +317,24 @@
             "methods": [
                 "handle(SymfonyStyle, ?string): void — renders prompt-budget telemetry for the active or requested role"
             ]
-                "path": "src/CoquiSpace/SpaceInstallCompletionCache.php",
-                "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\SpaceInstallCompletionCache",
-                "layer": "coqui-space",
-                "description": "Workspace-backed JSON cache for `/space install` tab completion. Reuses recent Coqui Space search results so install suggestions stay responsive without hitting the marketplace on every repeated prefix.",
-                "methods": [
-                    "suggestTargets(string): array — returns cached-or-fresh owner/name and vendor/package completion candidates for the current install prefix"
-                ]
-            },
-            {
+        },
+        {
+            "path": "src/Repl/Handler/ImageHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ImageHandler",
+            "layer": "command",
+            "description": "Handles the /image REPL command by locating the installed image toolkit, respecting toolkit visibility, and dispatching generate, list, search, get, tag, and config subcommands into the toolkit's image tools.",
+            "methods": [
+                "handle(SymfonyStyle, string, ?string, string): void — dispatches /image subcommands into the installed image toolkit"
+            ]
+        },
+        {
+            "path": "src/CoquiSpace/SpaceInstallCompletionCache.php",
+            "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\SpaceInstallCompletionCache",
+            "layer": "coqui-space",
+            "description": "Workspace-backed JSON cache for `/space install` tab completion. Reuses recent Coqui Space search results so install suggestions stay responsive without hitting the marketplace on every repeated prefix.",
+            "methods": [
+                "suggestTargets(string): array — returns cached-or-fresh owner/name and vendor/package completion candidates for the current install prefix"
+            ]
         },
         {
             "path": "src/Repl/Handler/SessionHandler.php",
