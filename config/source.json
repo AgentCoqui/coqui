@@ -247,10 +247,17 @@
             ]
         },
         {
+            "path": "src/Repl/ToolkitCommandCandidate.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\ToolkitCommandCandidate",
+            "layer": "command",
+            "description": "Readonly value object representing one package-aware toolkit REPL command registration candidate. Couples the originating Composer package name with the ToolkitCommandHandler so collision reporting and accepted-handler selection preserve source provenance.",
+            "methods": []
+        },
+        {
             "path": "src/Repl/ToolkitCommandCollision.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\ToolkitCommandCollision",
             "layer": "command",
-            "description": "Readonly value object describing a skipped toolkit REPL command registration. Captures the colliding command name, whether the winner was a core command or an earlier toolkit command, and display metadata for warning output.",
+            "description": "Readonly value object describing a skipped toolkit REPL command registration. Captures the colliding command name, whether the winner was a core command or an earlier toolkit command, and both winner and skipped package provenance for warning output.",
             "methods": []
         },
         {

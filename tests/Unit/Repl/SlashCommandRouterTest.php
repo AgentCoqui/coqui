@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Contract\ToolkitCommandHelpProvider;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
+use CoquiBot\Coqui\Repl\ToolkitCommandCandidate;
 use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
@@ -145,7 +146,7 @@ test('slash command router renders shared toolkit help for no-arg toolkit comman
         }
     };
 
-    ReplCommandCatalog::registerToolkitHandlers([$handler]);
+    ReplCommandCatalog::registerToolkitHandlers([new ToolkitCommandCandidate('vendor/images', $handler)]);
 
     try {
         $router = createSlashCommandRouterForToolkitTest([$handler]);

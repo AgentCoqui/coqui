@@ -15,8 +15,10 @@ final readonly class ToolkitCommandCollision
     public function __construct(
         public string $command,
         public string $reason,
+        public string $winnerPackage,
         public string $winner,
         public string $winnerUsage,
+        public string $skippedPackage,
         public string $skipped,
         public string $skippedUsage,
     ) {}

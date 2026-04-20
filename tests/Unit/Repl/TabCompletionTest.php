@@ -21,6 +21,7 @@ use CoquiBot\Coqui\CoquiSpace\SpaceRegistry;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\TabCompletion;
+use CoquiBot\Coqui\Repl\ToolkitCommandCandidate;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
@@ -419,7 +420,10 @@ test('toolkit completion uses accepted handlers and always exposes help', functi
     };
 
     try {
-        $report = ReplCommandCatalog::registerToolkitHandlers([$firstHandler, $duplicateHandler]);
+        $report = ReplCommandCatalog::registerToolkitHandlers([
+            new ToolkitCommandCandidate('vendor/first-images', $firstHandler),
+            new ToolkitCommandCandidate('vendor/second-images', $duplicateHandler),
+        ]);
         $fixture['completion']->setToolkitCommandHandlers($report->acceptedHandlers);
 
         expect($fixture['completion']->complete('/image '))->toContain('generate');
@@ -427,6 +431,8 @@ test('toolkit completion uses accepted handlers and always exposes help', functi
         expect($fixture['completion']->complete('/image '))->not->toContain('delete');
         expect($report->collisions)->toHaveCount(1);
         expect($report->collisions[0]->reason)->toBe('toolkit');
+        expect($report->collisions[0]->winnerPackage)->toBe('vendor/first-images');
+        expect($report->collisions[0]->skippedPackage)->toBe('vendor/second-images');
     } finally {
         ReplCommandCatalog::clearToolkitHandlers();
         cleanupTabCompletionFixture($fixture);

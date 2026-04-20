@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 use CoquiBot\Coqui\Repl\ReplCommandCatalog;
+use CoquiBot\Coqui\Repl\ToolkitCommandCandidate;
 
 test('repl command catalog exposes top-level aliases without nested pseudo commands', function (): void {
     $commands = ReplCommandCatalog::topLevelCommands();
@@ -108,7 +109,11 @@ test('repl command catalog registration keeps first toolkit command and reports 
     };
 
     try {
-        $report = ReplCommandCatalog::registerToolkitHandlers([$imageHandler, $duplicateImageHandler, $coreCollisionHandler]);
+        $report = ReplCommandCatalog::registerToolkitHandlers([
+            new ToolkitCommandCandidate('vendor/first-images', $imageHandler),
+            new ToolkitCommandCandidate('vendor/second-images', $duplicateImageHandler),
+            new ToolkitCommandCandidate('vendor/help-override', $coreCollisionHandler),
+        ]);
 
         expect($report->acceptedHandlers)->toHaveCount(1);
         expect($report->acceptedHandlers[0])->toBe($imageHandler);
@@ -117,7 +122,11 @@ test('repl command catalog registration keeps first toolkit command and reports 
         expect($report->acceptedSpecs[0]->firstArguments)->toBe(['generate', 'help']);
         expect($report->collisions)->toHaveCount(2);
         expect($report->collisions[0]->reason)->toBe('toolkit');
+        expect($report->collisions[0]->winnerPackage)->toBe('vendor/first-images');
+        expect($report->collisions[0]->skippedPackage)->toBe('vendor/second-images');
         expect($report->collisions[1]->reason)->toBe('core');
+        expect($report->collisions[1]->winnerPackage)->toBe('coquibot/coqui');
+        expect($report->collisions[1]->skippedPackage)->toBe('vendor/help-override');
         expect(ReplCommandCatalog::topLevelCommands())->toContain('/image');
         expect(ReplCommandCatalog::find('/image')?->description)->toBe('Generate images.');
     } finally {
