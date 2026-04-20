@@ -11,7 +11,7 @@ The extensibility system uses interface-based discovery:
 3. Their `commandHandlers()` are collected and wired into the `SlashCommandRouter`
 4. Tab completion, help output, and command dispatch work automatically
 
-Core commands always take precedence over toolkit-provided commands.
+Core commands always take precedence over toolkit-provided commands. When two toolkits register the same command name, the first discovered handler wins and Coqui logs a warning during REPL startup.
 
 ## Contracts
 
@@ -37,10 +37,35 @@ interface ToolkitCommandHandler
     public function commandName(): string;       // e.g. 'image'
     public function subcommands(): array;        // e.g. ['generate', 'list']
     public function usage(): string;             // e.g. '/image [action]'
-    public function description(): string;       // one-line help text
+    public function description(): string;       // concise one-line text for global /help
     public function handle(ToolkitReplContext $context, string $arg): void;
 }
 ```
+
+One toolkit can return multiple handlers from `commandHandlers()`, so registering `/foo` and `/bar` from the same package is supported.
+
+### ToolkitCommandHelpProvider (optional)
+
+Use this when you want richer structured help for `/command` and `/command help` while still using the shared core formatter.
+
+```php
+interface ToolkitCommandHelpProvider
+{
+    public function help(): ToolkitCommandHelp;
+}
+
+final readonly class ToolkitCommandHelp
+{
+    public function __construct(
+        ?string $summary = null,
+        array $subcommands = [],   // list<ToolkitCommandHelpEntry>
+        array $examples = [],      // list<ToolkitCommandExample>
+        array $notes = [],         // list<string>
+    ) {}
+}
+```
+
+If a handler does not implement `ToolkitCommandHelpProvider`, Coqui auto-generates a command homepage from `usage()`, `description()`, and `subcommands()`.
 
 ### ToolkitTabCompletionProvider (optional)
 
@@ -110,15 +135,25 @@ Add `coquibot/coqui` to your toolkit's `composer.json` `require` section for the
 }
 ```
 
+A lighter `coquibot/coqui-contracts` package is a reasonable future extraction if third-party toolkit development grows, but Coqui currently keeps these REPL contracts in the main package because the toolkits are still co-developed together.
+
 ## Lifecycle
 
 1. `BootManager::commandHandlers()` calls `ToolkitDiscovery::commandHandlers()`
 2. Only toolkits with `Enabled` visibility are checked
 3. `CredentialGuardToolkit` wrappers are unwrapped via `innerToolkit()`
 4. If the inner toolkit implements `ReplCommandProvider`, its handlers are collected
-5. `ReplCommandCatalog::registerToolkitHandlers()` registers specs for help output
+5. `ReplCommandCatalog::registerToolkitHandlers()` applies collision policy and registers specs for help output
 6. `TabCompletion::setToolkitCommandHandlers()` enables argument completion
-7. `SlashCommandRouter` dispatches unrecognized commands to matching toolkit handlers
+7. `SlashCommandRouter` renders the standardized toolkit help page for `/command` and `/command help`
+8. `SlashCommandRouter` dispatches non-help invocations to the matching toolkit handler
+
+## Help and UX Rules
+
+- Keep `description()` short. It is shown in the global `/help` table and should not duplicate the subcommand list.
+- Prefer `ToolkitCommandHelpProvider` for command-specific help pages instead of printing bespoke help text from `handle()`.
+- `help` is a reserved first argument for toolkit commands. Coqui adds it automatically for tab completion and standardized help routing.
+- If a toolkit command reports usage errors, prefer pointing the user back to `/command help` instead of dumping a fully custom help page.
 
 ## Services Available to Handlers
 
@@ -156,7 +191,7 @@ The `coqui-toolkit-images` package registers `/image` via this pattern:
 
 - `ImagesToolkit` implements both `ToolkitInterface` and `ReplCommandProvider`
 - `commandHandlers()` returns `[new ImageCommandHandler($this->tools())]`
-- `ImageCommandHandler` implements both `ToolkitCommandHandler` and `ToolkitTabCompletionProvider`
+- `ImageCommandHandler` implements `ToolkitCommandHandler`, `ToolkitCommandHelpProvider`, and `ToolkitTabCompletionProvider`
 - The handler receives the built tools from the parent toolkit — no core coupling
 
 See `Toolkits/coqui-toolkit-images/src/Command/ImageCommandHandler.php` for the full implementation.

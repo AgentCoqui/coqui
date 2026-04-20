@@ -71,19 +71,31 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 
 See [docs/FEATURES.md](docs/FEATURES.md) for the full feature reference with usage examples and token efficiency strategies.
 
+## Platform Support
+
+| Platform | Support Level | Notes |
+| --- | --- | --- |
+| Linux | Fully supported | Recommended native environment |
+| macOS | Fully supported | Recommended native environment |
+| WSL2 | Recommended on Windows | Best Windows path for full feature parity |
+| Windows (native) | Degraded and unsupported | Basic installer and REPL behavior may work, but native Windows install is not a supported target |
+| Docker | Supported, with some terminal caveats | Best fallback when you want a containerized setup |
+
+Native Windows behavior exists as a byproduct of development and basic cross-platform coverage. It is not a supported install target. For the best experience on Windows, use WSL2 first or Docker second.
+
 ## Requirements
 
 - PHP 8.4 or later
-- Extensions: `curl`, `json`, `mbstring`, `pdo_sqlite`
+- Core extensions: `dom`, `mbstring`, `pdo_sqlite`, `xml`
+- Recommended extensions: `curl`, `readline`, `zip`
+- Optional extensions: `gd` for bundled image previews, `pcntl` and `posix` on Linux or macOS for background task management
 - [Ollama](https://ollama.ai) (recommended for local inference)
 
-Or use **Docker** — no local PHP required. See [Docker](#docker) below.
+Or use **Docker** — no local PHP required. The Docker image includes the default batteries-included extension set. See [Docker](#docker) below.
 
 ## Installation
 
 The installer detects your OS, installs PHP 8.4+ and required extensions if missing, downloads the latest Coqui release, verifies the SHA-256 checksum, and adds `coqui` to your PATH — no Git or Composer required.
-
-Platform expectations are straightforward: Linux and macOS are fully supported, WSL2 is the recommended Windows development path, and native Windows currently targets basic installer and REPL usage.
 
 ### Linux / macOS / WSL2
 
@@ -93,7 +105,7 @@ curl -fsSL https://coquibot.org/install | bash
 
 ### Windows (PowerShell)
 
-> **Beta:** Windows support is in beta. Please [report issues](https://github.com/AgentCoqui/coqui/issues) if you encounter problems.
+> Native Windows install is degraded and unsupported. This path works only as a byproduct of development and basic cross-platform coverage. Use WSL2 or Docker on Windows for the best experience.
 
 ```powershell
 irm https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1 | iex
@@ -182,7 +194,7 @@ Once you're in the REPL:
 
 1. **Have a conversation** — ask questions, request code changes, or describe a task
 2. **Try a different role** — `/role coder` for focused coding, `/role plan` for structured planning
-3. **Install a toolkit** — `/space search github` to browse, `/space install <package>` to add capabilities
+3. **Extend with toolkits** — browse [coqui.space](https://coqui.space), install with `/space install <package>`, then restart Coqui to activate newly discovered tools and toolkit-provided REPL commands
 4. **Start the API** — `coqui api` or use the launcher for REPL + API together
 5. **Explore models** — map roles to models in `openclaw.json` for cost-optimized routing
 
@@ -358,6 +370,8 @@ Toolkits from [Coqui Space](https://coqui.space) and local workspace packages ad
 
 Coqui auto-discovers toolkits from installed Composer packages. Create a package that implements `ToolkitInterface`, register it in `composer.json`, and Coqui picks it up automatically — including credentials and gated operations.
 
+Toolkit-provided REPL commands follow the same boot-time discovery path. After `/space install <package>` or a manual Composer install, restart Coqui to activate newly discovered tools and slash commands.
+
 See [docs/TOOLKITS.md](docs/TOOLKITS.md) for the full walkthrough with examples.
 
 ## Performance
@@ -400,9 +414,11 @@ Coqui configures SQLite for CLI workloads: WAL journal mode, `synchronous=NORMAL
 
 ## Docker
 
-> **Experimental:** Docker support is experimental. GPU passthrough and some terminal features may behave differently. Please [report issues](https://github.com/AgentCoqui/coqui/issues).
+> Docker is the recommended fallback on Windows if you do not want to use WSL2. GPU passthrough and some terminal features may still behave differently. Please [report issues](https://github.com/AgentCoqui/coqui/issues).
 
 Run Coqui in a container with zero host dependencies. The Docker setup uses `php:8.4-cli` with all required extensions and Composer.
+
+The image includes the default batteries-included extension set: `dom`, `curl`, `gd`, `mbstring`, `pdo_sqlite`, `readline`, `xml`, `zip`, and `pcntl`.
 
 ### Quick Start (Docker)
 
@@ -433,6 +449,10 @@ Coqui connects to Ollama on your host machine via `host.docker.internal`. Make s
 ```bash
 ollama serve
 ```
+
+### Toolkit Discovery In Docker
+
+Coqui discovers Composer-installed toolkits and toolkit-provided REPL commands on boot inside the container just like it does natively. After installing a toolkit with `/space install <package>` or a workspace Composer command, restart the REPL or API container so the new tools and slash commands are registered.
 
 ### Useful Commands
 

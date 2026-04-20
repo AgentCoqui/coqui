@@ -591,13 +591,17 @@ final class TabCompletion
             $candidates = $handler->completeArguments($name, $argParts);
             if ($candidates !== []) {
                 $prefix = end($argParts) ?: '';
+                if (count($argParts) <= 1) {
+                    $candidates = array_values(array_unique([...$candidates, 'help']));
+                }
+
                 return $this->completeChoices($candidates, $prefix);
             }
         }
 
         // Fall back to static subcommands for first argument
         if (count($parts) === 2) {
-            return $this->completeChoices($handler->subcommands(), $parts[1]);
+            return $this->completeChoices(array_values(array_unique([...$handler->subcommands(), 'help'])), $parts[1]);
         }
 
         return [];

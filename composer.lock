@@ -12,7 +12,7 @@
             "dist": {
                 "type": "path",
                 "url": "../../Toolkits/coqui-toolkit-images",
-                "reference": "055df1cdcb88101e5c7394feeed154258eaee0a7"
+                "reference": "bc3fe155ea4e1468abc079d19e169948c4536b15"
             },
             "require": {
                 "php": "^8.4",
@@ -24,7 +24,7 @@
                 "phpstan/phpstan": "^2.0"
             },
             "suggest": {
-                "ext-gd": "Required for ASCII image previews in the REPL"
+                "ext-gd": "Required for low-fidelity colored image previews in the REPL"
             },
             "type": "library",
             "extra": {
@@ -32,7 +32,7 @@
                     "toolkits": [
                         "CarmeloSantana\\CoquiToolkitImages\\ImagesToolkit"
                     ],
-                    "description": "Generate, organize, tag, and search AI-generated images using OpenAI and Ollama backends. Supports PNG metadata embedding, ASCII preview, and workspace library management.",
+                    "description": "Generate, preview, organize, tag, and search AI-generated images using OpenAI and Ollama backends. Supports PNG metadata embedding, low-fidelity REPL previews, and workspace library management.",
                     "credentials": {
                         "OPENAI_API_KEY": {
                             "description": "OpenAI API key for GPT Image 1.5 image generation.",
@@ -80,7 +80,7 @@
                     "name": "Carmelo Santana"
                 }
             ],
-            "description": "AI image generation and library management toolkit for Coqui — generate, tag, categorize, and search images across OpenAI and Ollama backends.",
+            "description": "AI image generation and library management toolkit for Coqui — generate, preview, tag, categorize, and search images across OpenAI and Ollama backends.",
             "keywords": [
                 "coqui",
                 "image-generation",

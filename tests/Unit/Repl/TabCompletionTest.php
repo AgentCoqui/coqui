@@ -10,6 +10,7 @@ use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\CoquiSpace\Installer\ComposerRunner;
@@ -356,6 +357,78 @@ test('toolkit and space completion cover local installs and cached remote instal
         expect($cachedInstallSuggestions)->toContain('coquibot/coqui-test-toolkit');
         expect(($fixture['getSpaceSearchRequestCount'])())->toBe(1);
     } finally {
+        cleanupTabCompletionFixture($fixture);
+    }
+});
+
+test('toolkit completion uses accepted handlers and always exposes help', function (): void {
+    $fixture = createTabCompletionFixture();
+
+    $firstHandler = new class implements ToolkitCommandHandler
+    {
+        public function commandName(): string
+        {
+            return 'image';
+        }
+
+        public function subcommands(): array
+        {
+            return ['generate'];
+        }
+
+        public function usage(): string
+        {
+            return '/image [action]';
+        }
+
+        public function description(): string
+        {
+            return 'Generate images.';
+        }
+
+        public function handle(\CoquiBot\Coqui\Contract\ToolkitReplContext $context, string $arg): void
+        {
+        }
+    };
+
+    $duplicateHandler = new class implements ToolkitCommandHandler
+    {
+        public function commandName(): string
+        {
+            return 'image';
+        }
+
+        public function subcommands(): array
+        {
+            return ['delete'];
+        }
+
+        public function usage(): string
+        {
+            return '/image delete <id>';
+        }
+
+        public function description(): string
+        {
+            return 'Delete images.';
+        }
+
+        public function handle(\CoquiBot\Coqui\Contract\ToolkitReplContext $context, string $arg): void
+        {
+        }
+    };
+
+    try {
+        $report = ReplCommandCatalog::registerToolkitHandlers([$firstHandler, $duplicateHandler]);
+        $fixture['completion']->setToolkitCommandHandlers($report->acceptedHandlers);
+
+        expect($fixture['completion']->complete('/image '))->toContain('generate');
+        expect($fixture['completion']->complete('/image '))->toContain('help');
+        expect($fixture['completion']->complete('/image '))->not->toContain('delete');
+        expect($report->collisions)->toHaveCount(1);
+        expect($report->collisions[0]->reason)->toBe('toolkit');
+    } finally {
+        ReplCommandCatalog::clearToolkitHandlers();
         cleanupTabCompletionFixture($fixture);
     }
 });
