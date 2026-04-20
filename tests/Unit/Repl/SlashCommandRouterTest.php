@@ -129,6 +129,7 @@ test('slash command router renders shared toolkit help for no-arg toolkit comman
         public function help(): ToolkitCommandHelp
         {
             return new ToolkitCommandHelp(
+                title: 'Image Generation & Management',
                 summary: 'Generate and manage workspace images from the REPL.',
                 subcommands: [
                     new ToolkitCommandHelpEntry('generate', '/image generate <prompt>', 'Generate an image.'),
@@ -157,7 +158,7 @@ test('slash command router renders shared toolkit help for no-arg toolkit comman
         $display = $output->fetch();
 
         expect($result->shouldContinue)->toBeTrue();
-        expect($display)->toContain('/image');
+    expect($display)->toContain('Image Generation & Management');
         expect($display)->toContain('Usage:');
         expect($display)->toContain('/image generate <prompt>');
         expect($display)->toContain('Create a sample image.');
