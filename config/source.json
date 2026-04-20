@@ -319,12 +319,53 @@
             ]
         },
         {
-            "path": "src/Repl/Handler/ImageHandler.php",
-            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ImageHandler",
-            "layer": "command",
-            "description": "Handles the /image REPL command by locating the installed image toolkit, respecting toolkit visibility, and dispatching generate, list, search, get, tag, and config subcommands into the toolkit's image tools.",
+            "path": "src/Contract/ReplCommandProvider.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ReplCommandProvider",
+            "layer": "contract",
+            "description": "Interface for toolkits that self-register REPL slash commands. Toolkits implement this alongside ToolkitInterface to declare their command handlers.",
             "methods": [
-                "handle(SymfonyStyle, string, ?string, string): void — dispatches /image subcommands into the installed image toolkit"
+                "commandHandlers(): list<ToolkitCommandHandler> — returns the command handlers this toolkit provides"
+            ]
+        },
+        {
+            "path": "src/Contract/ToolkitCommandHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitCommandHandler",
+            "layer": "contract",
+            "description": "Interface for toolkit-provided REPL command handlers. Each handler declares one slash command name, subcommands, usage, description, and the handle method.",
+            "methods": [
+                "commandName(): string — the slash command name without leading slash",
+                "subcommands(): list<string> — subcommands for tab completion",
+                "usage(): string — short usage string for help output",
+                "description(): string — one-line description for help output",
+                "handle(ToolkitReplContext, string): void — handles the command with context and argument"
+            ]
+        },
+        {
+            "path": "src/Contract/ToolkitTabCompletionProvider.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitTabCompletionProvider",
+            "layer": "contract",
+            "description": "Optional interface for toolkit command handlers that provide dynamic tab completion beyond static subcommands.",
+            "methods": [
+                "completeArguments(string, list<string>): list<string> — returns completion candidates for the given command and argument parts"
+            ]
+        },
+        {
+            "path": "src/Contract/ToolkitReplContext.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitReplContext",
+            "layer": "contract",
+            "description": "Readonly services object passed to toolkit REPL command handlers. Provides SymfonyStyle IO, InterruptiblePrompt, workspace path, active profile, session ID, spinner factory, and database factory.",
+            "methods": [
+                "createSpinner(string): AnimatedTickCallback — creates an animated spinner for long-running operations",
+                "openDatabase(string): PDO — opens a toolkit-owned SQLite database in the workspace"
+            ]
+        },
+        {
+            "path": "src/Support/ToolkitDatabaseFactory.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\ToolkitDatabaseFactory",
+            "layer": "support",
+            "description": "Factory for toolkit-owned SQLite databases. Creates WAL-mode databases in the workspace directory with validated names.",
+            "methods": [
+                "open(string): PDO — creates or opens a named SQLite database with WAL mode and security-safe name validation"
             ]
         },
         {

@@ -21,6 +21,5 @@ test('repl command catalog help rows surface critical command variants', functio
     expect($rows)->toContain(['/schedules [action]', 'Inspect schedules or run status|enable|disable|delete|trigger for operator control.']);
     expect($rows)->toContain(['/webhooks [action]', 'Inspect webhook subscriptions or run status|deliveries|enable|disable|delete|rotate for operator control.']);
     expect($rows)->toContain(['/profile [name|default|reset]', 'Show or switch the active profile, set a default with default <name|none>, or clear it.']);
-    expect($rows)->toContain(['/image [action]', 'Generate and manage workspace images through the image toolkit. Actions: generate, list, search, get, tag, config.']);
     expect($rows)->toContain(['/quit', 'Exit Coqui. Aliases: /exit, /q.']);
 });

@@ -253,7 +253,6 @@ test('static command completion covers catalog argument hints', function (): voi
             '/loops ' => ['start', 'definitions', 'defs', 'status', 'pause', 'resume', 'stop', 'running', 'paused', 'completed', 'failed', 'cancelled'],
             '/webhooks ' => ['status', 'deliveries', 'enable', 'disable', 'delete', 'rotate'],
             '/prompt ' => ['export'],
-            '/image ' => ['generate', 'list', 'search', 'get', 'tag', 'config', 'help'],
             '/summarize ' => ['recent', 'focus'],
             '/roles ' => ['list', 'update', 'ignore', 'unignore'],
             '/backstory ' => ['generate', 'failed'],

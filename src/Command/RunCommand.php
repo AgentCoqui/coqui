@@ -28,7 +28,6 @@ use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
-use CoquiBot\Coqui\Repl\Handler\ImageHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
@@ -41,6 +40,7 @@ use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
+use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\TabCompletion;
 use CoquiBot\Coqui\Repl\TerminalStateManager;
@@ -77,6 +77,7 @@ final class RunCommand extends Command
     private ?LoopExecutor $loopExecutor = null;
     private EscCancellationObserver $escObserver;
     private ?AnimatedTickCallback $animatedTickCallback = null;
+    private OutputInterface $output;
     private SessionStorage $storage;
     private string $sessionId;
     private string $workDir;
@@ -113,6 +114,7 @@ final class RunCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $this->output = $output;
         $io = new SymfonyStyle($input, $output);
         $workDirOption = $input->getOption('workdir');
         $this->workDir = is_string($workDirOption) ? $workDirOption : (getcwd() ?: '.');
@@ -350,8 +352,16 @@ final class RunCommand extends Command
         }
 
         // Tab autocomplete for REPL slash commands
+        $toolkitCommandHandlers = $this->boot->commandHandlers([
+            'config' => $this->boot->config(),
+            'activeProfile' => $this->activeProfile,
+            'sessionId' => $this->sessionId,
+        ]);
+        ReplCommandCatalog::registerToolkitHandlers($toolkitCommandHandlers);
+
         $tabCompletion = new TabCompletion($this->boot, $this->storage);
         $tabCompletion->setSessionId($this->sessionId);
+        $tabCompletion->setToolkitCommandHandlers($toolkitCommandHandlers);
         $tabCompletion->register();
 
         // Terminal state manager for ESC detection
@@ -403,7 +413,6 @@ final class RunCommand extends Command
             role: new RoleHandler($this->boot, $this->storage),
             profile: new ProfileHandler($this->boot, $sessionHandler),
             backstory: new BackstoryHandler($this->boot->profileDiscovery(), $this->boot->workspacePath()),
-            image: new ImageHandler($this->boot),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             space: new SpaceHandler($this->boot),
             config: new ConfigHandler($this->boot, $this->workDir),
@@ -425,6 +434,8 @@ final class RunCommand extends Command
             ),
             agentRunner: $this->agentRunner,
             promptInspection: new PromptInspectionService($this->agentRunner, $this->boot->workspacePath(), $this->workDir),
+            output: $this->output,
+            workspacePath: $this->boot->workspacePath(),
             onHintsToggle: function () use ($io): void {
                 $this->hintsEnabled = !$this->hintsEnabled;
                 $this->boot->configManager()->set('agents.defaults.hints', $this->hintsEnabled);
@@ -436,6 +447,7 @@ final class RunCommand extends Command
                     ? 'Multiline mode enabled — press Enter twice on an empty line to submit'
                     : 'Multiline mode disabled — Enter submits immediately');
             },
+            toolkitCommandHandlers: $toolkitCommandHandlers,
         );
 
         // --continue: auto-send "Continue." as the first prompt without displaying it
