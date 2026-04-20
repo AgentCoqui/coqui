@@ -15,7 +15,6 @@ use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
-use CoquiBot\Coqui\Repl\Handler\ImageHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
@@ -122,6 +121,8 @@ function createPromptBackstoryRouterFixture(): array
         return (new ReflectionClass($class))->newInstanceWithoutConstructor();
     };
 
+    $output = new BufferedOutput();
+
     $router = new SlashCommandRouter(
         $instantiate(SessionHandler::class),
         $instantiate(TaskHandler::class),
@@ -140,9 +141,10 @@ function createPromptBackstoryRouterFixture(): array
         $instantiate(EvaluationHandler::class),
         $instantiate(LoopHandler::class),
         new BackstoryHandler(new ProfileDiscovery($workspacePath), $workspacePath, $assembler),
-        $instantiate(ImageHandler::class),
         $runner,
         new PromptInspectionService($runner, $workspacePath, $projectRoot),
+        $output,
+        $workspacePath,
         static function (): void {},
         static function (?bool $enable = null): void {},
     );

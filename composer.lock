@@ -12,7 +12,7 @@
             "dist": {
                 "type": "path",
                 "url": "../../Toolkits/coqui-toolkit-images",
-                "reference": "c83f9a9fdaa5cacffddeab7d56921ca964862de1"
+                "reference": "055df1cdcb88101e5c7394feeed154258eaee0a7"
             },
             "require": {
                 "php": "^8.4",

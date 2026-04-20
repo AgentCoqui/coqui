@@ -24,6 +24,7 @@ Use these documents as the canonical references:
 - [docs/API.md](docs/API.md): canonical HTTP API reference and client integration guidance
 - [docs/TESTING.md](docs/TESTING.md): test strategy and test commands
 - [docs/TOOLKITS.md](docs/TOOLKITS.md): toolkit authoring and discovery
+- [docs/TOOLKIT-EXTENSIBILITY.md](docs/TOOLKIT-EXTENSIBILITY.md): self-registering REPL commands from toolkits
 - [docs/ROLES.md](docs/ROLES.md): role system and role files
 - [docs/PROFILES.md](docs/PROFILES.md): personality profiles
 - [docs/BACKGROUND-TASKS.md](docs/BACKGROUND-TASKS.md): background task model

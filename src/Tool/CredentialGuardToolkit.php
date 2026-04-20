@@ -65,6 +65,17 @@ final class CredentialGuardToolkit implements ToolkitInterface
         return $this->inner::class;
     }
 
+    /**
+     * Returns the inner toolkit instance.
+     *
+     * Used by discovery to check if the wrapped toolkit implements
+     * additional capability interfaces (e.g. ReplCommandProvider).
+     */
+    public function innerToolkit(): ToolkitInterface
+    {
+        return $this->inner;
+    }
+
     private function buildCredentialStatus(): string
     {
         $allConfigured = true;

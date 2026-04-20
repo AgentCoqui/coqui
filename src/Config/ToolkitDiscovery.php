@@ -8,6 +8,8 @@ use CarmeloSantana\PHPAgents\Contract\PackageEventListenerInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CoquiBot\Coqui\Contract\CredentialRequirement;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Contract\ReplCommandProvider;
+use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
 use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
 
@@ -1043,5 +1045,46 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
         $fullPath = $vendorRoot . '/' . ltrim($loopsDir, '/');
 
         return is_dir($fullPath) ? realpath($fullPath) ?: $fullPath : null;
+    }
+
+    /**
+     * Discover and return REPL command handlers from all enabled toolkits.
+     *
+     * Iterates over instantiated toolkits and collects handlers from those
+     * implementing ReplCommandProvider. Only Enabled-visibility toolkits
+     * contribute commands. Commands from CredentialGuardToolkit wrappers
+     * are collected from the inner toolkit if it's a ReplCommandProvider.
+     *
+     * @param array<string, mixed> $context Runtime context passed to toolkit factories
+     * @return list<ToolkitCommandHandler>
+     */
+    public function commandHandlers(array $context = []): array
+    {
+        $handlers = [];
+
+        foreach ($this->instantiateRegisteredGrouped(context: $context) as $entry) {
+            // Only enabled toolkits may register REPL commands
+            if ($this->visibilityRegistry !== null) {
+                $vis = $this->visibilityRegistry->getPackageVisibility($entry['package']);
+                if ($vis !== ToolkitVisibility::Enabled) {
+                    continue;
+                }
+            }
+
+            $toolkit = $entry['toolkit'];
+
+            // Unwrap credential guard to check the inner toolkit
+            if ($toolkit instanceof CredentialGuardToolkit) {
+                $toolkit = $toolkit->innerToolkit();
+            }
+
+            if ($toolkit instanceof ReplCommandProvider) {
+                foreach ($toolkit->commandHandlers() as $handler) {
+                    $handlers[] = $handler;
+                }
+            }
+        }
+
+        return $handlers;
     }
 }
