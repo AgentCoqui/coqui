@@ -104,6 +104,15 @@ php --ini
 
 If both are installed, prefer PCOV for routine coverage runs.
 
+If you keep `xdebug` or `pcov` loaded in your normal CLI all the time, also disable CLI JIT locally to avoid the `JIT is incompatible with third party extensions...` startup warning:
+
+```ini
+opcache.jit=0
+opcache.jit_buffer_size=0
+```
+
+On Homebrew PHP, a late-loading file such as `/opt/homebrew/etc/php/8.4/conf.d/zz-local-no-jit.ini` is usually the cleanest place for that local override.
+
 ## Linux Setup
 
 The simplest Linux path is Ubuntu or Debian with PHP packages installed from the `ondrej/php` PPA, which Coqui already documents elsewhere for PHP 8.4.

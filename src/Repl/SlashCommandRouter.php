@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
+use CoquiBot\Coqui\Contract\ToolkitReplContext;
 use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Renderer\PromptUsageBar;
 use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
@@ -25,8 +27,10 @@ use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
 use CoquiBot\Coqui\Support\PromptInspectionService;
+use CoquiBot\Coqui\Support\ToolkitDatabaseFactory;
 use CoquiBot\Coqui\Contract\SystemRole;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -37,6 +41,13 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  */
 final class SlashCommandRouter
 {
+    /** @var array<string, ToolkitCommandHandler> Command name => handler */
+    private readonly array $toolkitHandlers;
+    private readonly ToolkitCommandHelpRenderer $toolkitHelpRenderer;
+
+    /**
+     * @param list<ToolkitCommandHandler> $toolkitCommandHandlers Handlers discovered from toolkits
+     */
     public function __construct(
         private readonly SessionHandler $session,
         private readonly TaskHandler $task,
@@ -57,9 +68,19 @@ final class SlashCommandRouter
         private readonly BackstoryHandler $backstory,
         private readonly AgentRunner $agentRunner,
         private readonly PromptInspectionService $promptInspection,
+        private readonly OutputInterface $output,
+        private readonly string $workspacePath,
         private readonly \Closure $onHintsToggle,
         private readonly \Closure $onMultilineToggle,
-    ) {}
+        array $toolkitCommandHandlers = [],
+    ) {
+        $handlers = [];
+        foreach ($toolkitCommandHandlers as $handler) {
+            $handlers[$handler->commandName()] = $handler;
+        }
+        $this->toolkitHandlers = $handlers;
+        $this->toolkitHelpRenderer = new ToolkitCommandHelpRenderer();
+    }
 
     /**
      * Route a slash command.
@@ -111,7 +132,7 @@ final class SlashCommandRouter
             '/multiline' => $this->handleMultiline($io, $arg),
             '/hints' => $this->handleHints($io),
             '/help' => $this->handleHelp($io),
-            default => $this->handleUnknown($io, $cmd),
+            default => $this->dispatchToolkitOrUnknown($io, $cmd, $arg, $activeProfile, $sessionId),
         };
 
         return $result;
@@ -482,9 +503,38 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleUnknown(SymfonyStyle $io, string $cmd): RouteResult
+    /**
+     * Dispatch to a toolkit-provided command handler, or show unknown command error.
+     */
+    private function dispatchToolkitOrUnknown(SymfonyStyle $io, string $cmd, string $arg, ?string $activeProfile, string $sessionId): RouteResult
     {
+        // Strip leading slash for handler lookup
+        $name = ltrim($cmd, '/');
+
+        if (isset($this->toolkitHandlers[$name])) {
+            $normalizedArg = strtolower(trim($arg));
+            if ($normalizedArg === '' || $normalizedArg === 'help') {
+                $this->toolkitHelpRenderer->render($io, $this->toolkitHandlers[$name]);
+
+                return RouteResult::continue();
+            }
+
+            $context = new ToolkitReplContext(
+                io: $io,
+                prompt: new InterruptiblePrompt($io),
+                workspacePath: $this->workspacePath,
+                activeProfile: $activeProfile,
+                sessionId: $sessionId,
+                output: $this->output,
+                databaseFactory: new ToolkitDatabaseFactory($this->workspacePath),
+            );
+            $this->toolkitHandlers[$name]->handle($context, $arg);
+
+            return RouteResult::continue();
+        }
+
         $io->error("Unknown command: {$cmd}. Type /help for available commands.");
+
         return RouteResult::continue();
     }
 }

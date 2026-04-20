@@ -8,7 +8,10 @@ use CarmeloSantana\PHPAgents\Contract\PackageEventListenerInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CoquiBot\Coqui\Contract\CredentialRequirement;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
+use CoquiBot\Coqui\Contract\ReplCommandProvider;
+use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
+use CoquiBot\Coqui\Repl\ToolkitCommandCandidate;
 use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
 
 /**
@@ -275,11 +278,12 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
      * Silently skips classes that cannot be instantiated.
      * Wraps toolkits in CredentialGuardToolkit when credential requirements are declared.
      *
+     * @param array<string, mixed> $context
      * @return ToolkitInterface[]
      */
-    public function instantiateRegistered(): array
+    public function instantiateRegistered(array $context = []): array
     {
-        return array_column($this->instantiateRegisteredGrouped(), 'toolkit');
+        return array_column($this->instantiateRegisteredGrouped(context: $context), 'toolkit');
     }
 
     /**
@@ -289,9 +293,10 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
      * Returns an array of ['package' => string, 'toolkit' => ToolkitInterface].
      *
      * @param bool $childMode When true, wraps credential guards with child-aware error messages
+     * @param array<string, mixed> $context Additional runtime context for toolkits that support context-aware factories
      * @return array<int, array{package: string, toolkit: ToolkitInterface}>
      */
-    public function instantiateRegisteredGrouped(bool $childMode = false): array
+    public function instantiateRegisteredGrouped(bool $childMode = false, array $context = []): array
     {
         $registry = $this->loadRegistry();
         $result = [];
@@ -308,7 +313,12 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
             $requirements = $this->loadCredentialRequirements($packageName);
 
             foreach ($classes as $className) {
-                $toolkit = $this->tryInstantiate($className);
+                $toolkit = $this->tryInstantiate($className, [
+                    ...$context,
+                    'workspacePath' => $this->workspacePath,
+                    'childMode' => $childMode,
+                    'packageName' => $packageName,
+                ]);
                 if ($toolkit === null) {
                     continue;
                 }
@@ -514,14 +524,16 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
     }
 
     /**
+        * @param array<string, mixed> $context
      * Attempt to instantiate a toolkit class.
      *
      * Tries strategies in order:
+     * 0. Static factory method fromCoquiContext(array $context)
      * 1. Static factory method fromEnv() — toolkit reads config from environment
      * 2. No constructor / all-optional params — no-arg construction
      * 3. First required param is string — pass workspacePath
      */
-    private function tryInstantiate(string $className): ?ToolkitInterface
+    private function tryInstantiate(string $className, array $context = []): ?ToolkitInterface
     {
         try {
             if (!class_exists($className, true)) {
@@ -534,6 +546,18 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
                 || $reflection->isAbstract()
                 || $reflection->isInterface()) {
                 return null;
+            }
+
+            // Strategy 0: static fromCoquiContext(array $context) factory method
+            if ($reflection->hasMethod('fromCoquiContext')) {
+                $factory = $reflection->getMethod('fromCoquiContext');
+                if ($factory->isStatic() && $factory->isPublic()
+                    && $factory->getNumberOfRequiredParameters() <= 1) {
+                    $instance = $factory->invoke(null, $context);
+                    if ($instance instanceof ToolkitInterface) {
+                        return $instance;
+                    }
+                }
             }
 
             // Strategy 1: static fromEnv() factory method
@@ -1022,5 +1046,60 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
         $fullPath = $vendorRoot . '/' . ltrim($loopsDir, '/');
 
         return is_dir($fullPath) ? realpath($fullPath) ?: $fullPath : null;
+    }
+
+    /**
+     * Discover and return REPL command handlers from all enabled toolkits.
+     *
+     * Iterates over instantiated toolkits and collects handlers from those
+     * implementing ReplCommandProvider. Only Enabled-visibility toolkits
+     * contribute commands. Commands from CredentialGuardToolkit wrappers
+     * are collected from the inner toolkit if it's a ReplCommandProvider.
+     *
+     * @param array<string, mixed> $context Runtime context passed to toolkit factories
+     * @return list<ToolkitCommandHandler>
+     */
+    public function commandHandlers(array $context = []): array
+    {
+        return array_map(
+            static fn(ToolkitCommandCandidate $candidate): ToolkitCommandHandler => $candidate->handler,
+            $this->commandHandlerCandidates($context),
+        );
+    }
+
+    /**
+     * Discover and return package-aware REPL command registration candidates.
+     *
+     * @param array<string, mixed> $context Runtime context passed to toolkit factories
+     * @return list<ToolkitCommandCandidate>
+     */
+    public function commandHandlerCandidates(array $context = []): array
+    {
+        $handlers = [];
+
+        foreach ($this->instantiateRegisteredGrouped(context: $context) as $entry) {
+            // Only enabled toolkits may register REPL commands
+            if ($this->visibilityRegistry !== null) {
+                $vis = $this->visibilityRegistry->getPackageVisibility($entry['package']);
+                if ($vis !== ToolkitVisibility::Enabled) {
+                    continue;
+                }
+            }
+
+            $toolkit = $entry['toolkit'];
+
+            // Unwrap credential guard to check the inner toolkit
+            if ($toolkit instanceof CredentialGuardToolkit) {
+                $toolkit = $toolkit->innerToolkit();
+            }
+
+            if ($toolkit instanceof ReplCommandProvider) {
+                foreach ($toolkit->commandHandlers() as $handler) {
+                    $handlers[] = new ToolkitCommandCandidate($entry['package'], $handler);
+                }
+            }
+        }
+
+        return $handlers;
     }
 }

@@ -121,6 +121,8 @@ function createPromptBackstoryRouterFixture(): array
         return (new ReflectionClass($class))->newInstanceWithoutConstructor();
     };
 
+    $output = new BufferedOutput();
+
     $router = new SlashCommandRouter(
         $instantiate(SessionHandler::class),
         $instantiate(TaskHandler::class),
@@ -141,6 +143,8 @@ function createPromptBackstoryRouterFixture(): array
         new BackstoryHandler(new ProfileDiscovery($workspacePath), $workspacePath, $assembler),
         $runner,
         new PromptInspectionService($runner, $workspacePath, $projectRoot),
+        $output,
+        $workspacePath,
         static function (): void {},
         static function (?bool $enable = null): void {},
     );
@@ -179,7 +183,7 @@ test('slash command router renders prompt output from the shared inspection payl
     }
 });
 
-test('slash command router renders backstory output from the shared inspection payload', function (): void {
+test('slash command router renders backstory metadata from the shared inspection payload', function (): void {
     $fixture = createPromptBackstoryRouterFixture();
 
     try {
@@ -191,10 +195,12 @@ test('slash command router renders backstory output from the shared inspection p
 
         expect($result->shouldContinue)->toBeTrue();
         expect($display)->toContain('Backstory — caelum');
-        expect($display)->toContain('Generated Backstory');
+        expect($display)->toContain('Source folder');
+        expect($display)->toContain('Generated file');
         expect($display)->toContain('intro.md');
         expect($display)->toContain('nested');
-        expect($display)->toContain('Caelum remembers details');
+        expect($display)->not->toContain('Generated Backstory');
+        expect($display)->not->toContain('Caelum remembers details');
     } finally {
         cleanupPromptBackstoryRouterFixture($fixture);
     }

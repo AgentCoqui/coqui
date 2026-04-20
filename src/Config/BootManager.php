@@ -11,8 +11,10 @@ use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Contract\MountDefinition;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
+use CoquiBot\Coqui\Repl\ToolkitCommandCandidate;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
@@ -174,6 +176,28 @@ final class BootManager
     public function discovery(): ToolkitDiscovery
     {
         return $this->discovery;
+    }
+
+    /**
+     * Discover and return REPL command handlers from enabled toolkits.
+     *
+     * @param array<string, mixed> $context Runtime context passed to toolkit factories
+     * @return list<ToolkitCommandHandler>
+     */
+    public function commandHandlers(array $context = []): array
+    {
+        return $this->discovery->commandHandlers($context);
+    }
+
+    /**
+     * Discover and return package-aware REPL command registration candidates.
+     *
+     * @param array<string, mixed> $context Runtime context passed to toolkit factories
+     * @return list<ToolkitCommandCandidate>
+     */
+    public function commandHandlerCandidates(array $context = []): array
+    {
+        return $this->discovery->commandHandlerCandidates($context);
     }
 
     public function visibilityRegistry(): ToolkitVisibilityRegistry
