@@ -10,11 +10,16 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
+use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Repl\InterruptiblePrompt;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 final readonly class ImageHandler
 {
+    private const string GENERATE_OUTPUT_FORMAT = 'json';
+
     private ImageCommandParser $parser;
 
     public function __construct(
@@ -125,13 +130,23 @@ final readonly class ImageHandler
             }
         }
 
-        if ($resolvedModel !== null) {
+        $input['output_format'] = self::GENERATE_OUTPUT_FORMAT;
+        $progress = $this->createGenerateProgress($io, $resolvedModel);
+        if ($progress !== null) {
+            $input['__progress_callback'] = $progress['callback'];
+        } elseif ($resolvedModel !== null) {
             $io->text(sprintf('<fg=gray>Generating image with %s. This may take a while.</>', $resolvedModel));
         } else {
             $io->text('<fg=gray>Generating image. This may take a while.</>');
         }
 
-        return $tools['image_generate']->execute($input);
+        try {
+            return $tools['image_generate']->execute($input);
+        } finally {
+            if ($progress !== null) {
+                $progress['spinner']->stop();
+            }
+        }
     }
 
     /**
@@ -195,21 +210,12 @@ final readonly class ImageHandler
 
     private function isInteractiveTerminal(SymfonyStyle $io): bool
     {
-        $inputReader = \Closure::bind(
-            function (): bool {
-                return $this->input->isInteractive();
-            },
-            $io,
-            SymfonyStyle::class,
-        );
-
-        if (!$inputReader instanceof \Closure) {
+        $input = $this->extractInput($io);
+        if (!$input instanceof InputInterface) {
             return false;
         }
 
-        $inputIsInteractive = $inputReader();
-
-        if (!$inputIsInteractive) {
+        if (!$input->isInteractive()) {
             return false;
         }
 
@@ -234,6 +240,11 @@ final readonly class ImageHandler
             return;
         }
 
+        if ($command === 'generate') {
+            $this->renderGenerateResult($io, $result);
+            return;
+        }
+
         if (in_array($command, ['list', 'search', 'get', 'tag', 'delete', 'config'], true)) {
             $io->write($result->content);
             $io->newLine();
@@ -242,6 +253,151 @@ final readonly class ImageHandler
 
         $io->write(explode("\n", $result->content));
         $io->newLine();
+    }
+
+    private function renderGenerateResult(SymfonyStyle $io, ToolResult $result): void
+    {
+        $payload = json_decode($result->content, true);
+        if (!is_array($payload)) {
+            $io->write(explode("\n", $result->content));
+            $io->newLine();
+
+            return;
+        }
+
+        $message = is_string($payload['message'] ?? null)
+            ? $payload['message']
+            : 'Image generated successfully.';
+        $record = is_array($payload['record'] ?? null) ? $payload['record'] : [];
+        $path = is_string($payload['saved_path'] ?? null)
+            ? $payload['saved_path']
+            : (is_string($record['path'] ?? null) ? $record['path'] : null);
+        $preview = is_string($payload['preview'] ?? null) ? $payload['preview'] : null;
+        $previewReason = is_string($payload['preview_unavailable_reason'] ?? null) ? $payload['preview_unavailable_reason'] : null;
+        $metadataReason = is_string($payload['metadata_unavailable_reason'] ?? null) ? $payload['metadata_unavailable_reason'] : null;
+
+        $io->success($message);
+
+        $lines = [];
+        if ($path !== null) {
+            $lines[] = '<fg=gray>Saved path:</> ' . $path;
+            $lines[] = '<fg=gray>Open:</> file://' . $path;
+        }
+
+        if (is_string($record['id'] ?? null)) {
+            $lines[] = '<fg=gray>Record ID:</> ' . $record['id'];
+        }
+
+        if (is_string($record['vendor'] ?? null) && is_string($record['model'] ?? null)) {
+            $lines[] = '<fg=gray>Model:</> ' . $record['vendor'] . '/' . $record['model'];
+        }
+
+        if (is_string($record['format'] ?? null) && $record['format'] !== '') {
+            $lines[] = '<fg=gray>Format:</> ' . strtoupper((string) $record['format']);
+        }
+
+        $lines[] = '<fg=gray>Metadata embedded:</> ' . ((($record['metadata_embedded'] ?? false) === true) ? 'yes' : 'no');
+
+        if ($metadataReason !== null) {
+            $lines[] = '<fg=gray>Metadata note:</> ' . $metadataReason;
+        }
+
+        $io->text($lines);
+
+        if ($preview !== null && trim($preview) !== '') {
+            $io->newLine();
+            $io->section('Preview');
+            $io->write(explode("\n", $preview));
+            $io->newLine();
+
+            return;
+        }
+
+        if ($previewReason !== null) {
+            $io->newLine();
+            $io->text('<fg=gray>Preview unavailable:</> ' . $previewReason);
+        }
+    }
+
+    /**
+     * @return array{spinner: AnimatedTickCallback, callback: \Closure(string): void}|null
+     */
+    private function createGenerateProgress(SymfonyStyle $io, ?string $resolvedModel): ?array
+    {
+        if (!$this->isInteractiveTerminal($io)) {
+            return null;
+        }
+
+        $output = $this->extractOutput($io);
+        if (!$output instanceof OutputInterface || !$output->isDecorated()) {
+            return null;
+        }
+
+        $spinner = new AnimatedTickCallback($output);
+        $spinner->start($this->defaultGenerateContext($resolvedModel));
+
+        $callback = function (string $status) use ($spinner): void {
+            $spinner->setContext($this->formatGenerateProgressContext($status));
+            $spinner->tick();
+        };
+
+        return [
+            'spinner' => $spinner,
+            'callback' => $callback,
+        ];
+    }
+
+    private function defaultGenerateContext(?string $resolvedModel): string
+    {
+        if ($resolvedModel === null) {
+            return 'image generation';
+        }
+
+        return 'image generation with ' . $resolvedModel;
+    }
+
+    private function formatGenerateProgressContext(string $status): string
+    {
+        $normalized = trim(strtolower($status));
+
+        return match ($normalized) {
+            'contacting-openai' => 'contacting OpenAI',
+            'writing-image' => 'writing generated image',
+            'finalizing-image' => 'finalizing generated image',
+            default => preg_replace('/\s+/', ' ', str_replace('-', ' ', $normalized)) ?? 'image generation',
+        };
+    }
+
+    private function extractOutput(SymfonyStyle $io): ?OutputInterface
+    {
+        $output = $this->readStyleProperty($io, 'output');
+
+        return $output instanceof OutputInterface ? $output : null;
+    }
+
+    private function extractInput(SymfonyStyle $io): ?InputInterface
+    {
+        $input = $this->readStyleProperty($io, 'input');
+
+        return $input instanceof InputInterface ? $input : null;
+    }
+
+    private function readStyleProperty(SymfonyStyle $io, string $property): mixed
+    {
+        $reflection = new \ReflectionObject($io);
+
+        while ($reflection !== false) {
+            if ($reflection->hasProperty($property)) {
+                $resolvedProperty = $reflection->getProperty($property);
+                $resolvedProperty->setAccessible(true);
+
+                return $resolvedProperty->getValue($io);
+            }
+
+            $reflection = $reflection->getParentClass();
+        }
+
+        return null;
     }
 
     private function renderHelp(SymfonyStyle $io): void
