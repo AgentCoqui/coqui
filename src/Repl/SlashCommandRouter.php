@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Renderer\PromptUsageBar;
 use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
+use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
@@ -54,6 +55,7 @@ final class SlashCommandRouter
         private readonly TodoHandler $todo,
         private readonly ScheduleHandler $schedule,
         private readonly BudgetHandler $budget,
+        private readonly ChannelHandler $channel,
         private readonly QualityHandler $quality,
         private readonly ProjectHandler $project,
         private readonly RoleHandler $role,
@@ -116,6 +118,7 @@ final class SlashCommandRouter
             '/update' => $this->handleUpdate($io),
             '/toolkits' => $this->handleToolkits($io, $arg),
             '/budget' => $this->handleBudget($io, $arg, $activeRole, $activeProfile),
+            '/channels' => $this->handleChannels($io, $arg),
             '/prompt' => $this->handlePrompt($io, $arg, $activeRole, $activeProfile),
             '/summarize' => $this->handleSummarize($io, $arg, $sessionId),
             '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId),
@@ -247,6 +250,12 @@ final class SlashCommandRouter
     private function handleToolkits(SymfonyStyle $io, string $arg): RouteResult
     {
         $this->toolkitVisibility->handle($io, $arg);
+        return RouteResult::continue();
+    }
+
+    private function handleChannels(SymfonyStyle $io, string $arg): RouteResult
+    {
+        $this->channel->handle($io, $arg);
         return RouteResult::continue();
     }
 

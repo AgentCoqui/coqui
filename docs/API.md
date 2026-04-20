@@ -252,7 +252,15 @@ Liveness check. Does **not** require authentication.
   "status": "ok",
   "version": "dev",
   "uptime_seconds": 3421,
-  "active_sessions": 1
+  "active_sessions": 1,
+  "channels": {
+    "total": 1,
+    "enabled": 1,
+    "ready": 1,
+    "errors": 0,
+    "active_runtimes": 1,
+    "registered_drivers": 3
+  }
 }
 ```
 
@@ -2443,6 +2451,106 @@ Get a specific iteration with all its stage details.
 }
 ```
 
+### Channels
+
+Channels provide first-class outbound user communication surfaces such as Signal, Telegram, and Discord. The API server owns live channel runtimes; the REPL can edit config and inspect stored state, but only the API server performs runtime reconciliation and transport work.
+
+#### `GET /api/v1/channels`
+
+List configured channel instances with joined runtime health.
+
+**Query Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `enabled` | bool | `null` | Filter to enabled or disabled instances |
+| `driver` | string | `null` | Filter by driver name |
+
+#### `POST /api/v1/channels`
+
+Create a channel instance and reconcile it into the running API process immediately.
+
+**Request Body**
+
+```json
+{
+  "name": "signal-primary",
+  "driver": "signal",
+  "displayName": "Signal Primary",
+  "defaultProfile": "caelum",
+  "settings": {
+    "transport": "signal-cli"
+  }
+}
+```
+
+Supported fields: `name`, `driver`, `enabled`, `displayName`, `defaultProfile`, `settings`, `allowedScopes`, and `security`.
+
+#### `GET /api/v1/channels/drivers`
+
+List registered built-in and external channel drivers with capability metadata.
+
+#### `GET /api/v1/channels/{id}`
+
+Get one channel instance by id or name.
+
+#### `PATCH /api/v1/channels/{id}`
+
+Update any mutable channel fields from the create payload.
+
+#### `DELETE /api/v1/channels/{id}`
+
+Remove a configured channel instance and stop its runtime on the running API server.
+
+#### `POST /api/v1/channels/{id}/enable`
+
+Enable a channel instance and reconcile it immediately.
+
+#### `POST /api/v1/channels/{id}/disable`
+
+Disable a channel instance and stop its runtime immediately.
+
+#### `POST /api/v1/channels/{id}/test`
+
+Force a reconcile/tick cycle and return the refreshed channel row.
+
+#### `GET /api/v1/channels/{id}/health`
+
+Return the stored runtime health snapshot for one channel.
+
+#### `GET /api/v1/channels/{id}/links`
+
+List channel identity links.
+
+#### `POST /api/v1/channels/{id}/links`
+
+Create a channel identity link.
+
+**Request Body**
+
+```json
+{
+  "remote_user_key": "signal:+15551234567",
+  "profile": "caelum"
+}
+```
+
+#### `DELETE /api/v1/channels/{id}/links/{linkId}`
+
+Delete a channel identity link.
+
+#### `GET /api/v1/channels/{id}/conversations`
+
+List stored channel conversation records for one instance.
+
+#### `GET /api/v1/channels/{id}/events`
+
+List stored inbound event records for one instance.
+
+#### `GET /api/v1/channels/{id}/deliveries`
+
+List stored delivery records for one instance.
+
 ### Webhooks
 
 Webhooks receive signed HTTP POST requests from external services and automatically spawn background tasks. Signature verification supports GitHub, Slack, and generic HMAC schemes.
@@ -3056,6 +3164,15 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/toolkits enable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to enabled |
 | `/toolkits stub <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to stub |
 | `/toolkits disable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to disabled |
+| `/channels` | `GET /api/v1/channels` | Lists channels with runtime state |
+| `/channels drivers` | `GET /api/v1/channels/drivers` | Lists registered channel drivers |
+| `/channels status <id>` | `GET /api/v1/channels/{id}` | Shows channel details |
+| `/channels health <id>` | `GET /api/v1/channels/{id}/health` | Shows channel health |
+| `/channels enable <id>` | `POST /api/v1/channels/{id}/enable` | Enables a channel instance |
+| `/channels disable <id>` | `POST /api/v1/channels/{id}/disable` | Disables a channel instance |
+| `/channels delete <id>` | `DELETE /api/v1/channels/{id}` | Deletes a channel instance |
+| `/channels links <id>` | `GET /api/v1/channels/{id}/links` | Lists identity links for a channel |
+| `/channels deliveries <id>` | `GET /api/v1/channels/{id}/deliveries` | Lists delivery records for a channel |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
 | `/backstory` | `GET /api/v1/server/backstory?profile=<name>` | Returns generated backstory content and source breakdowns |
 | `/budget` | `GET /api/v1/server/budget` | Returns prompt and toolkit budget info |
@@ -3131,6 +3248,22 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/server/budget` | Yes | Get prompt and toolkit budget state |
 | `GET` | `/api/v1/toolkits` | Yes | List toolkits and tools with visibility |
 | `POST` | `/api/v1/toolkits/visibility` | Yes | Set package or tool visibility |
+| `GET` | `/api/v1/channels` | Yes | List channels with runtime state |
+| `POST` | `/api/v1/channels` | Yes | Create a channel instance |
+| `GET` | `/api/v1/channels/drivers` | Yes | List registered channel drivers |
+| `GET` | `/api/v1/channels/{id}` | Yes | Get one channel instance |
+| `PATCH` | `/api/v1/channels/{id}` | Yes | Update a channel instance |
+| `DELETE` | `/api/v1/channels/{id}` | Yes | Delete a channel instance |
+| `POST` | `/api/v1/channels/{id}/enable` | Yes | Enable a channel instance |
+| `POST` | `/api/v1/channels/{id}/disable` | Yes | Disable a channel instance |
+| `POST` | `/api/v1/channels/{id}/test` | Yes | Reconcile and refresh a channel instance |
+| `GET` | `/api/v1/channels/{id}/health` | Yes | Get channel health |
+| `GET` | `/api/v1/channels/{id}/links` | Yes | List channel identity links |
+| `POST` | `/api/v1/channels/{id}/links` | Yes | Create a channel identity link |
+| `DELETE` | `/api/v1/channels/{id}/links/{linkId}` | Yes | Delete a channel identity link |
+| `GET` | `/api/v1/channels/{id}/conversations` | Yes | List stored channel conversations |
+| `GET` | `/api/v1/channels/{id}/events` | Yes | List stored inbound channel events |
+| `GET` | `/api/v1/channels/{id}/deliveries` | Yes | List stored channel deliveries |
 | `GET` | `/api/v1/schedules` | Yes | List schedules |
 | `GET` | `/api/v1/schedules/{id}` | Yes | Get schedule |
 | `POST` | `/api/v1/schedules` | Yes | Create schedule |

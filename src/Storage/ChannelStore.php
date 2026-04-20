@@ -125,6 +125,14 @@ final class ChannelStore
                 ON channel_inbound_events(status)
         SQL);
 
+        $this->migrateAddColumn('channel_inbound_events', 'session_id', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('channel_inbound_events', 'task_id', 'TEXT DEFAULT NULL');
+
+        $this->db->exec(<<<'SQL'
+            CREATE INDEX IF NOT EXISTS idx_channel_inbound_events_task
+                ON channel_inbound_events(task_id)
+        SQL);
+
         $this->db->exec(<<<'SQL'
             CREATE TABLE IF NOT EXISTS channel_deliveries (
                 id TEXT PRIMARY KEY,
@@ -155,6 +163,11 @@ final class ChannelStore
         $this->db->exec(<<<'SQL'
             CREATE UNIQUE INDEX IF NOT EXISTS idx_channel_deliveries_idempotency
                 ON channel_deliveries(channel_instance_id, idempotency_key)
+        SQL);
+
+        $this->db->exec(<<<'SQL'
+            CREATE INDEX IF NOT EXISTS idx_channel_deliveries_reply_event
+                ON channel_deliveries(reply_to_event_id)
         SQL);
 
         $this->db->exec(<<<'SQL'
@@ -199,6 +212,23 @@ final class ChannelStore
             CREATE INDEX IF NOT EXISTS idx_channel_runtime_state_status
                 ON channel_runtime_state(worker_status)
         SQL);
+    }
+
+    private function migrateAddColumn(string $table, string $column, string $definition): void
+    {
+        $stmt = $this->db->query("PRAGMA table_info({$table})");
+
+        if ($stmt === false) {
+            return;
+        }
+
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $existingColumn) {
+            if (($existingColumn['name'] ?? null) === $column) {
+                return;
+            }
+        }
+
+        $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
     }
 
     /**
@@ -265,6 +295,27 @@ final class ChannelStore
     /**
      * @return array<string, mixed>|null
      */
+    public function get(string $id): ?array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT ci.*, crs.worker_status, crs.ready, crs.summary, crs.last_heartbeat_at, crs.last_receive_at,
+                   crs.last_send_at, crs.inbound_backlog, crs.outbound_backlog, crs.consecutive_failures,
+                   crs.lease_owner, crs.last_error, crs.updated_at AS runtime_updated_at
+            FROM channel_instances ci
+            LEFT JOIN channel_runtime_state crs ON crs.channel_instance_id = ci.id
+            WHERE ci.id = ?
+            LIMIT 1
+        SQL);
+        $stmt->execute([$id]);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrateInstanceRow($row) : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
     public function getByName(string $name): ?array
     {
         $stmt = $this->db->prepare(<<<'SQL'
@@ -280,7 +331,17 @@ final class ChannelStore
 
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        return $row !== false ? $row : null;
+        return $row !== false ? $this->hydrateInstanceRow($row) : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getByIdOrName(string $idOrName): ?array
+    {
+        $row = $this->get($idOrName);
+
+        return $row ?? $this->getByName($idOrName);
     }
 
     /**
@@ -300,7 +361,555 @@ final class ChannelStore
         $stmt->bindValue(1, $limit, PDO::PARAM_INT);
         $stmt->execute();
 
-        return array_values($stmt->fetchAll(PDO::FETCH_ASSOC));
+        return array_values(array_map($this->hydrateInstanceRow(...), $stmt->fetchAll(PDO::FETCH_ASSOC)));
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listLinks(string $channelInstanceId, int $limit = 100): array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT *
+            FROM channel_identity_links
+            WHERE channel_instance_id = ?
+            ORDER BY created_at DESC
+            LIMIT ?
+        SQL);
+        $stmt->bindValue(1, $channelInstanceId);
+        $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_values(array_map($this->hydrateLinkRow(...), $stmt->fetchAll(PDO::FETCH_ASSOC)));
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getConversationByRemote(string $channelInstanceId, string $remoteConversationKey, ?string $remoteThreadKey = null): ?array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT *
+            FROM channel_conversations
+            WHERE channel_instance_id = ?
+              AND remote_conversation_key = ?
+              AND ((remote_thread_key IS NULL AND ? IS NULL) OR remote_thread_key = ?)
+            LIMIT 1
+        SQL);
+        $stmt->execute([$channelInstanceId, $remoteConversationKey, $remoteThreadKey, $remoteThreadKey]);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrateJsonRow($row) : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getConversation(string $id): ?array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM channel_conversations WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrateJsonRow($row) : null;
+    }
+
+    /**
+     * @param array<string, mixed> $metadata
+     */
+    public function upsertConversation(
+        string $channelInstanceId,
+        string $remoteConversationKey,
+        ?string $remoteThreadKey = null,
+        ?string $sessionId = null,
+        ?string $profile = null,
+        ?string $lastInboundEventId = null,
+        ?string $lastMessageAt = null,
+        array $metadata = [],
+    ): string {
+        $existing = $this->getConversationByRemote($channelInstanceId, $remoteConversationKey, $remoteThreadKey);
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+
+        if ($existing !== null) {
+            $stmt = $this->db->prepare(<<<'SQL'
+                UPDATE channel_conversations
+                SET session_id = COALESCE(?, session_id),
+                    profile = COALESCE(?, profile),
+                    last_inbound_event_id = COALESCE(?, last_inbound_event_id),
+                    last_message_at = COALESCE(?, last_message_at),
+                    metadata_json = ?,
+                    updated_at = ?
+                WHERE id = ?
+            SQL);
+            $stmt->execute([
+                $sessionId,
+                $profile,
+                $lastInboundEventId,
+                $lastMessageAt,
+                $this->encodeJson($metadata),
+                $now,
+                (string) $existing['id'],
+            ]);
+
+            return (string) $existing['id'];
+        }
+
+        $id = bin2hex(random_bytes(16));
+        $stmt = $this->db->prepare(<<<'SQL'
+            INSERT INTO channel_conversations
+                (id, channel_instance_id, remote_conversation_key, remote_thread_key, session_id, profile,
+                 last_inbound_event_id, last_message_at, metadata_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        SQL);
+        $stmt->execute([
+            $id,
+            $channelInstanceId,
+            $remoteConversationKey,
+            $remoteThreadKey,
+            $sessionId,
+            $profile,
+            $lastInboundEventId,
+            $lastMessageAt,
+            $this->encodeJson($metadata),
+            $now,
+            $now,
+        ]);
+
+        return $id;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @param array<string, mixed> $normalized
+     */
+    public function createInboundEvent(
+        string $channelInstanceId,
+        ?string $conversationId,
+        ?string $providerEventId,
+        string $dedupeKey,
+        string $eventType,
+        ?string $remoteUserKey,
+        array $payload,
+        array $normalized,
+        string $status = 'received',
+        ?string $receivedAt = null,
+    ): ?string {
+        $id = bin2hex(random_bytes(16));
+        $stmt = $this->db->prepare(<<<'SQL'
+            INSERT OR IGNORE INTO channel_inbound_events
+                (id, channel_instance_id, conversation_id, provider_event_id, dedupe_key, event_type,
+                 remote_user_key, payload_json, normalized_json, status, received_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        SQL);
+        $stmt->execute([
+            $id,
+            $channelInstanceId,
+            $conversationId,
+            $providerEventId,
+            $dedupeKey,
+            $eventType,
+            $remoteUserKey,
+            $this->encodeJson($payload),
+            $this->encodeJson($normalized),
+            $status,
+            $receivedAt ?? gmdate('Y-m-d\TH:i:s\Z'),
+        ]);
+
+        return $stmt->rowCount() > 0 ? $id : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getInboundEvent(string $id): ?array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM channel_inbound_events WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrateJsonRow($row) : null;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listInboundEventsByStatus(string $status, int $limit = 100, ?string $channelInstanceId = null): array
+    {
+        $sql = <<<'SQL'
+            SELECT *
+            FROM channel_inbound_events
+            WHERE status = ?
+        SQL;
+        $params = [$status];
+
+        if ($channelInstanceId !== null) {
+            $sql .= ' AND channel_instance_id = ?';
+            $params[] = $channelInstanceId;
+        }
+
+        $sql .= ' ORDER BY received_at ASC LIMIT ?';
+
+        $stmt = $this->db->prepare($sql);
+        foreach ($params as $index => $value) {
+            $stmt->bindValue($index + 1, $value);
+        }
+        $stmt->bindValue(count($params) + 1, $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_values(array_map($this->hydrateJsonRow(...), $stmt->fetchAll(PDO::FETCH_ASSOC)));
+    }
+
+    public function updateInboundEventState(
+        string $eventId,
+        string $status,
+        ?string $error = null,
+        ?string $processedAt = null,
+        ?string $sessionId = null,
+        ?string $taskId = null,
+    ): void {
+        $stmt = $this->db->prepare(<<<'SQL'
+            UPDATE channel_inbound_events
+            SET status = ?,
+                error = ?,
+                processed_at = ?,
+                session_id = COALESCE(?, session_id),
+                task_id = COALESCE(?, task_id)
+            WHERE id = ?
+        SQL);
+        $stmt->execute([
+            $status,
+            $error,
+            $processedAt,
+            $sessionId,
+            $taskId,
+            $eventId,
+        ]);
+    }
+
+    public function countInboundBacklog(string $channelInstanceId): int
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT COUNT(*)
+            FROM channel_inbound_events
+            WHERE channel_instance_id = ? AND status = 'received'
+        SQL);
+        $stmt->execute([$channelInstanceId]);
+
+        return max(0, (int) $stmt->fetchColumn());
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function findLinkForRemoteIdentity(string $channelInstanceId, string $remoteUserKey, ?string $remoteScopeKey = null): ?array
+    {
+        if ($remoteScopeKey !== null && $remoteScopeKey !== '') {
+            $stmt = $this->db->prepare(<<<'SQL'
+                SELECT *
+                FROM channel_identity_links
+                WHERE channel_instance_id = ?
+                  AND remote_user_key = ?
+                  AND remote_scope_key = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            SQL);
+            $stmt->execute([$channelInstanceId, $remoteUserKey, $remoteScopeKey]);
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($row !== false) {
+                return $this->hydrateLinkRow($row);
+            }
+        }
+
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT *
+            FROM channel_identity_links
+            WHERE channel_instance_id = ?
+              AND remote_user_key = ?
+            ORDER BY CASE WHEN remote_scope_key IS NULL THEN 0 ELSE 1 END ASC, created_at DESC
+            LIMIT 1
+        SQL);
+        $stmt->execute([$channelInstanceId, $remoteUserKey]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrateLinkRow($row) : null;
+    }
+
+    /**
+     * @param array<string, mixed> $metadata
+     */
+    public function createLink(string $channelInstanceId, string $remoteUserKey, string $profile, ?string $remoteScopeKey = null, string $trustLevel = 'linked', array $metadata = []): string
+    {
+        $id = bin2hex(random_bytes(16));
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $stmt = $this->db->prepare(<<<'SQL'
+            INSERT INTO channel_identity_links
+                (id, channel_instance_id, remote_user_key, remote_scope_key, profile, trust_level, metadata_json, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        SQL);
+        $stmt->execute([
+            $id,
+            $channelInstanceId,
+            $remoteUserKey,
+            $remoteScopeKey,
+            $profile,
+            $trustLevel,
+            $this->encodeJson($metadata),
+            $now,
+            $now,
+        ]);
+
+        return $id;
+    }
+
+    public function deleteLink(string $channelInstanceId, string $linkId): bool
+    {
+        $stmt = $this->db->prepare('DELETE FROM channel_identity_links WHERE channel_instance_id = ? AND id = ?');
+        $stmt->execute([$channelInstanceId, $linkId]);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listConversations(string $channelInstanceId, int $limit = 100): array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT *
+            FROM channel_conversations
+            WHERE channel_instance_id = ?
+            ORDER BY updated_at DESC
+            LIMIT ?
+        SQL);
+        $stmt->bindValue(1, $channelInstanceId);
+        $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_values(array_map($this->hydrateJsonRow(...), $stmt->fetchAll(PDO::FETCH_ASSOC)));
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listEvents(string $channelInstanceId, int $limit = 100): array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT *
+            FROM channel_inbound_events
+            WHERE channel_instance_id = ?
+            ORDER BY received_at DESC
+            LIMIT ?
+        SQL);
+        $stmt->bindValue(1, $channelInstanceId);
+        $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_values(array_map($this->hydrateJsonRow(...), $stmt->fetchAll(PDO::FETCH_ASSOC)));
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listDeliveries(string $channelInstanceId, int $limit = 100): array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT *
+            FROM channel_deliveries
+            WHERE channel_instance_id = ?
+            ORDER BY queued_at DESC
+            LIMIT ?
+        SQL);
+        $stmt->bindValue(1, $channelInstanceId);
+        $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_values(array_map($this->hydrateJsonRow(...), $stmt->fetchAll(PDO::FETCH_ASSOC)));
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getDelivery(string $id): ?array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM channel_deliveries WHERE id = ? LIMIT 1');
+        $stmt->execute([$id]);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrateJsonRow($row) : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getDeliveryByReplyToEventId(string $replyToEventId): ?array
+    {
+        $stmt = $this->db->prepare('SELECT * FROM channel_deliveries WHERE reply_to_event_id = ? ORDER BY queued_at DESC LIMIT 1');
+        $stmt->execute([$replyToEventId]);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrateJsonRow($row) : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getDeliveryByIdempotencyKey(string $channelInstanceId, string $idempotencyKey): ?array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT *
+            FROM channel_deliveries
+            WHERE channel_instance_id = ? AND idempotency_key = ?
+            LIMIT 1
+        SQL);
+        $stmt->execute([$channelInstanceId, $idempotencyKey]);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $this->hydrateJsonRow($row) : null;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    public function queueDelivery(
+        string $channelInstanceId,
+        ?string $conversationId,
+        ?string $sessionId,
+        ?string $replyToEventId,
+        string $idempotencyKey,
+        array $payload,
+    ): string {
+        $existing = $this->getDeliveryByIdempotencyKey($channelInstanceId, $idempotencyKey);
+        if ($existing !== null) {
+            return (string) $existing['id'];
+        }
+
+        $id = bin2hex(random_bytes(16));
+        $queuedAt = gmdate('Y-m-d\TH:i:s\Z');
+        $stmt = $this->db->prepare(<<<'SQL'
+            INSERT INTO channel_deliveries
+                (id, channel_instance_id, conversation_id, session_id, reply_to_event_id, idempotency_key,
+                 payload_json, status, attempt_count, queued_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', 0, ?)
+        SQL);
+        $stmt->execute([
+            $id,
+            $channelInstanceId,
+            $conversationId,
+            $sessionId,
+            $replyToEventId,
+            $idempotencyKey,
+            $this->encodeJson($payload),
+            $queuedAt,
+        ]);
+
+        return $id;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function listQueuedDeliveries(string $channelInstanceId, int $limit = 100): array
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT *
+            FROM channel_deliveries
+            WHERE channel_instance_id = ? AND status = 'queued'
+            ORDER BY queued_at ASC
+            LIMIT ?
+        SQL);
+        $stmt->bindValue(1, $channelInstanceId);
+        $stmt->bindValue(2, $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return array_values(array_map($this->hydrateJsonRow(...), $stmt->fetchAll(PDO::FETCH_ASSOC)));
+    }
+
+    public function countQueuedDeliveries(string $channelInstanceId): int
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            SELECT COUNT(*)
+            FROM channel_deliveries
+            WHERE channel_instance_id = ? AND status = 'queued'
+        SQL);
+        $stmt->execute([$channelInstanceId]);
+
+        return max(0, (int) $stmt->fetchColumn());
+    }
+
+    public function recordDeliveryAttempt(
+        string $deliveryId,
+        string $resultStatus,
+        ?int $providerResponseCode = null,
+        ?string $providerResponseBody = null,
+        ?int $retryAfterSeconds = null,
+    ): int {
+        $stmt = $this->db->prepare('SELECT COUNT(*) FROM channel_delivery_attempts WHERE delivery_id = ?');
+        $stmt->execute([$deliveryId]);
+        $attemptNumber = ((int) $stmt->fetchColumn()) + 1;
+
+        $insert = $this->db->prepare(<<<'SQL'
+            INSERT INTO channel_delivery_attempts
+                (id, delivery_id, attempt_number, result_status, retry_after_seconds, provider_response_code,
+                 provider_response_body, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        SQL);
+        $insert->execute([
+            bin2hex(random_bytes(16)),
+            $deliveryId,
+            $attemptNumber,
+            $resultStatus,
+            $retryAfterSeconds,
+            $providerResponseCode,
+            $providerResponseBody,
+            gmdate('Y-m-d\TH:i:s\Z'),
+        ]);
+
+        return $attemptNumber;
+    }
+
+    public function markDeliverySent(string $deliveryId, int $attemptCount, ?string $providerMessageId = null, ?string $sentAt = null): void
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            UPDATE channel_deliveries
+            SET status = 'sent',
+                attempt_count = ?,
+                provider_message_id = ?,
+                last_error = NULL,
+                sent_at = ?,
+                failed_at = NULL
+            WHERE id = ?
+        SQL);
+        $stmt->execute([
+            $attemptCount,
+            $providerMessageId,
+            $sentAt ?? gmdate('Y-m-d\TH:i:s\Z'),
+            $deliveryId,
+        ]);
+    }
+
+    public function markDeliveryFailed(string $deliveryId, int $attemptCount, string $error, ?string $failedAt = null): void
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            UPDATE channel_deliveries
+            SET status = 'failed',
+                attempt_count = ?,
+                last_error = ?,
+                failed_at = ?
+            WHERE id = ?
+        SQL);
+        $stmt->execute([
+            $attemptCount,
+            $error,
+            $failedAt ?? gmdate('Y-m-d\TH:i:s\Z'),
+            $deliveryId,
+        ]);
     }
 
     /**
@@ -401,5 +1010,62 @@ final class ChannelStore
         $encoded = json_encode($value, JSON_UNESCAPED_SLASHES);
 
         return is_string($encoded) ? $encoded : '{}';
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function hydrateInstanceRow(array $row): array
+    {
+        $row['settings'] = $this->decodeJsonColumn($row['config_json'] ?? '{}', []);
+        $row['allowed_scopes'] = $this->decodeJsonColumn($row['allowed_scopes_json'] ?? '[]', []);
+        $row['security'] = $this->decodeJsonColumn($row['security_json'] ?? '{}', []);
+        $row['capabilities'] = $this->decodeJsonColumn($row['capabilities_json'] ?? '{}', []);
+
+        return $row;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function hydrateLinkRow(array $row): array
+    {
+        $row['metadata'] = $this->decodeJsonColumn($row['metadata_json'] ?? '{}', []);
+
+        return $row;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function hydrateJsonRow(array $row): array
+    {
+        foreach ($row as $key => $value) {
+            if (!is_string($value) || !str_ends_with($key, '_json')) {
+                continue;
+            }
+
+            $row[substr($key, 0, -5)] = $this->decodeJsonColumn($value, []);
+        }
+
+        return $row;
+    }
+
+    private function decodeJsonColumn(mixed $value, mixed $default): mixed
+    {
+        if (!is_string($value) || trim($value) === '') {
+            return $default;
+        }
+
+        try {
+            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return $default;
+        }
+
+        return $decoded;
     }
 }

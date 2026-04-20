@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api;
 
 use CoquiBot\Coqui\Channel\ChannelConfig;
 use CoquiBot\Coqui\Channel\ChannelDiscovery;
+use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Contract\ChannelRuntimeInterface;
 use CoquiBot\Coqui\Storage\ChannelStore;
@@ -32,6 +33,7 @@ final class ChannelManager
         private readonly OpenClawConfig $config,
         private readonly ChannelDiscovery $discovery,
         private readonly ChannelStore $store,
+        private readonly ?ConfigManager $configManager = null,
         private readonly array $runtimeContext = [],
     ) {}
 
@@ -69,7 +71,8 @@ final class ChannelManager
     public function reconcile(): void
     {
         $this->lastReconcileAt = gmdate('Y-m-d\TH:i:s\Z');
-        $channelConfig = ChannelConfig::fromArray($this->config->getChannelConfig());
+        $config = $this->configManager?->config() ?? $this->config;
+        $channelConfig = ChannelConfig::fromArray($config->getChannelConfig());
         $instanceNames = [];
 
         foreach ($channelConfig->instances() as $definition) {
@@ -129,6 +132,8 @@ final class ChannelManager
                 $runtime = $driver->createRuntime($definition, $this->runtimeContext + [
                     'driverName' => $driver->driverName(),
                     'driverDisplayName' => $driver->displayName(),
+                    'channelInstanceId' => $instanceId,
+                    'channelStore' => $this->store,
                 ]);
                 $runtime->start();
                 $this->runtimes[$name] = $runtime;

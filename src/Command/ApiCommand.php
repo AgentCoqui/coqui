@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
+use CoquiBot\Coqui\Api\ChannelExecutionManager;
 use CoquiBot\Coqui\Api\ChannelManager;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\ScheduleManager;
@@ -17,6 +18,7 @@ use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
 use CoquiBot\Coqui\Api\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
+use CoquiBot\Coqui\Api\Handler\ChannelHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
 use CoquiBot\Coqui\Api\Handler\EvaluationHandler;
@@ -44,6 +46,7 @@ use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
 use CoquiBot\Coqui\Backstory\BackstoryInspectionService;
+use CoquiBot\Coqui\Channel\ChannelConfigurationEditor;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
@@ -226,6 +229,7 @@ final class ApiCommand extends Command
             config: $boot->config(),
             discovery: $boot->channelDiscovery(),
             store: $channelStore,
+            configManager: $boot->configManager(),
             runtimeContext: [
                 'workspacePath' => $boot->workspacePath(),
                 'projectRoot' => $workDir,
@@ -233,6 +237,7 @@ final class ApiCommand extends Command
             ],
         );
         $channelManager->reconcile();
+        $channelExecutionManager = new ChannelExecutionManager($boot->config(), $channelStore, $storage);
         $qualityAutomation = new QualityAutomationCoordinator(
             config: $boot->config(),
             storage: $storage,
@@ -351,6 +356,13 @@ final class ApiCommand extends Command
         $scheduleHandler = new ScheduleHandler($scheduleStore);
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
         $webhookMgmtHandler = new WebhookManagementHandler($webhookStore, $boot->profileDiscovery());
+        $channelHandler = new ChannelHandler(
+            $channelStore,
+            $channelManager,
+            new ChannelConfigurationEditor($boot->configManager(), $boot->channelDiscovery(), $boot->profileDiscovery()),
+            $boot->channelDiscovery(),
+            $boot->profileDiscovery(),
+        );
         $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore) : null;
         $sessionProjectHandler = $projectStore !== null ? new SessionProjectHandler($storage, $projectStore) : null;
 
@@ -360,7 +372,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -512,6 +524,10 @@ final class ApiCommand extends Command
             $channelManager->tick();
         });
 
+        Loop::addPeriodicTimer(2.0, static function () use ($channelExecutionManager): void {
+            $channelExecutionManager->tick();
+        });
+
         return Command::SUCCESS;
     }
 
@@ -543,6 +559,7 @@ final class ApiCommand extends Command
         ScheduleHandler $schedule,
         WebhookHandler $webhook,
         WebhookManagementHandler $webhookMgmt,
+        ChannelHandler $channel,
         ?ApiLoopHandler $loop,
         ?ProjectHandler $project,
         ?SessionProjectHandler $sessionProject,
@@ -652,6 +669,9 @@ final class ApiCommand extends Command
         // Webhooks (incoming receiver + management CRUD)
         $webhook->register($router);
         $webhookMgmt->register($router);
+
+        // Channels
+        $channel->register($router);
 
         // Loops
         $loop?->register($router);

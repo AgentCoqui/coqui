@@ -186,7 +186,7 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface and the new /channels operator surface into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system, resolves session, enters REPL or headless mode",
                 "runRepl(SymfonyStyle, bool): int — interactive REPL loop with readline, signal handling, slash command routing, and agent turn execution",
@@ -218,7 +218,7 @@
             "path": "src/Repl/SlashCommandRouter.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\SlashCommandRouter",
             "layer": "command",
-            "description": "Routes REPL slash commands to the appropriate handler class. Help output is generated from ReplCommandCatalog so the compact /help surface stays aligned with tab completion and routed commands. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
+            "description": "Routes REPL slash commands to the appropriate handler class. Help output is generated from ReplCommandCatalog so the compact /help surface stays aligned with tab completion and routed commands. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, the new /channels operator controls, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
             "methods": [
                 "route(string, string, string, SymfonyStyle): RouteResult — dispatches a slash command string to the matching handler"
             ]
@@ -237,7 +237,7 @@
             "path": "src/Repl/ReplCommandCatalog.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\ReplCommandCatalog",
             "layer": "command",
-            "description": "Static registry of canonical REPL slash-command metadata. Serves as the shared source of truth for compact /help rows, top-level command completion, aliases, common first-argument choices, and canonical toolkit-command registration with collision reporting.",
+            "description": "Static registry of canonical REPL slash-command metadata. Serves as the shared source of truth for compact /help rows, top-level command completion, aliases, common first-argument choices, and canonical toolkit-command registration with collision reporting. Includes the core /channels operator command family.",
             "methods": [
                 "static all(): array — returns all command specs in display order",
                 "static find(string): ?ReplCommandSpec — resolves a command or alias to its canonical spec",
@@ -335,11 +335,20 @@
             "path": "src/Repl/TabCompletion.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\TabCompletion",
             "layer": "command",
-            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, todos, projects, profiles, schedules, loop definitions, toolkit visibility metadata, and cached Coqui Space install suggestions.",
+            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, todos, projects, profiles, schedules, channel instances, loop definitions, toolkit visibility metadata, and cached Coqui Space install suggestions.",
             "methods": [
                 "register(): void — installs readline_completion_function",
                 "setSessionId(string): void — updates session for todo completions",
                 "complete(string): array — returns suggestions for a command line buffer"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/ChannelHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ChannelHandler",
+            "layer": "command",
+            "description": "Handles the new /channels REPL command family. Supports list, driver inspection, status/health views, config mutations persisted to openclaw.json, identity-link management, and delivery inspection for operator workflows.",
+            "methods": [
+                "handle(SymfonyStyle, string): void — route /channels subcommands"
             ]
         },
         {
@@ -2035,6 +2044,15 @@
             ]
         },
         {
+            "path": "src/Api/Handler/ChannelHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ChannelHandler",
+            "layer": "command",
+            "description": "Channel management API surface. Registers CRUD, health, driver-inspection, identity-link, conversation, inbound-event, and delivery endpoints under /api/v1/channels, and reconciles config mutations into the live ChannelManager.",
+            "methods": [
+                "register(Router): void — attach all /api/v1/channels routes"
+            ]
+        },
+        {
             "path": "src/Api/Handler/ServerHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ServerHandler",
             "layer": "command",
@@ -2083,11 +2101,20 @@
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, prompt-inspection, and channel-health surfaces, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers plus the new ChannelManager, and enters the ReactPHP event loop.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, prompt-inspection, channel CRUD/inspection, and channel-health surfaces, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers plus the channel runtime and channel execution managers, and enters the ReactPHP event loop.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
                 "registerRoutes(Router, ...handlers): void — registers all API routes including evaluation, prompt, budget, and loop endpoints",
                 "resolveApiKey(BootManager): ?string — resolves API key from config/env/workspace"
+            ]
+        },
+        {
+            "path": "src/Api/ChannelExecutionManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\ChannelExecutionManager",
+            "layer": "agent",
+            "description": "API-side channel worker that converts stored inbound channel events into Coqui background tasks, reuses per-conversation sessions, resolves identity links and scope policy, queues outbound deliveries from completed tasks, and finalizes inbound event lifecycle state after delivery.",
+            "methods": [
+                "tick(): void — process newly received channel events, reconcile queued tasks, and finalize queued deliveries"
             ]
         },
         {
@@ -2801,14 +2828,52 @@
             ]
         },
         {
+            "path": "src/Channel/ChannelConfigurationEditor.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\ChannelConfigurationEditor",
+            "layer": "config",
+            "description": "Shared mutator for the channels.instances config block inside openclaw.json. Used by both the API and REPL operator surfaces to create, update, enable, disable, and delete channel instances with driver and profile validation before saving.",
+            "methods": [
+                "create(string, array): array — create a new channel instance definition",
+                "update(string, array): array — patch an existing channel instance definition",
+                "setEnabled(string, bool): array — toggle enabled state",
+                "delete(string): bool — remove an instance definition",
+                "instancesMap(): array — return configured instances keyed by name"
+            ]
+        },
+        {
             "path": "src/Storage/ChannelStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ChannelStore",
             "layer": "storage",
-            "description": "SQLite-backed persistence for the channel subsystem. Creates the initial channel tables for configured instances, identity links, conversations, inbound events, outbound deliveries, delivery attempts, and per-instance runtime state. The first implementation slice actively uses the instance and runtime-state tables while laying down the rest of the schema for follow-on work.",
+            "description": "SQLite-backed persistence for the channel subsystem. Creates the channel tables for configured instances, identity links, conversations, inbound events, outbound deliveries, delivery attempts, and per-instance runtime state. The current implementation actively uses these tables for Signal inbound event execution, queued reply delivery, runtime health, and operator inspection surfaces.",
             "methods": [
                 "upsertConfiguredInstance(array, ?array): string — create or update one configured channel instance row",
+                "get(string): ?array — fetch an instance by id with joined runtime state",
                 "getByName(string): ?array — fetch an instance with joined runtime state",
+                "getByIdOrName(string): ?array — fetch an instance by either identifier",
                 "listInstances(int): array — list configured instances with runtime state",
+                "listLinks(string, int): array — list identity links for an instance",
+                "createLink(string, string, string, ?string, string, array): string — create an identity link row",
+                "deleteLink(string, string): bool — delete one identity link",
+                "getConversationByRemote(string, string, ?string): ?array — look up a stored conversation by remote identity",
+                "getConversation(string): ?array — fetch one stored conversation by id",
+                "upsertConversation(string, string, ?string, ?string, ?string, ?string, ?string, array): string — create or update a stored channel conversation",
+                "createInboundEvent(string, ?string, ?string, string, string, ?string, array, array, string, ?string): ?string — insert a deduplicated inbound event row",
+                "getInboundEvent(string): ?array — fetch one inbound event by id",
+                "listInboundEventsByStatus(string, int, ?string): array — list inbound events for a lifecycle status",
+                "updateInboundEventState(string, string, ?string, ?string, ?string, ?string): void — update inbound lifecycle state plus linked session/task references",
+                "countInboundBacklog(string): int — count unprocessed inbound events for one instance",
+                "findLinkForRemoteIdentity(string, string, ?string): ?array — resolve the best identity link for a remote sender and optional scope",
+                "listConversations(string, int): array — list stored conversations for an instance",
+                "listEvents(string, int): array — list stored inbound events for an instance",
+                "getDelivery(string): ?array — fetch one delivery by id",
+                "getDeliveryByReplyToEventId(string): ?array — find the delivery created for an inbound event",
+                "queueDelivery(string, ?string, ?string, ?string, string, array): string — queue one outbound delivery with idempotency protection",
+                "listQueuedDeliveries(string, int): array — list queued outbound deliveries for an instance",
+                "countQueuedDeliveries(string): int — count queued outbound deliveries for an instance",
+                "recordDeliveryAttempt(string, string, ?int, ?string, ?int): int — append a delivery attempt and return its ordinal number",
+                "markDeliverySent(string, int, ?string, ?string): void — finalize a delivery as sent",
+                "markDeliveryFailed(string, int, string, ?string): void — finalize a delivery as failed",
+                "listDeliveries(string, int): array — list stored deliveries for an instance",
                 "pruneConfigInstances(array): int — remove config-sourced instances no longer present in config",
                 "updateRuntimeState(string, array): void — upsert the current health snapshot for an instance",
                 "getStats(): array — return aggregate configured/enabled/ready/error counts"
@@ -2830,13 +2895,25 @@
             "path": "src/Channel/Builtin/SignalChannelDriver.php",
             "fqcn": "CoquiBot\\Coqui\\Channel\\Builtin\\SignalChannelDriver",
             "layer": "config",
-            "description": "Built-in first-party Signal driver descriptor. Declares Signal transport capabilities and currently returns a PlaceholderChannelRuntime while the real signal-cli bridge integration is still being implemented.",
+            "description": "Built-in first-party Signal driver descriptor. Declares Signal transport capabilities, validates signal-cli-backed instance settings, and creates the SignalCliChannelRuntime when storage and workspace context are available.",
             "methods": [
                 "driverName(): string — returns 'signal'",
                 "displayName(): string — returns 'Signal'",
                 "capabilities(): array — declare the current Signal capability surface",
                 "validateInstanceConfig(array): array — validate a Signal instance definition",
-                "createRuntime(array, array): ChannelRuntimeInterface — create the current placeholder runtime"
+                "createRuntime(array, array): ChannelRuntimeInterface — create the signal-cli runtime or fall back to the placeholder runtime"
+            ]
+        },
+        {
+            "path": "src/Channel/Builtin/SignalCliChannelRuntime.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\Builtin\\SignalCliChannelRuntime",
+            "layer": "agent",
+            "description": "Long-lived Signal runtime backed by signal-cli JSON-RPC notifications. It preflights the binary, spawns a managed child process, normalizes inbound envelopes, persists conversations and inbound events, flushes queued outbound deliveries through signal-cli, and reports runtime health into the channel manager.",
+            "methods": [
+                "start(): void — validate configuration, preflight signal-cli, and start the JSON-RPC child process",
+                "tick(): void — refresh heartbeat, update backlog counts, flush queued outbound deliveries, and restart the runtime after unexpected exits",
+                "stop(): void — stop the child process and mark the runtime stopped",
+                "healthReport(): array — emit Signal runtime health and backlog information"
             ]
         },
         {
