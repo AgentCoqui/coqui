@@ -51,8 +51,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # PHP extensions
 # -----------------------------------------------------------------------------
 # Most extensions are already built into php:8.4-cli:
-#   curl, mbstring, xml, pdo_sqlite, readline, opcache, json, openssl
-# Only gd, zip, and pcntl need to be installed separately.
+#   dom, curl, mbstring, xml, pdo_sqlite, readline, opcache, json, openssl
+# We install gd, zip, and pcntl separately for the batteries-included image:
+# - gd supports bundled image previews and release packaging requirements
+# - zip supports office document extraction
+# - pcntl supports Unix background task control
 RUN docker-php-ext-configure gd --with-freetype --with-jpeg
 
 RUN docker-php-ext-install \
@@ -105,6 +108,9 @@ RUN mkdir -p /app/workspace \
 COPY --chown=coqui:coqui composer.json composer.lock /app/
 
 USER coqui
+
+# Resolve production dependencies without the dev lockfile, matching release builds.
+RUN rm -f /app/composer.lock
 
 RUN composer install \
     --no-dev \
