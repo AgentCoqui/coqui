@@ -138,34 +138,71 @@ final class ReplCommandCatalog
      *
      * Called during boot to merge toolkit commands into the catalog.
      * Toolkit commands appear under the "Toolkit Commands" section in help output.
-     * Core commands always take precedence — duplicate names are skipped.
+     * Core commands always take precedence. When two toolkits register the same
+     * command name, first-discovered wins and the later handler is skipped.
      *
      * @param list<ToolkitCommandHandler> $handlers
      */
-    public static function registerToolkitHandlers(array $handlers): void
+    public static function registerToolkitHandlers(array $handlers): ToolkitCommandRegistrationReport
     {
         self::$toolkitSpecs = [];
-        $coreNames = array_flip(array_map(
-            static fn(ReplCommandSpec $spec): string => $spec->name,
-            self::all(),
-        ));
+        $coreSpecs = [];
+        foreach (self::all() as $spec) {
+            foreach ($spec->allNames() as $name) {
+                $coreSpecs[$name] = $spec;
+            }
+        }
+
+        $acceptedHandlers = [];
+        $acceptedSpecs = [];
+        $acceptedByCommand = [];
+        $collisions = [];
 
         foreach ($handlers as $handler) {
             $command = '/' . $handler->commandName();
 
             // Core commands take precedence
-            if (isset($coreNames[$command])) {
+            if (isset($coreSpecs[$command])) {
+                $coreSpec = $coreSpecs[$command];
+                $collisions[] = new ToolkitCommandCollision(
+                    $command,
+                    'core',
+                    $coreSpec->name,
+                    $coreSpec->usage,
+                    $handler::class,
+                    $handler->usage(),
+                );
                 continue;
             }
 
-            self::$toolkitSpecs[] = new ReplCommandSpec(
+            if (isset($acceptedByCommand[$command])) {
+                $winner = $acceptedByCommand[$command];
+                $collisions[] = new ToolkitCommandCollision(
+                    $command,
+                    'toolkit',
+                    $winner::class,
+                    $winner->usage(),
+                    $handler::class,
+                    $handler->usage(),
+                );
+                continue;
+            }
+
+            $spec = new ReplCommandSpec(
                 $command,
                 $handler->usage(),
                 $handler->description(),
-                firstArguments: $handler->subcommands(),
+                firstArguments: array_values(array_unique([...$handler->subcommands(), 'help'])),
                 section: 'Toolkit Commands',
             );
+
+            $acceptedByCommand[$command] = $handler;
+            $acceptedHandlers[] = $handler;
+            $acceptedSpecs[] = $spec;
+            self::$toolkitSpecs[] = $spec;
         }
+
+        return new ToolkitCommandRegistrationReport($acceptedHandlers, $acceptedSpecs, $collisions);
     }
 
     /**

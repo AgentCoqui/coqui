@@ -44,6 +44,8 @@ use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\TabCompletion;
 use CoquiBot\Coqui\Repl\TerminalStateManager;
+use CoquiBot\Coqui\Repl\ToolkitCommandCollision;
+use CoquiBot\Coqui\Repl\ToolkitCommandRegistrationReport;
 use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -357,7 +359,9 @@ final class RunCommand extends Command
             'activeProfile' => $this->activeProfile,
             'sessionId' => $this->sessionId,
         ]);
-        ReplCommandCatalog::registerToolkitHandlers($toolkitCommandHandlers);
+        $toolkitCommandRegistration = ReplCommandCatalog::registerToolkitHandlers($toolkitCommandHandlers);
+        $toolkitCommandHandlers = $toolkitCommandRegistration->acceptedHandlers;
+        $this->reportToolkitCommandCollisions($io, $toolkitCommandRegistration);
 
         $tabCompletion = new TabCompletion($this->boot, $this->storage);
         $tabCompletion->setSessionId($this->sessionId);
@@ -1026,6 +1030,49 @@ final class RunCommand extends Command
             $this->activeProjectId = $project['id'];
             $this->activeProjectSlug = $project['slug'];
         }
+    }
+
+    private function reportToolkitCommandCollisions(SymfonyStyle $io, ToolkitCommandRegistrationReport $registration): void
+    {
+        if (!$registration->hasCollisions()) {
+            return;
+        }
+
+        $count = count($registration->collisions);
+        $message = sprintf(
+            'Skipped %d toolkit REPL command collision(s). Core commands always win; duplicate toolkit commands keep the first-discovered handler.',
+            $count,
+        );
+
+        if (!$io->isVerbose()) {
+            $io->warning($message . ' Re-run with -v for details.');
+            return;
+        }
+
+        $io->warning($message);
+        $io->listing(array_map(
+            static function (ToolkitCommandCollision $collision): string {
+                if ($collision->reason === 'core') {
+                    return sprintf(
+                        '%s skipped %s (%s) because it conflicts with core command %s.',
+                        $collision->command,
+                        $collision->skipped,
+                        $collision->skippedUsage,
+                        $collision->winnerUsage,
+                    );
+                }
+
+                return sprintf(
+                    '%s skipped %s (%s) because %s (%s) was registered first.',
+                    $collision->command,
+                    $collision->skipped,
+                    $collision->skippedUsage,
+                    $collision->winner,
+                    $collision->winnerUsage,
+                );
+            },
+            $registration->collisions,
+        ));
     }
 
     private function resolveAutomaticStartupSessionId(

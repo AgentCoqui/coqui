@@ -3,6 +3,11 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Contract\ToolkitCommandExample;
+use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
+use CoquiBot\Coqui\Contract\ToolkitCommandHelp;
+use CoquiBot\Coqui\Contract\ToolkitCommandHelpEntry;
+use CoquiBot\Coqui\Contract\ToolkitCommandHelpProvider;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
@@ -29,6 +34,14 @@ use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 function createSlashCommandRouterForHelpTest(): SlashCommandRouter
+{
+    return createSlashCommandRouterForToolkitTest();
+}
+
+/**
+ * @param list<ToolkitCommandHandler> $toolkitCommandHandlers
+ */
+function createSlashCommandRouterForToolkitTest(array $toolkitCommandHandlers = []): SlashCommandRouter
 {
     $instantiate = static function (string $class): object {
         return (new ReflectionClass($class))->newInstanceWithoutConstructor();
@@ -60,6 +73,7 @@ function createSlashCommandRouterForHelpTest(): SlashCommandRouter
         sys_get_temp_dir(),
         static function (): void {},
         static function (?bool $enable = null): void {},
+        $toolkitCommandHandlers,
     );
 }
 
@@ -86,4 +100,68 @@ test('slash command router renders the shared help table end to end', function (
     }
 
     expect($display)->toContain('Advanced automation commands remain available');
+});
+
+test('slash command router renders shared toolkit help for no-arg toolkit commands', function (): void {
+    $handler = new class implements ToolkitCommandHandler, ToolkitCommandHelpProvider
+    {
+        public function commandName(): string
+        {
+            return 'image';
+        }
+
+        public function subcommands(): array
+        {
+            return ['generate'];
+        }
+
+        public function usage(): string
+        {
+            return '/image [action]';
+        }
+
+        public function description(): string
+        {
+            return 'Generate and manage images.';
+        }
+
+        public function help(): ToolkitCommandHelp
+        {
+            return new ToolkitCommandHelp(
+                summary: 'Generate and manage workspace images from the REPL.',
+                subcommands: [
+                    new ToolkitCommandHelpEntry('generate', '/image generate <prompt>', 'Generate an image.'),
+                ],
+                examples: [
+                    new ToolkitCommandExample('/image generate red fox', 'Create a sample image.'),
+                ],
+                notes: ['Images are saved in the workspace image library.'],
+            );
+        }
+
+        public function handle(\CoquiBot\Coqui\Contract\ToolkitReplContext $context, string $arg): void
+        {
+            throw new RuntimeException('Toolkit handler should not run for no-arg help.');
+        }
+    };
+
+    ReplCommandCatalog::registerToolkitHandlers([$handler]);
+
+    try {
+        $router = createSlashCommandRouterForToolkitTest([$handler]);
+        $output = new BufferedOutput();
+        $io = new SymfonyStyle(new ArrayInput([]), $output);
+
+        $result = $router->route('/image', SystemRole::Orchestrator->value, 'session-1', $io);
+        $display = $output->fetch();
+
+        expect($result->shouldContinue)->toBeTrue();
+        expect($display)->toContain('/image');
+        expect($display)->toContain('Usage:');
+        expect($display)->toContain('/image generate <prompt>');
+        expect($display)->toContain('Create a sample image.');
+        expect($display)->toContain('Images are saved in the workspace image library.');
+    } finally {
+        ReplCommandCatalog::clearToolkitHandlers();
+    }
 });

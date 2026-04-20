@@ -43,6 +43,7 @@ final class SlashCommandRouter
 {
     /** @var array<string, ToolkitCommandHandler> Command name => handler */
     private readonly array $toolkitHandlers;
+    private readonly ToolkitCommandHelpRenderer $toolkitHelpRenderer;
 
     /**
      * @param list<ToolkitCommandHandler> $toolkitCommandHandlers Handlers discovered from toolkits
@@ -78,6 +79,7 @@ final class SlashCommandRouter
             $handlers[$handler->commandName()] = $handler;
         }
         $this->toolkitHandlers = $handlers;
+        $this->toolkitHelpRenderer = new ToolkitCommandHelpRenderer();
     }
 
     /**
@@ -510,6 +512,13 @@ final class SlashCommandRouter
         $name = ltrim($cmd, '/');
 
         if (isset($this->toolkitHandlers[$name])) {
+            $normalizedArg = strtolower(trim($arg));
+            if ($normalizedArg === '' || $normalizedArg === 'help') {
+                $this->toolkitHelpRenderer->render($io, $this->toolkitHandlers[$name]);
+
+                return RouteResult::continue();
+            }
+
             $context = new ToolkitReplContext(
                 io: $io,
                 prompt: new InterruptiblePrompt($io),

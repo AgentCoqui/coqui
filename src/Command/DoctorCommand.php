@@ -48,15 +48,22 @@ final class DoctorCommand extends Command
     private const REQUIRED_PHP_VERSION = '8.4.0';
 
     private const REQUIRED_EXTENSIONS = [
+        'dom',
         'pdo_sqlite',
-        'json',
         'mbstring',
-        'curl',
+        'xml',
     ];
 
     private const RECOMMENDED_EXTENSIONS = [
-        'readline',
-        'pcntl',
+        'curl' => 'recommended for best HTTP client performance and provider connectivity',
+        'zip' => 'recommended for office document extraction',
+        'gd' => 'recommended for bundled image previews and release packaging',
+    ];
+
+    private const UNIX_RECOMMENDED_EXTENSIONS = [
+        'readline' => 'recommended for the interactive REPL',
+        'pcntl' => 'recommended for background task cancellation',
+        'posix' => 'recommended for background task process management',
     ];
 
     private int $okCount = 0;
@@ -195,13 +202,13 @@ final class DoctorCommand extends Command
         }
 
         // Recommended extensions
-        foreach (self::RECOMMENDED_EXTENSIONS as $ext) {
+        foreach ($this->recommendedExtensions() as $ext => $reason) {
             if (extension_loaded($ext)) {
                 $this->ok($io, "Extension: {$ext}", $jsonOutput);
                 $results["ext_{$ext}"] = ['status' => 'ok'];
             } else {
-                $this->warn($io, "Extension: {$ext} (missing — recommended for REPL)", $jsonOutput);
-                $results["ext_{$ext}"] = ['status' => 'warn', 'issue' => 'missing'];
+                $this->warn($io, "Extension: {$ext} (missing — {$reason})", $jsonOutput);
+                $results["ext_{$ext}"] = ['status' => 'warn', 'issue' => 'missing', 'reason' => $reason];
             }
         }
 
@@ -227,6 +234,18 @@ final class DoctorCommand extends Command
         }
 
         return $results;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function recommendedExtensions(): array
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            return self::RECOMMENDED_EXTENSIONS;
+        }
+
+        return self::RECOMMENDED_EXTENSIONS + self::UNIX_RECOMMENDED_EXTENSIONS;
     }
 
     /**

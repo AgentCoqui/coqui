@@ -237,12 +237,38 @@
             "path": "src/Repl/ReplCommandCatalog.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\ReplCommandCatalog",
             "layer": "command",
-            "description": "Static registry of canonical REPL slash-command metadata. Serves as the shared source of truth for compact /help rows, top-level command completion, aliases, and common first-argument choices.",
+            "description": "Static registry of canonical REPL slash-command metadata. Serves as the shared source of truth for compact /help rows, top-level command completion, aliases, common first-argument choices, and canonical toolkit-command registration with collision reporting.",
             "methods": [
                 "static all(): array — returns all command specs in display order",
                 "static find(string): ?ReplCommandSpec — resolves a command or alias to its canonical spec",
                 "static topLevelCommands(): array — returns canonical command names plus aliases for completion",
-                "static helpRows(): array — returns compact help-table rows"
+                "static helpRows(): array — returns compact help-table rows",
+                "static registerToolkitHandlers(array): ToolkitCommandRegistrationReport — accepts the first handler for each toolkit command name, rejects collisions, and registers help specs"
+            ]
+        },
+        {
+            "path": "src/Repl/ToolkitCommandCollision.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\ToolkitCommandCollision",
+            "layer": "command",
+            "description": "Readonly value object describing a skipped toolkit REPL command registration. Captures the colliding command name, whether the winner was a core command or an earlier toolkit command, and display metadata for warning output.",
+            "methods": []
+        },
+        {
+            "path": "src/Repl/ToolkitCommandRegistrationReport.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\ToolkitCommandRegistrationReport",
+            "layer": "command",
+            "description": "Canonical registration result for toolkit REPL commands. Carries the accepted handler set, accepted command specs, and collision records so REPL boot, routing, help, and tab completion can consume the same authoritative state.",
+            "methods": [
+                "hasCollisions(): bool — returns true when any toolkit command registrations were skipped"
+            ]
+        },
+        {
+            "path": "src/Repl/ToolkitCommandHelpRenderer.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\ToolkitCommandHelpRenderer",
+            "layer": "command",
+            "description": "Shared formatter for toolkit-provided REPL command help pages. Renders the standardized `/command` and `/command help` surface from either structured ToolkitCommandHelpProvider metadata or auto-generated defaults derived from the handler contract.",
+            "methods": [
+                "render(SymfonyStyle, ToolkitCommandHandler): void — render a standardized toolkit help page"
             ]
         },
         {
@@ -331,14 +357,44 @@
             "path": "src/Contract/ToolkitCommandHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitCommandHandler",
             "layer": "contract",
-            "description": "Interface for toolkit-provided REPL command handlers. Each handler declares one slash command name, subcommands, usage, description, and the handle method.",
+            "description": "Interface for toolkit-provided REPL command handlers. Each handler declares one slash command name, subcommands, usage, concise global-help description, and the handle method.",
             "methods": [
                 "commandName(): string — the slash command name without leading slash",
                 "subcommands(): list<string> — subcommands for tab completion",
                 "usage(): string — short usage string for help output",
-                "description(): string — one-line description for help output",
+                "description(): string — concise one-line description for global help output",
                 "handle(ToolkitReplContext, string): void — handles the command with context and argument"
             ]
+        },
+        {
+            "path": "src/Contract/ToolkitCommandHelpProvider.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitCommandHelpProvider",
+            "layer": "contract",
+            "description": "Optional interface for toolkit command handlers that provide structured standardized help metadata. Coqui renders this metadata for `/command` and `/command help` using the shared toolkit help formatter.",
+            "methods": [
+                "help(): ToolkitCommandHelp — returns structured help metadata for the command"
+            ]
+        },
+        {
+            "path": "src/Contract/ToolkitCommandHelp.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitCommandHelp",
+            "layer": "contract",
+            "description": "Readonly value object carrying optional structured help metadata for a toolkit command. Includes summary text, per-subcommand descriptions, examples, and notes for standardized REPL help rendering.",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/ToolkitCommandHelpEntry.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitCommandHelpEntry",
+            "layer": "contract",
+            "description": "Readonly value object describing one toolkit command subcommand for standardized REPL help. Holds the subcommand name, full usage string, and one-line description.",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/ToolkitCommandExample.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitCommandExample",
+            "layer": "contract",
+            "description": "Readonly value object describing an example toolkit command invocation for the standardized REPL help renderer.",
+            "methods": []
         },
         {
             "path": "src/Contract/ToolkitTabCompletionProvider.php",

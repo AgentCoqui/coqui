@@ -42,6 +42,7 @@
     "phpstan/phpstan": "^2.0"
   },
   "suggest": {
+    "ext-gd": "Recommended for bundled image previews in coqui-toolkit-images and for release or Docker build parity",
     "ext-zip": "Required for optional .odt/.ods/.odp/.xlsx/.pptx backstory extraction",
     "ext-pcntl": "Required for background task cancellation via SIGTERM",
     "ext-posix": "Required for background task process management"

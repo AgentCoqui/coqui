@@ -34,7 +34,9 @@ interface ToolkitCommandHandler
     public function usage(): string;
 
     /**
-     * One-line description for help output.
+     * Concise one-line description for global help output.
+     *
+     * Richer command-specific help should be exposed via ToolkitCommandHelpProvider.
      */
     public function description(): string;
 
