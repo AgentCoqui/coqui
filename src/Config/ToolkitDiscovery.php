@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\ReplCommandProvider;
 use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
+use CoquiBot\Coqui\Repl\ToolkitCommandCandidate;
 use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
 
 /**
@@ -1060,6 +1061,20 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
      */
     public function commandHandlers(array $context = []): array
     {
+        return array_map(
+            static fn(ToolkitCommandCandidate $candidate): ToolkitCommandHandler => $candidate->handler,
+            $this->commandHandlerCandidates($context),
+        );
+    }
+
+    /**
+     * Discover and return package-aware REPL command registration candidates.
+     *
+     * @param array<string, mixed> $context Runtime context passed to toolkit factories
+     * @return list<ToolkitCommandCandidate>
+     */
+    public function commandHandlerCandidates(array $context = []): array
+    {
         $handlers = [];
 
         foreach ($this->instantiateRegisteredGrouped(context: $context) as $entry) {
@@ -1080,7 +1095,7 @@ final class ToolkitDiscovery implements PackageEventListenerInterface
 
             if ($toolkit instanceof ReplCommandProvider) {
                 foreach ($toolkit->commandHandlers() as $handler) {
-                    $handlers[] = $handler;
+                    $handlers[] = new ToolkitCommandCandidate($entry['package'], $handler);
                 }
             }
         }

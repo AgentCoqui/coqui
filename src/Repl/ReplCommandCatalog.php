@@ -141,9 +141,9 @@ final class ReplCommandCatalog
      * Core commands always take precedence. When two toolkits register the same
      * command name, first-discovered wins and the later handler is skipped.
      *
-     * @param list<ToolkitCommandHandler> $handlers
+     * @param list<ToolkitCommandCandidate> $candidates
      */
-    public static function registerToolkitHandlers(array $handlers): ToolkitCommandRegistrationReport
+    public static function registerToolkitHandlers(array $candidates): ToolkitCommandRegistrationReport
     {
         self::$toolkitSpecs = [];
         $coreSpecs = [];
@@ -158,7 +158,8 @@ final class ReplCommandCatalog
         $acceptedByCommand = [];
         $collisions = [];
 
-        foreach ($handlers as $handler) {
+        foreach ($candidates as $candidate) {
+            $handler = $candidate->handler;
             $command = '/' . $handler->commandName();
 
             // Core commands take precedence
@@ -167,8 +168,10 @@ final class ReplCommandCatalog
                 $collisions[] = new ToolkitCommandCollision(
                     $command,
                     'core',
+                    'coquibot/coqui',
                     $coreSpec->name,
                     $coreSpec->usage,
+                    $candidate->package,
                     $handler::class,
                     $handler->usage(),
                 );
@@ -180,8 +183,10 @@ final class ReplCommandCatalog
                 $collisions[] = new ToolkitCommandCollision(
                     $command,
                     'toolkit',
-                    $winner::class,
-                    $winner->usage(),
+                    $winner->package,
+                    $winner->handler::class,
+                    $winner->handler->usage(),
+                    $candidate->package,
                     $handler::class,
                     $handler->usage(),
                 );
@@ -196,7 +201,7 @@ final class ReplCommandCatalog
                 section: 'Toolkit Commands',
             );
 
-            $acceptedByCommand[$command] = $handler;
+            $acceptedByCommand[$command] = $candidate;
             $acceptedHandlers[] = $handler;
             $acceptedSpecs[] = $spec;
             self::$toolkitSpecs[] = $spec;

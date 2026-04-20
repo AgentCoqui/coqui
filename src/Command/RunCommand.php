@@ -354,12 +354,12 @@ final class RunCommand extends Command
         }
 
         // Tab autocomplete for REPL slash commands
-        $toolkitCommandHandlers = $this->boot->commandHandlers([
+        $toolkitCommandCandidates = $this->boot->commandHandlerCandidates([
             'config' => $this->boot->config(),
             'activeProfile' => $this->activeProfile,
             'sessionId' => $this->sessionId,
         ]);
-        $toolkitCommandRegistration = ReplCommandCatalog::registerToolkitHandlers($toolkitCommandHandlers);
+        $toolkitCommandRegistration = ReplCommandCatalog::registerToolkitHandlers($toolkitCommandCandidates);
         $toolkitCommandHandlers = $toolkitCommandRegistration->acceptedHandlers;
         $this->reportToolkitCommandCollisions($io, $toolkitCommandRegistration);
 
@@ -1054,20 +1054,23 @@ final class RunCommand extends Command
             static function (ToolkitCommandCollision $collision): string {
                 if ($collision->reason === 'core') {
                     return sprintf(
-                        '%s skipped %s (%s) because it conflicts with core command %s.',
+                        '%s skipped %s from %s (%s) because it conflicts with the core command %s.',
                         $collision->command,
                         $collision->skipped,
+                        $collision->skippedPackage,
                         $collision->skippedUsage,
                         $collision->winnerUsage,
                     );
                 }
 
                 return sprintf(
-                    '%s skipped %s (%s) because %s (%s) was registered first.',
+                    '%s skipped %s from %s (%s) because %s from %s (%s) was registered first.',
                     $collision->command,
                     $collision->skipped,
+                    $collision->skippedPackage,
                     $collision->skippedUsage,
                     $collision->winner,
+                    $collision->winnerPackage,
                     $collision->winnerUsage,
                 );
             },
