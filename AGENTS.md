@@ -91,8 +91,7 @@ Contributor expectations:
 
 - Linux: fully supported
 - macOS: fully supported
-- WSL2: recommended path for Windows users doing development work
-- Native Windows: basic REPL and installer support, but contributor workflows are not the primary target
+- WSL2: supported path for Windows users doing development work
 - Docker: supported for isolated execution and API usage
 
 When writing docs, keep platform language concise and honest. Do not imply parity that the project does not actually maintain.

@@ -2640,7 +2640,7 @@
                     "line_end": 95
                 },
                 {
-                    "heading": "Windows (PowerShell)",
+                    "heading": "Windows (WSL2 Bootstrap)",
                     "level": 3,
                     "line_start": 96,
                     "line_end": 103

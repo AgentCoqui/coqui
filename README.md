@@ -77,11 +77,10 @@ See [docs/FEATURES.md](docs/FEATURES.md) for the full feature reference with usa
 | --- | --- | --- |
 | Linux | Fully supported | Recommended native environment |
 | macOS | Fully supported | Recommended native environment |
-| WSL2 | Recommended on Windows | Best Windows path for full feature parity |
-| Windows (native) | Degraded and unsupported | Basic installer and REPL behavior may work, but native Windows install is not a supported target |
-| Docker | Supported, with some terminal caveats | Best fallback when you want a containerized setup |
+| WSL2 | Supported on Windows | Recommended Windows install path |
+| Docker | Supported, with some terminal caveats | Containerized alternative when you do not want WSL2 |
 
-Native Windows behavior exists as a byproduct of development and basic cross-platform coverage. It is not a supported install target. For the best experience on Windows, use WSL2 first or Docker second.
+For the best experience on Windows, use the WSL2 installer path first. Docker remains a containerized alternative when you do not want a WSL-based workflow.
 
 ## Requirements
 
@@ -103,9 +102,9 @@ The installer detects your OS, installs PHP 8.4+ and required extensions if miss
 curl -fsSL https://coquibot.org/install | bash
 ```
 
-### Windows (PowerShell)
+### Windows (WSL2 Bootstrap)
 
-> Native Windows install is degraded and unsupported. This path works only as a byproduct of development and basic cross-platform coverage. Use WSL2 or Docker on Windows for the best experience.
+Run the Windows bootstrap in PowerShell. It checks for WSL2, offers to install Ubuntu when needed, and then runs the standard Coqui installer inside WSL.
 
 ```powershell
 irm https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1 | iex
@@ -117,8 +116,8 @@ Re-run the same install command. The installer detects an existing installation 
 
 ### Inspect before running
 
-- Linux / macOS: [install.sh](https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.sh)
-- Windows: [install.ps1](https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1)
+- Linux / macOS / WSL2: [install.sh](https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.sh)
+- Windows bootstrap: [install.ps1](https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1)
 
 ### Development Install
 
@@ -424,7 +423,7 @@ Coqui configures SQLite for CLI workloads: WAL journal mode, `synchronous=NORMAL
 
 ## Docker
 
-> Docker is the recommended fallback on Windows if you do not want to use WSL2. GPU passthrough and some terminal features may still behave differently. Please [report issues](https://github.com/AgentCoqui/coqui/issues).
+> Docker is the supported containerized alternative on Windows when you do not want to use WSL2. GPU passthrough and some terminal features may still behave differently. Please [report issues](https://github.com/AgentCoqui/coqui/issues).
 
 Run Coqui in a container with zero host dependencies. The Docker setup uses `php:8.4-cli` with all required extensions and Composer.
 
