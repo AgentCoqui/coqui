@@ -15,6 +15,7 @@ final readonly class ToolkitCommandHelp
      * @param list<string> $notes
      */
     public function __construct(
+        public ?string $title = null,
         public ?string $summary = null,
         public array $subcommands = [],
         public array $examples = [],

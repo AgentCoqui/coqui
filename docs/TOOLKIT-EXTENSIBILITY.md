@@ -57,6 +57,7 @@ interface ToolkitCommandHelpProvider
 final readonly class ToolkitCommandHelp
 {
     public function __construct(
+        ?string $title = null,
         ?string $summary = null,
         array $subcommands = [],   // list<ToolkitCommandHelpEntry>
         array $examples = [],      // list<ToolkitCommandExample>
@@ -66,6 +67,8 @@ final readonly class ToolkitCommandHelp
 ```
 
 If a handler does not implement `ToolkitCommandHelpProvider`, Coqui auto-generates a command homepage from `usage()`, `description()`, and `subcommands()`.
+
+Use `title` when you want the help page heading to be a human-readable display title like `Image Generation & Management` instead of the raw slash command.
 
 ### ToolkitTabCompletionProvider (optional)
 

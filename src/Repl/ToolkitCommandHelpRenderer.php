@@ -23,12 +23,13 @@ final class ToolkitCommandHelpRenderer
             ? $handler->help()
             : new ToolkitCommandHelp();
 
+        $title = trim($help->title ?? $command);
         $summary = trim($help->summary ?? $handler->description());
         $subcommands = $help->subcommands !== []
             ? $help->subcommands
             : $this->defaultSubcommands($handler);
 
-        $io->section($command);
+        $io->section($title);
 
         if ($summary !== '') {
             $io->text($summary);
