@@ -40,9 +40,12 @@ use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
+use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\TabCompletion;
 use CoquiBot\Coqui\Repl\TerminalStateManager;
+use CoquiBot\Coqui\Repl\ToolkitCommandCollision;
+use CoquiBot\Coqui\Repl\ToolkitCommandRegistrationReport;
 use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -76,6 +79,7 @@ final class RunCommand extends Command
     private ?LoopExecutor $loopExecutor = null;
     private EscCancellationObserver $escObserver;
     private ?AnimatedTickCallback $animatedTickCallback = null;
+    private OutputInterface $output;
     private SessionStorage $storage;
     private string $sessionId;
     private string $workDir;
@@ -112,6 +116,7 @@ final class RunCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $this->output = $output;
         $io = new SymfonyStyle($input, $output);
         $workDirOption = $input->getOption('workdir');
         $this->workDir = is_string($workDirOption) ? $workDirOption : (getcwd() ?: '.');
@@ -316,7 +321,7 @@ final class RunCommand extends Command
         if ($this->hintsEnabled) {
             $io->section('REPL');
             $bannerLines[] = '';
-            $bannerLines[] = '<fg=gray>Commands: /new, /sessions, /role, /profile, /prompt, /backstory, /help, /quit</>';
+            $bannerLines[] = '<fg=gray>Commands: /new, /sessions, /role, /profile, /prompt, /backstory, /image, /help, /quit</>';
         }
 
         $io->text($bannerLines);
@@ -349,8 +354,18 @@ final class RunCommand extends Command
         }
 
         // Tab autocomplete for REPL slash commands
+        $toolkitCommandCandidates = $this->boot->commandHandlerCandidates([
+            'config' => $this->boot->config(),
+            'activeProfile' => $this->activeProfile,
+            'sessionId' => $this->sessionId,
+        ]);
+        $toolkitCommandRegistration = ReplCommandCatalog::registerToolkitHandlers($toolkitCommandCandidates);
+        $toolkitCommandHandlers = $toolkitCommandRegistration->acceptedHandlers;
+        $this->reportToolkitCommandCollisions($io, $toolkitCommandRegistration);
+
         $tabCompletion = new TabCompletion($this->boot, $this->storage);
         $tabCompletion->setSessionId($this->sessionId);
+        $tabCompletion->setToolkitCommandHandlers($toolkitCommandHandlers);
         $tabCompletion->register();
 
         // Terminal state manager for ESC detection
@@ -423,6 +438,8 @@ final class RunCommand extends Command
             ),
             agentRunner: $this->agentRunner,
             promptInspection: new PromptInspectionService($this->agentRunner, $this->boot->workspacePath(), $this->workDir),
+            output: $this->output,
+            workspacePath: $this->boot->workspacePath(),
             onHintsToggle: function () use ($io): void {
                 $this->hintsEnabled = !$this->hintsEnabled;
                 $this->boot->configManager()->set('agents.defaults.hints', $this->hintsEnabled);
@@ -434,6 +451,7 @@ final class RunCommand extends Command
                     ? 'Multiline mode enabled — press Enter twice on an empty line to submit'
                     : 'Multiline mode disabled — Enter submits immediately');
             },
+            toolkitCommandHandlers: $toolkitCommandHandlers,
         );
 
         // --continue: auto-send "Continue." as the first prompt without displaying it
@@ -1012,6 +1030,52 @@ final class RunCommand extends Command
             $this->activeProjectId = $project['id'];
             $this->activeProjectSlug = $project['slug'];
         }
+    }
+
+    private function reportToolkitCommandCollisions(SymfonyStyle $io, ToolkitCommandRegistrationReport $registration): void
+    {
+        if (!$registration->hasCollisions()) {
+            return;
+        }
+
+        $count = count($registration->collisions);
+        $message = sprintf(
+            'Skipped %d toolkit REPL command collision(s). Core commands always win; duplicate toolkit commands keep the first-discovered handler.',
+            $count,
+        );
+
+        if (!$io->isVerbose()) {
+            $io->warning($message . ' Re-run with -v for details.');
+            return;
+        }
+
+        $io->warning($message);
+        $io->listing(array_map(
+            static function (ToolkitCommandCollision $collision): string {
+                if ($collision->reason === 'core') {
+                    return sprintf(
+                        '%s skipped %s from %s (%s) because it conflicts with the core command %s.',
+                        $collision->command,
+                        $collision->skipped,
+                        $collision->skippedPackage,
+                        $collision->skippedUsage,
+                        $collision->winnerUsage,
+                    );
+                }
+
+                return sprintf(
+                    '%s skipped %s from %s (%s) because %s from %s (%s) was registered first.',
+                    $collision->command,
+                    $collision->skipped,
+                    $collision->skippedPackage,
+                    $collision->skippedUsage,
+                    $collision->winner,
+                    $collision->winnerPackage,
+                    $collision->winnerUsage,
+                );
+            },
+            $registration->collisions,
+        ));
     }
 
     private function resolveAutomaticStartupSessionId(

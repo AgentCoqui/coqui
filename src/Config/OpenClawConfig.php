@@ -149,6 +149,16 @@ final class OpenClawConfig implements ConfigInterface
     }
 
     /**
+     * @return array<string, mixed>
+     */
+    public function getImageConfig(): array
+    {
+        $config = $this->get('agents.defaults.imageModel', []);
+
+        return is_array($config) ? $config : [];
+    }
+
+    /**
      * Get the maximum iteration cap for background tasks.
      *
      * This is a per-task safety limit that prevents any single background

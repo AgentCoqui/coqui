@@ -24,11 +24,9 @@
 </p>
 <!-- markdownlint-enable MD033 -->
 
-> **Book a 1:1 call** — paid sessions for real-time implementation help, AI agent consulting, or just to support Coqui's active development. [Schedule time →](https://cal.com/carmelosantana/coqui-1:1)
+Coqui is your personal operating system — a lightweight, hackable agent runtime for coding, research, and everything in between.
 
-Your personal operating system — a lightweight, hackable agent runtime for coding, research, and everything in between.
-
-Coqui is an always-on AI agent that lives in your terminal. Automate workflows, manage long-running projects, persist memory across sessions, schedule recurring tasks, and extend its abilities at runtime — powered by [`php-agents`](https://github.com/carmelosantana/php-agents) and any mix of locally hosted or cloud LLMs. Whether you're writing code, running consciousness research, or organizing your life, Coqui adapts to how you work.
+Automate workflows, manage long-running projects, persist memory across sessions, schedule recurring tasks, and extend its functionality with toolkits and skills. Whether you're writing code, running consciousness research, or organizing your life, Coqui adapts to how you work.
 
 > Coqui is a WIP and under rapid development. Be careful when running this tool. Always test in a safe environment.
 
@@ -73,19 +71,31 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 
 See [docs/FEATURES.md](docs/FEATURES.md) for the full feature reference with usage examples and token efficiency strategies.
 
+## Platform Support
+
+| Platform | Support Level | Notes |
+| --- | --- | --- |
+| Linux | Fully supported | Recommended native environment |
+| macOS | Fully supported | Recommended native environment |
+| WSL2 | Recommended on Windows | Best Windows path for full feature parity |
+| Windows (native) | Degraded and unsupported | Basic installer and REPL behavior may work, but native Windows install is not a supported target |
+| Docker | Supported, with some terminal caveats | Best fallback when you want a containerized setup |
+
+Native Windows behavior exists as a byproduct of development and basic cross-platform coverage. It is not a supported install target. For the best experience on Windows, use WSL2 first or Docker second.
+
 ## Requirements
 
 - PHP 8.4 or later
-- Extensions: `curl`, `json`, `mbstring`, `pdo_sqlite`
+- Core extensions: `dom`, `mbstring`, `pdo_sqlite`, `xml`
+- Recommended extensions: `curl`, `readline`, `zip`
+- Optional extensions: `gd` for bundled image previews, `pcntl` and `posix` on Linux or macOS for background task management
 - [Ollama](https://ollama.ai) (recommended for local inference)
 
-Or use **Docker** — no local PHP required. See [Docker](#docker) below.
+Or use **Docker** — no local PHP required. The Docker image includes the default batteries-included extension set. See [Docker](#docker) below.
 
 ## Installation
 
 The installer detects your OS, installs PHP 8.4+ and required extensions if missing, downloads the latest Coqui release, verifies the SHA-256 checksum, and adds `coqui` to your PATH — no Git or Composer required.
-
-Platform expectations are straightforward: Linux and macOS are fully supported, WSL2 is the recommended Windows development path, and native Windows currently targets basic installer and REPL usage.
 
 ### Linux / macOS / WSL2
 
@@ -95,7 +105,7 @@ curl -fsSL https://coquibot.org/install | bash
 
 ### Windows (PowerShell)
 
-> **Beta:** Windows support is in beta. Please [report issues](https://github.com/AgentCoqui/coqui/issues) if you encounter problems.
+> Native Windows install is degraded and unsupported. This path works only as a byproduct of development and basic cross-platform coverage. Use WSL2 or Docker on Windows for the best experience.
 
 ```powershell
 irm https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1 | iex
@@ -184,7 +194,7 @@ Once you're in the REPL:
 
 1. **Have a conversation** — ask questions, request code changes, or describe a task
 2. **Try a different role** — `/role coder` for focused coding, `/role plan` for structured planning
-3. **Install a toolkit** — `/space search github` to browse, `/space install <package>` to add capabilities
+3. **Extend with toolkits** — browse [coqui.space](https://coqui.space), install with `/space install <package>`, then restart Coqui to activate newly discovered tools and toolkit-provided REPL commands
 4. **Start the API** — `coqui api` or use the launcher for REPL + API together
 5. **Explore models** — map roles to models in `openclaw.json` for cost-optimized routing
 
@@ -218,6 +228,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full CLI reference including `a
 | `/profile [name]` | Show/switch the active profile |
 | `/toolkits` | Manage toolkit visibility |
 | `/prompt` | Inspect or export the rendered system prompt |
+| `/image` | Generate and manage workspace images |
 | `/projects` | List projects or switch the active project |
 | `/tasks [status]` | List background tasks |
 | `/todos [status]` | Show session todos |
@@ -353,11 +364,13 @@ Coqui ships with a rich set of tools organized into toolkits:
 | **Packages** | `composer`, `packagist` | Dependency management and package search |
 | **Credentials** | `credentials` | Secure `.env`-based secret storage |
 
-Toolkits from [Coqui Space](https://coqui.space) add more: GitHub, Brave Search, browser automation, Canva, Cloudflare, and more.
+Toolkits from [Coqui Space](https://coqui.space) and local workspace packages add more: GitHub, Brave Search, browser automation, Canva, Cloudflare, image generation, and more.
 
 ## Extending Coqui
 
 Coqui auto-discovers toolkits from installed Composer packages. Create a package that implements `ToolkitInterface`, register it in `composer.json`, and Coqui picks it up automatically — including credentials and gated operations.
+
+Toolkit-provided REPL commands follow the same boot-time discovery path. After `/space install <package>` or a manual Composer install, restart Coqui to activate newly discovered tools and slash commands.
 
 See [docs/TOOLKITS.md](docs/TOOLKITS.md) for the full walkthrough with examples.
 
@@ -377,13 +390,23 @@ Coqui is optimized for low-latency agent loops. Key design decisions:
 
 Coqui ships with a tuned `conf.d/coqui.ini` that enables OPcache and JIT (tracing mode 1255, 128MB buffer). The installer and `coqui doctor` check for proper OPcache/JIT configuration.
 
-For best performance, ensure your PHP CLI has OPcache enabled:
+For best performance in a non-debug CLI, ensure your PHP CLI has OPcache enabled and JIT available:
 
 ```ini
 opcache.enable_cli=1
 opcache.jit=1255
 opcache.jit_buffer_size=128M
 ```
+
+If you keep `xdebug` or `pcov` loaded in your everyday local CLI, disable JIT locally instead of trying to silence the startup warning. Those extensions make JIT unavailable anyway.
+
+```ini
+opcache.enable_cli=1
+opcache.jit=0
+opcache.jit_buffer_size=0
+```
+
+On Homebrew PHP this is usually easiest as a late-loading override such as `/opt/homebrew/etc/php/8.4/conf.d/zz-local-no-jit.ini`.
 
 ### Benchmarking
 
@@ -401,9 +424,11 @@ Coqui configures SQLite for CLI workloads: WAL journal mode, `synchronous=NORMAL
 
 ## Docker
 
-> **Experimental:** Docker support is experimental. GPU passthrough and some terminal features may behave differently. Please [report issues](https://github.com/AgentCoqui/coqui/issues).
+> Docker is the recommended fallback on Windows if you do not want to use WSL2. GPU passthrough and some terminal features may still behave differently. Please [report issues](https://github.com/AgentCoqui/coqui/issues).
 
 Run Coqui in a container with zero host dependencies. The Docker setup uses `php:8.4-cli` with all required extensions and Composer.
+
+The image includes the default batteries-included extension set: `dom`, `curl`, `gd`, `mbstring`, `pdo_sqlite`, `readline`, `xml`, `zip`, and `pcntl`.
 
 ### Quick Start (Docker)
 
@@ -434,6 +459,10 @@ Coqui connects to Ollama on your host machine via `host.docker.internal`. Make s
 ```bash
 ollama serve
 ```
+
+### Toolkit Discovery In Docker
+
+Coqui discovers Composer-installed toolkits and toolkit-provided REPL commands on boot inside the container just like it does natively. After installing a toolkit with `/space install <package>` or a workspace Composer command, restart the REPL or API container so the new tools and slash commands are registered.
 
 ### Useful Commands
 
@@ -506,12 +535,14 @@ We're building a community where people share agents, ask for help, and collabor
 We'd love your help making Coqui even mightier:
 
 - **Build new toolkits** — create Composer packages that implement `ToolkitInterface`
-- **Add child agent roles** — define new specialized roles with tailored system prompts
+- **Add loops & background tasks** — automate multi-iteration workflows and long-running processes
 - **Improve tools** — enhance existing tools or add new ones in `src/Tool/`
 - **Write tests** — expand coverage in `tests/Unit/`
 - **Fix bugs & improve docs** — every contribution counts
 
 See [AGENTS.md](AGENTS.md) for code conventions and architecture guidelines.
+
+> **Book a 1:1 call** — paid sessions for real-time implementation help, AI agent consulting, or just to support Coqui's active development. [Schedule time →](https://cal.com/carmelosantana/coqui-1:1)
 
 ## License
 

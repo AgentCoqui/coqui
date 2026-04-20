@@ -75,32 +75,35 @@ final class SetupWizard
         // Step 4: Set primary model
         $primaryModel = $this->selectPrimaryModel($roles);
 
-        // Step 5: Child background tasks
+        // Step 5: Image generation defaults
+        $imageModelConfig = $this->configureImageGeneration();
+
+        // Step 6: Child background tasks
         $childBackgroundTasks = $this->configureChildBackgroundTasks();
 
-        // Step 6: Memory extraction behavior
+        // Step 7: Memory extraction behavior
         $memoryAutoExtract = $this->configureMemoryExtraction();
 
-        // Step 7: Summarization behavior
+        // Step 8: Summarization behavior
         $summarizationConfig = $this->configureSummarization();
 
-        // Step 8: Configure workspace
+        // Step 9: Configure workspace
         $workspace = $this->configureWorkspace();
 
-        // Step 9: Default profile
+        // Step 10: Default profile
         $defaultProfile = $this->configureDefaultProfile($workspace);
 
-        // Step 10: Update preferences (ENV-based, not in openclaw.json)
+        // Step 11: Update preferences (ENV-based, not in openclaw.json)
         $this->configureUpdatePreferences();
 
-        // Step 11: Generate API key for HTTP API server
+        // Step 12: Generate API key for HTTP API server
         $this->configureApiKey();
 
-        // Step 12: Configure directory mounts
+        // Step 13: Configure directory mounts
         $mounts = $this->configureMounts();
 
         // Build and preview
-        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, $memoryAutoExtract, $summarizationConfig, $defaultProfile);
+        $config = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, $memoryAutoExtract, $summarizationConfig, $defaultProfile, $imageModelConfig);
 
         $this->io->section('Configuration Preview');
         $json = json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
@@ -169,6 +172,7 @@ final class SetupWizard
 
         $sections = [
             'providers' => 'Providers & Models (providers, model discovery, role assignments, primary model)',
+            'image_model' => 'Image Generation Defaults (/image and image toolkits)',
             'child_bg'  => 'Child Background Tasks (allow child agents to spawn background tasks)',
             'summarization' => 'Summarization (auto-summarization mode and thresholds)',
             'workspace' => 'Workspace Directory',
@@ -199,6 +203,7 @@ final class SetupWizard
         }
 
         $defaults = $existingConfig['agents']['defaults'] ?? [];
+        $currentImageModelConfig = is_array($defaults['imageModel'] ?? null) ? $defaults['imageModel'] : [];
 
         // --- Providers & Models ---
         if (in_array('providers', $selectedKeys, true)) {
@@ -222,6 +227,13 @@ final class SetupWizard
         } else {
             $roles = is_array($defaults['roles'] ?? null) ? $defaults['roles'] : [];
             $primaryModel = is_string($defaults['model']['primary'] ?? null) ? $defaults['model']['primary'] : '';
+        }
+
+        // --- Image Generation Defaults ---
+        if (in_array('image_model', $selectedKeys, true) || in_array('providers', $selectedKeys, true)) {
+            $imageModelConfig = $this->configureImageGeneration($currentImageModelConfig);
+        } else {
+            $imageModelConfig = $currentImageModelConfig;
         }
 
         // --- Child Background Tasks ---
@@ -280,6 +292,7 @@ final class SetupWizard
             in_array('providers', $selectedKeys, true),
             $summarizationConfig,
             $defaultProfile,
+            $imageModelConfig,
         );
 
         $this->io->section('Configuration Preview');
@@ -304,7 +317,8 @@ final class SetupWizard
      * @param array<string, mixed> $existingConfig
      * @param array<string, string> $roles
      * @param array<int, array{path: string, alias: string, access: string, description?: string}> $mounts
-     * @param array<string, mixed> $summarizationConfig
+    * @param array<string, mixed> $summarizationConfig
+    * @param array<string, mixed> $imageModelConfig
      * @return array<string, mixed>
      */
     private function buildEditedConfig(
@@ -317,6 +331,7 @@ final class SetupWizard
         bool $providersEdited,
         array $summarizationConfig = [],
         ?string $defaultProfile = null,
+        array $imageModelConfig = [],
     ): array {
         $config = $existingConfig;
 
@@ -341,6 +356,12 @@ final class SetupWizard
             $config['agents']['defaults']['context'] = $summarizationConfig;
         }
 
+        if ($imageModelConfig !== []) {
+            $config['agents']['defaults']['imageModel'] = $imageModelConfig;
+        } else {
+            unset($config['agents']['defaults']['imageModel']);
+        }
+
         if ($mounts !== []) {
             $config['agents']['defaults']['mounts'] = $mounts;
         } else {
@@ -349,7 +370,126 @@ final class SetupWizard
 
         // Only rebuild the models section when providers were re-configured
         if ($providersEdited) {
-            $config['models'] = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks)['models'];
+            $config['models'] = $this->buildConfig($primaryModel, $roles, $workspace, $mounts, $childBackgroundTasks, imageModelConfig: $imageModelConfig)['models'];
+        }
+
+        return $config;
+    }
+
+    /**
+     * @param array<string, mixed> $existingConfig
+     * @return array<string, mixed>
+     */
+    private function configureImageGeneration(array $existingConfig = []): array
+    {
+        $this->io->section('Step 5: Image Generation');
+        $this->io->text([
+            'Image generation uses a separate default model from your chat and role models.',
+            'These settings drive the <fg=cyan>/image</> REPL command and compatible image toolkits.',
+            '',
+        ]);
+
+        $defaults = $this->defaults->defaultImageConfig();
+        $choicesByVendor = $this->defaults->defaultImageChoices();
+        $modelChoices = [];
+
+        foreach ($choicesByVendor as $vendor => $choices) {
+            foreach ($choices as $choice) {
+                if (!is_string($choice['id'] ?? null) || trim($choice['id']) === '') {
+                    continue;
+                }
+
+                $fullId = $vendor . '/' . trim($choice['id']);
+                $label = is_string($choice['label'] ?? null) && trim($choice['label']) !== ''
+                    ? trim($choice['label'])
+                    : trim($choice['id']);
+                $recommended = ($choice['recommended'] ?? false) === true ? ' (recommended)' : '';
+                $modelChoices[$fullId] = ucfirst($vendor) . ' — ' . $label . $recommended;
+            }
+        }
+
+        if ($modelChoices === []) {
+            return $existingConfig !== [] ? $existingConfig : $defaults;
+        }
+
+        $defaultPrimary = is_string($existingConfig['primary'] ?? null) && $existingConfig['primary'] !== ''
+            ? $existingConfig['primary']
+            : (is_string($defaults['primary'] ?? null) && $defaults['primary'] !== ''
+                ? $defaults['primary']
+                : (string) array_key_first($modelChoices));
+
+        $selectedLabel = $this->choice(
+            'Default image model for `/image generate`',
+            array_values($modelChoices),
+            $modelChoices[$defaultPrimary] ?? reset($modelChoices),
+        );
+
+        $primary = array_search($selectedLabel, $modelChoices, true);
+        if ($primary === false) {
+            $primary = $defaultPrimary;
+        }
+
+        $openAiDefaults = is_array($defaults['vendors']['openai'] ?? null) ? $defaults['vendors']['openai'] : [];
+        $existingOpenAi = is_array($existingConfig['vendors']['openai'] ?? null) ? $existingConfig['vendors']['openai'] : [];
+        $openAiBaseUrl = is_string($this->configuredProviders['openai']['baseUrl'] ?? null) && $this->configuredProviders['openai']['baseUrl'] !== ''
+            ? $this->configuredProviders['openai']['baseUrl']
+            : ((is_string($existingOpenAi['baseUrl'] ?? null) && $existingOpenAi['baseUrl'] !== '')
+                ? $existingOpenAi['baseUrl']
+                : (is_string($openAiDefaults['baseUrl'] ?? null) ? $openAiDefaults['baseUrl'] : 'https://api.openai.com/v1'));
+        $openAiSize = $this->choice(
+            'OpenAI image size',
+            ['1024x1024', '1792x1024', '1024x1792'],
+            is_string($existingOpenAi['size'] ?? null) && $existingOpenAi['size'] !== ''
+                ? $existingOpenAi['size']
+                : (is_string($openAiDefaults['size'] ?? null) ? $openAiDefaults['size'] : '1024x1024'),
+        );
+        $openAiQuality = $this->choice(
+            'OpenAI image quality',
+            ['standard', 'hd'],
+            is_string($existingOpenAi['quality'] ?? null) && $existingOpenAi['quality'] !== ''
+                ? $existingOpenAi['quality']
+                : (is_string($openAiDefaults['quality'] ?? null) ? $openAiDefaults['quality'] : 'standard'),
+        );
+
+        $ollamaDefaults = is_array($defaults['vendors']['ollama'] ?? null) ? $defaults['vendors']['ollama'] : [];
+        $existingOllama = is_array($existingConfig['vendors']['ollama'] ?? null) ? $existingConfig['vendors']['ollama'] : [];
+        $ollamaBase = is_string($this->configuredProviders['ollama']['baseUrl'] ?? null) && $this->configuredProviders['ollama']['baseUrl'] !== ''
+            ? $this->configuredProviders['ollama']['baseUrl']
+            : ((is_string($existingOllama['host'] ?? null) && $existingOllama['host'] !== '')
+                ? $existingOllama['host']
+                : (is_string($ollamaDefaults['host'] ?? null) ? $ollamaDefaults['host'] : 'http://localhost:11434'));
+
+        $fallbacks = array_values(array_filter(
+            array_keys($modelChoices),
+            static fn(string $model): bool => $model !== $primary,
+        ));
+
+        $config = [
+            'primary' => $primary,
+            'fallbacks' => $fallbacks,
+            'vendors' => [
+                'openai' => [
+                    'model' => 'gpt-image-1.5',
+                    'baseUrl' => $openAiBaseUrl,
+                    'size' => $openAiSize,
+                    'quality' => $openAiQuality,
+                ],
+                'ollama' => [
+                    'model' => str_starts_with($primary, 'ollama/')
+                        ? substr($primary, strlen('ollama/'))
+                        : (is_string($existingOllama['model'] ?? null) && $existingOllama['model'] !== ''
+                            ? $existingOllama['model']
+                            : (is_string($ollamaDefaults['model'] ?? null) ? $ollamaDefaults['model'] : 'jmorgan/z-image-turbo:fp8')),
+                    'host' => $this->normalizeOllamaHost($ollamaBase),
+                ],
+            ],
+        ];
+
+        $ownerName = is_string($existingConfig['ownerName'] ?? null) && trim($existingConfig['ownerName']) !== ''
+            ? trim($existingConfig['ownerName'])
+            : (is_string($defaults['ownerName'] ?? null) && trim($defaults['ownerName']) !== '' ? trim($defaults['ownerName']) : null);
+        if ($ownerName !== null) {
+            $config['ownerName'] = $ownerName;
         }
 
         return $config;
@@ -664,11 +804,11 @@ final class SetupWizard
     }
 
     /**
-     * Step 5: Configure child agent background task spawning.
+    * Step 6: Configure child agent background task spawning.
      */
     private function configureChildBackgroundTasks(): bool
     {
-        $this->io->section('Step 5: Child Background Tasks');
+        $this->io->section('Step 6: Child Background Tasks');
 
         $this->io->text([
             'Child agents (spawned via <fg=cyan>spawn_agent</>) can optionally create background tasks.',
@@ -686,11 +826,11 @@ final class SetupWizard
     }
 
     /**
-     * Step 6: Configure automatic memory extraction behavior.
+    * Step 7: Configure automatic memory extraction behavior.
      */
     private function configureMemoryExtraction(): bool
     {
-        $this->io->section('Step 6: Memory Extraction');
+        $this->io->section('Step 7: Memory Extraction');
 
         $this->io->text([
             'Coqui can automatically extract and save noteworthy memories (facts, preferences,',
@@ -707,13 +847,13 @@ final class SetupWizard
     }
 
     /**
-     * Step 7: Configure auto-summarization behavior.
+    * Step 8: Configure auto-summarization behavior.
      *
      * @return array<string, mixed> Context config array for openclaw.json
      */
     private function configureSummarization(): array
     {
-        $this->io->section('Step 7: Summarization');
+        $this->io->section('Step 8: Summarization');
 
         $this->io->text([
             'Coqui can automatically summarize older conversation messages to stay within the',
@@ -761,11 +901,11 @@ final class SetupWizard
     }
 
     /**
-     * Step 8: Configure the workspace directory.
+    * Step 9: Configure the workspace directory.
      */
     private function configureWorkspace(): string
     {
-        $this->io->section('Step 8: Workspace');
+        $this->io->section('Step 9: Workspace');
 
         $default = $this->defaults->defaultWorkspace();
 
@@ -782,7 +922,7 @@ final class SetupWizard
     }
 
     /**
-     * Step 9: Configure the default profile for startup.
+    * Step 10: Configure the default profile for startup.
      */
     private function configureDefaultProfile(string $workspace, ?string $currentDefaultProfile = null): ?string
     {
@@ -802,7 +942,7 @@ final class SetupWizard
             return $normalizedCurrent;
         }
 
-        $this->io->section('Step 9: Default Profile');
+        $this->io->section('Step 10: Default Profile');
         $this->io->text([
             'Multiple profiles were found in the workspace.',
             'Choose which profile Coqui should attach by default when starting a new attached session.',
@@ -1153,9 +1293,10 @@ final class SetupWizard
      * @param array<string, string> $roles
      * @param array<int, array{path: string, alias: string, access: string, description?: string}> $mounts
      * @param array<string, mixed> $summarizationConfig
+    * @param array<string, mixed> $imageModelConfig
      * @return array<string, mixed>
      */
-    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $childBackgroundTasks = false, bool $memoryAutoExtract = false, array $summarizationConfig = [], ?string $defaultProfile = null): array
+    private function buildConfig(string $primaryModel, array $roles, string $workspace, array $mounts = [], bool $childBackgroundTasks = false, bool $memoryAutoExtract = false, array $summarizationConfig = [], ?string $defaultProfile = null, array $imageModelConfig = []): array
     {
         $modelDefinitions = [];
 
@@ -1248,6 +1389,10 @@ final class SetupWizard
             $defaults['context'] = $summarizationConfig;
         }
 
+        if ($imageModelConfig !== []) {
+            $defaults['imageModel'] = $imageModelConfig;
+        }
+
         if ($mounts !== []) {
             $defaults['mounts'] = $mounts;
         }
@@ -1261,6 +1406,13 @@ final class SetupWizard
                 'providers' => $modelDefinitions,
             ],
         ];
+    }
+
+    private function normalizeOllamaHost(string $value): string
+    {
+        $normalized = preg_replace('#/v1/?$#', '', trim($value));
+
+        return is_string($normalized) ? rtrim($normalized, '/') : rtrim(trim($value), '/');
     }
 
     /**

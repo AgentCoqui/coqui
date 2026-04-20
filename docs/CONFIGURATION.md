@@ -68,6 +68,26 @@ The simplest valid config only needs a primary model:
                 "fallbacks": ["ollama/llama3.2:latest"],
                 "utility": "ollama/gemma3:4b"
             },
+            "imageModel": {
+                "primary": "ollama/jmorgan/z-image-turbo:fp8",
+                "fallbacks": [
+                    "openai/gpt-image-1.5",
+                    "ollama/x/z-image-turbo:latest",
+                    "ollama/x/flux2-klein:4b-fp8"
+                ],
+                "vendors": {
+                    "openai": {
+                        "model": "gpt-image-1.5",
+                        "baseUrl": "https://api.openai.com/v1",
+                        "quality": "standard",
+                        "size": "1024x1024"
+                    },
+                    "ollama": {
+                        "model": "jmorgan/z-image-turbo:fp8",
+                        "host": "http://localhost:11434"
+                    }
+                }
+            },
             "roles": {
                 "orchestrator": "ollama/qwen3:latest",
                 "coder": "anthropic/claude-opus-4-6",
@@ -152,6 +172,45 @@ The primary model used when no role-specific mapping exists.
 ```
 
 **Utility model resolution**: `model.utility` → `COQUI_UTILITY_MODEL` env var → title-generator role model → primary model.
+
+### `imageModel`
+
+Separate defaults for image-generation toolkits and the `/image` REPL command. This config is independent from the active chat or role model.
+
+| Key | Type | Required | Description |
+|-----|------|----------|-------------|
+| `primary` | string | no | Default image model in `provider/model` format |
+| `fallbacks` | string[] | no | Fallback image models tried in order by image-capable toolkits |
+| `ownerName` | string | no | Default metadata owner name embedded into generated images unless explicitly overridden |
+| `choices` | object | no | Optional curated image-model choices used by the setup wizard |
+| `vendors` | object | no | Vendor-specific defaults such as `model`, `baseUrl`, `host`, `quality`, and `size` |
+
+```json
+{
+    "imageModel": {
+        "primary": "ollama/jmorgan/z-image-turbo:fp8",
+        "fallbacks": [
+            "openai/gpt-image-1.5",
+            "ollama/x/z-image-turbo:latest",
+            "ollama/x/flux2-klein:4b-fp8"
+        ],
+        "vendors": {
+            "openai": {
+                "model": "gpt-image-1.5",
+                "baseUrl": "https://api.openai.com/v1",
+                "quality": "standard",
+                "size": "1024x1024"
+            },
+            "ollama": {
+                "model": "jmorgan/z-image-turbo:fp8",
+                "host": "http://localhost:11434"
+            }
+        }
+    }
+}
+```
+
+Current first-party image support targets `openai` and `ollama`. For Ollama, Coqui checks whether the resolved image model is already available locally and asks for confirmation before pulling a missing model.
 
 ### `roles`
 

@@ -48,15 +48,22 @@ final class DoctorCommand extends Command
     private const REQUIRED_PHP_VERSION = '8.4.0';
 
     private const REQUIRED_EXTENSIONS = [
+        'dom',
         'pdo_sqlite',
-        'json',
         'mbstring',
-        'curl',
+        'xml',
     ];
 
     private const RECOMMENDED_EXTENSIONS = [
-        'readline',
-        'pcntl',
+        'curl' => 'recommended for best HTTP client performance and provider connectivity',
+        'zip' => 'recommended for office document extraction',
+        'gd' => 'recommended for bundled image previews and release packaging',
+    ];
+
+    private const UNIX_RECOMMENDED_EXTENSIONS = [
+        'readline' => 'recommended for the interactive REPL',
+        'pcntl' => 'recommended for background task cancellation',
+        'posix' => 'recommended for background task process management',
     ];
 
     private int $okCount = 0;
@@ -195,13 +202,13 @@ final class DoctorCommand extends Command
         }
 
         // Recommended extensions
-        foreach (self::RECOMMENDED_EXTENSIONS as $ext) {
+        foreach ($this->recommendedExtensions() as $ext => $reason) {
             if (extension_loaded($ext)) {
                 $this->ok($io, "Extension: {$ext}", $jsonOutput);
                 $results["ext_{$ext}"] = ['status' => 'ok'];
             } else {
-                $this->warn($io, "Extension: {$ext} (missing — recommended for REPL)", $jsonOutput);
-                $results["ext_{$ext}"] = ['status' => 'warn', 'issue' => 'missing'];
+                $this->warn($io, "Extension: {$ext} (missing — {$reason})", $jsonOutput);
+                $results["ext_{$ext}"] = ['status' => 'warn', 'issue' => 'missing', 'reason' => $reason];
             }
         }
 
@@ -227,6 +234,18 @@ final class DoctorCommand extends Command
         }
 
         return $results;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function recommendedExtensions(): array
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            return self::RECOMMENDED_EXTENSIONS;
+        }
+
+        return self::RECOMMENDED_EXTENSIONS + self::UNIX_RECOMMENDED_EXTENSIONS;
     }
 
     /**
@@ -1020,12 +1039,22 @@ final class DoctorCommand extends Command
             $jitEnabled = is_array($status)
                 && isset($status['jit']['enabled'])
                 && $status['jit']['enabled'];
+            $jitBlockingExtensions = $this->jitBlockingExtensions();
 
             if ($jitEnabled) {
                 $jitBuffer = $status['jit']['buffer_size'] ?? 0;
                 $bufferMb = round($jitBuffer / 1024 / 1024);
                 $this->ok($io, "JIT: enabled ({$bufferMb} MB buffer)", $jsonOutput);
                 $results['jit'] = ['status' => 'ok', 'enabled' => true, 'buffer_mb' => $bufferMb];
+            } elseif ($jitBlockingExtensions !== []) {
+                $extensions = implode(', ', $jitBlockingExtensions);
+                $this->ok($io, "JIT: disabled with {$extensions} loaded — expected for debugging/coverage CLI setups", $jsonOutput);
+                $results['jit'] = [
+                    'status' => 'ok',
+                    'enabled' => false,
+                    'blocked_by' => $jitBlockingExtensions,
+                    'reason' => 'incompatible_extensions',
+                ];
             } else {
                 $this->warn($io, 'JIT: disabled — enable for improved loop performance (opcache.jit=1255)', $jsonOutput);
                 $results['jit'] = ['status' => 'warn', 'enabled' => false];
@@ -1039,6 +1068,22 @@ final class DoctorCommand extends Command
         $results['realpath_cache_size'] = ['status' => 'ok', 'value' => $realpathCacheSize];
 
         return $results;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function jitBlockingExtensions(): array
+    {
+        $extensions = [];
+
+        foreach (['xdebug', 'pcov', 'blackfire'] as $extension) {
+            if (extension_loaded($extension)) {
+                $extensions[] = $extension;
+            }
+        }
+
+        return $extensions;
     }
 
     /**

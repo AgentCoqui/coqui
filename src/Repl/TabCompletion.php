@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl;
 
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
+use CoquiBot\Coqui\Contract\ToolkitTabCompletionProvider;
 use CoquiBot\Coqui\CoquiSpace\SpaceInstallCompletionCache;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\LoopStore;
@@ -19,6 +21,9 @@ final class TabCompletion
 {
     private string $sessionId = '';
 
+    /** @var array<string, ToolkitCommandHandler> */
+    private array $toolkitHandlers = [];
+
     public function __construct(
         private readonly BootManager $boot,
         private readonly SessionStorage $storage,
@@ -27,6 +32,19 @@ final class TabCompletion
     public function setSessionId(string $sessionId): void
     {
         $this->sessionId = $sessionId;
+    }
+
+    /**
+     * Register toolkit command handlers for tab completion.
+     *
+     * @param list<ToolkitCommandHandler> $handlers
+     */
+    public function setToolkitCommandHandlers(array $handlers): void
+    {
+        $this->toolkitHandlers = [];
+        foreach ($handlers as $handler) {
+            $this->toolkitHandlers[$handler->commandName()] = $handler;
+        }
     }
 
     /**
@@ -82,7 +100,7 @@ final class TabCompletion
             '/roles' => $this->completeRoles($parts),
             '/profile' => $this->completeProfile($parts),
             '/space' => $this->completeSpace($parts),
-            default => [],
+            default => $this->completeToolkitCommand($spec, $parts),
         };
     }
 
@@ -546,6 +564,47 @@ final class TabCompletion
         }
 
         return $matches;
+    }
+
+    /**
+     * Complete arguments for a toolkit-provided command.
+     *
+     * First tries dynamic completion via ToolkitTabCompletionProvider,
+     * then falls back to static subcommands() from the handler.
+     *
+     * @param array<string> $parts
+     * @return list<string>
+     */
+    private function completeToolkitCommand(ReplCommandSpec $spec, array $parts): array
+    {
+        $name = ltrim($spec->name, '/');
+        $handler = $this->toolkitHandlers[$name] ?? null;
+
+        if ($handler === null) {
+            // Fallback to static arguments from the catalog spec
+            return $this->completeStaticArguments($spec, $parts);
+        }
+
+        // Try dynamic completion first
+        if ($handler instanceof ToolkitTabCompletionProvider) {
+            $argParts = array_values(array_slice($parts, 1));
+            $candidates = $handler->completeArguments($name, $argParts);
+            if ($candidates !== []) {
+                $prefix = end($argParts) ?: '';
+                if (count($argParts) <= 1) {
+                    $candidates = array_values(array_unique([...$candidates, 'help']));
+                }
+
+                return $this->completeChoices($candidates, $prefix);
+            }
+        }
+
+        // Fall back to static subcommands for first argument
+        if (count($parts) === 2) {
+            return $this->completeChoices(array_values(array_unique([...$handler->subcommands(), 'help'])), $parts[1]);
+        }
+
+        return [];
     }
 
     /**

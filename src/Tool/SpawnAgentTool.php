@@ -376,7 +376,14 @@ final class SpawnAgentTool implements ToolInterface
         // Child agents get child-mode credential guards (error messages say "report to parent"
         // instead of suggesting the non-existent credentials tool).
         if ($this->discovery !== null && $accessLevel !== 'minimal') {
-            foreach ($this->discovery->instantiateRegisteredGrouped(childMode: true) as $entry) {
+            foreach ($this->discovery->instantiateRegisteredGrouped(
+                childMode: true,
+                context: [
+                    'config' => $this->config,
+                    'activeProfile' => $this->activeProfile,
+                    'sessionId' => $this->sessionId,
+                ],
+            ) as $entry) {
                 $toolkit = $entry['toolkit'];
 
                 // Apply per-package visibility from toolkit-visibility.json.

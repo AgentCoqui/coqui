@@ -8,14 +8,11 @@
 #   docker compose run --rm coqui --help     # CLI help
 ###############################################################################
 
-FROM php:8.4-cli
+FROM php:8.4-cli AS build
 
 ARG COQUI_VERSION=dev
-
-LABEL maintainer="Coqui Bot <carmelo@coquibot.ai>"
-LABEL description="Coqui — PHP 8.4 CLI + Composer"
-LABEL org.opencontainers.image.source="https://github.com/AgentCoqui/coqui"
-LABEL org.opencontainers.image.version="${COQUI_VERSION}"
+ARG COQUI_UID=1000
+ARG COQUI_GID=1000
 
 # Prevent interactive prompts during package installation
 ENV DEBIAN_FRONTEND=noninteractive
@@ -45,15 +42,24 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libzip-dev \
     libonig-dev \
     libreadline-dev \
+    libfreetype6-dev \
+    libjpeg62-turbo-dev \
+    libpng-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # -----------------------------------------------------------------------------
 # PHP extensions
 # -----------------------------------------------------------------------------
 # Most extensions are already built into php:8.4-cli:
-#   curl, mbstring, xml, pdo_sqlite, readline, opcache, json, openssl
-# Only zip and pcntl need to be installed separately.
+#   dom, curl, mbstring, xml, pdo_sqlite, readline, opcache, json, openssl
+# We install gd, zip, and pcntl separately for the batteries-included image:
+# - gd supports bundled image previews and release packaging requirements
+# - zip supports office document extraction
+# - pcntl supports Unix background task control
+RUN docker-php-ext-configure gd --with-freetype --with-jpeg
+
 RUN docker-php-ext-install \
+    gd \
     zip \
     pcntl
 
@@ -68,9 +74,6 @@ RUN curl -fsSL https://getcomposer.org/installer | php -- \
 # -----------------------------------------------------------------------------
 # Create non-root coqui user
 # -----------------------------------------------------------------------------
-ARG COQUI_UID=1000
-ARG COQUI_GID=1000
-
 RUN groupadd -g ${COQUI_GID} coqui 2>/dev/null || true \
     && useradd -m -u ${COQUI_UID} -g ${COQUI_GID} -s /bin/bash coqui 2>/dev/null || true
 
@@ -106,6 +109,9 @@ COPY --chown=coqui:coqui composer.json composer.lock /app/
 
 USER coqui
 
+# Resolve production dependencies without the dev lockfile, matching release builds.
+RUN rm -f /app/composer.lock
+
 RUN composer install \
     --no-dev \
     --classmap-authoritative \
@@ -125,6 +131,54 @@ RUN composer dump-autoload \
     --classmap-authoritative \
     --optimize \
     --no-interaction
+
+FROM php:8.4-cli AS runtime
+
+ARG COQUI_VERSION=dev
+ARG COQUI_UID=1000
+ARG COQUI_GID=1000
+
+LABEL maintainer="Coqui Bot <carmelo@coquibot.ai>"
+LABEL description="Coqui — PHP 8.4 CLI + Composer"
+LABEL org.opencontainers.image.source="https://github.com/AgentCoqui/coqui"
+LABEL org.opencontainers.image.version="${COQUI_VERSION}"
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV COMPOSER_HOME=/home/coqui/.composer
+
+# -----------------------------------------------------------------------------
+# Runtime packages only
+# -----------------------------------------------------------------------------
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    curl \
+    wget \
+    unzip \
+    zip \
+    less \
+    jq \
+    libfreetype6 \
+    libjpeg62-turbo \
+    libpng16-16t64 \
+    libzip5 \
+    && apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false $PHPIZE_DEPS \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /usr/local/lib/php/extensions/ /usr/local/lib/php/extensions/
+COPY --from=build /usr/local/etc/php/conf.d/ /usr/local/etc/php/conf.d/
+COPY --from=build /usr/local/bin/composer /usr/local/bin/composer
+
+RUN groupadd -g ${COQUI_GID} coqui 2>/dev/null || true \
+    && useradd -m -u ${COQUI_UID} -g ${COQUI_GID} -s /bin/bash coqui 2>/dev/null || true
+
+WORKDIR /app
+
+RUN mkdir -p /app/workspace /home/coqui/.composer \
+    && chown -R coqui:coqui /app /home/coqui/.composer
+
+COPY --from=build --chown=coqui:coqui /app /app
+
+USER coqui
 
 ENTRYPOINT ["php", "bin/coqui"]
 CMD []
