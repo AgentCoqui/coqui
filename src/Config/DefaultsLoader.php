@@ -238,4 +238,25 @@ final readonly class DefaultsLoader
     {
         return $this->data['defaults']['workspace'] ?? '~/.coqui/.workspace';
     }
+    
+    /**
+     * @return array<string, mixed>
+     */
+    public function defaultImageConfig(): array
+    {
+        $config = $this->data['defaults']['imageModel'] ?? [];
+
+        return is_array($config) ? $config : [];
+    }
+
+    /**
+     * @return array<string, array<int, array<string, mixed>>>
+     */
+    public function defaultImageChoices(): array
+    {
+        $config = $this->defaultImageConfig();
+        $choices = $config['choices'] ?? [];
+
+        return is_array($choices) ? $choices : [];
+    }
 }

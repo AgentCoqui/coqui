@@ -28,6 +28,7 @@ use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
+use CoquiBot\Coqui\Repl\Handler\ImageHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
@@ -316,7 +317,7 @@ final class RunCommand extends Command
         if ($this->hintsEnabled) {
             $io->section('REPL');
             $bannerLines[] = '';
-            $bannerLines[] = '<fg=gray>Commands: /new, /sessions, /role, /profile, /prompt, /backstory, /help, /quit</>';
+            $bannerLines[] = '<fg=gray>Commands: /new, /sessions, /role, /profile, /prompt, /backstory, /image, /help, /quit</>';
         }
 
         $io->text($bannerLines);
@@ -402,6 +403,7 @@ final class RunCommand extends Command
             role: new RoleHandler($this->boot, $this->storage),
             profile: new ProfileHandler($this->boot, $sessionHandler),
             backstory: new BackstoryHandler($this->boot->profileDiscovery(), $this->boot->workspacePath()),
+            image: new ImageHandler($this->boot),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
             space: new SpaceHandler($this->boot),
             config: new ConfigHandler($this->boot, $this->workDir),

@@ -492,7 +492,11 @@ final class OrchestratorAgent extends AbstractAgent
 
         // Auto-discovered toolkits from installed packages with visibility applied
         if ($discovery !== null) {
-            foreach ($discovery->instantiateRegisteredGrouped() as $entry) {
+            foreach ($discovery->instantiateRegisteredGrouped(context: [
+                'config' => $this->config,
+                'activeProfile' => $this->activeProfile,
+                'sessionId' => $this->sessionId,
+            ]) as $entry) {
                 $packageName = $entry['package'];
                 $toolkit = $entry['toolkit'];
                 $vis = $this->visibilityRegistry?->getPackageVisibility($packageName)

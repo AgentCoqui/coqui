@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
+use CoquiBot\Coqui\Repl\Handler\ImageHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
@@ -52,6 +53,7 @@ function createSlashCommandRouterForHelpTest(): SlashCommandRouter
         $instantiate(EvaluationHandler::class),
         $instantiate(LoopHandler::class),
         $instantiate(BackstoryHandler::class),
+        $instantiate(ImageHandler::class),
         $instantiate(AgentRunner::class),
         $instantiate(PromptInspectionService::class),
         static function (): void {},
