@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
+use CoquiBot\Coqui\Api\ChannelManager;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -30,6 +31,7 @@ final readonly class HealthHandler
         private ?LoopManager $loopManager = null,
         private ?ScheduleStore $scheduleStore = null,
         private ?WebhookStore $webhookStore = null,
+        private ?ChannelManager $channelManager = null,
         private ?QualityAutomationStatusService $qualityAutomation = null,
     ) {}
 
@@ -49,6 +51,7 @@ final readonly class HealthHandler
         $data['managers'] = [
             'tasks' => $this->managerSummary($this->taskManager !== null, $this->taskManager?->lastTickAt()),
             'loops' => $this->managerSummary($this->loopManager !== null, $this->loopManager?->lastTickAt(), $this->loopManager?->lastReconcileAt()),
+            'channels' => $this->managerSummary($this->channelManager !== null, $this->channelManager?->lastTickAt(), $this->channelManager?->lastReconcileAt()),
         ];
 
         if ($this->taskManager !== null) {
@@ -65,6 +68,10 @@ final readonly class HealthHandler
 
         if ($this->webhookStore !== null) {
             $data['webhooks'] = $this->webhookStore->getStats();
+        }
+
+        if ($this->channelManager !== null) {
+            $data['channels'] = $this->channelManager->stats();
         }
 
         if ($this->qualityAutomation !== null) {

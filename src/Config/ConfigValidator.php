@@ -39,6 +39,7 @@ final class ConfigValidator
         $errors = [...$errors, ...$this->validateMemory($data)];
         $errors = [...$errors, ...$this->validateQuality($data)];
         $errors = [...$errors, ...$this->validateApi($data)];
+        $errors = [...$errors, ...$this->validateChannels($data)];
         $errors = [...$errors, ...$this->validateEditHistory($data)];
         $errors = [...$errors, ...$this->validateContext($data)];
 
@@ -336,6 +337,114 @@ final class ConfigValidator
         }
 
         return [];
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
+    private function validateChannels(array $data): array
+    {
+        $channels = $data['channels'] ?? null;
+        if ($channels === null) {
+            return [];
+        }
+
+        if (!is_array($channels)) {
+            return ['channels must be an object'];
+        }
+
+        $errors = [];
+        $defaults = $channels['defaults'] ?? null;
+        if ($defaults !== null) {
+            if (!is_array($defaults)) {
+                $errors[] = 'channels.defaults must be an object';
+            } else {
+                foreach (['inboundRateLimit', 'outboundConcurrency', 'healthCheckIntervalSeconds'] as $key) {
+                    if (array_key_exists($key, $defaults) && (!is_int($defaults[$key]) || $defaults[$key] <= 0)) {
+                        $errors[] = sprintf('channels.defaults.%s must be a positive integer', $key);
+                    }
+                }
+
+                foreach (['unknownUserPolicy', 'executionPolicy', 'defaultProfile'] as $key) {
+                    if (array_key_exists($key, $defaults) && (!is_string($defaults[$key]) || trim($defaults[$key]) === '')) {
+                        $errors[] = sprintf('channels.defaults.%s must be a non-empty string', $key);
+                    }
+                }
+            }
+        }
+
+        $instances = $channels['instances'] ?? null;
+        if ($instances === null) {
+            return $errors;
+        }
+
+        if (!is_array($instances)) {
+            $errors[] = 'channels.instances must be an object or array';
+            return $errors;
+        }
+
+        if (array_is_list($instances)) {
+            foreach ($instances as $index => $instance) {
+                $errors = [...$errors, ...$this->validateChannelInstance($instance, sprintf('channels.instances[%d]', $index), true)];
+            }
+
+            return $errors;
+        }
+
+        foreach ($instances as $name => $instance) {
+            if (!is_string($name) || trim($name) === '') {
+                $errors[] = 'channels.instances keys must be non-empty strings';
+                continue;
+            }
+
+            $errors = [...$errors, ...$this->validateChannelInstance($instance, sprintf('channels.instances.%s', $name), false)];
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @param mixed $instance
+     * @return string[]
+     */
+    private function validateChannelInstance(mixed $instance, string $path, bool $requiresName): array
+    {
+        if (!is_array($instance)) {
+            return [sprintf('%s must be an object', $path)];
+        }
+
+        $errors = [];
+
+        if ($requiresName) {
+            $name = $instance['name'] ?? null;
+            if (!is_string($name) || trim($name) === '') {
+                $errors[] = sprintf('%s.name must be a non-empty string', $path);
+            }
+        }
+
+        $driver = $instance['driver'] ?? null;
+        if (!is_string($driver) || trim($driver) === '') {
+            $errors[] = sprintf('%s.driver must be a non-empty string', $path);
+        }
+
+        if (array_key_exists('enabled', $instance) && !is_bool($instance['enabled'])) {
+            $errors[] = sprintf('%s.enabled must be a boolean', $path);
+        }
+
+        foreach (['displayName', 'defaultProfile'] as $key) {
+            if (array_key_exists($key, $instance) && (!is_string($instance[$key]) || trim($instance[$key]) === '')) {
+                $errors[] = sprintf('%s.%s must be a non-empty string', $path, $key);
+            }
+        }
+
+        foreach (['settings', 'allowedScopes', 'security'] as $key) {
+            if (array_key_exists($key, $instance) && !is_array($instance[$key])) {
+                $errors[] = sprintf('%s.%s must be an object or array', $path, $key);
+            }
+        }
+
+        return $errors;
     }
 
     /**
