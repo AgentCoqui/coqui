@@ -1926,7 +1926,7 @@
             "path": "src/Api/Handler/HealthHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\HealthHandler",
             "layer": "command",
-            "description": "GET /api/v1/health — liveness check returning status, version, uptime, active session count, schedule/webhook stats, and a compact quality automation summary when available.",
+            "description": "GET /api/v1/health — liveness check returning status, version, uptime, active session count, schedule/webhook/channel stats, and compact manager readiness summaries including the new ChannelManager when available.",
             "methods": [
                 "__invoke(ServerRequestInterface $request): Response"
             ]
@@ -2038,7 +2038,7 @@
             "path": "src/Api/Handler/ServerHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ServerHandler",
             "layer": "command",
-            "description": "Server status and control endpoints: GET /api/v1/server/info (runtime info, uptime, memory, active sessions/tasks, compact quality summary), GET /api/v1/server/stats (database statistics and table integrity check), and GET /api/v1/server/quality (detailed quality automation state).",
+            "description": "Server status and control endpoints: GET /api/v1/server/info (runtime info, uptime, memory, active sessions/tasks, compact channel and quality summaries), GET /api/v1/server/stats (database statistics and table integrity check), and GET /api/v1/server/quality (detailed quality automation state).",
             "methods": [
                 "info(request): Response — version, uptime, memory, active workload",
                 "stats(request): Response — database stats and table check",
@@ -2083,11 +2083,23 @@
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, and prompt-inspection surfaces, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers, and enters the ReactPHP event loop.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, prompt-inspection, and channel-health surfaces, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers plus the new ChannelManager, and enters the ReactPHP event loop.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
                 "registerRoutes(Router, ...handlers): void — registers all API routes including evaluation, prompt, budget, and loop endpoints",
                 "resolveApiKey(BootManager): ?string — resolves API key from config/env/workspace"
+            ]
+        },
+        {
+            "path": "src/Api/ChannelManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\ChannelManager",
+            "layer": "agent",
+            "description": "Timer-driven coordinator for the new channel subsystem. Reconciles configured channel instances into long-lived runtimes, starts and stops per-instance runtimes when config changes, persists runtime health into ChannelStore, and exposes compact stats for health and server inspection endpoints.",
+            "methods": [
+                "tick(): void — reconcile configured instances and tick active runtimes",
+                "reconcile(): void — upsert configured instances, validate drivers, and refresh runtime state",
+                "shutdown(): void — stop all active runtimes",
+                "stats(): array — return configured/enabled/ready counts plus active runtime and registered driver totals"
             ]
         },
         {
@@ -2722,7 +2734,7 @@
             "path": "src/Config/OpenClawConfig.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\OpenClawConfig",
             "layer": "config",
-            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, utility model, provider config, notification system settings (including automation lease/retry timers), and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
+            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, utility model, provider config, notification settings, normalized channel settings, and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
             "methods": [
                 "fromFile(string): self — load and parse openclaw.json file",
                 "fromArray(array): self — create from pre-parsed array",
@@ -2731,10 +2743,126 @@
                 "getPrimaryModel(): string — resolve primary model string",
                 "getFallbacks(): array — return ordered fallback model strings",
                 "getImageModel(): string — resolve image generation model",
+                "getChannelConfig(): array — resolve channel defaults and instance declarations with Coqui defaults applied",
                 "getNotificationConfig(): array — resolve notification display, retention, and automation settings with defaults",
                 "getUtilityModel(): string — resolve utility model from config or COQUI_UTILITY_MODEL env",
                 "resolveModel(string): string — resolve alias to full model string",
                 "getModelDefinition(string): ModelDefinition — build ModelDefinition for a model string"
+            ]
+        },
+        {
+            "path": "src/Channel/ChannelConfig.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\ChannelConfig",
+            "layer": "config",
+            "description": "Normalizer for the channels config block. Converts channels.instances from keyed-object or list form into a predictable list of runtime instance definitions with canonical keys for driver, enabled state, display name, default profile, settings, allowed scopes, and security policy.",
+            "methods": [
+                "fromArray(array): self — normalize a raw channels config block",
+                "defaults(): array — return normalized channel defaults",
+                "instances(): array — return normalized channel instance definitions"
+            ]
+        },
+        {
+            "path": "src/Channel/ChannelDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\ChannelDiscovery",
+            "layer": "config",
+            "description": "Discovers built-in and external channel drivers. Registers the three first-party core drivers by default and scans Composer installed.json metadata for extra.coqui.channels declarations so third-party packages can extend the channel subsystem without core changes.",
+            "methods": [
+                "discoverAll(): array — scan installed packages and register newly discovered drivers",
+                "register(string, array): array — register declared driver classes for a package",
+                "driver(string): ?ChannelDriverInterface — retrieve a driver by its identifier",
+                "drivers(): array — return all registered drivers keyed by driver name",
+                "driverNames(): array — list registered driver identifiers",
+                "packages(): array — map driver identifiers to the package that registered them"
+            ]
+        },
+        {
+            "path": "src/Contract/ChannelDriverInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ChannelDriverInterface",
+            "layer": "contract",
+            "description": "Primary extension contract for channels. Implemented by both built-in and third-party drivers so discovery, validation, capability reporting, and runtime creation all flow through the same transport-oriented interface.",
+            "methods": [
+                "driverName(): string — stable driver identifier used in config",
+                "displayName(): string — operator-facing display label",
+                "capabilities(): array — declared transport capabilities for inspection and persistence",
+                "validateInstanceConfig(array): array — return validation errors for a configured instance",
+                "createRuntime(array, array): ChannelRuntimeInterface — build the long-lived runtime for one instance"
+            ]
+        },
+        {
+            "path": "src/Contract/ChannelRuntimeInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ChannelRuntimeInterface",
+            "layer": "contract",
+            "description": "Long-lived runtime contract for a configured channel instance. ChannelManager drives these runtimes on timers and persists their reported health into ChannelStore.",
+            "methods": [
+                "start(): void — start the runtime",
+                "tick(): void — advance the runtime heartbeat or work loop",
+                "stop(): void — stop the runtime",
+                "healthReport(): array — return normalized runtime health metadata"
+            ]
+        },
+        {
+            "path": "src/Storage/ChannelStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\ChannelStore",
+            "layer": "storage",
+            "description": "SQLite-backed persistence for the channel subsystem. Creates the initial channel tables for configured instances, identity links, conversations, inbound events, outbound deliveries, delivery attempts, and per-instance runtime state. The first implementation slice actively uses the instance and runtime-state tables while laying down the rest of the schema for follow-on work.",
+            "methods": [
+                "upsertConfiguredInstance(array, ?array): string — create or update one configured channel instance row",
+                "getByName(string): ?array — fetch an instance with joined runtime state",
+                "listInstances(int): array — list configured instances with runtime state",
+                "pruneConfigInstances(array): int — remove config-sourced instances no longer present in config",
+                "updateRuntimeState(string, array): void — upsert the current health snapshot for an instance",
+                "getStats(): array — return aggregate configured/enabled/ready/error counts"
+            ]
+        },
+        {
+            "path": "src/Channel/Builtin/PlaceholderChannelRuntime.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\Builtin\\PlaceholderChannelRuntime",
+            "layer": "agent",
+            "description": "Temporary runtime used by the built-in channel drivers during the first implementation slice. It reports placeholder health so configured Signal, Telegram, and Discord instances are visible in storage and health endpoints before their real transport loops exist.",
+            "methods": [
+                "start(): void — mark the placeholder runtime started",
+                "tick(): void — refresh the placeholder heartbeat",
+                "stop(): void — mark the placeholder runtime stopped",
+                "healthReport(): array — emit placeholder runtime health"
+            ]
+        },
+        {
+            "path": "src/Channel/Builtin/SignalChannelDriver.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\Builtin\\SignalChannelDriver",
+            "layer": "config",
+            "description": "Built-in first-party Signal driver descriptor. Declares Signal transport capabilities and currently returns a PlaceholderChannelRuntime while the real signal-cli bridge integration is still being implemented.",
+            "methods": [
+                "driverName(): string — returns 'signal'",
+                "displayName(): string — returns 'Signal'",
+                "capabilities(): array — declare the current Signal capability surface",
+                "validateInstanceConfig(array): array — validate a Signal instance definition",
+                "createRuntime(array, array): ChannelRuntimeInterface — create the current placeholder runtime"
+            ]
+        },
+        {
+            "path": "src/Channel/Builtin/TelegramChannelDriver.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\Builtin\\TelegramChannelDriver",
+            "layer": "config",
+            "description": "Built-in first-party Telegram driver descriptor. Declares Telegram transport capabilities and currently returns a PlaceholderChannelRuntime while the real Bot API transport is still being implemented.",
+            "methods": [
+                "driverName(): string — returns 'telegram'",
+                "displayName(): string — returns 'Telegram'",
+                "capabilities(): array — declare the current Telegram capability surface",
+                "validateInstanceConfig(array): array — validate a Telegram instance definition",
+                "createRuntime(array, array): ChannelRuntimeInterface — create the current placeholder runtime"
+            ]
+        },
+        {
+            "path": "src/Channel/Builtin/DiscordChannelDriver.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\Builtin\\DiscordChannelDriver",
+            "layer": "config",
+            "description": "Built-in first-party Discord driver descriptor. Declares Discord transport capabilities and currently returns a PlaceholderChannelRuntime while the real gateway-driven runtime is still being implemented.",
+            "methods": [
+                "driverName(): string — returns 'discord'",
+                "displayName(): string — returns 'Discord'",
+                "capabilities(): array — declare the current Discord capability surface",
+                "validateInstanceConfig(array): array — validate a Discord instance definition",
+                "createRuntime(array, array): ChannelRuntimeInterface — create the current placeholder runtime"
             ]
         },
         {

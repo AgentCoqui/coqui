@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
+use CoquiBot\Coqui\Api\ChannelManager;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\ScheduleManager;
 use CoquiBot\Coqui\Api\WatchJob\ScheduleFileWatchJob;
@@ -55,6 +56,7 @@ use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
 use CoquiBot\Coqui\Agent\ToolBoundEvaluator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -205,6 +207,7 @@ final class ApiCommand extends Command
         // Schedule & webhook stores (created early for health endpoint)
         $scheduleStore = new ScheduleStore($storage->getPdo());
         $webhookStore = new WebhookStore($storage->getPdo());
+        $channelStore = new ChannelStore($storage->getPdo());
 
         $artifactStore = new ArtifactStore($storage->getPdo());
         $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($storage->getPdo());
@@ -219,6 +222,17 @@ final class ApiCommand extends Command
         $notificationAutomationConfig = $notificationConfig['automation'];
 
         $scheduleManager = new ScheduleManager($storage, $scheduleStore);
+        $channelManager = new ChannelManager(
+            config: $boot->config(),
+            discovery: $boot->channelDiscovery(),
+            store: $channelStore,
+            runtimeContext: [
+                'workspacePath' => $boot->workspacePath(),
+                'projectRoot' => $workDir,
+                'credentialResolver' => $boot->credentialResolver(),
+            ],
+        );
+        $channelManager->reconcile();
         $qualityAutomation = new QualityAutomationCoordinator(
             config: $boot->config(),
             storage: $storage,
@@ -304,7 +318,7 @@ final class ApiCommand extends Command
             scheduleStore: $scheduleStore,
         );
 
-        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $qualityStatus);
+        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $channelManager, $qualityStatus);
         $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->profileDiscovery());
         $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
@@ -318,7 +332,7 @@ final class ApiCommand extends Command
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
         $evaluationHandler = new EvaluationHandler($evaluationStore);
-        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $qualityStatus);
+        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $channelManager, $qualityStatus);
 
         $previewRunner = AgentRunnerFactory::create(
             boot: $boot,
@@ -402,13 +416,14 @@ final class ApiCommand extends Command
         // Graceful shutdown on SIGTERM/SIGINT — close socket + stop event loop
         // SIGINT (2) = direct Ctrl+C — show shutdown message (standalone mode)
         // SIGTERM (15) = sent by launcher — stay silent (launcher owns the UX)
-        $shutdownHandler = static function (int $signal) use ($socket, $output, $taskManager, $turnManager): void {
+        $shutdownHandler = static function (int $signal) use ($socket, $output, $taskManager, $turnManager, $channelManager): void {
             $output->writeln('');
             if ($signal === 2) {
                 $output->writeln('');
                 $output->writeln(' <info>[INFO] Shutting down Coqui.</info>');
                 $output->writeln('');
             }
+            $channelManager->shutdown();
             $turnManager->shutdown();
             $taskManager->shutdown();
             $socket->close();
@@ -492,6 +507,10 @@ final class ApiCommand extends Command
                 $loopManager->reconcile();
             });
         }
+
+        Loop::addPeriodicTimer(5.0, static function () use ($channelManager): void {
+            $channelManager->tick();
+        });
 
         return Command::SUCCESS;
     }
