@@ -40,14 +40,14 @@ jobs:
 
       - name: Verify bundled PHP extensions
         run: |
-          docker run --rm coqui:smoke php -m | grep -E '^(curl|dom|gd|mbstring|pdo_sqlite|readline|xml|zip)$'
-          docker run --rm coqui:smoke php -m | grep -E '^(pcntl)$'
+          docker run --rm --entrypoint php coqui:smoke -m | grep -E '^(curl|dom|gd|mbstring|pdo_sqlite|readline|xml|zip)$'
+          docker run --rm --entrypoint php coqui:smoke -m | grep -E '^(pcntl)$'
 
       - name: Verify CLI starts
         run: |
-          docker run --rm coqui:smoke php bin/coqui --version
+          docker run --rm coqui:smoke --version
           set +e
-          docker run --rm coqui:smoke php bin/coqui doctor --json >/dev/null
+          docker run --rm coqui:smoke doctor --json >/dev/null
           status=$?
           set -e
           if [ "$status" -gt 1 ]; then
