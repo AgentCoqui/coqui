@@ -386,7 +386,7 @@
             "path": "src/Contract/ToolkitCommandHelp.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitCommandHelp",
             "layer": "contract",
-            "description": "Readonly value object carrying optional structured help metadata for a toolkit command. Includes summary text, per-subcommand descriptions, examples, and notes for standardized REPL help rendering.",
+            "description": "Readonly value object carrying optional structured help metadata for a toolkit command. Includes an optional display title, summary text, per-subcommand descriptions, examples, and notes for standardized REPL help rendering.",
             "methods": []
         },
         {

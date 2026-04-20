@@ -4,15 +4,21 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "11d300b437261194beccac3c205e237c",
+    "content-hash": "3cf79be99ab1d1315f939d7094f913e1",
     "packages": [
         {
             "name": "carmelosantana/coqui-toolkit-images",
-            "version": "dev-main",
+            "version": "v0.1.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/coqui-toolkit-images.git",
+                "reference": "769f3a7e7c2df4cf0eabf6d46c2d8aea8bb2a1bc"
+            },
             "dist": {
-                "type": "path",
-                "url": "../../Toolkits/coqui-toolkit-images",
-                "reference": "bc3fe155ea4e1468abc079d19e169948c4536b15"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-images/zipball/769f3a7e7c2df4cf0eabf6d46c2d8aea8bb2a1bc",
+                "reference": "769f3a7e7c2df4cf0eabf6d46c2d8aea8bb2a1bc",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4",
@@ -29,29 +35,29 @@
             "type": "library",
             "extra": {
                 "php-agents": {
-                    "toolkits": [
-                        "CarmeloSantana\\CoquiToolkitImages\\ImagesToolkit"
-                    ],
-                    "description": "Generate, preview, organize, tag, and search AI-generated images using OpenAI and Ollama backends. Supports PNG metadata embedding, low-fidelity REPL previews, and workspace library management.",
-                    "credentials": {
-                        "OPENAI_API_KEY": {
-                            "description": "OpenAI API key for GPT Image 1.5 image generation.",
-                            "optional": true
-                        },
-                        "OLLAMA_HOST": {
-                            "description": "Optional Ollama host hint for local setup guidance. The current toolkit implementation shells out to the local `ollama` CLI for image generation.",
-                            "optional": true
-                        },
-                        "COQUI_IMAGE_MODEL": {
-                            "description": "Optional fallback image model in vendor/model format, for example openai/gpt-image-1.5 or ollama/x/z-image-turbo.",
-                            "optional": true
-                        }
-                    },
                     "gated": {
                         "image_generate": [
                             "generate"
                         ]
-                    }
+                    },
+                    "toolkits": [
+                        "CarmeloSantana\\CoquiToolkitImages\\ImagesToolkit"
+                    ],
+                    "credentials": {
+                        "OLLAMA_HOST": {
+                            "optional": true,
+                            "description": "Optional Ollama host hint for local setup guidance. The current toolkit implementation shells out to the local `ollama` CLI for image generation."
+                        },
+                        "OPENAI_API_KEY": {
+                            "optional": true,
+                            "description": "OpenAI API key for GPT Image 1.5 image generation."
+                        },
+                        "COQUI_IMAGE_MODEL": {
+                            "optional": true,
+                            "description": "Optional fallback image model in vendor/model format, for example openai/gpt-image-1.5 or ollama/x/z-image-turbo."
+                        }
+                    },
+                    "description": "Generate, preview, organize, tag, and search AI-generated images using OpenAI and Ollama backends. Supports PNG metadata embedding, low-fidelity REPL previews, and workspace library management."
                 }
             },
             "autoload": {
@@ -59,19 +65,7 @@
                     "CarmeloSantana\\CoquiToolkitImages\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "CarmeloSantana\\CoquiToolkitImages\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=1G"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -90,10 +84,11 @@
                 "php-agents",
                 "toolkit"
             ],
-            "transport-options": {
-                "symlink": false,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/coqui-toolkit-images/issues",
+                "source": "https://github.com/carmelosantana/coqui-toolkit-images/tree/v0.1.0"
+            },
+            "time": "2026-04-20T14:34:34+00:00"
         },
         {
             "name": "carmelosantana/php-agents",
@@ -6083,9 +6078,7 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {
-        "carmelosantana/coqui-toolkit-images": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
