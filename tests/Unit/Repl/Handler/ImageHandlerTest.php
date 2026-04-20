@@ -59,6 +59,28 @@ final class FakeImageToolkit implements ToolkitInterface
                 parameters: [new StringParameter('prompt', 'Prompt', true)],
                 callback: function (array $input): string {
                     self::$lastGenerateInput = $input;
+
+                    if (($input['output_format'] ?? null) === 'json') {
+                        return json_encode([
+                            'message' => 'Image generated successfully.',
+                            'saved_path' => '/tmp/fake.png',
+                            'preview' => "@@@\n###",
+                            'preview_unavailable_reason' => null,
+                            'metadata_unavailable_reason' => null,
+                            'record' => [
+                                'id' => 'img_fake123',
+                                'path' => '/tmp/fake.png',
+                                'vendor' => 'openai',
+                                'model' => 'gpt-image-1.5',
+                                'format' => 'png',
+                                'metadata_embedded' => true,
+                                'provider_payload' => [
+                                    'stdout' => 'ignored',
+                                ],
+                            ],
+                        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}';
+                    }
+
                     return "Image generated successfully.\nSaved path: /tmp/fake.png";
                 },
             ),
@@ -165,12 +187,19 @@ test('image handler routes generate arguments into the image toolkit tool', func
 
         $handler->handle($io, 'generate "cinematic fox" --vendor=openai --tags=animal,forest --category=concept', 'caelum', 'session-1');
 
+        $display = $output->fetch();
+
         expect(FakeImageToolkit::$lastPreflightInput['vendor'])->toBe('openai');
         expect(FakeImageToolkit::$lastGenerateInput['prompt'])->toBe('cinematic fox');
         expect(FakeImageToolkit::$lastGenerateInput['vendor'])->toBe('openai');
         expect(FakeImageToolkit::$lastGenerateInput['category'])->toBe('concept');
         expect(FakeImageToolkit::$lastGenerateInput['tags_json'])->toBe('["animal","forest"]');
-        expect($output->fetch())->toContain('Image generated successfully.');
+        expect(FakeImageToolkit::$lastGenerateInput['output_format'])->toBe('json');
+        expect($display)->toContain('Image generated successfully.');
+        expect($display)->toContain('Record ID:');
+        expect($display)->toContain('img_fake123');
+        expect($display)->toContain('Preview');
+        expect($display)->not->toContain('provider_payload');
     } finally {
         cleanupTestTree($workspacePath);
     }
