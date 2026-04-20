@@ -390,13 +390,23 @@ Coqui is optimized for low-latency agent loops. Key design decisions:
 
 Coqui ships with a tuned `conf.d/coqui.ini` that enables OPcache and JIT (tracing mode 1255, 128MB buffer). The installer and `coqui doctor` check for proper OPcache/JIT configuration.
 
-For best performance, ensure your PHP CLI has OPcache enabled:
+For best performance in a non-debug CLI, ensure your PHP CLI has OPcache enabled and JIT available:
 
 ```ini
 opcache.enable_cli=1
 opcache.jit=1255
 opcache.jit_buffer_size=128M
 ```
+
+If you keep `xdebug` or `pcov` loaded in your everyday local CLI, disable JIT locally instead of trying to silence the startup warning. Those extensions make JIT unavailable anyway.
+
+```ini
+opcache.enable_cli=1
+opcache.jit=0
+opcache.jit_buffer_size=0
+```
+
+On Homebrew PHP this is usually easiest as a late-loading override such as `/opt/homebrew/etc/php/8.4/conf.d/zz-local-no-jit.ini`.
 
 ### Benchmarking
 

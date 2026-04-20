@@ -1039,12 +1039,22 @@ final class DoctorCommand extends Command
             $jitEnabled = is_array($status)
                 && isset($status['jit']['enabled'])
                 && $status['jit']['enabled'];
+            $jitBlockingExtensions = $this->jitBlockingExtensions();
 
             if ($jitEnabled) {
                 $jitBuffer = $status['jit']['buffer_size'] ?? 0;
                 $bufferMb = round($jitBuffer / 1024 / 1024);
                 $this->ok($io, "JIT: enabled ({$bufferMb} MB buffer)", $jsonOutput);
                 $results['jit'] = ['status' => 'ok', 'enabled' => true, 'buffer_mb' => $bufferMb];
+            } elseif ($jitBlockingExtensions !== []) {
+                $extensions = implode(', ', $jitBlockingExtensions);
+                $this->ok($io, "JIT: disabled with {$extensions} loaded — expected for debugging/coverage CLI setups", $jsonOutput);
+                $results['jit'] = [
+                    'status' => 'ok',
+                    'enabled' => false,
+                    'blocked_by' => $jitBlockingExtensions,
+                    'reason' => 'incompatible_extensions',
+                ];
             } else {
                 $this->warn($io, 'JIT: disabled — enable for improved loop performance (opcache.jit=1255)', $jsonOutput);
                 $results['jit'] = ['status' => 'warn', 'enabled' => false];
@@ -1058,6 +1068,22 @@ final class DoctorCommand extends Command
         $results['realpath_cache_size'] = ['status' => 'ok', 'value' => $realpathCacheSize];
 
         return $results;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function jitBlockingExtensions(): array
+    {
+        $extensions = [];
+
+        foreach (['xdebug', 'pcov', 'blackfire'] as $extension) {
+            if (extension_loaded($extension)) {
+                $extensions[] = $extension;
+            }
+        }
+
+        return $extensions;
     }
 
     /**
