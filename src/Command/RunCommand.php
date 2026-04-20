@@ -25,6 +25,7 @@ use CoquiBot\Coqui\Repl\MultilineReader;
 use CoquiBot\Coqui\Repl\NotificationPresenter;
 use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
+use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
@@ -40,6 +41,7 @@ use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
+use CoquiBot\Coqui\Channel\ChannelConfigurationEditor;
 use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\TabCompletion;
@@ -47,6 +49,7 @@ use CoquiBot\Coqui\Repl\TerminalStateManager;
 use CoquiBot\Coqui\Repl\ToolkitCommandCollision;
 use CoquiBot\Coqui\Repl\ToolkitCommandRegistrationReport;
 use CoquiBot\Coqui\Storage\EvaluationStore;
+use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -398,6 +401,12 @@ final class RunCommand extends Command
         $notificationStore = $notificationsEnabled ? $this->boot->notificationStore() : null;
         $notificationPresenter = new NotificationPresenter();
         $notificationLimit = $notificationConfig['replDisplayLimit'];
+        $channelStore = new ChannelStore($this->storage->getPdo());
+        $channelConfigEditor = new ChannelConfigurationEditor(
+            $this->boot->configManager(),
+            $this->boot->channelDiscovery(),
+            $this->boot->profileDiscovery(),
+        );
 
         $router = new SlashCommandRouter(
             session: $sessionHandler,
@@ -405,6 +414,12 @@ final class RunCommand extends Command
             todo: new TodoHandler($this->boot->todoStore()),
             schedule: new ScheduleHandler($this->storage),
             budget: new BudgetHandler($this->agentRunner),
+            channel: new ChannelHandler(
+                $channelStore,
+                $channelConfigEditor,
+                $this->boot->channelDiscovery(),
+                $this->boot->profileDiscovery(),
+            ),
             quality: new QualityHandler(
                 new QualityAutomationStatusService(
                     config: $this->boot->config(),

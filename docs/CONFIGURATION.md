@@ -25,12 +25,14 @@ coqui -w
 
 ## How Config Changes Are Applied
 
-Config changes require a restart to take effect. Coqui loads configuration once at boot and constructs all internal components from it. A restart ensures every component is freshly initialized with the new values.
+Most config changes require a restart to take effect. Coqui normally loads configuration once at boot and constructs internal components from it. A restart ensures every component is freshly initialized with the new values.
+
+Exception: channel instance mutations made through the dedicated channel API endpoints are reconciled live into the running API server after the config file is saved. REPL edits, manual edits, and all other config changes still require restart.
 
 **After editing config, restart using one of these methods:**
 
 | Change Source | How Restart Happens |
-|---------------|-------------------|
+| ------------- | ------------------- |
 | `coqui --wizard` / `coqui -w` | Edit config without starting the REPL — changes apply on next launch |
 | `/config edit` (setup wizard) | Coqui prompts: "Restart now to apply?" — confirm to restart immediately |
 | API (`POST /api/v1/config/validate`) | Validation only — apply changes through the REPL or a manual edit, then restart |
@@ -145,9 +147,78 @@ The simplest valid config only needs a primary model:
         "tasks": {
             "maxConcurrent": 6
         }
+    },
+    "channels": {
+        "defaults": {
+            "unknownUserPolicy": "deny",
+            "executionPolicy": "interactive",
+            "inboundRateLimit": 30,
+            "outboundConcurrency": 2,
+            "healthCheckIntervalSeconds": 30
+        },
+        "instances": {
+            "signal-primary": {
+                "driver": "signal",
+                "enabled": true,
+                "displayName": "Signal Primary",
+                "defaultProfile": "caelum",
+                "settings": {
+                    "account": "+15551234567",
+                    "binary": "signal-cli",
+                    "ignoreAttachments": true,
+                    "sendReadReceipts": false,
+                    "receiveMode": "on-start"
+                },
+                "allowedScopes": ["family-group"],
+                "security": {
+                    "linkRequired": true
+                }
+            }
+        }
     }
 }
 ```
+
+## Channels (`channels`)
+
+Channels define external response transports owned by the API server.
+
+### `channels.defaults`
+
+| Key | Type | Required | Description |
+| --- | ---- | -------- | ----------- |
+| `unknownUserPolicy` | string | no | Default handling for unlinked remote users |
+| `executionPolicy` | string | no | Default execution mode for inbound channel work |
+| `defaultProfile` | string | no | Default profile to use when an instance does not override it |
+| `inboundRateLimit` | int | no | Per-instance inbound rate limit used by channel runtimes |
+| `outboundConcurrency` | int | no | Max concurrent outbound deliveries per instance |
+| `healthCheckIntervalSeconds` | int | no | Target runtime health update cadence |
+
+### `channels.instances`
+
+Instances may be declared as a keyed object or a list. Each instance supports these fields:
+
+| Key | Type | Required | Description |
+| --- | ---- | -------- | ----------- |
+| `driver` | string | yes | Driver identifier such as `signal`, `telegram`, or `discord` |
+| `enabled` | bool | no | Whether the instance should start in the API server |
+| `displayName` | string | no | Human-readable operator label |
+| `defaultProfile` | string | no | Profile used for inbound conversations and proactive sends |
+| `settings` | object | no | Driver-specific settings block |
+| `allowedScopes` | string[] | no | Allowed remote group/scope identifiers |
+| `security` | object | no | Instance-specific security policy |
+
+Signal currently has a concrete built-in runtime backed by `signal-cli` JSON-RPC notifications. Supported `settings` keys for the Signal driver are:
+
+| Key | Type | Required | Description |
+| --- | ---- | -------- | ----------- |
+| `account` | string | yes | Signal account identifier passed to `signal-cli -a` |
+| `binary` | string | no | Override the `signal-cli` executable path |
+| `ignoreAttachments` | bool | no | Ignore attachment downloads while receiving |
+| `sendReadReceipts` | bool | no | Enable automatic read receipts |
+| `receiveMode` | string | no | Currently only `on-start` is supported |
+
+See [CHANNELS.md](CHANNELS.md) for the Signal installation, account registration or linking flow, manual transport tests, and the first end-to-end Coqui test procedure.
 
 ## Agent Defaults (`agents.defaults`)
 
@@ -156,7 +227,7 @@ The simplest valid config only needs a primary model:
 The primary model used when no role-specific mapping exists.
 
 | Key | Type | Required | Description |
-|-----|------|----------|-------------|
+| --- | ---- | -------- | ----------- |
 | `primary` | string | yes | Model string in `provider/model` format |
 | `fallbacks` | string[] | no | Fallback models tried in order if the primary fails |
 | `utility` | string | no | Cheap/fast model for internal tasks (titles, summaries, memory compression) |
@@ -178,7 +249,7 @@ The primary model used when no role-specific mapping exists.
 Separate defaults for image-generation toolkits and the `/image` REPL command. This config is independent from the active chat or role model.
 
 | Key | Type | Required | Description |
-|-----|------|----------|-------------|
+| --- | ---- | -------- | ----------- |
 | `primary` | string | no | Default image model in `provider/model` format |
 | `fallbacks` | string[] | no | Fallback image models tried in order by image-capable toolkits |
 | `ownerName` | string | no | Default metadata owner name embedded into generated images unless explicitly overridden |
@@ -217,7 +288,7 @@ Current first-party image support targets `openai` and `ollama`. For Ollama, Coq
 Map agent roles to specific models. This enables cost-efficient orchestration where the orchestrator uses a fast, cheap model and delegates expensive work to stronger models.
 
 | Role | Description | Default |
-|------|-------------|---------|
+| ---- | ----------- | ------- |
 | `orchestrator` | Routes tasks, handles simple queries | Primary model |
 | `coder` | Writes and refactors code | Primary model |
 | `reviewer` | Reviews code for bugs, security, style | Primary model |
@@ -243,7 +314,7 @@ Custom roles defined in `workspace/roles/` are also resolved here.
 The sandboxed directory where Coqui reads and writes files. Supports `~` (home directory), relative paths (resolved against the project root), and absolute paths.
 
 | Value | Behavior |
-|-------|----------|
+| ----- | -------- |
 | `~/.coqui/.workspace` | Default — uses a shared workspace in your home directory |
 | `/path/to/workspace` | Absolute path to any directory |
 
@@ -354,7 +425,7 @@ Additional regex patterns to add to the catastrophic blacklist. These patterns b
 Declare external directory mounts that give agents access to directories outside the workspace. Mounts appear as symlinks under `workspace/mnt/{alias}`.
 
 | Field | Required | Default | Description |
-|-------|----------|---------|-------------|
+| ----- | -------- | ------- | ----------- |
 | `path` | yes | — | Absolute path to the external directory (must exist) |
 | `alias` | yes | — | Short name used as the symlink name |
 | `access` | no | `ro` | `ro` (read-only) or `rw` (read-write) |
@@ -380,6 +451,7 @@ Declare external directory mounts that give agents access to directories outside
 ```
 
 **Access control**:
+
 - Mounts default to read-only unless explicitly set to `rw`
 - Child agents (spawned via `spawn_agent`) always get read-only access regardless of the mount's declared access level
 - Write protection is enforced at the filesystem toolkit level
@@ -389,7 +461,7 @@ Declare external directory mounts that give agents access to directories outside
 Configure the memory system's embedding provider for semantic search.
 
 | Key | Type | Description |
-|-----|------|-------------|
+| --- | ---- | ----------- |
 | `embeddingModel` | string | Embedding provider in `provider/model` format |
 | `enabled` | bool | Set to `false` to disable memory embeddings entirely |
 
@@ -408,7 +480,7 @@ Configure the memory system's embedding provider for semantic search.
 Configure automatic conversation summarization behavior.
 
 | Key | Type | Default | Description |
-|-----|------|---------|-------------|
+| --- | ---- | ------- | ----------- |
 | `autoSummarizeMode` | string | `"token"` | Summarization trigger mode: `"token"` (trigger on context window usage), `"turn"` (trigger after N user turns), or `"manual"` (no auto-summarization; use `/summarize` on demand) |
 | `autoSummarizeThreshold` | int/float | `64` | Token usage percentage that triggers auto-summarization (used when mode is `"token"`). Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
 | `autoSummarizeTurnThreshold` | int | `20` | Number of user turns that triggers auto-summarization (used when mode is `"turn"`) |
@@ -448,7 +520,7 @@ This budget-based exit complements `maxIterations`; it does not replace the iter
 Configure the session evaluation system.
 
 | Key | Type | Default | Description |
-|-----|------|---------|-------------|
+| --- | ---- | ------- | ----------- |
 | `lookbackHours` | int | `24` | How far back to search for sessions to evaluate |
 | `inactivityHours` | int | `3` | Minimum hours since last activity before a session is eligible |
 | `minTurns` | int | `2` | Minimum turns for a session to be worth evaluating |
@@ -472,7 +544,7 @@ Each provider is a named entry under `models.providers` with connection settings
 ### Provider Configuration
 
 | Field | Type | Required | Description |
-|-------|------|----------|-------------|
+| ----- | ---- | -------- | ----------- |
 | `baseUrl` | string | yes | API endpoint URL |
 | `apiKey` | string | no | API key (prefer environment variables instead) |
 | `api` | string | yes | API protocol: `openai-completions`, `openai-responses`, `anthropic`, `gemini`, `mistral` |
@@ -481,7 +553,7 @@ Each provider is a named entry under `models.providers` with connection settings
 ### Supported Providers
 
 | Provider | `api` Protocol | Env Variable | Default Base URL |
-|----------|---------------|-------------|-----------------|
+| -------- | ------------- | ----------- | ---------------- |
 | Ollama | `openai-completions` | — | `http://localhost:11434/v1` |
 | OpenAI | `openai-completions` | `OPENAI_API_KEY` | `https://api.openai.com/v1` |
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` | `https://api.anthropic.com/v1` |
@@ -517,7 +589,7 @@ Each model entry describes capabilities and parameters:
 ```
 
 | Field | Type | Default | Description |
-|-------|------|---------|-------------|
+| ----- | ---- | ------- | ----------- |
 | `id` | string | — | Model identifier as recognized by the provider |
 | `name` | string | `id` | Display name |
 | `reasoning` | bool | `false` | Whether this is a reasoning/chain-of-thought model |
@@ -533,7 +605,7 @@ Each model entry describes capabilities and parameters:
 Controls how the model catalog is built:
 
 | Mode | Behavior |
-|------|----------|
+| ---- | -------- |
 | `merge` | Append your declared models to the provider's discovered models |
 | `override` | Use only your declared models, ignore discovery |
 
@@ -544,7 +616,7 @@ If omitted, models are resolved via provider-specific discovery (e.g., Ollama's 
 Settings for the HTTP API server (`coqui api`).
 
 | Key | Type | Default | Description |
-|-----|------|---------|-------------|
+| --- | ---- | ------- | ----------- |
 | `api.key` | string | — | API authentication key (required for network-bound hosts) |
 | `api.tasks.maxConcurrent` | int | `6` | Maximum concurrent background tasks |
 
@@ -553,7 +625,7 @@ Settings for the HTTP API server (`coqui api`).
 Several settings can be overridden via environment variables. These take precedence over `openclaw.json` values for their respective concerns:
 
 | Variable | Purpose |
-|----------|---------|
+| -------- | ------- |
 | `OPENAI_API_KEY` | OpenAI API key |
 | `ANTHROPIC_API_KEY` | Anthropic API key |
 | `XAI_API_KEY` | xAI API key |
@@ -588,7 +660,7 @@ These config sections are part of the OpenClaw standard and work identically acr
 Coqui adds the following keys under `agents.defaults` that are specific to Coqui and safely ignored by other OpenClaw-compatible tools:
 
 | Key | Purpose |
-|-----|---------|
+| --- | ------- |
 | `agents.defaults.workspace` | Workspace directory path |
 | `agents.defaults.mounts` | External directory mounts |
 | `agents.defaults.shellAllowedCommands` | Opt-in shell command allowlist (empty = open-by-default) |
@@ -632,7 +704,7 @@ When an existing `openclaw.json` is detected, the wizard offers **section-based 
 ### REPL Commands
 
 | Command | Description |
-|---------|-------------|
+| ------- | ----------- |
 | `/config` | Show current config summary |
 | `/config show` | Display raw `openclaw.json` content |
 | `/config edit` | Re-run the setup wizard |
@@ -642,7 +714,7 @@ When an existing `openclaw.json` is detected, the wizard offers **section-based 
 
 API keys should be stored as environment variables or in the workspace `.env` file — not directly in `openclaw.json`. The agent manages credentials via the `credentials` tool:
 
-```
+```text
 credentials(action: "set", key: "OPENAI_API_KEY", value: "sk-...")
 ```
 

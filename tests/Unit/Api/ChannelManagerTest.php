@@ -68,12 +68,13 @@ test('channel manager reconciles configured instances into runtime state', funct
         $stats = $manager->stats();
 
         expect($signal)->not->toBeNull();
-        expect($signal['worker_status'])->toBe('placeholder');
+        expect($signal['worker_status'])->toBe('invalid_configuration');
+        expect($signal['last_error'])->toBe('signal settings.account is required');
         expect($discord)->not->toBeNull();
         expect($discord['worker_status'])->toBe('disabled');
         expect($stats['total'])->toBe(2);
         expect($stats['enabled'])->toBe(1);
-        expect($stats['active_runtimes'])->toBe(1);
+        expect($stats['active_runtimes'])->toBe(0);
         expect($stats['registered_drivers'])->toBeGreaterThanOrEqual(3);
     } finally {
         releaseTestObjectProperties((object) $fixture);

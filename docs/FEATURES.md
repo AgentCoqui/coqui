@@ -160,6 +160,19 @@ For use cases that require preserving large identity scaffolds or long-running d
 - Configure your external service to POST to `/api/v1/webhooks/incoming/{name}` with the signing secret.
 - View deliveries: `/webhooks` in the REPL or `GET /api/v1/webhooks/{id}/deliveries` via API.
 
+## <a id="channels"></a> 📨 Channels
+
+**What it does:** Channels give Coqui first-class external messaging surfaces. The API server can receive inbound messages from supported transports, route them through a normal Coqui session, and send the assistant's reply back out through the same channel.
+
+**How it helps:** Coqui no longer has to live only inside the REPL or an API client. You can expose a real messaging endpoint, keep one persistent Coqui session per remote conversation, and audit inbound events plus outbound deliveries in SQLite.
+
+**How to use it:**
+- Configure a channel instance in `openclaw.json` under `channels.instances`.
+- Start Coqui in API mode with `coqui api` or `coqui-launcher`.
+- Link trusted remote users to profiles with `/channels link <channel> <remote-user-key> <profile>`.
+- Inspect runtime state with `/channels`, `/channels status`, and `/channels deliveries`.
+- See [CHANNELS.md](CHANNELS.md) for the full Signal setup walkthrough, including `signal-cli` install, account attachment, manual transport tests, and Coqui end-to-end testing.
+
 ## <a id="background-tasks"></a> 🏗️ Background Tasks
 
 **What it does:** Run long-running work in isolated background processes. Two modes: `start_background_task` spawns a full LLM agent loop, `start_background_tool` executes a single tool directly (zero LLM tokens).
