@@ -14,6 +14,7 @@ use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\ToolkitCommandCandidate;
 use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
+use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
@@ -56,6 +57,7 @@ function createSlashCommandRouterForToolkitTest(array $toolkitCommandHandlers = 
         $instantiate(TodoHandler::class),
         $instantiate(ScheduleHandler::class),
         $instantiate(BudgetHandler::class),
+        $instantiate(ChannelHandler::class),
         $instantiate(QualityHandler::class),
         $instantiate(ProjectHandler::class),
         $instantiate(RoleHandler::class),

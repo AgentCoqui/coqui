@@ -64,58 +64,23 @@ final class LoopDashboardScreen implements ScreenInterface
         }
         $totalCount = count($this->loops);
 
-        // Header
-        $output->writeln('');
-        $output->writeln(sprintf('  <fg=white;options=bold>Loops</> <fg=gray>(%d active / %d total)</>', $activeCount, $totalCount));
-        $output->writeln('');
+        $headerLines = $this->buildHeaderLines($width, $activeCount, $totalCount);
+        $footerLines = $this->buildFooterLines($width);
+        $contentHeight = max(1, $height - count($headerLines) - count($footerLines));
+        $contentWidth = max(24, $width);
+        $contentLines = $this->buildContentLines($contentWidth, $contentHeight);
 
-        // Config summary line
-        $this->renderConfigLine($output);
-        $output->writeln('');
+        $shell = new ScreenShell(
+            contentLines: $contentLines,
+            header: new ShellRegion($headerLines, collapsePriority: 10),
+            footer: new ShellRegion($footerLines, collapsePriority: 40),
+            contentMinWidth: 28,
+            contentMinHeight: 4,
+        );
 
-        if ($this->loops === []) {
-            $output->writeln('  <fg=gray>No loops found. Start one via the agent (loop_start) or /loops start.</>');
-            $output->writeln('');
-            $this->renderFooter($output);
-            return;
+        foreach ($shell->render($width, $height) as $line) {
+            $output->writeln($line);
         }
-
-        // Calculate visible window
-        $contentHeight = $height - 7; // header + config + footer + margins
-        $maxVisible = max(1, intdiv($contentHeight, self::LINES_PER_LOOP));
-        $this->adjustScrollWindow($maxVisible);
-
-        // "N more above" indicator
-        if ($this->scrollOffset > 0) {
-            $output->writeln(sprintf('  <fg=gray>↑ %d more above</>', $this->scrollOffset));
-        }
-
-        // Render visible loops
-        $visibleEnd = min($this->scrollOffset + $maxVisible, count($this->loops));
-        for ($i = $this->scrollOffset; $i < $visibleEnd; $i++) {
-            $this->renderLoopRow($output, $this->loops[$i], $i === $this->selectedIndex, $width);
-        }
-
-        // "N more below" indicator
-        $remaining = count($this->loops) - $visibleEnd;
-        if ($remaining > 0) {
-            $output->writeln(sprintf('  <fg=gray>↓ %d more below</>', $remaining));
-        }
-
-        $output->writeln('');
-
-        // Inline confirmation prompt
-        if ($this->confirmAction !== null) {
-            $label = $this->confirmAction === 'cancel' ? 'Cancel' : 'Delete';
-            $shortId = $this->confirmLoopId !== null ? substr($this->confirmLoopId, 0, 8) : '?';
-            $output->writeln(sprintf(
-                '  <fg=yellow;options=bold>%s loop %s? Press y to confirm, any other key to abort.</>',
-                $label,
-                $shortId,
-            ));
-        }
-
-        $this->renderFooter($output);
     }
 
     public function handleKey(KeyEvent $key): ?ScreenAction
@@ -188,26 +153,87 @@ final class LoopDashboardScreen implements ScreenInterface
         return md5(implode('|', $parts));
     }
 
-    private function renderConfigLine(OutputInterface $output): void
+    /**
+     * @return list<string>
+     */
+    private function buildHeaderLines(int $width, int $activeCount, int $totalCount): array
+    {
+        $title = sprintf('  <fg=white;options=bold>Loops</> <fg=gray>(%d active / %d total)</>', $activeCount, $totalCount);
+
+        return [
+            '',
+            $title,
+            '',
+            $this->buildConfigLine($width),
+        ];
+    }
+
+    private function buildConfigLine(int $width): string
     {
         $maxIter = $this->config['maxIterations'] ?? CoquiDefaults::MAX_ITERATIONS;
         $budgetExit = $this->config['budgetExitThreshold'] ?? CoquiDefaults::BUDGET_EXIT_THRESHOLD;
         $autoSummarize = $this->config['autoSummarizeThreshold'] ?? CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD;
         $keepRecent = $this->config['autoSummarizeKeepRecent'] ?? CoquiDefaults::AUTO_SUMMARIZE_KEEP_RECENT;
 
-        $output->writeln(sprintf(
+        if ($width < 88) {
+            return sprintf(
+                '  <fg=gray>Config:</> Max <fg=white>%d</> │ Exit <fg=white>%s%%</> │ Sum <fg=white>%s%%</> │ Keep <fg=white>%d</>',
+                $maxIter,
+                number_format((float) $budgetExit, 0),
+                number_format((float) $autoSummarize, 0),
+                $keepRecent,
+            );
+        }
+
+        return sprintf(
             '  <fg=gray>Config:</> Max Iterations <fg=white>%d</> │ Budget Exit <fg=white>%s%%</> │ Auto-Summarize <fg=white>%s%%</> │ Keep Recent <fg=white>%d</>',
             $maxIter,
             number_format((float) $budgetExit, 0),
             number_format((float) $autoSummarize, 0),
             $keepRecent,
-        ));
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function buildContentLines(int $width, int $contentHeight): array
+    {
+        if ($this->loops === []) {
+            return [
+                '  <fg=gray>No loops found. Start one via the agent (loop_start) or /loops start.</>',
+            ];
+        }
+
+        $reservedLines = 2;
+        $maxVisible = max(1, intdiv(max(1, $contentHeight - $reservedLines), self::LINES_PER_LOOP));
+        $this->adjustScrollWindow($maxVisible);
+
+        $lines = [];
+        if ($this->scrollOffset > 0) {
+            $lines[] = sprintf('  <fg=gray>↑ %d more above</>', $this->scrollOffset);
+        }
+
+        $visibleEnd = min($this->scrollOffset + $maxVisible, count($this->loops));
+        for ($i = $this->scrollOffset; $i < $visibleEnd; $i++) {
+            foreach ($this->renderLoopRowLines($this->loops[$i], $i === $this->selectedIndex, $width) as $line) {
+                $lines[] = $line;
+            }
+        }
+
+        $remaining = count($this->loops) - $visibleEnd;
+        if ($remaining > 0) {
+            $lines[] = sprintf('  <fg=gray>↓ %d more below</>', $remaining);
+        }
+
+        return $lines;
     }
 
     /**
      * @param array<string, mixed> $loop
+     * @return list<string>
      */
-    private function renderLoopRow(OutputInterface $output, array $loop, bool $selected, int $width): void
+    private function renderLoopRowLines(array $loop, bool $selected, int $width): array
     {
         $id = $loop['id'];
         $prefix = $selected ? '<fg=white;options=bold>></> ' : '  ';
@@ -232,44 +258,55 @@ final class LoopDashboardScreen implements ScreenInterface
             static fn(array $t): float => $t['duration_seconds'],
             $timings,
         );
-        $sparkline = Sparkline::render($sparkValues, 'fg=cyan', 8);
+        $sparkWidth = $width >= 78 ? 8 : 0;
+        $sparkline = $sparkWidth > 0 ? Sparkline::render($sparkValues, 'fg=cyan', $sparkWidth) : '';
 
         // Progress bar — completed stages / total estimated stages
-        $progressBar = $this->buildProgressBar($loop, $timings);
+        $barWidth = match (true) {
+            $width >= 96 => 20,
+            $width >= 80 => 14,
+            $width >= 68 => 10,
+            default => 0,
+        };
+        $progressBar = $this->buildProgressBar($loop, $timings, $barWidth);
 
         // Line 1: status + definition + iteration + sparkline + progress bar
-        $defName = str_pad($loop['definition_name'], 12);
+        $defWidth = $width >= 80 ? 12 : ($width >= 64 ? 10 : 8);
+        $defName = str_pad($this->truncatePlain((string) $loop['definition_name'], $defWidth), $defWidth);
         $line1Parts = [$prefix, $statusIcon, ' ', $defName, ' ', str_pad($iterLabel, 6)];
         if ($sparkline !== '') {
             $line1Parts[] = ' ' . $sparkline;
         }
-        $line1Parts[] = '  ' . $progressBar;
-        $output->writeln(implode('', $line1Parts));
+        if ($progressBar !== '') {
+            $line1Parts[] = '  ' . $progressBar;
+        }
+        $line1 = implode('', $line1Parts);
 
         // Line 2: goal (truncated)
-        $goalMaxWidth = max(20, $width - 8);
-        $goal = mb_strlen($loop['goal']) > $goalMaxWidth
-            ? mb_substr($loop['goal'], 0, $goalMaxWidth - 3) . '...'
-            : $loop['goal'];
+        $goalMaxWidth = max(12, $width - 8);
+        $goal = $this->truncatePlain((string) $loop['goal'], $goalMaxWidth);
         $goalColor = $selected ? 'fg=white' : 'fg=gray';
-        $output->writeln(sprintf('    <' . $goalColor . '>%s</>', $goal));
+        $line2 = sprintf('    <' . $goalColor . '>%s</>', $goal);
 
         // Line 3: current activity + elapsed time
         $activity = $this->buildActivityLine($loop);
         $elapsed = $this->formatElapsed($loop);
         $elapsedStr = $elapsed !== '' ? sprintf('  <fg=gray>⏱ %s</>', $elapsed) : '';
-        $output->writeln(sprintf('    %s%s', $activity, $elapsedStr));
+        $line3 = sprintf('    %s%s', $activity, $elapsedStr);
 
-        // Blank line separator
-        $output->writeln('');
+        return [$line1, $line2, $line3, ''];
     }
 
     /**
      * @param array<string, mixed> $loop
      * @param list<array{iteration: int, duration_seconds: float, stage_count: int, completed_stages: int}> $timings
      */
-    private function buildProgressBar(array $loop, array $timings): string
+    private function buildProgressBar(array $loop, array $timings, int $barWidth): string
     {
+        if ($barWidth <= 0) {
+            return '';
+        }
+
         // Calculate total possible stages and completed stages
         $maxIterations = $loop['max_iterations'] > 0 ? (int) $loop['max_iterations'] : 10;
 
@@ -305,7 +342,7 @@ final class LoopDashboardScreen implements ScreenInterface
             default => 'fg=green',
         };
 
-        $bar = new ProgressBar(20);
+        $bar = new ProgressBar($barWidth);
 
         return $bar->build(
             total: $totalStages,
@@ -418,10 +455,41 @@ final class LoopDashboardScreen implements ScreenInterface
         }
     }
 
-    private function renderFooter(OutputInterface $output): void
+    /**
+     * @return list<string>
+     */
+    private function buildFooterLines(int $width): array
     {
-        $help = '  <fg=gray>↑↓</> Navigate  <fg=gray>⏎</> Details  <fg=gray>⌫</> Cancel  <fg=gray>DEL</> Delete  <fg=gray>ESC</> Exit';
-        $output->writeln($help);
+        $lines = [];
+
+        if ($this->confirmAction !== null) {
+            $label = $this->confirmAction === 'cancel' ? 'Cancel' : 'Delete';
+            $shortId = $this->confirmLoopId !== null ? substr($this->confirmLoopId, 0, 8) : '?';
+            $lines[] = sprintf(
+                '  <fg=yellow;options=bold>%s loop %s? Press y to confirm, any other key to abort.</>',
+                $label,
+                $shortId,
+            );
+        }
+
+        $lines[] = $width < 88
+            ? '  <fg=gray>↑↓</> Move  <fg=gray>⏎</> Open  <fg=gray>⌫</> Cancel  <fg=gray>ESC</> Exit'
+            : '  <fg=gray>↑↓</> Navigate  <fg=gray>⏎</> Details  <fg=gray>⌫</> Cancel  <fg=gray>DEL</> Delete  <fg=gray>ESC</> Exit';
+
+        return $lines;
+    }
+
+    private function truncatePlain(string $value, int $maxWidth): string
+    {
+        if ($maxWidth <= 0 || mb_strwidth($value) <= $maxWidth) {
+            return $value;
+        }
+
+        if ($maxWidth <= 3) {
+            return mb_strimwidth($value, 0, $maxWidth, '');
+        }
+
+        return mb_strimwidth($value, 0, $maxWidth, '...');
     }
 
     private function moveSelection(int $delta): ?ScreenAction

@@ -30,6 +30,7 @@ use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use CoquiBot\Coqui\Support\ToolkitDatabaseFactory;
 use CoquiBot\Coqui\Contract\SystemRole;
+use CoquiBot\Coqui\Repl\ToolkitScreenHost;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -536,6 +537,7 @@ final class SlashCommandRouter
                 sessionId: $sessionId,
                 output: $this->output,
                 databaseFactory: new ToolkitDatabaseFactory($this->workspacePath),
+                screenHost: new ToolkitScreenHost($this->output),
             );
             $this->toolkitHandlers[$name]->handle($context, $arg);
 
