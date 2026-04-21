@@ -722,9 +722,70 @@ The `complete` event carries the full turn result:
   "tools_used": ["list_dir"],
   "child_agent_count": 0,
   "restart_requested": false,
+  "iteration_limit_reached": false,
+  "budget_exhausted": false,
+  "context_usage": {
+    "max_tokens": 128000,
+    "reserved_tokens": 8192,
+    "used_tokens": 24500,
+    "usage_percent": 20.4,
+    "available_tokens": 95308,
+    "effective_budget": 119808,
+    "breakdown": {
+      "system": 5000,
+      "memory": 1200,
+      "user": 800,
+      "assistant": 7000,
+      "tool": 9000,
+      "summary": 1500
+    }
+  },
+  "file_edits": [
+    {
+      "file_path": "/workspace/src/Example.php",
+      "operation": "update"
+    }
+  ],
+  "review_feedback": null,
+  "review_approved": null,
+  "background_tasks": {
+    "agents": [
+      {
+        "id": "task_123",
+        "status": "running",
+        "title": "Refactor auth",
+        "role": "coder",
+        "started_at": "2026-04-21T12:00:00+00:00",
+        "created_at": "2026-04-21T11:59:30+00:00"
+      }
+    ],
+    "tools": [],
+    "total_count": 1
+  },
   "error": null
 }
 ```
+
+Relevant fields for REPL-style footer rendering:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `iterations` | int | Total model loop iterations used by the turn |
+| `duration_ms` | int | End-to-end execution time in milliseconds |
+| `prompt_tokens` | int | Estimated input token usage |
+| `completion_tokens` | int | Estimated output token usage |
+| `total_tokens` | int | Sum of prompt and completion tokens |
+| `tools_used` | string[] | Unique tool names invoked during the turn |
+| `child_agent_count` | int | Number of child agents spawned |
+| `restart_requested` | bool | Whether the turn requested a Coqui restart |
+| `iteration_limit_reached` | bool | Whether the turn stopped because the iteration cap was reached |
+| `budget_exhausted` | bool | Whether the turn stopped because the context budget was exhausted |
+| `context_usage` | object or `null` | Structured context-window usage data for frontend progress-bar rendering |
+| `file_edits` | object[] or `null` | Files edited during the turn with operation type |
+| `review_feedback` | string or `null` | Post-turn automated review feedback when available |
+| `review_approved` | bool or `null` | Review verdict when post-turn review ran |
+| `background_tasks` | object or `null` | Active background agent/tool summary. `started_at` and `created_at` are included so clients can compute elapsed durations. |
+| `error` | string or `null` | Error summary when the turn fails |
 
 **Example SSE Stream**
 
@@ -760,7 +821,7 @@ event: done
 data: {"content":"Here are the directories inside `src/`:\n\n- Agent/\n- Api/\n- Command/\n- Config/"}
 
 event: complete
-data: {"content":"Here are the directories inside `src/`:\n\n- Agent/\n- Api/\n- Command/\n- Config/","iterations":2,"prompt_tokens":1250,"completion_tokens":340,"total_tokens":1590,"duration_ms":4521,"tools_used":["list_dir"],"child_agent_count":0,"restart_requested":false,"error":null}
+data: {"content":"Here are the directories inside `src/`:\n\n- Agent/\n- Api/\n- Command/\n- Config/","iterations":2,"prompt_tokens":1250,"completion_tokens":340,"total_tokens":1590,"duration_ms":4521,"tools_used":["list_dir"],"child_agent_count":0,"restart_requested":false,"iteration_limit_reached":false,"budget_exhausted":false,"context_usage":{"max_tokens":128000,"reserved_tokens":8192,"used_tokens":24500,"usage_percent":20.4,"available_tokens":95308,"effective_budget":119808,"breakdown":{"system":5000,"memory":1200,"user":800,"assistant":7000,"tool":9000,"summary":1500}},"file_edits":[{"file_path":"/workspace/src/Example.php","operation":"update"}],"review_feedback":null,"review_approved":null,"background_tasks":{"agents":[{"id":"task_123","status":"running","title":"Refactor auth","role":"coder","started_at":"2026-04-21T12:00:00+00:00","created_at":"2026-04-21T11:59:30+00:00"}],"tools":[],"total_count":1},"error":null}
 
 ```
 
@@ -779,6 +840,46 @@ When streaming is disabled, the server blocks until the agent completes and retu
   "tools_used": ["list_dir"],
   "child_agent_count": 0,
   "restart_requested": false,
+  "iteration_limit_reached": false,
+  "budget_exhausted": false,
+  "context_usage": {
+    "max_tokens": 128000,
+    "reserved_tokens": 8192,
+    "used_tokens": 24500,
+    "usage_percent": 20.4,
+    "available_tokens": 95308,
+    "effective_budget": 119808,
+    "breakdown": {
+      "system": 5000,
+      "memory": 1200,
+      "user": 800,
+      "assistant": 7000,
+      "tool": 9000,
+      "summary": 1500
+    }
+  },
+  "file_edits": [
+    {
+      "file_path": "/workspace/src/Example.php",
+      "operation": "update"
+    }
+  ],
+  "review_feedback": null,
+  "review_approved": null,
+  "background_tasks": {
+    "agents": [
+      {
+        "id": "task_123",
+        "status": "running",
+        "title": "Refactor auth",
+        "role": "coder",
+        "started_at": "2026-04-21T12:00:00+00:00",
+        "created_at": "2026-04-21T11:59:30+00:00"
+      }
+    ],
+    "tools": [],
+    "total_count": 1
+  },
   "error": null
 }
 ```
@@ -2950,11 +3051,20 @@ Set the visibility of a package or an individual tool.
 
 Return the fully constructed system prompt that the agent would receive on its next turn, together with tool and toolkit counts plus prompt-source metadata. Useful for debugging context size, inspecting which files are contributing to the prompt, and tracking which folders are consuming the prompt budget.
 
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `role` | string | `orchestrator` | Role scope to resolve before rendering the prompt preview |
+| `profile` | string | `null` | Optional profile scope to apply while rendering the prompt preview |
+
 **Response `200`**
 
 ```json
 {
   "profile": "caelum",
+  "role": "orchestrator",
+  "resolved_model": "ollama/qwen3:latest",
   "prompt": "You are Coqui, an autonomous AI agent...\n\n## Available Tools\n...",
   "tool_count": 42,
   "toolkit_count": 7,
@@ -3026,6 +3136,8 @@ Return the fully constructed system prompt that the agent would receive on its n
 | Field | Type | Description |
 |-------|------|-------------|
 | `profile` | string\|null | Explicit profile scope used to render the prompt preview |
+| `role` | string | Effective role used to render the prompt preview |
+| `resolved_model` | string\|null | Exact resolved model string for the requested `role` + `profile` scope |
 | `prompt` | string | Full rendered system prompt text |
 | `tool_count` | int | Number of tools currently in the agent's context (enabled + stub) |
 | `toolkit_count` | int | Number of toolkit packages contributing tools |
@@ -3035,6 +3147,51 @@ Return the fully constructed system prompt that the agent would receive on its n
 | `toolkit_breakdown` | array | Per-toolkit token breakdown with guidelines and tool schema counts |
 | `budget` | object | Full prompt budget snapshot, including prompt sections and loading decisions |
 | `prompt_sources` | object | File, folder, and synthetic-source breakdown for prompt token usage |
+
+#### `GET /api/v1/server/commands`
+
+Return the runtime slash-command catalog that powers REPL help output. This is the HTTP equivalent of `/help` for clients that want to expose command discovery or contextual help without scraping documentation.
+
+**Response `200`**
+
+```json
+{
+  "sections": [
+    {
+      "name": "Context & Inspection",
+      "commands": [
+        {
+          "name": "/prompt",
+          "usage": "/prompt [export]",
+          "description": "Show the rendered system prompt, source breakdowns, or export it to the workspace.",
+          "help_description": "Show the rendered system prompt, source breakdowns, or export it to the workspace.",
+          "aliases": [],
+          "first_arguments": ["export"],
+          "section": "Context & Inspection"
+        }
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "name": "/help",
+      "usage": "/help",
+      "description": "Show the command reference.",
+      "help_description": "Show the command reference.",
+      "aliases": [],
+      "first_arguments": [],
+      "section": "System & Exit"
+    }
+  ],
+  "count": 31
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sections` | array | Commands grouped by the same help-section headings used in the REPL |
+| `commands` | array | Flat list of command metadata for search/filter UIs |
+| `count` | int | Total number of commands returned |
 
 #### `GET /api/v1/server/backstory`
 
@@ -3257,6 +3414,7 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/channels delete <id>` | `DELETE /api/v1/channels/{id}` | Deletes a channel instance |
 | `/channels links <id>` | `GET /api/v1/channels/{id}/links` | Lists identity links for a channel |
 | `/channels deliveries <id>` | `GET /api/v1/channels/{id}/deliveries` | Lists delivery records for a channel |
+| `/help` | `GET /api/v1/server/commands` | Returns the runtime slash-command catalog |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
 | `/backstory` | `GET /api/v1/server/backstory?profile=<name>` | Returns generated backstory content and source breakdowns |
 | `/budget` | `GET /api/v1/server/budget` | Returns prompt and toolkit budget info |
@@ -3327,6 +3485,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/server/stats` | Yes | Database and server statistics |
 | `GET` | `/api/v1/server/quality` | Yes | Quality and health summary |
 | `GET` | `/api/v1/server/info` | Yes | Server capabilities and commands |
+| `GET` | `/api/v1/server/commands` | Yes | Get runtime slash-command metadata (`/help` equivalent) |
 | `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt |
 | `GET` | `/api/v1/server/backstory` | Yes | Get generated backstory content and manifest metadata |
 | `GET` | `/api/v1/server/budget` | Yes | Get prompt and toolkit budget state |

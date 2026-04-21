@@ -300,6 +300,72 @@ test('appendTurnEvent stores and retrieves turn process events', function () {
     ]);
 });
 
+test('appendTurnEvent preserves rich complete payload fields', function () {
+    $sessionId = $this->storage->createSession('test', 'model');
+    $turnProcessId = $this->storage->createTurnProcess($sessionId, 'Hello');
+    $payload = [
+        'content' => 'Done',
+        'iterations' => 1,
+        'prompt_tokens' => 10,
+        'completion_tokens' => 5,
+        'total_tokens' => 15,
+        'duration_ms' => 250,
+        'tools_used' => ['list_dir'],
+        'child_agent_count' => 0,
+        'restart_requested' => false,
+        'iteration_limit_reached' => false,
+        'budget_exhausted' => false,
+        'context_usage' => [
+            'max_tokens' => 128000,
+            'reserved_tokens' => 8192,
+            'used_tokens' => 42,
+            'usage_percent' => 0,
+            'available_tokens' => 119766,
+            'effective_budget' => 119808,
+            'breakdown' => [
+                'system' => 10,
+                'memory' => 0,
+                'user' => 8,
+                'assistant' => 12,
+                'tool' => 12,
+                'summary' => 0,
+            ],
+        ],
+        'file_edits' => [
+            ['file_path' => '/tmp/example.php', 'operation' => 'update'],
+        ],
+        'error' => null,
+        'review_feedback' => 'Approved',
+        'review_approved' => true,
+        'background_tasks' => [
+            'agents' => [[
+                'id' => 'task-1',
+                'status' => 'running',
+                'title' => 'Review',
+                'role' => 'reviewer',
+                'started_at' => '2026-04-21T12:00:00+00:00',
+                'created_at' => '2026-04-21T11:59:30+00:00',
+            ]],
+            'tools' => [[
+                'id' => 'task-2',
+                'status' => 'pending',
+                'title' => 'Fetch docs',
+                'tool_name' => 'web_fetch',
+                'started_at' => null,
+                'created_at' => '2026-04-21T11:59:45+00:00',
+            ]],
+            'total_count' => 2,
+        ],
+    ];
+
+    $this->storage->appendTurnEvent($turnProcessId, 'complete', $payload);
+
+    $events = $this->storage->getTurnEvents($turnProcessId);
+
+    expect($events)->toHaveCount(1);
+    expect(json_decode((string) $events[0]['data'], true))->toBe($payload);
+});
+
 test('findRecentTaskByTitle returns most recent matching task', function () {
     $sessionId = $this->storage->createSession('learner', 'quality-automation');
 

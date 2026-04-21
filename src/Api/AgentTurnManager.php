@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api;
 
+use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\ProcessSpawner;
 
@@ -180,10 +181,11 @@ final class AgentTurnManager
                 $this->storage->appendTurnEvent($turnProcessId, 'error', [
                     'message' => sprintf('Process exited with code %d', $exitCode),
                 ]);
-                $this->storage->appendTurnEvent($turnProcessId, 'complete', [
-                    'error' => 'Process exited unexpectedly',
-                    'content' => '',
-                ]);
+                $this->storage->appendTurnEvent(
+                    $turnProcessId,
+                    'complete',
+                    AgentTurnResult::fromError('Process exited unexpectedly')->toArray(),
+                );
             }
         }
     }
@@ -224,10 +226,11 @@ final class AgentTurnManager
             $this->storage->appendTurnEvent($turnProcessId, 'error', [
                 'message' => 'Failed to spawn turn process',
             ]);
-            $this->storage->appendTurnEvent($turnProcessId, 'complete', [
-                'error' => 'Failed to spawn turn process',
-                'content' => '',
-            ]);
+            $this->storage->appendTurnEvent(
+                $turnProcessId,
+                'complete',
+                AgentTurnResult::fromError('Failed to spawn turn process')->toArray(),
+            );
 
             return false;
         }

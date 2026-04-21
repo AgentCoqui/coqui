@@ -212,6 +212,8 @@ test('AgentTurnResult toArray includes background_tasks when present', function 
     expect($array)->toHaveKey('background_tasks');
     expect($array['background_tasks']['total_count'])->toBe(1);
     expect($array['background_tasks']['agents'])->toHaveCount(1);
+    expect($array['background_tasks']['agents'][0]['started_at'])->toBe('2026-03-29T10:00:00+00:00');
+    expect($array['background_tasks']['agents'][0]['created_at'])->toBe('2026-03-29T09:59:00+00:00');
 });
 
 test('AgentTurnResult toArray returns null background_tasks when absent', function () {
@@ -220,6 +222,30 @@ test('AgentTurnResult toArray returns null background_tasks when absent', functi
 
     expect($array)->toHaveKey('background_tasks');
     expect($array['background_tasks'])->toBeNull();
+});
+
+test('AgentTurnResult fromError returns full API payload shape', function () {
+    $array = AgentTurnResult::fromError('Internal error', 'partial output')->toArray();
+
+    expect($array)->toMatchArray([
+        'content' => 'partial output',
+        'iterations' => 0,
+        'prompt_tokens' => 0,
+        'completion_tokens' => 0,
+        'total_tokens' => 0,
+        'duration_ms' => 0,
+        'tools_used' => [],
+        'child_agent_count' => 0,
+        'restart_requested' => false,
+        'iteration_limit_reached' => false,
+        'budget_exhausted' => false,
+        'context_usage' => null,
+        'file_edits' => null,
+        'error' => 'Internal error',
+        'review_feedback' => null,
+        'review_approved' => null,
+        'background_tasks' => null,
+    ]);
 });
 
 test('renders local markdown image previews when content was not streamed', function () {

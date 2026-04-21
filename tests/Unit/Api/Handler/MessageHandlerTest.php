@@ -35,15 +35,23 @@ afterEach(function () {
 
 function markTurnManagerSessionActive(AgentTurnManager $turnManager, string $sessionId): void
 {
-    $markActive = \Closure::bind(
-        static function (AgentTurnManager $turnManager, string $sessionId): void {
-            $turnManager->sessionTurns[$sessionId] = 'turn-test';
-        },
-        null,
-        AgentTurnManager::class,
-    );
+    $reflection = new ReflectionProperty(AgentTurnManager::class, 'sessionTurns');
+    $sessionTurns = $reflection->getValue($turnManager);
+    $sessionTurns[$sessionId] = 'turn-test';
+    $reflection->setValue($turnManager, $sessionTurns);
+}
 
-    $markActive($turnManager, $sessionId);
+/**
+ * @return array<string, mixed>|null
+ */
+function extractMessageHandlerCompleteResult(MessageHandler $handler, string $turnProcessId): ?array
+{
+    $method = new ReflectionMethod(MessageHandler::class, 'extractCompleteResult');
+
+    /** @var array<string, mixed>|null $result */
+    $result = $method->invoke($handler, $turnProcessId);
+
+    return $result;
 }
 
 test('message handler validates missing prompt', function () {
@@ -129,4 +137,59 @@ test('message handler rejects deleting messages from closed sessions', function 
 
     expect($response->getStatusCode())->toBe(409);
     expect($body['code'])->toBe('session_closed');
+});
+
+test('message handler complete extraction preserves rich turn summary payload', function () {
+    $turnProcessId = $this->storage->createTurnProcess($this->sessionId, 'Hello');
+    $payload = [
+        'content' => 'Done',
+        'iterations' => 2,
+        'prompt_tokens' => 1250,
+        'completion_tokens' => 340,
+        'total_tokens' => 1590,
+        'duration_ms' => 4521,
+        'tools_used' => ['list_dir'],
+        'child_agent_count' => 0,
+        'restart_requested' => false,
+        'iteration_limit_reached' => false,
+        'budget_exhausted' => false,
+        'context_usage' => [
+            'max_tokens' => 128000,
+            'reserved_tokens' => 8192,
+            'used_tokens' => 24500,
+            'usage_percent' => 20.4,
+            'available_tokens' => 95308,
+            'effective_budget' => 119808,
+            'breakdown' => [
+                'system' => 5000,
+                'memory' => 1200,
+                'user' => 800,
+                'assistant' => 7000,
+                'tool' => 9000,
+                'summary' => 1500,
+            ],
+        ],
+        'file_edits' => [
+            ['file_path' => '/tmp/example.php', 'operation' => 'update'],
+        ],
+        'error' => null,
+        'review_feedback' => 'Looks good',
+        'review_approved' => true,
+        'background_tasks' => [
+            'agents' => [[
+                'id' => 'task-1',
+                'status' => 'running',
+                'title' => 'Refactor auth',
+                'role' => 'coder',
+                'started_at' => '2026-04-21T12:00:00+00:00',
+                'created_at' => '2026-04-21T11:59:30+00:00',
+            ]],
+            'tools' => [],
+            'total_count' => 1,
+        ],
+    ];
+
+    $this->storage->appendTurnEvent($turnProcessId, 'complete', $payload);
+
+    expect(extractMessageHandlerCompleteResult($this->handler, $turnProcessId))->toBe($payload);
 });

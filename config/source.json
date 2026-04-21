@@ -2069,9 +2069,18 @@
             "path": "src/Api/Handler/PromptHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\PromptHandler",
             "layer": "command",
-            "description": "GET /api/v1/server/prompt — system prompt inspection endpoint. Returns the fully rendered system prompt plus tool counts, token estimates, toolkit breakdown, and the associated prompt-budget snapshot.",
+            "description": "GET /api/v1/server/prompt — system prompt inspection endpoint. Returns the fully rendered system prompt plus the effective role, resolved model, tool counts, token estimates, toolkit breakdown, prompt-source metadata, and the associated prompt-budget snapshot.",
             "methods": [
                 "get(request): Response — returns prompt text and budget metadata for the requested or active role"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/CommandCatalogHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\CommandCatalogHandler",
+            "layer": "command",
+            "description": "GET /api/v1/server/commands — returns the runtime slash-command catalog that powers REPL help output, grouped by section for API clients and UI surfaces.",
+            "methods": [
+                "get(request): Response — returns grouped and flat slash-command metadata"
             ]
         },
         {
