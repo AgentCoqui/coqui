@@ -10,9 +10,9 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 
 | Command | Description |
 | --- | --- |
-| `/new` | Start a new session (resets role to `orchestrator`) |
-| `/sessions` | List all sessions |
-| `/resume <id>` | Resume a specific session by ID |
+| `/new` | Start a new session. When a profile is active, Coqui warns that it will summarize the current chat, store memories, archive and close the current conversation, then start a fresh session for that same profile (resets role to `orchestrator`) |
+| `/sessions` | List active interactive sessions |
+| `/resume <id>` | Resume a specific active session by ID |
 | `/history` | Show conversation history for the current session |
 
 ### Agent & Roles
@@ -27,7 +27,7 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/roles ignore <name>` | Ignore future built-in updates for a role |
 | `/roles unignore <name>` | Resume receiving built-in updates for a role |
 | `/profile` | Show the current active personality profile |
-| `/profile <name>` | Switch to a personality profile (resumes its last active session or creates one) |
+| `/profile <name>` | Switch to a personality profile. Coqui reuses the most recent active session for that profile, archives older duplicate active sessions if any exist, and creates a new one only when none remain active |
 | `/profile default` | Show the configured default startup profile |
 | `/profile default <name|none>` | Set or clear the default startup profile in `openclaw.json` |
 | `/profile reset` | Clear profile, revert to default identity (resumes the last unprofiled session or creates one) |

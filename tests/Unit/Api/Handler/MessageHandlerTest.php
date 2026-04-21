@@ -96,3 +96,22 @@ test('message handler accepts prompt at shared limit before execution checks', f
     expect($response->getStatusCode())->toBe(409);
     expect($body['code'])->toBe('agent_busy');
 });
+
+test('message handler rejects prompts for closed sessions', function () {
+    $this->storage->closeSession($this->sessionId, 'test-close');
+
+    $request = new ServerRequest(
+        'POST',
+        '/api/v1/sessions/' . $this->sessionId . '/messages',
+        ['Content-Type' => 'application/json'],
+        json_encode([
+            'prompt' => 'Hello?',
+        ]) ?: '',
+    );
+
+    $response = $this->handler->send($request, $this->sessionId);
+    $body = json_decode((string) $response->getBody(), true);
+
+    expect($response->getStatusCode())->toBe(409);
+    expect($body['code'])->toBe('session_closed');
+});

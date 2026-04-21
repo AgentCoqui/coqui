@@ -104,7 +104,7 @@ final class SlashCommandRouter
         $result = match ($cmd) {
             '/quit', '/exit', '/q' => $this->handleQuit($io),
             '/restart' => RouteResult::exit(ConfigHandler::RESTART_EXIT_CODE),
-            '/new' => $this->handleNew($io),
+            '/new' => $this->handleNew($io, $sessionId, $activeProfile),
             '/history' => $this->handleHistory($io, $sessionId),
             '/sessions' => $this->handleSessions($io, $sessionId),
             '/resume' => $this->handleResume($io, $arg),
@@ -151,11 +151,16 @@ final class SlashCommandRouter
         return RouteResult::exit(Command::SUCCESS);
     }
 
-    private function handleNew(SymfonyStyle $io): RouteResult
+    private function handleNew(SymfonyStyle $io, string $sessionId, ?string $activeProfile): RouteResult
     {
-        $sessionId = $this->session->createNewSession();
-        $io->success('New session started: ' . $sessionId);
-        return RouteResult::stateChange(newSessionId: $sessionId, newActiveRole: SystemRole::Orchestrator->value);
+        $newSessionId = $this->session->startFreshSession($io, $sessionId, $activeProfile);
+        if ($newSessionId === null) {
+            return RouteResult::continue();
+        }
+
+        $io->success('New session started: ' . $newSessionId);
+
+        return RouteResult::stateChange(newSessionId: $newSessionId, newActiveRole: SystemRole::Orchestrator->value);
     }
 
     private function handleHistory(SymfonyStyle $io, string $sessionId): RouteResult

@@ -209,8 +209,14 @@ final class SessionStorage
 
         // Migration: personality profile per session
         $this->migrateAddColumn('sessions', 'profile', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('sessions', 'is_closed', 'INTEGER NOT NULL DEFAULT 0');
+        $this->migrateAddColumn('sessions', 'is_archived', 'INTEGER NOT NULL DEFAULT 0');
+        $this->migrateAddColumn('sessions', 'closed_at', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('sessions', 'archived_at', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('sessions', 'closure_reason', 'TEXT DEFAULT NULL');
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_profile_updated ON sessions(profile, updated_at DESC)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_closed_updated ON sessions(is_closed, updated_at DESC)');
 
         // Migration: child-run metadata for typed handoffs and provenance
         $this->migrateAddColumn('child_runs', 'metadata', 'TEXT DEFAULT NULL');
@@ -297,17 +303,28 @@ final class SessionStorage
     /**
      * @return array<array<string, mixed>>
      */
-    public function listSessions(int $limit = 50, bool $excludeTaskSessions = true): array
+    public function listSessions(int $limit = 50, bool $excludeTaskSessions = true, bool $activeOnly = true): array
     {
         $join = $excludeTaskSessions
             ? 'LEFT JOIN background_tasks bt ON bt.session_id = s.id'
             : '';
-        $filter = $excludeTaskSessions
-            ? 'WHERE bt.id IS NULL'
+        $conditions = [];
+
+        if ($excludeTaskSessions) {
+            $conditions[] = 'bt.id IS NULL';
+        }
+
+        if ($activeOnly) {
+            $conditions[] = 's.is_closed = 0';
+        }
+
+        $filter = $conditions !== []
+            ? 'WHERE ' . implode(' AND ', $conditions)
             : '';
 
         $stmt = $this->db->prepare(<<<SQL
-            SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count
+            SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                   s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason
             FROM sessions s
             {$join}
             {$filter}
@@ -327,7 +344,8 @@ final class SessionStorage
     public function getSession(string $id): ?array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, model_role, model, title, profile, active_project_id, created_at, updated_at, token_count
+            SELECT id, model_role, model, title, profile, active_project_id, created_at, updated_at, token_count,
+                   is_closed, is_archived, closed_at, archived_at, closure_reason
             FROM sessions
             WHERE id = :id
         SQL);
@@ -864,6 +882,101 @@ final class SessionStorage
         return ['ok' => empty($missing), 'missing' => $missing];
     }
 
+    public function isSessionClosed(string $sessionId): bool
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT is_closed
+            FROM sessions
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute(['id' => $sessionId]);
+        $value = $stmt->fetchColumn();
+
+        return $value !== false && (int) $value === 1;
+    }
+
+    public function isSessionWritable(string $sessionId): bool
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT 1
+            FROM sessions
+            WHERE id = :id AND is_closed = 0
+            LIMIT 1
+        SQL);
+
+        $stmt->execute(['id' => $sessionId]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    public function closeSession(string $sessionId, string $reason, bool $archive = true): void
+    {
+        $now = date('c');
+
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions
+            SET is_closed = 1,
+                is_archived = :is_archived,
+                closed_at = :closed_at,
+                archived_at = :archived_at,
+                closure_reason = :closure_reason,
+                updated_at = :updated_at
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'is_archived' => $archive ? 1 : 0,
+            'closed_at' => $now,
+            'archived_at' => $archive ? $now : null,
+            'closure_reason' => $reason,
+            'updated_at' => $now,
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * @return array<array<string, mixed>>
+     */
+    public function listActiveInteractiveSessionsForProfile(string $profile): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                   s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason
+            FROM sessions s
+            LEFT JOIN background_tasks bt ON bt.session_id = s.id
+            WHERE bt.id IS NULL
+              AND s.profile = :profile
+              AND s.is_closed = 0
+            ORDER BY s.updated_at DESC
+        SQL);
+
+        $stmt->execute(['profile' => $profile]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function closeOtherActiveInteractiveSessionsForProfile(string $profile, string $keepSessionId, string $reason): array
+    {
+        $sessions = $this->listActiveInteractiveSessionsForProfile($profile);
+        $closedIds = [];
+
+        foreach ($sessions as $session) {
+            $sessionId = (string) ($session['id'] ?? '');
+            if ($sessionId === '' || $sessionId === $keepSessionId) {
+                continue;
+            }
+
+            $this->closeSession($sessionId, $reason, true);
+            $closedIds[] = $sessionId;
+        }
+
+        return $closedIds;
+    }
+
     /**
      * @param array<string, mixed>|null $metadata
      */
@@ -1199,7 +1312,7 @@ final class SessionStorage
         $stmt = $this->db->prepare(<<<SQL
             SELECT id
             FROM sessions
-            WHERE profile = :profile
+            WHERE profile = :profile AND is_closed = 0
             ORDER BY updated_at DESC
             LIMIT 1
         SQL);
@@ -1218,6 +1331,7 @@ final class SessionStorage
             LEFT JOIN background_tasks bt ON bt.session_id = s.id
             WHERE bt.id IS NULL
               AND s.profile IS NULL
+                            AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
         SQL);
@@ -1238,6 +1352,7 @@ final class SessionStorage
             FROM sessions s
             LEFT JOIN background_tasks bt ON bt.session_id = s.id
             WHERE bt.id IS NULL
+              AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
         SQL);
@@ -1259,6 +1374,7 @@ final class SessionStorage
             LEFT JOIN background_tasks bt ON bt.session_id = s.id
             WHERE bt.id IS NULL
               AND s.profile = :profile
+                            AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
         SQL);
@@ -1271,6 +1387,10 @@ final class SessionStorage
 
     public function isInteractiveSession(string $sessionId): bool
     {
+        if ($this->isSessionClosed($sessionId)) {
+            return false;
+        }
+
         $stmt = $this->db->prepare(<<<SQL
             SELECT 1
             FROM background_tasks

@@ -15,7 +15,9 @@ A **profile** is a directory under `profiles/` in the workspace containing a `so
 - Optional `samples/responses/` directory holds example responses for fidelity verification.
 - All child agents spawned during the session also receive the profile's identity preamble.
 - Memories saved during a profiled session are tagged with the profile ID. Profile-tagged memories are only visible to that profile; untagged (legacy) memories remain visible to all.
-- Profile startup and `/profile` switching reuse the last active interactive session for that profile when available, and create one only when needed.
+- Profile startup and `/profile` switching reuse the most recent active interactive session for that profile when available, and create one only when needed.
+- Coqui enforces a single active interactive session per profile. If duplicate active sessions are found for a profile during startup or `/profile` switching, Coqui keeps the newest one and archives/closes the older duplicates.
+- Starting `/new` while a profile is active warns that the current profiled conversation will be summarized, have memories extracted, and then be archived/closed before the fresh profiled session begins.
 
 ## File Structure
 

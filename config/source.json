@@ -2144,12 +2144,15 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, background task queries, and dedicated event streams for both background tasks and turn processes. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title column, and metadata columns.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, and closed/archive lifecycle metadata.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
-                "listSessions(int $limit): array — lists recent sessions (includes title)",
-                "getSession(string $id): ?array — retrieves session details (includes title)",
+                "listSessions(int $limit): array — lists recent sessions, active-only by default",
+                "getSession(string $id): ?array — retrieves session details including lifecycle flags",
                 "updateSessionTitle(string $sessionId, string $title): void — updates session title",
+                "closeSession(string $sessionId, string $reason, bool $archive): void — marks a session closed/archived without deleting it",
+                "listActiveInteractiveSessionsForProfile(string $profile): array — returns active profile-scoped interactive sessions ordered by recency",
+                "isSessionWritable(string $sessionId): bool — true when the session still accepts new writes",
                 "setActiveProject(string $sessionId, ?string $projectId): void — sets or clears the active project for a session",
                 "getActiveProjectId(string $sessionId): ?string — returns the active project ID for a session, or null",
                 "addMessage(string $sessionId, ..., ?string $turnId): string — persists a message with optional turn linkage",
@@ -3318,6 +3321,16 @@
             "description": "Centralized application version resolver. Prefers the COQUI_VERSION environment override, then an injected config/version.txt artifact used by release archives and Docker images, then an exact git tag on source checkouts, and finally falls back to dev. Used by the CLI and API version surfaces so runtime reporting stays consistent without manual composer.json version bumps.",
             "methods": [
                 "static current(?string): string — resolve the current application version from environment, injected file, exact git tag, or dev fallback"
+            ]
+        },
+        {
+            "path": "src/Support/ProfileSessionLifecycleManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\ProfileSessionLifecycleManager",
+            "layer": "support",
+            "description": "Shared continuity-preserving session finalizer for profiled conversations. Reuses the utility/orchestrator provider fallback path to summarize old conversation state, force a final memory extraction pass, build compact workflow context from todos and artifacts, and then mark sessions closed/archived so REPL and API profile lifecycle rules stay aligned.",
+            "methods": [
+                "finalizeOtherActiveInteractiveSessionsForProfile(string $profile, string $keepSessionId, string $reason): array — summarize/extract/close all other active interactive sessions for a profile",
+                "finalizeSession(string $sessionId, string $reason): void — preserve continuity and then close/archive a session"
             ]
         },
         {
