@@ -193,48 +193,48 @@
     },
     "defaults": {
         "model": "ollama/qwen3.5:latest",
-        "workspace": "~/.coqui/.workspace",
-        "imageModel": {
-            "primary": "ollama/jmorgan/z-image-turbo:fp8",
-            "fallbacks": [
-                "openai/gpt-image-1.5",
-                "ollama/x/z-image-turbo:latest",
-                "ollama/x/flux2-klein:4b-fp8"
-            ],
-            "choices": {
-                "ollama": [
-                    {
-                        "id": "jmorgan/z-image-turbo:fp8",
-                        "label": "jmorgan/z-image-turbo:fp8 (recommended, 13GB)",
-                        "recommended": true
-                    },
-                    {
-                        "id": "x/z-image-turbo:latest",
-                        "label": "x/z-image-turbo:latest (13GB)"
-                    },
-                    {
-                        "id": "x/flux2-klein:4b-fp8",
-                        "label": "x/flux2-klein:4b-fp8 (5.7GB)"
-                    }
-                ],
-                "openai": [
-                    {
-                        "id": "gpt-image-1.5",
-                        "label": "gpt-image-1.5"
-                    }
-                ]
-            },
-            "vendors": {
-                "openai": {
-                    "model": "gpt-image-1.5",
-                    "baseUrl": "https://api.openai.com/v1",
-                    "quality": "standard",
-                    "size": "1024x1024"
+        "imageModel": "ollama/jmorgan/z-image-turbo:fp8",
+        "imageFallbacks": [
+            "openai/gpt-image-1.5",
+            "ollama/x/z-image-turbo:latest",
+            "ollama/x/flux2-klein:4b-fp8"
+        ],
+        "workspace": "~/.coqui/.workspace"
+    },
+    "images": {
+        "choices": {
+            "ollama": [
+                {
+                    "id": "jmorgan/z-image-turbo:fp8",
+                    "label": "jmorgan/z-image-turbo:fp8 (recommended, 13GB)",
+                    "recommended": true
                 },
-                "ollama": {
-                    "model": "jmorgan/z-image-turbo:fp8",
-                    "host": "http://localhost:11434"
+                {
+                    "id": "x/z-image-turbo:latest",
+                    "label": "x/z-image-turbo:latest (13GB)"
+                },
+                {
+                    "id": "x/flux2-klein:4b-fp8",
+                    "label": "x/flux2-klein:4b-fp8 (5.7GB)"
                 }
+            ],
+            "openai": [
+                {
+                    "id": "gpt-image-1.5",
+                    "label": "gpt-image-1.5"
+                }
+            ]
+        },
+        "providers": {
+            "openai": {
+                "model": "gpt-image-1.5",
+                "baseUrl": "https://api.openai.com/v1",
+                "quality": "standard",
+                "size": "1024x1024"
+            },
+            "ollama": {
+                "model": "jmorgan/z-image-turbo:fp8",
+                "baseUrl": "http://localhost:11434"
             }
         }
     }

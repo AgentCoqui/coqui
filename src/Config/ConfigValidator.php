@@ -30,6 +30,7 @@ final class ConfigValidator
         $errors = [...$errors, ...$this->validateRoles($data)];
         $errors = [...$errors, ...$this->validateFallbacks($data)];
         $errors = [...$errors, ...$this->validateImageModel($data)];
+        $errors = [...$errors, ...$this->validateImages($data)];
         $errors = [...$errors, ...$this->validateProviders($data)];
         $errors = [...$errors, ...$this->validateMaxIterations($data)];
         $errors = [...$errors, ...$this->validateBlacklist($data)];
@@ -210,68 +211,87 @@ final class ConfigValidator
      */
     private function validateImageModel(array $data): array
     {
-        $imageModel = $data['agents']['defaults']['imageModel'] ?? null;
-        if ($imageModel === null) {
-            return [];
-        }
-
-        if (!is_array($imageModel)) {
-            return ['agents.defaults.imageModel must be an object'];
-        }
-
         $errors = [];
+        $modelDefaults = $data['agents']['defaults']['model'] ?? null;
 
-        if (isset($imageModel['primary'])) {
-            $primary = $imageModel['primary'];
+        if ($modelDefaults !== null && !is_array($modelDefaults)) {
+            return ['agents.defaults.model must be an object'];
+        }
+
+        $imageModel = is_array($modelDefaults) ? ($modelDefaults['imageModel'] ?? null) : null;
+
+        if ($imageModel !== null) {
+            $primary = $imageModel;
             if (!is_string($primary) || $primary === '') {
-                $errors[] = 'agents.defaults.imageModel.primary must be a non-empty string';
+                $errors[] = 'agents.defaults.model.imageModel must be a non-empty string';
             } elseif (!$this->isValidModelString($primary)) {
                 $errors[] = sprintf(
-                    'agents.defaults.imageModel.primary must be in "provider/model" format, got: %s',
+                    'agents.defaults.model.imageModel must be in "provider/model" format, got: %s',
                     $primary,
                 );
             }
         }
 
-        if (isset($imageModel['fallbacks'])) {
-            if (!is_array($imageModel['fallbacks'])) {
-                $errors[] = 'agents.defaults.imageModel.fallbacks must be an array';
+        $fallbacks = is_array($modelDefaults) ? ($modelDefaults['imageFallbacks'] ?? null) : null;
+        if ($fallbacks !== null) {
+            if (!is_array($fallbacks)) {
+                $errors[] = 'agents.defaults.model.imageFallbacks must be an array';
             } else {
-                foreach ($imageModel['fallbacks'] as $index => $fallback) {
+                foreach ($fallbacks as $index => $fallback) {
                     if (!is_string($fallback) || $fallback === '') {
-                        $errors[] = sprintf('agents.defaults.imageModel.fallbacks[%d] must be a non-empty string', $index);
+                        $errors[] = sprintf('agents.defaults.model.imageFallbacks[%d] must be a non-empty string', $index);
                         continue;
                     }
 
                     if (!$this->isValidModelString($fallback)) {
-                        $errors[] = sprintf('agents.defaults.imageModel.fallbacks[%d]: invalid model format "%s"', $index, $fallback);
+                        $errors[] = sprintf('agents.defaults.model.imageFallbacks[%d]: invalid model format "%s"', $index, $fallback);
                     }
                 }
             }
         }
 
-        if (isset($imageModel['ownerName']) && (!is_string($imageModel['ownerName']) || trim($imageModel['ownerName']) === '')) {
-            $errors[] = 'agents.defaults.imageModel.ownerName must be a non-empty string';
+        return $errors;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
+    private function validateImages(array $data): array
+    {
+        $images = $data['images'] ?? null;
+        if ($images === null) {
+            return [];
         }
 
-        if (isset($imageModel['vendors'])) {
-            if (!is_array($imageModel['vendors'])) {
-                $errors[] = 'agents.defaults.imageModel.vendors must be an object';
+        if (!is_array($images)) {
+            return ['images must be an object'];
+        }
+
+        $errors = [];
+
+        if (isset($images['ownerName']) && (!is_string($images['ownerName']) || trim($images['ownerName']) === '')) {
+            $errors[] = 'images.ownerName must be a non-empty string';
+        }
+
+        if (isset($images['providers'])) {
+            if (!is_array($images['providers'])) {
+                $errors[] = 'images.providers must be an object';
             } else {
-                foreach ($imageModel['vendors'] as $vendor => $settings) {
+                foreach ($images['providers'] as $vendor => $settings) {
                     if (!is_array($settings)) {
-                        $errors[] = sprintf('agents.defaults.imageModel.vendors.%s must be an object', $vendor);
+                        $errors[] = sprintf('images.providers.%s must be an object', $vendor);
                         continue;
                     }
 
                     $vendorModel = $settings['model'] ?? null;
                     if ($vendorModel !== null && (!is_string($vendorModel) || trim($vendorModel) === '')) {
-                        $errors[] = sprintf('agents.defaults.imageModel.vendors.%s.model must be a non-empty string', $vendor);
+                        $errors[] = sprintf('images.providers.%s.model must be a non-empty string', $vendor);
                     }
 
                     $baseUrl = $settings['baseUrl'] ?? null;
                     if ($baseUrl !== null && is_string($baseUrl) && !filter_var($baseUrl, FILTER_VALIDATE_URL)) {
-                        $errors[] = sprintf('agents.defaults.imageModel.vendors.%s.baseUrl: invalid URL "%s"', $vendor, $baseUrl);
+                        $errors[] = sprintf('images.providers.%s.baseUrl: invalid URL "%s"', $vendor, $baseUrl);
                     }
                 }
             }

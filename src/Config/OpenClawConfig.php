@@ -143,9 +143,29 @@ final class OpenClawConfig implements ConfigInterface
 
     public function getImageModel(): ?string
     {
-        $model = $this->get('agents.defaults.imageModel.primary');
+        $model = $this->get('agents.defaults.model.imageModel');
 
         return is_string($model) ? $model : null;
+    }
+
+    /**
+     * @return string[]
+     */
+    public function getImageFallbacks(): array
+    {
+        $fallbacks = $this->get('agents.defaults.model.imageFallbacks', []);
+
+        return is_array($fallbacks) ? array_values(array_filter($fallbacks, 'is_string')) : [];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getImageProviders(): array
+    {
+        $providers = $this->get('images.providers', []);
+
+        return is_array($providers) ? $providers : [];
     }
 
     /**
@@ -153,9 +173,21 @@ final class OpenClawConfig implements ConfigInterface
      */
     public function getImageConfig(): array
     {
-        $config = $this->get('agents.defaults.imageModel', []);
+        $config = [
+            'primary' => $this->getImageModel(),
+            'fallbacks' => $this->getImageFallbacks(),
+            'providers' => $this->getImageProviders(),
+        ];
 
-        return is_array($config) ? $config : [];
+        $ownerName = $this->get('images.ownerName');
+        if (is_string($ownerName) && trim($ownerName) !== '') {
+            $config['ownerName'] = trim($ownerName);
+        }
+
+        return array_filter(
+            $config,
+            static fn(mixed $value): bool => $value !== null,
+        );
     }
 
     /**
