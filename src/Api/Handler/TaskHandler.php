@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -83,14 +84,10 @@ final readonly class TaskHandler
         // Validate parent session exists if provided
         $parentSession = null;
         if ($parentSessionId !== null) {
-            $parentSession = $this->storage->getSession($parentSessionId);
-        }
-
-        if ($parentSessionId !== null && $parentSession === null) {
-            return Router::errorResponse(
-                ApiErrorCode::SESSION_NOT_FOUND,
-                'Parent session not found',
-            );
+            $parentSession = SessionAccess::requireWritableSession($this->storage, $parentSessionId);
+            if ($parentSession instanceof Response) {
+                return $parentSession;
+            }
         }
 
         $inheritedProfile = is_array($parentSession) && is_string($parentSession['profile'] ?? null) && $parentSession['profile'] !== ''

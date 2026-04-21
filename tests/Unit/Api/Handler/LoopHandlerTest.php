@@ -158,6 +158,34 @@ test('loop handler create rejects unknown session', function () {
     }
 });
 
+test('loop handler create rejects closed sessions', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $fixture['storage']->closeSession($sessionId, 'history-rollover', true);
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/loops',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'definition' => 'harness',
+                'goal' => 'Inspect historical work',
+                'session_id' => $sessionId,
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(409);
+        expect($body['code'])->toBe('session_closed');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
 test('loop handler lifecycle endpoints update status', function () {
     $fixture = createLoopHandlerFixture();
 

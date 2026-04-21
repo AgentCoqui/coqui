@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Agent\LoopExecutor;
 use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Storage\LoopStore;
@@ -73,8 +74,13 @@ final readonly class LoopHandler
         }
 
         if ($sessionId !== null) {
-            if ($this->storage === null || $this->storage->getSession($sessionId) === null) {
+            if ($this->storage === null) {
                 return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+            }
+
+            $session = SessionAccess::requireWritableSession($this->storage, $sessionId);
+            if ($session instanceof Response) {
+                return $session;
             }
         }
 

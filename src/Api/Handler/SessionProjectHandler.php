@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Psr\Http\Message\ServerRequestInterface;
@@ -29,8 +30,9 @@ final readonly class SessionProjectHandler
      */
     public function get(ServerRequestInterface $request, string $id): Response
     {
-        if ($this->storage->getSession($id) === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireReadableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $activeProjectId = $this->storage->getActiveProjectId($id);
@@ -48,8 +50,9 @@ final readonly class SessionProjectHandler
      */
     public function update(ServerRequestInterface $request, string $id): Response
     {
-        if ($this->storage->getSession($id) === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireWritableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $body = json_decode((string) $request->getBody(), true);

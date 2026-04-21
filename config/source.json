@@ -1898,6 +1898,16 @@
             ]
         },
         {
+            "path": "src/Api/SessionAccess.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\SessionAccess",
+            "layer": "config",
+            "description": "Shared API guard for session existence and writability checks. Normalizes the distinction between readable historical sessions and writable active sessions, returning consistent session_not_found or session_closed responses with lifecycle details for handlers that operate on session-scoped resources.",
+            "methods": [
+                "requireReadableSession(SessionStorage, string): array|Response — resolve a session or return SESSION_NOT_FOUND",
+                "requireWritableSession(SessionStorage, string): array|Response — reject closed or archived sessions with SESSION_CLOSED"
+            ]
+        },
+        {
             "path": "src/Api/Middleware/AuthMiddleware.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Middleware\\AuthMiddleware",
             "layer": "config",
@@ -1955,13 +1965,13 @@
             "path": "src/Api/Handler/SessionHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SessionHandler",
             "layer": "command",
-            "description": "Session API endpoints: GET /api/v1/sessions (list), POST /api/v1/sessions (always create), POST /api/v1/sessions/resolve (reuse the latest interactive session for a profile or unprofiled scope, or create one), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (update title/role/profile while keeping the resolved model in sync), DELETE /api/v1/sessions/{id} (delete), GET /api/v1/sessions/{id}/child-runs (child agent runs).",
+            "description": "Session API endpoints: GET /api/v1/sessions (list with lifecycle status filters and archived-history discovery counts), POST /api/v1/sessions (always create), POST /api/v1/sessions/resolve (reuse the latest interactive session for a profile or unprofiled scope, or create one), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (update title/role/profile while keeping the resolved model in sync for writable sessions only), DELETE /api/v1/sessions/{id} (delete), GET /api/v1/sessions/{id}/child-runs (child agent runs).",
             "methods": [
-                "list(request): Response",
+                "list(request): Response — lifecycle-filtered session discovery with active/closed/archived counts",
                 "create(request): Response",
                 "resolve(request): Response — return the latest interactive session for a scope or create one",
                 "get(request, id): Response",
-                "update(request, id): Response — PATCH to update title/role/profile and refresh resolved model metadata",
+                "update(request, id): Response — PATCH to update title/role/profile for writable sessions and refresh resolved model metadata",
                 "delete(request, id): Response",
                 "childRuns(request, id): Response — list child agent runs for a session"
             ]
@@ -1970,11 +1980,11 @@
             "path": "src/Api/Handler/MessageHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\MessageHandler",
             "layer": "command",
-            "description": "Message endpoints including the core SSE streaming endpoint. GET /api/v1/sessions/{id}/messages (list), POST /api/v1/sessions/{id}/messages (send prompt — SSE stream by default, JSON with ?stream=false), DELETE /api/v1/sessions/{id}/messages/{messageId} (delete message). Prevents concurrent runs on the same session.",
+            "description": "Message endpoints including the core SSE streaming endpoint. GET /api/v1/sessions/{id}/messages (list), POST /api/v1/sessions/{id}/messages (send prompt — SSE stream by default, JSON with ?stream=false), DELETE /api/v1/sessions/{id}/messages/{messageId} (delete message). Prevents concurrent runs on the same session and rejects writes to closed or archived sessions through SessionAccess.",
             "methods": [
                 "list(request, id): Response",
-                "send(request, id): Response — SSE stream or blocking JSON",
-                "delete(request, id, messageId): Response — delete a single message"
+                "send(request, id): Response — SSE stream or blocking JSON for writable sessions",
+                "delete(request, id, messageId): Response — delete a single message from a writable session"
             ]
         },
         {
@@ -2100,12 +2110,12 @@
             "path": "src/Api/Handler/FileUploadHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\FileUploadHandler",
             "layer": "command",
-            "description": "Handles file upload API endpoints. POST uploads multipart/form-data files to per-session storage, GET lists session files or streams a single file, DELETE removes a file. Flattens nested UploadedFile arrays from ReactPHP's multipart parser.",
+            "description": "Handles file upload API endpoints. POST uploads multipart/form-data files to per-session storage, GET lists session files or streams a single file, DELETE removes a file. Flattens nested UploadedFile arrays from ReactPHP's multipart parser and rejects mutations for closed or archived sessions through SessionAccess.",
             "methods": [
-                "upload(request, sessionId): Response — handles multipart file upload, returns file metadata",
+                "upload(request, sessionId): Response — handles multipart file upload for writable sessions, returns file metadata",
                 "list(request, sessionId): Response — lists all files for a session",
                 "get(request, sessionId, fileId): Response — streams raw file content with correct MIME type",
-                "delete(request, sessionId, fileId): Response — deletes a file from session storage"
+                "delete(request, sessionId, fileId): Response — deletes a file from writable session storage"
             ]
         },
         {
@@ -2144,14 +2154,16 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, and closed/archive lifecycle metadata.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. Session rows now expose derived lifecycle status labels plus aggregate lifecycle counts so archived history can be inspected without reactivating it. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, and closed/archive lifecycle metadata.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
-                "listSessions(int $limit): array — lists recent sessions, active-only by default",
+                "listSessions(int $limit, bool $excludeTaskSessions=true, bool $activeOnly=true, ?string $status=null): array — lists recent sessions with optional lifecycle filtering",
+                "getSessionStatusCounts(bool $excludeTaskSessions=true): array{active:int,closed:int,archived:int,total:int} — aggregate lifecycle counts for inspection surfaces",
                 "getSession(string $id): ?array — retrieves session details including lifecycle flags",
                 "updateSessionTitle(string $sessionId, string $title): void — updates session title",
                 "closeSession(string $sessionId, string $reason, bool $archive): void — marks a session closed/archived without deleting it",
                 "listActiveInteractiveSessionsForProfile(string $profile): array — returns active profile-scoped interactive sessions ordered by recency",
+                "isSessionArchived(string $sessionId): bool — true when a session is hidden from active discovery and meant for historical inspection",
                 "isSessionWritable(string $sessionId): bool — true when the session still accepts new writes",
                 "setActiveProject(string $sessionId, ?string $projectId): void — sets or clears the active project for a session",
                 "getActiveProjectId(string $sessionId): ?string — returns the active project ID for a session, or null",

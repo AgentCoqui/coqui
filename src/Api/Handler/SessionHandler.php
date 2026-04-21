@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -43,12 +44,30 @@ final readonly class SessionHandler
         $params = $request->getQueryParams();
         $limit = isset($params['limit']) ? min((int) $params['limit'], 200) : 50;
         $includeClosed = filter_var($params['include_closed'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $status = isset($params['status']) ? strtolower(trim((string) $params['status'])) : null;
 
-        $sessions = $this->storage->listSessions($limit, true, !$includeClosed);
+        if ($status === '') {
+            $status = null;
+        }
+
+        if ($status !== null && !in_array($status, ['active', 'closed', 'archived', 'all'], true)) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                'Invalid status filter. Use active, closed, archived, or all.',
+            );
+        }
+
+        if ($status === null && $includeClosed) {
+            $status = 'all';
+        }
+
+        $sessions = $this->storage->listSessions($limit, true, $status === null, $status);
 
         return Router::jsonResponse([
             'sessions' => $sessions,
             'count' => count($sessions),
+            'status' => $status ?? 'active',
+            'counts' => $this->storage->getSessionStatusCounts(),
         ]);
     }
 
@@ -177,10 +196,9 @@ final readonly class SessionHandler
      */
     public function get(ServerRequestInterface $request, string $id): Response
     {
-        $session = $this->storage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireReadableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         return Router::jsonResponse($session);
@@ -191,10 +209,9 @@ final readonly class SessionHandler
      */
     public function update(ServerRequestInterface $request, string $id): Response
     {
-        $session = $this->storage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireWritableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $body = $this->requestBody($request);
