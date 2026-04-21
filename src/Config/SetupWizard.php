@@ -29,13 +29,17 @@ final class SetupWizard
     private array $modelMetadata = [];
 
     private readonly InterruptiblePrompt $prompt;
+    private readonly ModelMetadataResolver $modelMetadataResolver;
 
     public function __construct(
         private readonly SymfonyStyle $io,
         private readonly DefaultsLoader $defaults,
         private readonly ?CredentialResolver $credentialResolver = null,
+        ?ModelMetadataResolver $modelMetadataResolver = null,
     ) {
         $this->prompt = new InterruptiblePrompt($io);
+        $this->modelMetadataResolver = $modelMetadataResolver
+            ?? new ModelMetadataResolver($defaults, new ModelFamilyResolver($defaults->familyNames()));
     }
 
     /**
@@ -673,34 +677,15 @@ final class SetupWizard
 
         return array_map(
             function (ModelDefinition $m) use ($provider): array {
-                // Start with fields from the API-discovered ModelDefinition
-                $model = [
-                    'id' => $m->id,
-                    'name' => $m->name,
-                    'contextWindow' => $m->contextWindow,
-                    'maxTokens' => $m->maxTokens,
-                    'reasoning' => $m->reasoning,
-                ];
+                $resolved = $this->modelMetadataResolver->enrichDiscovered($provider, $m);
+                $model = $resolved->toArray();
 
-                if ($m->numCtx !== null) {
-                    $model['numCtx'] = $m->numCtx;
-                }
-
-                // Enrich with curated metadata from defaults.json when available
-                $curated = $this->defaults->curatedModel($provider, $m->id);
-                if ($curated !== null) {
-                    $model = array_merge($model, $curated);
-                    // Preserve the API-discovered name if curated didn't provide one
-                    $model['name'] = $curated['name'] ?? $m->name;
-                }
-
-                // Prefer numCtx from Ollama model details as it reflects the actual
-                // context window. Fall back to CONTEXT_WINDOW_FALLBACK for unknown
-                // models whose contextWindow is still the ModelDefinition placeholder (4096).
-                if ($m->numCtx !== null && $m->numCtx > CoquiDefaults::CONTEXT_WINDOW_RESERVED) {
-                    $model['contextWindow'] = $m->numCtx;
-                } elseif ($model['contextWindow'] <= CoquiDefaults::CONTEXT_WINDOW_RESERVED) {
+                if (($model['contextWindow'] ?? 0) <= CoquiDefaults::CONTEXT_WINDOW_RESERVED) {
                     $model['contextWindow'] = CoquiDefaults::CONTEXT_WINDOW_FALLBACK;
+                }
+
+                if (($model['maxTokens'] ?? 0) <= 0) {
+                    $model['maxTokens'] = CoquiDefaults::CONTEXT_WINDOW_RESERVED;
                 }
 
                 return $model;
@@ -1380,6 +1365,26 @@ final class SetupWizard
 
                 if (isset($meta['numCtx'])) {
                     $modelEntry['numCtx'] = (int) $meta['numCtx'];
+                }
+
+                if (isset($meta['family']) && is_string($meta['family']) && $meta['family'] !== '') {
+                    $modelEntry['family'] = $meta['family'];
+                }
+
+                if (!empty($meta['toolCalls'])) {
+                    $modelEntry['toolCalls'] = true;
+                }
+
+                if (!empty($meta['thinking'])) {
+                    $modelEntry['thinking'] = true;
+                }
+
+                if (isset($meta['metadataSource']) && is_string($meta['metadataSource']) && $meta['metadataSource'] !== '') {
+                    $modelEntry['metadataSource'] = $meta['metadataSource'];
+                }
+
+                if (isset($meta['fieldSources']) && is_array($meta['fieldSources']) && $meta['fieldSources'] !== []) {
+                    $modelEntry['fieldSources'] = $meta['fieldSources'];
                 }
 
                 $providerModels[] = $modelEntry;

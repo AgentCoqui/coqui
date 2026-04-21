@@ -23,6 +23,7 @@ use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
 use CoquiBot\Coqui\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Config\DefaultsLoader;
+use CoquiBot\Coqui\Config\ModelMetadataResolver;
 use CoquiBot\Coqui\Config\ModelFamilyResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Provider\FallbackProvider;
@@ -1844,59 +1845,24 @@ final class OrchestratorAgent extends AbstractAgent
 
 
     /**
-     * Resolve a ContextWindow from the model definition in config.
-     *
-     * Uses a 4-layer resolution chain:
-     * 1. User-configured model definition (openclaw.json)
-     * 2. Curated model from defaults.json
-     * 3. Family-level defaults from defaults.json
-     * 4. Conservative hardcoded fallback (128K/4K)
+     * Resolve a ContextWindow from the shared model metadata resolver.
      */
     private function resolveContextWindow(ConfigInterface $config, RoleResolver $roleResolver): ContextWindowInterface
     {
-        if ($config instanceof OpenClawConfig) {
-            $modelString = $roleResolver->resolve('orchestrator');
-            $parts = explode('/', $modelString, 2);
-            $provider = $parts[0];
-            $modelId = $parts[1] ?? $modelString;
+        if ($config instanceof OpenClawConfig && $this->defaultsLoader !== null) {
+            $resolver = new ModelMetadataResolver(
+                $this->defaultsLoader,
+                $this->familyResolver ?? new ModelFamilyResolver($this->defaultsLoader->familyNames()),
+                $config,
+                $this->providerFactory,
+            );
 
-            // Layer 1: User-configured model definition (openclaw.json)
-            $modelDef = $config->getModelDefinition($modelId)
-                ?? $config->getModelDefinition($modelString);
-
-            // Only use the model definition if it carries a meaningful context window.
-            // A value at or below CONTEXT_WINDOW_RESERVED indicates a placeholder default
-            // written by an older setup wizard run — fall through to Layer 2/3/4 instead.
-            if ($modelDef !== null && $modelDef->contextWindow > CoquiDefaults::CONTEXT_WINDOW_RESERVED) {
+            $modelDef = $resolver->resolve($roleResolver->resolve('orchestrator'), true);
+            if ($modelDef !== null) {
                 return ContextWindow::fromModel($modelDef);
-            }
-
-            // Layer 2: Curated model from defaults.json
-            if ($this->defaultsLoader !== null && $provider !== '') {
-                $curated = $this->defaultsLoader->curatedModel($provider, $modelId);
-                if ($curated !== null) {
-                    $def = ModelDefinition::fromOpenClaw($provider, $curated);
-
-                    return ContextWindow::fromModel($def);
-                }
-            }
-
-            // Layer 3: Family-level defaults
-            if ($this->defaultsLoader !== null && $this->familyResolver !== null) {
-                $family = $this->familyResolver->resolveFamily($modelId);
-                if ($family !== null) {
-                    $familyDefaults = $this->defaultsLoader->familyDefaults($family);
-                    if ($familyDefaults !== null) {
-                        return new ContextWindow(
-                            maxTok: $familyDefaults['contextWindow'],
-                            reservedTok: $familyDefaults['maxTokens'],
-                        );
-                    }
-                }
             }
         }
 
-        // Layer 4: Conservative hardcoded fallback
         return new ContextWindow(maxTok: CoquiDefaults::CONTEXT_WINDOW_FALLBACK, reservedTok: CoquiDefaults::CONTEXT_WINDOW_RESERVED);
     }
 
