@@ -17,7 +17,7 @@ final readonly class ProfilePreferences
 {
     private const array ALLOWED_TOP_LEVEL_FIELDS = ['prompt_directives', 'behavior', 'prompts'];
     private const array ALLOWED_PROMPTS_FIELDS = ['features', 'prompt_sections', 'roles', 'labels'];
-    private const array ALLOWED_FEATURES = ['artifacts', 'projects', 'loops', 'todos'];
+    private const array ALLOWED_FEATURES = ['artifacts', 'projects', 'loops', 'todos', 'background_tasks'];
     private const array SECTION_ALIASES = [
         'deferred' => 'deferred_toolkits',
         'project' => 'project_context',

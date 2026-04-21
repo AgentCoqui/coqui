@@ -100,7 +100,7 @@ Headings in `backstory.md` are downshifted one level (e.g., `#` becomes `##`) to
 
 Optional behavioral settings file with three sections:
 
-Additional ready-to-copy examples live in `examples/preferences/`.
+Additional ready-to-copy examples live in `examples/preferences/`, including a short README and optional `security.md` overrides. A fully worked example profile also lives in `examples/profiles/deliberate-operator/`.
 
 ```json
 {
