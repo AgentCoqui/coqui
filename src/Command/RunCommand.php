@@ -42,6 +42,7 @@ use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
 use CoquiBot\Coqui\Channel\ChannelConfigurationEditor;
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\TabCompletion;
@@ -755,13 +756,14 @@ final class RunCommand extends Command
 
         $profilePath = $profileDiscovery->getProfilePath($this->activeProfile ?? '');
         $assembler = new \CoquiBot\Coqui\Backstory\BackstoryAssembler();
+        $preferences = ProfilePreferences::fromProfilePath($profilePath);
 
         if (!$assembler->needsRegeneration($profilePath)) {
             return;
         }
 
         $io?->text('<fg=gray>Backstory source files changed — regenerating...</>');
-        $result = $assembler->generate($profilePath);
+        $result = $assembler->generate($profilePath, $preferences->getBackstoryLabel());
 
         if ($result->totalFiles > 0 && $io !== null) {
             $msg = sprintf(
@@ -888,13 +890,14 @@ final class RunCommand extends Command
 
     private function applySessionState(SessionHandler $sessionHandler): void
     {
+        $this->activeProfile = $sessionHandler->restoreActiveProfileFromSession($this->sessionId);
         $this->activeRole = SystemRole::Orchestrator->value;
         $restoredRole = $sessionHandler->restoreActiveRoleFromSession($this->sessionId);
         if ($restoredRole !== null) {
             $this->activeRole = $restoredRole;
         }
 
-        $this->activeProfile = $sessionHandler->restoreActiveProfileFromSession($this->sessionId);
+        $this->activeRole = $sessionHandler->enforceProfileRolePolicy(null, $this->sessionId, $this->activeProfile);
     }
 
     private function buildReadlinePrompt(NotificationPresenter $presenter, ?NotificationStore $notificationStore): string

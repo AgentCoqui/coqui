@@ -150,6 +150,39 @@ test('task handler create accepts explicit profile without parent session', func
     }
 });
 
+test('task handler create rejects roles disallowed by the resolved profile', function () {
+    $fixture = createTaskHandlerFixture();
+
+    try {
+        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+            'prompts' => [
+                'roles' => [
+                    'allow' => ['orchestrator'],
+                ],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/tasks',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'prompt' => 'Review the recent changes',
+                'role' => 'coder',
+                'profile' => 'caelum',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['error'])->toContain('does not allow role "coder"');
+    } finally {
+        cleanupTaskHandlerFixture($fixture);
+    }
+});
+
 test('task handler create validates missing prompt', function () {
     $fixture = createTaskHandlerFixture();
 

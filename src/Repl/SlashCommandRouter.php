@@ -122,7 +122,7 @@ final class SlashCommandRouter
             '/channels' => $this->handleChannels($io, $arg),
             '/prompt' => $this->handlePrompt($io, $arg, $activeRole, $activeProfile),
             '/summarize' => $this->handleSummarize($io, $arg, $sessionId),
-            '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId),
+            '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId, $activeProfile),
             '/roles' => $this->handleRoles($io, $arg, $activeRole),
             '/profile' => $this->handleProfile($io, $arg, $activeRole, $activeProfile),
             '/profiles' => $this->handleProfiles($io, $activeProfile),
@@ -395,9 +395,9 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleRole(SymfonyStyle $io, string $arg, string $activeRole, string $sessionId): RouteResult
+    private function handleRole(SymfonyStyle $io, string $arg, string $activeRole, string $sessionId, ?string $activeProfile): RouteResult
     {
-        $newRole = $this->role->handleRole($io, $arg, $activeRole, $sessionId);
+        $newRole = $this->role->handleRole($io, $arg, $activeRole, $sessionId, $activeProfile);
         if ($newRole !== null) {
             return RouteResult::stateChange(newActiveRole: $newRole);
         }

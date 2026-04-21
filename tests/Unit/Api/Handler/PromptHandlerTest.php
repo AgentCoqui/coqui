@@ -146,3 +146,36 @@ test('prompt handler exposes source-aware file and folder breakdowns', function 
         cleanupPromptHandlerFixture($fixture);
     }
 });
+
+test('prompt handler exposes effective profile policy summary', function () {
+    $fixture = createPromptHandlerFixture();
+
+    try {
+        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+            'prompts' => [
+                'features' => [
+                    'loops' => false,
+                ],
+                'prompt_sections' => [
+                    'tools' => 'stub',
+                ],
+                'roles' => [
+                    'allow' => ['orchestrator'],
+                ],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $response = $fixture['handler']->get(
+            (new ServerRequest('GET', '/api/v1/server/prompt'))->withQueryParams(['profile' => 'caelum'])
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['profile_policy']['tools_stubbed'])->toBeTrue();
+        expect($body['profile_policy']['features']['loops'])->toBeFalse();
+        expect($body['profile_policy']['roles']['allow'])->toBe(['orchestrator']);
+        expect($body['profile_policy']['excluded_tool_prompt_slugs'])->toContain('loops');
+    } finally {
+        cleanupPromptHandlerFixture($fixture);
+    }
+});

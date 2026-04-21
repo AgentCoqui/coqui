@@ -64,6 +64,7 @@ final class ProfileHandler
         }
 
         $sessionId = $this->session->loadOrCreateProfileSession($io, $profileName, $activeRole);
+        $effectiveRole = $this->session->enforceProfileRolePolicy($io, $sessionId, $profileName);
 
         $description = $profileDiscovery->extractDescription($profileName);
         $io->success(sprintf(
@@ -73,6 +74,7 @@ final class ProfileHandler
         ));
 
         return RouteResult::stateChange(
+            newActiveRole: $effectiveRole,
             newSessionId: $sessionId,
             newActiveProfile: $profileName,
         );

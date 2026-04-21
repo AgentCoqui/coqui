@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Prompt;
 
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\ProfileParser;
 
 /**
@@ -190,7 +191,9 @@ final readonly class PromptLoader
         if ($this->profilePath !== null) {
             $profileFile = rtrim($this->profilePath, '/') . '/' . $filename;
             if (is_file($profileFile)) {
-                return $profileFile;
+                if ($filename !== 'security.md' || $this->hasUsableSecurityOverride($profileFile)) {
+                    return $profileFile;
+                }
             }
         }
 
@@ -218,6 +221,14 @@ final readonly class PromptLoader
      */
     public function buildSoulContent(): ?string
     {
+        if (!$this->shouldIncludePromptSection('soul')) {
+            return null;
+        }
+
+        if ($this->isPromptSectionStubbed('soul')) {
+            return $this->buildStubContent('soul');
+        }
+
         $soulPath = $this->resolveSoulPath();
         if ($soulPath === null) {
             return null;
@@ -239,6 +250,14 @@ final readonly class PromptLoader
      */
     public function buildBackstoryContent(): ?string
     {
+        if (!$this->shouldIncludePromptSection('backstory')) {
+            return null;
+        }
+
+        if ($this->isPromptSectionStubbed('backstory')) {
+            return $this->buildStubContent('backstory');
+        }
+
         $path = $this->resolvePromptFile('backstory.md');
         if ($path === null) {
             return null;
@@ -263,38 +282,56 @@ final readonly class PromptLoader
         $sections = [];
 
         // Base — operational instructions, environment, delegation rules
-        $sections[] = $this->loadWithFallback('base.md');
+        if ($this->shouldIncludePromptSection('base')) {
+            if ($this->isPromptSectionStubbed('base')) {
+                $sections[] = $this->buildStubContent('base');
+            } else {
+                $sections[] = $this->loadWithFallback('base.md');
+            }
+        }
 
         // Tool-specific sections (auto-discovered, alphabetical, filtered by exclusions)
         // Profile tool overrides are merged: profile files replace same-named defaults.
-        $toolEntries = $this->discoverSectionEntriesWithProfileMerge('tools');
-        $filteredToolContent = [];
-        foreach ($toolEntries as $entry) {
-            $slug = pathinfo($entry['filename'], PATHINFO_FILENAME);
-            if (in_array($slug, $this->excludeToolPromptSlugs, true)) {
-                continue;
+        if ($this->shouldIncludePromptSection('tools')) {
+            if ($this->isPromptSectionStubbed('tools')) {
+                $sections[] = $this->buildStubContent('tools');
+            } else {
+                $toolEntries = $this->discoverSectionEntriesWithProfileMerge('tools');
+                $filteredToolContent = [];
+                foreach ($toolEntries as $entry) {
+                    $slug = pathinfo($entry['filename'], PATHINFO_FILENAME);
+                    if (in_array($slug, $this->excludeToolPromptSlugs, true)) {
+                        continue;
+                    }
+                    $filteredToolContent[] = $entry['content'];
+                }
+                if ($filteredToolContent !== []) {
+                    $sections[] = implode("\n\n", $filteredToolContent);
+                }
             }
-            $filteredToolContent[] = $entry['content'];
-        }
-        if ($filteredToolContent !== []) {
-            $sections[] = implode("\n\n", $filteredToolContent);
         }
 
         // Security — near the end
         $securityPath = $this->resolvePromptFile('security.md');
         if ($securityPath !== null) {
             $securityContent = file_get_contents($securityPath);
-            if ($securityContent !== false) {
+            if ($securityContent !== false && trim($securityContent) !== '') {
                 $sections[] = $this->substitutePlaceholders(trim($securityContent));
             }
         }
 
         // Final guidelines and done instructions — always last
-        $donePath = $this->resolvePromptFile('done.md');
-        if ($donePath !== null) {
-            $doneContent = file_get_contents($donePath);
-            if ($doneContent !== false) {
-                $sections[] = $this->substitutePlaceholders(trim($doneContent));
+        if ($this->shouldIncludePromptSection('done')) {
+            if ($this->isPromptSectionStubbed('done')) {
+                $sections[] = $this->buildStubContent('done');
+            } else {
+                $donePath = $this->resolvePromptFile('done.md');
+                if ($donePath !== null) {
+                    $doneContent = file_get_contents($donePath);
+                    if ($doneContent !== false) {
+                        $sections[] = $this->substitutePlaceholders(trim($doneContent));
+                    }
+                }
             }
         }
 
@@ -338,63 +375,87 @@ final readonly class PromptLoader
         $sections = [];
 
         // Soul — core identity, values, personality (profile → workspace → default)
-        $soulPath = $this->resolveSoulPath();
-        if ($soulPath !== null) {
-            $content = $this->readPromptContent($soulPath, supportsProfileSoulFrontmatter: true);
-            if ($content !== null) {
-                $sections[] = [
-                    'id' => 'soul',
-                    'title' => 'Soul',
-                    'content' => $this->substitutePlaceholders($content),
-                    'source' => $soulPath,
-                ];
+        if ($this->shouldIncludePromptSection('soul')) {
+            if ($this->isPromptSectionStubbed('soul')) {
+                $sections[] = $this->buildStubSectionEntry('soul', 'Soul', 'soul');
+            } else {
+                $soulPath = $this->resolveSoulPath();
+                if ($soulPath !== null) {
+                    $content = $this->readPromptContent($soulPath, supportsProfileSoulFrontmatter: true);
+                    if ($content !== null) {
+                        $sections[] = [
+                            'id' => 'soul',
+                            'title' => 'Soul',
+                            'content' => $this->substitutePlaceholders($content),
+                            'source' => $soulPath,
+                        ];
+                    }
+                }
             }
         }
 
         // Backstory — identity context, continuity markers, relational anchors
-        $backstoryPath = $this->resolvePromptFile('backstory.md');
-        if ($backstoryPath !== null) {
-            $backstoryContent = file_get_contents($backstoryPath);
-            if ($backstoryContent !== false && trim($backstoryContent) !== '') {
-                $sections[] = [
-                    'id' => 'backstory',
-                    'title' => 'Backstory',
-                    'content' => $this->substitutePlaceholders(trim($backstoryContent)),
-                    'source' => $backstoryPath,
-                ];
+        if ($this->shouldIncludePromptSection('backstory')) {
+            if ($this->isPromptSectionStubbed('backstory')) {
+                $sections[] = $this->buildStubSectionEntry('backstory', 'Backstory', 'backstory');
+            } else {
+                $backstoryPath = $this->resolvePromptFile('backstory.md');
+                if ($backstoryPath !== null) {
+                    $backstoryContent = file_get_contents($backstoryPath);
+                    if ($backstoryContent !== false && trim($backstoryContent) !== '') {
+                        $sections[] = [
+                            'id' => 'backstory',
+                            'title' => 'Backstory',
+                            'content' => $this->substitutePlaceholders(trim($backstoryContent)),
+                            'source' => $backstoryPath,
+                        ];
+                    }
+                }
             }
         }
 
-        $basePath = $this->resolvePromptFile('base.md');
-        if ($basePath !== null) {
-            $baseContent = file_get_contents($basePath);
-            if ($baseContent !== false) {
-                $sections[] = [
-                    'id' => 'base',
-                    'title' => 'Base Prompt',
-                    'content' => $this->substitutePlaceholders(trim($baseContent)),
-                    'source' => $basePath,
-                ];
+        if ($this->shouldIncludePromptSection('base')) {
+            if ($this->isPromptSectionStubbed('base')) {
+                $sections[] = $this->buildStubSectionEntry('base', 'Base Prompt', 'base');
+            } else {
+                $basePath = $this->resolvePromptFile('base.md');
+                if ($basePath !== null) {
+                    $baseContent = file_get_contents($basePath);
+                    if ($baseContent !== false) {
+                        $sections[] = [
+                            'id' => 'base',
+                            'title' => 'Base Prompt',
+                            'content' => $this->substitutePlaceholders(trim($baseContent)),
+                            'source' => $basePath,
+                        ];
+                    }
+                }
             }
         }
 
-        foreach ($this->discoverSectionEntriesWithProfileMerge('tools') as $entry) {
-            $slug = pathinfo($entry['filename'], PATHINFO_FILENAME);
-            if (in_array($slug, $this->excludeToolPromptSlugs, true)) {
-                continue;
+        if ($this->shouldIncludePromptSection('tools')) {
+            if ($this->isPromptSectionStubbed('tools')) {
+                $sections[] = $this->buildStubSectionEntry('tools.stub', 'Tool Prompts', 'tools');
+            } else {
+                foreach ($this->discoverSectionEntriesWithProfileMerge('tools') as $entry) {
+                    $slug = pathinfo($entry['filename'], PATHINFO_FILENAME);
+                    if (in_array($slug, $this->excludeToolPromptSlugs, true)) {
+                        continue;
+                    }
+                    $sections[] = [
+                        'id' => 'tools.' . pathinfo($entry['filename'], PATHINFO_FILENAME),
+                        'title' => 'Tool Prompt: ' . $entry['title'],
+                        'content' => $entry['content'],
+                        'source' => $entry['source'],
+                    ];
+                }
             }
-            $sections[] = [
-                'id' => 'tools.' . pathinfo($entry['filename'], PATHINFO_FILENAME),
-                'title' => 'Tool Prompt: ' . $entry['title'],
-                'content' => $entry['content'],
-                'source' => $entry['source'],
-            ];
         }
 
         $securityPath = $this->resolvePromptFile('security.md');
         if ($securityPath !== null) {
             $securityContent = file_get_contents($securityPath);
-            if ($securityContent !== false) {
+            if ($securityContent !== false && trim($securityContent) !== '') {
                 $sections[] = [
                     'id' => 'security',
                     'title' => 'Security Guardrails',
@@ -404,16 +465,22 @@ final readonly class PromptLoader
             }
         }
 
-        $donePath = $this->resolvePromptFile('done.md');
-        if ($donePath !== null) {
-            $doneContent = file_get_contents($donePath);
-            if ($doneContent !== false) {
-                $sections[] = [
-                    'id' => 'done',
-                    'title' => 'Completion Rules',
-                    'content' => $this->substitutePlaceholders(trim($doneContent)),
-                    'source' => $donePath,
-                ];
+        if ($this->shouldIncludePromptSection('done')) {
+            if ($this->isPromptSectionStubbed('done')) {
+                $sections[] = $this->buildStubSectionEntry('done', 'Completion Rules', 'done');
+            } else {
+                $donePath = $this->resolvePromptFile('done.md');
+                if ($donePath !== null) {
+                    $doneContent = file_get_contents($donePath);
+                    if ($doneContent !== false) {
+                        $sections[] = [
+                            'id' => 'done',
+                            'title' => 'Completion Rules',
+                            'content' => $this->substitutePlaceholders(trim($doneContent)),
+                            'source' => $donePath,
+                        ];
+                    }
+                }
             }
         }
 
@@ -516,6 +583,64 @@ final readonly class PromptLoader
         }
 
         return $content;
+    }
+
+    private function shouldIncludePromptSection(string $section): bool
+    {
+        return $this->profilePreferences()?->isPromptSectionEnabled($section, true) ?? true;
+    }
+
+    private function isPromptSectionStubbed(string $section): bool
+    {
+        return $this->profilePreferences()?->isPromptSectionStubbed($section) === true;
+    }
+
+    private function profilePreferences(): ?ProfilePreferences
+    {
+        if ($this->profilePath === null) {
+            return null;
+        }
+
+        return ProfilePreferences::fromProfilePath($this->profilePath);
+    }
+
+    private function hasUsableSecurityOverride(string $path): bool
+    {
+        $content = file_get_contents($path);
+
+        return $content !== false && trim($content) !== '';
+    }
+
+    private function promptPolicySource(): string
+    {
+        return $this->profilePath !== null
+            ? rtrim($this->profilePath, '/') . '/preferences.json'
+            : 'profile_preferences';
+    }
+
+    private function buildStubContent(string $section): string
+    {
+        return match ($section) {
+            'soul' => '# Soul' . "\n\n" . 'Core identity instructions are intentionally condensed for this profile.',
+            'backstory' => '## Backstory' . "\n\n" . 'Narrative continuity is intentionally condensed for this profile.',
+            'base' => '## Base Prompt' . "\n\n" . 'Operational guidance is intentionally condensed for this profile.',
+            'tools' => '## Tool Prompts' . "\n\n" . 'Tool guidance is intentionally condensed for this profile. Use tool schemas and discovery surfaces to choose tools.',
+            'done' => '## Completion Rules' . "\n\n" . 'Completion guidance is intentionally condensed for this profile.',
+            default => '## Prompt Section' . "\n\n" . 'This prompt section is intentionally condensed for this profile.',
+        };
+    }
+
+    /**
+     * @return array{id: string, title: string, content: string, source: string}
+     */
+    private function buildStubSectionEntry(string $id, string $title, string $section): array
+    {
+        return [
+            'id' => $id,
+            'title' => $title,
+            'content' => $this->buildStubContent($section),
+            'source' => $this->promptPolicySource(),
+        ];
     }
 
     private function humanizeName(string $name): string

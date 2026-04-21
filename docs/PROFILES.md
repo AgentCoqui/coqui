@@ -9,7 +9,7 @@ A **profile** is a directory under `profiles/` in the workspace containing a `so
 - The profile's `soul.md` replaces the default soul prompt, shaping the agent's personality, tone, and values.
 - Optional `soul.md` frontmatter can define a profile-level default model.
 - Optional `backstory.md` provides persistent identity context (origin, milestones, narrative) loaded after soul.md.
-- Optional `preferences.json` defines behavioral settings (prompt directives and code-level config).
+- Optional `preferences.json` defines behavioral settings, prompt policy, and prompt labels.
 - Optional prompt overrides (`base.md`, `security.md`, `done.md`, `tools/*.md`) replace or supplement defaults.
 - Optional role overrides in `profiles/{name}/roles/*.md` replace workspace role files for that profile only.
 - Optional `samples/responses/` directory holds example responses for fidelity verification.
@@ -25,7 +25,7 @@ A **profile** is a directory under `profiles/` in the workspace containing a `so
     ├── caelum/
     │   ├── soul.md              # Required: core identity prompt
     │   ├── backstory.md         # Optional: persistent identity context
-    │   ├── preferences.json     # Optional: behavioral settings
+    │   ├── preferences.json     # Optional: behavioral settings and prompt policy
     │   └── samples/
     │       └── responses/       # Optional: example responses for fidelity
     │           └── philosophical.md
@@ -68,6 +68,8 @@ Profiles can override any prompt file using the 3-tier fallback chain:
 
 For tool prompts, profile files in `profiles/{name}/tools/` override same-named defaults. Additional tool prompt files in the profile directory are merged with the defaults.
 
+`security.md` can also be overridden per profile, but it cannot be disabled or stubbed through `preferences.json`. If a profile-level `security.md` exists, it must contain non-empty content; otherwise Coqui treats it as an invalid override and falls back to workspace or built-in security guidance.
+
 ### Optional Role Overrides
 
 Profiles can also override role files under `profiles/{name}/roles/`.
@@ -88,7 +90,7 @@ Optional persistent identity context loaded after `soul.md` in the system prompt
 
 Content is rendered between soul and the memory block in the prompt composition order:
 
-```
+```text
 soul → backstory → memories → preferences → body → deferred → project
 ```
 
@@ -96,7 +98,9 @@ Headings in `backstory.md` are downshifted one level (e.g., `#` becomes `##`) to
 
 ### preferences.json
 
-Optional behavioral settings file with two sections:
+Optional behavioral settings file with three sections:
+
+Additional ready-to-copy examples live in `examples/preferences/`.
 
 ```json
 {
@@ -107,12 +111,47 @@ Optional behavioral settings file with two sections:
   },
   "behavior": {
     "temperature_hint": 0.7
+  },
+  "prompts": {
+    "features": {
+      "artifacts": false,
+      "todos": true
+    },
+    "prompt_sections": {
+      "tools": "stub",
+      "project": false
+    },
+    "roles": {
+      "allow": ["orchestrator", "coder"],
+      "deny": ["muse"]
+    },
+    "labels": {
+      "backstory": "Lore"
+    }
   }
 }
 ```
 
 - **prompt_directives**: Key-value pairs rendered as a `## Preferences` section in the system prompt.
 - **behavior**: Code-level settings accessible via `ProfilePreferences::getBehavior()`. These are not rendered into the prompt — they are available for runtime configuration.
+- **prompts**: Structured prompt policy settings used to govern profile-level prompt behavior.
+
+Supported `prompts` fields:
+
+- **features**: Optional booleans for feature families currently recognized by the parser: `artifacts`, `projects`, `loops`, `todos`, and `background_tasks`. These gates now affect real runtime capability exposure, not just prompt text. For example, disabling `projects` removes sprint/project tooling and active project prompt context.
+- **prompt_sections**: Optional per-section policy. Recognized sections are `soul`, `backstory`, `base`, `memory`, `preferences`, `tools`, `security`, `done`, `deferred_toolkits`, and `project_context`. Values may be `true`, `false`, or `"stub"`, except `security`, which is pinned and must remain `true`. `project` and `deferred` are accepted as aliases for `project_context` and `deferred_toolkits`. When `tools` is set to `"stub"`, Coqui also condenses non-core runtime tool and toolkit schemas so prompt text and actual tool exposure stay aligned.
+- **roles**: Optional `allow` and `deny` arrays for profile-specific role restrictions. Role names are normalized to lowercase, overlapping entries are reported as invalid, and the restrictions are enforced in REPL role switching, API session/task creation, background task execution, and child-agent delegation.
+- **labels**: Optional display labels for generated prompt content. `labels.backstory` changes the generated `backstory.md` heading from `## Backstory` to a profile-specific heading such as `## Lore`.
+
+Validation rules:
+
+- Unknown `preferences.json` fields are treated as invalid configuration.
+- `prompts.prompt_sections.security` cannot be changed. Use a profile-specific `security.md` override instead.
+- Profile-level `security.md` overrides must not be empty.
+- `prompts.roles.allow` must include `orchestrator`, and `prompts.roles.deny` cannot include it.
+- `labels.backstory` must be a non-empty string.
+
+Inspection surfaces such as `/prompt` and `GET /api/v1/toolkits?profile=name` expose the effective parsed profile policy so you can confirm which sections were stubbed, which feature families were disabled, and which role restrictions are active.
 
 ### samples/responses/
 
@@ -192,7 +231,7 @@ A `.backstory-manifest.json` file tracks SHA-256 hashes of all discovered source
 
 At startup, Coqui checks if the active profile's backstory needs regeneration. If source files have changed since the last build, `backstory.md` is regenerated automatically before the first turn.
 
-### REPL Commands
+### Backstory Commands
 
 ```bash
 /backstory              # Show backstory generation status and file summary

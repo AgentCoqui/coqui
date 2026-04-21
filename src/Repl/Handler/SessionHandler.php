@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl\Handler;
 
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Repl\TimeFormatter;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -95,6 +97,39 @@ final class SessionHandler
         $storedProfile = $session['profile'] ?? null;
 
         return is_string($storedProfile) && $storedProfile !== '' ? $storedProfile : null;
+    }
+
+    public function enforceProfileRolePolicy(?SymfonyStyle $io, string $sessionId, ?string $profile): string
+    {
+        $session = $this->storage->getSession($sessionId);
+        if ($session === null) {
+            return SystemRole::Orchestrator->value;
+        }
+
+        $currentRole = (string) ($session['model_role'] ?? SystemRole::Orchestrator->value);
+        if ($currentRole === '') {
+            $currentRole = SystemRole::Orchestrator->value;
+        }
+
+        if ($profile === null || !$this->boot->profileDiscovery()->profileExists($profile)) {
+            return $currentRole;
+        }
+
+        $profilePath = $this->boot->profileDiscovery()->getProfilePath($profile);
+        $preferences = ProfilePreferences::fromProfilePath($profilePath);
+        if ($preferences->isRoleAllowed($currentRole)) {
+            return $currentRole;
+        }
+
+        $fallbackRole = SystemRole::Orchestrator->value;
+        $modelString = $this->boot->roleResolver()->resolve($fallbackRole, $profile);
+        $this->storage->updateSessionRole($sessionId, $fallbackRole, $modelString);
+        $this->writeInfo(
+            $io,
+            sprintf('Profile "%s" does not allow role "%s". Reverted session to orchestrator.', $profile, $currentRole),
+        );
+
+        return $fallbackRole;
     }
 
     public function showHistory(SymfonyStyle $io, string $sessionId): void
