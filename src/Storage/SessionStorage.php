@@ -303,7 +303,7 @@ final class SessionStorage
     /**
      * @return array<array<string, mixed>>
      */
-    public function listSessions(int $limit = 50, bool $excludeTaskSessions = true, bool $activeOnly = true): array
+    public function listSessions(int $limit = 50, bool $excludeTaskSessions = true, bool $activeOnly = true, ?string $status = null): array
     {
         $join = $excludeTaskSessions
             ? 'LEFT JOIN background_tasks bt ON bt.session_id = s.id'
@@ -314,7 +314,13 @@ final class SessionStorage
             $conditions[] = 'bt.id IS NULL';
         }
 
-        if ($activeOnly) {
+        if ($status === 'active') {
+            $conditions[] = 's.is_closed = 0';
+        } elseif ($status === 'closed') {
+            $conditions[] = 's.is_closed = 1';
+        } elseif ($status === 'archived') {
+            $conditions[] = 's.is_archived = 1';
+        } elseif ($activeOnly) {
             $conditions[] = 's.is_closed = 0';
         }
 
@@ -335,7 +341,7 @@ final class SessionStorage
         $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->normalizeSessionRows($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -357,7 +363,47 @@ final class SessionStorage
             return null;
         }
 
-        return $session;
+        return $this->normalizeSessionRow($session);
+    }
+
+    /**
+     * @return array{active: int, closed: int, archived: int, total: int}
+     */
+    public function getSessionStatusCounts(bool $excludeTaskSessions = true): array
+    {
+        $join = $excludeTaskSessions
+            ? 'LEFT JOIN background_tasks bt ON bt.session_id = s.id'
+            : '';
+        $filter = $excludeTaskSessions
+            ? 'WHERE bt.id IS NULL'
+            : '';
+
+        $stmt = $this->db->query(<<<SQL
+            SELECT
+                SUM(CASE WHEN s.is_closed = 0 THEN 1 ELSE 0 END) AS active_count,
+                SUM(CASE WHEN s.is_closed = 1 THEN 1 ELSE 0 END) AS closed_count,
+                SUM(CASE WHEN s.is_archived = 1 THEN 1 ELSE 0 END) AS archived_count,
+                COUNT(*) AS total_count
+            FROM sessions s
+            {$join}
+            {$filter}
+        SQL);
+
+        if ($stmt === false) {
+            return ['active' => 0, 'closed' => 0, 'archived' => 0, 'total' => 0];
+        }
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return ['active' => 0, 'closed' => 0, 'archived' => 0, 'total' => 0];
+        }
+
+        return [
+            'active' => (int) ($row['active_count'] ?? 0),
+            'closed' => (int) ($row['closed_count'] ?? 0),
+            'archived' => (int) ($row['archived_count'] ?? 0),
+            'total' => (int) ($row['total_count'] ?? 0),
+        ];
     }
 
     /**
@@ -542,7 +588,7 @@ final class SessionStorage
 
         $stmt->execute(['session_id' => $sessionId]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->normalizeSessionRows($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -896,6 +942,20 @@ final class SessionStorage
         return $value !== false && (int) $value === 1;
     }
 
+    public function isSessionArchived(string $sessionId): bool
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT is_archived
+            FROM sessions
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute(['id' => $sessionId]);
+        $value = $stmt->fetchColumn();
+
+        return $value !== false && (int) $value === 1;
+    }
+
     public function isSessionWritable(string $sessionId): bool
     {
         $stmt = $this->db->prepare(<<<SQL
@@ -933,6 +993,37 @@ final class SessionStorage
             'updated_at' => $now,
             'id' => $sessionId,
         ]);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function normalizeSessionRow(array $row): array
+    {
+        if ($row === []) {
+            return $row;
+        }
+
+        $isClosed = (int) ($row['is_closed'] ?? 0);
+        $isArchived = (int) ($row['is_archived'] ?? 0);
+
+        $row['is_closed'] = $isClosed;
+        $row['is_archived'] = $isArchived;
+        $row['status'] = $isArchived === 1
+            ? 'archived'
+            : ($isClosed === 1 ? 'closed' : 'active');
+
+        return $row;
+    }
+
+    /**
+     * @param array<array<string, mixed>> $rows
+     * @return array<array<string, mixed>>
+     */
+    private function normalizeSessionRows(array $rows): array
+    {
+        return array_map(fn(array $row): array => $this->normalizeSessionRow($row), $rows);
     }
 
     /**

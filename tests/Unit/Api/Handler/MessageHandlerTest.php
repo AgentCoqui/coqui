@@ -115,3 +115,18 @@ test('message handler rejects prompts for closed sessions', function () {
     expect($response->getStatusCode())->toBe(409);
     expect($body['code'])->toBe('session_closed');
 });
+
+test('message handler rejects deleting messages from closed sessions', function () {
+    $messageId = $this->storage->addMessage($this->sessionId, 'user', 'Hello');
+    $this->storage->closeSession($this->sessionId, 'test-close');
+
+    $response = $this->handler->delete(
+        new ServerRequest('DELETE', '/api/v1/sessions/' . $this->sessionId . '/messages/' . $messageId),
+        $this->sessionId,
+        $messageId,
+    );
+    $body = json_decode((string) $response->getBody(), true);
+
+    expect($response->getStatusCode())->toBe(409);
+    expect($body['code'])->toBe('session_closed');
+});

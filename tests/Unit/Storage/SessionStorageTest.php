@@ -47,6 +47,33 @@ test('listSessions returns all sessions', function () {
     expect($sessions)->toHaveCount(2);
 });
 
+test('session rows expose derived status and status counts', function () {
+    $activeId = $this->storage->createSession('orchestrator', 'model1');
+    $closedId = $this->storage->createSession('coder', 'model2');
+    $archivedId = $this->storage->createSession('analyst', 'model3');
+
+    $this->storage->closeSession($closedId, 'closed-only', false);
+    $this->storage->closeSession($archivedId, 'archived-history', true);
+
+    $activeSession = $this->storage->getSession($activeId);
+    $closedSession = $this->storage->getSession($closedId);
+    $archivedSession = $this->storage->getSession($archivedId);
+    $archivedSessions = $this->storage->listSessions(status: 'archived', activeOnly: false);
+    $counts = $this->storage->getSessionStatusCounts();
+
+    expect($activeSession['status'])->toBe('active');
+    expect($closedSession['status'])->toBe('closed');
+    expect($archivedSession['status'])->toBe('archived');
+    expect($archivedSessions)->toHaveCount(1);
+    expect($archivedSessions[0]['id'])->toBe($archivedId);
+    expect($counts)->toBe([
+        'active' => 1,
+        'closed' => 2,
+        'archived' => 1,
+        'total' => 3,
+    ]);
+});
+
 test('addMessage saves and retrieves messages', function () {
     $sessionId = $this->storage->createSession('test', 'model');
 

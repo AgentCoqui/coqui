@@ -503,3 +503,57 @@ test('session handler update requires confirmation before reassigning into an ac
         cleanupApiSessionHandlerFixture($fixture);
     }
 });
+
+test('session handler list filters archived history and returns lifecycle counts', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $activeId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $archivedId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $fixture['storage']->closeSession($archivedId, 'history-rollover', true);
+
+        $response = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/sessions?status=archived'));
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['status'])->toBe('archived');
+        expect($body['count'])->toBe(1);
+        expect($body['sessions'][0]['id'])->toBe($archivedId);
+        expect($body['sessions'][0]['status'])->toBe('archived');
+        expect($body['counts'])->toBe([
+            'active' => 1,
+            'closed' => 1,
+            'archived' => 1,
+            'total' => 2,
+        ]);
+        expect($fixture['storage']->getSession($activeId)['status'])->toBe('active');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler update rejects changes to closed sessions', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $fixture['storage']->closeSession($sessionId, 'history-rollover', true);
+
+        $response = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId,
+                ['Content-Type' => 'application/json'],
+                json_encode(['title' => 'Archived title']) ?: '',
+            ),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(409);
+        expect($body['code'])->toBe('session_closed');
+        expect($body['details']['status'])->toBe('archived');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});

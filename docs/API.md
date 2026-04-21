@@ -178,7 +178,7 @@ The `code` field is a stable machine-readable string that clients can branch on 
 | `profile_session_active` | 409 | A profiled session is already active and the client must confirm closure before creating or reassigning a fresh one |
 | `role_builtin` | 409 | Cannot modify a built-in role |
 | `role_reserved` | 409 | Cannot create a role with a reserved name |
-| `session_closed` | 409 | Session is closed and cannot accept new messages |
+| `session_closed` | 409 | Session is closed and read-only; mutating session-scoped requests are rejected |
 | `unauthorized` | 401 | Missing or invalid API key |
 | `forbidden` | 403 | Access denied |
 | `rate_limited` | 429 | Too many requests |
@@ -272,6 +272,12 @@ A session is a persistent conversation context. Messages and turns are scoped to
 
 Profile-scoped sessions enforce a single active interactive conversation per profile. `POST /api/v1/sessions/resolve` keeps the newest active profiled session and archives/closes older duplicates automatically. `POST /api/v1/sessions` remains the fresh-conversation endpoint, but when a profiled session is already active it returns `409 profile_session_active` until the client explicitly confirms closure of that active profiled session.
 
+Session lifecycle fields have distinct meanings:
+
+- `closed` is the mutability state. Closed sessions are terminal and read-only: prompts, message deletion, file uploads/deletes, project reassignment, session metadata updates, and session-bound task or loop attachment are rejected with `409 session_closed`.
+- `archived` is the discovery state. Archived sessions are hidden from active listings by default but remain fully inspectable through the read endpoints.
+- In the current profile-rollover flow, archived sessions are also closed. A session may be closed without being archived if Coqui needs a terminal but still explicitly visible record.
+
 #### `GET /api/v1/sessions`
 
 List sessions, ordered by most recently updated.
@@ -281,7 +287,8 @@ List sessions, ordered by most recently updated.
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `limit` | int | `50` | Max sessions to return (capped at 200) |
-| `include_closed` | bool | `false` | Include closed and archived sessions in the result set |
+| `status` | string | `"active"` | Filter by lifecycle state: `active`, `closed`, `archived`, or `all` |
+| `include_closed` | bool | `false` | Legacy alias for `status=all` when `status` is omitted |
 
 **Response `200`**
 
@@ -293,6 +300,7 @@ List sessions, ordered by most recently updated.
       "model_role": "orchestrator",
       "model": "openai/gpt-5",
       "active_project_id": null,
+      "status": "active",
       "is_closed": 0,
       "is_archived": 0,
       "closed_at": null,
@@ -303,9 +311,18 @@ List sessions, ordered by most recently updated.
       "token_count": 12450
     }
   ],
-  "count": 1
+  "count": 1,
+  "status": "active",
+  "counts": {
+    "active": 1,
+    "closed": 3,
+    "archived": 3,
+    "total": 4
+  }
 }
 ```
+
+Use `GET /api/v1/sessions?status=archived` to browse historical conversations without making them active again. Once you have a session ID, the normal read endpoints such as `GET /api/v1/sessions/{id}`, `GET /api/v1/sessions/{id}/messages`, and `GET /api/v1/sessions/{id}/turns` continue to work for archived history.
 
 #### `POST /api/v1/sessions`
 
@@ -428,6 +445,7 @@ Get session details.
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
   "profile": "caelum",
+  "status": "active",
   "is_closed": 0,
   "is_archived": 0,
   "closed_at": null,
@@ -452,6 +470,8 @@ Get session details.
 #### `PATCH /api/v1/sessions/{id}`
 
 Update session metadata. Supports renaming the title, updating the role, and changing the profile scope.
+
+Closed or archived sessions are read-only. This endpoint returns `409 session_closed` when clients try to modify them.
 
 **Request Body**
 
@@ -565,6 +585,8 @@ Alternative clear form:
 
 Provide exactly one of `project_id`, `project_slug`, or `clear=true`.
 
+Closed or archived sessions are read-only. This endpoint returns `409 session_closed` when clients try to modify them.
+
 #### Conversation Summarization
 
 Compress older conversation history into a concise summary, preserving recent turns and workflow state (todos, artifacts).
@@ -649,7 +671,7 @@ By default, the response is a **Server-Sent Event (SSE) stream** that delivers r
 
 When `files` are provided, the referenced uploads are attached to the message. Image files (JPEG, PNG, GIF, WebP) are sent to the LLM as vision content. Text and document files are read and injected as context blocks in the prompt.
 
-Closed sessions reject new prompts with `409 session_closed`. This gives clients a clean handoff state after a profiled conversation has been archived and closed.
+Closed sessions reject new prompts with `409 session_closed`. The same read-only guard also applies to message deletion and the other session-scoped mutation endpoints. This gives clients a clean handoff state after a profiled conversation has been archived and closed.
 
 **Query Parameters**
 
@@ -774,6 +796,7 @@ The `prompt` field is limited to **1 MiB** (1,048,576 bytes). Prompts exceeding 
 | `404` | `session_not_found` | Session does not exist |
 | `404` | `not_found` | Referenced file ID not found in this session |
 | `409` | `agent_busy` | Session already has an active agent run |
+| `409` | `session_closed` | Session is closed or archived and cannot be mutated |
 
 #### `DELETE /api/v1/sessions/{id}/messages/{messageId}`
 
@@ -815,6 +838,8 @@ Files are session-scoped uploads that can be attached to messages for multimodal
 #### `POST /api/v1/sessions/{id}/files`
 
 Upload one or more files to a session. Uses `multipart/form-data` encoding.
+
+Closed or archived sessions are read-only. `POST` and `DELETE` file endpoints return `409 session_closed` when clients try to mutate historical sessions.
 
 **Request**
 
@@ -1504,6 +1529,8 @@ Create a new background task. The task is started immediately if under the concu
 | `max_iterations` | int | No | `25` | Maximum agent iterations (1–100) |
 | `project_id` | string | No | `null` | Attach the task to an existing project |
 | `sprint_id` | string | No | `null` | Attach the task to an existing sprint. When provided, the sprint must exist and belong to the specified project if `project_id` is also set. |
+
+When `parent_session_id` is provided, it must refer to a writable session. Closed or archived parent sessions return `409 session_closed`.
 
 **Response `201`**
 
@@ -2235,6 +2262,8 @@ Loop stage advancement only happens while the API server is running. `LoopManage
 Create and start a loop.
 
 Use `session_id` when the loop should inherit the session's active project and downstream profile context. Use `project_id` or `project_slug` to pin the loop to a project directly. Use `sprint_id` to bind the first iteration to an existing sprint; when only `sprint_id` is supplied, the loop inherits that sprint's project automatically.
+
+When `session_id` is provided, it must refer to a writable session. Closed or archived sessions return `409 session_closed`.
 
 **Request Body**
 

@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Psr\Http\Message\ServerRequestInterface;
@@ -34,10 +35,9 @@ final readonly class FileUploadHandler
      */
     public function upload(ServerRequestInterface $request, string $id): Response
     {
-        $session = $this->sessionStorage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireWritableSession($this->sessionStorage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $uploadedFiles = $this->flattenUploadedFiles($request->getUploadedFiles());
@@ -126,10 +126,9 @@ final readonly class FileUploadHandler
      */
     public function list(ServerRequestInterface $request, string $id): Response
     {
-        $session = $this->sessionStorage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireReadableSession($this->sessionStorage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $files = $this->uploadStorage->list($id);
@@ -148,10 +147,9 @@ final readonly class FileUploadHandler
      */
     public function get(ServerRequestInterface $request, string $id, string $fileId): Response
     {
-        $session = $this->sessionStorage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireReadableSession($this->sessionStorage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $metadata = $this->uploadStorage->get($id, $fileId);
@@ -190,10 +188,9 @@ final readonly class FileUploadHandler
      */
     public function delete(ServerRequestInterface $request, string $id, string $fileId): Response
     {
-        $session = $this->sessionStorage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireWritableSession($this->sessionStorage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $deleted = $this->uploadStorage->delete($id, $fileId);
