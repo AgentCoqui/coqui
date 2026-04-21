@@ -15,6 +15,7 @@ use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\ImagePreviewService;
 use React\EventLoop\Loop;
 use React\EventLoop\TimerInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -123,7 +124,11 @@ final class AgentTurnExecutor
         }
 
         // Render output — user sees stats immediately
-        $renderer = new TerminalRenderer($io, showHints: fn(): bool => (bool) $this->boot->config()->get('agents.defaults.hints', true));
+        $renderer = new TerminalRenderer(
+            $io,
+            showHints: fn(): bool => (bool) $this->boot->config()->get('agents.defaults.hints', true),
+            imagePreviewService: new ImagePreviewService($this->boot->workspacePath()),
+        );
         $renderer->render($result, contentStreamed: true);
 
         // Ctrl+C during execution → graceful shutdown (skip deferred work, exit REPL)

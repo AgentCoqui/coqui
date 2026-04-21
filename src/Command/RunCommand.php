@@ -54,6 +54,7 @@ use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\ImagePreviewService;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -229,7 +230,7 @@ final class RunCommand extends Command
         }
 
         // Choose observer for terminal mode
-        $terminalObserver = new TerminalObserver($output);
+        $terminalObserver = new TerminalObserver($output, new ImagePreviewService($this->boot->workspacePath()));
 
         // Animated tick callback for spinner during tool execution
         $this->animatedTickCallback = new AnimatedTickCallback($output);
@@ -456,6 +457,7 @@ final class RunCommand extends Command
             promptInspection: new PromptInspectionService($this->agentRunner, $this->boot->workspacePath(), $this->workDir),
             output: $this->output,
             workspacePath: $this->boot->workspacePath(),
+            imagePreviewService: new ImagePreviewService($this->boot->workspacePath()),
             onHintsToggle: function () use ($io): void {
                 $this->hintsEnabled = !$this->hintsEnabled;
                 $this->boot->configManager()->set('agents.defaults.hints', $this->hintsEnabled);
@@ -850,7 +852,10 @@ final class RunCommand extends Command
         $format = $input->getOption('format');
         $renderer = match ($format) {
             'json' => new JsonRenderer($output),
-            default => new TerminalRenderer(new SymfonyStyle($input, $output)),
+            default => new TerminalRenderer(
+                new SymfonyStyle($input, $output),
+                imagePreviewService: new ImagePreviewService($this->boot->workspacePath()),
+            ),
         };
 
         $renderer->render($result);
