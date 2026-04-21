@@ -19,6 +19,8 @@ use SplSubject;
  */
 final class TurnProcessObserver implements SplObserver
 {
+    private int $indentLevel = 0;
+
     public function __construct(
         private readonly SessionStorage $storage,
         private readonly string $turnProcessId,
@@ -26,6 +28,16 @@ final class TurnProcessObserver implements SplObserver
 
     public function update(SplSubject $subject): void
     {
+        if (method_exists($subject, 'getEventName') && method_exists($subject, 'getEventData')) {
+            /** @var callable(): string $getEventName */
+            $getEventName = [$subject, 'getEventName'];
+            /** @var callable(): mixed $getEventData */
+            $getEventData = [$subject, 'getEventData'];
+
+            $this->handleEvent($getEventName(), $getEventData());
+            return;
+        }
+
         if (!$subject instanceof AgentInterface) {
             return;
         }
@@ -34,45 +46,51 @@ final class TurnProcessObserver implements SplObserver
             return;
         }
 
-        $event = $subject->lastEvent();
-        $data = $subject->lastEventData();
+        /** @var callable(): string $lastEvent */
+        $lastEvent = [$subject, 'lastEvent'];
+        /** @var callable(): mixed $lastEventData */
+        $lastEventData = [$subject, 'lastEventData'];
+
+        $event = $lastEvent();
+        $data = $lastEventData();
 
         $this->handleEvent($event, $data);
     }
 
     private function handleEvent(string $event, mixed $data): void
     {
-        $eventData = match ($event) {
-            'agent.start' => [],
-            'agent.iteration' => ['number' => $data],
-            'agent.reasoning' => ['content' => is_string($data) ? $data : ''],
-            'agent.text_delta' => ['content' => is_string($data) ? $data : ''],
-            'agent.tool_call' => $this->formatToolCall($data),
-            'agent.tool_result' => $this->formatToolResult($data),
-            'agent.done' => $this->formatDone($data),
-            'agent.error' => ['message' => (string) $data],
-            'child.start' => is_array($data) ? $data : ['role' => (string) $data],
-            'child.end' => [],
-            default => null,
+        [$eventType, $eventData] = match ($event) {
+            'agent.start' => ['agent_start', []],
+            'agent.iteration' => ['iteration', ['number' => $data]],
+            'agent.tool_call' => ['tool_call', $this->formatToolCall($data)],
+            'agent.batch_start' => ['batch_start', is_array($data) ? $data : []],
+            'agent.batch_end' => ['batch_end', is_array($data) ? $data : []],
+            'agent.tool_result' => ['tool_result', $this->formatToolResult($data)],
+            'agent.reasoning' => ['reasoning', ['content' => is_string($data) ? $data : '']],
+            'agent.text_delta' => ['text_delta', ['content' => is_string($data) ? $data : '']],
+            'agent.done' => ['done', $this->formatDone($data)],
+            'agent.error' => ['error', ['message' => (string) $data]],
+            'agent.warning' => ['warning', ['message' => is_string($data) ? $data : '']],
+            'agent.budget_warning' => ['budget_warning', is_array($data) ? $data : []],
+            'agent.summary' => ['summary', is_array($data) ? $data : []],
+            'agent.memory_extraction' => ['memory_extraction', is_array($data) ? $data : []],
+            'agent.notification' => ['notification', is_array($data) ? $data : []],
+            'child.start' => ['child_start', $this->formatChildStart($data)],
+            'child.end' => ['child_end', $this->formatChildEnd()],
+            'child.review_start' => ['review_start', $this->formatReviewStart($data)],
+            'child.review_end' => ['review_end', $this->formatReviewEnd($data)],
+            'loop.start' => ['loop_start', is_array($data) ? $data : []],
+            'loop.iteration_start' => ['loop_iteration_start', is_array($data) ? $data : []],
+            'loop.stage_start' => ['loop_stage_start', is_array($data) ? $data : []],
+            'loop.stage_end' => ['loop_stage_end', is_array($data) ? $data : []],
+            'loop.iteration_end' => ['loop_iteration_end', is_array($data) ? $data : []],
+            'loop.complete' => ['loop_complete', is_array($data) ? $data : []],
+            default => [null, null],
         };
 
-        if ($eventData === null) {
+        if ($eventType === null || $eventData === null) {
             return;
         }
-
-        $eventType = match ($event) {
-            'agent.start' => 'agent_start',
-            'agent.iteration' => 'iteration',
-            'agent.reasoning' => 'reasoning',
-            'agent.text_delta' => 'text_delta',
-            'agent.tool_call' => 'tool_call',
-            'agent.tool_result' => 'tool_result',
-            'agent.done' => 'done',
-            'agent.error' => 'error',
-            'child.start' => 'child_start',
-            'child.end' => 'child_end',
-            default => $event,
-        };
 
         try {
             $this->storage->appendTurnEvent($this->turnProcessId, $eventType, $eventData);
@@ -125,5 +143,68 @@ final class TurnProcessObserver implements SplObserver
         }
 
         return ['content' => mb_substr($content, 0, 2000)];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function formatChildStart(mixed $data): array
+    {
+        $role = is_array($data) && isset($data['role']) ? $data['role'] : 'child';
+
+        $event = [
+            'role' => $role,
+            'depth' => $this->indentLevel,
+        ];
+
+        $this->indentLevel++;
+
+        return $event;
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function formatChildEnd(): array
+    {
+        $this->indentLevel = max(0, $this->indentLevel - 1);
+
+        return [
+            'depth' => $this->indentLevel,
+        ];
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function formatReviewStart(mixed $data): array
+    {
+        $round = is_array($data) ? (int) ($data['round'] ?? 1) : 1;
+        $maxRounds = is_array($data) ? (int) ($data['max_rounds'] ?? 1) : 1;
+
+        $event = [
+            'round' => $round,
+            'max_rounds' => $maxRounds,
+            'depth' => $this->indentLevel,
+        ];
+
+        $this->indentLevel++;
+
+        return $event;
+    }
+
+    /**
+     * @return array<string, int|string|bool>
+     */
+    private function formatReviewEnd(mixed $data): array
+    {
+        $this->indentLevel = max(0, $this->indentLevel - 1);
+
+        return [
+            'round' => is_array($data) ? (int) ($data['round'] ?? 1) : 1,
+            'verdict' => is_array($data) ? (string) ($data['verdict'] ?? 'needs_changes') : 'needs_changes',
+            'approved' => is_array($data) && ($data['approved'] ?? false),
+            'depth' => $this->indentLevel,
+        ];
     }
 }

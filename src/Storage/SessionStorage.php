@@ -117,6 +117,8 @@ final class SessionStorage
                 duration_ms INTEGER DEFAULT 0,
                 tools_used TEXT,
                 child_agent_count INTEGER DEFAULT 0,
+                turn_process_id TEXT DEFAULT NULL,
+                result_payload TEXT DEFAULT NULL,
                 created_at TEXT NOT NULL,
                 completed_at TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -132,8 +134,11 @@ final class SessionStorage
         // Migrations for existing tables — add turn_id FK columns
         $this->migrateAddColumn('messages', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
         $this->migrateAddColumn('audit_log', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
+        $this->migrateAddColumn('turns', 'turn_process_id', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('turns', 'result_payload', 'TEXT DEFAULT NULL');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_messages_turn ON messages(turn_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_turn ON audit_log(turn_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turns_turn_process ON turns(turn_process_id)');
 
         // Migration: add title column to sessions
         $this->migrateAddColumn('sessions', 'title', 'TEXT DEFAULT NULL');
@@ -1247,6 +1252,7 @@ final class SessionStorage
         string $sessionId,
         string $userPrompt,
         ?string $model = null,
+        ?string $turnProcessId = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
@@ -1261,8 +1267,8 @@ final class SessionStorage
         $turnNumber = (int) $stmt->fetchColumn();
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO turns (id, session_id, turn_number, user_prompt, model, created_at)
-            VALUES (:id, :session_id, :turn_number, :user_prompt, :model, :created_at)
+            INSERT INTO turns (id, session_id, turn_number, user_prompt, model, turn_process_id, created_at)
+            VALUES (:id, :session_id, :turn_number, :user_prompt, :model, :turn_process_id, :created_at)
         SQL);
 
         $stmt->execute([
@@ -1271,6 +1277,7 @@ final class SessionStorage
             'turn_number' => $turnNumber,
             'user_prompt' => $userPrompt,
             'model' => $model,
+            'turn_process_id' => $turnProcessId,
             'created_at' => $now,
         ]);
 
@@ -1322,6 +1329,25 @@ final class SessionStorage
     }
 
     /**
+     * Persist the rich serialized result payload for historical turn inspection.
+     *
+     * @param array<string, mixed> $payload
+     */
+    public function storeTurnResultPayload(string $turnId, array $payload): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE turns
+            SET result_payload = :result_payload
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'result_payload' => json_encode($payload, JSON_UNESCAPED_SLASHES) ?: '{}',
+            'id' => $turnId,
+        ]);
+    }
+
+    /**
      * Get turns for a session ordered by turn number.
      *
      * @return array<array<string, mixed>>
@@ -1331,7 +1357,8 @@ final class SessionStorage
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, session_id, turn_number, user_prompt, response_text, model,
                    prompt_tokens, completion_tokens, total_tokens, iterations,
-                   duration_ms, tools_used, child_agent_count, created_at, completed_at
+                   duration_ms, tools_used, child_agent_count, turn_process_id,
+                   result_payload, created_at, completed_at
             FROM turns
             WHERE session_id = :session_id
             ORDER BY turn_number ASC
@@ -1342,7 +1369,10 @@ final class SessionStorage
         $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_map(
+            fn(array $turn): array => $this->normalizeTurnRow($turn),
+            $stmt->fetchAll(PDO::FETCH_ASSOC),
+        );
     }
 
     /**
@@ -1355,7 +1385,8 @@ final class SessionStorage
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, session_id, turn_number, user_prompt, response_text, model,
                    prompt_tokens, completion_tokens, total_tokens, iterations,
-                   duration_ms, tools_used, child_agent_count, created_at, completed_at
+                   duration_ms, tools_used, child_agent_count, turn_process_id,
+                   result_payload, created_at, completed_at
             FROM turns
             WHERE id = :id
         SQL);
@@ -1367,6 +1398,8 @@ final class SessionStorage
             return null;
         }
 
+        $turn = $this->normalizeTurnRow($turn);
+
         $msgStmt = $this->db->prepare(<<<SQL
             SELECT id, role, content, tool_calls, tool_call_id, created_at
             FROM messages
@@ -1376,8 +1409,99 @@ final class SessionStorage
 
         $msgStmt->execute(['turn_id' => $turnId]);
         $turn['messages'] = $msgStmt->fetchAll(PDO::FETCH_ASSOC);
+        $turn['events'] = isset($turn['turn_process_id']) && is_string($turn['turn_process_id']) && $turn['turn_process_id'] !== ''
+            ? $this->getDecodedTurnEvents($turn['turn_process_id'])
+            : [];
 
         return $turn;
+    }
+
+    /**
+     * @param array<string, mixed> $turn
+     * @return array<string, mixed>
+     */
+    private function normalizeTurnRow(array $turn): array
+    {
+        $payload = $this->decodeTurnResultPayload($turn['result_payload'] ?? null);
+
+        $normalized = $turn;
+        $normalized['tools_used'] = $this->decodeToolsUsed($turn['tools_used'] ?? null);
+        $normalized['content'] = (string) ($turn['response_text'] ?? '');
+        $normalized['restart_requested'] = false;
+        $normalized['iteration_limit_reached'] = false;
+        $normalized['budget_exhausted'] = false;
+        $normalized['context_usage'] = null;
+        $normalized['file_edits'] = null;
+        $normalized['error'] = null;
+        $normalized['review_feedback'] = null;
+        $normalized['review_approved'] = null;
+        $normalized['background_tasks'] = null;
+
+        if ($payload !== null) {
+            $normalized = array_replace($normalized, $payload);
+        }
+
+        unset($normalized['result_payload']);
+
+        return $normalized;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function decodeToolsUsed(mixed $rawToolsUsed): array
+    {
+        if (is_array($rawToolsUsed)) {
+            return array_values(array_filter($rawToolsUsed, is_string(...)));
+        }
+
+        if (!is_string($rawToolsUsed) || $rawToolsUsed === '') {
+            return [];
+        }
+
+        $decoded = json_decode($rawToolsUsed, true);
+
+        return is_array($decoded)
+            ? array_values(array_filter($decoded, is_string(...)))
+            : [];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function decodeTurnResultPayload(mixed $rawPayload): ?array
+    {
+        if (is_array($rawPayload)) {
+            return $rawPayload;
+        }
+
+        if (!is_string($rawPayload) || $rawPayload === '') {
+            return null;
+        }
+
+        $decoded = json_decode($rawPayload, true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    private function getDecodedTurnEvents(string $turnProcessId, int $limit = 500): array
+    {
+        return array_map(
+            function (array $event): array {
+                $data = $event['data'] ?? '{}';
+
+                return [
+                    'id' => (int) $event['id'],
+                    'event_type' => (string) $event['event_type'],
+                    'data' => is_string($data) ? (json_decode($data, true) ?? new \stdClass()) : $data,
+                    'created_at' => (string) $event['created_at'],
+                ];
+            },
+            $this->getTurnEvents($turnProcessId, limit: $limit),
+        );
     }
 
     /**
