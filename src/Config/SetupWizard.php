@@ -5,8 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PHPAgents\Config\ModelDefinition;
-use CarmeloSantana\PHPAgents\Provider\OllamaProvider;
-use CarmeloSantana\PHPAgents\Provider\OpenAICompatibleProvider;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Repl\InterruptiblePrompt;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -665,15 +664,22 @@ final class SetupWizard
     private function fetchModelsFromProvider(string $provider, string $baseUrl, string $apiKey): array
     {
         $resolvedKey = $this->resolveApiKey($apiKey);
+        $providerConfig = OpenClawConfig::fromArray([
+            'models' => [
+                'providers' => [
+                    $provider => [
+                        'baseUrl' => $baseUrl,
+                        'apiKey' => $resolvedKey,
+                        'api' => $this->configuredProviders[$provider]['api']
+                            ?? ($this->defaults->provider($provider)['api'] ?? 'openai-completions'),
+                    ],
+                ],
+            ],
+        ]);
 
-        $definitions = match ($provider) {
-            'ollama' => (new OllamaProvider(baseUrl: $baseUrl))->models(),
-            default => (new OpenAICompatibleProvider(
-                model: '',
-                baseUrl: $baseUrl,
-                apiKey: $resolvedKey,
-            ))->models(),
-        };
+        $definitions = (new ProviderFactory($providerConfig))
+            ->create($provider . '/__discovery__')
+            ->models();
 
         return array_map(
             function (ModelDefinition $m) use ($provider): array {

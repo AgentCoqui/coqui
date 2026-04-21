@@ -78,6 +78,7 @@
     }
   },
   "scripts": {
+    "generate:model-defaults": "@php scripts/generate-model-defaults.php --write",
     "test": "pest",
     "test:coverage": "@php scripts/test-coverage.php",
     "test-bash": "bash tests/bash/launcher-sigint-test.sh",

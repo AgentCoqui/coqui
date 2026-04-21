@@ -5,11 +5,16 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Tool;
 
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
+use CarmeloSantana\PHPAgents\Enum\ModelCapability;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigManager;
+use CoquiBot\Coqui\Config\DefaultsLoader;
+use CoquiBot\Coqui\Config\ModelFamilyResolver;
+use CoquiBot\Coqui\Config\ModelMetadataResolver;
 
 /**
  * Agent-facing tool for reading and modifying openclaw.json configuration.
@@ -22,6 +27,9 @@ final class ConfigTool implements ToolInterface
     public function __construct(
         private readonly ConfigManager $configManager,
         private readonly ConfigGuard $configGuard,
+        private readonly ?DefaultsLoader $defaultsLoader = null,
+        private readonly ?ModelFamilyResolver $familyResolver = null,
+        private readonly ?ProviderFactory $providerFactory = null,
     ) {}
 
     public function name(): string
@@ -156,28 +164,71 @@ final class ConfigTool implements ToolInterface
     {
         $config = $this->configManager->config();
         $providers = $config->get('models.providers', []);
-
         if (!is_array($providers) || empty($providers)) {
             return ToolResult::success('No models configured. Run /config edit to set up providers.');
         }
 
+        $resolver = $this->defaultsLoader !== null
+            ? new ModelMetadataResolver(
+                $this->defaultsLoader,
+                $this->familyResolver ?? new ModelFamilyResolver($this->defaultsLoader->familyNames()),
+                $config,
+                $this->providerFactory,
+            )
+            : null;
+
         $lines = [];
         $primary = $config->getPrimaryModel();
 
-        foreach ($providers as $providerName => $providerConfig) {
-            if (!is_array($providerConfig) || !isset($providerConfig['models'])) {
-                continue;
-            }
+        if ($resolver !== null) {
+            foreach ($resolver->configuredModels() as $modelId => $definition) {
+                $marker = ($modelId === $primary) ? ' ← current' : '';
+                $caps = ['text'];
 
-            foreach ($providerConfig['models'] as $model) {
-                if (!is_array($model) || !isset($model['id'])) {
+                if ($definition->supportsVision()) {
+                    $caps[] = 'image';
+                }
+
+                if ($definition->supportsToolCalls()) {
+                    $caps[] = 'tools';
+                }
+
+                if ($definition->supports(ModelCapability::Reasoning) || $definition->thinking || $definition->reasoning) {
+                    $caps[] = 'reasoning';
+                }
+
+                $summary = sprintf(
+                    '%s (%s) ctx=%d out=%d caps=%s source=%s',
+                    $modelId,
+                    $definition->name,
+                    $definition->contextWindow,
+                    $definition->maxTokens,
+                    implode(',', array_values(array_unique($caps))),
+                    $definition->metadataSource ?? 'unknown',
+                );
+
+                if ($definition->family !== null && $definition->family !== '') {
+                    $summary .= ' family=' . $definition->family;
+                }
+
+                $lines[] = '  ' . $summary . $marker;
+            }
+        } else {
+            foreach ($providers as $providerName => $providerConfig) {
+                if (!is_array($providerConfig) || !isset($providerConfig['models'])) {
                     continue;
                 }
 
-                $modelId = "{$providerName}/{$model['id']}";
-                $marker = ($modelId === $primary) ? ' ← current' : '';
-                $name = $model['name'] ?? $model['id'];
-                $lines[] = "  {$modelId} ({$name}){$marker}";
+                foreach ($providerConfig['models'] as $model) {
+                    if (!is_array($model) || !isset($model['id'])) {
+                        continue;
+                    }
+
+                    $modelId = "{$providerName}/{$model['id']}";
+                    $marker = ($modelId === $primary) ? ' ← current' : '';
+                    $name = $model['name'] ?? $model['id'];
+                    $lines[] = "  {$modelId} ({$name}){$marker}";
+                }
             }
         }
 
