@@ -652,6 +652,8 @@ final class AgentRunner
         $preview = $this->buildPromptPreviewData($role, $profile);
 
         return [
+            'effective_role' => $preview['effective_role'],
+            'resolved_model' => $preview['model_string'],
             'prompt' => $preview['prompt'],
             'tool_count' => $preview['snapshot']->toolCount,
             'toolkit_count' => $preview['snapshot']->toolkitCount,
@@ -707,6 +709,8 @@ final class AgentRunner
         );
 
         return [
+            'effective_role' => $previewContext['effective_role'],
+            'model_string' => $previewContext['model_string'],
             'prompt' => $promptText,
             'snapshot' => $snapshot,
             'tool_schemas' => $toolSchemas,

@@ -115,6 +115,8 @@ test('prompt handler exposes source-aware file and folder breakdowns', function 
 
         expect($response->getStatusCode())->toBe(200);
         expect($body['profile'])->toBe('caelum');
+        expect($body['role'])->toBe('orchestrator');
+        expect($body['resolved_model'])->toBe('ollama/qwen3:latest');
         expect($body['prompt'])->toContain('Caelum');
         expect($body['budget']['prompt_sections'])->not->toBeEmpty();
         expect($body['prompt_sources']['files'])->not->toBeEmpty();
