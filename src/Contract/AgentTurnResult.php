@@ -46,6 +46,25 @@ final readonly class AgentTurnResult
         return $this->error !== null;
     }
 
+    public static function fromError(
+        string $error,
+        string $content = '',
+        bool $restartRequested = false,
+    ): self {
+        return new self(
+            content: $content,
+            iterations: 0,
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+            durationMs: 0,
+            toolsUsed: [],
+            childAgentCount: 0,
+            restartRequested: $restartRequested,
+            error: $error,
+        );
+    }
+
     /**
      * Build a stats summary line (e.g. for terminal display).
      */

@@ -129,12 +129,16 @@ final readonly class BackgroundTaskSummary
                 'status' => $a['status'],
                 'title' => $a['title'],
                 'role' => $a['role'],
+                'started_at' => $a['started_at'],
+                'created_at' => $a['created_at'],
             ], $this->agents),
             'tools' => array_map(fn(array $t): array => [
                 'id' => $t['id'],
                 'status' => $t['status'],
                 'title' => $t['title'],
                 'tool_name' => $t['tool_name'],
+                'started_at' => $t['started_at'],
+                'created_at' => $t['created_at'],
             ], $this->tools),
             'total_count' => $this->totalCount(),
         ];
