@@ -19,6 +19,7 @@ use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
 use CoquiBot\Coqui\Api\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
 use CoquiBot\Coqui\Api\Handler\ChannelHandler;
+use CoquiBot\Coqui\Api\Handler\CommandCatalogHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
 use CoquiBot\Coqui\Api\Handler\EvaluationHandler;
@@ -369,6 +370,7 @@ final class ApiCommand extends Command
         $promptHandler = new PromptHandler($promptInspectionService);
         $backstoryHandler = new BackstoryHandler(new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery()));
         $budgetHandler = new BudgetHandler($previewRunner);
+        $commandCatalogHandler = new CommandCatalogHandler();
         $artifactHandler = new ArtifactHandler($artifactStore);
         $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
         $scheduleHandler = new ScheduleHandler($scheduleStore);
@@ -390,7 +392,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -572,6 +574,7 @@ final class ApiCommand extends Command
         PromptHandler $prompt,
         BackstoryHandler $backstory,
         BudgetHandler $budget,
+        CommandCatalogHandler $commands,
         ArtifactHandler $artifact,
         \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
         ScheduleHandler $schedule,
@@ -659,6 +662,7 @@ final class ApiCommand extends Command
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
         $router->get($v1 . '/server/backstory', [$backstory, 'get']);
         $router->get($v1 . '/server/budget', [$budget, 'get']);
+        $router->get($v1 . '/server/commands', [$commands, 'get']);
 
         // Artifacts (read-only — create/update/delete are REPL-only)
         $router->get($v1 . '/sessions/{id}/artifacts', [$artifact, 'list']);

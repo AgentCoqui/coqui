@@ -4,15 +4,21 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "28bab251e2b9b10142b1719d53c093c0",
+    "content-hash": "b9aead33f97beb5f90445fa3de27c48e",
     "packages": [
         {
             "name": "carmelosantana/coqui-toolkit-images",
-            "version": "dev-chore_refactor-img-schema",
+            "version": "v0.1.2",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/coqui-toolkit-images.git",
+                "reference": "3f8f3e26ed4534802ff01d17e4d383c786befa49"
+            },
             "dist": {
-                "type": "path",
-                "url": "../../Toolkits/coqui-toolkit-images",
-                "reference": "27d2f17b336ff93516faf4e9826fc64c333b11ff"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-images/zipball/3f8f3e26ed4534802ff01d17e4d383c786befa49",
+                "reference": "3f8f3e26ed4534802ff01d17e4d383c786befa49",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4",
@@ -29,29 +35,29 @@
             "type": "library",
             "extra": {
                 "php-agents": {
-                    "toolkits": [
-                        "CarmeloSantana\\CoquiToolkitImages\\ImagesToolkit"
-                    ],
-                    "description": "Generate, preview, organize, tag, and search AI-generated images using OpenAI and Ollama backends. Supports PNG metadata embedding, low-fidelity REPL previews, and workspace library management.",
-                    "credentials": {
-                        "OPENAI_API_KEY": {
-                            "description": "OpenAI API key for GPT Image 1.5 image generation.",
-                            "optional": true
-                        },
-                        "OLLAMA_HOST": {
-                            "description": "Optional Ollama host hint for local setup guidance. The current toolkit implementation shells out to the local `ollama` CLI for image generation.",
-                            "optional": true
-                        },
-                        "COQUI_IMAGE_MODEL": {
-                            "description": "Optional fallback image model in vendor/model format, for example openai/gpt-image-1.5 or ollama/x/z-image-turbo.",
-                            "optional": true
-                        }
-                    },
                     "gated": {
                         "image_generate": [
                             "generate"
                         ]
-                    }
+                    },
+                    "toolkits": [
+                        "CarmeloSantana\\CoquiToolkitImages\\ImagesToolkit"
+                    ],
+                    "credentials": {
+                        "OLLAMA_HOST": {
+                            "optional": true,
+                            "description": "Optional Ollama host hint for local setup guidance. The current toolkit implementation shells out to the local `ollama` CLI for image generation."
+                        },
+                        "OPENAI_API_KEY": {
+                            "optional": true,
+                            "description": "OpenAI API key for GPT Image 1.5 image generation."
+                        },
+                        "COQUI_IMAGE_MODEL": {
+                            "optional": true,
+                            "description": "Optional fallback image model in vendor/model format, for example openai/gpt-image-1.5 or ollama/x/z-image-turbo."
+                        }
+                    },
+                    "description": "Generate, preview, organize, tag, and search AI-generated images using OpenAI and Ollama backends. Supports PNG metadata embedding, low-fidelity REPL previews, and workspace library management."
                 }
             },
             "autoload": {
@@ -59,22 +65,7 @@
                     "CarmeloSantana\\CoquiToolkitImages\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "files": [
-                    "stubs/coqui_repl_contracts.php"
-                ],
-                "psr-4": {
-                    "CarmeloSantana\\CoquiToolkitImages\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=1G"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -93,18 +84,25 @@
                 "php-agents",
                 "toolkit"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/coqui-toolkit-images/issues",
+                "source": "https://github.com/carmelosantana/coqui-toolkit-images/tree/v0.1.2"
+            },
+            "time": "2026-04-21T14:31:32+00:00"
         },
         {
             "name": "carmelosantana/php-agents",
-            "version": "dev-chore_fix-premature-match",
+            "version": "v0.12.2",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/php-agents.git",
+                "reference": "389bffb3a317a6e6e0e336d0ff57582eb36997fc"
+            },
             "dist": {
-                "type": "path",
-                "url": "../php-agents",
-                "reference": "44240008a2304055559fe28f82ad8d3cc176a851"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/389bffb3a317a6e6e0e336d0ff57582eb36997fc",
+                "reference": "389bffb3a317a6e6e0e336d0ff57582eb36997fc",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4",
@@ -128,19 +126,7 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=512M"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -157,10 +143,11 @@
                 "php-agents",
                 "tools"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/php-agents/issues",
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.12.2"
+            },
+            "time": "2026-04-21T13:36:14+00:00"
         },
         {
             "name": "dflydev/dot-access-data",
@@ -3385,23 +3372,23 @@
         },
         {
             "name": "nunomaduro/collision",
-            "version": "v8.9.3",
+            "version": "v8.9.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/nunomaduro/collision.git",
-                "reference": "b0d8ab95b29c3189aeeb902d81215231df4c1b64"
+                "reference": "716af8f95a470e9094cfca09ed897b023be191a5"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/nunomaduro/collision/zipball/b0d8ab95b29c3189aeeb902d81215231df4c1b64",
-                "reference": "b0d8ab95b29c3189aeeb902d81215231df4c1b64",
+                "url": "https://api.github.com/repos/nunomaduro/collision/zipball/716af8f95a470e9094cfca09ed897b023be191a5",
+                "reference": "716af8f95a470e9094cfca09ed897b023be191a5",
                 "shasum": ""
             },
             "require": {
                 "filp/whoops": "^2.18.4",
                 "nunomaduro/termwind": "^2.4.0",
                 "php": "^8.2.0",
-                "symfony/console": "^7.4.8 || ^8.0.4"
+                "symfony/console": "^7.4.8 || ^8.0.8"
             },
             "conflict": {
                 "laravel/framework": "<11.48.0 || >=14.0.0",
@@ -3409,12 +3396,12 @@
             },
             "require-dev": {
                 "brianium/paratest": "^7.8.5",
-                "larastan/larastan": "^3.9.3",
-                "laravel/framework": "^11.48.0 || ^12.56.0 || ^13.2.0",
-                "laravel/pint": "^1.29.0",
-                "orchestra/testbench-core": "^9.12.0 || ^10.12.1 || ^11.0.0",
+                "larastan/larastan": "^3.9.6",
+                "laravel/framework": "^11.48.0 || ^12.56.0 || ^13.5.0",
+                "laravel/pint": "^1.29.1",
+                "orchestra/testbench-core": "^9.12.0 || ^10.12.1 || ^11.2.1",
                 "pestphp/pest": "^3.8.5 || ^4.4.3 || ^5.0.0",
-                "sebastian/environment": "^7.2.1 || ^8.0.4 || ^9.0.0"
+                "sebastian/environment": "^7.2.1 || ^8.0.4 || ^9.3.0"
             },
             "type": "library",
             "extra": {
@@ -3477,7 +3464,7 @@
                     "type": "patreon"
                 }
             ],
-            "time": "2026-04-06T19:25:53+00:00"
+            "time": "2026-04-21T14:04:20+00:00"
         },
         {
             "name": "nunomaduro/termwind",
@@ -4298,11 +4285,11 @@
         },
         {
             "name": "phpstan/phpstan",
-            "version": "2.1.50",
+            "version": "2.1.51",
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/d452086fb4cf648c6b2d8cf3b639351f79e4f3e2",
-                "reference": "d452086fb4cf648c6b2d8cf3b639351f79e4f3e2",
+                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/dc3b523c45e714c70de2ac5113b958223b55dc59",
+                "reference": "dc3b523c45e714c70de2ac5113b958223b55dc59",
                 "shasum": ""
             },
             "require": {
@@ -4347,7 +4334,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-04-17T13:10:32+00:00"
+            "time": "2026-04-21T18:22:01+00:00"
         },
         {
             "name": "phpunit/php-code-coverage",
@@ -6091,10 +6078,7 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {
-        "carmelosantana/coqui-toolkit-images": 20,
-        "carmelosantana/php-agents": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {

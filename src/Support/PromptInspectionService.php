@@ -28,6 +28,8 @@ final readonly class PromptInspectionService
 
         return [
             'profile' => $profile,
+            'role' => $preview['effective_role'] ?? ($role ?? 'orchestrator'),
+            'resolved_model' => $preview['resolved_model'] ?? null,
             'prompt' => $preview['prompt'],
             'tool_count' => $preview['tool_count'],
             'toolkit_count' => $preview['toolkit_count'],
