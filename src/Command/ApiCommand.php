@@ -49,6 +49,8 @@ use CoquiBot\Coqui\Backstory\BackstoryInspectionService;
 use CoquiBot\Coqui\Channel\ChannelConfigurationEditor;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
+use CoquiBot\Coqui\Config\ModelFamilyResolver;
+use CoquiBot\Coqui\Config\ModelMetadataResolver;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Notification\NotificationPublisher;
 use CoquiBot\Coqui\Notification\NotificationAutomationRunner;
@@ -331,6 +333,12 @@ final class ApiCommand extends Command
             $boot->config(),
             new ConfigValidator(),
             $boot->profileDiscovery(),
+            new ModelMetadataResolver(
+                $boot->defaultsLoader(),
+                new ModelFamilyResolver($boot->defaultsLoader()->familyNames()),
+                $boot->config(),
+                $boot->providerFactory(),
+            ),
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());

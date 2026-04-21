@@ -541,6 +541,8 @@ The evaluator model is configured via the roles mapping: `"roles": {"evaluator":
 
 Each provider is a named entry under `models.providers` with connection settings and an optional model catalog.
 
+When available, Coqui hydrates model metadata from the provider API during setup and uses that saved metadata at runtime. If provider metadata is missing or incomplete, Coqui falls back to curated `defaults.json` records and then family-level defaults.
+
 ### Provider Configuration
 
 | Field | Type | Required | Description |
@@ -577,6 +579,9 @@ Each model entry describes capabilities and parameters:
     "input": ["text"],
     "contextWindow": 128000,
     "maxTokens": 8192,
+    "family": "qwen",
+    "toolCalls": true,
+    "metadataSource": "provider-api",
     "alias": "qwen",
     "numCtx": 32768,
     "cost": {
@@ -596,6 +601,11 @@ Each model entry describes capabilities and parameters:
 | `input` | string[] | `["text"]` | Input capabilities: `text`, `image`, `audio` |
 | `contextWindow` | int | `4096` | Maximum context window in tokens |
 | `maxTokens` | int | `2048` | Maximum output tokens |
+| `family` | string | inferred | Model family key used for fallback defaults |
+| `toolCalls` | bool | `false` | Whether the model supports tool or function calling |
+| `thinking` | bool | `false` | Whether the model exposes a separate thinking/reasoning mode |
+| `metadataSource` | string | — | Where the saved metadata came from: `provider-api`, `provider-inspection`, `static-fallback`, `family-default`, or `heuristic` |
+| `fieldSources` | object | — | Optional per-field source map for resolved limits |
 | `alias` | string | — | Short alias for quick reference (e.g., `"opus"`) |
 | `numCtx` | int | — | Ollama-specific context override (useful for memory-constrained setups) |
 | `cost` | object | — | Token pricing for cost tracking |
@@ -700,6 +710,8 @@ coqui setup
 ```
 
 When an existing `openclaw.json` is detected, the wizard offers **section-based editing** — you choose which sections to reconfigure while preserving all other settings. You can also start fresh if needed.
+
+The wizard attempts live model discovery first. For providers that expose rich metadata, saved model entries will include discovered token limits and capabilities. Ollama models are additionally inspected per model so the saved `contextWindow` can reflect the real local model context instead of a generic placeholder.
 
 ### REPL Commands
 

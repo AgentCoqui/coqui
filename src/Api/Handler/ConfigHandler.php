@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\ConfigValidator;
+use CoquiBot\Coqui\Config\ModelMetadataResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use Psr\Http\Message\ServerRequestInterface;
@@ -29,6 +30,7 @@ final readonly class ConfigHandler
         private OpenClawConfig $config,
         private ConfigValidator $validator,
         private ProfileDiscovery $profileDiscovery,
+        private ?ModelMetadataResolver $modelMetadataResolver = null,
     ) {}
 
     /**
@@ -88,28 +90,25 @@ final readonly class ConfigHandler
      */
     public function models(ServerRequestInterface $request): Response
     {
-        $providers = $this->config->get('models.providers', []);
         $models = [];
 
-        if (is_array($providers)) {
-            foreach ($providers as $providerName => $providerConfig) {
-                if (!is_array($providerConfig) || !isset($providerConfig['models'])) {
-                    continue;
-                }
-
-                foreach ($providerConfig['models'] as $model) {
-                    if (!is_array($model) || !isset($model['id'])) {
-                        continue;
-                    }
-
-                    $models[] = [
-                        'provider' => $providerName,
-                        'id' => "{$providerName}/{$model['id']}",
-                        'name' => $model['name'] ?? $model['id'],
-                        'reasoning' => $model['reasoning'] ?? false,
-                        'input' => $model['input'] ?? ['text'],
-                    ];
-                }
+        if ($this->modelMetadataResolver !== null) {
+            foreach ($this->modelMetadataResolver->configuredModels() as $fullId => $definition) {
+                $entry = $definition->toArray();
+                $models[] = [
+                    'provider' => $definition->provider,
+                    'id' => $fullId,
+                    'name' => $definition->name,
+                    'reasoning' => $definition->reasoning,
+                    'input' => $entry['input'] ?? ($definition->vision ? ['text', 'image'] : ['text']),
+                    'contextWindow' => $definition->contextWindow,
+                    'maxTokens' => $definition->maxTokens,
+                    'family' => $definition->family,
+                    'toolCalls' => $definition->toolCalls,
+                    'vision' => $definition->vision,
+                    'thinking' => $definition->thinking,
+                    'metadataSource' => $definition->metadataSource,
+                ];
             }
         }
 

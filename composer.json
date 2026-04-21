@@ -8,14 +8,30 @@
       "name": "Carmelo Santana"
     }
   ],
+  "repositories": [
+    {
+        "type": "path",
+        "url": "../php-agents",
+        "options": {
+            "symlink": true
+        }
+    },
+    {
+        "type": "path",
+        "url": "../../Toolkits/coqui-toolkit-images",
+        "options": {
+            "symlink": true
+        }
+    }
+  ],  
   "require": {
     "php": "^8.4",
     "ext-dom": "*",
     "ext-mbstring": "*",
     "ext-pdo_sqlite": "*",
     "ext-xml": "*",
-    "carmelosantana/php-agents": "^0.12",
-    "carmelosantana/coqui-toolkit-images": "^0.1",
+    "carmelosantana/coqui-toolkit-images": "@dev",
+    "carmelosantana/php-agents": "@dev",
     "dragonmantank/cron-expression": "^3.0",
     "league/commonmark": "^2.8",
     "league/html-to-markdown": "^5.1",

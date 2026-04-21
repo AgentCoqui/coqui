@@ -1022,6 +1022,17 @@
             ]
         },
         {
+            "path": "src/Config/ModelMetadataResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ModelMetadataResolver",
+            "layer": "config",
+            "description": "Shared model metadata merger for Coqui. Combines configured openclaw.json model definitions, live provider discovery from php-agents, curated defaults.json records, and family-level defaults into one normalized ModelDefinition so setup, runtime budgeting, and API listing use the same precedence rules.",
+            "methods": [
+                "resolve(string $modelString, bool $preferProvider = false): ?ModelDefinition — resolve a provider/model string through configured, live, curated, and family layers",
+                "enrichDiscovered(string $provider, ModelDefinition $definition): ModelDefinition — merge a live-discovered definition with curated and family metadata for setup flows",
+                "configuredModels(bool $preferProvider = false): array — return resolved ModelDefinition objects for every configured model"
+            ]
+        },
+        {
             "path": "src/Config/InteractiveApprovalPolicy.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\InteractiveApprovalPolicy",
             "layer": "config",

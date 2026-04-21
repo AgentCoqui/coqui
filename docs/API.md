@@ -1139,7 +1139,7 @@ Lists discovered profiles so clients can offer a profile picker instead of manua
 
 #### `GET /api/v1/config/models`
 
-Lists all available models from all configured providers.
+Lists all configured models with resolved metadata. Results are enriched from saved model metadata and Coqui's shared fallback resolver.
 
 **Response `200`**
 
@@ -1151,14 +1151,28 @@ Lists all available models from all configured providers.
       "id": "openai/gpt-5",
       "name": "gpt-5",
       "reasoning": false,
-      "input": ["text"]
+      "input": ["text"],
+      "contextWindow": 272000,
+      "maxTokens": 8192,
+      "family": "gpt",
+      "toolCalls": true,
+      "vision": false,
+      "thinking": false,
+      "metadataSource": "provider-api"
     },
     {
       "provider": "anthropic",
       "id": "anthropic/claude-sonnet-4-20250514",
       "name": "claude-sonnet-4-20250514",
       "reasoning": true,
-      "input": ["text"]
+      "input": ["text"],
+      "contextWindow": 200000,
+      "maxTokens": 16000,
+      "family": "claude",
+      "toolCalls": true,
+      "vision": false,
+      "thinking": false,
+      "metadataSource": "provider-api"
     }
   ],
   "count": 2,
