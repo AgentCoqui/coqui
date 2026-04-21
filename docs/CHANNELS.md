@@ -25,25 +25,70 @@ The current first pass does not yet support:
 - Coqui API mode, not REPL-only mode
 - PHP and Coqui already installed
 - `signal-cli` installed and runnable on the same machine as the Coqui API server
-- Java Runtime Environment 21 or later
+- Java Runtime Environment 25 or later
 
-The official `signal-cli` docs state that binary releases work on Linux, macOS, and Windows and require at least JRE 21. Native libraries are bundled for common macOS builds.
+The official `signal-cli` docs state that binary releases work on Linux, macOS, and Windows and now require at least JRE 25. Native libraries are bundled for common macOS builds.
 
 ## Install `signal-cli`
 
-The `signal-cli` README documents a binary-release install flow. The same release tarballs work on macOS and Linux.
+On macOS, the simplest install path is Homebrew:
 
-### 1. Install Java 21+
+```bash
+brew install signal-cli
+```
 
-Install a JRE 21 distribution for your platform before installing `signal-cli`.
+The Homebrew formula currently ships bottled builds for both Apple Silicon and Intel macOS releases and pulls in the required `openjdk` dependency automatically.
+
+Verify the install:
+
+```bash
+signal-cli --version
+java --version
+```
+
+If Homebrew is not available, the upstream `signal-cli` README also documents a binary-release install flow. The same release tarballs work on macOS and Linux.
+
+### macOS via Homebrew
+
+This is the recommended path for local macOS testing and development.
+
+### 1. Install Homebrew if needed
+
+If Homebrew is not already installed, follow the standard install flow from [brew.sh](https://brew.sh).
+
+### 2. Install `signal-cli`
+
+```bash
+brew install signal-cli
+```
+
+### 3. Verify the CLI and Java runtime
+
+```bash
+signal-cli --version
+java --version
+which signal-cli
+```
+
+If `java --version` does not report a working Java 25 runtime after Homebrew finishes, fix that before moving on.
+
+### 4. Continue with account registration or linking
+
+Once `signal-cli --version` works, skip down to [Attach a Signal Account](#attach-a-signal-account).
+
+### Manual binary install fallback
+
+### 1. Install Java 25+
+
+Install a JRE 25 distribution for your platform before installing `signal-cli`.
 
 The official quickstart shows examples such as:
 
 ```bash
-sudo apt install openjdk-21-jre
+sudo apt install openjdk-25-jre
 ```
 
-On macOS, install any JRE 21 distribution you normally use, then continue with the binary release install below.
+On macOS, install any JRE 25 distribution you normally use, then continue with the binary release install below.
 
 ### 2. Download and extract the latest release
 

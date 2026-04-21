@@ -203,7 +203,7 @@ final class SetupWizard
         }
 
         $defaults = $existingConfig['agents']['defaults'] ?? [];
-        $currentImageModelConfig = is_array($defaults['imageModel'] ?? null) ? $defaults['imageModel'] : [];
+        $currentImageModelConfig = $this->extractExistingImageConfig($existingConfig);
 
         // --- Providers & Models ---
         if (in_array('providers', $selectedKeys, true)) {
@@ -357,9 +357,22 @@ final class SetupWizard
         }
 
         if ($imageModelConfig !== []) {
-            $config['agents']['defaults']['imageModel'] = $imageModelConfig;
+            $config['agents']['defaults']['model']['imageModel'] = $imageModelConfig['primary'] ?? null;
+            $config['agents']['defaults']['model']['imageFallbacks'] = $imageModelConfig['fallbacks'] ?? [];
+
+            $images = [
+                'providers' => $imageModelConfig['providers'] ?? [],
+            ];
+
+            if (isset($imageModelConfig['ownerName']) && is_string($imageModelConfig['ownerName']) && trim($imageModelConfig['ownerName']) !== '') {
+                $images['ownerName'] = trim($imageModelConfig['ownerName']);
+            }
+
+            $config['images'] = $images;
         } else {
-            unset($config['agents']['defaults']['imageModel']);
+            unset($config['agents']['defaults']['model']['imageModel']);
+            unset($config['agents']['defaults']['model']['imageFallbacks']);
+            unset($config['images']);
         }
 
         if ($mounts !== []) {
@@ -374,6 +387,39 @@ final class SetupWizard
         }
 
         return $config;
+    }
+
+    /**
+     * @param array<string, mixed> $existingConfig
+     * @return array<string, mixed>
+     */
+    private function extractExistingImageConfig(array $existingConfig): array
+    {
+        $modelDefaults = $existingConfig['agents']['defaults']['model'] ?? [];
+        $images = $existingConfig['images'] ?? [];
+
+        if (!is_array($modelDefaults)) {
+            $modelDefaults = [];
+        }
+
+        if (!is_array($images)) {
+            $images = [];
+        }
+
+        $config = [
+            'primary' => is_string($modelDefaults['imageModel'] ?? null) ? $modelDefaults['imageModel'] : null,
+            'fallbacks' => is_array($modelDefaults['imageFallbacks'] ?? null) ? $modelDefaults['imageFallbacks'] : [],
+            'providers' => is_array($images['providers'] ?? null) ? $images['providers'] : [],
+        ];
+
+        if (is_string($images['ownerName'] ?? null) && trim($images['ownerName']) !== '') {
+            $config['ownerName'] = trim($images['ownerName']);
+        }
+
+        return array_filter(
+            $config,
+            static fn(mixed $value): bool => $value !== null,
+        );
     }
 
     /**
@@ -429,13 +475,11 @@ final class SetupWizard
             $primary = $defaultPrimary;
         }
 
-        $openAiDefaults = is_array($defaults['vendors']['openai'] ?? null) ? $defaults['vendors']['openai'] : [];
-        $existingOpenAi = is_array($existingConfig['vendors']['openai'] ?? null) ? $existingConfig['vendors']['openai'] : [];
-        $openAiBaseUrl = is_string($this->configuredProviders['openai']['baseUrl'] ?? null) && $this->configuredProviders['openai']['baseUrl'] !== ''
-            ? $this->configuredProviders['openai']['baseUrl']
-            : ((is_string($existingOpenAi['baseUrl'] ?? null) && $existingOpenAi['baseUrl'] !== '')
-                ? $existingOpenAi['baseUrl']
-                : (is_string($openAiDefaults['baseUrl'] ?? null) ? $openAiDefaults['baseUrl'] : 'https://api.openai.com/v1'));
+        $openAiDefaults = is_array($defaults['providers']['openai'] ?? null) ? $defaults['providers']['openai'] : [];
+        $existingOpenAi = is_array($existingConfig['providers']['openai'] ?? null) ? $existingConfig['providers']['openai'] : [];
+        $openAiBaseUrl = (is_string($existingOpenAi['baseUrl'] ?? null) && $existingOpenAi['baseUrl'] !== '')
+            ? $existingOpenAi['baseUrl']
+            : (is_string($openAiDefaults['baseUrl'] ?? null) ? $openAiDefaults['baseUrl'] : 'https://api.openai.com/v1');
         $openAiSize = $this->choice(
             'OpenAI image size',
             ['1024x1024', '1792x1024', '1024x1792'],
@@ -451,13 +495,11 @@ final class SetupWizard
                 : (is_string($openAiDefaults['quality'] ?? null) ? $openAiDefaults['quality'] : 'standard'),
         );
 
-        $ollamaDefaults = is_array($defaults['vendors']['ollama'] ?? null) ? $defaults['vendors']['ollama'] : [];
-        $existingOllama = is_array($existingConfig['vendors']['ollama'] ?? null) ? $existingConfig['vendors']['ollama'] : [];
-        $ollamaBase = is_string($this->configuredProviders['ollama']['baseUrl'] ?? null) && $this->configuredProviders['ollama']['baseUrl'] !== ''
-            ? $this->configuredProviders['ollama']['baseUrl']
-            : ((is_string($existingOllama['host'] ?? null) && $existingOllama['host'] !== '')
-                ? $existingOllama['host']
-                : (is_string($ollamaDefaults['host'] ?? null) ? $ollamaDefaults['host'] : 'http://localhost:11434'));
+        $ollamaDefaults = is_array($defaults['providers']['ollama'] ?? null) ? $defaults['providers']['ollama'] : [];
+        $existingOllama = is_array($existingConfig['providers']['ollama'] ?? null) ? $existingConfig['providers']['ollama'] : [];
+        $ollamaBase = (is_string($existingOllama['baseUrl'] ?? null) && $existingOllama['baseUrl'] !== '')
+            ? $existingOllama['baseUrl']
+            : (is_string($ollamaDefaults['baseUrl'] ?? null) ? $ollamaDefaults['baseUrl'] : 'http://localhost:11434');
 
         $fallbacks = array_values(array_filter(
             array_keys($modelChoices),
@@ -467,7 +509,7 @@ final class SetupWizard
         $config = [
             'primary' => $primary,
             'fallbacks' => $fallbacks,
-            'vendors' => [
+            'providers' => [
                 'openai' => [
                     'model' => 'gpt-image-1.5',
                     'baseUrl' => $openAiBaseUrl,
@@ -480,7 +522,7 @@ final class SetupWizard
                         : (is_string($existingOllama['model'] ?? null) && $existingOllama['model'] !== ''
                             ? $existingOllama['model']
                             : (is_string($ollamaDefaults['model'] ?? null) ? $ollamaDefaults['model'] : 'jmorgan/z-image-turbo:fp8')),
-                    'host' => $this->normalizeOllamaHost($ollamaBase),
+                    'baseUrl' => $this->normalizeOllamaHost($ollamaBase),
                 ],
             ],
         ];
@@ -1390,14 +1432,15 @@ final class SetupWizard
         }
 
         if ($imageModelConfig !== []) {
-            $defaults['imageModel'] = $imageModelConfig;
+            $defaults['model']['imageModel'] = $imageModelConfig['primary'];
+            $defaults['model']['imageFallbacks'] = $imageModelConfig['fallbacks'] ?? [];
         }
 
         if ($mounts !== []) {
             $defaults['mounts'] = $mounts;
         }
 
-        return [
+        $config = [
             'agents' => [
                 'defaults' => $defaults,
             ],
@@ -1406,6 +1449,20 @@ final class SetupWizard
                 'providers' => $modelDefinitions,
             ],
         ];
+
+        if ($imageModelConfig !== []) {
+            $images = [
+                'providers' => $imageModelConfig['providers'] ?? [],
+            ];
+
+            if (isset($imageModelConfig['ownerName']) && is_string($imageModelConfig['ownerName']) && trim($imageModelConfig['ownerName']) !== '') {
+                $images['ownerName'] = trim($imageModelConfig['ownerName']);
+            }
+
+            $config['images'] = $images;
+        }
+
+        return $config;
     }
 
     private function normalizeOllamaHost(string $value): string

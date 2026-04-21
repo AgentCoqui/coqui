@@ -222,6 +222,76 @@ test('valid fallbacks pass', function () {
     expect($errors)->toBeEmpty();
 });
 
+test('valid image model config passes', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => [
+                    'primary' => 'openai/gpt-4o',
+                    'imageModel' => 'openai/gpt-image-1.5',
+                    'imageFallbacks' => [
+                        'ollama/x/z-image-turbo:latest',
+                    ],
+                ],
+            ],
+        ],
+        'images' => [
+            'providers' => [
+                'openai' => [
+                    'model' => 'gpt-image-1.5',
+                    'baseUrl' => 'https://api.openai.com/v1',
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->toBeEmpty();
+});
+
+test('invalid image model format fails validation', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => [
+                    'primary' => 'openai/gpt-4o',
+                    'imageModel' => 'gpt-image-1.5',
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->not->toBeEmpty();
+    expect(implode(' | ', $errors))->toContain('agents.defaults.model.imageModel');
+});
+
+test('invalid image provider baseUrl fails validation', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => [
+                    'primary' => 'openai/gpt-4o',
+                ],
+            ],
+        ],
+        'images' => [
+            'providers' => [
+                'ollama' => [
+                    'baseUrl' => 'not-a-url',
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->not->toBeEmpty();
+    expect(implode(' | ', $errors))->toContain('images.providers.ollama.baseUrl');
+});
+
 test('provider baseUrl must be valid URL', function () {
     $data = [
         'agents' => [
