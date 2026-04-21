@@ -35,14 +35,19 @@ final readonly class ToolkitHandler
      */
     public function list(ServerRequestInterface $request): Response
     {
+        $params = $request->getQueryParams();
+        $profile = isset($params['profile']) && trim((string) $params['profile']) !== ''
+            ? strtolower(trim((string) $params['profile']))
+            : null;
         $packages = $this->discovery->allWithVisibility();
 
         // Build token breakdown index by class FQCN
-        $preview = $this->agentRunner?->buildPromptPreview() ?? [
+        $preview = $this->agentRunner?->buildPromptPreview(profile: $profile) ?? [
             'toolkit_breakdown' => [],
             'prompt_tokens'     => 0,
             'tool_tokens'       => 0,
             'total_tokens'      => 0,
+            'profile_policy'    => null,
         ];
         $tokensByClass = [];
         foreach ($preview['toolkit_breakdown'] as $entry) {
@@ -84,6 +89,8 @@ final readonly class ToolkitHandler
         return Router::jsonResponse([
             'toolkits'      => $packages,
             'tools'         => $tools,
+            'profile'       => $profile,
+            'profile_policy'=> $preview['profile_policy'] ?? null,
             'prompt_tokens' => $preview['prompt_tokens'],
             'tool_tokens'   => $preview['tool_tokens'],
             'total_tokens'  => $preview['total_tokens'],

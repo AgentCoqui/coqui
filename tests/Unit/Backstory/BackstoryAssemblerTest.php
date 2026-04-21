@@ -37,6 +37,17 @@ test('generate creates backstory.md from text files', function () {
     expect($output)->toContain('Second content.');
 });
 
+test('generate uses custom heading label when provided', function () {
+    file_put_contents($this->backstoryDir . '/file1.txt', 'First content.');
+
+    $assembler = new BackstoryAssembler();
+    $assembler->generate($this->profilePath, 'Lore');
+
+    $output = file_get_contents($this->profilePath . '/backstory.md');
+    expect($output)->toContain('## Lore');
+    expect($output)->not->toContain('## Backstory');
+});
+
 test('generate creates manifest file', function () {
     file_put_contents($this->backstoryDir . '/file1.txt', 'Content.');
 

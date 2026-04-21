@@ -126,6 +126,38 @@ test('session handler create persists a valid profile', function () {
     }
 });
 
+test('session handler create rejects roles disallowed by the active profile', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+            'prompts' => [
+                'roles' => [
+                    'allow' => ['orchestrator'],
+                ],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/sessions',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'model_role' => 'analyst',
+                'profile' => 'caelum',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['error'])->toContain('does not allow role "analyst"');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
 test('session handler update rejects unknown role instead of silently resolving fallback model', function () {
     $fixture = createApiSessionHandlerFixture();
 
@@ -191,6 +223,40 @@ test('session handler update accepts clearing or setting a profile', function ()
         expect($clearResponse->getStatusCode())->toBe(200);
         expect($clearBody['profile'])->toBeNull();
         expect($clearBody['model'])->toBe('openai/gpt-4.1-mini');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler update rejects profile changes that would disallow the current role', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+            'prompts' => [
+                'roles' => [
+                    'allow' => ['orchestrator'],
+                ],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $sessionId = $fixture['storage']->createSession('analyst', 'openai/gpt-4.1-mini');
+        $request = new ServerRequest(
+            'PATCH',
+            '/api/v1/sessions/' . $sessionId,
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'profile' => 'caelum',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->update($request, $sessionId);
+        $body = json_decode((string) $response->getBody(), true);
+        $session = $fixture['storage']->getSession($sessionId);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['error'])->toContain('does not allow role "analyst"');
+        expect($session['profile'])->toBeNull();
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }

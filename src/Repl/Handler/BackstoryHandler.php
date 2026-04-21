@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Backstory\BackstoryAssembler;
 use CoquiBot\Coqui\Backstory\BackstoryInspectionService;
 use CoquiBot\Coqui\Backstory\BackstoryManifest;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Repl\RouteResult;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -190,7 +191,10 @@ final class BackstoryHandler
 
         $io->text(sprintf('Generating backstory for profile "%s"...', $activeProfile));
 
-        $result = $this->assembler->generate($profilePath);
+        $result = $this->assembler->generate(
+            $profilePath,
+            ProfilePreferences::fromProfilePath($profilePath)->getBackstoryLabel(),
+        );
 
         if ($result->totalFiles === 0) {
             $io->info('No source files found in backstory source folder.');

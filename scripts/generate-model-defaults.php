@@ -578,7 +578,7 @@ function providerRecoveryPolicies(): array
     return [
         'xai' => [
             'strategy' => 'keep-existing',
-            'note' => 'official curated xAI ids retained because OpenRouter mirror ids do not map 1:1',
+            'note' => 'official curated xAI ids retained because OpenRouter mirror ids like x-ai/grok-4.1-fast and x-ai/grok-4-fast do not map 1:1',
         ],
         'minimax' => [
             'strategy' => 'openrouter-mirror',

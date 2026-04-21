@@ -20,6 +20,7 @@ use CoquiBot\Coqui\Agent\CodeReviewCycle;
 use CoquiBot\Coqui\Agent\PlanTodoGenerator;
 use CoquiBot\Coqui\Agent\VisionAnalyzer;
 use CoquiBot\Coqui\Config\MountManager;
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleToolkitResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
@@ -93,7 +94,7 @@ final class SpawnAgentTool implements ToolInterface
 
     public function description(): string
     {
-        $roles = implode(', ', $this->roleResolver->selectableRoles());
+        $roles = implode(', ', $this->selectableRolesForProfile());
 
         return <<<DESC
             Spawn a specialized child agent to handle a specific task.
@@ -109,7 +110,7 @@ final class SpawnAgentTool implements ToolInterface
 
     public function parameters(): array
     {
-        $roles = $this->roleResolver->selectableRoles();
+        $roles = $this->selectableRolesForProfile();
 
         return [
             new EnumParameter(
@@ -139,6 +140,11 @@ final class SpawnAgentTool implements ToolInterface
 
         if ($role === '' || $task === '') {
             return ToolResult::error('Both role and task are required');
+        }
+
+        $preferences = $this->profilePreferences();
+        if ($preferences !== null && !$preferences->isRoleAllowed($role)) {
+            return ToolResult::error(sprintf('Profile "%s" does not allow role "%s".', $this->activeProfile, $role));
         }
 
         $handoff = ChildAgentHandoff::fromInput(
@@ -309,16 +315,18 @@ final class SpawnAgentTool implements ToolInterface
 
         // Artifact toolkit — share parent session's artifacts with child agents.
         // Non-full access levels get read-only artifact access (no delete).
-        if ($this->storage !== null && $this->sessionId !== null) {
+        if ($this->storage !== null && $this->sessionId !== null && $this->isFeatureEnabled('artifacts')) {
             $artifactStore = new ArtifactStore($this->storage->getPdo());
-            $todoStore = new TodoStore($this->storage->getPdo());
+            $todoStore = $this->isFeatureEnabled('todos') ? new TodoStore($this->storage->getPdo()) : null;
 
-            $planTodoGenerator = new PlanTodoGenerator(
-                roleResolver: $this->roleResolver,
-                config: $this->config,
-                todoStore: $todoStore,
-                roleDiscovery: $this->roleDiscovery,
-            );
+            $planTodoGenerator = $todoStore !== null
+                ? new PlanTodoGenerator(
+                    roleResolver: $this->roleResolver,
+                    config: $this->config,
+                    todoStore: $todoStore,
+                    roleDiscovery: $this->roleDiscovery,
+                )
+                : null;
 
             $toolkits[] = new ArtifactToolkit(
                 $artifactStore,
@@ -330,7 +338,7 @@ final class SpawnAgentTool implements ToolInterface
         }
 
         // Todo toolkit — session-scoped task tracking shared with child agents.
-        if ($this->storage !== null && $this->sessionId !== null) {
+        if ($this->storage !== null && $this->sessionId !== null && $this->isFeatureEnabled('todos')) {
             $todoStore ??= new TodoStore($this->storage->getPdo());
             $toolkits[] = new TodoToolkit(
                 $todoStore,
@@ -342,7 +350,7 @@ final class SpawnAgentTool implements ToolInterface
         }
 
         // Sprint toolkit — project/sprint management shared with child agents.
-        if ($this->projectStore !== null && $this->storage !== null) {
+        if ($this->projectStore !== null && $this->storage !== null && $this->isFeatureEnabled('projects')) {
             $todoStore ??= new TodoStore($this->storage->getPdo());
             $toolkits[] = new \CoquiBot\Coqui\Toolkit\SprintToolkit(
                 $this->projectStore,
@@ -408,6 +416,7 @@ final class SpawnAgentTool implements ToolInterface
             $accessLevel === 'full'
             && $this->storage !== null
             && $this->sessionId !== null
+            && $this->isFeatureEnabled('background_tasks')
             && $this->isChildBackgroundTasksEnabled()
         ) {
             $toolkits[] = new BackgroundTaskToolkit(
@@ -501,6 +510,31 @@ final class SpawnAgentTool implements ToolInterface
     }
 
     /**
+     * @return list<string>
+     */
+    private function selectableRolesForProfile(): array
+    {
+        $roles = array_values($this->roleResolver->selectableRoles());
+        $preferences = $this->profilePreferences();
+
+        return $preferences?->filterAllowedRoles($roles) ?? $roles;
+    }
+
+    private function isFeatureEnabled(string $feature, bool $default = true): bool
+    {
+        return $this->profilePreferences()?->isFeatureEnabled($feature, $default) ?? $default;
+    }
+
+    private function profilePreferences(): ?ProfilePreferences
+    {
+        if ($this->activeProfilePath === null) {
+            return null;
+        }
+
+        return ProfilePreferences::fromProfilePath($this->activeProfilePath);
+    }
+
+    /**
      * Determine if the role should receive automated code review.
      */
     private function shouldAutoReview(string $role): bool
@@ -572,7 +606,7 @@ final class SpawnAgentTool implements ToolInterface
 
     public function toFunctionSchema(): array
     {
-        $roles = $this->roleResolver->availableRoles();
+        $roles = $this->selectableRolesForProfile();
 
         return [
             'type' => 'function',

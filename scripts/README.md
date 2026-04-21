@@ -91,7 +91,7 @@ php scripts/generate-model-defaults.php --write --env-file ~/.coqui/.workspace/.
 5. Removes stale curated entries for a provider when that provider no longer returns them
 6. Writes a JSON report to `BUILD/reports/model-defaults-report.json` by default, including added, removed, and heuristic-only models per provider
 7. Supports optional generator-only Ollama discovery across multiple endpoints without changing runtime provider selection or `openclaw.json`
-8. Applies provider-specific recovery rules when direct discovery is empty: xAI keeps its official curated catalog, while MiniMax can be reconstructed from OpenRouter mirror entries
+8. Applies provider-specific recovery rules when direct discovery is empty: xAI keeps its official curated catalog because OpenRouter aliases like `x-ai/grok-4.1-fast` and `x-ai/grok-4-fast` do not map cleanly to direct xAI ids, while MiniMax can be reconstructed from OpenRouter mirror entries
 
 ### Build Integration
 

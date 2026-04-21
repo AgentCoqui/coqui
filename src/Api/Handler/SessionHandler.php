@@ -6,8 +6,10 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
@@ -87,6 +89,13 @@ final readonly class SessionHandler
             $session = $this->storage->getSession($sessionId);
 
             if ($session !== null) {
+                $effectiveRole = $this->normalizeRoleForProfile((string) $session['model_role'], $profile);
+                if ($effectiveRole !== (string) $session['model_role']) {
+                    $effectiveModel = $this->roleResolver->resolve($effectiveRole, $profile);
+                    $this->storage->updateSessionRole($sessionId, $effectiveRole, $effectiveModel);
+                    $session = $this->storage->getSession($sessionId) ?? $session;
+                }
+
                 return Router::jsonResponse([
                     'id' => $session['id'],
                     'model_role' => $session['model_role'],
@@ -155,7 +164,7 @@ final readonly class SessionHandler
                 return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'model_role cannot be empty');
             }
 
-             if (!$this->roleResolver->hasRole($role)) {
+            if (!$this->roleResolver->hasRole($role)) {
                 return Router::errorResponse(
                     ApiErrorCode::VALIDATION_ERROR,
                     sprintf('Unknown role "%s". Use GET /api/v1/config/roles to see available roles.', $role),
@@ -177,10 +186,18 @@ final readonly class SessionHandler
             }
 
             $resolvedProfile = $profile !== '' ? $profile : null;
-            $this->storage->updateSessionProfile($id, $resolvedProfile);
         }
 
         $resolvedRole = (string) ($session['model_role'] ?? 'orchestrator');
+        $roleError = $this->validateProfileRole($resolvedProfile, $resolvedRole);
+        if ($roleError instanceof Response) {
+            return $roleError;
+        }
+
+        if (array_key_exists('profile', $body)) {
+            $this->storage->updateSessionProfile($id, $resolvedProfile);
+        }
+
         $resolvedModel = $this->roleResolver->resolve($resolvedRole, $resolvedProfile);
         $this->storage->updateSessionRole($id, $resolvedRole, $resolvedModel);
 
@@ -266,7 +283,44 @@ final readonly class SessionHandler
             ];
         }
 
+        $roleError = $this->validateProfileRole($profile, $modelRole);
+        if ($roleError instanceof Response) {
+            return [$modelRole, $profile, $roleError];
+        }
+
         return [$modelRole, $profile, null];
+    }
+
+    private function validateProfileRole(?string $profile, string $role): ?Response
+    {
+        $preferences = $this->loadProfilePreferences($profile);
+        if ($preferences === null || $preferences->isRoleAllowed($role)) {
+            return null;
+        }
+
+        return Router::errorResponse(
+            ApiErrorCode::VALIDATION_ERROR,
+            sprintf('Profile "%s" does not allow role "%s".', $profile, $role),
+        );
+    }
+
+    private function normalizeRoleForProfile(string $role, ?string $profile): string
+    {
+        $preferences = $this->loadProfilePreferences($profile);
+        if ($preferences === null || $preferences->isRoleAllowed($role)) {
+            return $role;
+        }
+
+        return SystemRole::Orchestrator->value;
+    }
+
+    private function loadProfilePreferences(?string $profile): ?ProfilePreferences
+    {
+        if ($profile === null || !$this->profileDiscovery->profileExists($profile)) {
+            return null;
+        }
+
+        return ProfilePreferences::fromProfilePath($this->profileDiscovery->getProfilePath($profile));
     }
 
     private function normalizeProfileValue(mixed $value): ?string

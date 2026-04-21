@@ -37,6 +37,7 @@ final readonly class PromptInspectionService
             'toolkit_breakdown' => $preview['toolkit_breakdown'],
             'budget' => $budget,
             'prompt_sources' => $this->buildPromptSources($promptSections),
+            'profile_policy' => $preview['profile_policy'] ?? null,
         ];
     }
 

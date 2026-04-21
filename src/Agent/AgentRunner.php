@@ -645,7 +645,7 @@ final class AgentRunner
      *
      * Used by the /prompt REPL command and GET /api/v1/server/prompt endpoint.
      *
-     * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, applied_loading_modes: array<string, ToolkitLoadingMode>, budget_snapshot: array<string, mixed>}
+    * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, applied_loading_modes: array<string, ToolkitLoadingMode>, budget_snapshot: array<string, mixed>, profile_policy: array<string, mixed>|null}
      */
     public function buildPromptPreview(?string $role = null, ?string $profile = null): array
     {
@@ -662,6 +662,7 @@ final class AgentRunner
             'tool_schemas' => $preview['tool_schemas'],
             'applied_loading_modes' => $preview['agent']->getAppliedLoadingModes(),
             'budget_snapshot' => $preview['snapshot']->toArray(),
+            'profile_policy' => $preview['agent']->getProfilePolicySummary(),
         ];
     }
 

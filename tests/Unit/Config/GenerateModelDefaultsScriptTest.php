@@ -80,7 +80,26 @@ test('recoverProviderCatalog keeps existing curated xai models when direct disco
         ],
     ];
 
-    $recovery = recoverProviderCatalog('xai', ['providers' => []], $existingCurated);
+    $recovery = recoverProviderCatalog('xai', [
+        'providers' => [
+            'openrouter' => [
+                'curatedModels' => [
+                    [
+                        'id' => 'x-ai/grok-4.1-fast',
+                        'name' => 'xAI: Grok 4.1 Fast',
+                        'contextWindow' => 2000000,
+                        'maxTokens' => 16384,
+                    ],
+                    [
+                        'id' => 'x-ai/grok-4-fast',
+                        'name' => 'xAI: Grok 4 Fast',
+                        'contextWindow' => 2000000,
+                        'maxTokens' => 16384,
+                    ],
+                ],
+            ],
+        ],
+    ], $existingCurated);
 
     Assert::assertIsArray($recovery);
     Assert::assertSame('existing-curated', $recovery['source']);
