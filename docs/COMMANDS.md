@@ -95,6 +95,8 @@ Toolkit commands now use the same shared help formatting conventions as the buil
 
 When the resolved model is an Ollama image model that is not installed locally, Coqui now asks for confirmation before running `ollama pull` and shows a controlled download status instead of dumping the raw pull stream into the REPL.
 
+In the interactive REPL, Coqui now auto-renders one low-fidelity ANSI image preview per turn when a successful tool result returns a workspace-local image path, such as a `browser_capture` screenshot or an image-toolkit output. Streamed assistant markdown also previews one workspace-local markdown image per response. This v1 behavior is intentionally narrow: local workspace files only, first preview only, and graceful fallback when `ext-gd` is unavailable.
+
 ### Background Tasks
 
 | Command | Description |

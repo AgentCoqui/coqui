@@ -5,6 +5,7 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\BackgroundTaskSummary;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
+use CoquiBot\Coqui\Support\ImagePreviewService;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -16,6 +17,18 @@ function createBufferedIo(): array
     $output = new BufferedOutput();
     $io = new SymfonyStyle($input, $output);
     return [$io, $output];
+}
+
+function createRendererImagePreviewService(string $workspace): ImagePreviewService
+{
+    return new ImagePreviewService(
+        $workspace,
+        static fn(string $path, int $width): array => [
+            'preview' => 'PREVIEW:' . basename($path) . ':' . $width,
+            'preview_format' => 'ansi_blocks',
+            'unavailable_reason' => null,
+        ],
+    );
 }
 
 function createResult(
@@ -207,4 +220,39 @@ test('AgentTurnResult toArray returns null background_tasks when absent', functi
 
     expect($array)->toHaveKey('background_tasks');
     expect($array['background_tasks'])->toBeNull();
+});
+
+test('renders local markdown image previews when content was not streamed', function () {
+    [$io, $output] = createBufferedIo();
+    $workspace = sys_get_temp_dir() . '/coqui-terminal-renderer-preview-' . bin2hex(random_bytes(8));
+    $imagePath = $workspace . '/images/example.png';
+
+    mkdir(dirname($imagePath), 0755, true);
+    file_put_contents($imagePath, 'fixture');
+
+    try {
+        $result = new AgentTurnResult(
+            content: '![Rendered](images/example.png)',
+            iterations: 1,
+            promptTokens: 0,
+            completionTokens: 0,
+            totalTokens: 0,
+            durationMs: 0,
+            toolsUsed: [],
+            childAgentCount: 0,
+            restartRequested: false,
+        );
+
+        $renderer = new TerminalRenderer($io, imagePreviewService: createRendererImagePreviewService($workspace));
+        $renderer->render($result, contentStreamed: false);
+
+        $text = $output->fetch();
+        $plain = preg_replace('/\e\[[\d;]*m/', '', $text) ?? $text;
+
+        expect($plain)->toContain('Assistant:')
+            ->and($plain)->toContain('[image preview: Rendered]')
+            ->and($plain)->toContain('PREVIEW:example.png:40');
+    } finally {
+        cleanupTestTree($workspace);
+    }
 });

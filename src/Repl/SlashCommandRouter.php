@@ -27,6 +27,8 @@ use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
+use CoquiBot\Coqui\Support\ImagePreviewService;
+use CoquiBot\Coqui\Support\ImagePreviewState;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use CoquiBot\Coqui\Support\ToolkitDatabaseFactory;
 use CoquiBot\Coqui\Contract\SystemRole;
@@ -73,6 +75,7 @@ final class SlashCommandRouter
         private readonly PromptInspectionService $promptInspection,
         private readonly OutputInterface $output,
         private readonly string $workspacePath,
+        private readonly ?ImagePreviewService $imagePreviewService,
         private readonly \Closure $onHintsToggle,
         private readonly \Closure $onMultilineToggle,
         array $toolkitCommandHandlers = [],
@@ -277,7 +280,7 @@ final class SlashCommandRouter
 
         $preview = $this->promptInspection->inspect($role, $activeProfile);
         $io->section('System Prompt');
-        $io->write(MarkdownRenderer::render($preview['prompt']));
+        $this->renderMarkdown($io, $preview['prompt']);
         $io->newLine();
         $io->text([
             '<fg=gray>Tool count:</> ' . $preview['tool_count'],
@@ -516,6 +519,15 @@ final class SlashCommandRouter
 
         $io->text('<fg=gray>Advanced automation commands remain available, but they are intended for operator workflows, monitoring, or agent-assisted orchestration rather than routine chat interaction.</>');
         return RouteResult::continue();
+    }
+
+    private function renderMarkdown(SymfonyStyle $io, string $markdown): void
+    {
+        $io->write(MarkdownRenderer::render(
+            $markdown,
+            $this->imagePreviewService,
+            new ImagePreviewState(),
+        ));
     }
 
     /**

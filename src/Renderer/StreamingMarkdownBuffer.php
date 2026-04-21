@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Renderer;
 
 use Closure;
+use CoquiBot\Coqui\Support\ImagePreviewService;
+use CoquiBot\Coqui\Support\ImagePreviewState;
 
 /**
  * Line-buffered streaming markdown renderer.
@@ -28,6 +30,8 @@ final class StreamingMarkdownBuffer
      */
     public function __construct(
         private readonly Closure $writer,
+        private readonly ?ImagePreviewService $imagePreviewService = null,
+        private readonly ?ImagePreviewState $imagePreviewState = null,
     ) {}
 
     /**
@@ -57,7 +61,7 @@ final class StreamingMarkdownBuffer
             return;
         }
 
-        $rendered = MarkdownRenderer::render($markdown);
+        $rendered = MarkdownRenderer::render($markdown, $this->imagePreviewService, $this->imagePreviewState);
         ($this->writer)($rendered);
         $this->reset();
     }
@@ -140,7 +144,7 @@ final class StreamingMarkdownBuffer
         }
 
         $markdown = implode("\n", $lines) . "\n";
-        $rendered = MarkdownRenderer::render($markdown);
+        $rendered = MarkdownRenderer::render($markdown, $this->imagePreviewService, $this->imagePreviewState);
         ($this->writer)($rendered);
     }
 

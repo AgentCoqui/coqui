@@ -4,6 +4,20 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Renderer\StreamingMarkdownBuffer;
+use CoquiBot\Coqui\Support\ImagePreviewService;
+use CoquiBot\Coqui\Support\ImagePreviewState;
+
+function makeMarkdownPreviewService(string $workspace): ImagePreviewService
+{
+    return new ImagePreviewService(
+        $workspace,
+        static fn(string $path, int $width): array => [
+            'preview' => 'PREVIEW:' . basename($path) . ':' . $width,
+            'preview_format' => 'ansi_blocks',
+            'unavailable_reason' => null,
+        ],
+    );
+}
 
 // ─── MarkdownRenderer static render tests ───
 
@@ -142,6 +156,28 @@ test('returns plain text for non-markdown input', function () {
     expect($result)->toContain('Just plain text.');
 });
 
+test('renders local markdown image previews when a preview service is provided', function () {
+    $workspace = sys_get_temp_dir() . '/coqui-markdown-image-preview-' . bin2hex(random_bytes(8));
+    $imagePath = $workspace . '/images/example.png';
+
+    mkdir(dirname($imagePath), 0755, true);
+    file_put_contents($imagePath, 'fixture');
+
+    try {
+        $result = MarkdownRenderer::render(
+            '![Example](images/example.png)',
+            makeMarkdownPreviewService($workspace),
+            new ImagePreviewState(),
+        );
+        $plain = preg_replace('/\e\[[\d;]*m/', '', $result) ?? $result;
+
+        expect($plain)->toContain('[image preview: Example]')
+            ->and($plain)->toContain('PREVIEW:example.png:40');
+    } finally {
+        cleanupTestTree($workspace);
+    }
+});
+
 // ─── StreamingMarkdownBuffer tests ───
 
 test('streaming buffer accumulates and flushes on blank line', function () {
@@ -243,4 +279,37 @@ test('streaming buffer reset clears state', function () {
 
     expect($output)->toContain('Fresh start');
     expect($output)->not->toContain('code');
+});
+
+test('streaming buffer only renders the first markdown image preview across flushes', function () {
+    $workspace = sys_get_temp_dir() . '/coqui-streaming-markdown-image-preview-' . bin2hex(random_bytes(8));
+    $firstPath = $workspace . '/images/first.png';
+    $secondPath = $workspace . '/images/second.png';
+
+    mkdir(dirname($firstPath), 0755, true);
+    file_put_contents($firstPath, 'fixture');
+    file_put_contents($secondPath, 'fixture');
+
+    try {
+        $output = '';
+        $buffer = new StreamingMarkdownBuffer(
+            function (string $rendered) use (&$output): void {
+                $output .= $rendered;
+            },
+            makeMarkdownPreviewService($workspace),
+            new ImagePreviewState(),
+        );
+
+        $buffer->feed("![First](images/first.png)\n\n");
+        $buffer->feed("![Second](images/second.png)\n\n");
+        $buffer->flush();
+
+        $plain = preg_replace('/\e\[[\d;]*m/', '', $output) ?? $output;
+
+        expect(substr_count($plain, 'PREVIEW:'))->toBe(1)
+            ->and($plain)->toContain('[image preview: First]')
+            ->and($plain)->toContain('[image: Second]');
+    } finally {
+        cleanupTestTree($workspace);
+    }
 });

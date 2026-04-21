@@ -218,7 +218,7 @@
             "path": "src/Repl/SlashCommandRouter.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\SlashCommandRouter",
             "layer": "command",
-            "description": "Routes REPL slash commands to the appropriate handler class. Help output is generated from ReplCommandCatalog so the compact /help surface stays aligned with tab completion and routed commands. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, the new /channels operator controls, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
+            "description": "Routes REPL slash commands to the appropriate handler class. Help output is generated from ReplCommandCatalog so the compact /help surface stays aligned with tab completion and routed commands. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, the new /channels operator controls, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Prompt-oriented slash-command markdown surfaces now render through the same workspace-local image preview context used by the interactive REPL so commands like /prompt can show one inline ANSI image preview when the rendered markdown references a local image. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
             "methods": [
                 "route(string, string, string, SymfonyStyle): RouteResult — dispatches a slash command string to the matching handler"
             ]
@@ -1663,7 +1663,7 @@
             "path": "src/Observer/TerminalObserver.php",
             "fqcn": "CoquiBot\\Coqui\\Observer\\TerminalObserver",
             "layer": "observer",
-            "description": "SplObserver implementation that streams agent events to the terminal. Handles events: agent.start, agent.iteration, agent.tool_call, agent.tool_result, agent.done, agent.error, child.start, child.end. Manages indent level for nested child agent output.",
+            "description": "SplObserver implementation that streams agent events to the terminal. Handles events: agent.start, agent.iteration, agent.tool_call, agent.tool_result, agent.done, agent.error, child.start, child.end. Manages indent level for nested child agent output, auto-renders one workspace-local ANSI image preview per turn for successful image-bearing tool results, and shares the preview limit with streamed markdown rendering.",
             "methods": [
                 "update(SplSubject $subject): void — dispatches agent events to terminal rendering",
                 "handleEvent(string $event, mixed $data): void — direct event handling for child spawn notifications"
@@ -1711,10 +1711,31 @@
             ]
         },
         {
+            "path": "src/Renderer/MarkdownRenderer.php",
+            "fqcn": "CoquiBot\\Coqui\\Renderer\\MarkdownRenderer",
+            "layer": "observer",
+            "description": "Static ANSI markdown converter used by REPL rendering paths. Wraps a cached League CommonMark converter with Coqui's ANSI renderer extension and now supports an optional per-render workspace-local image preview context so markdown image nodes can emit one inline ANSI block preview when the REPL provides a preview service and preview state.",
+            "methods": [
+                "static render(string, ?ImagePreviewService, ?ImagePreviewState): string — convert markdown to ANSI text with optional local-image preview context",
+                "static renderLocalImagePreview(string, string): ?string — render one workspace-local markdown image preview within the current render context"
+            ]
+        },
+        {
+            "path": "src/Renderer/StreamingMarkdownBuffer.php",
+            "fqcn": "CoquiBot\\Coqui\\Renderer\\StreamingMarkdownBuffer",
+            "layer": "observer",
+            "description": "Line-buffered streaming markdown renderer for the interactive REPL. Buffers streamed deltas until safe markdown flush points, preserves fenced-code correctness across chunk boundaries, and now accepts an optional image-preview service plus shared preview state so streamed assistant markdown can render at most one local ANSI image preview per response.",
+            "methods": [
+                "feed(string): void — append a streamed delta and flush completed markdown blocks when possible",
+                "flush(): void — render any remaining buffered markdown at end of stream",
+                "reset(): void — clear buffered markdown and fence tracking for the next stream"
+            ]
+        },
+        {
             "path": "src/Renderer/TerminalRenderer.php",
             "fqcn": "CoquiBot\\Coqui\\Renderer\\TerminalRenderer",
             "layer": "observer",
-            "description": "OutputRendererInterface implementation that renders AgentTurnResult to SymfonyStyle terminal output. Shows content, stats summary (iterations, tokens, tools), and context usage progress bar. Respects hints toggle for legend visibility.",
+            "description": "OutputRendererInterface implementation that renders AgentTurnResult to SymfonyStyle terminal output. Shows content, stats summary (iterations, tokens, tools), and context usage progress bar. When the full assistant body is rendered after the turn instead of streamed live, it now uses the same workspace-local markdown image preview context as the interactive observer path so one local markdown image can render inline as an ANSI block preview. Respects hints toggle for legend visibility.",
             "methods": [
                 "render(AgentTurnResult $result): void",
                 "renderError(string $message): void"
@@ -3333,6 +3354,28 @@
             "description": "Centralized application version resolver. Prefers the COQUI_VERSION environment override, then an injected config/version.txt artifact used by release archives and Docker images, then an exact git tag on source checkouts, and finally falls back to dev. Used by the CLI and API version surfaces so runtime reporting stays consistent without manual composer.json version bumps.",
             "methods": [
                 "static current(?string): string — resolve the current application version from environment, injected file, exact git tag, or dev fallback"
+            ]
+        },
+        {
+            "path": "src/Support/ImagePreviewState.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\ImagePreviewState",
+            "layer": "support",
+            "description": "Tiny mutable state object that enforces the interactive REPL's one-image-preview limit. Shared between tool-result rendering and streamed markdown rendering so a turn can render at most one automatic ANSI image preview unless the state is reset at the next agent.start event.",
+            "methods": [
+                "reset(): void — clear the consumed flag for a new turn or render cycle",
+                "hasRenderedPreview(): bool — whether the current turn already emitted an automatic preview",
+                "consume(): bool — mark the preview slot as used, returning false if it was already consumed"
+            ]
+        },
+        {
+            "path": "src/Support/ImagePreviewService.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\ImagePreviewService",
+            "layer": "support",
+            "description": "Workspace-local image preview facade for the interactive REPL. Resolves relative or file:// image paths inside the active workspace, blocks sandbox escapes, delegates the actual ANSI block rendering to the existing image preview formatter implementation, and returns structured preview payloads that can be reused by tool-result and markdown rendering paths.",
+            "methods": [
+                "canPreviewPath(mixed): bool — detect local image-like paths with supported extensions",
+                "resolvePath(string): string — canonicalize a local image path and enforce workspace boundaries",
+                "preview(string, int): array — resolve a local image path and return structured ANSI preview data"
             ]
         },
         {

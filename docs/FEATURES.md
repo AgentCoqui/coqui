@@ -207,6 +207,8 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 **How to use it:** Provide an image URL or file path and ask Coqui to analyze it. The `vision_analyze` tool handles downloading, encoding, and sending to the vision model. Configure the vision model via `agents.defaults.roles.vision` in `openclaw.json`.
 
+In the interactive REPL, successful screenshot-producing tools can now render one automatic ANSI block preview per turn when they return a workspace-local image path. Streamed assistant markdown can also render one workspace-local markdown image preview per response. The current scope is intentionally local-first: no remote image fetching, no bulk preview dumps, and graceful fallback when `ext-gd` is unavailable.
+
 ## <a id="session-evaluation"></a> 📊 Session Evaluation
 
 **What it does:** An autonomous evaluator agent reviews completed sessions and grades them on three criteria: completion (40%), hallucination absence (40%), and tool efficiency (20%). Produces structured reports with A-F grades.
