@@ -6,7 +6,7 @@ Utility scripts for development and maintenance of the Coqui project.
 
 Mirrors the GitHub Actions CI pipeline locally. Runs Pest tests and PHPStan static analysis in sequence, exiting on the first failure.
 
-### Direct Usage
+### CI Direct Usage
 
 ```bash
 # Run tests + PHPStan (vendor/ must already exist)
@@ -19,7 +19,7 @@ Mirrors the GitHub Actions CI pipeline locally. Runs Pest tests and PHPStan stat
 ./scripts/ci-test.sh --coverage
 ```
 
-### What it does
+### CI Behavior
 
 1. Checks PHP version (8.4+ required) and verifies required extensions (`pdo_sqlite`, `mbstring`, `curl`, `xml`)
 2. Warns about optional extensions (`pcntl`, `zip`) if missing
@@ -55,3 +55,41 @@ COQUI_TEST_COVERAGE_DRIVER=xdebug php scripts/test-coverage.php
 - `COQUI_TEST_COVERAGE_DRIVER` defaults to `auto`, preferring `pcov` before `xdebug`.
 
 See [docs/TESTING.md](../docs/TESTING.md) for local test and coverage setup, and [docs/GITHUB-ACTIONS.md](../docs/GITHUB-ACTIONS.md) for CI workflow details.
+
+## generate-model-defaults.php
+
+Refreshes provider-backed `curatedModels` snapshots in [config/defaults.json](../config/defaults.json) by calling live provider discovery through the shared php-agents provider layer.
+
+### Generator Direct Usage
+
+```bash
+# Dry run with automatic workspace .env loading
+php scripts/generate-model-defaults.php
+
+# Refresh only OpenAI and write results back
+php scripts/generate-model-defaults.php --provider=openai --write
+
+# Write a report artifact to a custom path
+php scripts/generate-model-defaults.php --write --report BUILD/reports/model-defaults-report.json
+
+# Use an explicit .env file
+php scripts/generate-model-defaults.php --write --env-file ~/.coqui/.workspace/.env
+```
+
+### Generator Behavior
+
+1. Loads provider credentials from the current process environment, then from a supplied `.env` file or the default workspace `.env`
+2. Calls live provider discovery through php-agents instead of maintaining separate provider clients in Coqui
+3. Rewrites discovered provider catalogs in `config/defaults.json`
+4. Preserves manual-only fields like `recommended`, `cost`, and other non-generated metadata when model IDs still match
+5. Removes stale curated entries for a provider when that provider no longer returns them
+6. Writes a JSON report to `BUILD/reports/model-defaults-report.json` by default, including added, removed, and heuristic-only models per provider
+
+### Build Integration
+
+```bash
+# Refresh model defaults before packaging a release
+./scripts/build.sh --refresh-model-defaults
+```
+
+This step is opt-in so offline builds and release packaging without provider keys remain possible.

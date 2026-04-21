@@ -671,6 +671,9 @@ final class OrchestratorAgent extends AbstractAgent
             $this->configTool = new ConfigTool(
                 configManager: $configManager,
                 configGuard: $configGuard ?? new ConfigGuard(),
+                defaultsLoader: $this->defaultsLoader,
+                familyResolver: $this->familyResolver,
+                providerFactory: $sharedFactory,
             );
         }
 
