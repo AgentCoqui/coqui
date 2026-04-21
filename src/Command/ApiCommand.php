@@ -68,6 +68,7 @@ use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\Coqui\Support\PromptInspectionService;
+use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
 use React\EventLoop\Loop;
 use React\Http\HttpServer;
 use React\Http\Middleware\LimitConcurrentRequestsMiddleware;
@@ -326,7 +327,16 @@ final class ApiCommand extends Command
         );
 
         $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $channelManager, $qualityStatus);
-        $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->profileDiscovery());
+        $profileSessionLifecycle = new ProfileSessionLifecycleManager(
+            storage: $storage,
+            providerFactory: $boot->providerFactory(),
+            roleResolver: $boot->roleResolver(),
+            memoryStore: $boot->memoryStore(),
+            todoStore: $boot->todoStore(),
+            artifactStore: $boot->artifactStore(),
+        );
+
+        $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->profileDiscovery(), $profileSessionLifecycle);
         $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler(

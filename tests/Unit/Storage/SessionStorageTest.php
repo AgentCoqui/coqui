@@ -439,6 +439,40 @@ test('summary message is not filtered after soft-delete', function () {
     expect($conversation->count())->toBe(2);
 });
 
+test('listSessions hides closed sessions by default', function () {
+    $openSessionId = $this->storage->createSession('orchestrator', 'model-open');
+    $closedSessionId = $this->storage->createSession('orchestrator', 'model-closed');
+
+    $this->storage->closeSession($closedSessionId, 'test-close');
+
+    $activeSessions = $this->storage->listSessions();
+    $allSessions = $this->storage->listSessions(50, true, false);
+
+    expect(array_column($activeSessions, 'id'))->toContain($openSessionId);
+    expect(array_column($activeSessions, 'id'))->not->toContain($closedSessionId);
+    expect(array_column($allSessions, 'id'))->toContain($closedSessionId);
+});
+
+test('getLatestInteractiveSessionIdForProfile ignores closed sessions', function () {
+    $closedSessionId = $this->storage->createSession('orchestrator', 'model-closed', 'caelum');
+    $activeSessionId = $this->storage->createSession('orchestrator', 'model-active', 'caelum');
+
+    $this->storage->closeSession($closedSessionId, 'test-close');
+
+    expect($this->storage->getLatestInteractiveSessionIdForProfile('caelum'))->toBe($activeSessionId);
+});
+
+test('isSessionWritable returns false once a session is closed', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+
+    expect($this->storage->isSessionWritable($sessionId))->toBeTrue();
+
+    $this->storage->closeSession($sessionId, 'test-close');
+
+    expect($this->storage->isSessionWritable($sessionId))->toBeFalse();
+    expect($this->storage->isSessionClosed($sessionId))->toBeTrue();
+});
+
 // ─── Background Task Summary ────────────────────────────────────────────────
 
 test('getActiveBackgroundSummary returns running and pending tasks', function () {

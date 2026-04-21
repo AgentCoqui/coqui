@@ -175,8 +175,10 @@ The `code` field is a stable machine-readable string that clients can branch on 
 | `invalid_format` | 400 | Field value has wrong format |
 | `conflict` | 409 | Resource already exists |
 | `agent_busy` | 409 | Session already has an active agent run |
+| `profile_session_active` | 409 | A profiled session is already active and the client must confirm closure before creating or reassigning a fresh one |
 | `role_builtin` | 409 | Cannot modify a built-in role |
 | `role_reserved` | 409 | Cannot create a role with a reserved name |
+| `session_closed` | 409 | Session is closed and cannot accept new messages |
 | `unauthorized` | 401 | Missing or invalid API key |
 | `forbidden` | 403 | Access denied |
 | `rate_limited` | 429 | Too many requests |
@@ -268,6 +270,8 @@ Liveness check. Does **not** require authentication.
 
 A session is a persistent conversation context. Messages and turns are scoped to a session.
 
+Profile-scoped sessions enforce a single active interactive conversation per profile. `POST /api/v1/sessions/resolve` keeps the newest active profiled session and archives/closes older duplicates automatically. `POST /api/v1/sessions` remains the fresh-conversation endpoint, but when a profiled session is already active it returns `409 profile_session_active` until the client explicitly confirms closure of that active profiled session.
+
 #### `GET /api/v1/sessions`
 
 List sessions, ordered by most recently updated.
@@ -277,6 +281,7 @@ List sessions, ordered by most recently updated.
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `limit` | int | `50` | Max sessions to return (capped at 200) |
+| `include_closed` | bool | `false` | Include closed and archived sessions in the result set |
 
 **Response `200`**
 
@@ -288,6 +293,11 @@ List sessions, ordered by most recently updated.
       "model_role": "orchestrator",
       "model": "openai/gpt-5",
       "active_project_id": null,
+      "is_closed": 0,
+      "is_archived": 0,
+      "closed_at": null,
+      "archived_at": null,
+      "closure_reason": null,
       "created_at": "2026-02-16T14:30:00+00:00",
       "updated_at": "2026-02-16T15:45:12+00:00",
       "token_count": 12450
@@ -308,7 +318,8 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
 ```json
 {
   "model_role": "orchestrator",
-  "profile": "caelum"
+  "profile": "caelum",
+  "confirm_close_active_profile_session": true
 }
 ```
 
@@ -316,6 +327,7 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
 |-------|------|----------|---------|-------------|
 | `model_role` | string | No | `"orchestrator"` | Role to resolve the model from config. Must be a known role. |
 | `profile` | string | No | `null` | Personality profile name. Must match a `profiles/{name}/soul.md` in the workspace. |
+| `confirm_close_active_profile_session` | bool | No | `false` | Required when `profile` already has an active interactive session and the client explicitly wants to close/archive it before starting a fresh one |
 
 **Response `201`**
 
@@ -326,6 +338,21 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
   "model": "openai/gpt-5",
   "profile": "caelum",
   "active_project_id": null
+}
+```
+
+**Response `409`** — active profiled session must be confirmed first:
+
+```json
+{
+  "error": "Profile \"caelum\" already has an active session. Confirm closure before starting or reassigning a fresh session.",
+  "code": "profile_session_active",
+  "details": {
+    "profile": "caelum",
+    "active_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "active_session_count": 1,
+    "confirm_field": "confirm_close_active_profile_session"
+  }
 }
 ```
 
@@ -347,6 +374,7 @@ This mirrors REPL startup behavior:
 - Omit `profile` to target the unprofiled interactive session pool.
 - Pass `profile` to target a profile-specific interactive session pool.
 - Background-task sessions are excluded from reuse.
+- If multiple active interactive sessions exist for the same profile, Coqui keeps the newest one and archives/closes the older duplicates before responding.
 
 **Request Body**
 
@@ -399,6 +427,12 @@ Get session details.
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
+  "profile": "caelum",
+  "is_closed": 0,
+  "is_archived": 0,
+  "closed_at": null,
+  "archived_at": null,
+  "closure_reason": null,
   "active_project_id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "created_at": "2026-02-16T14:30:00+00:00",
   "updated_at": "2026-02-16T15:45:12+00:00",
@@ -417,19 +451,24 @@ Get session details.
 
 #### `PATCH /api/v1/sessions/{id}`
 
-Update session metadata. Currently supports renaming the session title.
+Update session metadata. Supports renaming the title, updating the role, and changing the profile scope.
 
 **Request Body**
 
 ```json
 {
-  "title": "My refactoring session"
+  "title": "My refactoring session",
+  "profile": "caelum",
+  "confirm_close_active_profile_session": true
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `title` | string | No | New session title (cannot be empty) |
+| `model_role` | string | No | Update the stored role and re-resolve the model |
+| `profile` | string | No | Set or clear the session profile (`""` clears it) |
+| `confirm_close_active_profile_session` | bool | No | Required when reassigning an active session into a profile that already has another active interactive session |
 
 **Response `200`**
 
@@ -609,6 +648,8 @@ By default, the response is a **Server-Sent Event (SSE) stream** that delivers r
 | `files` | string[] | No | Array of file IDs from prior uploads (see [Files](#files)) |
 
 When `files` are provided, the referenced uploads are attached to the message. Image files (JPEG, PNG, GIF, WebP) are sent to the LLM as vision content. Text and document files are read and injected as context blocks in the prompt.
+
+Closed sessions reject new prompts with `409 session_closed`. This gives clients a clean handoff state after a profiled conversation has been archived and closed.
 
 **Query Parameters**
 

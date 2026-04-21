@@ -77,6 +77,10 @@ final readonly class MessageHandler
             return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
         }
 
+        if ($this->storage->isSessionClosed($id)) {
+            return Router::errorResponse(ApiErrorCode::SESSION_CLOSED, 'Session is closed and cannot accept new messages');
+        }
+
         $body = json_decode((string) $request->getBody(), true);
 
         if (!is_array($body) || !isset($body['prompt']) || trim((string) $body['prompt']) === '') {
