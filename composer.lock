@@ -92,16 +92,16 @@
         },
         {
             "name": "carmelosantana/php-agents",
-            "version": "v0.12.2",
+            "version": "v0.12.3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "389bffb3a317a6e6e0e336d0ff57582eb36997fc"
+                "reference": "298c23200f81f43d314b7b1748e790c65b5e1199"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/389bffb3a317a6e6e0e336d0ff57582eb36997fc",
-                "reference": "389bffb3a317a6e6e0e336d0ff57582eb36997fc",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/298c23200f81f43d314b7b1748e790c65b5e1199",
+                "reference": "298c23200f81f43d314b7b1748e790c65b5e1199",
                 "shasum": ""
             },
             "require": {
@@ -145,9 +145,9 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.12.2"
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.12.3"
             },
-            "time": "2026-04-21T13:36:14+00:00"
+            "time": "2026-04-21T21:03:26+00:00"
         },
         {
             "name": "dflydev/dot-access-data",

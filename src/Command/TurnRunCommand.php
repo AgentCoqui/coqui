@@ -167,6 +167,7 @@ final class TurnRunCommand extends Command
                 $filePaths,
                 $role,
                 $profile,
+                $turnProcessId,
             );
 
             if ($cancellationToken->isCancelled()) {

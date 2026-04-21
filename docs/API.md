@@ -700,10 +700,26 @@ Events are separated by a blank line. The stream ends when the `complete` event 
 | `reasoning` | Model thinking/reasoning token | `{"content": "token"}` |
 | `text_delta` | Streaming text token from LLM | `{"content": "token"}` |
 | `tool_call` | Agent is calling a tool | `{"id": "call_abc", "tool": "list_dir", "arguments": {"path": "."}}` |
+| `batch_start` | A parallel tool batch is starting | `{"count": 2}` or other batch metadata |
+| `batch_end` | A parallel tool batch finished | `{"count": 2}` or other batch metadata |
 | `tool_result` | Tool execution completed | `{"content": "...", "success": true}` |
 | `child_start` | Child agent spawned | `{"role": "coder", "depth": 0}` |
 | `child_end` | Child agent finished | `{"depth": 0}` |
+| `review_start` | Automated review round started | `{"round": 1, "max_rounds": 2, "depth": 0}` |
+| `review_end` | Automated review round finished | `{"round": 1, "verdict": "approved", "approved": true, "depth": 0}` |
 | `done` | Agent turn content complete | `{"content": "Here are the files..."}` |
+| `warning` | Non-fatal warning | `{"message": "Warning description"}` |
+| `budget_warning` | Turn is nearing context budget exhaustion | `{"usage_percent": 92.5, "threshold_percent": 90.0}` |
+| `summary` | Auto-summarization completed | `{"messages_summarized": 18, "tokens_saved": 5400, "auto": true}` |
+| `memory_extraction` | Memory extraction completed | `{"memories_saved": 3, "source": "turn", "auto": true}` |
+| `notification` | Pending workflow notification surfaced to the model | `{"kind": "task.completed", "title": "Build finished"}` |
+| `loop_start` | Loop execution started | `{"loop_id": "loop-123"}` |
+| `loop_iteration_start` | Loop iteration started | `{"loop_id": "loop-123", "iteration": 2}` |
+| `loop_stage_start` | Loop stage started | `{"loop_id": "loop-123", "iteration": 2, "role": "coder"}` |
+| `loop_stage_end` | Loop stage finished | `{"loop_id": "loop-123", "iteration": 2, "role": "coder"}` |
+| `loop_iteration_end` | Loop iteration finished | `{"loop_id": "loop-123", "iteration": 2}` |
+| `loop_complete` | Loop execution completed | `{"loop_id": "loop-123", "status": "completed"}` |
+| `title` | Session title generated after the turn | `{"title": "Refactor auth flow"}` |
 | `error` | An error occurred | `{"message": "Error description"}` |
 | `complete` | Final event with full turn result | See below |
 
@@ -1072,6 +1088,8 @@ A turn represents a single request-response cycle within a session. Each turn co
 
 List turns for a session, ordered by turn number.
 
+Historical turn responses expose the same post-turn summary fields returned by the live `complete` event when that data is available. This lets clients reuse the same footer/progress rendering for both live and historical views.
+
 **Query Parameters**
 
 | Param | Type | Default | Description |
@@ -1090,14 +1108,45 @@ List turns for a session, ordered by turn number.
       "turn_number": 1,
       "user_prompt": "List the files in the current directory",
       "response_text": "Here are the files...",
+      "content": "Here are the files...",
       "model": "openai/gpt-5",
       "prompt_tokens": 1250,
       "completion_tokens": 340,
       "total_tokens": 1590,
       "iterations": 2,
       "duration_ms": 4521,
-      "tools_used": "[\"list_dir\"]",
+      "tools_used": ["list_dir"],
       "child_agent_count": 0,
+      "turn_process_id": "tp1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+      "restart_requested": false,
+      "iteration_limit_reached": false,
+      "budget_exhausted": false,
+      "context_usage": {
+        "max_tokens": 128000,
+        "reserved_tokens": 8192,
+        "used_tokens": 24500,
+        "usage_percent": 20.4,
+        "available_tokens": 95308,
+        "effective_budget": 119808,
+        "breakdown": {
+          "system": 5000,
+          "memory": 1200,
+          "user": 800,
+          "assistant": 7000,
+          "tool": 9000,
+          "summary": 1500
+        }
+      },
+      "file_edits": [
+        {
+          "file_path": "/workspace/src/Example.php",
+          "operation": "update"
+        }
+      ],
+      "review_feedback": null,
+      "review_approved": null,
+      "background_tasks": null,
+      "error": null,
       "created_at": "2026-02-16T14:30:05+00:00",
       "completed_at": "2026-02-16T14:30:10+00:00"
     }
@@ -1108,7 +1157,7 @@ List turns for a session, ordered by turn number.
 
 #### `GET /api/v1/sessions/{id}/turns/{turnId}`
 
-Get a single turn with its associated messages.
+Get a single turn with its associated messages. For API-origin turns, the detail response also includes an `events` array with the stored SSE event log so clients can replay or inspect the intermediate progress state after completion.
 
 **Response `200`**
 
@@ -1119,14 +1168,45 @@ Get a single turn with its associated messages.
   "turn_number": 1,
   "user_prompt": "List the files in the current directory",
   "response_text": "Here are the files...",
+  "content": "Here are the files...",
   "model": "openai/gpt-5",
   "prompt_tokens": 1250,
   "completion_tokens": 340,
   "total_tokens": 1590,
   "iterations": 2,
   "duration_ms": 4521,
-  "tools_used": "[\"list_dir\"]",
+  "tools_used": ["list_dir"],
   "child_agent_count": 0,
+  "turn_process_id": "tp1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+  "restart_requested": false,
+  "iteration_limit_reached": false,
+  "budget_exhausted": false,
+  "context_usage": {
+    "max_tokens": 128000,
+    "reserved_tokens": 8192,
+    "used_tokens": 24500,
+    "usage_percent": 20.4,
+    "available_tokens": 95308,
+    "effective_budget": 119808,
+    "breakdown": {
+      "system": 5000,
+      "memory": 1200,
+      "user": 800,
+      "assistant": 7000,
+      "tool": 9000,
+      "summary": 1500
+    }
+  },
+  "file_edits": [
+    {
+      "file_path": "/workspace/src/Example.php",
+      "operation": "update"
+    }
+  ],
+  "review_feedback": null,
+  "review_approved": null,
+  "background_tasks": null,
+  "error": null,
   "created_at": "2026-02-16T14:30:05+00:00",
   "completed_at": "2026-02-16T14:30:10+00:00",
   "messages": [
@@ -1137,6 +1217,27 @@ Get a single turn with its associated messages.
       "tool_calls": null,
       "tool_call_id": null,
       "created_at": "2026-02-16T14:30:05+00:00"
+    }
+  ],
+  "events": [
+    {
+      "id": 1,
+      "event_type": "review_start",
+      "data": {
+        "round": 1,
+        "max_rounds": 2,
+        "depth": 0
+      },
+      "created_at": "2026-02-16T14:30:06+00:00"
+    },
+    {
+      "id": 2,
+      "event_type": "budget_warning",
+      "data": {
+        "usage_percent": 92.5,
+        "threshold_percent": 90.0
+      },
+      "created_at": "2026-02-16T14:30:09+00:00"
     }
   ]
 }
