@@ -7428,7 +7428,7 @@
                 },
                 {
                     "id": "voxtral-mini-2507",
-                    "name": "voxtral-mini-2507",
+                    "name": "voxtral-mini-transcribe-2507",
                     "contextWindow": 4096,
                     "maxTokens": 2048,
                     "metadataSource": "heuristic",
@@ -7702,38 +7702,112 @@
             "supportsModelDiscovery": false,
             "curatedModels": [
                 {
-                    "id": "minimax-01",
-                    "name": "MiniMax-01 (Flagship)",
-                    "recommended": true,
+                    "id": "minimax-m2.7",
+                    "name": "MiniMax M2.7",
+                    "contextWindow": 196608,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "minimax",
+                    "metadataSource": "openrouter-mirror",
+                    "fieldSources": {
+                        "contextWindow": "openrouter-mirror",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "minimax-m2.5:free",
+                    "name": "MiniMax M2.5 (free)",
+                    "contextWindow": 196608,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "minimax",
+                    "metadataSource": "openrouter-mirror",
+                    "fieldSources": {
+                        "contextWindow": "openrouter-mirror",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "minimax-m2.5",
+                    "name": "MiniMax M2.5",
+                    "contextWindow": 196608,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "minimax",
+                    "metadataSource": "openrouter-mirror",
+                    "fieldSources": {
+                        "contextWindow": "openrouter-mirror",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "minimax-m2-her",
+                    "name": "MiniMax M2-her",
+                    "contextWindow": 65536,
+                    "maxTokens": 9830,
+                    "family": "minimax",
+                    "metadataSource": "openrouter-mirror",
+                    "fieldSources": {
+                        "contextWindow": "openrouter-mirror",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "minimax-m2.1",
+                    "name": "MiniMax M2.1",
+                    "contextWindow": 196608,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "minimax",
+                    "metadataSource": "openrouter-mirror",
+                    "fieldSources": {
+                        "contextWindow": "openrouter-mirror",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "minimax-m2",
+                    "name": "MiniMax M2",
+                    "contextWindow": 196608,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "minimax",
+                    "metadataSource": "openrouter-mirror",
+                    "fieldSources": {
+                        "contextWindow": "openrouter-mirror",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "minimax-m1",
+                    "name": "MiniMax M1",
                     "contextWindow": 1000000,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "minimax",
+                    "metadataSource": "openrouter-mirror",
+                    "fieldSources": {
+                        "contextWindow": "openrouter-mirror",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "minimax-01",
+                    "name": "MiniMax-01",
+                    "recommended": true,
+                    "contextWindow": 1000192,
                     "maxTokens": 32768,
+                    "vision": true,
+                    "family": "minimax",
+                    "metadataSource": "static-fallback",
+                    "fieldSources": {
+                        "contextWindow": "openrouter-mirror",
+                        "maxTokens": "static-fallback"
+                    },
                     "cost": {
                         "input": 0.4,
                         "output": 1.1
-                    },
-                    "family": "minimax"
-                },
-                {
-                    "id": "minimax-text-01",
-                    "name": "MiniMax Text 01",
-                    "contextWindow": 1000000,
-                    "maxTokens": 32768,
-                    "cost": {
-                        "input": 0.2,
-                        "output": 0.6
-                    },
-                    "family": "minimax"
-                },
-                {
-                    "id": "abab7-chat-preview",
-                    "name": "ABAB 7 Chat (Preview)",
-                    "contextWindow": 1000000,
-                    "maxTokens": 32768,
-                    "cost": {
-                        "input": 0.1,
-                        "output": 0.3
-                    },
-                    "family": "minimax"
+                    }
                 }
             ]
         }

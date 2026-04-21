@@ -69,6 +69,12 @@ php scripts/generate-model-defaults.php
 # Refresh only OpenAI and write results back
 php scripts/generate-model-defaults.php --provider=openai --write
 
+# Merge model definitions from multiple Ollama servers during refresh
+php scripts/generate-model-defaults.php --provider=ollama --ollama-url=http://ollama:11434/v1 --write
+
+# Same as above using an environment variable
+OLLAMA_DISCOVERY_URLS=http://localhost:11434/v1,http://ollama:11434/v1 php scripts/generate-model-defaults.php --provider=ollama --write
+
 # Write a report artifact to a custom path
 php scripts/generate-model-defaults.php --write --report BUILD/reports/model-defaults-report.json
 
@@ -84,6 +90,8 @@ php scripts/generate-model-defaults.php --write --env-file ~/.coqui/.workspace/.
 4. Preserves manual-only fields like `recommended`, `cost`, and other non-generated metadata when model IDs still match
 5. Removes stale curated entries for a provider when that provider no longer returns them
 6. Writes a JSON report to `BUILD/reports/model-defaults-report.json` by default, including added, removed, and heuristic-only models per provider
+7. Supports optional generator-only Ollama discovery across multiple endpoints without changing runtime provider selection or `openclaw.json`
+8. Applies provider-specific recovery rules when direct discovery is empty: xAI keeps its official curated catalog, while MiniMax can be reconstructed from OpenRouter mirror entries
 
 ### Build Integration
 
