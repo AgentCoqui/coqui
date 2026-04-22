@@ -6,6 +6,7 @@
         "command": "Symfony Console commands — CLI entry points and REPL loop",
         "config": "Configuration, safety, and discovery — workspace management, credential resolution, toolkit discovery",
         "contract": "Interfaces and value objects — the contracts that define extensibility points",
+        "exception": "Exceptions — typed runtime failures surfaced across API and REPL boundaries",
         "tool": "Tools — individual capabilities the agent can invoke during conversation",
         "toolkit": "Toolkits — groups of related tools with shared guidelines",
         "observer": "Observers — real-time event rendering for terminal output",
@@ -186,7 +187,7 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface and the new /channels operator surface into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface, the /channels operator surface, and the shared GroupSessionService-backed /group command into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system, resolves session, enters REPL or headless mode",
                 "runRepl(SymfonyStyle, bool): int — interactive REPL loop with readline, signal handling, slash command routing, and agent turn execution",
@@ -218,7 +219,7 @@
             "path": "src/Repl/SlashCommandRouter.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\SlashCommandRouter",
             "layer": "command",
-            "description": "Routes REPL slash commands to the appropriate handler class. Help output is generated from ReplCommandCatalog so the compact /help surface stays aligned with tab completion and routed commands. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, the new /channels operator controls, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Prompt-oriented slash-command markdown surfaces now render through the same workspace-local image preview context used by the interactive REPL so commands like /prompt can show one inline ANSI image preview when the rendered markdown references a local image. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
+            "description": "Routes REPL slash commands to the appropriate handler class. Help output is generated from ReplCommandCatalog so the compact /help surface stays aligned with tab completion and routed commands. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, the /channels operator controls, the shared GroupSessionService-backed /group session controls, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Prompt-oriented slash-command markdown surfaces now render through the same workspace-local image preview context used by the interactive REPL so commands like /prompt can show one inline ANSI image preview when the rendered markdown references a local image. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
             "methods": [
                 "route(string, string, string, SymfonyStyle): RouteResult — dispatches a slash command string to the matching handler"
             ]
@@ -237,7 +238,7 @@
             "path": "src/Repl/ReplCommandCatalog.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\ReplCommandCatalog",
             "layer": "command",
-            "description": "Static registry of canonical REPL slash-command metadata. Serves as the shared source of truth for compact /help rows, top-level command completion, aliases, common first-argument choices, and canonical toolkit-command registration with collision reporting. Includes the core /channels operator command family.",
+            "description": "Static registry of canonical REPL slash-command metadata. Serves as the shared source of truth for compact /help rows, top-level command completion, aliases, common first-argument choices, and canonical toolkit-command registration with collision reporting. Includes the core /channels operator command family and the built-in /group command family.",
             "methods": [
                 "static all(): array — returns all command specs in display order",
                 "static find(string): ?ReplCommandSpec — resolves a command or alias to its canonical spec",
@@ -335,11 +336,20 @@
             "path": "src/Repl/TabCompletion.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\TabCompletion",
             "layer": "command",
-            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, todos, projects, profiles, schedules, channel instances, loop definitions, toolkit visibility metadata, and cached Coqui Space install suggestions.",
+            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, todos, projects, profiles, group-session membership, schedules, channel instances, loop definitions, toolkit visibility metadata, and cached Coqui Space install suggestions.",
             "methods": [
                 "register(): void — installs readline_completion_function",
                 "setSessionId(string): void — updates session for todo completions",
                 "complete(string): array — returns suggestions for a command line buffer"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/GroupHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\GroupHandler",
+            "layer": "command",
+            "description": "Handles the /group REPL command family. Uses GroupSessionService to start or resume orchestrator-managed group sessions, inspect status, add or remove members, replace the full membership set, and change the group round cap while preserving duplicate-composition safety checks shared with the API.",
+            "methods": [
+                "handle(SymfonyStyle, string, string): RouteResult — dispatches /group subcommands and may switch the active session"
             ]
         },
         {
@@ -441,6 +451,30 @@
             ]
         },
         {
+            "path": "src/Support/GroupSessionOperationResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\GroupSessionOperationResult",
+            "layer": "support",
+            "description": "Readonly value object returned by GroupSessionService. Carries the hydrated session payload, whether the operation created a new session, and any closed duplicate session IDs.",
+            "methods": []
+        },
+        {
+            "path": "src/Support/GroupSessionService.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\GroupSessionService",
+            "layer": "support",
+            "description": "Shared policy and lifecycle service for orchestrator-managed group sessions. Normalizes members and round limits, detects duplicate active compositions, creates or resolves group sessions, and applies membership or round-cap updates for both API and REPL surfaces.",
+            "methods": [
+                "normalizeMembers(mixed): list<string> — validate and normalize a member list",
+                "normalizeMember(mixed): string — validate and normalize a single member profile",
+                "resolveMaxRounds(mixed, int): int — validate and normalize the group round cap",
+                "createFreshSession(string, array, int, bool, string): GroupSessionOperationResult — create a new group session, optionally closing conflicting active compositions",
+                "resolveOrCreateSession(string, array, int): GroupSessionOperationResult — reuse the active composition session or create one",
+                "replaceSessionMembers(string, array, int, bool, string): GroupSessionOperationResult — replace the full member set for an existing group session",
+                "addSessionMember(string, string, bool, int, string): GroupSessionOperationResult — add one member to an existing group session",
+                "removeSessionMember(string, string, bool, int, string): GroupSessionOperationResult — remove one member from an existing group session",
+                "updateSessionMaxRounds(string, mixed): GroupSessionOperationResult — update the round cap for an existing group session"
+            ]
+        },
+        {
             "path": "src/CoquiSpace/SpaceInstallCompletionCache.php",
             "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\SpaceInstallCompletionCache",
             "layer": "coqui-space",
@@ -448,6 +482,13 @@
             "methods": [
                 "suggestTargets(string): array — returns cached-or-fresh owner/name and vendor/package completion candidates for the current install prefix"
             ]
+        },
+        {
+            "path": "src/Exception/GroupSessionException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\GroupSessionException",
+            "layer": "exception",
+            "description": "Typed runtime exception for shared group-session policy failures. Carries the ApiErrorCode, a human-readable message, and optional structured details so API and REPL adapters can surface consistent conflict and validation responses.",
+            "methods": []
         },
         {
             "path": "src/Repl/Handler/SessionHandler.php",

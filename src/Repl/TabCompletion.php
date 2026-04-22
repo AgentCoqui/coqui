@@ -100,6 +100,7 @@ final class TabCompletion
             '/summarize' => $this->completeSummarize($parts),
             '/role' => $this->completeRole($parts),
             '/roles' => $this->completeRoles($parts),
+            '/group' => $this->completeGroup($parts),
             '/profile' => $this->completeProfile($parts),
             '/space' => $this->completeSpace($parts),
             default => $this->completeToolkitCommand($spec, $parts),
@@ -455,6 +456,54 @@ final class TabCompletion
             $candidates = ['none', 'reset', 'clear', ...$this->boot->profileDiscovery()->availableProfiles()];
 
             return $this->completeChoices($candidates, $parts[2]);
+        }
+
+        return [];
+    }
+
+    /**
+     * @param array<string> $parts
+     * @return list<string>
+     */
+    private function completeGroup(array $parts): array
+    {
+        if (count($parts) === 2) {
+            return $this->completeChoices($this->commandSpec('/group')->firstArguments, $parts[1]);
+        }
+
+        $action = $parts[1] ?? '';
+
+        if (count($parts) === 3 && in_array($action, ['start', 'replace'], true)) {
+            return $this->completeChoices([
+                ...$this->boot->profileDiscovery()->availableProfiles(),
+                '--rounds=3',
+            ], $parts[2]);
+        }
+
+        if (count($parts) === 3 && $action === 'add') {
+            $candidates = $this->boot->profileDiscovery()->availableProfiles();
+
+            if ($this->storage->isGroupSession($this->sessionId)) {
+                $existing = array_fill_keys($this->storage->listSessionGroupMemberNames($this->sessionId), true);
+                $candidates = array_values(array_filter(
+                    $candidates,
+                    static fn(string $candidate): bool => !isset($existing[$candidate]),
+                ));
+            }
+
+            return $this->completeChoices($candidates, $parts[2]);
+        }
+
+        if (count($parts) === 3 && $action === 'remove') {
+            $candidates = $this->storage->isGroupSession($this->sessionId)
+                ? $this->storage->listSessionGroupMemberNames($this->sessionId)
+                : [];
+
+            return $this->completeChoices($candidates, $parts[2]);
+        }
+
+        if (count($parts) === 3 && $action === 'rounds') {
+            return $this->completeChoices(['1', '2', '3', '4', '5'], $parts[2]);
         }
 
         return [];

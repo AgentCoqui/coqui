@@ -15,6 +15,7 @@ use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
+use CoquiBot\Coqui\Repl\Handler\GroupHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
@@ -62,6 +63,7 @@ final class SlashCommandRouter
         private readonly QualityHandler $quality,
         private readonly ProjectHandler $project,
         private readonly RoleHandler $role,
+        private readonly GroupHandler $group,
         private readonly ProfileHandler $profile,
         private readonly ToolkitVisibilityHandler $toolkitVisibility,
         private readonly SpaceHandler $space,
@@ -127,6 +129,7 @@ final class SlashCommandRouter
             '/summarize' => $this->handleSummarize($io, $arg, $sessionId),
             '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId, $activeProfile),
             '/roles' => $this->handleRoles($io, $arg, $activeRole),
+            '/group' => $this->handleGroup($io, $arg, $sessionId),
             '/profile' => $this->handleProfile($io, $arg, $activeRole, $activeProfile),
             '/profiles' => $this->handleProfiles($io, $activeProfile),
             '/backstory' => $this->handleBackstory($io, $arg, $activeProfile),
@@ -416,6 +419,11 @@ final class SlashCommandRouter
     {
         $this->role->handleRoles($io, $arg, $activeRole);
         return RouteResult::continue();
+    }
+
+    private function handleGroup(SymfonyStyle $io, string $arg, string $sessionId): RouteResult
+    {
+        return $this->group->handle($io, $arg, $sessionId);
     }
 
     private function handleProfile(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult

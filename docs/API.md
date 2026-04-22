@@ -176,6 +176,7 @@ The `code` field is a stable machine-readable string that clients can branch on 
 | `conflict` | 409 | Resource already exists |
 | `agent_busy` | 409 | Session already has an active agent run |
 | `profile_session_active` | 409 | A profiled session is already active and the client must confirm closure before creating or reassigning a fresh one |
+| `group_session_active` | 409 | A group session with the requested composition is already active and the client must confirm closure before forcing a fresh composition session |
 | `role_builtin` | 409 | Cannot modify a built-in role |
 | `role_reserved` | 409 | Cannot create a role with a reserved name |
 | `session_closed` | 409 | Session is closed and read-only; mutating session-scoped requests are rejected |
@@ -272,6 +273,8 @@ A session is a persistent conversation context. Messages and turns are scoped to
 
 Profile-scoped sessions enforce a single active interactive conversation per profile. `POST /api/v1/sessions/resolve` keeps the newest active profiled session and archives/closes older duplicates automatically. `POST /api/v1/sessions` remains the fresh-conversation endpoint, but when a profiled session is already active it returns `409 profile_session_active` until the client explicitly confirms closure of that active profiled session.
 
+Group sessions are orchestrator-managed interactive sessions identified by a normalized member composition. Create or resolve them by setting `group_enabled=true` and passing a `members` array. `POST /api/v1/sessions/resolve` reuses the active group session for the same member composition, while `POST /api/v1/sessions` forces a fresh one and returns `409 group_session_active` unless the client explicitly confirms closure of the conflicting active composition.
+
 Session lifecycle fields have distinct meanings:
 
 - `closed` is the mutability state. Closed sessions are terminal and read-only: prompts, message deletion, file uploads/deletes, project reassignment, session metadata updates, and session-bound task or loop attachment are rejected with `409 session_closed`.
@@ -344,11 +347,26 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
 }
 ```
 
+Group-session requests use the same endpoint with a group scope instead of `profile`:
+
+```json
+{
+  "group_enabled": true,
+  "members": ["caelum", "nova"],
+  "group_max_rounds": 4,
+  "confirm_close_active_group_session": true
+}
+```
+
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `model_role` | string | No | `"orchestrator"` | Role to resolve the model from config. Must be a known role. |
 | `profile` | string | No | `null` | Personality profile name. Must match a `profiles/{name}/soul.md` in the workspace. |
+| `group_enabled` | bool | No | `false` | When `true`, create a group session instead of a single-profile or unprofiled session. Group sessions must remain orchestrator-managed. |
+| `members` | array<string> | When `group_enabled=true` | — | Group member profile names. Must be unique, known profiles. |
+| `group_max_rounds` | int | No | `3` | Max same-turn coordination rounds for a group session. Minimum `1`. |
 | `confirm_close_active_profile_session` | bool | No | `false` | Required when `profile` already has an active interactive session and the client explicitly wants to close/archive it before starting a fresh one |
+| `confirm_close_active_group_session` | bool | No | `false` | Required when the requested group composition already has another active interactive session and the client explicitly wants to close/archive it before forcing a fresh one |
 
 **Response `201`**
 
@@ -358,6 +376,30 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
   "profile": "caelum",
+  "active_project_id": null
+}
+```
+
+**Response `201`** — group session created:
+
+```json
+{
+  "id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
+  "model_role": "orchestrator",
+  "model": "openai/gpt-5",
+  "profile": null,
+  "group_enabled": 1,
+  "group_max_rounds": 4,
+  "group_members": [
+    {
+      "profile": "caelum",
+      "position": 0
+    },
+    {
+      "profile": "nova",
+      "position": 1
+    }
+  ],
   "active_project_id": null
 }
 ```
@@ -373,6 +415,20 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
     "active_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
     "active_session_count": 1,
     "confirm_field": "confirm_close_active_profile_session"
+  }
+}
+```
+
+**Response `409`** — active group session must be confirmed first:
+
+```json
+{
+  "error": "Group session composition already has an active session. Confirm closure before starting a fresh group session.",
+  "code": "group_session_active",
+  "details": {
+    "members": ["caelum", "nova"],
+    "active_session_id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
+    "confirm_field": "confirm_close_active_group_session"
   }
 }
 ```
@@ -406,10 +462,23 @@ This mirrors REPL startup behavior:
 }
 ```
 
+Group-session resolve requests use the same endpoint:
+
+```json
+{
+  "group_enabled": true,
+  "members": ["caelum", "nova"],
+  "group_max_rounds": 4
+}
+```
+
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `model_role` | string | No | `"orchestrator"` | Role used only when a new session must be created. Existing scoped sessions keep their stored role and model. |
 | `profile` | string | No | `null` | Personality profile scope. Omit to resolve the unprofiled session pool. |
+| `group_enabled` | bool | No | `false` | When `true`, resolve the group-session pool for the supplied member composition. |
+| `members` | array<string> | When `group_enabled=true` | — | Group member profile names. Order is normalized, so the same set resolves the same active session. |
+| `group_max_rounds` | int | No | `3` | Used only when a new group session must be created. Existing sessions keep their stored round cap. |
 
 **Response `200`** — existing session reused:
 
@@ -431,7 +500,19 @@ This mirrors REPL startup behavior:
   "id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": "caelum",
+  "profile": null,
+  "group_enabled": 1,
+  "group_max_rounds": 4,
+  "group_members": [
+    {
+      "profile": "caelum",
+      "position": 0
+    },
+    {
+      "profile": "nova",
+      "position": 1
+    }
+  ],
   "active_project_id": null,
   "created": true
 }
@@ -461,6 +542,8 @@ Get session details.
   "token_count": 12450
 }
 ```
+
+Group sessions include `group_enabled`, `group_max_rounds`, `group_composition_key`, and `group_members` in the returned session payload.
 
 #### `GET /api/v1/sessions/{id}/summary`
 
@@ -531,7 +614,7 @@ Return a compact dashboard view for a session without fetching every child colle
 
 #### `PATCH /api/v1/sessions/{id}`
 
-Update session metadata. Supports renaming the title, updating the role, and changing the profile scope.
+Update session metadata. Supports renaming the title, updating the role, changing the profile scope for non-group sessions, and updating `group_max_rounds` for existing group sessions.
 
 Closed or archived sessions are read-only. This endpoint returns `409 session_closed` when clients try to modify them.
 
@@ -545,12 +628,28 @@ Closed or archived sessions are read-only. This endpoint returns `409 session_cl
 }
 ```
 
+Group-session patch example:
+
+```json
+{
+  "group_max_rounds": 5
+}
+```
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `title` | string | No | New session title (cannot be empty) |
 | `model_role` | string | No | Update the stored role and re-resolve the model |
 | `profile` | string | No | Set or clear the session profile (`""` clears it) |
+| `group_max_rounds` | int | No | Update the round cap for an existing group session |
 | `confirm_close_active_profile_session` | bool | No | Required when reassigning an active session into a profile that already has another active interactive session |
+
+Group-session constraints:
+
+- `model_role` must remain `orchestrator`.
+- `profile` cannot be assigned to a group session.
+- `group_enabled` cannot be toggled after session creation.
+- `members` cannot be patched here; use the dedicated member endpoints below.
 
 **Response `200`**
 
@@ -586,6 +685,64 @@ Returns the updated session object:
   "code": "session_not_found"
 }
 ```
+
+#### `GET /api/v1/sessions/{id}/members`
+
+Return the normalized member list for a group session.
+
+**Response `200`**
+
+```json
+{
+  "session_id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
+  "group_enabled": true,
+  "group_composition_key": "caelum|nova",
+  "group_max_rounds": 4,
+  "members": [
+    {
+      "profile": "caelum",
+      "position": 0
+    },
+    {
+      "profile": "nova",
+      "position": 1
+    }
+  ],
+  "count": 2
+}
+```
+
+#### `PUT /api/v1/sessions/{id}/members`
+
+Replace the full member list for an existing group session.
+
+**Request Body**
+
+```json
+{
+  "members": ["caelum", "iris"],
+  "confirm_close_active_group_session": true
+}
+```
+
+#### `POST /api/v1/sessions/{id}/members`
+
+Add one member to an existing group session.
+
+**Request Body**
+
+```json
+{
+  "profile": "iris",
+  "confirm_close_active_group_session": true
+}
+```
+
+#### `DELETE /api/v1/sessions/{id}/members/{profile}`
+
+Remove one member from an existing group session.
+
+For the mutating member endpoints, the response body is the updated session object. If the requested membership change would collide with another active group session composition, Coqui returns `409 group_session_active` until the client confirms closure with `confirm_close_active_group_session=true`.
 
 #### `DELETE /api/v1/sessions/{id}`
 

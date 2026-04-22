@@ -11,7 +11,9 @@ use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\SystemRole;
+use CoquiBot\Coqui\Exception\GroupSessionException;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\GroupSessionService;
 use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
@@ -37,6 +39,7 @@ final readonly class SessionHandler
         private RoleResolver $roleResolver,
         private ProfileDiscovery $profileDiscovery,
         private ?ProfileSessionLifecycleManager $lifecycleManager = null,
+        private ?GroupSessionService $groupSessionService = null,
     ) {}
 
     /**
@@ -105,31 +108,19 @@ final readonly class SessionHandler
         }
 
         if ($groupEnabled) {
-            $compositionKey = $this->storage->buildGroupCompositionKey($groupMembers);
-            $activeSessions = $this->storage->listActiveInteractiveGroupSessionsByCompositionKey($compositionKey);
-
-            if ($activeSessions !== [] && !$this->confirmCloseActiveGroupSession($body)) {
-                return $this->groupSessionActiveConflict($compositionKey, $groupMembers, $activeSessions);
-            }
-
-            if ($activeSessions !== []) {
-                $this->storage->closeOtherActiveInteractiveGroupSessionsByCompositionKey(
-                    $compositionKey,
-                    '',
-                    sprintf('api_create_group_session:%s', $compositionKey),
+            try {
+                $result = $this->groupSessions()->createFreshSession(
+                    modelRole: $modelRole,
+                    members: $groupMembers,
+                    groupMaxRounds: $groupMaxRounds ?? GroupSessionService::DEFAULT_MAX_ROUNDS,
+                    confirmCloseActive: $this->confirmCloseActiveGroupSession($body),
+                    closureReasonPrefix: 'api_create_group_session',
                 );
+            } catch (GroupSessionException $e) {
+                return $this->groupSessionErrorResponse($e);
             }
 
-            $model = $this->roleResolver->resolve($modelRole, null);
-            $sessionId = $this->storage->createGroupSession($modelRole, $model, $groupMembers, $groupMaxRounds);
-
-            return Router::jsonResponse($this->storage->getSession($sessionId) ?? [
-                'id' => $sessionId,
-                'model_role' => $modelRole,
-                'model' => $model,
-                'profile' => null,
-                'group_enabled' => 1,
-            ], 201);
+            return Router::jsonResponse($result->session, 201);
         }
 
         if ($profile !== null) {
@@ -171,27 +162,17 @@ final readonly class SessionHandler
         }
 
         if ($groupEnabled) {
-            $compositionKey = $this->storage->buildGroupCompositionKey($groupMembers);
-            $activeSessions = $this->storage->listActiveInteractiveGroupSessionsByCompositionKey($compositionKey);
-
-            if ($activeSessions !== []) {
-                $sessionId = (string) $activeSessions[0]['id'];
-                $session = $this->storage->getSession($sessionId);
-
-                if ($session !== null) {
-                    return Router::jsonResponse($session + ['created' => false]);
-                }
+            try {
+                $result = $this->groupSessions()->resolveOrCreateSession(
+                    modelRole: $modelRole,
+                    members: $groupMembers,
+                    groupMaxRounds: $groupMaxRounds ?? GroupSessionService::DEFAULT_MAX_ROUNDS,
+                );
+            } catch (GroupSessionException $e) {
+                return $this->groupSessionErrorResponse($e);
             }
 
-            $model = $this->roleResolver->resolve($modelRole, null);
-            $sessionId = $this->storage->createGroupSession($modelRole, $model, $groupMembers, $groupMaxRounds);
-
-            return Router::jsonResponse(($this->storage->getSession($sessionId) ?? [
-                'id' => $sessionId,
-                'model_role' => $modelRole,
-                'model' => $model,
-                'group_enabled' => 1,
-            ]) + ['created' => true], 201);
+            return Router::jsonResponse($result->session + ['created' => $result->created], $result->created ? 201 : 200);
         }
 
         if ($profile !== null) {
@@ -422,12 +403,11 @@ final readonly class SessionHandler
                 );
             }
 
-            $resolvedGroupMaxRounds = $this->resolveGroupMaxRounds($body['group_max_rounds']);
-            if ($resolvedGroupMaxRounds instanceof Response) {
-                return $resolvedGroupMaxRounds;
+            try {
+                $this->groupSessions()->updateSessionMaxRounds($id, $body['group_max_rounds']);
+            } catch (GroupSessionException $e) {
+                return $this->groupSessionErrorResponse($e);
             }
-
-            $this->storage->updateSessionGroupSettings($id, $resolvedGroupMaxRounds);
         }
 
         $resolvedModel = $this->roleResolver->resolve($resolvedRole, $isGroupSession ? null : $resolvedProfile);
@@ -486,23 +466,22 @@ final readonly class SessionHandler
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
 
-        $members = $this->validateGroupMembers($body['members'] ?? null);
-        if ($members instanceof Response) {
-            return $members;
+        try {
+            $members = $this->groupSessions()->normalizeMembers($body['members'] ?? null);
+            $result = $this->groupSessions()->replaceSessionMembers(
+                sessionId: $id,
+                members: $members,
+                groupMaxRounds: is_int($groupSession['group_max_rounds'] ?? null)
+                    ? $groupSession['group_max_rounds']
+                    : GroupSessionService::DEFAULT_MAX_ROUNDS,
+                confirmCloseActive: $this->confirmCloseActiveGroupSession($body),
+                closureReasonPrefix: 'api_group_membership_update',
+            );
+        } catch (GroupSessionException $e) {
+            return $this->groupSessionErrorResponse($e);
         }
 
-        $conflict = $this->resolveGroupMemberConflict($id, $members, $body);
-        if ($conflict instanceof Response) {
-            return $conflict;
-        }
-
-        $groupMaxRounds = is_int($groupSession['group_max_rounds'] ?? null)
-            ? $groupSession['group_max_rounds']
-            : self::DEFAULT_GROUP_MAX_ROUNDS;
-
-        $this->storage->replaceSessionGroupMembers($id, $members, $groupMaxRounds);
-
-        return Router::jsonResponse($this->storage->getSession($id) ?? $groupSession);
+        return Router::jsonResponse($result->session);
     }
 
     /**
@@ -525,37 +504,22 @@ final readonly class SessionHandler
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
 
-        $profile = $this->normalizeProfileValue($body['profile'] ?? null);
-        if ($profile === null) {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'profile is required');
-        }
-
-        if (!$this->profileDiscovery->profileExists($profile)) {
-            return Router::errorResponse(
-                ApiErrorCode::VALIDATION_ERROR,
-                sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or clear the profile.', $profile),
+        try {
+            $profile = $this->groupSessions()->normalizeMember($body['profile'] ?? null);
+            $result = $this->groupSessions()->addSessionMember(
+                sessionId: $id,
+                profile: $profile,
+                confirmCloseActive: $this->confirmCloseActiveGroupSession($body),
+                groupMaxRounds: is_int($groupSession['group_max_rounds'] ?? null)
+                    ? $groupSession['group_max_rounds']
+                    : GroupSessionService::DEFAULT_MAX_ROUNDS,
+                closureReasonPrefix: 'api_group_membership_update',
             );
+        } catch (GroupSessionException $e) {
+            return $this->groupSessionErrorResponse($e);
         }
 
-        $members = $this->storage->listSessionGroupMemberNames($id);
-        if (in_array($profile, $members, true)) {
-            return Router::errorResponse(ApiErrorCode::CONFLICT, sprintf('Profile "%s" is already a member of this session.', $profile));
-        }
-
-        $members[] = $profile;
-
-        $conflict = $this->resolveGroupMemberConflict($id, $members, $body);
-        if ($conflict instanceof Response) {
-            return $conflict;
-        }
-
-        $groupMaxRounds = is_int($groupSession['group_max_rounds'] ?? null)
-            ? $groupSession['group_max_rounds']
-            : self::DEFAULT_GROUP_MAX_ROUNDS;
-
-        $this->storage->replaceSessionGroupMembers($id, $members, $groupMaxRounds);
-
-        return Router::jsonResponse($this->storage->getSession($id) ?? $groupSession);
+        return Router::jsonResponse($result->session);
     }
 
     /**
@@ -573,41 +537,22 @@ final readonly class SessionHandler
             return $groupSession;
         }
 
-        $body = $this->requestBody($request) ?? [];
-        $targetProfile = $this->normalizeProfileValue($profile);
-        if ($targetProfile === null) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'profile is required');
-        }
-
-        $members = $this->storage->listSessionGroupMemberNames($id);
-        if (!in_array($targetProfile, $members, true)) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, sprintf('Profile "%s" is not a member of this session.', $targetProfile));
-        }
-
-        $updatedMembers = array_values(array_filter(
-            $members,
-            static fn(string $member): bool => $member !== $targetProfile,
-        ));
-
-        if (count($updatedMembers) < 2) {
-            return Router::errorResponse(
-                ApiErrorCode::VALIDATION_ERROR,
-                'Group sessions must contain at least two members.',
+        try {
+            $targetProfile = $this->groupSessions()->normalizeMember($profile);
+            $result = $this->groupSessions()->removeSessionMember(
+                sessionId: $id,
+                profile: $targetProfile,
+                confirmCloseActive: $this->confirmCloseActiveGroupSession($this->requestBody($request) ?? []),
+                groupMaxRounds: is_int($groupSession['group_max_rounds'] ?? null)
+                    ? $groupSession['group_max_rounds']
+                    : GroupSessionService::DEFAULT_MAX_ROUNDS,
+                closureReasonPrefix: 'api_group_membership_update',
             );
+        } catch (GroupSessionException $e) {
+            return $this->groupSessionErrorResponse($e);
         }
 
-        $conflict = $this->resolveGroupMemberConflict($id, $updatedMembers, $body);
-        if ($conflict instanceof Response) {
-            return $conflict;
-        }
-
-        $groupMaxRounds = is_int($groupSession['group_max_rounds'] ?? null)
-            ? $groupSession['group_max_rounds']
-            : self::DEFAULT_GROUP_MAX_ROUNDS;
-
-        $this->storage->replaceSessionGroupMembers($id, $updatedMembers, $groupMaxRounds);
-
-        return Router::jsonResponse($this->storage->getSession($id) ?? $groupSession);
+        return Router::jsonResponse($result->session);
     }
 
     /**
@@ -714,14 +659,11 @@ final readonly class SessionHandler
                 ];
             }
 
-            $groupMembers = $this->validateGroupMembers($body['members'] ?? null);
-            if ($groupMembers instanceof Response) {
-                return [$modelRole, null, true, [], null, $groupMembers];
-            }
-
-            $groupMaxRounds = $this->resolveGroupMaxRounds($body['group_max_rounds'] ?? self::DEFAULT_GROUP_MAX_ROUNDS);
-            if ($groupMaxRounds instanceof Response) {
-                return [$modelRole, null, true, [], null, $groupMaxRounds];
+            try {
+                $groupMembers = $this->groupSessions()->normalizeMembers($body['members'] ?? null);
+                $groupMaxRounds = $this->groupSessions()->resolveMaxRounds($body['group_max_rounds'] ?? self::DEFAULT_GROUP_MAX_ROUNDS);
+            } catch (GroupSessionException $e) {
+                return [$modelRole, null, true, [], null, $this->groupSessionErrorResponse($e)];
             }
         } elseif (is_array($body) && array_key_exists('members', $body)) {
             return [
@@ -757,71 +699,6 @@ final readonly class SessionHandler
         }
 
         return [$modelRole, $profile, $groupEnabled, $groupMembers, $groupMaxRounds, null];
-    }
-
-    /**
-     * @param mixed $value
-     */
-    private function resolveGroupMaxRounds(mixed $value): int|Response
-    {
-        if (!is_int($value) && !(is_string($value) && ctype_digit($value))) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'group_max_rounds must be a positive integer');
-        }
-
-        $groupMaxRounds = (int) $value;
-        if ($groupMaxRounds < 1) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'group_max_rounds must be greater than 0');
-        }
-
-        return $groupMaxRounds;
-    }
-
-    /**
-     * @param mixed $members
-     * @return list<string>|Response
-     */
-    private function validateGroupMembers(mixed $members): array|Response
-    {
-        if (!is_array($members)) {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'members is required for group sessions');
-        }
-
-        $normalized = [];
-        foreach ($members as $member) {
-            if (!is_string($member)) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Each group member must be a profile name string');
-            }
-
-            $profile = strtolower(trim($member));
-            if ($profile === '') {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Group member names cannot be empty');
-            }
-
-            if (!$this->profileDiscovery->profileExists($profile)) {
-                return Router::errorResponse(
-                    ApiErrorCode::VALIDATION_ERROR,
-                    sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or clear the profile.', $profile),
-                );
-            }
-
-            if (isset($normalized[$profile])) {
-                return Router::errorResponse(
-                    ApiErrorCode::VALIDATION_ERROR,
-                    sprintf('Duplicate group member "%s" is not allowed.', $profile),
-                );
-            }
-
-            $normalized[$profile] = true;
-        }
-
-        $profiles = array_keys($normalized);
-        if (count($profiles) < 2) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Group sessions must contain at least two members.');
-        }
-
-        sort($profiles, SORT_STRING);
-
-        return $profiles;
     }
 
     private function validateProfileRole(?string $profile, string $role): ?Response
@@ -929,59 +806,22 @@ final readonly class SessionHandler
         );
     }
 
-    /**
-     * @param list<string> $members
-     * @param array<int, array<string, mixed>> $activeSessions
-     */
-    private function groupSessionActiveConflict(string $compositionKey, array $members, array $activeSessions): Response
-    {
-        $primary = $activeSessions[0] ?? [];
-
-        return Router::errorResponse(
-            ApiErrorCode::GROUP_SESSION_ACTIVE,
-            'An active group session already exists for this exact member composition. Confirm closure before creating or editing into a duplicate group.',
-            [
-                'group_composition_key' => $compositionKey,
-                'members' => $members,
-                'active_session_id' => $primary['id'] ?? null,
-                'active_session_count' => count($activeSessions),
-                'confirm_field' => 'confirm_close_active_group_session',
-            ],
-        );
-    }
-
-    /**
-     * @param list<string> $members
-     * @param array<string, mixed>|null $body
-     */
-    private function resolveGroupMemberConflict(string $sessionId, array $members, ?array $body): ?Response
-    {
-        $compositionKey = $this->storage->buildGroupCompositionKey($members);
-        $activeSessions = $this->storage->listActiveInteractiveGroupSessionsByCompositionKey($compositionKey);
-        $conflicts = array_values(array_filter(
-            $activeSessions,
-            static fn(array $activeSession): bool => (string) ($activeSession['id'] ?? '') !== $sessionId,
-        ));
-
-        if ($conflicts === []) {
-            return null;
-        }
-
-        if (!$this->confirmCloseActiveGroupSession($body)) {
-            return $this->groupSessionActiveConflict($compositionKey, $members, $conflicts);
-        }
-
-        $this->storage->closeOtherActiveInteractiveGroupSessionsByCompositionKey(
-            $compositionKey,
-            $sessionId,
-            sprintf('api_group_membership_update:%s', $compositionKey),
-        );
-
-        return null;
-    }
-
     private function lifecycleManager(): ?ProfileSessionLifecycleManager
     {
         return $this->lifecycleManager;
+    }
+
+    private function groupSessions(): GroupSessionService
+    {
+        return $this->groupSessionService ?? new GroupSessionService(
+            $this->storage,
+            $this->roleResolver,
+            $this->profileDiscovery,
+        );
+    }
+
+    private function groupSessionErrorResponse(GroupSessionException $e): Response
+    {
+        return Router::errorResponse($e->errorCode, $e->getMessage(), $e->details);
     }
 }
