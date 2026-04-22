@@ -164,6 +164,42 @@ final class TodoStore
         ?string $status = null,
         ?string $sessionId = null,
     ): bool {
+        $patch = [];
+
+        if ($title !== null) {
+            $patch['title'] = $title;
+        }
+
+        if ($priority !== null) {
+            $patch['priority'] = $priority;
+        }
+
+        if ($notes !== null) {
+            $patch['notes'] = $notes;
+        }
+
+        if ($status !== null) {
+            $patch['status'] = $status;
+        }
+
+        if ($patch === []) {
+            return $this->get($id, $sessionId) !== null;
+        }
+
+        return $this->patch($id, $patch, $sessionId);
+    }
+
+    /**
+     * Patch a todo's mutable fields.
+     *
+     * Supported keys: title, priority, notes, status, artifact_id, parent_id,
+     * sprint_id, sort_order, completed_by.
+     *
+     * @param array<string, mixed> $patch
+     * @param string|null $sessionId When provided, validates the todo belongs to this session.
+     */
+    public function patch(string $id, array $patch, ?string $sessionId = null): bool
+    {
         $todo = $this->get($id, $sessionId);
         if ($todo === null) {
             return false;
@@ -173,22 +209,59 @@ final class TodoStore
         $now = gmdate('Y-m-d\TH:i:s\Z');
         $params = [$now];
 
-        if ($title !== null) {
+        if (array_key_exists('title', $patch)) {
             $sets[] = 'title = ?';
-            $params[] = $title;
+            $params[] = $patch['title'];
         }
 
-        if ($priority !== null) {
+        if (array_key_exists('priority', $patch)) {
             $sets[] = 'priority = ?';
-            $params[] = $priority;
+            $params[] = $patch['priority'];
         }
 
-        if ($notes !== null) {
-            $sets[] = 'notes = ?';
-            $params[] = $notes;
+        if (array_key_exists('notes', $patch)) {
+            if ($patch['notes'] === null) {
+                $sets[] = 'notes = NULL';
+            } else {
+                $sets[] = 'notes = ?';
+                $params[] = $patch['notes'];
+            }
         }
 
-        if ($status !== null) {
+        if (array_key_exists('artifact_id', $patch)) {
+            if ($patch['artifact_id'] === null) {
+                $sets[] = 'artifact_id = NULL';
+            } else {
+                $sets[] = 'artifact_id = ?';
+                $params[] = $patch['artifact_id'];
+            }
+        }
+
+        if (array_key_exists('parent_id', $patch)) {
+            if ($patch['parent_id'] === null) {
+                $sets[] = 'parent_id = NULL';
+            } else {
+                $sets[] = 'parent_id = ?';
+                $params[] = $patch['parent_id'];
+            }
+        }
+
+        if (array_key_exists('sprint_id', $patch)) {
+            if ($patch['sprint_id'] === null) {
+                $sets[] = 'sprint_id = NULL';
+            } else {
+                $sets[] = 'sprint_id = ?';
+                $params[] = $patch['sprint_id'];
+            }
+        }
+
+        if (array_key_exists('sort_order', $patch)) {
+            $sets[] = 'sort_order = ?';
+            $params[] = $patch['sort_order'];
+        }
+
+        if (array_key_exists('status', $patch)) {
+            $status = (string) $patch['status'];
             $sets[] = 'status = ?';
             $params[] = $status;
 
@@ -196,17 +269,26 @@ final class TodoStore
                 $sets[] = 'completed_at = ?';
                 $params[] = $now;
             } elseif ($status !== 'completed' && $todo['status'] === 'completed') {
-                // Reverting from completed — clear completion metadata
                 $sets[] = 'completed_at = NULL';
                 $sets[] = 'completed_by = NULL';
             }
         }
 
+        if (array_key_exists('completed_by', $patch)) {
+            if ($patch['completed_by'] === null) {
+                $sets[] = 'completed_by = NULL';
+            } else {
+                $sets[] = 'completed_by = ?';
+                $params[] = $patch['completed_by'];
+            }
+        }
+
         $params[] = $id;
         $sql = 'UPDATE todos SET ' . implode(', ', $sets) . ' WHERE id = ?';
-        $this->db->prepare($sql)->execute($params);
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
 
-        return true;
+        return $stmt->rowCount() > 0;
     }
 
     /**
@@ -551,7 +633,13 @@ final class TodoStore
     /**
      * Bulk-update multiple todos in a single transaction.
      *
-     * @param list<array{id: string, title?: string, status?: string, priority?: string, notes?: string}> $updates
+    * @param list<array{
+    *     id: string,
+    *     title?: non-empty-string,
+    *     status?: 'pending'|'in_progress'|'completed'|'cancelled',
+    *     priority?: 'high'|'medium'|'low',
+    *     notes?: string|null
+    * }> $updates
      * @param string|null $sessionId When provided, only updates todos belonging to this session.
      * @return int Number of successfully updated todos
      */

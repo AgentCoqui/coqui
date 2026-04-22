@@ -23,7 +23,7 @@ final class ProjectStore
         'rejected' => ['in_progress'],
     ];
 
-    private const int MAX_REVIEW_ROUNDS_CAP = 5;
+    public const int MAX_REVIEW_ROUNDS_CAP = 5;
 
     private PDO $db;
 
@@ -285,6 +285,7 @@ final class ProjectStore
         string $projectId,
         string $title,
         ?string $acceptanceCriteria = null,
+        ?string $contractArtifactId = null,
         ?string $lastSessionId = null,
         int $maxReviewRounds = 3,
     ): string {
@@ -299,14 +300,15 @@ final class ProjectStore
         $maxReviewRounds = min($maxReviewRounds, self::MAX_REVIEW_ROUNDS_CAP);
 
         $stmt = $this->db->prepare(<<<'SQL'
-            INSERT INTO sprints (id, project_id, title, sprint_number, status, acceptance_criteria, last_session_id, max_review_rounds, created_at, updated_at)
-            VALUES (?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?)
+            INSERT INTO sprints (id, project_id, title, sprint_number, status, contract_artifact_id, acceptance_criteria, last_session_id, max_review_rounds, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'planned', ?, ?, ?, ?, ?, ?)
         SQL);
         $stmt->execute([
             $id,
             $projectId,
             $title,
             $sprintNumber,
+            $contractArtifactId,
             $acceptanceCriteria,
             $lastSessionId,
             $maxReviewRounds,
@@ -368,6 +370,7 @@ final class ProjectStore
         ?string $acceptanceCriteria = null,
         ?string $contractArtifactId = null,
         ?string $lastSessionId = null,
+        ?int $maxReviewRounds = null,
     ): bool {
         $sprint = $this->getSprint($id);
         if ($sprint === null) {
@@ -396,6 +399,15 @@ final class ProjectStore
         if ($lastSessionId !== null) {
             $sets[] = 'last_session_id = ?';
             $params[] = $lastSessionId;
+        }
+
+        if ($maxReviewRounds !== null) {
+            if ($maxReviewRounds < 1) {
+                throw new \InvalidArgumentException('max_review_rounds must be greater than 0');
+            }
+
+            $sets[] = 'max_review_rounds = ?';
+            $params[] = min($maxReviewRounds, self::MAX_REVIEW_ROUNDS_CAP);
         }
 
         $params[] = $id;

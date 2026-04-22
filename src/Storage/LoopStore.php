@@ -233,6 +233,45 @@ final class LoopStore
         ]);
     }
 
+    /**
+     * Update first-class loop fields without replacing metadata.
+     *
+     * Supported keys: goal, max_iterations.
+     *
+     * @param array<string, mixed> $patch
+     */
+    public function updateLoop(string $id, array $patch): bool
+    {
+        $loop = $this->getLoop($id);
+        if ($loop === null) {
+            return false;
+        }
+
+        $sets = ['last_activity_at = ?'];
+        $params = [gmdate('Y-m-d\TH:i:s\Z')];
+
+        if (array_key_exists('goal', $patch)) {
+            $sets[] = 'goal = ?';
+            $params[] = $patch['goal'];
+        }
+
+        if (array_key_exists('max_iterations', $patch)) {
+            $sets[] = 'max_iterations = ?';
+            $params[] = $patch['max_iterations'];
+        }
+
+        if (count($sets) === 1) {
+            return true;
+        }
+
+        $params[] = $id;
+
+        $stmt = $this->db->prepare('UPDATE loops SET ' . implode(', ', $sets) . ' WHERE id = ?');
+        $stmt->execute($params);
+
+        return $stmt->rowCount() > 0;
+    }
+
     // ──────────────────────────────────────────────
     //  Iteration CRUD
     // ──────────────────────────────────────────────

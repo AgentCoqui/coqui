@@ -1710,9 +1710,81 @@ List projects, optionally filtered by status.
 | `status` | string | `null` | Filter by `active`, `completed`, or `archived` |
 | `limit` | int | `50` | Max projects to return (capped at 200) |
 
+#### `POST /api/v1/projects`
+
+Create a new project.
+
+**Request Body**
+
+```json
+{
+  "title": "Career Ops",
+  "slug": "career-ops",
+  "description": "Career workflow system"
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "project": {
+    "id": "proj_123",
+    "title": "Career Ops",
+    "slug": "career-ops",
+    "status": "active"
+  }
+}
+```
+
 #### `GET /api/v1/projects/{idOrSlug}`
 
 Get a project by ID or slug. The response includes summary sprint counts and the currently active sprint, if any.
+
+#### `PATCH /api/v1/projects/{idOrSlug}`
+
+Update project fields.
+
+Supported fields:
+
+- `title`
+- `description`
+- `status`
+
+**Response `200`**
+
+Returns the same detail payload as `GET /api/v1/projects/{idOrSlug}`.
+
+#### `DELETE /api/v1/projects/{idOrSlug}`
+
+Permanently delete an archived project.
+
+Projects must be archived before deletion. Deletion clears any session `active_project_id` references pointing at that project.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "id": "proj_123"
+}
+```
+
+#### `POST /api/v1/projects/{idOrSlug}/archive`
+
+Archive a project.
+
+**Response `200`**
+
+Returns the same detail payload as `GET /api/v1/projects/{idOrSlug}` with `project.status = "archived"`.
+
+#### `POST /api/v1/projects/{idOrSlug}/activate`
+
+Activate a project.
+
+**Response `200`**
+
+Returns the same detail payload as `GET /api/v1/projects/{idOrSlug}` with `project.status = "active"`.
 
 #### `GET /api/v1/projects/{idOrSlug}/sprints`
 
@@ -1724,9 +1796,97 @@ List sprints for one project.
 |-------|------|---------|-------------|
 | `status` | string | `null` | Optional sprint status filter |
 
+#### `POST /api/v1/projects/{idOrSlug}/sprints`
+
+Create a sprint inside a project.
+
+**Request Body**
+
+```json
+{
+  "title": "MVP Sprint",
+  "acceptance_criteria": "Core app shell is navigable.",
+  "contract_artifact_id": "artifact_contract_123",
+  "max_review_rounds": 4
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "sprint": {
+    "id": "spr_123",
+    "project_id": "proj_123",
+    "title": "MVP Sprint",
+    "status": "planned",
+    "max_review_rounds": 4
+  },
+  "project": {
+    "id": "proj_123",
+    "slug": "career-ops"
+  }
+}
+```
+
 #### `GET /api/v1/sprints/{id}`
 
 Get a sprint by ID, including its parent project summary.
+
+#### `PATCH /api/v1/sprints/{id}`
+
+Update editable sprint fields.
+
+Supported fields:
+
+- `title`
+- `acceptance_criteria`
+- `contract_artifact_id`
+- `last_session_id`
+- `max_review_rounds`
+
+**Response `200`**
+
+Returns the same detail payload as `GET /api/v1/sprints/{id}`.
+
+#### `DELETE /api/v1/sprints/{id}`
+
+Delete a sprint while it is still in the `planned` state.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "id": "spr_123"
+}
+```
+
+#### `POST /api/v1/sprints/{id}/start`
+
+Transition a sprint from `planned` to `in_progress`.
+
+#### `POST /api/v1/sprints/{id}/submit-review`
+
+Transition a sprint from `in_progress` to `review`.
+
+#### `POST /api/v1/sprints/{id}/complete`
+
+Transition a sprint from `review` to `complete`.
+
+#### `POST /api/v1/sprints/{id}/reject`
+
+Transition a sprint from `review` to `rejected`.
+
+Optional request body:
+
+```json
+{
+  "reviewer_notes": "Needs stronger acceptance coverage."
+}
+```
+
+All sprint action routes return the same detail payload as `GET /api/v1/sprints/{id}`.
 
 ### Background Tasks
 
@@ -2037,7 +2197,7 @@ List todos for a session with optional filters.
 
 #### `POST /api/v1/sessions/{id}/todos`
 
-Create a single todo.
+Create a single session-scoped todo.
 
 **Request Body**
 
@@ -2047,24 +2207,37 @@ Create a single todo.
   "priority": "high",
   "artifact_id": "abc123",
   "parent_id": null,
-  "notes": "See auth spec"
+  "sprint_id": "sprint_123",
+  "notes": "See auth spec",
+  "sort_order": 3
 }
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `title` | string | Yes | — | Task description (max 200 chars) |
+| `title` | string | Yes | — | Task description |
 | `priority` | string | No | `"medium"` | `high`, `medium`, or `low` |
 | `artifact_id` | string | No | `null` | Link to an artifact |
 | `parent_id` | string | No | `null` | Parent todo ID (for subtasks) |
+| `sprint_id` | string | No | `null` | Link the todo to a sprint |
 | `notes` | string | No | `null` | Additional context |
+| `sort_order` | integer | No | auto | Override the default sort order |
 
 **Response `201`**
 
 ```json
 {
   "id": "a1b2c3d4",
-  "title": "Implement authentication module"
+  "session_id": "s1a2b3c4",
+  "title": "Implement authentication module",
+  "status": "pending",
+  "priority": "high",
+  "artifact_id": "abc123",
+  "parent_id": null,
+  "sprint_id": "sprint_123",
+  "notes": "See auth spec",
+  "sort_order": 3,
+  "subtasks": []
 }
 ```
 
@@ -2073,49 +2246,6 @@ Create a single todo.
 ```json
 {
   "error": "Title is required",
-  "code": "validation_error"
-}
-```
-
-#### `POST /api/v1/sessions/{id}/todos/bulk`
-
-Create multiple todos in a single request. Max 25 items per call.
-
-**Request Body**
-
-```json
-{
-  "items": [
-    {"title": "Step 1: Design schema", "priority": "high", "notes": "See RFC"},
-    {"title": "Step 2: Implement store", "priority": "medium"},
-    {"title": "Step 3: Add API endpoints", "priority": "medium"}
-  ],
-  "artifact_id": "plan-abc123"
-}
-```
-
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `items` | array | Yes | — | Array of todo objects (max 25) |
-| `items[].title` | string | Yes | — | Task description (max 200 chars) |
-| `items[].priority` | string | No | `"medium"` | `high`, `medium`, or `low` |
-| `items[].notes` | string | No | `null` | Additional context |
-| `artifact_id` | string | No | `null` | Link all created todos to this artifact |
-
-**Response `201`**
-
-```json
-{
-  "ids": ["a1b2c3d4", "e5f6g7h8", "i9j0k1l2"],
-  "count": 3
-}
-```
-
-**Response `400`** — too many items:
-
-```json
-{
-  "error": "Maximum 25 items per bulk create",
   "code": "validation_error"
 }
 ```
@@ -2144,13 +2274,11 @@ Get a specific todo with its subtasks.
 
 ```json
 {
-  "todo": {
-    "id": "a1b2c3d4",
-    "title": "Implement authentication module",
-    "status": "in_progress",
-    "priority": "high",
-    "subtasks": []
-  }
+  "id": "a1b2c3d4",
+  "title": "Implement authentication module",
+  "status": "in_progress",
+  "priority": "high",
+  "subtasks": []
 }
 ```
 
@@ -2179,16 +2307,23 @@ Update a todo's fields.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `title` | string | No | New title (max 200 chars) |
+| `title` | string | No | New title |
 | `status` | string | No | `pending`, `in_progress`, `completed`, `cancelled` |
 | `priority` | string | No | `high`, `medium`, `low` |
 | `notes` | string | No | Updated notes |
+| `artifact_id` | string or `null` | No | Relink or clear the linked artifact |
+| `parent_id` | string or `null` | No | Relink or clear the parent todo |
+| `sprint_id` | string or `null` | No | Relink or clear the sprint |
+| `sort_order` | integer | No | Override the current sort order |
 
 **Response `200`**
 
 ```json
 {
-  "updated": true
+  "id": "a1b2c3d4",
+  "status": "in_progress",
+  "priority": "high",
+  "subtasks": []
 }
 ```
 
@@ -2213,8 +2348,8 @@ Update multiple todos in a single request. Max 25 items per call.
 | `updates[].id` | string | Yes | Todo ID to update |
 | `updates[].status` | string | No | New status |
 | `updates[].priority` | string | No | New priority |
-| `updates[].title` | string | No | New title (max 200 chars) |
-| `updates[].notes` | string | No | Updated notes |
+| `updates[].title` | string | No | New title |
+| `updates[].notes` | string or `null` | No | Updated notes |
 
 **Response `200`**
 
@@ -2224,15 +2359,68 @@ Update multiple todos in a single request. Max 25 items per call.
 }
 ```
 
-#### `POST /api/v1/sessions/{id}/todos/{todoId}/complete`
+#### `POST /api/v1/sessions/{id}/todos/reorder`
 
-Mark a todo as completed.
+Set explicit sort orders for multiple todos.
+
+**Request Body**
+
+```json
+{
+  "ordering": [
+    {"id": "a1b2c3d4", "sort_order": 1},
+    {"id": "e5f6g7h8", "sort_order": 2}
+  ]
+}
+```
 
 **Response `200`**
 
 ```json
 {
-  "completed": true
+  "reordered_count": 2
+}
+```
+
+#### `POST /api/v1/sessions/{id}/todos/{todoId}/complete`
+
+Mark a todo as completed. Optional request fields: `completed_by`, `notes`.
+
+**Response `200`**
+
+```json
+{
+  "id": "a1b2c3d4",
+  "status": "completed",
+  "subtasks": []
+}
+```
+
+#### `POST /api/v1/sessions/{id}/todos/{todoId}/reopen`
+
+Reopen a completed or cancelled todo back to `pending`.
+
+**Response `200`**
+
+```json
+{
+  "id": "a1b2c3d4",
+  "status": "pending",
+  "subtasks": []
+}
+```
+
+#### `POST /api/v1/sessions/{id}/todos/{todoId}/cancel`
+
+Cancel a pending or in-progress todo.
+
+**Response `200`**
+
+```json
+{
+  "id": "a1b2c3d4",
+  "status": "cancelled",
+  "subtasks": []
 }
 ```
 
@@ -2244,7 +2432,8 @@ Delete a todo and all its subtasks.
 
 ```json
 {
-  "deleted": true
+  "deleted": true,
+  "id": "a1b2c3d4"
 }
 ```
 
@@ -2252,7 +2441,46 @@ Delete a todo and all its subtasks.
 
 Artifacts are versioned content objects scoped to a session. They support a lifecycle (`draft` → `review` → `final`) and are used for structured planning, code generation, and handoff between roles.
 
-The HTTP API currently exposes artifacts as read-only inspection resources. Artifact creation and mutation happen through the REPL or agent tools.
+Session-scoped artifact creation and mutation are available through the HTTP API. Closed or archived sessions still reject artifact writes with `409 session_closed`.
+
+#### `POST /api/v1/sessions/{id}/artifacts`
+
+Create a new artifact in a session.
+
+**Request Body**
+
+```json
+{
+  "title": "Database migration plan",
+  "content": "## Steps\n1. ...",
+  "type": "plan",
+  "stage": "draft",
+  "language": "markdown",
+  "project_id": "proj_123",
+  "sprint_id": "sprint_123",
+  "tags": ["database", "migration"],
+  "summary": "Initial migration rollout plan"
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `title` | string | Yes | — | Artifact title |
+| `content` | string | Yes | — | Initial artifact content |
+| `type` | string | No | `"code"` | Artifact category |
+| `stage` | string | No | `"draft"` | `draft`, `review`, or `final` |
+| `language` | string | No | `null` | Optional language or format hint |
+| `filepath` | string | No | `null` | Optional workspace path |
+| `metadata` | object | No | `{}` | Base metadata object |
+| `tags` | array | No | — | Convenience shorthand for `metadata.tags` |
+| `summary` | string | No | — | Convenience shorthand for `metadata.summary` |
+| `project_id` | string | No | `null` | Link the artifact to a project |
+| `sprint_id` | string | No | `null` | Link the artifact to a sprint |
+| `persistent` | boolean | No | `false` | Keep the artifact outside normal session cleanup |
+
+**Response `201`**
+
+Returns the full current artifact object.
 
 #### `GET /api/v1/sessions/{id}/artifacts`
 
@@ -2278,6 +2506,7 @@ List artifacts for a session with optional filters.
       "stage": "draft",
       "language": null,
       "filepath": null,
+      "metadata": null,
       "version": 1,
       "created_by": "plan",
       "created_at": "2026-02-16T14:30:00Z",
@@ -2305,6 +2534,29 @@ Returns the full artifact object including content.
 }
 ```
 
+#### `PATCH /api/v1/sessions/{id}/artifacts/{artifactId}`
+
+Patch artifact metadata, stage, links, or content.
+
+If `content` is included, the patch creates a new artifact version. Without `content`, metadata-only changes stay on the current version row.
+
+**Request Body**
+
+```json
+{
+  "title": "Database migration plan v2",
+  "content": "## Updated Steps\n1. ...",
+  "change_summary": "Added rollback notes",
+  "stage": "review",
+  "tags": ["database", "migration", "rollback"],
+  "summary": "Expanded rollout plan"
+}
+```
+
+**Response `200`**
+
+Returns the full current artifact object.
+
 #### `GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions`
 
 List all versions of an artifact.
@@ -2316,6 +2568,7 @@ List all versions of an artifact.
   "artifact_id": "art_1a2b3c4d",
   "versions": [
     {
+      "id": "ver_123",
       "version": 1,
       "content": "## Steps\n1. ...",
       "change_summary": "Initial version",
@@ -2331,6 +2584,46 @@ List all versions of an artifact.
     }
   ],
   "count": 2
+}
+```
+
+#### `POST /api/v1/sessions/{id}/artifacts/{artifactId}/versions`
+
+Create a new artifact version directly.
+
+**Request Body**
+
+```json
+{
+  "content": "## Updated Steps\n1. ...",
+  "change_summary": "Added rollback notes",
+  "title": "Database migration plan v2",
+  "stage": "review"
+}
+```
+
+**Response `200`**
+
+Returns the full current artifact object.
+
+#### `POST /api/v1/sessions/{id}/artifacts/{artifactId}/versions/{versionId}/restore`
+
+Restore an older artifact version by version row id.
+
+**Response `200`**
+
+Returns the full current artifact object with a newly created version containing the restored content.
+
+#### `DELETE /api/v1/sessions/{id}/artifacts/{artifactId}`
+
+Delete an artifact and its version history.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "id": "art_1a2b3c4d"
 }
 ```
 
@@ -2675,6 +2968,61 @@ Get detailed loop status including current iteration and stage information.
   ]
 }
 ```
+
+#### `PATCH /api/v1/loops/{id}`
+
+Update operator-editable loop fields without redefining the loop configuration.
+
+Supported fields:
+
+- `goal`
+- `max_iterations`
+- `metadata`
+- `labels` (stored under `metadata.labels`)
+
+`max_iterations` may be set to `null` to clear the override. Active loops can be edited, but `max_iterations` cannot be lowered below the current iteration number.
+
+**Request Body**
+
+```json
+{
+  "goal": "Ship loop edit and delete support",
+  "max_iterations": 4,
+  "metadata": {
+    "dispatch": {
+      "operator_note": "Keep the patch scope narrow."
+    }
+  },
+  "labels": ["backend", "app-api"]
+}
+```
+
+**Response `200`**
+
+Returns the same normalized loop state payload as `GET /api/v1/loops/{id}`.
+
+**Response `409`**
+
+Returned when `max_iterations` is lower than the loop's current iteration.
+
+#### `DELETE /api/v1/loops/{id}`
+
+Delete a terminal loop and all of its iterations and stages.
+
+Running and paused loops cannot be deleted.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "id": "abc123"
+}
+```
+
+**Response `409`**
+
+Returned when the loop is still `running` or `paused`.
 
 #### `POST /api/v1/loops/{id}/pause`
 
@@ -3581,7 +3929,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/sessions` | Yes | List sessions |
 | `POST` | `/api/v1/sessions` | Yes | Create session |
 | `GET` | `/api/v1/sessions/{id}` | Yes | Get session |
-| `PATCH` | `/api/v1/sessions/{id}` | Yes | Update session (title) |
+| `PATCH` | `/api/v1/sessions/{id}` | Yes | Update session metadata |
 | `DELETE` | `/api/v1/sessions/{id}` | Yes | Delete session |
 | `GET` | `/api/v1/sessions/{id}/project` | Yes | Get the session active project |
 | `PATCH` | `/api/v1/sessions/{id}/project` | Yes | Set or clear the session active project |
@@ -3608,6 +3956,22 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/tasks` | Yes | Create background task |
 | `GET` | `/api/v1/tasks` | Yes | List tasks |
 | `GET` | `/api/v1/tasks/{id}` | Yes | Get task detail |
+| `POST` | `/api/v1/projects` | Yes | Create project |
+| `GET` | `/api/v1/projects` | Yes | List projects |
+| `GET` | `/api/v1/projects/{idOrSlug}` | Yes | Get project detail |
+| `PATCH` | `/api/v1/projects/{idOrSlug}` | Yes | Update project |
+| `DELETE` | `/api/v1/projects/{idOrSlug}` | Yes | Delete archived project |
+| `POST` | `/api/v1/projects/{idOrSlug}/archive` | Yes | Archive project |
+| `POST` | `/api/v1/projects/{idOrSlug}/activate` | Yes | Activate project |
+| `GET` | `/api/v1/projects/{idOrSlug}/sprints` | Yes | List project sprints |
+| `POST` | `/api/v1/projects/{idOrSlug}/sprints` | Yes | Create sprint |
+| `GET` | `/api/v1/sprints/{id}` | Yes | Get sprint detail |
+| `PATCH` | `/api/v1/sprints/{id}` | Yes | Update sprint |
+| `DELETE` | `/api/v1/sprints/{id}` | Yes | Delete planned sprint |
+| `POST` | `/api/v1/sprints/{id}/start` | Yes | Start sprint |
+| `POST` | `/api/v1/sprints/{id}/submit-review` | Yes | Submit sprint for review |
+| `POST` | `/api/v1/sprints/{id}/complete` | Yes | Complete sprint |
+| `POST` | `/api/v1/sprints/{id}/reject` | Yes | Reject sprint |
 | `GET` | `/api/v1/tasks/{id}/events` | Yes | Stream task events (SSE) |
 | `POST` | `/api/v1/tasks/{id}/input` | Yes | Inject input into running task |
 | `POST` | `/api/v1/tasks/{id}/cancel` | Yes | Cancel a task |
@@ -3655,6 +4019,8 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/loops` | Yes | List loops |
 | `GET` | `/api/v1/loops/definitions` | Yes | List loop definitions |
 | `GET` | `/api/v1/loops/{id}` | Yes | Get loop details |
+| `PATCH` | `/api/v1/loops/{id}` | Yes | Update editable loop fields |
+| `DELETE` | `/api/v1/loops/{id}` | Yes | Delete a terminal loop |
 | `POST` | `/api/v1/loops/{id}/pause` | Yes | Pause a running loop |
 | `POST` | `/api/v1/loops/{id}/resume` | Yes | Resume a paused loop |
 | `POST` | `/api/v1/loops/{id}/stop` | Yes | Cancel a running or paused loop |
@@ -3668,11 +4034,24 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `DELETE` | `/api/v1/webhooks/{id}` | Yes | Delete webhook |
 | `POST` | `/api/v1/webhooks/{id}/rotate` | Yes | Rotate signing secret |
 | `GET` | `/api/v1/webhooks/{id}/deliveries` | Yes | List delivery logs |
+| `POST` | `/api/v1/sessions/{id}/artifacts` | Yes | Create artifact |
 | `GET` | `/api/v1/sessions/{id}/artifacts` | Yes | List artifacts |
 | `GET` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Get artifact |
+| `PATCH` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Update artifact metadata or content |
+| `DELETE` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Delete artifact |
 | `GET` | `/api/v1/sessions/{id}/artifacts/{artifactId}/versions` | Yes | List artifact versions |
+| `POST` | `/api/v1/sessions/{id}/artifacts/{artifactId}/versions` | Yes | Create artifact version |
+| `POST` | `/api/v1/sessions/{id}/artifacts/{artifactId}/versions/{versionId}/restore` | Yes | Restore artifact version |
+| `POST` | `/api/v1/sessions/{id}/todos` | Yes | Create todo |
 | `GET` | `/api/v1/sessions/{id}/todos` | Yes | List todos |
 | `GET` | `/api/v1/sessions/{id}/todos/stats` | Yes | Get todo statistics |
+| `PATCH` | `/api/v1/sessions/{id}/todos/bulk` | Yes | Bulk update todos |
+| `POST` | `/api/v1/sessions/{id}/todos/reorder` | Yes | Reorder todos |
 | `GET` | `/api/v1/sessions/{id}/todos/{todoId}` | Yes | Get todo detail |
+| `PATCH` | `/api/v1/sessions/{id}/todos/{todoId}` | Yes | Update todo |
+| `DELETE` | `/api/v1/sessions/{id}/todos/{todoId}` | Yes | Delete todo |
+| `POST` | `/api/v1/sessions/{id}/todos/{todoId}/complete` | Yes | Complete todo |
+| `POST` | `/api/v1/sessions/{id}/todos/{todoId}/reopen` | Yes | Reopen todo |
+| `POST` | `/api/v1/sessions/{id}/todos/{todoId}/cancel` | Yes | Cancel todo |
 
-Mutation-heavy workflows for roles, artifacts, todos, summarization, restart, and update continue to live in the REPL and agent tool layer rather than the HTTP API.
+Mutation-heavy workflows for roles, summarization, restart, and update continue to live in the REPL and agent tool layer rather than the HTTP API.

@@ -160,13 +160,10 @@ final readonly class LoopHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, $e->getMessage());
         }
 
-        $state = $this->store->getCurrentState($loopId);
+        $state = $this->normalizedState($loopId);
         if ($state === null) {
             return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Loop created but state could not be loaded');
         }
-
-        $state['loop'] = $this->normalizeLoop($state['loop']);
-        $state['stages'] = array_map(fn(array $stage): array => $this->normalizeStage($stage), $state['stages']);
 
         return Router::jsonResponse($state, 201);
     }
@@ -227,15 +224,159 @@ final readonly class LoopHandler
      */
     public function get(ServerRequestInterface $request, string $id): Response
     {
-        $state = $this->store->getCurrentState($id);
+        $state = $this->normalizedState($id);
         if ($state === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
         }
 
-        $state['loop'] = $this->normalizeLoop($state['loop']);
-        $state['stages'] = array_map(fn(array $stage): array => $this->normalizeStage($stage), $state['stages']);
+        return Router::jsonResponse($state);
+    }
+
+    /**
+     * PATCH /api/v1/loops/{id}
+     */
+    public function update(ServerRequestInterface $request, string $id): Response
+    {
+        $loop = $this->store->getLoop($id);
+        if ($loop === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
+        }
+
+        $body = json_decode((string) $request->getBody(), true);
+        if (!is_array($body)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+        }
+
+        $allowedKeys = ['goal', 'max_iterations', 'metadata', 'labels'];
+        $unknownKeys = array_values(array_filter(
+            array_keys($body),
+            static fn(mixed $key): bool => is_string($key) && !in_array($key, $allowedKeys, true),
+        ));
+
+        if ($unknownKeys !== []) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                sprintf('Unknown loop patch fields: %s', implode(', ', $unknownKeys)),
+            );
+        }
+
+        if ($body === []) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'At least one patch field is required');
+        }
+
+        $fieldPatch = [];
+
+        if (array_key_exists('goal', $body)) {
+            $goal = trim((string) $body['goal']);
+            if ($goal === '') {
+                return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'goal cannot be empty');
+            }
+
+            $fieldPatch['goal'] = $goal;
+        }
+
+        if (array_key_exists('max_iterations', $body)) {
+            $rawMaxIterations = $body['max_iterations'];
+
+            if ($rawMaxIterations === null || $rawMaxIterations === '') {
+                $fieldPatch['max_iterations'] = null;
+            } else {
+                if (!is_int($rawMaxIterations) && !is_string($rawMaxIterations) && !is_float($rawMaxIterations)) {
+                    return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'max_iterations must be a positive integer or null');
+                }
+
+                $maxIterations = (int) $rawMaxIterations;
+                if ($maxIterations < 1) {
+                    return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'max_iterations must be greater than 0');
+                }
+
+                $currentIteration = max(1, (int) ($loop['current_iteration'] ?? 0));
+                if ($maxIterations < $currentIteration) {
+                    return Router::errorResponse(
+                        ApiErrorCode::CONFLICT,
+                        sprintf('max_iterations cannot be less than the current iteration (%d).', $currentIteration),
+                    );
+                }
+
+                $fieldPatch['max_iterations'] = $maxIterations;
+            }
+        }
+
+        $metadataPatch = [];
+        if (array_key_exists('metadata', $body)) {
+            if (!is_array($body['metadata'])) {
+                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'metadata must be an object');
+            }
+
+            $metadataPatch = $body['metadata'];
+        }
+
+        if (array_key_exists('labels', $body)) {
+            if (!is_array($body['labels'])) {
+                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'labels must be an array of strings');
+            }
+
+            $labels = [];
+            foreach ($body['labels'] as $label) {
+                if (!is_string($label)) {
+                    return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'labels must be an array of strings');
+                }
+
+                $trimmed = trim($label);
+                if ($trimmed === '') {
+                    return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'labels cannot contain empty values');
+                }
+
+                $labels[] = $trimmed;
+            }
+
+            $metadataPatch['labels'] = array_values(array_unique($labels));
+        }
+
+        if ($fieldPatch === [] && $metadataPatch === []) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'At least one patch field is required');
+        }
+
+        if ($fieldPatch !== []) {
+            $this->store->updateLoop($id, $fieldPatch);
+        }
+
+        if ($metadataPatch !== []) {
+            $this->store->updateLoopMetadata($id, $metadataPatch);
+        }
+
+        $state = $this->normalizedState($id);
+        if ($state === null) {
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Loop updated but state could not be loaded');
+        }
 
         return Router::jsonResponse($state);
+    }
+
+    /**
+     * DELETE /api/v1/loops/{id}
+     */
+    public function delete(ServerRequestInterface $request, string $id): Response
+    {
+        $loop = $this->store->getLoop($id);
+        if ($loop === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
+        }
+
+        $status = (string) ($loop['status'] ?? '');
+        if (in_array($status, ['running', 'paused'], true)) {
+            return Router::errorResponse(
+                ApiErrorCode::CONFLICT,
+                sprintf('Cannot delete loop while status is "%s".', $status),
+            );
+        }
+
+        $this->store->deleteLoop($id);
+
+        return Router::jsonResponse([
+            'deleted' => true,
+            'id' => $id,
+        ]);
     }
 
     /**
@@ -327,6 +468,8 @@ final readonly class LoopHandler
 
         if ($this->executor !== null) {
             $router->post($v1 . '/loops', [$this, 'create']);
+            $router->patch($v1 . '/loops/{id}', [$this, 'update']);
+            $router->delete($v1 . '/loops/{id}', [$this, 'delete']);
         }
         $router->get($v1 . '/loops', [$this, 'list']);
         $router->get($v1 . '/loops/definitions', [$this, 'definitions']);
@@ -391,6 +534,22 @@ final readonly class LoopHandler
         $stage['metadata'] = JsonHelper::decodeJsonObject($stage['metadata'] ?? null);
 
         return $stage;
+    }
+
+    /**
+     * @return array{loop: array<string, mixed>, iteration: array<string, mixed>|null, stages: list<array<string, mixed>>}|null
+     */
+    private function normalizedState(string $id): ?array
+    {
+        $state = $this->store->getCurrentState($id);
+        if ($state === null) {
+            return null;
+        }
+
+        $state['loop'] = $this->normalizeLoop($state['loop']);
+        $state['stages'] = array_map(fn(array $stage): array => $this->normalizeStage($stage), $state['stages']);
+
+        return $state;
     }
 
 }

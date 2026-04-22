@@ -221,6 +221,81 @@ final class ArtifactStore
     }
 
     /**
+     * Patch non-versioned artifact fields.
+     *
+     * Supported keys: title, language, metadata, project_id, sprint_id, persistent.
+     *
+     * @param array<string, mixed> $patch
+     * @param string|null $sessionId When provided, validates the artifact belongs to this session.
+     */
+    public function patch(string $id, array $patch, ?string $sessionId = null): bool
+    {
+        $artifact = $this->getRaw($id, $sessionId);
+        if ($artifact === null) {
+            return false;
+        }
+
+        $sets = ['updated_at = ?'];
+        $params = [gmdate('Y-m-d\TH:i:s\Z')];
+
+        if (array_key_exists('title', $patch)) {
+            $sets[] = 'title = ?';
+            $params[] = $patch['title'];
+        }
+
+        if (array_key_exists('language', $patch)) {
+            if ($patch['language'] === null) {
+                $sets[] = 'language = NULL';
+            } else {
+                $sets[] = 'language = ?';
+                $params[] = $patch['language'];
+            }
+        }
+
+        if (array_key_exists('metadata', $patch)) {
+            if ($patch['metadata'] === null) {
+                $sets[] = 'metadata = NULL';
+            } else {
+                $sets[] = 'metadata = ?';
+                $params[] = json_encode($patch['metadata'], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+            }
+        }
+
+        if (array_key_exists('project_id', $patch)) {
+            if ($patch['project_id'] === null) {
+                $sets[] = 'project_id = NULL';
+            } else {
+                $sets[] = 'project_id = ?';
+                $params[] = $patch['project_id'];
+            }
+        }
+
+        if (array_key_exists('sprint_id', $patch)) {
+            if ($patch['sprint_id'] === null) {
+                $sets[] = 'sprint_id = NULL';
+            } else {
+                $sets[] = 'sprint_id = ?';
+                $params[] = $patch['sprint_id'];
+            }
+        }
+
+        if (array_key_exists('persistent', $patch)) {
+            $sets[] = 'persistent = ?';
+            $params[] = $patch['persistent'] ? 1 : 0;
+        }
+
+        if (count($sets) === 1) {
+            return true;
+        }
+
+        $params[] = $id;
+        $stmt = $this->db->prepare('UPDATE artifacts SET ' . implode(', ', $sets) . ' WHERE id = ?');
+        $stmt->execute($params);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
      * Get a single artifact by ID.
      *
      * @param string|null $sessionId When provided, validates the artifact belongs to this session.
@@ -407,6 +482,22 @@ final class ArtifactStore
             'SELECT * FROM artifact_versions WHERE artifact_id = ? AND version = ?',
         );
         $stmt->execute([$artifactId, $version]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $row : null;
+    }
+
+    /**
+     * Get a specific stored version record by its row ID.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getVersionById(string $artifactId, string $versionId): ?array
+    {
+        $stmt = $this->db->prepare(
+            'SELECT * FROM artifact_versions WHERE artifact_id = ? AND id = ?',
+        );
+        $stmt->execute([$artifactId, $versionId]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $row !== false ? $row : null;

@@ -249,3 +249,122 @@ test('loop handler rejects invalid lifecycle transition', function () {
         cleanupLoopHandlerFixture($fixture);
     }
 });
+
+test('loop handler updates editable loop fields and merges metadata', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $createResponse = $fixture['handler']->create(
+            new ServerRequest(
+                'POST',
+                '/api/v1/loops',
+                ['Content-Type' => 'application/json'],
+                json_encode([
+                    'definition' => 'harness',
+                    'goal' => 'Refactor the loop API',
+                    'parameters' => ['subject' => 'loop lifecycle API'],
+                    'max_iterations' => 2,
+                ]) ?: '',
+            ),
+        );
+        $createdBody = json_decode((string) $createResponse->getBody(), true);
+        $createdLoopId = $createdBody['loop']['id'];
+
+        $updateResponse = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/loops/' . $createdLoopId,
+                ['Content-Type' => 'application/json'],
+                json_encode([
+                    'goal' => 'Ship loop edit and delete support',
+                    'max_iterations' => 4,
+                    'metadata' => [
+                        'dispatch' => [
+                            'operator_note' => 'Keep the patch scope narrow.',
+                        ],
+                    ],
+                    'labels' => ['backend', 'app-api'],
+                ]) ?: '',
+            ),
+            $createdLoopId,
+        );
+        $updatedBody = json_decode((string) $updateResponse->getBody(), true);
+
+        expect($updateResponse->getStatusCode())->toBe(200);
+        expect($updatedBody['loop']['goal'])->toBe('Ship loop edit and delete support');
+        expect((int) $updatedBody['loop']['max_iterations'])->toBe(4);
+        expect($updatedBody['loop']['metadata']['dispatch']['status'])->toBe('pending');
+        expect($updatedBody['loop']['metadata']['dispatch']['operator_note'])->toBe('Keep the patch scope narrow.');
+        expect($updatedBody['loop']['metadata']['labels'])->toBe(['backend', 'app-api']);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('loop handler delete rejects active loops', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $createResponse = $fixture['handler']->create(
+            new ServerRequest(
+                'POST',
+                '/api/v1/loops',
+                ['Content-Type' => 'application/json'],
+                json_encode([
+                    'definition' => 'harness',
+                    'goal' => 'Refactor the loop API',
+                    'parameters' => ['subject' => 'loop lifecycle API'],
+                ]) ?: '',
+            ),
+        );
+        $createdBody = json_decode((string) $createResponse->getBody(), true);
+        $createdLoopId = $createdBody['loop']['id'];
+
+        $deleteResponse = $fixture['handler']->delete(
+            new ServerRequest('DELETE', '/api/v1/loops/' . $createdLoopId),
+            $createdLoopId,
+        );
+        $deleteBody = json_decode((string) $deleteResponse->getBody(), true);
+
+        expect($deleteResponse->getStatusCode())->toBe(409);
+        expect($deleteBody['code'])->toBe('conflict');
+        expect($fixture['loopStore']->getLoop($createdLoopId))->not->toBeNull();
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('loop handler delete removes terminal loops', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $createResponse = $fixture['handler']->create(
+            new ServerRequest(
+                'POST',
+                '/api/v1/loops',
+                ['Content-Type' => 'application/json'],
+                json_encode([
+                    'definition' => 'harness',
+                    'goal' => 'Refactor the loop API',
+                    'parameters' => ['subject' => 'loop lifecycle API'],
+                ]) ?: '',
+            ),
+        );
+        $createdBody = json_decode((string) $createResponse->getBody(), true);
+        $createdLoopId = $createdBody['loop']['id'];
+
+        $fixture['handler']->stop(new ServerRequest('POST', '/api/v1/loops/' . $createdLoopId . '/stop'), $createdLoopId);
+
+        $deleteResponse = $fixture['handler']->delete(
+            new ServerRequest('DELETE', '/api/v1/loops/' . $createdLoopId),
+            $createdLoopId,
+        );
+        $deleteBody = json_decode((string) $deleteResponse->getBody(), true);
+
+        expect($deleteResponse->getStatusCode())->toBe(200);
+        expect($deleteBody['deleted'])->toBeTrue();
+        expect($fixture['loopStore']->getLoop($createdLoopId))->toBeNull();
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
