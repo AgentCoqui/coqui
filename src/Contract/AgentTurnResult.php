@@ -17,6 +17,7 @@ final readonly class AgentTurnResult
     /**
      * @param string[]  $toolsUsed       Unique tool names invoked during the turn.
      * @param ?array<int, array{file_path: string, operation: string}> $fileEdits  Files edited during the turn.
+    * @param ?array<int, array{actor_name: string, actor_role: string, content: string, round: int}> $actorResponses
      * @param ?string   $error           Error message if the turn failed.
      * @param ?DeferredWorkQueue $deferredWork  Non-critical tasks to run after stats are rendered.
      */
@@ -34,6 +35,7 @@ final readonly class AgentTurnResult
         public bool $budgetExhausted = false,
         public ?ContextUsageSnapshot $contextUsage = null,
         public ?array $fileEdits = null,
+        public ?array $actorResponses = null,
         public ?string $error = null,
         public ?string $reviewFeedback = null,
         public ?bool $reviewApproved = null,
@@ -112,6 +114,7 @@ final readonly class AgentTurnResult
             'budget_exhausted' => $this->budgetExhausted,
             'context_usage' => $this->contextUsage?->toArray(),
             'file_edits' => $this->fileEdits,
+            'actor_responses' => $this->actorResponses,
             'error' => $this->error,
             'review_feedback' => $this->reviewFeedback,
             'review_approved' => $this->reviewApproved,

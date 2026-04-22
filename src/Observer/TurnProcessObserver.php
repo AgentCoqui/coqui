@@ -24,6 +24,8 @@ final class TurnProcessObserver implements SplObserver
     public function __construct(
         private readonly SessionStorage $storage,
         private readonly string $turnProcessId,
+        private readonly ?string $actorName = null,
+        private readonly ?string $actorRole = null,
     ) {}
 
     public function update(SplSubject $subject): void
@@ -93,10 +95,27 @@ final class TurnProcessObserver implements SplObserver
         }
 
         try {
-            $this->storage->appendTurnEvent($this->turnProcessId, $eventType, $eventData);
+            $this->storage->appendTurnEvent($this->turnProcessId, $eventType, $this->withActorMetadata($eventData));
         } catch (\Throwable) {
             // Best-effort — do not let event logging kill the agent
         }
+    }
+
+    /**
+     * @param array<string, mixed> $eventData
+     * @return array<string, mixed>
+     */
+    private function withActorMetadata(array $eventData): array
+    {
+        if ($this->actorName !== null && $this->actorName !== '') {
+            $eventData['actor_name'] = $this->actorName;
+        }
+
+        if ($this->actorRole !== null && $this->actorRole !== '') {
+            $eventData['actor_role'] = $this->actorRole;
+        }
+
+        return $eventData;
     }
 
     /**

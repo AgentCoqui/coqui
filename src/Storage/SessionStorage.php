@@ -69,6 +69,8 @@ final class SessionStorage
                 content TEXT NOT NULL,
                 tool_calls TEXT,
                 tool_call_id TEXT,
+                actor_name TEXT DEFAULT NULL,
+                actor_role TEXT DEFAULT NULL,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             )
@@ -134,6 +136,8 @@ final class SessionStorage
 
         // Migrations for existing tables — add turn_id FK columns
         $this->migrateAddColumn('messages', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
+        $this->migrateAddColumn('messages', 'actor_name', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('messages', 'actor_role', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('audit_log', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
         $this->migrateAddColumn('turns', 'turn_process_id', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('turns', 'result_payload', 'TEXT DEFAULT NULL');
@@ -970,13 +974,15 @@ final class SessionStorage
         ?string $toolCalls = null,
         ?string $toolCallId = null,
         ?string $turnId = null,
+        ?string $actorName = null,
+        ?string $actorRole = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO messages (id, session_id, role, content, tool_calls, tool_call_id, turn_id, created_at)
-            VALUES (:id, :session_id, :role, :content, :tool_calls, :tool_call_id, :turn_id, :created_at)
+            INSERT INTO messages (id, session_id, role, content, tool_calls, tool_call_id, turn_id, actor_name, actor_role, created_at)
+            VALUES (:id, :session_id, :role, :content, :tool_calls, :tool_call_id, :turn_id, :actor_name, :actor_role, :created_at)
         SQL);
 
         $stmt->execute([
@@ -987,6 +993,8 @@ final class SessionStorage
             'tool_calls' => $toolCalls,
             'tool_call_id' => $toolCallId,
             'turn_id' => $turnId,
+            'actor_name' => $actorName,
+            'actor_role' => $actorRole,
             'created_at' => $now,
         ]);
 
@@ -1002,7 +1010,7 @@ final class SessionStorage
     public function getMessages(string $sessionId): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, role, content, tool_calls, tool_call_id, created_at
+            SELECT id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
             FROM messages
             WHERE session_id = :session_id
             ORDER BY created_at ASC
@@ -1010,7 +1018,7 @@ final class SessionStorage
 
         $stmt->execute(['session_id' => $sessionId]);
 
-        return $this->normalizeSessionRows($stmt->fetchAll(PDO::FETCH_ASSOC));
+        return $this->normalizeMessageRows($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -1026,7 +1034,7 @@ final class SessionStorage
     public function getActiveMessages(string $sessionId): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, role, content, tool_calls, tool_call_id, created_at
+            SELECT id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
             FROM messages
             WHERE session_id = :session_id AND is_summarized = 0
             ORDER BY created_at ASC
@@ -1034,7 +1042,7 @@ final class SessionStorage
 
         $stmt->execute(['session_id' => $sessionId]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->normalizeMessageRows($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -1047,8 +1055,10 @@ final class SessionStorage
      */
     public function loadConversation(string $sessionId): Conversation
     {
+        $isGroupSession = $this->isGroupSession($sessionId);
+
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, role, content, tool_calls, tool_call_id, created_at
+            SELECT id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
             FROM messages
             WHERE session_id = :session_id AND is_summarized = 0
             ORDER BY created_at ASC
@@ -1062,6 +1072,13 @@ final class SessionStorage
             try {
                 $role = Role::from($msg['role']);
                 $content = $this->sanitizeUtf8($msg['content'] ?? '');
+                if ($isGroupSession) {
+                    $content = $this->decorateGroupConversationContent(
+                        $role,
+                        is_string($msg['actor_name'] ?? null) ? $msg['actor_name'] : null,
+                        $content,
+                    );
+                }
                 $toolCalls = $msg['tool_calls'] !== null
                     ? $this->decodeToolCalls($msg['tool_calls'])
                     : [];
@@ -1956,14 +1973,14 @@ final class SessionStorage
         }
 
         $msgStmt = $this->db->prepare(<<<SQL
-            SELECT id, role, content, tool_calls, tool_call_id, created_at
+            SELECT id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
             FROM messages
             WHERE turn_id = :turn_id
             ORDER BY created_at ASC
         SQL);
 
         $msgStmt->execute(['turn_id' => $turnId]);
-        $turn['messages'] = $msgStmt->fetchAll(PDO::FETCH_ASSOC);
+        $turn['messages'] = $this->normalizeMessageRows($msgStmt->fetchAll(PDO::FETCH_ASSOC));
         $turn['events'] = isset($turn['turn_process_id']) && is_string($turn['turn_process_id']) && $turn['turn_process_id'] !== ''
             ? $this->getDecodedTurnEvents($turn['turn_process_id'])
             : [];
@@ -1999,6 +2016,47 @@ final class SessionStorage
         unset($normalized['result_payload']);
 
         return $normalized;
+    }
+
+    /**
+     * @param array<string, mixed> $message
+     * @return array<string, mixed>
+     */
+    private function normalizeMessageRow(array $message): array
+    {
+        $message['actor_name'] = is_string($message['actor_name'] ?? null) && $message['actor_name'] !== ''
+            ? $message['actor_name']
+            : null;
+        $message['actor_role'] = is_string($message['actor_role'] ?? null) && $message['actor_role'] !== ''
+            ? $message['actor_role']
+            : null;
+
+        return $message;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $messages
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeMessageRows(array $messages): array
+    {
+        return array_map(
+            fn(array $message): array => $this->normalizeMessageRow($message),
+            $messages,
+        );
+    }
+
+    private function decorateGroupConversationContent(Role $role, ?string $actorName, string $content): string
+    {
+        if ($actorName === null || $actorName === '') {
+            return $content;
+        }
+
+        return match ($role) {
+            Role::Assistant => trim($content) === '' ? $content : sprintf('@%s says:%s%s', $actorName, PHP_EOL, $content),
+            Role::Tool => sprintf('Tool result for @%s:%s%s', $actorName, PHP_EOL, $content),
+            default => $content,
+        };
     }
 
     /**

@@ -177,6 +177,41 @@ final class AgentRunner
     }
 
     /**
+     * Execute a single responder segment inside an existing stored turn.
+     *
+     * Used by group sessions so multiple profiled responders can persist
+     * messages under one top-level turn without creating nested turns.
+     *
+     * @param string[]|null $filePaths
+     */
+    public function runSegment(
+        string $prompt,
+        string $sessionId,
+        string $turnId,
+        ToolExecutionPolicyInterface $executionPolicy,
+        ?SplObserver $observer = null,
+        ?array $filePaths = null,
+        ?string $role = null,
+        ?string $profile = null,
+        ?string $actorName = null,
+        ?string $actorRole = null,
+    ): AgentTurnResult {
+        return $this->executeSegment(
+            prompt: $prompt,
+            sessionId: $sessionId,
+            executionPolicy: $executionPolicy,
+            observer: $observer,
+            enableBackgroundTasks: true,
+            role: $role,
+            filePaths: $filePaths,
+            profile: $profile,
+            turnId: $turnId,
+            actorName: $actorName ?? $profile,
+            actorRole: $actorRole ?? ($role ?? 'orchestrator'),
+        );
+    }
+
+    /**
      * Internal implementation shared by run(), runWithObserver(), and runForTask().
      *
      * @param string[]|null $filePaths
@@ -536,6 +571,312 @@ final class AgentRunner
         }
     }
 
+    /**
+     * @return array{profilePath: ?string, preferences: ?\CoquiBot\Coqui\Config\ProfilePreferences}
+     */
+    private function resolveProfileContext(?string $profile): array
+    {
+        if ($profile === null) {
+            return ['profilePath' => null, 'preferences' => null];
+        }
+
+        $candidatePath = rtrim($this->workspacePath, '/') . '/profiles/' . $profile;
+        if (!is_dir($candidatePath) || !is_file($candidatePath . '/soul.md')) {
+            return ['profilePath' => null, 'preferences' => null];
+        }
+
+        $preferences = null;
+        $preferencesFile = $candidatePath . '/preferences.json';
+        if (is_file($preferencesFile)) {
+            $preferences = \CoquiBot\Coqui\Config\ProfilePreferences::fromFile($preferencesFile);
+        }
+
+        return [
+            'profilePath' => $candidatePath,
+            'preferences' => $preferences,
+        ];
+    }
+
+    /**
+     * @param string[]|null $filePaths
+     */
+    private function executeSegment(
+        string $prompt,
+        string $sessionId,
+        ToolExecutionPolicyInterface $executionPolicy,
+        ?SplObserver $observer = null,
+        ?CancellationTokenInterface $cancellationToken = null,
+        ?PendingInputProviderInterface $pendingInputProvider = null,
+        bool $enableBackgroundTasks = true,
+        ?string $role = null,
+        ?int $maxIterations = null,
+        ?array $filePaths = null,
+        ?string $workScopeSessionId = null,
+        ?string $defaultProjectId = null,
+        ?string $defaultSprintId = null,
+        ?string $profile = null,
+        ?string $turnId = null,
+        ?Conversation $history = null,
+        ?string $actorName = null,
+        ?string $actorRole = null,
+    ): AgentTurnResult {
+        $history ??= $this->storage->loadConversation($sessionId);
+        $effectiveRole = $role ?? 'orchestrator';
+        $modelString = $this->roleResolver->resolve($effectiveRole, $profile);
+        $turnStartedAt = (new \DateTimeImmutable())->format('c');
+        $startTime = hrtime(true);
+
+        ['profilePath' => $resolvedProfilePath, 'preferences' => $resolvedPreferences] = $this->resolveProfileContext($profile);
+
+        $sanitizer = new ScriptSanitizer(
+            unsafe: $this->unsafeMode,
+            blacklist: $this->blacklist,
+        );
+
+        $restartRequested = false;
+
+        $agent = $this->createAgent(
+            sessionId: $sessionId,
+            currentTurnId: $turnId,
+            executionPolicy: $executionPolicy,
+            sanitizer: $sanitizer,
+            onRestart: function () use (&$restartRequested): void {
+                $restartRequested = true;
+            },
+            observer: $observer,
+            cancellationToken: $cancellationToken,
+            pendingInputProvider: $pendingInputProvider,
+            enableBackgroundTasks: $enableBackgroundTasks,
+            role: $effectiveRole,
+            maxIterations: $maxIterations,
+            workScopeSessionId: $workScopeSessionId,
+            defaultProjectId: $defaultProjectId,
+            defaultSprintId: $defaultSprintId,
+            activeProfile: $profile,
+            activeProfilePath: $resolvedProfilePath,
+            profilePreferences: $resolvedPreferences,
+        );
+
+        if ($observer !== null) {
+            $agent->attach($observer);
+        }
+
+        try {
+            if ($this->roleDiscovery !== null && $history->count() > 20) {
+                try {
+                    $roleProps = $this->roleDiscovery->getRole($effectiveRole, $resolvedProfilePath);
+                    if ($roleProps->preSummarize) {
+                        $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer, $profile);
+                    }
+                } catch (\Throwable) {
+                    // Role not found or summarization failure — non-fatal
+                }
+            }
+
+            if ($history->count() > 0) {
+                $agent->notify('agent.status', ['label' => 'Checking context budget']);
+            }
+            $history = $this->autoSummarizeIfNeeded($agent, $history, $sessionId, $prompt, $observer, $profile);
+
+            if ($this->notificationStore !== null && $workScopeSessionId === null) {
+                $agent->notify('agent.status', ['label' => 'Processing notifications']);
+                $notificationPromptSection = $this->snapshotNotificationPromptSection(
+                    $sessionId,
+                    $agent,
+                );
+
+                if ($notificationPromptSection !== null) {
+                    $agent->setNotificationPromptSection($notificationPromptSection);
+                }
+            }
+
+            $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $history);
+
+            $usage = ($output->usage !== null && $output->usage->totalTokens > 0)
+                ? $this->sanitizeUsage($output->usage, $output, $modelString)
+                : $this->estimateUsage($output, $modelString);
+
+            $resolvedMaxIterations = $maxIterations ?? $this->roleResolver->resolveMaxIterations($effectiveRole, $profile);
+            ['iterationLimitReached' => $iterationLimitReached, 'budgetExhausted' => $budgetExhausted] =
+                $this->resolveExitFlags($output, $resolvedMaxIterations);
+
+            $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
+            $toolsUsed = $this->extractToolsUsed($output->conversation, $history->count());
+            $childAgentCount = $agent->getSpawnTool()->getChildRunCount();
+
+            $pdo = $this->storage->getPdo();
+            $pdo->beginTransaction();
+            try {
+                if ($output->conversation !== null) {
+                    $this->persistTurnMessages(
+                        $output->conversation,
+                        $history->count(),
+                        $sessionId,
+                        $turnId,
+                        $actorName,
+                        $actorRole,
+                    );
+                }
+
+                if ($output->conversation === null) {
+                    $this->storage->addMessage(
+                        $sessionId,
+                        'assistant',
+                        $output->content,
+                        turnId: $turnId,
+                        actorName: $actorName,
+                        actorRole: $actorRole,
+                    );
+                }
+
+                $this->storage->updateTokenCount($sessionId, $usage->totalTokens);
+
+                $pdo->commit();
+            } catch (\Throwable $dbError) {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+                throw $dbError;
+            }
+
+            $pruningStrategy = $agent->getPruningStrategy();
+            if ($pruningStrategy !== null && $pruningStrategy->wasSummarizationApplied()) {
+                try {
+                    $summarizer = new ConversationSummarizer(
+                        storage: $this->storage,
+                        memoryStore: $this->memoryStore,
+                    );
+                    $factory = $this->providerFactory;
+                    $utilityModel = $this->roleResolver->resolveUtility($profile);
+                    if ($utilityModel !== '') {
+                        $utilityProvider = $factory->create($utilityModel);
+                        $pruneResult = $summarizer->summarizeAndPersist(
+                            sessionId: $sessionId,
+                            provider: $utilityProvider,
+                            keepRecentTurns: CoquiDefaults::KEEP_RECENT_TURNS,
+                            workflowContext: $this->buildWorkflowContext($sessionId),
+                            onExtraction: function (int $saved, string $source) use ($agent): void {
+                                $agent->notify('agent.memory_extraction', [
+                                    'memories_saved' => $saved,
+                                    'source' => $source,
+                                    'auto' => true,
+                                ]);
+                            },
+                            profileId: $profile,
+                        );
+
+                        if ($pruneResult->wasSummarized()) {
+                            $agent->notify('agent.summary', [
+                                'messages_summarized' => $pruneResult->messagesSummarized,
+                                'tokens_before' => $pruneResult->tokensBefore,
+                                'tokens_after' => $pruneResult->tokensAfter,
+                                'tokens_saved' => $pruneResult->tokensSaved(),
+                                'auto' => true,
+                            ]);
+                        }
+                    }
+                } catch (\Throwable) {
+                    // Deferred persistence failure is non-fatal
+                }
+                $pruningStrategy->reset();
+            }
+
+            $deferredWork = new DeferredWorkQueue();
+
+            if ($this->usageTracker !== null) {
+                $deferredWork->enqueue(fn() => $this->usageTracker->refresh());
+            }
+
+            $conversationForExtraction = $output->conversation ?? $history;
+            $deferredWork->enqueue(fn() => $this->autoExtractMemories(
+                $conversationForExtraction,
+                $sessionId,
+                fn(string $event, mixed $data) => $agent->notify($event, $data),
+                $profile,
+            ));
+
+            $contextUsage = null;
+            try {
+                $finalConversation = $output->conversation ?? $history;
+                $promptCounter = TokenCounterFactory::forModel($modelString);
+                $promptSections = $agent->getPromptSectionBreakdown($promptCounter);
+                $contextUsage = ContextUsageBar::buildSnapshot(
+                    $finalConversation,
+                    $agent->getContextWindow(),
+                    $promptSections,
+                );
+            } catch (\Throwable) {
+                // Non-fatal — progress bar is optional
+            }
+
+            $fileEdits = $this->collectFileEdits($turnStartedAt);
+
+            $reviewFeedback = null;
+            $reviewApproved = null;
+            if ($this->shouldPostTurnReview($effectiveRole, $fileEdits, $profile, $resolvedProfilePath)) {
+                $reviewResult = $this->runPostTurnReview(
+                    coderOutput: $output->content,
+                    originalTask: $prompt,
+                    observer: $observer,
+                    activeProfile: $profile,
+                    activeProfilePath: $resolvedProfilePath,
+                );
+                if ($reviewResult !== null) {
+                    $reviewFeedback = $reviewResult->reviewFeedback;
+                    $reviewApproved = $reviewResult->approved;
+                }
+            }
+
+            $backgroundTasks = null;
+            try {
+                $showBg = (bool) $this->config->get('agents.defaults.footer.backgroundTasks', true);
+                if ($showBg) {
+                    $rows = $this->storage->getActiveBackgroundSummary();
+                    if ($rows !== []) {
+                        $backgroundTasks = BackgroundTaskSummary::fromRows($rows);
+                    }
+                }
+            } catch (\Throwable) {
+                // Non-fatal — background task summary is optional
+            }
+
+            return new AgentTurnResult(
+                content: $output->content,
+                iterations: $output->iterations,
+                promptTokens: $usage->promptTokens,
+                completionTokens: $usage->completionTokens,
+                totalTokens: $usage->totalTokens,
+                durationMs: $durationMs,
+                toolsUsed: $toolsUsed,
+                childAgentCount: $childAgentCount,
+                restartRequested: $restartRequested,
+                iterationLimitReached: $iterationLimitReached,
+                budgetExhausted: $budgetExhausted,
+                contextUsage: $contextUsage,
+                fileEdits: $fileEdits,
+                reviewFeedback: $reviewFeedback,
+                reviewApproved: $reviewApproved,
+                deferredWork: $deferredWork,
+                backgroundTasks: $backgroundTasks,
+            );
+        } catch (\Throwable $e) {
+            $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
+
+            return new AgentTurnResult(
+                content: '',
+                iterations: 0,
+                promptTokens: 0,
+                completionTokens: 0,
+                totalTokens: 0,
+                durationMs: $durationMs,
+                toolsUsed: [],
+                childAgentCount: 0,
+                restartRequested: $restartRequested,
+                error: $e->getMessage(),
+            );
+        }
+    }
+
     private function createAgent(
         string $sessionId,
         ?string $currentTurnId,
@@ -564,7 +905,6 @@ final class AgentRunner
         $factory = $this->providerFactory;
         $provider = $factory->create($modelString);
 
-        // Resolve budget exit configuration
         $budgetExitThreshold = CoquiDefaults::BUDGET_EXIT_THRESHOLD;
         $budgetExitWrapUpIterations = CoquiDefaults::BUDGET_EXIT_WRAP_UP_ITERATIONS;
         if ($this->config instanceof \CoquiBot\Coqui\Config\OpenClawConfig) {
@@ -572,9 +912,6 @@ final class AgentRunner
             $budgetExitWrapUpIterations = $this->config->getBudgetExitWrapUpIterations();
         }
 
-        // Create BudgetExitObserver with workflow context builder.
-        // When the agent crosses the budget threshold, this observer queues
-        // a wrap-up instruction with current todo/artifact/sprint state.
         $budgetExitObserver = null;
         $effectivePendingInputProvider = $pendingInputProvider;
 
@@ -650,7 +987,6 @@ final class AgentRunner
             profilePreferences: $profilePreferences,
         );
 
-        // Attach the budget exit observer so it receives agent.budget_warning events
         if ($budgetExitObserver !== null) {
             $agent->attach($budgetExitObserver);
         }
@@ -923,6 +1259,8 @@ final class AgentRunner
         int $historyCount,
         string $sessionId,
         ?string $turnId = null,
+        ?string $actorName = null,
+        ?string $actorRole = null,
     ): void {
         $messages = $conversation->messages();
 
@@ -955,6 +1293,8 @@ final class AgentRunner
                             JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
                         ) : null,
                         turnId: $turnId,
+                        actorName: $actorName,
+                        actorRole: $actorRole,
                     ),
 
                     Role::Tool => $this->storage->addMessage(
@@ -964,6 +1304,8 @@ final class AgentRunner
                         null,
                         $msg->toolCallId(),
                         turnId: $turnId,
+                        actorName: $actorName,
+                        actorRole: $actorRole,
                     ),
 
                     // User and System messages mid-turn are unexpected but harmless — skip
