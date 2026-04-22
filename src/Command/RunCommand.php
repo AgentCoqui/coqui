@@ -495,13 +495,7 @@ final class RunCommand extends Command
                     ? sprintf(' <fg=magenta>[%s]</>', $this->activeProjectSlug)
                     : '';
                 $multilineTag = $this->multilineMode ? ' <fg=yellow>[multiline]</>' : '';
-                $contextParts = [];
-                if ($this->activeProfile !== null) {
-                    $contextParts[] = $this->activeProfile;
-                }
-                if ($this->activeRole !== SystemRole::Orchestrator->value) {
-                    $contextParts[] = $this->activeRole;
-                }
+                $contextParts = $this->buildUserPromptContextParts();
                 if ($contextParts !== []) {
                     $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>%s%s:', implode(', ', $contextParts), $projectTag, $multilineTag));
                 } else {
@@ -926,6 +920,30 @@ final class RunCommand extends Command
         }
 
         return ' ›' . $badge . ' ';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function buildUserPromptContextParts(): array
+    {
+        if ($this->sessionId !== '' && $this->storage->isGroupSession($this->sessionId)) {
+            $members = $this->storage->listSessionGroupMemberNames($this->sessionId);
+
+            return $members === []
+                ? ['group session']
+                : ['group session with ' . implode(', ', array_map(static fn(string $member): string => '@' . $member, $members))];
+        }
+
+        $contextParts = [];
+        if ($this->activeProfile !== null) {
+            $contextParts[] = $this->activeProfile;
+        }
+        if ($this->activeRole !== SystemRole::Orchestrator->value) {
+            $contextParts[] = $this->activeRole;
+        }
+
+        return $contextParts;
     }
 
     private function installReadlineHandler(string $prompt, callable $callback): void
