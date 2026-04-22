@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Support;
 
 use CarmeloSantana\CoquiToolkitImages\Support\ImagePreviewFormatter;
+use CoquiBot\Coqui\Config\PathHelper;
 
 final class ImagePreviewService
 {
@@ -58,7 +59,7 @@ final class ImagePreviewService
         }
 
         $workspace = $this->workspaceRealPath();
-        $candidate = $this->isAbsolutePath($normalized)
+        $candidate = PathHelper::isAbsolutePath($normalized)
             ? $normalized
             : $this->workspacePath . '/' . ltrim($normalized, '/');
 
@@ -103,6 +104,14 @@ final class ImagePreviewService
             return null;
         }
 
+        if (preg_match('#^file://#i', $trimmed) === 1) {
+            return PathHelper::fileUrlToPath($trimmed);
+        }
+
+        if (PathHelper::isAbsolutePath($trimmed)) {
+            return PathHelper::normalizeForComparison($trimmed);
+        }
+
         $scheme = parse_url($trimmed, PHP_URL_SCHEME);
         if (is_string($scheme) && $scheme !== '' && $scheme !== 'file') {
             return null;
@@ -114,11 +123,12 @@ final class ImagePreviewService
                 return null;
             }
 
+            $parsedPath = PathHelper::normalizeForComparison(rawurldecode($parsedPath));
             if (preg_match('#^/[A-Za-z]:/#', $parsedPath) === 1) {
                 $parsedPath = substr($parsedPath, 1);
             }
 
-            return rawurldecode($parsedPath);
+            return $parsedPath;
         }
 
         return $trimmed;
@@ -131,31 +141,11 @@ final class ImagePreviewService
             throw FileSystemException::pathEscapesSandbox($this->workspacePath);
         }
 
-        return $this->normalizePath($resolved);
+        return PathHelper::normalizeForComparison($resolved);
     }
 
     private function isWithinWorkspace(string $resolvedPath, string $resolvedWorkspace): bool
     {
-        $normalizedPath = rtrim($this->normalizePath($resolvedPath), '/');
-        $normalizedWorkspace = rtrim($resolvedWorkspace, '/');
-
-        return $normalizedPath === $normalizedWorkspace
-            || str_starts_with($normalizedPath, $normalizedWorkspace . '/');
-    }
-
-    private function normalizePath(string $path): string
-    {
-        $normalized = str_replace('\\', '/', $path);
-
-        if (preg_match('/^[A-Z]:/i', $normalized) === 1) {
-            $normalized = strtolower($normalized[0]) . substr($normalized, 1);
-        }
-
-        return $normalized;
-    }
-
-    private function isAbsolutePath(string $path): bool
-    {
-        return str_starts_with($path, '/') || preg_match('/^[a-z]:\//i', $this->normalizePath($path)) === 1;
+        return PathHelper::isWithinBasePath($resolvedPath, $resolvedWorkspace);
     }
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Support;
 
+use CoquiBot\Coqui\Config\PathHelper;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
@@ -799,26 +800,16 @@ final readonly class FileSystemOperations
 
     private function normalizePath(string $path): string
     {
-        $normalized = str_replace('\\', '/', $path);
-
-        if (preg_match('/^[A-Z]:/i', $normalized) === 1) {
-            $normalized = strtolower($normalized[0]) . substr($normalized, 1);
-        }
-
-        return $normalized;
+        return PathHelper::normalizeForComparison($path);
     }
 
     private function isAbsolutePath(string $path): bool
     {
-        return str_starts_with($path, '/') || preg_match('/^[a-z]:\//i', $path) === 1;
+        return PathHelper::isAbsolutePath($path);
     }
 
     private function isWithinBasePath(string $path, string $basePath): bool
     {
-        $normalizedPath = rtrim($this->normalizePath($path), '/');
-        $normalizedBase = rtrim($this->normalizePath($basePath), '/');
-
-        return $normalizedPath === $normalizedBase
-            || str_starts_with($normalizedPath, $normalizedBase . '/');
+        return PathHelper::isWithinBasePath($path, $basePath);
     }
 }
