@@ -1243,6 +1243,40 @@ Get a single turn with its associated messages. For API-origin turns, the detail
 }
 ```
 
+#### `GET /api/v1/sessions/{id}/turns/{turnId}/events`
+
+Get the replayable stored SSE event history for a turn without fetching the nested message payload. This is useful when the client wants to reconstruct live progress UI from historical runs but already has the turn summary and does not need message records.
+
+**Response `200`**
+
+```json
+{
+  "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "turn_id": "t1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+  "events": [
+    {
+      "id": 1,
+      "event_type": "review_start",
+      "data": {
+        "round": 1,
+        "max_rounds": 2,
+        "depth": 0
+      },
+      "created_at": "2026-02-16T14:30:06+00:00"
+    },
+    {
+      "id": 2,
+      "event_type": "title",
+      "data": {
+        "title": "Refactor auth flow"
+      },
+      "created_at": "2026-02-16T14:30:10+00:00"
+    }
+  ],
+  "count": 2
+}
+```
+
 ### Configuration
 
 The HTTP API exposes configuration inspection plus dry-run validation. Mutating config and role definitions remains REPL-only.
@@ -3501,7 +3535,7 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/task-cancel <id>` | `POST /api/v1/tasks/{id}/cancel` | Cancels a running or pending task |
 | `/projects` | `GET /api/v1/projects` | Lists projects |
 | `/sprints` | `GET /api/v1/projects/{idOrSlug}/sprints` | Lists sprints for a project |
-| `/help` | `GET /api/v1/server/info` | Returns available commands and server capabilities |
+| `—` | `GET /api/v1/server/info` | Returns server runtime capabilities and status |
 | `/toolkits` | `GET /api/v1/toolkits` | Lists all toolkit packages and tools with visibility |
 | `/toolkits enable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to enabled |
 | `/toolkits stub <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to stub |
@@ -3560,6 +3594,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `DELETE` | `/api/v1/sessions/{id}/files/{fileId}` | Yes | Delete a file |
 | `GET` | `/api/v1/sessions/{id}/turns` | Yes | List turns |
 | `GET` | `/api/v1/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
+| `GET` | `/api/v1/sessions/{id}/turns/{turnId}/events` | Yes | List replayable turn events |
 | `GET` | `/api/v1/sessions/{id}/child-runs` | Yes | List child agent runs |
 | `GET` | `/api/v1/config` | Yes | Get config (sanitized) |
 | `POST` | `/api/v1/config/validate` | Yes | Validate a candidate config payload |

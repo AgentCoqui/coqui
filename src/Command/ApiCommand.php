@@ -616,6 +616,7 @@ final class ApiCommand extends Command
         // Turns
         $router->get($v1 . '/sessions/{id}/turns', [$turn, 'list']);
         $router->get($v1 . '/sessions/{id}/turns/{turnId}', [$turn, 'get']);
+        $router->get($v1 . '/sessions/{id}/turns/{turnId}/events', [$turn, 'events']);
 
         // Config (read-only — updates are REPL-only)
         $router->get($v1 . '/config', [$config, 'get']);
