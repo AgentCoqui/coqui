@@ -25,11 +25,13 @@ use React\Http\Message\Response;
  * GET    /api/v1/loops/{id}               — get loop status
  * GET    /api/v1/loops/{id}/history       — get full loop iteration history
  * GET    /api/v1/loops/{id}/metrics       — get aggregate loop metrics
+ * POST   /api/v1/loops/{id}/skip-stage    — skip current non-running stage
  * POST   /api/v1/loops/{id}/pause         — pause loop
  * POST   /api/v1/loops/{id}/resume        — resume loop
  * POST   /api/v1/loops/{id}/stop          — cancel loop
  * GET    /api/v1/loops/{id}/iterations    — list iterations
  * GET    /api/v1/loops/{id}/iterations/{iterationId} — get iteration with stages
+ * POST   /api/v1/loops/{id}/iterations/{iterationId}/retry — retry latest failed iteration
  */
 final readonly class LoopHandler
 {
@@ -524,6 +526,96 @@ final readonly class LoopHandler
     }
 
     /**
+     * POST /api/v1/loops/{id}/skip-stage
+     */
+    public function skipStage(ServerRequestInterface $request, string $id): Response
+    {
+        if ($this->executor === null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Loop execution is not available');
+        }
+
+        $loop = $this->store->getLoop($id);
+        if ($loop === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
+        }
+
+        $loopStatus = (string) ($loop['status'] ?? '');
+        if ($loopStatus === 'running') {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, 'Pause or recover the loop before skipping a stage.');
+        }
+
+        $state = $this->store->getCurrentState($id);
+        if ($state === null || $state['iteration'] === null) {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, 'Loop has no active iteration to recover.');
+        }
+
+        $iteration = $state['iteration'];
+        $candidate = null;
+        foreach ($state['stages'] as $stage) {
+            if (($stage['status'] ?? null) !== 'completed') {
+                $candidate = $stage;
+                break;
+            }
+        }
+
+        if ($candidate === null) {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, 'No actionable stage is available to skip.');
+        }
+
+        if (($candidate['status'] ?? null) === 'running') {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, 'Cannot skip a stage while it is actively running.');
+        }
+
+        $this->store->updateStage(
+            id: (string) $candidate['id'],
+            status: 'completed',
+            taskId: is_string($candidate['task_id'] ?? null) ? $candidate['task_id'] : null,
+            artifactId: is_string($candidate['artifact_id'] ?? null) ? $candidate['artifact_id'] : null,
+            resultSummary: sprintf('SKIPPED: operator skipped stage from %s state.', (string) ($candidate['status'] ?? 'unknown')),
+        );
+        $this->store->reopenIteration((string) $iteration['id']);
+        $this->store->updateLoopStatus($id, 'running');
+
+        $stages = $this->store->listStages((string) $iteration['id']);
+        $nextPendingStage = null;
+        foreach ($stages as $stage) {
+            if (($stage['status'] ?? null) !== 'completed') {
+                $nextPendingStage = $stage;
+                break;
+            }
+        }
+
+        if ($nextPendingStage !== null) {
+            $this->store->updateLoopProgress($id, (int) ($iteration['iteration_number'] ?? 0), (int) ($nextPendingStage['stage_index'] ?? 0));
+            $this->store->updateLoopMetadata($id, [
+                'dispatch' => [
+                    'status' => 'pending',
+                    'message' => 'Operator skipped a stage. The loop manager will dispatch the next stage on the next tick.',
+                    'stage_id' => (string) $nextPendingStage['id'],
+                    'stage_index' => (int) ($nextPendingStage['stage_index'] ?? 0),
+                    'updated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                ],
+            ]);
+        } else {
+            $this->store->updateLoopMetadata($id, [
+                'dispatch' => [
+                    'status' => 'pending',
+                    'message' => 'Operator skipped the final actionable stage. The loop will be re-evaluated now.',
+                    'updated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                ],
+            ]);
+            $this->executor->evaluateIteration($id);
+        }
+
+        $updatedState = $this->normalizedState($id);
+        if ($updatedState === null) {
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Loop recovered but state could not be loaded');
+        }
+
+        return Router::jsonResponse($updatedState);
+    }
+
+    /**
      * GET /api/v1/loops/{id}/iterations
      */
     public function iterations(ServerRequestInterface $request, string $id): Response
@@ -561,6 +653,62 @@ final readonly class LoopHandler
     }
 
     /**
+     * POST /api/v1/loops/{id}/iterations/{iterationId}/retry
+     */
+    public function retryIteration(ServerRequestInterface $request, string $id, string $iterationId): Response
+    {
+        if ($this->executor === null) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Loop execution is not available');
+        }
+
+        $loop = $this->store->getLoop($id);
+        if ($loop === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
+        }
+
+        $iteration = $this->store->getIteration($iterationId);
+        if ($iteration === null || (string) ($iteration['loop_id'] ?? '') !== $id) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Iteration not found');
+        }
+
+        $iterations = $this->store->listIterations($id);
+        $latestIteration = $iterations === [] ? null : $iterations[array_key_last($iterations)];
+        if (!is_array($latestIteration) || (string) ($latestIteration['id'] ?? '') !== $iterationId) {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, 'Only the latest iteration can be retried.');
+        }
+
+        $iterationStatus = (string) ($iteration['status'] ?? '');
+        if (!in_array($iterationStatus, ['failed', 'needs_rework'], true)) {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, sprintf('Cannot retry iteration while status is "%s".', $iterationStatus));
+        }
+
+        if ((string) ($loop['status'] ?? '') === 'running') {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, 'Pause or stop the loop before retrying an iteration.');
+        }
+
+        $this->store->resetStagesForIteration($iterationId);
+        $this->store->resetIterationForRetry($iterationId);
+        $this->store->updateLoopStatus($id, 'running');
+        $this->store->updateLoopProgress($id, (int) ($iteration['iteration_number'] ?? 0), 0);
+        $this->store->updateLoopMetadata($id, [
+            'dispatch' => [
+                'status' => 'pending',
+                'message' => 'Operator retried the latest iteration. The loop manager will dispatch stage 0 on the next tick.',
+                'iteration_id' => $iterationId,
+                'stage_index' => 0,
+                'updated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            ],
+        ]);
+
+        $updatedState = $this->normalizedState($id);
+        if ($updatedState === null) {
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Loop retried but state could not be loaded');
+        }
+
+        return Router::jsonResponse($updatedState);
+    }
+
+    /**
      * Register loop routes on the router.
      */
     public function register(Router $router): void
@@ -582,6 +730,8 @@ final readonly class LoopHandler
             $router->post($v1 . '/loops/{id}/pause', [$this, 'pause']);
             $router->post($v1 . '/loops/{id}/resume', [$this, 'resume']);
             $router->post($v1 . '/loops/{id}/stop', [$this, 'stop']);
+            $router->post($v1 . '/loops/{id}/skip-stage', [$this, 'skipStage']);
+            $router->post($v1 . '/loops/{id}/iterations/{iterationId}/retry', [$this, 'retryIteration']);
         }
         $router->get($v1 . '/loops/{id}/iterations', [$this, 'iterations']);
         $router->get($v1 . '/loops/{id}/iterations/{iterationId}', [$this, 'iteration']);

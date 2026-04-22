@@ -3129,15 +3129,17 @@
                 "pause(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/pause",
                 "resume(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/resume",
                 "stop(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/stop",
+                "skipStage(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/skip-stage",
                 "iterations(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}/iterations",
-                "iteration(ServerRequestInterface, string, string): Response — GET /api/v1/loops/{id}/iterations/{iterationId}"
+                "iteration(ServerRequestInterface, string, string): Response — GET /api/v1/loops/{id}/iterations/{iterationId}",
+                "retryIteration(ServerRequestInterface, string, string): Response — POST /api/v1/loops/{id}/iterations/{iterationId}/retry"
             ]
         },
         {
             "path": "src/Api/Handler/WebhookHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\WebhookHandler",
             "layer": "agent",
-            "description": "Incoming webhook receiver. Looks up subscriptions by name, verifies HMAC signatures, extracts event types, renders prompt templates with payload data, and spawns background tasks.",
+            "description": "Incoming webhook receiver. Looks up subscriptions by name, verifies HMAC signatures, extracts event types, and delegates prompt rendering, background-task creation, and delivery logging to WebhookDispatchService.",
             "methods": [
                 "register(Router): void — register POST /api/v1/webhooks/incoming/{name} route"
             ]
@@ -3146,9 +3148,20 @@
             "path": "src/Api/Handler/WebhookManagementHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\WebhookManagementHandler",
             "layer": "agent",
-            "description": "CRUD API for webhook subscriptions. Provides list, create, get, update, delete, secret rotation, and delivery history.",
+            "description": "CRUD API for webhook subscriptions. Provides list, create, get, update, delete, secret rotation, delivery history, delivery detail, and synthetic test dispatch.",
             "methods": [
                 "register(Router): void — register all webhook management routes"
+            ]
+        },
+        {
+            "path": "src/Api/Webhook/WebhookDispatchService.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Webhook\\WebhookDispatchService",
+            "layer": "agent",
+            "description": "Shared webhook delivery dispatcher used by both live incoming webhooks and the management test endpoint. Renders webhook templates, creates profiled background-task sessions, creates tasks, and records delivery audit rows.",
+            "methods": [
+                "dispatch(array, string, string, array, ?ServerRequestInterface, bool): array — create a background task and log a delivered or test_delivered webhook event",
+                "summarizePayload(array, string): string — derive a compact audit summary from common payload fields",
+                "renderTemplate(string, string, string, array): string — apply builtin placeholders and dotted payload references"
             ]
         },
         {

@@ -470,3 +470,95 @@ test('loop handler exposes active loop count', function () {
         cleanupLoopHandlerFixture($fixture);
     }
 });
+
+test('loop handler retries the latest failed iteration', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $createResponse = $fixture['handler']->create(
+            new ServerRequest(
+                'POST',
+                '/api/v1/loops',
+                ['Content-Type' => 'application/json'],
+                json_encode([
+                    'definition' => 'harness',
+                    'goal' => 'Recover a failed loop iteration',
+                    'parameters' => ['subject' => 'loop recovery'],
+                ]) ?: '',
+            ),
+        );
+        $createdBody = json_decode((string) $createResponse->getBody(), true);
+        $loopId = $createdBody['loop']['id'];
+        $iterationId = $createdBody['iteration']['id'];
+        $stages = $fixture['loopStore']->listStages($iterationId);
+
+        $fixture['loopStore']->updateStage($stages[0]['id'], 'completed', taskId: 'task-plan', artifactId: 'artifact-plan', resultSummary: 'Plan done');
+        $fixture['loopStore']->updateStage($stages[1]['id'], 'failed', taskId: 'task-review', resultSummary: 'Review failed');
+        $fixture['loopStore']->updateIterationStatus($iterationId, 'failed', 'Reviewer rejected the work');
+        $fixture['loopStore']->updateLoopStatus($loopId, 'failed');
+
+        $response = $fixture['handler']->retryIteration(
+            new ServerRequest('POST', '/api/v1/loops/' . $loopId . '/iterations/' . $iterationId . '/retry'),
+            $loopId,
+            $iterationId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['loop']['status'])->toBe('running');
+        expect($body['iteration']['id'])->toBe($iterationId);
+        expect($body['iteration']['status'])->toBe('running');
+        expect($body['stages'][0]['status'])->toBe('pending');
+        expect($body['stages'][0]['task_id'])->toBeNull();
+        expect($body['stages'][0]['artifact_id'])->toBeNull();
+        expect($body['stages'][1]['status'])->toBe('pending');
+        expect($body['loop']['metadata']['dispatch']['status'])->toBe('pending');
+        expect($body['loop']['metadata']['dispatch']['message'])->toContain('Operator retried');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('loop handler skips the current failed stage and reopens the iteration', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $createResponse = $fixture['handler']->create(
+            new ServerRequest(
+                'POST',
+                '/api/v1/loops',
+                ['Content-Type' => 'application/json'],
+                json_encode([
+                    'definition' => 'harness',
+                    'goal' => 'Skip a blocked stage',
+                    'parameters' => ['subject' => 'loop recovery'],
+                ]) ?: '',
+            ),
+        );
+        $createdBody = json_decode((string) $createResponse->getBody(), true);
+        $loopId = $createdBody['loop']['id'];
+        $iterationId = $createdBody['iteration']['id'];
+        $stages = $fixture['loopStore']->listStages($iterationId);
+
+        $fixture['loopStore']->updateStage($stages[0]['id'], 'failed', taskId: 'task-plan', resultSummary: 'Planner got stuck');
+        $fixture['loopStore']->updateIterationStatus($iterationId, 'failed', 'Planner got stuck');
+        $fixture['loopStore']->updateLoopStatus($loopId, 'failed');
+
+        $response = $fixture['handler']->skipStage(
+            new ServerRequest('POST', '/api/v1/loops/' . $loopId . '/skip-stage'),
+            $loopId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['loop']['status'])->toBe('running');
+        expect($body['iteration']['status'])->toBe('running');
+        expect($body['stages'][0]['status'])->toBe('completed');
+        expect($body['stages'][0]['result_summary'])->toContain('SKIPPED');
+        expect($body['stages'][1]['status'])->toBe('pending');
+        expect($body['loop']['metadata']['dispatch']['status'])->toBe('pending');
+        expect($body['loop']['metadata']['dispatch']['message'])->toContain('Operator skipped');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});

@@ -6,8 +6,10 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Api\Webhook\WebhookDispatchService;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 
+use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\Coqui\Utility\SecretMasker;
 use Psr\Http\Message\ServerRequestInterface;
@@ -31,6 +33,8 @@ final readonly class WebhookManagementHandler
     public function __construct(
         private WebhookStore $webhookStore,
         private ProfileDiscovery $profileDiscovery,
+        private ?SessionStorage $storage = null,
+        private ?WebhookDispatchService $dispatcher = null,
 
     ) {}
 
@@ -46,6 +50,8 @@ final readonly class WebhookManagementHandler
         $router->delete('/api/v1/webhooks/{id}', $this->handleDelete(...));
         $router->post('/api/v1/webhooks/{id}/rotate', $this->handleRotateSecret(...));
         $router->get('/api/v1/webhooks/{id}/deliveries', $this->handleDeliveries(...));
+        $router->get('/api/v1/webhooks/{id}/deliveries/{deliveryId}', $this->handleDelivery(...));
+        $router->post('/api/v1/webhooks/{id}/test', $this->handleTest(...));
     }
 
     private function handleList(ServerRequestInterface $request): Response
@@ -245,6 +251,70 @@ final readonly class WebhookManagementHandler
         return Router::jsonResponse(['deliveries' => $deliveries]);
     }
 
+    private function handleDelivery(ServerRequestInterface $request, string $id, string $deliveryId): Response
+    {
+        $webhook = $this->webhookStore->get($id);
+        if ($webhook === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Webhook not found');
+        }
+
+        $delivery = $this->webhookStore->getDelivery($deliveryId, $id);
+        if ($delivery === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Webhook delivery not found');
+        }
+
+        $task = null;
+        if ($this->storage !== null && is_string($delivery['task_id'] ?? null) && $delivery['task_id'] !== '') {
+            $task = $this->storage->getTask($delivery['task_id']);
+        }
+
+        return Router::jsonResponse([
+            'delivery' => $delivery,
+            'task' => $task,
+        ]);
+    }
+
+    private function handleTest(ServerRequestInterface $request, string $id): Response
+    {
+        $webhook = $this->webhookStore->get($id);
+        if ($webhook === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Webhook not found');
+        }
+
+        if ($this->storage === null) {
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Task storage is not available');
+        }
+
+        $body = json_decode((string) $request->getBody(), true);
+        if (!is_array($body)) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
+        }
+
+        $eventType = trim((string) ($body['event_type'] ?? 'test'));
+        if ($eventType === '') {
+            $eventType = 'test';
+        }
+
+        $rawPayload = $body['payload'] ?? ['test' => true, 'webhook_id' => $id];
+        $payloadData = is_array($rawPayload)
+            ? $rawPayload
+            : ['_raw' => is_scalar($rawPayload) ? (string) $rawPayload : (json_encode($rawPayload, JSON_UNESCAPED_SLASHES) ?: '')];
+        $payloadJson = is_string($rawPayload)
+            ? $rawPayload
+            : (json_encode($payloadData, JSON_UNESCAPED_SLASHES) ?: '{}');
+
+        $result = $this->dispatcher()->dispatch($webhook, $payloadJson, $eventType, $payloadData, null, true);
+
+        return Router::jsonResponse([
+            'status' => 'accepted',
+            'delivery_id' => $result['delivery_id'],
+            'task_id' => $result['task_id'],
+            'session_id' => $result['session_id'],
+            'event_type' => $result['event_type'],
+            'prompt_preview' => $result['prompt'],
+        ]);
+    }
+
     /**
      * Mask the secret field in a webhook record for API responses.
      *
@@ -256,5 +326,10 @@ final readonly class WebhookManagementHandler
         $secret = (string) ($webhook['secret'] ?? '');
         $webhook['secret'] = SecretMasker::mask($secret);
         return $webhook;
+    }
+
+    private function dispatcher(): WebhookDispatchService
+    {
+        return $this->dispatcher ?? new WebhookDispatchService($this->webhookStore, $this->storage ?? new SessionStorage(':memory:'));
     }
 }
