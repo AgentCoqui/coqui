@@ -600,6 +600,10 @@ final class ApiCommand extends Command
         $router->get($v1 . '/sessions/{id}/summary', [$session, 'summary']);
         $router->patch($v1 . '/sessions/{id}', [$session, 'update']);
         $router->delete($v1 . '/sessions/{id}', [$session, 'delete']);
+        $router->get($v1 . '/sessions/{id}/members', [$session, 'members']);
+        $router->put($v1 . '/sessions/{id}/members', [$session, 'replaceMembers']);
+        $router->post($v1 . '/sessions/{id}/members', [$session, 'addMember']);
+        $router->delete($v1 . '/sessions/{id}/members/{profile}', [$session, 'removeMember']);
         if ($sessionProject !== null) {
             $router->get($v1 . '/sessions/{id}/project', [$sessionProject, 'get']);
             $router->patch($v1 . '/sessions/{id}/project', [$sessionProject, 'update']);
