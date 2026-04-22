@@ -9,6 +9,8 @@ use CarmeloSantana\PHPAgents\Tool\DoneTool;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Renderer\StreamingMarkdownBuffer;
+use CoquiBot\Coqui\Support\ImagePreviewService;
+use CoquiBot\Coqui\Support\ImagePreviewState;
 use SplObserver;
 use SplSubject;
 use Symfony\Component\Console\Output\OutputInterface;
@@ -26,13 +28,18 @@ final class TerminalObserver implements SplObserver
     private bool $hasStreamedReasoning = false;
     private bool $statusLineVisible = false;
     private readonly StreamingMarkdownBuffer $markdownBuffer;
+    private readonly ImagePreviewState $imagePreviewState;
     private ?AnimatedTickCallback $tickCallback = null;
 
     public function __construct(
         private readonly OutputInterface $output,
+        private readonly ?ImagePreviewService $imagePreviewService = null,
     ) {
+        $this->imagePreviewState = new ImagePreviewState();
         $this->markdownBuffer = new StreamingMarkdownBuffer(
             fn(string $rendered) => $this->output->write($rendered),
+            $this->imagePreviewService,
+            $this->imagePreviewState,
         );
     }
 
@@ -87,6 +94,7 @@ final class TerminalObserver implements SplObserver
             'agent.start' => (function () use ($indent): void {
                 $this->hasStreamedText = false;
                 $this->hasStreamedReasoning = false;
+                $this->imagePreviewState->reset();
                 $this->markdownBuffer->reset();
                 $this->output->writeln("{$indent}<fg=cyan>▶ Agent started</>");
                 $this->showStatusLine();
@@ -231,12 +239,23 @@ final class TerminalObserver implements SplObserver
         $color = $status === 'success' ? 'green' : 'red';
         $icon = $status === 'success' ? '✓' : '✗';
 
-        // Truncate content for display
-        $content = $data->content;
-        if (strlen($content) > 100) {
-            $content = substr($content, 0, 97) . '...';
+        $imageResult = $this->buildImageToolResultDisplay($data);
+        if ($imageResult !== null) {
+            $this->output->writeln("{$indent}    <fg={$color}>{$icon}</> <fg=gray>{$imageResult['summary']}</>");
+            $this->output->writeln("{$indent}      <fg=gray>Path:</> {$imageResult['path']}");
+
+            if (is_string($imageResult['preview']) && trim($imageResult['preview']) !== '') {
+                $this->output->writeln("{$indent}      <fg=gray>Preview:</>");
+                $this->writeIndentedBlock($imageResult['preview'], $indent . '      ');
+            }
+
+            $this->showStatusLine();
+
+            return;
         }
-        $content = str_replace(["\n", "\r"], ' ', $content);
+
+        // Truncate content for display
+        $content = $this->truncateToolResultContent($data->content);
 
         $this->output->writeln("{$indent}    <fg={$color}>{$icon}</> <fg=gray>{$content}</>");
         $this->showStatusLine();
@@ -406,6 +425,138 @@ final class TerminalObserver implements SplObserver
 
         $label = (string) ($data['label'] ?? '');
         $this->showStatusLine($label);
+    }
+
+    /**
+     * @return array{summary: string, path: string, preview: string|null}|null
+     */
+    private function buildImageToolResultDisplay(ToolResult $data): ?array
+    {
+        if ($data->status->value !== 'success' || $this->imagePreviewService === null) {
+            return null;
+        }
+
+        $payload = json_decode($data->content, true);
+        if (!is_array($payload)) {
+            return null;
+        }
+
+        foreach ($this->candidateImagePaths($payload) as $path) {
+            if (!$this->imagePreviewService->canPreviewPath($path)) {
+                continue;
+            }
+
+            try {
+                $resolvedPath = $this->imagePreviewService->resolvePath($path);
+            } catch (\RuntimeException) {
+                continue;
+            }
+
+            $preview = null;
+            if (!$this->imagePreviewState->hasRenderedPreview()) {
+                $preview = $this->extractEmbeddedPreview($payload);
+
+                if ($preview === null) {
+                    try {
+                        $previewPayload = $this->imagePreviewService->preview($path);
+                        $resolvedPath = $previewPayload['path'];
+                        $preview = is_string($previewPayload['preview'] ?? null) && trim($previewPayload['preview']) !== ''
+                            ? $previewPayload['preview']
+                            : null;
+                    } catch (\RuntimeException) {
+                        $preview = null;
+                    }
+                }
+
+                if ($preview !== null && !$this->imagePreviewState->consume()) {
+                    $preview = null;
+                }
+            }
+
+            return [
+                'summary' => $this->buildImageSummary($payload, $resolvedPath),
+                'path' => $resolvedPath,
+                'preview' => $preview,
+            ];
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     * @return list<string>
+     */
+    private function candidateImagePaths(array $payload): array
+    {
+        $paths = [];
+
+        foreach (['path', 'saved_path', 'image_path'] as $key) {
+            if (is_string($payload[$key] ?? null) && trim($payload[$key]) !== '') {
+                $paths[] = trim($payload[$key]);
+            }
+        }
+
+        $record = $payload['record'] ?? null;
+        if (is_array($record) && is_string($record['path'] ?? null) && trim($record['path']) !== '') {
+            $paths[] = trim($record['path']);
+        }
+
+        return array_values(array_unique($paths));
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function buildImageSummary(array $payload, string $path): string
+    {
+        $message = $payload['message'] ?? null;
+        if (is_string($message) && trim($message) !== '') {
+            return preg_replace('/\s+/', ' ', trim($message)) ?? trim($message);
+        }
+
+        $name = basename($path);
+
+        if (isset($payload['session'], $payload['page_id'])) {
+            return 'Image captured: ' . $name;
+        }
+
+        return 'Image ready: ' . $name;
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function extractEmbeddedPreview(array $payload): ?string
+    {
+        if (($payload['preview_format'] ?? null) !== 'ansi_blocks') {
+            return null;
+        }
+
+        $preview = $payload['preview'] ?? null;
+        if (!is_string($preview) || trim($preview) === '') {
+            return null;
+        }
+
+        return $preview;
+    }
+
+    private function truncateToolResultContent(string $content): string
+    {
+        if (strlen($content) > 100) {
+            $content = substr($content, 0, 97) . '...';
+        }
+
+        return str_replace(["\n", "\r"], ' ', $content);
+    }
+
+    private function writeIndentedBlock(string $content, string $prefix): void
+    {
+        $lines = preg_split("/\r\n|\n|\r/", rtrim($content, "\r\n")) ?: [$content];
+
+        foreach ($lines as $line) {
+            $this->output->writeln($prefix . $line);
+        }
     }
 
     /**

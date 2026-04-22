@@ -28,6 +28,8 @@ final readonly class PromptInspectionService
 
         return [
             'profile' => $profile,
+            'role' => $preview['effective_role'],
+            'resolved_model' => $preview['resolved_model'],
             'prompt' => $preview['prompt'],
             'tool_count' => $preview['tool_count'],
             'toolkit_count' => $preview['toolkit_count'],
@@ -37,6 +39,7 @@ final readonly class PromptInspectionService
             'toolkit_breakdown' => $preview['toolkit_breakdown'],
             'budget' => $budget,
             'prompt_sources' => $this->buildPromptSources($promptSections),
+            'profile_policy' => $preview['profile_policy'] ?? null,
         ];
     }
 

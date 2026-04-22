@@ -368,3 +368,86 @@ test('buildSystemPrompt includes backstory between soul and body', function () {
     expect($backstoryPos)->toBeGreaterThan($soulPos);
     expect($basePos)->toBeGreaterThan($backstoryPos);
 });
+
+test('buildSystemPrompt omits disabled prompt sections from profile preferences', function () {
+    $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
+    $profilePath = $this->workspacePath . '/profiles/minimal';
+    mkdir($profilePath, 0755, true);
+
+    file_put_contents($profilePath . '/preferences.json', json_encode([
+        'prompts' => [
+            'prompt_sections' => [
+                'backstory' => false,
+                'done' => false,
+            ],
+        ],
+    ], JSON_THROW_ON_ERROR));
+    file_put_contents($profilePath . '/backstory.md', '# Backstory' . "\n\nHidden history.");
+
+    $loader = new PromptLoader(
+        promptsDir: $this->promptsDir,
+        workspacePath: $this->workspacePath,
+        profilePath: $profilePath,
+    );
+
+    $prompt = $loader->buildSystemPrompt();
+    $sectionIds = array_column($loader->buildSystemPromptSections(), 'id');
+
+    expect($prompt)->not->toContain('Hidden history.');
+    expect($prompt)->not->toContain('## Done');
+    expect($sectionIds)->not->toContain('backstory');
+    expect($sectionIds)->not->toContain('done');
+});
+
+test('buildSystemPrompt renders stubbed tool prompts from profile preferences', function () {
+    $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
+    $profilePath = $this->workspacePath . '/profiles/stubbed';
+    mkdir($profilePath, 0755, true);
+
+    file_put_contents($profilePath . '/preferences.json', json_encode([
+        'prompts' => [
+            'prompt_sections' => [
+                'tools' => 'stub',
+            ],
+        ],
+    ], JSON_THROW_ON_ERROR));
+
+    $loader = new PromptLoader(
+        promptsDir: $this->promptsDir,
+        workspacePath: $this->workspacePath,
+        profilePath: $profilePath,
+    );
+
+    $prompt = $loader->buildSystemPrompt();
+    $sections = $loader->buildSystemPromptSections();
+
+    expect($prompt)->toContain('Tool guidance is intentionally condensed for this profile.');
+    expect($prompt)->not->toContain('## Workspace');
+    expect(array_column($sections, 'id'))->toContain('tools.stub');
+});
+
+test('empty profile security override falls back to default security prompt', function () {
+    $this->workspacePath = sys_get_temp_dir() . '/coqui-workspace-' . bin2hex(random_bytes(4));
+    $profilePath = $this->workspacePath . '/profiles/secure';
+    mkdir($profilePath, 0755, true);
+    file_put_contents($profilePath . '/security.md', '');
+
+    $loader = new PromptLoader(
+        promptsDir: $this->promptsDir,
+        workspacePath: $this->workspacePath,
+        profilePath: $profilePath,
+    );
+
+    $prompt = $loader->buildSystemPrompt();
+    $securitySection = null;
+    foreach ($loader->buildSystemPromptSections() as $section) {
+        if (($section['id'] ?? null) === 'security') {
+            $securitySection = $section;
+            break;
+        }
+    }
+
+    expect($prompt)->toContain('## Security');
+    expect($securitySection)->not->toBeNull();
+    expect($securitySection['source'])->toBe($this->promptsDir . '/security.md');
+});

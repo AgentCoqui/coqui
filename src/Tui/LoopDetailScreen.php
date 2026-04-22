@@ -49,24 +49,64 @@ final class LoopDetailScreen implements ScreenInterface
     public function render(OutputInterface $output, int $width, int $height): void
     {
         if ($this->state === null) {
-            $output->writeln('');
-            $output->writeln('  <fg=red>Loop not found.</>');
-            $output->writeln('');
-            $output->writeln('  <fg=gray>ESC</> Back');
+            $shell = new ScreenShell(
+                contentLines: ['  <fg=red>Loop not found.</>'],
+                footer: new ShellRegion(['  <fg=gray>ESC</> Back'], collapsePriority: 20),
+                contentMinWidth: 20,
+                contentMinHeight: 2,
+            );
+
+            foreach ($shell->render($width, $height) as $line) {
+                $output->writeln($line);
+            }
+
             return;
         }
 
         $loop = $this->state['loop'];
-        $lines = [];
+        $headerLines = $this->buildHeaderLines($loop, $width);
+        $footerLines = $this->buildFooterLines($loop, $width);
+        $contentHeight = max(1, $height - count($headerLines) - count($footerLines));
+        $contentLines = $this->buildContentLines($loop, $width, $contentHeight);
 
-        // Header
-        $lines[] = '';
-        $lines[] = sprintf(
-            '  <fg=white;options=bold>Loop: %s</> <fg=gray>(%s)</>',
-            $loop['definition_name'],
-            $loop['id'],
+        $shell = new ScreenShell(
+            contentLines: $contentLines,
+            header: new ShellRegion($headerLines, collapsePriority: 10),
+            footer: new ShellRegion($footerLines, collapsePriority: 40),
+            contentMinWidth: 28,
+            contentMinHeight: 4,
         );
-        $lines[] = '';
+
+        foreach ($shell->render($width, $height) as $line) {
+            $output->writeln($line);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $loop
+     * @return list<string>
+     */
+    private function buildHeaderLines(array $loop, int $width): array
+    {
+        $id = $width < 96 ? substr((string) $loop['id'], 0, 8) . '...' : (string) $loop['id'];
+
+        return [
+            '',
+            sprintf(
+                '  <fg=white;options=bold>Loop: %s</> <fg=gray>(%s)</>',
+                $this->truncatePlain((string) $loop['definition_name'], max(12, $width - 22)),
+                $id,
+            ),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $loop
+     * @return list<string>
+     */
+    private function buildContentLines(array $loop, int $width, int $contentHeight): array
+    {
+        $lines = [];
 
         // Status + metadata grid
         $statusIcon = match ($loop['status']) {
@@ -81,15 +121,20 @@ final class LoopDetailScreen implements ScreenInterface
         $maxIter = $loop['max_iterations'] > 0 ? (string) $loop['max_iterations'] : '∞';
 
         $lines[] = sprintf('  <fg=gray>Status:</>  %s', $statusIcon);
-        $lines[] = sprintf('  <fg=gray>Goal:</>    %s', $loop['goal']);
-        $lines[] = sprintf(
-            '  <fg=gray>Iteration:</> %d/%s                    <fg=gray>Started:</> %s',
-            $loop['current_iteration'],
-            $maxIter,
-            $this->formatTimeSince($loop['started_at']),
-        );
+        $lines[] = sprintf('  <fg=gray>Goal:</>    %s', $this->truncatePlain((string) $loop['goal'], max(20, $width - 16)));
+        if ($width >= 88) {
+            $lines[] = sprintf(
+                '  <fg=gray>Iteration:</> %d/%s                    <fg=gray>Started:</> %s',
+                $loop['current_iteration'],
+                $maxIter,
+                $this->formatTimeSince((string) $loop['started_at']),
+            );
+        } else {
+            $lines[] = sprintf('  <fg=gray>Iteration:</> %d/%s', $loop['current_iteration'], $maxIter);
+            $lines[] = sprintf('  <fg=gray>Started:</> %s', $this->formatTimeSince((string) $loop['started_at']));
+        }
         if ($loop['completed_at'] !== null) {
-            $lines[] = sprintf('  <fg=gray>Completed:</> %s', $this->formatTimeSince($loop['completed_at']));
+            $lines[] = sprintf('  <fg=gray>Completed:</> %s', $this->formatTimeSince((string) $loop['completed_at']));
         }
         $lines[] = '';
 
@@ -110,12 +155,17 @@ final class LoopDetailScreen implements ScreenInterface
             }
             $roleChain = $roles !== [] ? implode(' → ', $roles) : '-';
 
-            $lines[] = sprintf(
-                '  <fg=gray>Config:</>  Max Iterations: <fg=white>%s</>  │  Termination: <fg=white>%s</>  │  Roles: <fg=white>%s</>',
-                $maxIter,
-                $termType,
-                $roleChain,
-            );
+            if ($width >= 96) {
+                $lines[] = sprintf(
+                    '  <fg=gray>Config:</>  Max Iterations: <fg=white>%s</>  │  Termination: <fg=white>%s</>  │  Roles: <fg=white>%s</>',
+                    $maxIter,
+                    $termType,
+                    $this->truncatePlain($roleChain, max(12, $width - 66)),
+                );
+            } else {
+                $lines[] = sprintf('  <fg=gray>Config:</>  Max Iterations <fg=white>%s</>  │  Termination <fg=white>%s</>', $maxIter, $termType);
+                $lines[] = sprintf('  <fg=gray>Roles:</>   <fg=white>%s</>', $this->truncatePlain($roleChain, max(12, $width - 14)));
+            }
             $lines[] = '';
         }
 
@@ -131,15 +181,17 @@ final class LoopDetailScreen implements ScreenInterface
 
         // Iteration table
         if ($this->allIterations !== []) {
-            $lines[] = sprintf(
-                '  <fg=gray>%-4s  %-12s  %-10s  %-40s  %-8s</>',
-                '#',
-                'Status',
-                'Duration',
-                'Outcome',
-                'Stages',
-            );
-            $lines[] = '  ' . str_repeat('─', min($width - 4, 80));
+            if ($width >= 96) {
+                $lines[] = sprintf(
+                    '  <fg=gray>%-4s  %-12s  %-10s  %-40s  %-8s</>',
+                    '#',
+                    'Status',
+                    'Duration',
+                    'Outcome',
+                    'Stages',
+                );
+                $lines[] = '  ' . str_repeat('─', min($width - 4, 80));
+            }
 
             foreach ($this->allIterations as $iteration) {
                 $iterStatus = match ($iteration['status']) {
@@ -148,36 +200,42 @@ final class LoopDetailScreen implements ScreenInterface
                     'failed' => '<fg=red>✗ failed</>',
                     'needs_rework' => '<fg=yellow>⟳ rework</>',
                     'pending' => '<fg=gray>· pending</>',
-                    default => $iteration['status'],
+                    default => (string) $iteration['status'],
                 };
 
                 $duration = $this->formatIterationDuration($iteration);
-                $outcome = $iteration['outcome_summary'] ?? '-';
-                if (mb_strlen($outcome) > 40) {
-                    $outcome = mb_substr($outcome, 0, 37) . '...';
-                }
+                $outcome = $this->truncatePlain((string) ($iteration['outcome_summary'] ?? '-'), $width >= 96 ? 40 : max(16, $width - 30));
 
-                // Get stage counts from timings
                 $timing = $this->findTiming((int) $iteration['iteration_number']);
                 $stageLabel = $timing !== null
                     ? sprintf('%d/%d', $timing['completed_stages'], $timing['stage_count'])
                     : '-';
 
-                // Use fixed-width layout (status has ANSI — pad the raw text part)
-                $lines[] = sprintf(
-                    '  %-4s  %-12s  %-10s  %-40s  %-8s',
-                    $iteration['iteration_number'],
-                    $iterStatus,
-                    $duration,
-                    '<fg=gray>' . $outcome . '</>',
-                    $stageLabel,
-                );
+                if ($width >= 96) {
+                    $lines[] = sprintf(
+                        '  %-4s  %-12s  %-10s  %-40s  %-8s',
+                        $iteration['iteration_number'],
+                        $iterStatus,
+                        $duration,
+                        '<fg=gray>' . $outcome . '</>',
+                        $stageLabel,
+                    );
+                } else {
+                    $lines[] = sprintf(
+                        '  <fg=white>#%d</> %s  <fg=gray>%s • %s stages • %s</>',
+                        (int) $iteration['iteration_number'],
+                        $iterStatus,
+                        $duration,
+                        $stageLabel,
+                        $outcome,
+                    );
+                }
             }
             $lines[] = '';
         }
 
         // Current stage details
-        $stages = $this->state['stages'];
+        $stages = $this->state['stages'] ?? [];
         if ($stages !== []) {
             $currentStage = null;
             foreach ($stages as $stage) {
@@ -235,9 +293,7 @@ final class LoopDetailScreen implements ScreenInterface
                 // Stage result summary
                 $summary = $currentStage['result_summary'] ?? null;
                 if (is_string($summary) && $summary !== '') {
-                    if (mb_strlen($summary) > 100) {
-                        $summary = mb_substr($summary, 0, 97) . '...';
-                    }
+                    $summary = $this->truncatePlain($summary, max(24, $width - 18));
                     $lines[] = sprintf('  <fg=gray>Result: %s</>', $summary);
                 }
 
@@ -250,8 +306,8 @@ final class LoopDetailScreen implements ScreenInterface
                     $toolName = $metadata['last_tool'] ?? $metadata['tool_name'] ?? null;
                     if (is_string($toolName)) {
                         $toolArgs = $metadata['tool_args'] ?? '';
-                        if (is_string($toolArgs) && mb_strlen($toolArgs) > 60) {
-                            $toolArgs = mb_substr($toolArgs, 0, 57) . '...';
+                        if (is_string($toolArgs)) {
+                            $toolArgs = $this->truncatePlain($toolArgs, max(16, $width - 24));
                         }
                         $lines[] = sprintf('  <fg=gray>▸</> <fg=yellow>%s</>(<fg=gray>%s</>)', $toolName, $toolArgs);
                     }
@@ -271,15 +327,26 @@ final class LoopDetailScreen implements ScreenInterface
                     default => ' ',
                 };
                 $stageSummary = $stage['result_summary'] ?? '-';
-                if (mb_strlen($stageSummary) > 60) {
-                    $stageSummary = mb_substr($stageSummary, 0, 57) . '...';
-                }
+                $stageSummary = $this->truncatePlain((string) $stageSummary, max(18, $width - 20));
                 $lines[] = sprintf('  %s <fg=white>%d. %s</>  <fg=gray>%s</>', $icon, (int) $stage['stage_index'], $stage['role'], $stageSummary);
             }
             $lines[] = '';
         }
 
-        // Confirmation prompt
+        $maxScrollOffset = max(0, count($lines) - $contentHeight);
+        $this->scrollOffset = min($this->scrollOffset, $maxScrollOffset);
+
+        return array_slice($lines, $this->scrollOffset, $contentHeight);
+    }
+
+    /**
+     * @param array<string, mixed> $loop
+     * @return list<string>
+     */
+    private function buildFooterLines(array $loop, int $width): array
+    {
+        $lines = [];
+
         if ($this->confirmAction !== null) {
             $shortId = substr($this->loopId, 0, 8);
             $lines[] = sprintf(
@@ -288,23 +355,21 @@ final class LoopDetailScreen implements ScreenInterface
             );
         }
 
-        // Footer
-        $footerParts = ['<fg=gray>ESC</> Back', '<fg=gray>↑↓</> Scroll'];
-        if (in_array($loop['status'], ['running', 'paused'], true)) {
+        $footerParts = $width < 88
+            ? ['<fg=gray>ESC</> Back', '<fg=gray>↑↓</> Scroll']
+            : ['<fg=gray>ESC</> Back', '<fg=gray>↑↓</> Scroll', '<fg=gray>⌫</> Cancel'];
+
+        if ($width < 88 && in_array($loop['status'], ['running', 'paused'], true)) {
             $footerParts[] = '<fg=gray>⌫</> Cancel';
         }
+
+        if (!in_array($loop['status'], ['running', 'paused'], true)) {
+            $footerParts = array_values(array_filter($footerParts, static fn(string $part): bool => !str_contains($part, '⌫')));
+        }
+
         $lines[] = '  ' . implode('  ', $footerParts);
 
-        // Apply scroll offset and render visible lines
-        $visibleHeight = $height - 1;
-        $totalLines = count($lines);
-        $maxScrollOffset = max(0, $totalLines - $visibleHeight);
-        $this->scrollOffset = min($this->scrollOffset, $maxScrollOffset);
-
-        $visibleLines = array_slice($lines, $this->scrollOffset, $visibleHeight);
-        foreach ($visibleLines as $line) {
-            $output->writeln($line);
-        }
+        return $lines;
     }
 
     public function handleKey(KeyEvent $key): ?ScreenAction
@@ -475,5 +540,18 @@ final class LoopDetailScreen implements ScreenInterface
         }
 
         return null;
+    }
+
+    private function truncatePlain(string $value, int $maxWidth): string
+    {
+        if ($maxWidth <= 0 || mb_strwidth($value) <= $maxWidth) {
+            return $value;
+        }
+
+        if ($maxWidth <= 3) {
+            return mb_strimwidth($value, 0, $maxWidth, '');
+        }
+
+        return mb_strimwidth($value, 0, $maxWidth, '...');
     }
 }

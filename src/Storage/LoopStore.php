@@ -233,6 +233,45 @@ final class LoopStore
         ]);
     }
 
+    /**
+     * Update first-class loop fields without replacing metadata.
+     *
+     * Supported keys: goal, max_iterations.
+     *
+     * @param array<string, mixed> $patch
+     */
+    public function updateLoop(string $id, array $patch): bool
+    {
+        $loop = $this->getLoop($id);
+        if ($loop === null) {
+            return false;
+        }
+
+        $sets = ['last_activity_at = ?'];
+        $params = [gmdate('Y-m-d\TH:i:s\Z')];
+
+        if (array_key_exists('goal', $patch)) {
+            $sets[] = 'goal = ?';
+            $params[] = $patch['goal'];
+        }
+
+        if (array_key_exists('max_iterations', $patch)) {
+            $sets[] = 'max_iterations = ?';
+            $params[] = $patch['max_iterations'];
+        }
+
+        if (count($sets) === 1) {
+            return true;
+        }
+
+        $params[] = $id;
+
+        $stmt = $this->db->prepare('UPDATE loops SET ' . implode(', ', $sets) . ' WHERE id = ?');
+        $stmt->execute($params);
+
+        return $stmt->rowCount() > 0;
+    }
+
     // ──────────────────────────────────────────────
     //  Iteration CRUD
     // ──────────────────────────────────────────────
@@ -301,6 +340,36 @@ final class LoopStore
             SQL);
             $stmt->execute([$status, $outcomeSummary, $completedAt, $id]);
         }
+    }
+
+    /**
+     * Reset an iteration so it can be retried.
+     */
+    public function resetIterationForRetry(string $id): void
+    {
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+
+        $stmt = $this->db->prepare(<<<'SQL'
+            UPDATE loop_iterations
+            SET status = 'running', outcome_summary = NULL, started_at = ?, completed_at = NULL
+            WHERE id = ?
+        SQL);
+        $stmt->execute([$now, $id]);
+    }
+
+    /**
+     * Reopen an iteration without resetting its stage history.
+     */
+    public function reopenIteration(string $id): void
+    {
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+
+        $stmt = $this->db->prepare(<<<'SQL'
+            UPDATE loop_iterations
+            SET status = 'running', outcome_summary = NULL, completed_at = NULL, started_at = COALESCE(started_at, ?)
+            WHERE id = ?
+        SQL);
+        $stmt->execute([$now, $id]);
     }
 
     // ──────────────────────────────────────────────
@@ -380,6 +449,25 @@ final class LoopStore
             SQL);
             $stmt->execute([$status, $taskId, $artifactId, $metadataJson, $resultSummary, $completedAt, $id]);
         }
+    }
+
+    /**
+     * Reset all stages for an iteration back to pending.
+     */
+    public function resetStagesForIteration(string $iterationId): void
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            UPDATE loop_stages
+            SET task_id = NULL,
+                artifact_id = NULL,
+                metadata = NULL,
+                status = 'pending',
+                result_summary = NULL,
+                started_at = NULL,
+                completed_at = NULL
+            WHERE iteration_id = ?
+        SQL);
+        $stmt->execute([$iterationId]);
     }
 
     // ──────────────────────────────────────────────

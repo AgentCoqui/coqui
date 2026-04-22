@@ -7,8 +7,13 @@ use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Memory\MemoryStore;
+use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\TodoStore;
+use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use React\Http\Message\ServerRequest;
 
 function createApiSessionHandlerFixture(): array
@@ -47,7 +52,7 @@ MD);
     $storage = new SessionStorage($dbPath);
     $roleDiscovery = new RoleDiscovery($workspacePath, dirname(__DIR__, 4));
     $profileDiscovery = new ProfileDiscovery($workspacePath);
-    $roleResolver = new RoleResolver(OpenClawConfig::fromArray([
+    $config = OpenClawConfig::fromArray([
         'agents' => [
             'defaults' => [
                 'model' => ['primary' => 'ollama/qwen3:latest'],
@@ -56,13 +61,20 @@ MD);
                 ],
             ],
         ],
-    ]), roleDiscovery: $roleDiscovery, profileDiscovery: $profileDiscovery);
+    ]);
+    $roleResolver = new RoleResolver($config, roleDiscovery: $roleDiscovery, profileDiscovery: $profileDiscovery);
+    $lifecycleManager = new ProfileSessionLifecycleManager(
+        storage: $storage,
+        providerFactory: new ProviderFactory($config),
+        roleResolver: $roleResolver,
+        memoryStore: new MemoryStore($workspacePath . '/memory.db'),
+    );
 
     return [
         'workspacePath' => $workspacePath,
         'dbPath' => $dbPath,
         'storage' => $storage,
-        'handler' => new SessionHandler($storage, $roleResolver, $profileDiscovery),
+        'handler' => new SessionHandler($storage, $roleResolver, $profileDiscovery, $lifecycleManager),
     ];
 }
 
@@ -121,6 +133,38 @@ test('session handler create persists a valid profile', function () {
         expect($session)->not->toBeNull();
         expect($session['profile'])->toBe('caelum');
         expect($session['model'])->toBe('ollama/qwen3:latest');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler create rejects roles disallowed by the active profile', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+            'prompts' => [
+                'roles' => [
+                    'allow' => ['orchestrator'],
+                ],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/sessions',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'model_role' => 'analyst',
+                'profile' => 'caelum',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['error'])->toContain('does not allow role "analyst"');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
@@ -191,6 +235,40 @@ test('session handler update accepts clearing or setting a profile', function ()
         expect($clearResponse->getStatusCode())->toBe(200);
         expect($clearBody['profile'])->toBeNull();
         expect($clearBody['model'])->toBe('openai/gpt-4.1-mini');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler update rejects profile changes that would disallow the current role', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+            'prompts' => [
+                'roles' => [
+                    'allow' => ['orchestrator'],
+                ],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $sessionId = $fixture['storage']->createSession('analyst', 'openai/gpt-4.1-mini');
+        $request = new ServerRequest(
+            'PATCH',
+            '/api/v1/sessions/' . $sessionId,
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'profile' => 'caelum',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->update($request, $sessionId);
+        $body = json_decode((string) $response->getBody(), true);
+        $session = $fixture['storage']->getSession($sessionId);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['error'])->toContain('does not allow role "analyst"');
+        expect($session['profile'])->toBeNull();
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
@@ -299,6 +377,272 @@ test('session handler get returns active project id when present', function () {
 
         expect($response->getStatusCode())->toBe(200);
         expect($body['active_project_id'])->toBe($projectId);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler create requires confirmation when a profile already has an active session', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $activeSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/sessions',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'model_role' => 'orchestrator',
+                'profile' => 'caelum',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(409);
+        expect($body['code'])->toBe('profile_session_active');
+        expect($body['details']['active_session_id'])->toBe($activeSessionId);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler create closes active profiled session when confirmation is supplied', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $activeSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $fixture['storage']->addMessage($activeSessionId, 'user', 'Preserve this continuity');
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/sessions',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'model_role' => 'orchestrator',
+                'profile' => 'caelum',
+                'confirm_close_active_profile_session' => true,
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+        $oldSession = $fixture['storage']->getSession($activeSessionId);
+        $visibleSessions = $fixture['storage']->listSessions(10, true, true);
+
+        expect($response->getStatusCode())->toBe(201);
+        expect($body['id'])->not->toBe($activeSessionId);
+        expect($oldSession['is_closed'])->toBe(1);
+        expect($oldSession['closure_reason'])->toBe('api_create_profile_session:caelum');
+        expect($visibleSessions)->toHaveCount(1);
+        expect($visibleSessions[0]['id'])->toBe($body['id']);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler resolve closes older duplicate active sessions for a profile', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $olderSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $latestSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+
+        $fixture['storage']->getPdo()
+            ->prepare('UPDATE sessions SET updated_at = :updated_at WHERE id = :id')
+            ->execute(['updated_at' => '2026-01-01T00:00:00+00:00', 'id' => $olderSessionId]);
+        $fixture['storage']->getPdo()
+            ->prepare('UPDATE sessions SET updated_at = :updated_at WHERE id = :id')
+            ->execute(['updated_at' => '2026-01-03T00:00:00+00:00', 'id' => $latestSessionId]);
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/sessions/resolve',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'model_role' => 'orchestrator',
+                'profile' => 'caelum',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->resolve($request);
+        $body = json_decode((string) $response->getBody(), true);
+        $olderSession = $fixture['storage']->getSession($olderSessionId);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['id'])->toBe($latestSessionId);
+        expect($olderSession['is_closed'])->toBe(1);
+        expect($olderSession['closure_reason'])->toBe('api_profile_duplicate_cleanup:caelum');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler update requires confirmation before reassigning into an active profile scope', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+
+        $request = new ServerRequest(
+            'PATCH',
+            '/api/v1/sessions/' . $sessionId,
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'profile' => 'caelum',
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->update($request, $sessionId);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(409);
+        expect($body['code'])->toBe('profile_session_active');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler list filters archived history and returns lifecycle counts', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $activeId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $archivedId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $fixture['storage']->closeSession($archivedId, 'history-rollover', true);
+
+        $response = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/sessions?status=archived'));
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['status'])->toBe('archived');
+        expect($body['count'])->toBe(1);
+        expect($body['sessions'][0]['id'])->toBe($archivedId);
+        expect($body['sessions'][0]['status'])->toBe('archived');
+        expect($body['counts'])->toBe([
+            'active' => 1,
+            'closed' => 1,
+            'archived' => 1,
+            'total' => 2,
+        ]);
+        expect($fixture['storage']->getSession($activeId)['status'])->toBe('active');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler list filters sessions by profile scope', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $profiledSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $unprofiledSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+
+        $profiledResponse = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/sessions?profile=caelum&status=all'));
+        $profiledBody = json_decode((string) $profiledResponse->getBody(), true);
+
+        $unprofiledResponse = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/sessions?profile=none&status=all'));
+        $unprofiledBody = json_decode((string) $unprofiledResponse->getBody(), true);
+
+        expect($profiledResponse->getStatusCode())->toBe(200);
+        expect($profiledBody['profile'])->toBe('caelum');
+        expect($profiledBody['count'])->toBe(1);
+        expect($profiledBody['sessions'][0]['id'])->toBe($profiledSessionId);
+
+        expect($unprofiledResponse->getStatusCode())->toBe(200);
+        expect($unprofiledBody['profile'])->toBe('none');
+        expect($unprofiledBody['count'])->toBe(1);
+        expect($unprofiledBody['sessions'][0]['id'])->toBe($unprofiledSessionId);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler summary returns aggregate counts and latest turn data', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $todoStore = new TodoStore($fixture['storage']->getPdo());
+        $artifactStore = new ArtifactStore($fixture['storage']->getPdo());
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $fixture['storage']->addMessage($sessionId, 'user', 'Summarize this session');
+        $fixture['storage']->addMessage($sessionId, 'assistant', 'Working on it');
+
+        $turnId = $fixture['storage']->createTurn($sessionId, 'Summarize this session', 'ollama/qwen3:latest');
+        $fixture['storage']->completeTurn(
+            $turnId,
+            'Summary complete',
+            12,
+            34,
+            46,
+            2,
+            1500,
+            json_encode(['read_file', 'apply_patch']) ?: '[]',
+            1,
+        );
+
+        $fixture['storage']->logChildRun($sessionId, 1, 'analyst', 'openai/gpt-4.1-mini', 'Review the session', 'Reviewed', 77);
+
+        $taskId = $fixture['storage']->createTask(
+            sessionId: $sessionId,
+            prompt: 'Summarize the session',
+            title: 'Session summary task',
+        );
+        $fixture['storage']->updateTaskStatus($taskId, 'completed', ['result' => 'done']);
+
+        $artifactId = $artifactStore->create($sessionId, 'Session Notes', 'Summary content', stage: 'final', persistent: true);
+        $todoId = $todoStore->create($sessionId, 'Review session summary');
+        $todoStore->complete($todoId, 'agent');
+
+        $response = $fixture['handler']->summary(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/summary'), $sessionId);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['session']['id'])->toBe($sessionId);
+        expect($body['counts']['messages']['total'])->toBe(2);
+        expect($body['counts']['messages']['active'])->toBe(2);
+        expect($body['counts']['turns'])->toBe(1);
+        expect($body['counts']['child_runs'])->toBe(1);
+        expect($body['counts']['tasks']['total'])->toBe(1);
+        expect($body['counts']['tasks']['by_status']['completed'])->toBe(1);
+        expect($body['counts']['artifacts']['total'])->toBe(1);
+        expect($body['counts']['artifacts']['persistent'])->toBe(1);
+        expect($body['counts']['artifacts']['by_stage']['final'])->toBe(1);
+        expect($body['counts']['todos']['completed'])->toBe(1);
+        expect($body['latest_turn']['id'])->toBe($turnId);
+        expect($body['latest_turn']['tools_used'])->toBe(['read_file', 'apply_patch']);
+        expect($body['latest_activity_at'])->not->toBeNull();
+        expect($artifactId)->not->toBe('');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler update rejects changes to closed sessions', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $fixture['storage']->closeSession($sessionId, 'history-rollover', true);
+
+        $response = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId,
+                ['Content-Type' => 'application/json'],
+                json_encode(['title' => 'Archived title']) ?: '',
+            ),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(409);
+        expect($body['code'])->toBe('session_closed');
+        expect($body['details']['status'])->toBe('archived');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }

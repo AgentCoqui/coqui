@@ -58,3 +58,32 @@ test('handles relative path with trailing slash', function () {
     expect(PathHelper::trimTrailingSlash('workspace/'))->toBe('workspace');
     expect(PathHelper::trimTrailingSlash('workspace\\'))->toBe('workspace');
 });
+
+test('normalizes path separators and drive letter casing for comparison', function () {
+    expect(PathHelper::normalizeForComparison('C:\\Users\\Foo\\workspace'))->toBe('c:/Users/Foo/workspace')
+        ->and(PathHelper::normalizeForComparison('/tmp/workspace'))->toBe('/tmp/workspace');
+});
+
+test('detects absolute paths on Unix and Windows', function () {
+    expect(PathHelper::isAbsolutePath('/tmp/workspace'))->toBeTrue()
+        ->and(PathHelper::isAbsolutePath('C:\\Users\\Foo\\workspace'))->toBeTrue()
+        ->and(PathHelper::isAbsolutePath('workspace/file.txt'))->toBeFalse();
+});
+
+test('checks whether paths stay within a base path', function () {
+    expect(PathHelper::isWithinBasePath('C:\\Users\\Foo\\workspace\\images\\example.png', 'c:/Users/Foo/workspace'))->toBeTrue()
+        ->and(PathHelper::isWithinBasePath('/tmp/workspace/images/example.png', '/tmp/workspace'))->toBeTrue()
+        ->and(PathHelper::isWithinBasePath('/tmp/other/example.png', '/tmp/workspace'))->toBeFalse();
+});
+
+test('converts local file urls into normalized filesystem paths', function () {
+    expect(PathHelper::fileUrlToPath('file:///tmp/example.png'))->toBe('/tmp/example.png')
+        ->and(PathHelper::fileUrlToPath('file://localhost/tmp/example.png'))->toBe('/tmp/example.png')
+        ->and(PathHelper::fileUrlToPath('file://C:\\Users\\Foo\\example.png'))->toBe('c:/Users/Foo/example.png')
+        ->and(PathHelper::fileUrlToPath('file:///C:\\Users\\Foo\\example.png'))->toBe('c:/Users/Foo/example.png');
+});
+
+test('rejects non-local file urls', function () {
+    expect(PathHelper::fileUrlToPath('file://server/share/example.png'))->toBeNull()
+        ->and(PathHelper::fileUrlToPath('https://example.com/image.png'))->toBeNull();
+});

@@ -14,8 +14,8 @@
     "ext-mbstring": "*",
     "ext-pdo_sqlite": "*",
     "ext-xml": "*",
-    "carmelosantana/php-agents": "^0.12",
     "carmelosantana/coqui-toolkit-images": "^0.1",
+    "carmelosantana/php-agents": "^0.12",
     "dragonmantank/cron-expression": "^3.0",
     "league/commonmark": "^2.8",
     "league/html-to-markdown": "^5.1",
@@ -62,6 +62,7 @@
     }
   },
   "scripts": {
+    "generate:model-defaults": "@php scripts/generate-model-defaults.php --write",
     "test": "pest",
     "test:coverage": "@php scripts/test-coverage.php",
     "test-bash": "bash tests/bash/launcher-sigint-test.sh",

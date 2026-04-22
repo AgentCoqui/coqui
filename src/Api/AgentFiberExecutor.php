@@ -99,10 +99,7 @@ final class AgentFiberExecutor
                 ));
 
                 $sseObserver->handleEvent('agent.error', 'Internal error');
-                $sseObserver->writeComplete([
-                    'error' => 'Internal error',
-                    'content' => '',
-                ]);
+                $sseObserver->writeComplete(AgentTurnResult::fromError('Internal error')->toArray());
             } finally {
                 // Clean up and close the stream
                 unset($this->activeFibers[$sessionId]);
@@ -210,10 +207,7 @@ final class AgentFiberExecutor
 
                 $deferred->resolve($result->toArray());
             } catch (\Throwable $e) {
-                $deferred->resolve([
-                    'error' => 'Internal error',
-                    'content' => '',
-                ]);
+                $deferred->resolve(AgentTurnResult::fromError('Internal error')->toArray());
             } finally {
                 unset($this->activeFibers[$sessionId]);
             }
@@ -224,10 +218,7 @@ final class AgentFiberExecutor
         try {
             $fiber->start();
         } catch (\Throwable) {
-            $deferred->resolve([
-                'error' => 'Internal error',
-                'content' => '',
-            ]);
+            $deferred->resolve(AgentTurnResult::fromError('Internal error')->toArray());
         }
 
         // In v1, the Fiber runs synchronously to completion during start().

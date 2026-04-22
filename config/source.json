@@ -186,7 +186,7 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface and the new /channels operator surface into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system, resolves session, enters REPL or headless mode",
                 "runRepl(SymfonyStyle, bool): int — interactive REPL loop with readline, signal handling, slash command routing, and agent turn execution",
@@ -218,7 +218,7 @@
             "path": "src/Repl/SlashCommandRouter.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\SlashCommandRouter",
             "layer": "command",
-            "description": "Routes REPL slash commands to the appropriate handler class. Help output is generated from ReplCommandCatalog so the compact /help surface stays aligned with tab completion and routed commands. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
+            "description": "Routes REPL slash commands to the appropriate handler class. Help output is generated from ReplCommandCatalog so the compact /help surface stays aligned with tab completion and routed commands. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, the new /channels operator controls, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Prompt-oriented slash-command markdown surfaces now render through the same workspace-local image preview context used by the interactive REPL so commands like /prompt can show one inline ANSI image preview when the rendered markdown references a local image. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
             "methods": [
                 "route(string, string, string, SymfonyStyle): RouteResult — dispatches a slash command string to the matching handler"
             ]
@@ -237,7 +237,7 @@
             "path": "src/Repl/ReplCommandCatalog.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\ReplCommandCatalog",
             "layer": "command",
-            "description": "Static registry of canonical REPL slash-command metadata. Serves as the shared source of truth for compact /help rows, top-level command completion, aliases, common first-argument choices, and canonical toolkit-command registration with collision reporting.",
+            "description": "Static registry of canonical REPL slash-command metadata. Serves as the shared source of truth for compact /help rows, top-level command completion, aliases, common first-argument choices, and canonical toolkit-command registration with collision reporting. Includes the core /channels operator command family.",
             "methods": [
                 "static all(): array — returns all command specs in display order",
                 "static find(string): ?ReplCommandSpec — resolves a command or alias to its canonical spec",
@@ -335,11 +335,20 @@
             "path": "src/Repl/TabCompletion.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\TabCompletion",
             "layer": "command",
-            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, todos, projects, profiles, schedules, loop definitions, toolkit visibility metadata, and cached Coqui Space install suggestions.",
+            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, todos, projects, profiles, schedules, channel instances, loop definitions, toolkit visibility metadata, and cached Coqui Space install suggestions.",
             "methods": [
                 "register(): void — installs readline_completion_function",
                 "setSessionId(string): void — updates session for todo completions",
                 "complete(string): array — returns suggestions for a command line buffer"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/ChannelHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ChannelHandler",
+            "layer": "command",
+            "description": "Handles the new /channels REPL command family. Supports list, driver inspection, status/health views, config mutations persisted to openclaw.json, identity-link management, and delivery inspection for operator workflows.",
+            "methods": [
+                "handle(SymfonyStyle, string): void — route /channels subcommands"
             ]
         },
         {
@@ -1013,6 +1022,17 @@
             ]
         },
         {
+            "path": "src/Config/ModelMetadataResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Config\\ModelMetadataResolver",
+            "layer": "config",
+            "description": "Shared model metadata merger for Coqui. Combines configured openclaw.json model definitions, live provider discovery from php-agents, curated defaults.json records, and family-level defaults into one normalized ModelDefinition so setup, runtime budgeting, and API listing use the same precedence rules.",
+            "methods": [
+                "resolve(string $modelString, bool $preferProvider = false): ?ModelDefinition — resolve a provider/model string through configured, live, curated, and family layers",
+                "enrichDiscovered(string $provider, ModelDefinition $definition): ModelDefinition — merge a live-discovered definition with curated and family metadata for setup flows",
+                "configuredModels(bool $preferProvider = false): array — return resolved ModelDefinition objects for every configured model"
+            ]
+        },
+        {
             "path": "src/Config/InteractiveApprovalPolicy.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\InteractiveApprovalPolicy",
             "layer": "config",
@@ -1643,7 +1663,7 @@
             "path": "src/Observer/TerminalObserver.php",
             "fqcn": "CoquiBot\\Coqui\\Observer\\TerminalObserver",
             "layer": "observer",
-            "description": "SplObserver implementation that streams agent events to the terminal. Handles events: agent.start, agent.iteration, agent.tool_call, agent.tool_result, agent.done, agent.error, child.start, child.end. Manages indent level for nested child agent output.",
+            "description": "SplObserver implementation that streams agent events to the terminal. Handles events: agent.start, agent.iteration, agent.tool_call, agent.tool_result, agent.done, agent.error, child.start, child.end. Manages indent level for nested child agent output, auto-renders one workspace-local ANSI image preview per turn for successful image-bearing tool results, and shares the preview limit with streamed markdown rendering.",
             "methods": [
                 "update(SplSubject $subject): void — dispatches agent events to terminal rendering",
                 "handleEvent(string $event, mixed $data): void — direct event handling for child spawn notifications"
@@ -1691,10 +1711,31 @@
             ]
         },
         {
+            "path": "src/Renderer/MarkdownRenderer.php",
+            "fqcn": "CoquiBot\\Coqui\\Renderer\\MarkdownRenderer",
+            "layer": "observer",
+            "description": "Static ANSI markdown converter used by REPL rendering paths. Wraps a cached League CommonMark converter with Coqui's ANSI renderer extension and now supports an optional per-render workspace-local image preview context so markdown image nodes can emit one inline ANSI block preview when the REPL provides a preview service and preview state.",
+            "methods": [
+                "static render(string, ?ImagePreviewService, ?ImagePreviewState): string — convert markdown to ANSI text with optional local-image preview context",
+                "static renderLocalImagePreview(string, string): ?string — render one workspace-local markdown image preview within the current render context"
+            ]
+        },
+        {
+            "path": "src/Renderer/StreamingMarkdownBuffer.php",
+            "fqcn": "CoquiBot\\Coqui\\Renderer\\StreamingMarkdownBuffer",
+            "layer": "observer",
+            "description": "Line-buffered streaming markdown renderer for the interactive REPL. Buffers streamed deltas until safe markdown flush points, preserves fenced-code correctness across chunk boundaries, and now accepts an optional image-preview service plus shared preview state so streamed assistant markdown can render at most one local ANSI image preview per response.",
+            "methods": [
+                "feed(string): void — append a streamed delta and flush completed markdown blocks when possible",
+                "flush(): void — render any remaining buffered markdown at end of stream",
+                "reset(): void — clear buffered markdown and fence tracking for the next stream"
+            ]
+        },
+        {
             "path": "src/Renderer/TerminalRenderer.php",
             "fqcn": "CoquiBot\\Coqui\\Renderer\\TerminalRenderer",
             "layer": "observer",
-            "description": "OutputRendererInterface implementation that renders AgentTurnResult to SymfonyStyle terminal output. Shows content, stats summary (iterations, tokens, tools), and context usage progress bar. Respects hints toggle for legend visibility.",
+            "description": "OutputRendererInterface implementation that renders AgentTurnResult to SymfonyStyle terminal output. Shows content, stats summary (iterations, tokens, tools), and context usage progress bar. When the full assistant body is rendered after the turn instead of streamed live, it now uses the same workspace-local markdown image preview context as the interactive observer path so one local markdown image can render inline as an ANSI block preview. Respects hints toggle for legend visibility.",
             "methods": [
                 "render(AgentTurnResult $result): void",
                 "renderError(string $message): void"
@@ -1878,6 +1919,16 @@
             ]
         },
         {
+            "path": "src/Api/SessionAccess.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\SessionAccess",
+            "layer": "config",
+            "description": "Shared API guard for session existence and writability checks. Normalizes the distinction between readable historical sessions and writable active sessions, returning consistent session_not_found or session_closed responses with lifecycle details for handlers that operate on session-scoped resources.",
+            "methods": [
+                "requireReadableSession(SessionStorage, string): array|Response — resolve a session or return SESSION_NOT_FOUND",
+                "requireWritableSession(SessionStorage, string): array|Response — reject closed or archived sessions with SESSION_CLOSED"
+            ]
+        },
+        {
             "path": "src/Api/Middleware/AuthMiddleware.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Middleware\\AuthMiddleware",
             "layer": "config",
@@ -1926,7 +1977,7 @@
             "path": "src/Api/Handler/HealthHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\HealthHandler",
             "layer": "command",
-            "description": "GET /api/v1/health — liveness check returning status, version, uptime, active session count, schedule/webhook stats, and a compact quality automation summary when available.",
+            "description": "GET /api/v1/health — liveness check returning status, version, uptime, active session count, schedule/webhook/channel stats, and compact manager readiness summaries including the new ChannelManager when available.",
             "methods": [
                 "__invoke(ServerRequestInterface $request): Response"
             ]
@@ -1935,13 +1986,13 @@
             "path": "src/Api/Handler/SessionHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SessionHandler",
             "layer": "command",
-            "description": "Session API endpoints: GET /api/v1/sessions (list), POST /api/v1/sessions (always create), POST /api/v1/sessions/resolve (reuse the latest interactive session for a profile or unprofiled scope, or create one), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (update title/role/profile while keeping the resolved model in sync), DELETE /api/v1/sessions/{id} (delete), GET /api/v1/sessions/{id}/child-runs (child agent runs).",
+            "description": "Session API endpoints: GET /api/v1/sessions (list with lifecycle status filters and archived-history discovery counts), POST /api/v1/sessions (always create), POST /api/v1/sessions/resolve (reuse the latest interactive session for a profile or unprofiled scope, or create one), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (update title/role/profile while keeping the resolved model in sync for writable sessions only), DELETE /api/v1/sessions/{id} (delete), GET /api/v1/sessions/{id}/child-runs (child agent runs).",
             "methods": [
-                "list(request): Response",
+                "list(request): Response — lifecycle-filtered session discovery with active/closed/archived counts",
                 "create(request): Response",
                 "resolve(request): Response — return the latest interactive session for a scope or create one",
                 "get(request, id): Response",
-                "update(request, id): Response — PATCH to update title/role/profile and refresh resolved model metadata",
+                "update(request, id): Response — PATCH to update title/role/profile for writable sessions and refresh resolved model metadata",
                 "delete(request, id): Response",
                 "childRuns(request, id): Response — list child agent runs for a session"
             ]
@@ -1950,11 +2001,11 @@
             "path": "src/Api/Handler/MessageHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\MessageHandler",
             "layer": "command",
-            "description": "Message endpoints including the core SSE streaming endpoint. GET /api/v1/sessions/{id}/messages (list), POST /api/v1/sessions/{id}/messages (send prompt — SSE stream by default, JSON with ?stream=false), DELETE /api/v1/sessions/{id}/messages/{messageId} (delete message). Prevents concurrent runs on the same session.",
+            "description": "Message endpoints including the core SSE streaming endpoint. GET /api/v1/sessions/{id}/messages (list), POST /api/v1/sessions/{id}/messages (send prompt — SSE stream by default, JSON with ?stream=false), DELETE /api/v1/sessions/{id}/messages/{messageId} (delete message). Prevents concurrent runs on the same session and rejects writes to closed or archived sessions through SessionAccess.",
             "methods": [
                 "list(request, id): Response",
-                "send(request, id): Response — SSE stream or blocking JSON",
-                "delete(request, id, messageId): Response — delete a single message"
+                "send(request, id): Response — SSE stream or blocking JSON for writable sessions",
+                "delete(request, id, messageId): Response — delete a single message from a writable session"
             ]
         },
         {
@@ -2018,9 +2069,18 @@
             "path": "src/Api/Handler/PromptHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\PromptHandler",
             "layer": "command",
-            "description": "GET /api/v1/server/prompt — system prompt inspection endpoint. Returns the fully rendered system prompt plus tool counts, token estimates, toolkit breakdown, and the associated prompt-budget snapshot.",
+            "description": "GET /api/v1/server/prompt — system prompt inspection endpoint. Returns the fully rendered system prompt plus the effective role, resolved model, tool counts, token estimates, toolkit breakdown, prompt-source metadata, and the associated prompt-budget snapshot.",
             "methods": [
                 "get(request): Response — returns prompt text and budget metadata for the requested or active role"
+            ]
+        },
+        {
+            "path": "src/Api/Handler/CommandCatalogHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\CommandCatalogHandler",
+            "layer": "command",
+            "description": "GET /api/v1/server/commands — returns the runtime slash-command catalog that powers REPL help output, grouped by section for API clients and UI surfaces.",
+            "methods": [
+                "get(request): Response — returns grouped and flat slash-command metadata"
             ]
         },
         {
@@ -2035,10 +2095,19 @@
             ]
         },
         {
+            "path": "src/Api/Handler/ChannelHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ChannelHandler",
+            "layer": "command",
+            "description": "Channel management API surface. Registers CRUD, health, driver-inspection, identity-link, conversation, inbound-event, and delivery endpoints under /api/v1/channels, and reconciles config mutations into the live ChannelManager.",
+            "methods": [
+                "register(Router): void — attach all /api/v1/channels routes"
+            ]
+        },
+        {
             "path": "src/Api/Handler/ServerHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ServerHandler",
             "layer": "command",
-            "description": "Server status and control endpoints: GET /api/v1/server/info (runtime info, uptime, memory, active sessions/tasks, compact quality summary), GET /api/v1/server/stats (database statistics and table integrity check), and GET /api/v1/server/quality (detailed quality automation state).",
+            "description": "Server status and control endpoints: GET /api/v1/server/info (runtime info, uptime, memory, active sessions/tasks, compact channel and quality summaries), GET /api/v1/server/stats (database statistics and table integrity check), and GET /api/v1/server/quality (detailed quality automation state).",
             "methods": [
                 "info(request): Response — version, uptime, memory, active workload",
                 "stats(request): Response — database stats and table check",
@@ -2071,19 +2140,19 @@
             "path": "src/Api/Handler/FileUploadHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\FileUploadHandler",
             "layer": "command",
-            "description": "Handles file upload API endpoints. POST uploads multipart/form-data files to per-session storage, GET lists session files or streams a single file, DELETE removes a file. Flattens nested UploadedFile arrays from ReactPHP's multipart parser.",
+            "description": "Handles file upload API endpoints. POST uploads multipart/form-data files to per-session storage, GET lists session files or streams a single file, DELETE removes a file. Flattens nested UploadedFile arrays from ReactPHP's multipart parser and rejects mutations for closed or archived sessions through SessionAccess.",
             "methods": [
-                "upload(request, sessionId): Response — handles multipart file upload, returns file metadata",
+                "upload(request, sessionId): Response — handles multipart file upload for writable sessions, returns file metadata",
                 "list(request, sessionId): Response — lists all files for a session",
                 "get(request, sessionId, fileId): Response — streams raw file content with correct MIME type",
-                "delete(request, sessionId, fileId): Response — deletes a file from session storage"
+                "delete(request, sessionId, fileId): Response — deletes a file from writable session storage"
             ]
         },
         {
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, and prompt-inspection surfaces, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers, and enters the ReactPHP event loop.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, prompt-inspection, channel CRUD/inspection, and channel-health surfaces, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers plus the channel runtime and channel execution managers, and enters the ReactPHP event loop.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
                 "registerRoutes(Router, ...handlers): void — registers all API routes including evaluation, prompt, budget, and loop endpoints",
@@ -2091,15 +2160,41 @@
             ]
         },
         {
+            "path": "src/Api/ChannelExecutionManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\ChannelExecutionManager",
+            "layer": "agent",
+            "description": "API-side channel worker that converts stored inbound channel events into Coqui background tasks, reuses per-conversation sessions, resolves identity links and scope policy, queues outbound deliveries from completed tasks, and finalizes inbound event lifecycle state after delivery.",
+            "methods": [
+                "tick(): void — process newly received channel events, reconcile queued tasks, and finalize queued deliveries"
+            ]
+        },
+        {
+            "path": "src/Api/ChannelManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\ChannelManager",
+            "layer": "agent",
+            "description": "Timer-driven coordinator for the new channel subsystem. Reconciles configured channel instances into long-lived runtimes, starts and stops per-instance runtimes when config changes, persists runtime health into ChannelStore, and exposes compact stats for health and server inspection endpoints.",
+            "methods": [
+                "tick(): void — reconcile configured instances and tick active runtimes",
+                "reconcile(): void — upsert configured instances, validate drivers, and refresh runtime state",
+                "shutdown(): void — stop all active runtimes",
+                "stats(): array — return configured/enabled/ready counts plus active runtime and registered driver totals"
+            ]
+        },
+        {
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, background task queries, and dedicated event streams for both background tasks and turn processes. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title column, and metadata columns.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. Session rows now expose derived lifecycle status labels plus aggregate lifecycle counts so archived history can be inspected without reactivating it. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, and closed/archive lifecycle metadata.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
-                "listSessions(int $limit): array — lists recent sessions (includes title)",
-                "getSession(string $id): ?array — retrieves session details (includes title)",
+                "listSessions(int $limit, bool $excludeTaskSessions=true, bool $activeOnly=true, ?string $status=null): array — lists recent sessions with optional lifecycle filtering",
+                "getSessionStatusCounts(bool $excludeTaskSessions=true): array{active:int,closed:int,archived:int,total:int} — aggregate lifecycle counts for inspection surfaces",
+                "getSession(string $id): ?array — retrieves session details including lifecycle flags",
                 "updateSessionTitle(string $sessionId, string $title): void — updates session title",
+                "closeSession(string $sessionId, string $reason, bool $archive): void — marks a session closed/archived without deleting it",
+                "listActiveInteractiveSessionsForProfile(string $profile): array — returns active profile-scoped interactive sessions ordered by recency",
+                "isSessionArchived(string $sessionId): bool — true when a session is hidden from active discovery and meant for historical inspection",
+                "isSessionWritable(string $sessionId): bool — true when the session still accepts new writes",
                 "setActiveProject(string $sessionId, ?string $projectId): void — sets or clears the active project for a session",
                 "getActiveProjectId(string $sessionId): ?string — returns the active project ID for a session, or null",
                 "addMessage(string $sessionId, ..., ?string $turnId): string — persists a message with optional turn linkage",
@@ -2722,7 +2817,7 @@
             "path": "src/Config/OpenClawConfig.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\OpenClawConfig",
             "layer": "config",
-            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, utility model, provider config, notification system settings (including automation lease/retry timers), and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
+            "description": "Concrete ConfigInterface implementation that parses openclaw.json. Provides dot-notation get/has access, model resolution with alias support, primary model, fallback model list, image model, utility model, provider config, notification settings, normalized channel settings, and ModelDefinition building. Moved from php-agents to Coqui to co-locate application-specific configuration with the application.",
             "methods": [
                 "fromFile(string): self — load and parse openclaw.json file",
                 "fromArray(array): self — create from pre-parsed array",
@@ -2731,10 +2826,176 @@
                 "getPrimaryModel(): string — resolve primary model string",
                 "getFallbacks(): array — return ordered fallback model strings",
                 "getImageModel(): string — resolve image generation model",
+                "getChannelConfig(): array — resolve channel defaults and instance declarations with Coqui defaults applied",
                 "getNotificationConfig(): array — resolve notification display, retention, and automation settings with defaults",
                 "getUtilityModel(): string — resolve utility model from config or COQUI_UTILITY_MODEL env",
                 "resolveModel(string): string — resolve alias to full model string",
                 "getModelDefinition(string): ModelDefinition — build ModelDefinition for a model string"
+            ]
+        },
+        {
+            "path": "src/Channel/ChannelConfig.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\ChannelConfig",
+            "layer": "config",
+            "description": "Normalizer for the channels config block. Converts channels.instances from keyed-object or list form into a predictable list of runtime instance definitions with canonical keys for driver, enabled state, display name, default profile, settings, allowed scopes, and security policy.",
+            "methods": [
+                "fromArray(array): self — normalize a raw channels config block",
+                "defaults(): array — return normalized channel defaults",
+                "instances(): array — return normalized channel instance definitions"
+            ]
+        },
+        {
+            "path": "src/Channel/ChannelDiscovery.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\ChannelDiscovery",
+            "layer": "config",
+            "description": "Discovers built-in and external channel drivers. Registers the three first-party core drivers by default and scans Composer installed.json metadata for extra.coqui.channels declarations so third-party packages can extend the channel subsystem without core changes.",
+            "methods": [
+                "discoverAll(): array — scan installed packages and register newly discovered drivers",
+                "register(string, array): array — register declared driver classes for a package",
+                "driver(string): ?ChannelDriverInterface — retrieve a driver by its identifier",
+                "drivers(): array — return all registered drivers keyed by driver name",
+                "driverNames(): array — list registered driver identifiers",
+                "packages(): array — map driver identifiers to the package that registered them"
+            ]
+        },
+        {
+            "path": "src/Contract/ChannelDriverInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ChannelDriverInterface",
+            "layer": "contract",
+            "description": "Primary extension contract for channels. Implemented by both built-in and third-party drivers so discovery, validation, capability reporting, and runtime creation all flow through the same transport-oriented interface.",
+            "methods": [
+                "driverName(): string — stable driver identifier used in config",
+                "displayName(): string — operator-facing display label",
+                "capabilities(): array — declared transport capabilities for inspection and persistence",
+                "validateInstanceConfig(array): array — return validation errors for a configured instance",
+                "createRuntime(array, array): ChannelRuntimeInterface — build the long-lived runtime for one instance"
+            ]
+        },
+        {
+            "path": "src/Contract/ChannelRuntimeInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ChannelRuntimeInterface",
+            "layer": "contract",
+            "description": "Long-lived runtime contract for a configured channel instance. ChannelManager drives these runtimes on timers and persists their reported health into ChannelStore.",
+            "methods": [
+                "start(): void — start the runtime",
+                "tick(): void — advance the runtime heartbeat or work loop",
+                "stop(): void — stop the runtime",
+                "healthReport(): array — return normalized runtime health metadata"
+            ]
+        },
+        {
+            "path": "src/Channel/ChannelConfigurationEditor.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\ChannelConfigurationEditor",
+            "layer": "config",
+            "description": "Shared mutator for the channels.instances config block inside openclaw.json. Used by both the API and REPL operator surfaces to create, update, enable, disable, and delete channel instances with driver and profile validation before saving.",
+            "methods": [
+                "create(string, array): array — create a new channel instance definition",
+                "update(string, array): array — patch an existing channel instance definition",
+                "setEnabled(string, bool): array — toggle enabled state",
+                "delete(string): bool — remove an instance definition",
+                "instancesMap(): array — return configured instances keyed by name"
+            ]
+        },
+        {
+            "path": "src/Storage/ChannelStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\ChannelStore",
+            "layer": "storage",
+            "description": "SQLite-backed persistence for the channel subsystem. Creates the channel tables for configured instances, identity links, conversations, inbound events, outbound deliveries, delivery attempts, and per-instance runtime state. The current implementation actively uses these tables for Signal inbound event execution, queued reply delivery, runtime health, and operator inspection surfaces.",
+            "methods": [
+                "upsertConfiguredInstance(array, ?array): string — create or update one configured channel instance row",
+                "get(string): ?array — fetch an instance by id with joined runtime state",
+                "getByName(string): ?array — fetch an instance with joined runtime state",
+                "getByIdOrName(string): ?array — fetch an instance by either identifier",
+                "listInstances(int): array — list configured instances with runtime state",
+                "listLinks(string, int): array — list identity links for an instance",
+                "createLink(string, string, string, ?string, string, array): string — create an identity link row",
+                "deleteLink(string, string): bool — delete one identity link",
+                "getConversationByRemote(string, string, ?string): ?array — look up a stored conversation by remote identity",
+                "getConversation(string): ?array — fetch one stored conversation by id",
+                "upsertConversation(string, string, ?string, ?string, ?string, ?string, ?string, array): string — create or update a stored channel conversation",
+                "createInboundEvent(string, ?string, ?string, string, string, ?string, array, array, string, ?string): ?string — insert a deduplicated inbound event row",
+                "getInboundEvent(string): ?array — fetch one inbound event by id",
+                "listInboundEventsByStatus(string, int, ?string): array — list inbound events for a lifecycle status",
+                "updateInboundEventState(string, string, ?string, ?string, ?string, ?string): void — update inbound lifecycle state plus linked session/task references",
+                "countInboundBacklog(string): int — count unprocessed inbound events for one instance",
+                "findLinkForRemoteIdentity(string, string, ?string): ?array — resolve the best identity link for a remote sender and optional scope",
+                "listConversations(string, int): array — list stored conversations for an instance",
+                "listEvents(string, int): array — list stored inbound events for an instance",
+                "getDelivery(string): ?array — fetch one delivery by id",
+                "getDeliveryByReplyToEventId(string): ?array — find the delivery created for an inbound event",
+                "queueDelivery(string, ?string, ?string, ?string, string, array): string — queue one outbound delivery with idempotency protection",
+                "listQueuedDeliveries(string, int): array — list queued outbound deliveries for an instance",
+                "countQueuedDeliveries(string): int — count queued outbound deliveries for an instance",
+                "recordDeliveryAttempt(string, string, ?int, ?string, ?int): int — append a delivery attempt and return its ordinal number",
+                "markDeliverySent(string, int, ?string, ?string): void — finalize a delivery as sent",
+                "markDeliveryFailed(string, int, string, ?string): void — finalize a delivery as failed",
+                "listDeliveries(string, int): array — list stored deliveries for an instance",
+                "pruneConfigInstances(array): int — remove config-sourced instances no longer present in config",
+                "updateRuntimeState(string, array): void — upsert the current health snapshot for an instance",
+                "getStats(): array — return aggregate configured/enabled/ready/error counts"
+            ]
+        },
+        {
+            "path": "src/Channel/Builtin/PlaceholderChannelRuntime.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\Builtin\\PlaceholderChannelRuntime",
+            "layer": "agent",
+            "description": "Temporary runtime used by the built-in channel drivers during the first implementation slice. It reports placeholder health so configured Signal, Telegram, and Discord instances are visible in storage and health endpoints before their real transport loops exist.",
+            "methods": [
+                "start(): void — mark the placeholder runtime started",
+                "tick(): void — refresh the placeholder heartbeat",
+                "stop(): void — mark the placeholder runtime stopped",
+                "healthReport(): array — emit placeholder runtime health"
+            ]
+        },
+        {
+            "path": "src/Channel/Builtin/SignalChannelDriver.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\Builtin\\SignalChannelDriver",
+            "layer": "config",
+            "description": "Built-in first-party Signal driver descriptor. Declares Signal transport capabilities, validates signal-cli-backed instance settings, and creates the SignalCliChannelRuntime when storage and workspace context are available.",
+            "methods": [
+                "driverName(): string — returns 'signal'",
+                "displayName(): string — returns 'Signal'",
+                "capabilities(): array — declare the current Signal capability surface",
+                "validateInstanceConfig(array): array — validate a Signal instance definition",
+                "createRuntime(array, array): ChannelRuntimeInterface — create the signal-cli runtime or fall back to the placeholder runtime"
+            ]
+        },
+        {
+            "path": "src/Channel/Builtin/SignalCliChannelRuntime.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\Builtin\\SignalCliChannelRuntime",
+            "layer": "agent",
+            "description": "Long-lived Signal runtime backed by signal-cli JSON-RPC notifications. It preflights the binary, spawns a managed child process, normalizes inbound envelopes, persists conversations and inbound events, flushes queued outbound deliveries through signal-cli, and reports runtime health into the channel manager.",
+            "methods": [
+                "start(): void — validate configuration, preflight signal-cli, and start the JSON-RPC child process",
+                "tick(): void — refresh heartbeat, update backlog counts, flush queued outbound deliveries, and restart the runtime after unexpected exits",
+                "stop(): void — stop the child process and mark the runtime stopped",
+                "healthReport(): array — emit Signal runtime health and backlog information"
+            ]
+        },
+        {
+            "path": "src/Channel/Builtin/TelegramChannelDriver.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\Builtin\\TelegramChannelDriver",
+            "layer": "config",
+            "description": "Built-in first-party Telegram driver descriptor. Declares Telegram transport capabilities and currently returns a PlaceholderChannelRuntime while the real Bot API transport is still being implemented.",
+            "methods": [
+                "driverName(): string — returns 'telegram'",
+                "displayName(): string — returns 'Telegram'",
+                "capabilities(): array — declare the current Telegram capability surface",
+                "validateInstanceConfig(array): array — validate a Telegram instance definition",
+                "createRuntime(array, array): ChannelRuntimeInterface — create the current placeholder runtime"
+            ]
+        },
+        {
+            "path": "src/Channel/Builtin/DiscordChannelDriver.php",
+            "fqcn": "CoquiBot\\Coqui\\Channel\\Builtin\\DiscordChannelDriver",
+            "layer": "config",
+            "description": "Built-in first-party Discord driver descriptor. Declares Discord transport capabilities and currently returns a PlaceholderChannelRuntime while the real gateway-driven runtime is still being implemented.",
+            "methods": [
+                "driverName(): string — returns 'discord'",
+                "displayName(): string — returns 'Discord'",
+                "capabilities(): array — declare the current Discord capability surface",
+                "validateInstanceConfig(array): array — validate a Discord instance definition",
+                "createRuntime(array, array): ChannelRuntimeInterface — create the current placeholder runtime"
             ]
         },
         {
@@ -2868,15 +3129,17 @@
                 "pause(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/pause",
                 "resume(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/resume",
                 "stop(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/stop",
+                "skipStage(ServerRequestInterface, string): Response — POST /api/v1/loops/{id}/skip-stage",
                 "iterations(ServerRequestInterface, string): Response — GET /api/v1/loops/{id}/iterations",
-                "iteration(ServerRequestInterface, string, string): Response — GET /api/v1/loops/{id}/iterations/{iterationId}"
+                "iteration(ServerRequestInterface, string, string): Response — GET /api/v1/loops/{id}/iterations/{iterationId}",
+                "retryIteration(ServerRequestInterface, string, string): Response — POST /api/v1/loops/{id}/iterations/{iterationId}/retry"
             ]
         },
         {
             "path": "src/Api/Handler/WebhookHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\WebhookHandler",
             "layer": "agent",
-            "description": "Incoming webhook receiver. Looks up subscriptions by name, verifies HMAC signatures, extracts event types, renders prompt templates with payload data, and spawns background tasks.",
+            "description": "Incoming webhook receiver. Looks up subscriptions by name, verifies HMAC signatures, extracts event types, and delegates prompt rendering, background-task creation, and delivery logging to WebhookDispatchService.",
             "methods": [
                 "register(Router): void — register POST /api/v1/webhooks/incoming/{name} route"
             ]
@@ -2885,9 +3148,20 @@
             "path": "src/Api/Handler/WebhookManagementHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\WebhookManagementHandler",
             "layer": "agent",
-            "description": "CRUD API for webhook subscriptions. Provides list, create, get, update, delete, secret rotation, and delivery history.",
+            "description": "CRUD API for webhook subscriptions. Provides list, create, get, update, delete, secret rotation, delivery history, delivery detail, and synthetic test dispatch.",
             "methods": [
                 "register(Router): void — register all webhook management routes"
+            ]
+        },
+        {
+            "path": "src/Api/Webhook/WebhookDispatchService.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Webhook\\WebhookDispatchService",
+            "layer": "agent",
+            "description": "Shared webhook delivery dispatcher used by both live incoming webhooks and the management test endpoint. Renders webhook templates, creates profiled background-task sessions, creates tasks, and records delivery audit rows.",
+            "methods": [
+                "dispatch(array, string, string, array, ?ServerRequestInterface, bool): array — create a background task and log a delivered or test_delivered webhook event",
+                "summarizePayload(array, string): string — derive a compact audit summary from common payload fields",
+                "renderTemplate(string, string, string, array): string — apply builtin placeholders and dotted payload references"
             ]
         },
         {
@@ -3102,6 +3376,38 @@
             "description": "Centralized application version resolver. Prefers the COQUI_VERSION environment override, then an injected config/version.txt artifact used by release archives and Docker images, then an exact git tag on source checkouts, and finally falls back to dev. Used by the CLI and API version surfaces so runtime reporting stays consistent without manual composer.json version bumps.",
             "methods": [
                 "static current(?string): string — resolve the current application version from environment, injected file, exact git tag, or dev fallback"
+            ]
+        },
+        {
+            "path": "src/Support/ImagePreviewState.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\ImagePreviewState",
+            "layer": "support",
+            "description": "Tiny mutable state object that enforces the interactive REPL's one-image-preview limit. Shared between tool-result rendering and streamed markdown rendering so a turn can render at most one automatic ANSI image preview unless the state is reset at the next agent.start event.",
+            "methods": [
+                "reset(): void — clear the consumed flag for a new turn or render cycle",
+                "hasRenderedPreview(): bool — whether the current turn already emitted an automatic preview",
+                "consume(): bool — mark the preview slot as used, returning false if it was already consumed"
+            ]
+        },
+        {
+            "path": "src/Support/ImagePreviewService.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\ImagePreviewService",
+            "layer": "support",
+            "description": "Workspace-local image preview facade for the interactive REPL. Resolves relative or file:// image paths inside the active workspace, blocks sandbox escapes, delegates the actual ANSI block rendering to the existing image preview formatter implementation, and returns structured preview payloads that can be reused by tool-result and markdown rendering paths.",
+            "methods": [
+                "canPreviewPath(mixed): bool — detect local image-like paths with supported extensions",
+                "resolvePath(string): string — canonicalize a local image path and enforce workspace boundaries",
+                "preview(string, int): array — resolve a local image path and return structured ANSI preview data"
+            ]
+        },
+        {
+            "path": "src/Support/ProfileSessionLifecycleManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\ProfileSessionLifecycleManager",
+            "layer": "support",
+            "description": "Shared continuity-preserving session finalizer for profiled conversations. Reuses the utility/orchestrator provider fallback path to summarize old conversation state, force a final memory extraction pass, build compact workflow context from todos and artifacts, and then mark sessions closed/archived so REPL and API profile lifecycle rules stay aligned.",
+            "methods": [
+                "finalizeOtherActiveInteractiveSessionsForProfile(string $profile, string $keepSessionId, string $reason): array — summarize/extract/close all other active interactive sessions for a profile",
+                "finalizeSession(string $sessionId, string $reason): void — preserve continuity and then close/archive a session"
             ]
         },
         {

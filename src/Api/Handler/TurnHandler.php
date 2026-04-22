@@ -15,6 +15,7 @@ use React\Http\Message\Response;
  *
  * GET /api/v1/sessions/{id}/turns           — list turns for a session
  * GET /api/v1/sessions/{id}/turns/{turnId}  — get turn detail with messages
+ * GET /api/v1/sessions/{id}/turns/{turnId}/events — list replayable turn events
  */
 final readonly class TurnHandler
 {
@@ -68,5 +69,34 @@ final readonly class TurnHandler
         }
 
         return Router::jsonResponse($turn);
+    }
+
+    /**
+     * GET /api/v1/sessions/{id}/turns/{turnId}/events
+     */
+    public function events(ServerRequestInterface $request, string $id, string $turnId): Response
+    {
+        $session = $this->storage->getSession($id);
+
+        if ($session === null) {
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        }
+
+        $turn = $this->storage->getTurn($turnId);
+
+        if ($turn === null || ($turn['session_id'] ?? null) !== $id) {
+            return Router::errorResponse(ApiErrorCode::TURN_NOT_FOUND, 'Turn not found');
+        }
+
+        $events = isset($turn['turn_process_id']) && is_string($turn['turn_process_id']) && $turn['turn_process_id'] !== ''
+            ? $this->storage->getDecodedTurnEvents($turn['turn_process_id'])
+            : [];
+
+        return Router::jsonResponse([
+            'session_id' => $id,
+            'turn_id' => $turnId,
+            'events' => $events,
+            'count' => count($events),
+        ]);
     }
 }

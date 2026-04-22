@@ -31,19 +31,25 @@ die()   { error "$1"; exit 1; }
 # ─── Parse arguments ─────────────────────────────────────────────────────────
 
 VERSION=""
+REFRESH_MODEL_DEFAULTS=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --version|-v)
             VERSION="$2"
             shift 2
             ;;
+        --refresh-model-defaults)
+            REFRESH_MODEL_DEFAULTS=1
+            shift
+            ;;
         --help|-h)
-            echo "Usage: $0 [--version VERSION]"
+            echo "Usage: $0 [--version VERSION] [--refresh-model-defaults]"
             echo ""
             echo "Build a production-ready Coqui release package."
             echo ""
             echo "Options:"
             echo "  --version, -v    Version string (e.g. 0.0.1). Default: auto-detect from git tag."
+            echo "  --refresh-model-defaults  Refresh provider-backed curated model catalogs before packaging."
             echo "  --help, -h       Show this help message."
             exit 0
             ;;
@@ -91,6 +97,12 @@ if [[ "$(printf '%s\n' "8.4" "${PHP_VERSION}" | sort -V | head -n1)" != "8.4" ]]
 fi
 
 info "git, php ${PHP_VERSION}, composer, zip, tar — all present"
+
+if [[ "${REFRESH_MODEL_DEFAULTS}" == "1" ]]; then
+    step "Refreshing provider-backed model defaults"
+    php scripts/generate-model-defaults.php --write
+    info "Model defaults refreshed"
+fi
 
 # ─── Setup directories ───────────────────────────────────────────────────────
 

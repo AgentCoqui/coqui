@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Observer\TurnProcessObserver;
@@ -166,6 +167,7 @@ final class TurnRunCommand extends Command
                 $filePaths,
                 $role,
                 $profile,
+                $turnProcessId,
             );
 
             if ($cancellationToken->isCancelled()) {
@@ -173,10 +175,11 @@ final class TurnRunCommand extends Command
                     'error' => 'Cancelled via SIGTERM',
                     'result' => $turnResult->content,
                 ]);
-                $storage->appendTurnEvent($turnProcessId, 'complete', [
-                    'error' => 'Cancelled',
-                    'content' => $turnResult->content,
-                ]);
+                $storage->appendTurnEvent(
+                    $turnProcessId,
+                    'complete',
+                    AgentTurnResult::fromError('Cancelled', $turnResult->content)->toArray(),
+                );
 
                 return 2;
             }
@@ -186,10 +189,11 @@ final class TurnRunCommand extends Command
                     'error' => $turnResult->error,
                     'result' => $turnResult->content,
                 ]);
-                $storage->appendTurnEvent($turnProcessId, 'complete', [
-                    'error' => $turnResult->error,
-                    'content' => $turnResult->content,
-                ]);
+                $storage->appendTurnEvent(
+                    $turnProcessId,
+                    'complete',
+                    AgentTurnResult::fromError($turnResult->error, $turnResult->content)->toArray(),
+                );
 
                 return Command::FAILURE;
             }
@@ -212,10 +216,11 @@ final class TurnRunCommand extends Command
             $storage->appendTurnEvent($turnProcessId, 'error', [
                 'message' => 'Internal error',
             ]);
-            $storage->appendTurnEvent($turnProcessId, 'complete', [
-                'error' => 'Internal error',
-                'content' => '',
-            ]);
+            $storage->appendTurnEvent(
+                $turnProcessId,
+                'complete',
+                AgentTurnResult::fromError('Internal error')->toArray(),
+            );
 
             return Command::FAILURE;
         }

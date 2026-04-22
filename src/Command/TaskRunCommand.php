@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Api\DatabasePendingInputProvider;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Notification\NotificationPublisher;
@@ -133,6 +134,16 @@ final class TaskRunCommand extends Command
         $taskProfile = is_array($session) && is_string($session['profile'] ?? null) && $session['profile'] !== ''
             ? $session['profile']
             : null;
+        if ($taskProfile !== null && $boot->profileDiscovery()->profileExists($taskProfile)) {
+            $preferences = ProfilePreferences::fromProfilePath($boot->profileDiscovery()->getProfilePath($taskProfile));
+            if (!$preferences->isRoleAllowed($role)) {
+                $message = sprintf('Profile "%s" does not allow role "%s".', $taskProfile, $role);
+                $storage->updateTaskStatus($taskId, 'failed', ['error' => $message]);
+                $storage->appendTaskEvent($taskId, 'failed', ['error' => $message]);
+                return 1;
+            }
+        }
+
         $resolvedMax = $boot->roleResolver()->resolveMaxIterations($role, $taskProfile);
         $dbMax = isset($task['max_iterations']) ? (int) $task['max_iterations'] : $resolvedMax;
         // Background tasks are always clamped for safety (even if role allows unlimited)

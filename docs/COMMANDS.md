@@ -10,9 +10,9 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 
 | Command | Description |
 | --- | --- |
-| `/new` | Start a new session (resets role to `orchestrator`) |
-| `/sessions` | List all sessions |
-| `/resume <id>` | Resume a specific session by ID |
+| `/new` | Start a new session. When a profile is active, Coqui warns that it will summarize the current chat, store memories, archive and close the current conversation, then start a fresh session for that same profile (resets role to `orchestrator`) |
+| `/sessions` | List active interactive sessions |
+| `/resume <id>` | Resume a specific active session by ID |
 | `/history` | Show conversation history for the current session |
 
 ### Agent & Roles
@@ -27,7 +27,7 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/roles ignore <name>` | Ignore future built-in updates for a role |
 | `/roles unignore <name>` | Resume receiving built-in updates for a role |
 | `/profile` | Show the current active personality profile |
-| `/profile <name>` | Switch to a personality profile (resumes its last active session or creates one) |
+| `/profile <name>` | Switch to a personality profile. Coqui reuses the most recent active session for that profile, archives older duplicate active sessions if any exist, and creates a new one only when none remain active |
 | `/profile default` | Show the configured default startup profile |
 | `/profile default <name|none>` | Set or clear the default startup profile in `openclaw.json` |
 | `/profile reset` | Clear profile, revert to default identity (resumes the last unprofiled session or creates one) |
@@ -82,7 +82,7 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/image help` | Show the same standardized image toolkit command reference |
 | `/image generate <prompt>` | Generate an image through the installed image toolkit and save it into the workspace image library |
 | `/image preview <path>` | Render an existing workspace image as a low-fidelity terminal preview |
-| `/image list` | List saved image records, optionally filtered with `--profile` or `--vendor` |
+| `/image list` | Browse saved image records; interactive REPL opens a fullscreen browser and `--profile`, `--vendor`, `--category`, `--tag`, and `--sort` narrow the result set |
 | `/image search <query>` | Search saved image records by prompt, tags, owner, profile, model, vendor, or path |
 | `/image get <record-id>` | Show one saved image record |
 | `/image tag <record-id> <tag1,tag2>` | Update tags and optional category for a saved image record |
@@ -94,6 +94,8 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 Toolkit commands now use the same shared help formatting conventions as the built-in REPL commands. When a toolkit implements structured help metadata, `/command` and `/command help` render that metadata through Coqui's standard formatter; otherwise Coqui generates the page from the command registration data.
 
 When the resolved model is an Ollama image model that is not installed locally, Coqui now asks for confirmation before running `ollama pull` and shows a controlled download status instead of dumping the raw pull stream into the REPL.
+
+In the interactive REPL, Coqui now auto-renders one low-fidelity ANSI image preview per turn when a successful tool result returns a workspace-local image path, such as a `browser_capture` screenshot or an image-toolkit output. Streamed assistant markdown also previews one workspace-local markdown image per response. This v1 behavior is intentionally narrow: local workspace files only, first preview only, and graceful fallback when `ext-gd` is unavailable.
 
 ### Background Tasks
 
@@ -150,6 +152,19 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 | `/loops pause <id\|all>` | Advanced automation control: pause running loop(s) |
 | `/loops resume <id\|all>` | Advanced automation control: resume paused loop(s) |
 | `/loops stop <id\|all>` | Advanced automation control: stop/cancel loop(s) |
+| `/channels` | List configured channels with runtime health and heartbeat state |
+| `/channels drivers` | Show registered channel drivers and declared capabilities |
+| `/channels status <name\|id>` | Show one channel's configuration and runtime state |
+| `/channels health <name\|id>` | Show compact health output for one channel |
+| `/channels add <driver> <name>` | Advanced operator control: create a channel instance in `openclaw.json` |
+| `/channels set <name\|id> <field> <value>` | Advanced operator control: update `driver`, `displayName`, `defaultProfile`, `enabled`, `settings`, `allowedScopes`, or `security` |
+| `/channels enable <name\|id>` | Advanced operator control: enable a channel instance |
+| `/channels disable <name\|id>` | Advanced operator control: disable a channel instance |
+| `/channels delete <name\|id>` | Advanced operator control: remove a channel instance |
+| `/channels links <name\|id>` | Show identity links for one channel |
+| `/channels link <name\|id> <remote-user-key> <profile>` | Create an identity link for a remote user |
+| `/channels unlink <name\|id> <link-id>` | Remove an identity link |
+| `/channels deliveries <name\|id>` | Show recent outbound delivery records for one channel |
 | `/webhooks` | List webhook subscriptions with status and trigger counts for monitoring |
 | `/webhooks status <name\|id>` | Show webhook configuration, secret mask, and trigger state |
 | `/webhooks deliveries <name\|id>` | Show recent delivery logs for one webhook |

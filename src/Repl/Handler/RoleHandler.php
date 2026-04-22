@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl\Handler;
 
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\RoleUpdateTracker;
@@ -28,13 +29,16 @@ final class RoleHandler
      *
      * Returns the new active role name if changed, or null if unchanged.
      */
-    public function handleRole(SymfonyStyle $io, string $arg, string $activeRole, string $sessionId): ?string
+    public function handleRole(SymfonyStyle $io, string $arg, string $activeRole, string $sessionId, ?string $activeProfile = null): ?string
     {
         $roleDiscovery = $this->boot->roleDiscovery();
+        $preferences = $this->loadProfilePreferences($activeProfile);
 
         if ($arg === '') {
             $io->writeln(sprintf('<info>Active role:</info> %s', $activeRole));
-            $available = $this->boot->roleResolver()->selectableRoles();
+            $availableRoles = array_values($this->boot->roleResolver()->selectableRoles());
+            $available = $preferences?->filterAllowedRoles($availableRoles)
+                ?? $availableRoles;
             if ($available !== []) {
                 $io->writeln('<fg=gray>Available roles:</> ' . implode(', ', $available));
             }
@@ -60,6 +64,11 @@ final class RoleHandler
             return null;
         }
 
+        if ($preferences !== null && !$preferences->isRoleAllowed($roleName)) {
+            $io->error(sprintf('Profile "%s" does not allow role "%s".', $activeProfile, $roleName));
+            return null;
+        }
+
         $role = $roleDiscovery->getRole($roleName);
         if ($role->isTemplate) {
             $io->error(sprintf('Role "%s" is a template role and cannot be used directly. Use /role edit %s to customize it.', $roleName, $roleName));
@@ -77,6 +86,15 @@ final class RoleHandler
         ));
 
         return $roleName;
+    }
+
+    private function loadProfilePreferences(?string $activeProfile): ?ProfilePreferences
+    {
+        if ($activeProfile === null || !$this->boot->profileDiscovery()->profileExists($activeProfile)) {
+            return null;
+        }
+
+        return ProfilePreferences::fromProfilePath($this->boot->profileDiscovery()->getProfilePath($activeProfile));
     }
 
     public function handleRoles(SymfonyStyle $io, string $arg, string $activeRole): void

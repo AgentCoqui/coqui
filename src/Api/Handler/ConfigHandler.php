@@ -7,8 +7,11 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\ConfigValidator;
+use CoquiBot\Coqui\Config\ModelMetadataResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\RoleResolver;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -29,6 +32,8 @@ final readonly class ConfigHandler
         private OpenClawConfig $config,
         private ConfigValidator $validator,
         private ProfileDiscovery $profileDiscovery,
+        private ?ModelMetadataResolver $modelMetadataResolver = null,
+        private ?RoleResolver $roleResolver = null,
     ) {}
 
     /**
@@ -41,6 +46,7 @@ final readonly class ConfigHandler
         $data = [
             'agents' => $this->config->get('agents'),
             'models' => $this->sanitizeModelsConfig(),
+            'channels' => $this->config->get('channels'),
         ];
 
         return Router::jsonResponse($data);
@@ -87,28 +93,25 @@ final readonly class ConfigHandler
      */
     public function models(ServerRequestInterface $request): Response
     {
-        $providers = $this->config->get('models.providers', []);
         $models = [];
 
-        if (is_array($providers)) {
-            foreach ($providers as $providerName => $providerConfig) {
-                if (!is_array($providerConfig) || !isset($providerConfig['models'])) {
-                    continue;
-                }
-
-                foreach ($providerConfig['models'] as $model) {
-                    if (!is_array($model) || !isset($model['id'])) {
-                        continue;
-                    }
-
-                    $models[] = [
-                        'provider' => $providerName,
-                        'id' => "{$providerName}/{$model['id']}",
-                        'name' => $model['name'] ?? $model['id'],
-                        'reasoning' => $model['reasoning'] ?? false,
-                        'input' => $model['input'] ?? ['text'],
-                    ];
-                }
+        if ($this->modelMetadataResolver !== null) {
+            foreach ($this->modelMetadataResolver->configuredModels() as $fullId => $definition) {
+                $entry = $definition->toArray();
+                $models[] = [
+                    'provider' => $definition->provider,
+                    'id' => $fullId,
+                    'name' => $definition->name,
+                    'reasoning' => $definition->reasoning,
+                    'input' => $entry['input'] ?? ($definition->vision ? ['text', 'image'] : ['text']),
+                    'contextWindow' => $definition->contextWindow,
+                    'maxTokens' => $definition->maxTokens,
+                    'family' => $definition->family,
+                    'toolCalls' => $definition->toolCalls,
+                    'vision' => $definition->vision,
+                    'thinking' => $definition->thinking,
+                    'metadataSource' => $definition->metadataSource,
+                ];
             }
         }
 
@@ -125,11 +128,7 @@ final readonly class ConfigHandler
     public function profiles(ServerRequestInterface $request): Response
     {
         $profiles = array_values(array_map(
-            static fn(array $profile): array => [
-                'name' => $profile['name'],
-                'display_name' => $profile['display_name'],
-                'description' => $profile['description'],
-            ],
+            fn(array $profile): array => $this->normalizeProfileSummary($profile),
             $this->profileDiscovery->discoverAll(),
         ));
 
@@ -138,6 +137,19 @@ final readonly class ConfigHandler
             'count' => count($profiles),
             'default_profile' => $this->config->getDefaultProfile(),
         ]);
+    }
+
+    /**
+     * GET /api/v1/config/profiles/{name} — get profile detail for picker UIs.
+     */
+    public function profile(ServerRequestInterface $request, string $name): Response
+    {
+        $profile = $this->profileDiscovery->discoverAll()[strtolower($name)] ?? null;
+        if ($profile === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, sprintf('Profile "%s" not found', $name));
+        }
+
+        return Router::jsonResponse($this->normalizeProfileDetail($profile));
     }
 
     /**
@@ -166,5 +178,49 @@ final readonly class ConfigHandler
         $modelsConfig['providers'] = $providers;
 
         return $modelsConfig;
+    }
+
+    /**
+     * @param array{name: string, display_name: string, description: string, path: string} $profile
+     * @return array<string, mixed>
+     */
+    private function normalizeProfileSummary(array $profile): array
+    {
+        $preferences = ProfilePreferences::fromProfilePath($profile['path']);
+        $selectableRoles = $this->roleResolver !== null
+            ? array_values($this->roleResolver->selectableRoles())
+            : [];
+        $allowedRoles = $this->roleResolver !== null
+            ? $preferences->filterAllowedRoles($selectableRoles)
+            : [];
+
+        return [
+            'name' => $profile['name'],
+            'display_name' => $profile['display_name'],
+            'description' => $profile['description'],
+            'model' => $this->profileDiscovery->readProfileModel($profile['name']),
+            'is_default' => $this->config->getDefaultProfile() === $profile['name'],
+            'allowed_roles' => $allowedRoles,
+            'role_restrictions' => [
+                'allow' => $preferences->allowedRoles(),
+                'deny' => $preferences->deniedRoles(),
+            ],
+            'has_role_restrictions' => $preferences->hasRoleRestrictions(),
+        ];
+    }
+
+    /**
+     * @param array{name: string, display_name: string, description: string, path: string} $profile
+     * @return array<string, mixed>
+     */
+    private function normalizeProfileDetail(array $profile): array
+    {
+        $preferences = ProfilePreferences::fromProfilePath($profile['path']);
+
+        return [
+            ...$this->normalizeProfileSummary($profile),
+            'preferences' => $preferences->inspectionSummary(),
+            'soul' => $this->profileDiscovery->readSoul($profile['name']),
+        ];
     }
 }

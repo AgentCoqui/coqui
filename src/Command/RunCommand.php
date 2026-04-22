@@ -25,6 +25,7 @@ use CoquiBot\Coqui\Repl\MultilineReader;
 use CoquiBot\Coqui\Repl\NotificationPresenter;
 use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
+use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
@@ -40,6 +41,8 @@ use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
+use CoquiBot\Coqui\Channel\ChannelConfigurationEditor;
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\TabCompletion;
@@ -47,9 +50,11 @@ use CoquiBot\Coqui\Repl\TerminalStateManager;
 use CoquiBot\Coqui\Repl\ToolkitCommandCollision;
 use CoquiBot\Coqui\Repl\ToolkitCommandRegistrationReport;
 use CoquiBot\Coqui\Storage\EvaluationStore;
+use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\ImagePreviewService;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -225,7 +230,7 @@ final class RunCommand extends Command
         }
 
         // Choose observer for terminal mode
-        $terminalObserver = new TerminalObserver($output);
+        $terminalObserver = new TerminalObserver($output, new ImagePreviewService($this->boot->workspacePath()));
 
         // Animated tick callback for spinner during tool execution
         $this->animatedTickCallback = new AnimatedTickCallback($output);
@@ -398,6 +403,12 @@ final class RunCommand extends Command
         $notificationStore = $notificationsEnabled ? $this->boot->notificationStore() : null;
         $notificationPresenter = new NotificationPresenter();
         $notificationLimit = $notificationConfig['replDisplayLimit'];
+        $channelStore = new ChannelStore($this->storage->getPdo());
+        $channelConfigEditor = new ChannelConfigurationEditor(
+            $this->boot->configManager(),
+            $this->boot->channelDiscovery(),
+            $this->boot->profileDiscovery(),
+        );
 
         $router = new SlashCommandRouter(
             session: $sessionHandler,
@@ -405,6 +416,12 @@ final class RunCommand extends Command
             todo: new TodoHandler($this->boot->todoStore()),
             schedule: new ScheduleHandler($this->storage),
             budget: new BudgetHandler($this->agentRunner),
+            channel: new ChannelHandler(
+                $channelStore,
+                $channelConfigEditor,
+                $this->boot->channelDiscovery(),
+                $this->boot->profileDiscovery(),
+            ),
             quality: new QualityHandler(
                 new QualityAutomationStatusService(
                     config: $this->boot->config(),
@@ -440,6 +457,7 @@ final class RunCommand extends Command
             promptInspection: new PromptInspectionService($this->agentRunner, $this->boot->workspacePath(), $this->workDir),
             output: $this->output,
             workspacePath: $this->boot->workspacePath(),
+            imagePreviewService: new ImagePreviewService($this->boot->workspacePath()),
             onHintsToggle: function () use ($io): void {
                 $this->hintsEnabled = !$this->hintsEnabled;
                 $this->boot->configManager()->set('agents.defaults.hints', $this->hintsEnabled);
@@ -740,13 +758,14 @@ final class RunCommand extends Command
 
         $profilePath = $profileDiscovery->getProfilePath($this->activeProfile ?? '');
         $assembler = new \CoquiBot\Coqui\Backstory\BackstoryAssembler();
+        $preferences = ProfilePreferences::fromProfilePath($profilePath);
 
         if (!$assembler->needsRegeneration($profilePath)) {
             return;
         }
 
         $io?->text('<fg=gray>Backstory source files changed — regenerating...</>');
-        $result = $assembler->generate($profilePath);
+        $result = $assembler->generate($profilePath, $preferences->getBackstoryLabel());
 
         if ($result->totalFiles > 0 && $io !== null) {
             $msg = sprintf(
@@ -833,7 +852,10 @@ final class RunCommand extends Command
         $format = $input->getOption('format');
         $renderer = match ($format) {
             'json' => new JsonRenderer($output),
-            default => new TerminalRenderer(new SymfonyStyle($input, $output)),
+            default => new TerminalRenderer(
+                new SymfonyStyle($input, $output),
+                imagePreviewService: new ImagePreviewService($this->boot->workspacePath()),
+            ),
         };
 
         $renderer->render($result);
@@ -873,13 +895,14 @@ final class RunCommand extends Command
 
     private function applySessionState(SessionHandler $sessionHandler): void
     {
+        $this->activeProfile = $sessionHandler->restoreActiveProfileFromSession($this->sessionId);
         $this->activeRole = SystemRole::Orchestrator->value;
         $restoredRole = $sessionHandler->restoreActiveRoleFromSession($this->sessionId);
         if ($restoredRole !== null) {
             $this->activeRole = $restoredRole;
         }
 
-        $this->activeProfile = $sessionHandler->restoreActiveProfileFromSession($this->sessionId);
+        $this->activeRole = $sessionHandler->enforceProfileRolePolicy(null, $this->sessionId, $this->activeProfile);
     }
 
     private function buildReadlinePrompt(NotificationPresenter $presenter, ?NotificationStore $notificationStore): string

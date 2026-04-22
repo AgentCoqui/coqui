@@ -14,7 +14,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * Services object passed to toolkit REPL command handlers.
  *
  * Provides access to terminal I/O, interactive prompts, workspace context,
- * and factories for spinners and databases. This is the single service
+     * fullscreen screen hosting, and factories for spinners and databases. This is the single service
  * entry point — toolkits do not need to import or depend on internal
  * Coqui classes beyond this contract.
  */
@@ -41,6 +41,9 @@ final readonly class ToolkitReplContext
 
         /** Database factory for toolkit-owned SQLite databases. */
         private ToolkitDatabaseFactory $databaseFactory,
+
+        /** Optional fullscreen host for toolkit-owned interactive screens. */
+        private ?ToolkitScreenHostInterface $screenHost = null,
     ) {}
 
     /**
@@ -76,5 +79,21 @@ final readonly class ToolkitReplContext
     public function openDatabase(string $name): \PDO
     {
         return $this->databaseFactory->open($name);
+    }
+
+    /**
+     * Returns true when the active REPL terminal can host a fullscreen toolkit screen.
+     */
+    public function isInteractiveTerminal(): bool
+    {
+        return $this->screenHost?->isInteractiveTerminal() ?? false;
+    }
+
+    /**
+     * Run a toolkit-owned fullscreen screen in the current REPL terminal.
+     */
+    public function runScreen(ToolkitScreenInterface $screen): void
+    {
+        $this->screenHost?->runScreen($screen);
     }
 }

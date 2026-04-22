@@ -115,6 +115,8 @@ test('prompt handler exposes source-aware file and folder breakdowns', function 
 
         expect($response->getStatusCode())->toBe(200);
         expect($body['profile'])->toBe('caelum');
+        expect($body['role'])->toBe('orchestrator');
+        expect($body['resolved_model'])->toBe('ollama/qwen3:latest');
         expect($body['prompt'])->toContain('Caelum');
         expect($body['budget']['prompt_sections'])->not->toBeEmpty();
         expect($body['prompt_sources']['files'])->not->toBeEmpty();
@@ -142,6 +144,39 @@ test('prompt handler exposes source-aware file and folder breakdowns', function 
         expect($workspaceFilePaths)->toContain('workspace:profiles/caelum/preferences.json');
         expect($hasProjectPromptFile)->toBeTrue();
         expect($workspaceFolderPaths)->toContain('workspace:profiles/caelum');
+    } finally {
+        cleanupPromptHandlerFixture($fixture);
+    }
+});
+
+test('prompt handler exposes effective profile policy summary', function () {
+    $fixture = createPromptHandlerFixture();
+
+    try {
+        file_put_contents($fixture['workspacePath'] . '/profiles/caelum/preferences.json', json_encode([
+            'prompts' => [
+                'features' => [
+                    'loops' => false,
+                ],
+                'prompt_sections' => [
+                    'tools' => 'stub',
+                ],
+                'roles' => [
+                    'allow' => ['orchestrator'],
+                ],
+            ],
+        ], JSON_THROW_ON_ERROR));
+
+        $response = $fixture['handler']->get(
+            (new ServerRequest('GET', '/api/v1/server/prompt'))->withQueryParams(['profile' => 'caelum'])
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['profile_policy']['tools_stubbed'])->toBeTrue();
+        expect($body['profile_policy']['features']['loops'])->toBeFalse();
+        expect($body['profile_policy']['roles']['allow'])->toBe(['orchestrator']);
+        expect($body['profile_policy']['excluded_tool_prompt_slugs'])->toContain('loops');
     } finally {
         cleanupPromptHandlerFixture($fixture);
     }

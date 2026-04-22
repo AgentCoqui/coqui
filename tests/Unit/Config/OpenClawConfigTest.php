@@ -83,21 +83,24 @@ test('getImageConfig returns configured image defaults', function () {
     $config = OpenClawConfig::fromArray([
         'agents' => [
             'defaults' => [
-                'imageModel' => [
-                    'primary' => 'openai/gpt-image-1.5',
-                    'fallbacks' => ['ollama/x/z-image-turbo'],
-                    'vendors' => [
-                        'openai' => ['model' => 'gpt-image-1.5'],
-                    ],
+                'model' => [
+                    'imageModel' => 'openai/gpt-image-1.5',
+                    'imageFallbacks' => ['ollama/x/z-image-turbo'],
                 ],
+            ],
+        ],
+        'images' => [
+            'providers' => [
+                'openai' => ['model' => 'gpt-image-1.5'],
             ],
         ],
     ]);
 
+    expect($config->getImageModel())->toBe('openai/gpt-image-1.5');
     expect($config->getImageConfig())->toBe([
         'primary' => 'openai/gpt-image-1.5',
         'fallbacks' => ['ollama/x/z-image-turbo'],
-        'vendors' => [
+        'providers' => [
             'openai' => ['model' => 'gpt-image-1.5'],
         ],
     ]);

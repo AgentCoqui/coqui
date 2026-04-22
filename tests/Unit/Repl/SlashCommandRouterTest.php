@@ -14,6 +14,7 @@ use CoquiBot\Coqui\Repl\SlashCommandRouter;
 use CoquiBot\Coqui\Repl\ToolkitCommandCandidate;
 use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
+use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
@@ -29,6 +30,7 @@ use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
+use CoquiBot\Coqui\Support\ImagePreviewService;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -56,6 +58,7 @@ function createSlashCommandRouterForToolkitTest(array $toolkitCommandHandlers = 
         $instantiate(TodoHandler::class),
         $instantiate(ScheduleHandler::class),
         $instantiate(BudgetHandler::class),
+        $instantiate(ChannelHandler::class),
         $instantiate(QualityHandler::class),
         $instantiate(ProjectHandler::class),
         $instantiate(RoleHandler::class),
@@ -72,9 +75,22 @@ function createSlashCommandRouterForToolkitTest(array $toolkitCommandHandlers = 
         $instantiate(PromptInspectionService::class),
         $output,
         sys_get_temp_dir(),
+        null,
         static function (): void {},
         static function (?bool $enable = null): void {},
         $toolkitCommandHandlers,
+    );
+}
+
+function createSlashRouterImagePreviewService(string $workspace): ImagePreviewService
+{
+    return new ImagePreviewService(
+        $workspace,
+        static fn(string $path, int $width): array => [
+            'preview' => 'PREVIEW:' . basename($path) . ':' . $width,
+            'preview_format' => 'ansi_blocks',
+            'unavailable_reason' => null,
+        ],
     );
 }
 
@@ -165,5 +181,64 @@ test('slash command router renders shared toolkit help for no-arg toolkit comman
         expect($display)->toContain('Images are saved in the workspace image library.');
     } finally {
         ReplCommandCatalog::clearToolkitHandlers();
+    }
+});
+
+test('slash command router renders local markdown previews through its markdown helper', function (): void {
+    $workspace = sys_get_temp_dir() . '/coqui-slash-router-preview-' . bin2hex(random_bytes(8));
+    $imagePath = $workspace . '/images/example.png';
+
+    mkdir(dirname($imagePath), 0755, true);
+    file_put_contents($imagePath, 'fixture');
+
+    try {
+        $instantiate = static function (string $class): object {
+            return (new ReflectionClass($class))->newInstanceWithoutConstructor();
+        };
+
+        $output = new BufferedOutput();
+        $router = new SlashCommandRouter(
+            $instantiate(SessionHandler::class),
+            $instantiate(TaskHandler::class),
+            $instantiate(TodoHandler::class),
+            $instantiate(ScheduleHandler::class),
+            $instantiate(BudgetHandler::class),
+            $instantiate(ChannelHandler::class),
+            $instantiate(QualityHandler::class),
+            $instantiate(ProjectHandler::class),
+            $instantiate(RoleHandler::class),
+            $instantiate(ProfileHandler::class),
+            $instantiate(ToolkitVisibilityHandler::class),
+            $instantiate(SpaceHandler::class),
+            $instantiate(ConfigHandler::class),
+            $instantiate(ConversationHandler::class),
+            $instantiate(WebhookHandler::class),
+            $instantiate(EvaluationHandler::class),
+            $instantiate(LoopHandler::class),
+            $instantiate(BackstoryHandler::class),
+            $instantiate(AgentRunner::class),
+            $instantiate(PromptInspectionService::class),
+            $output,
+            $workspace,
+            createSlashRouterImagePreviewService($workspace),
+            static function (): void {},
+            static function (?bool $enable = null): void {},
+            [],
+        );
+
+        $method = new ReflectionMethod($router, 'renderMarkdown');
+        $method->setAccessible(true);
+
+        $io = new SymfonyStyle(new ArrayInput([]), $output);
+
+        $method->invoke($router, $io, '![Prompt Image](images/example.png)');
+
+        $display = $output->fetch();
+        $plain = preg_replace('/\e\[[\d;]*m/', '', $display) ?? $display;
+
+        expect($plain)->toContain('[image preview: Prompt Image]');
+        expect($plain)->toContain('PREVIEW:example.png:40');
+    } finally {
+        cleanupTestTree($workspace);
     }
 });

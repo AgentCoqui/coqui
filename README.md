@@ -58,6 +58,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - 🔐 [**Credential Management**](docs/FEATURES.md#credential-management) — declarative `.env`-based secrets with hot-reload and automatic guards
 - 📋 [**Skills System**](docs/FEATURES.md#skills-system) — teach Coqui any workflow with plain Markdown files — no code required
 - ⏰ [**Scheduled Tasks**](docs/FEATURES.md#scheduled-tasks) — cron-style automation with circuit breakers
+- 📨 [**Channels**](docs/FEATURES.md#channels) — Signal-backed external messaging with API-managed inbound and outbound delivery
 - 🏗️ [**Background Tasks**](docs/FEATURES.md#background-tasks) — isolated processes for long-running work
 - 🔁 [**Loops**](docs/FEATURES.md#loops) — fully automated multi-iteration workflows chaining roles in sequence
 - 🧩 [**Cognitive Flexibility**](docs/FEATURES.md#cognitive-flexibility) — creative muse and philosopher roles, diverge-converge loops, sketch/hypothesis artifacts
@@ -77,11 +78,10 @@ See [docs/FEATURES.md](docs/FEATURES.md) for the full feature reference with usa
 | --- | --- | --- |
 | Linux | Fully supported | Recommended native environment |
 | macOS | Fully supported | Recommended native environment |
-| WSL2 | Recommended on Windows | Best Windows path for full feature parity |
-| Windows (native) | Degraded and unsupported | Basic installer and REPL behavior may work, but native Windows install is not a supported target |
-| Docker | Supported, with some terminal caveats | Best fallback when you want a containerized setup |
+| WSL2 | Supported on Windows | Recommended Windows install path |
+| Docker | Supported, with some terminal caveats | Containerized alternative when you do not want WSL2 |
 
-Native Windows behavior exists as a byproduct of development and basic cross-platform coverage. It is not a supported install target. For the best experience on Windows, use WSL2 first or Docker second.
+For the best experience on Windows, use the WSL2 installer path first. Docker remains a containerized alternative when you do not want a WSL-based workflow.
 
 ## Requirements
 
@@ -103,9 +103,9 @@ The installer detects your OS, installs PHP 8.4+ and required extensions if miss
 curl -fsSL https://coquibot.org/install | bash
 ```
 
-### Windows (PowerShell)
+### Windows (WSL2 Bootstrap)
 
-> Native Windows install is degraded and unsupported. This path works only as a byproduct of development and basic cross-platform coverage. Use WSL2 or Docker on Windows for the best experience.
+Run the Windows bootstrap in PowerShell. It checks for WSL2, offers to install Ubuntu when needed, and then runs the standard Coqui installer inside WSL.
 
 ```powershell
 irm https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1 | iex
@@ -117,8 +117,8 @@ Re-run the same install command. The installer detects an existing installation 
 
 ### Inspect before running
 
-- Linux / macOS: [install.sh](https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.sh)
-- Windows: [install.ps1](https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1)
+- Linux / macOS / WSL2: [install.sh](https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.sh)
+- Windows bootstrap: [install.ps1](https://raw.githubusercontent.com/AgentCoqui/coqui-installer/main/install.ps1)
 
 ### Development Install
 
@@ -424,7 +424,7 @@ Coqui configures SQLite for CLI workloads: WAL journal mode, `synchronous=NORMAL
 
 ## Docker
 
-> Docker is the recommended fallback on Windows if you do not want to use WSL2. GPU passthrough and some terminal features may still behave differently. Please [report issues](https://github.com/AgentCoqui/coqui/issues).
+> Docker is the supported containerized alternative on Windows when you do not want to use WSL2. GPU passthrough and some terminal features may still behave differently. Please [report issues](https://github.com/AgentCoqui/coqui/issues).
 
 Run Coqui in a container with zero host dependencies. The Docker setup uses `php:8.4-cli` with all required extensions and Composer.
 
@@ -513,6 +513,7 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 | [Commands](docs/COMMANDS.md) | REPL slash commands and CLI reference |
 | [Roles](docs/ROLES.md) | Built-in roles, access levels, and custom role creation |
 | [Configuration](docs/CONFIGURATION.md) | `openclaw.json` reference |
+| [Channels](docs/CHANNELS.md) | Signal channel setup, linking, and end-to-end testing |
 | [API](docs/API.md) | Canonical HTTP API reference and client integration guide |
 | [Background Tasks](docs/BACKGROUND-TASKS.md) | Background task architecture and usage |
 | [Loops](docs/LOOPS.md) | Loop definitions, runtime model, and inspection |

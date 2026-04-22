@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Utility\PromptSizeValidator;
@@ -71,10 +72,9 @@ final readonly class MessageHandler
      */
     public function send(ServerRequestInterface $request, string $id): Response
     {
-        $session = $this->storage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireWritableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $body = json_decode((string) $request->getBody(), true);
@@ -398,10 +398,9 @@ final readonly class MessageHandler
      */
     public function delete(ServerRequestInterface $request, string $id, string $messageId): Response
     {
-        $session = $this->storage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireWritableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $deleted = $this->storage->deleteMessages([$messageId]);

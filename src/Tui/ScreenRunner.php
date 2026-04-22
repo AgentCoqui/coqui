@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Tui;
 
 use CoquiBot\Coqui\Repl\TerminalStateManager;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Terminal;
 
@@ -58,18 +59,37 @@ final class ScreenRunner
             $this->terminalState->enterRawMode();
             $this->installSignalHandler($savedState);
 
+            $terminal = new Terminal();
+            $frameRenderer = new ScreenFrameRenderer($this->output);
             $lastTickAt = microtime(true);
             $needsRender = true;
+            $lastWidth = 0;
+            $lastHeight = 0;
+            $previousFrame = null;
 
             while ($stack !== []) {
                 $screen = $stack[array_key_last($stack)];
-                $terminal = new Terminal();
                 $width = $terminal->getWidth();
                 $height = $terminal->getHeight();
 
+                if ($width !== $lastWidth || $height !== $lastHeight) {
+                    $lastWidth = $width;
+                    $lastHeight = $height;
+                    $needsRender = true;
+                    $previousFrame = null;
+                }
+
                 if ($needsRender) {
-                    $this->clearScreen();
-                    $screen->render($this->output, $width, $height);
+                    $frame = $this->renderFrame($screen, $width, $height);
+
+                    if ($previousFrame === null || !$frame->sharesViewport($previousFrame)) {
+                        $this->clearScreen();
+                        $frameRenderer->renderFull($frame);
+                    } else {
+                        $frameRenderer->renderDiff($previousFrame, $frame);
+                    }
+
+                    $previousFrame = $frame;
                     $needsRender = false;
                 }
 
@@ -92,12 +112,14 @@ final class ScreenRunner
                     if ($action->isPush() && $action->screen !== null) {
                         $stack[] = $action->screen;
                         $needsRender = true;
+                        $previousFrame = null;
                         continue;
                     }
 
                     if ($action->isPop()) {
                         array_pop($stack);
                         $needsRender = true;
+                        $previousFrame = null;
                         continue;
                     }
 
@@ -126,6 +148,19 @@ final class ScreenRunner
     private function clearScreen(): void
     {
         $this->output->write("\e[2J\e[H");
+    }
+
+    private function renderFrame(ScreenInterface $screen, int $width, int $height): ScreenFrame
+    {
+        $buffer = new BufferedOutput(
+            verbosity: $this->output->getVerbosity(),
+            decorated: $this->output->isDecorated(),
+            formatter: $this->output->getFormatter(),
+        );
+
+        $screen->render($buffer, $width, $height);
+
+        return ScreenFrame::fromRenderedOutput($buffer->fetch(), $width, $height);
     }
 
     /**

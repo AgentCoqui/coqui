@@ -56,6 +56,22 @@ function makeTurnAgentStub(string $event, mixed $data): AgentInterface
     };
 }
 
+function makeTurnTransientSubject(string $event, mixed $data): SplSubject
+{
+    return new class ($event, $data) implements SplSubject {
+        public function __construct(
+            private readonly string $eventName,
+            private readonly mixed $eventData,
+        ) {}
+
+        public function getEventName(): string { return $this->eventName; }
+        public function getEventData(): mixed { return $this->eventData; }
+        public function attach(SplObserver $observer): void {}
+        public function detach(SplObserver $observer): void {}
+        public function notify(): void {}
+    };
+}
+
 beforeEach(function () {
     $this->dbPath = sys_get_temp_dir() . '/coqui-turn-observer-test-' . bin2hex(random_bytes(8)) . '.db';
     $this->storage = new SessionStorage($this->dbPath);
@@ -101,4 +117,70 @@ test('unknown turn observer event is silently ignored', function () {
 
     $events = $this->storage->getTurnEvents($this->turnProcessId);
     expect($events)->toBeEmpty();
+});
+
+test('turn process observer persists review lifecycle events with depth metadata', function () {
+    $this->observer->update(makeTurnAgentStub('child.review_start', [
+        'round' => 2,
+        'max_rounds' => 3,
+    ]));
+    $this->observer->update(makeTurnAgentStub('child.review_end', [
+        'round' => 2,
+        'approved' => true,
+        'verdict' => 'approved',
+    ]));
+
+    $events = $this->storage->getTurnEvents($this->turnProcessId);
+
+    expect($events)->toHaveCount(2);
+    expect($events[0]['event_type'])->toBe('review_start');
+    expect(json_decode((string) $events[0]['data'], true))->toBe([
+        'round' => 2,
+        'max_rounds' => 3,
+        'depth' => 0,
+    ]);
+    expect($events[1]['event_type'])->toBe('review_end');
+    expect(json_decode((string) $events[1]['data'], true))->toBe([
+        'round' => 2,
+        'verdict' => 'approved',
+        'approved' => true,
+        'depth' => 0,
+    ]);
+});
+
+test('turn process observer persists budget and notification events', function () {
+    $this->observer->update(makeTurnAgentStub('agent.budget_warning', [
+        'usage_percent' => 91.2,
+        'threshold_percent' => 90.0,
+    ]));
+    $this->observer->update(makeTurnAgentStub('agent.notification', [
+        'kind' => 'task.completed',
+        'title' => 'Build finished',
+    ]));
+
+    $events = $this->storage->getTurnEvents($this->turnProcessId);
+
+    expect($events)->toHaveCount(2);
+    expect($events[0]['event_type'])->toBe('budget_warning');
+    expect(json_decode((string) $events[0]['data'], true)['usage_percent'])->toBe(91.2);
+    expect($events[1]['event_type'])->toBe('notification');
+    expect(json_decode((string) $events[1]['data'], true)['kind'])->toBe('task.completed');
+});
+
+test('turn process observer persists transient loop events', function () {
+    $this->observer->update(makeTurnTransientSubject('loop.stage_start', [
+        'loop_id' => 'loop-123',
+        'iteration' => 2,
+        'role' => 'coder',
+    ]));
+
+    $events = $this->storage->getTurnEvents($this->turnProcessId);
+
+    expect($events)->toHaveCount(1);
+    expect($events[0]['event_type'])->toBe('loop_stage_start');
+    expect(json_decode((string) $events[0]['data'], true))->toBe([
+        'loop_id' => 'loop-123',
+        'iteration' => 2,
+        'role' => 'coder',
+    ]);
 });

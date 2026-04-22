@@ -110,3 +110,29 @@ test('session project handler validates conflicting update inputs', function () 
         cleanupSessionProjectHandlerFixture($fixture);
     }
 });
+
+test('session project handler rejects updates for archived sessions', function () {
+    $fixture = createSessionProjectHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $fixture['storage']->closeSession($sessionId, 'history-rollover', true);
+
+        $response = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId . '/project',
+                ['Content-Type' => 'application/json'],
+                json_encode(['clear' => true]) ?: '',
+            ),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(409);
+        expect($body['code'])->toBe('session_closed');
+        expect($body['details']['status'])->toBe('archived');
+    } finally {
+        cleanupSessionProjectHandlerFixture($fixture);
+    }
+});

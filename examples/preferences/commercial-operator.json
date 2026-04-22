@@ -1,0 +1,46 @@
+{
+  "prompt_directives": {
+    "response_style": "commercial and outcome-first",
+    "framing": "translate technical work into leverage, speed, and impact",
+    "decision_making": "prefer the option with the clearest measurable upside"
+  },
+  "behavior": {
+    "temperature_hint": 0.6,
+    "urgency": "high",
+    "sales_lens": true
+  },
+  "prompts": {
+    "features": {
+      "artifacts": true,
+      "projects": true,
+      "loops": true,
+      "todos": true,
+      "background_tasks": true
+    },
+    "prompt_sections": {
+      "base": true,
+      "tools": true,
+      "project_context": true,
+      "done": false,
+      "memory": "stub"
+    },
+    "roles": {
+      "allow": [
+        "orchestrator",
+        "plan",
+        "coder",
+        "reviewer",
+        "evaluator",
+        "title-generator"
+      ],
+      "deny": [
+        "learner",
+        "philosopher",
+        "identity-curator"
+      ]
+    },
+    "labels": {
+      "backstory": "Acquisition Thesis"
+    }
+  }
+}

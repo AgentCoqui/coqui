@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Renderer\Ansi;
 
+use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use League\CommonMark\Extension\CommonMark\Node\Inline\Image;
 use League\CommonMark\Node\Node;
 use League\CommonMark\Renderer\ChildNodeRendererInterface;
@@ -21,6 +22,11 @@ final class ImageRenderer implements NodeRendererInterface
 
         $alt = $childRenderer->renderNodes($node->children());
         $url = $node->getUrl();
+
+        $preview = MarkdownRenderer::renderLocalImagePreview($url, trim($alt));
+        if ($preview !== null) {
+            return $preview;
+        }
 
         return self::DIM . '[image: ' . ($alt !== '' ? $alt : $url) . ']' . self::RESET;
     }

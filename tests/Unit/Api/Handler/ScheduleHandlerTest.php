@@ -17,7 +17,7 @@ function createScheduleHandlerFixture(): array
         'dbPath' => $dbPath,
         'storage' => $storage,
         'store' => $store,
-        'handler' => new ScheduleHandler($store),
+        'handler' => new ScheduleHandler($store, $storage),
     ];
 }
 
@@ -145,6 +145,89 @@ test('schedule handler rejects mutations for filesystem schedules', function () 
         expect($response->getStatusCode())->toBe(409);
         expect($body['code'])->toBe('conflict');
         expect($body['details']['source_path'])->toBe('/workspace/schedules/nightly-review.json');
+    } finally {
+        cleanupScheduleHandlerFixture($fixture);
+    }
+});
+
+test('schedule handler exposes upcoming schedules and aggregate stats', function () {
+    $fixture = createScheduleHandlerFixture();
+
+    try {
+        $enabledId = $fixture['store']->create('daily-review', '@once', 'Review recent changes.');
+        $disabledId = $fixture['store']->create('weekly-retro', '0 9 * * 1', 'Review weekly progress.');
+        $fixture['store']->disable($disabledId);
+
+        $upcomingResponse = $fixture['handler']->upcoming(
+            new ServerRequest('GET', '/api/v1/schedules/upcoming?hours=24'),
+        );
+        $upcomingBody = json_decode((string) $upcomingResponse->getBody(), true);
+
+        $statsResponse = $fixture['handler']->stats(
+            new ServerRequest('GET', '/api/v1/schedules/stats'),
+        );
+        $statsBody = json_decode((string) $statsResponse->getBody(), true);
+
+        expect($upcomingResponse->getStatusCode())->toBe(200);
+        expect($upcomingBody['count'])->toBe(1);
+        expect($upcomingBody['schedules'][0]['id'])->toBe($enabledId);
+
+        expect($statsResponse->getStatusCode())->toBe(200);
+        expect($statsBody['total'])->toBe(2);
+        expect($statsBody['enabled'])->toBe(1);
+        expect($statsBody['disabled'])->toBe(1);
+        expect($statsBody['total_runs'])->toBe(0);
+    } finally {
+        cleanupScheduleHandlerFixture($fixture);
+    }
+});
+
+test('schedule handler returns run history for a schedule', function () {
+    $fixture = createScheduleHandlerFixture();
+
+    try {
+        $scheduleId = $fixture['store']->create('daily-review', '0 9 * * 1-5', 'Review recent changes.');
+
+        $sessionOne = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $taskOne = $fixture['storage']->createTask(
+            sessionId: $sessionOne,
+            prompt: 'Run the weekday review',
+            title: 'Weekday review',
+            scheduleId: $scheduleId,
+            metadata: ['source' => 'schedule'],
+        );
+        $fixture['storage']->updateTaskStatus($taskOne, 'completed', ['result' => 'Review complete']);
+
+        $sessionTwo = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $taskTwo = $fixture['storage']->createTask(
+            sessionId: $sessionTwo,
+            prompt: 'Run the weekday review again',
+            title: 'Weekday review retry',
+            scheduleId: $scheduleId,
+        );
+        $fixture['storage']->updateTaskStatus($taskTwo, 'failed', ['error' => 'Network timeout']);
+
+        $response = $fixture['handler']->runs(
+            new ServerRequest('GET', '/api/v1/schedules/' . $scheduleId . '/runs?limit=10'),
+            $scheduleId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['schedule']['id'])->toBe($scheduleId);
+        expect($body['count'])->toBe(2);
+        expect($body['counts']['completed'])->toBe(1);
+        expect($body['counts']['failed'])->toBe(1);
+
+        $runsById = [];
+        foreach ($body['runs'] as $run) {
+            $runsById[$run['id']] = $run;
+        }
+
+        expect(array_keys($runsById))->toContain($taskOne, $taskTwo);
+        expect($runsById[$taskTwo]['error'])->toBe('Network timeout');
+        expect($runsById[$taskOne]['result'])->toBe('Review complete');
+        expect($runsById[$taskOne]['metadata']['source'])->toBe('schedule');
     } finally {
         cleanupScheduleHandlerFixture($fixture);
     }

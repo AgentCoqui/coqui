@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 use CoquiBot\Coqui\Contract\ToolkitTabCompletionProvider;
 use CoquiBot\Coqui\CoquiSpace\SpaceInstallCompletionCache;
 use CoquiBot\Coqui\Contract\SystemRole;
+use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -92,6 +93,7 @@ final class TabCompletion
             '/projects' => $this->completeProjects($parts),
             '/sprints' => $this->completeSprints($parts),
             '/toolkits' => $this->completeToolkits($parts),
+            '/channels' => $this->completeChannels($parts),
             '/schedules' => $this->completeSchedules($parts),
             '/loops' => $this->completeLoops($parts),
             '/webhooks' => $this->completeWebhooks($parts),
@@ -252,6 +254,41 @@ final class TabCompletion
             }
 
             return $this->completeChoices($candidates, $parts[2]);
+        }
+
+        return [];
+    }
+
+    /**
+     * @param array<string> $parts
+     * @return list<string>
+     */
+    private function completeChannels(array $parts): array
+    {
+        $subcommands = $this->commandSpec('/channels')->firstArguments;
+
+        if (count($parts) === 2) {
+            return $this->completeChoices($subcommands, $parts[1]);
+        }
+
+        if (count($parts) === 3 && $parts[1] === 'add') {
+            return $this->completeChoices(array_values($this->boot->channelDiscovery()->driverNames()), $parts[2]);
+        }
+
+        if (count($parts) === 3 && in_array($parts[1], ['status', 'show', 'health', 'set', 'enable', 'disable', 'delete', 'remove', 'links', 'link', 'unlink', 'deliveries'], true)) {
+            $channelStore = new ChannelStore($this->storage->getPdo());
+            $candidates = [];
+
+            foreach ($channelStore->listInstances() as $channel) {
+                $candidates[] = $channel['name'];
+                $candidates[] = $channel['id'];
+            }
+
+            return $this->completeChoices($candidates, $parts[2]);
+        }
+
+        if (count($parts) === 4 && $parts[1] === 'set') {
+            return $this->completeChoices(['driver', 'displayName', 'defaultProfile', 'enabled', 'settings', 'allowedScopes', 'security'], $parts[3]);
         }
 
         return [];

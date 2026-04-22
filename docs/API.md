@@ -175,8 +175,10 @@ The `code` field is a stable machine-readable string that clients can branch on 
 | `invalid_format` | 400 | Field value has wrong format |
 | `conflict` | 409 | Resource already exists |
 | `agent_busy` | 409 | Session already has an active agent run |
+| `profile_session_active` | 409 | A profiled session is already active and the client must confirm closure before creating or reassigning a fresh one |
 | `role_builtin` | 409 | Cannot modify a built-in role |
 | `role_reserved` | 409 | Cannot create a role with a reserved name |
+| `session_closed` | 409 | Session is closed and read-only; mutating session-scoped requests are rejected |
 | `unauthorized` | 401 | Missing or invalid API key |
 | `forbidden` | 403 | Access denied |
 | `rate_limited` | 429 | Too many requests |
@@ -202,7 +204,7 @@ Use this document as the canonical HTTP API reference. The current API is best s
 
 ### Recommended Integration Flow
 
-1. If your client exposes personalities, call `GET /api/v1/config/profiles` first.
+1. If your client exposes personalities, call `GET /api/v1/profiles` first.
 2. Prefer `POST /api/v1/sessions/resolve` for sticky app sessions, or `POST /api/v1/sessions` when you explicitly need a fresh conversation.
 3. Upload files with `POST /api/v1/sessions/{id}/files` before sending a prompt when the turn needs images or document context.
 4. Call `POST /api/v1/sessions/{id}/messages` to send prompts.
@@ -252,13 +254,29 @@ Liveness check. Does **not** require authentication.
   "status": "ok",
   "version": "dev",
   "uptime_seconds": 3421,
-  "active_sessions": 1
+  "active_sessions": 1,
+  "channels": {
+    "total": 1,
+    "enabled": 1,
+    "ready": 1,
+    "errors": 0,
+    "active_runtimes": 1,
+    "registered_drivers": 3
+  }
 }
 ```
 
 ### Sessions
 
 A session is a persistent conversation context. Messages and turns are scoped to a session.
+
+Profile-scoped sessions enforce a single active interactive conversation per profile. `POST /api/v1/sessions/resolve` keeps the newest active profiled session and archives/closes older duplicates automatically. `POST /api/v1/sessions` remains the fresh-conversation endpoint, but when a profiled session is already active it returns `409 profile_session_active` until the client explicitly confirms closure of that active profiled session.
+
+Session lifecycle fields have distinct meanings:
+
+- `closed` is the mutability state. Closed sessions are terminal and read-only: prompts, message deletion, file uploads/deletes, project reassignment, session metadata updates, and session-bound task or loop attachment are rejected with `409 session_closed`.
+- `archived` is the discovery state. Archived sessions are hidden from active listings by default but remain fully inspectable through the read endpoints.
+- In the current profile-rollover flow, archived sessions are also closed. A session may be closed without being archived if Coqui needs a terminal but still explicitly visible record.
 
 #### `GET /api/v1/sessions`
 
@@ -269,6 +287,9 @@ List sessions, ordered by most recently updated.
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
 | `limit` | int | `50` | Max sessions to return (capped at 200) |
+| `status` | string | `"active"` | Filter by lifecycle state: `active`, `closed`, `archived`, or `all` |
+| `include_closed` | bool | `false` | Legacy alias for `status=all` when `status` is omitted |
+| `profile` | string | unset | Filter by profile scope. Use a profile name like `caelum` or `none` for unprofiled sessions only |
 
 **Response `200`**
 
@@ -280,14 +301,32 @@ List sessions, ordered by most recently updated.
       "model_role": "orchestrator",
       "model": "openai/gpt-5",
       "active_project_id": null,
+      "status": "active",
+      "is_closed": 0,
+      "is_archived": 0,
+      "closed_at": null,
+      "archived_at": null,
+      "closure_reason": null,
       "created_at": "2026-02-16T14:30:00+00:00",
       "updated_at": "2026-02-16T15:45:12+00:00",
       "token_count": 12450
     }
   ],
-  "count": 1
+  "count": 1,
+  "status": "active",
+  "profile": null,
+  "counts": {
+    "active": 1,
+    "closed": 3,
+    "archived": 3,
+    "total": 4
+  }
 }
 ```
+
+Use `GET /api/v1/sessions?status=archived` to browse historical conversations without making them active again. Once you have a session ID, the normal read endpoints such as `GET /api/v1/sessions/{id}`, `GET /api/v1/sessions/{id}/messages`, and `GET /api/v1/sessions/{id}/turns` continue to work for archived history.
+
+Use `GET /api/v1/sessions?profile=caelum&status=all` to browse a single profile scope, or `GET /api/v1/sessions?profile=none&status=all` to browse only unprofiled sessions.
 
 #### `POST /api/v1/sessions`
 
@@ -300,7 +339,8 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
 ```json
 {
   "model_role": "orchestrator",
-  "profile": "caelum"
+  "profile": "caelum",
+  "confirm_close_active_profile_session": true
 }
 ```
 
@@ -308,6 +348,7 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
 |-------|------|----------|---------|-------------|
 | `model_role` | string | No | `"orchestrator"` | Role to resolve the model from config. Must be a known role. |
 | `profile` | string | No | `null` | Personality profile name. Must match a `profiles/{name}/soul.md` in the workspace. |
+| `confirm_close_active_profile_session` | bool | No | `false` | Required when `profile` already has an active interactive session and the client explicitly wants to close/archive it before starting a fresh one |
 
 **Response `201`**
 
@@ -318,6 +359,21 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
   "model": "openai/gpt-5",
   "profile": "caelum",
   "active_project_id": null
+}
+```
+
+**Response `409`** — active profiled session must be confirmed first:
+
+```json
+{
+  "error": "Profile \"caelum\" already has an active session. Confirm closure before starting or reassigning a fresh session.",
+  "code": "profile_session_active",
+  "details": {
+    "profile": "caelum",
+    "active_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "active_session_count": 1,
+    "confirm_field": "confirm_close_active_profile_session"
+  }
 }
 ```
 
@@ -339,6 +395,7 @@ This mirrors REPL startup behavior:
 - Omit `profile` to target the unprofiled interactive session pool.
 - Pass `profile` to target a profile-specific interactive session pool.
 - Background-task sessions are excluded from reuse.
+- If multiple active interactive sessions exist for the same profile, Coqui keeps the newest one and archives/closes the older duplicates before responding.
 
 **Request Body**
 
@@ -391,10 +448,75 @@ Get session details.
   "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
+  "profile": "caelum",
+  "status": "active",
+  "is_closed": 0,
+  "is_archived": 0,
+  "closed_at": null,
+  "archived_at": null,
+  "closure_reason": null,
   "active_project_id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "created_at": "2026-02-16T14:30:00+00:00",
   "updated_at": "2026-02-16T15:45:12+00:00",
   "token_count": 12450
+}
+```
+
+#### `GET /api/v1/sessions/{id}/summary`
+
+Return a compact dashboard view for a session without fetching every child collection separately.
+
+**Response `200`**
+
+```json
+{
+  "session": {
+    "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "profile": "caelum",
+    "status": "active"
+  },
+  "counts": {
+    "messages": {
+      "total": 24,
+      "active": 18,
+      "summarized": 6
+    },
+    "turns": 4,
+    "child_runs": 2,
+    "tasks": {
+      "total": 3,
+      "by_status": {
+        "completed": 2,
+        "failed": 1
+      }
+    },
+    "artifacts": {
+      "total": 2,
+      "persistent": 1,
+      "by_stage": {
+        "draft": 1,
+        "final": 1
+      }
+    },
+    "todos": {
+      "total": 5,
+      "pending": 1,
+      "in_progress": 1,
+      "completed": 3,
+      "cancelled": 0
+    }
+  },
+  "latest_turn": {
+    "id": "turn_123",
+    "turn_number": 4,
+    "content": "Summary complete",
+    "tools_used": ["read_file", "apply_patch"],
+    "created_at": "2026-02-16T15:43:00+00:00",
+    "completed_at": "2026-02-16T15:45:12+00:00"
+  },
+  "latest_message_at": "2026-02-16T15:45:12+00:00",
+  "latest_task_at": "2026-02-16T15:44:20+00:00",
+  "latest_activity_at": "2026-02-16T15:45:12+00:00"
 }
 ```
 
@@ -409,19 +531,26 @@ Get session details.
 
 #### `PATCH /api/v1/sessions/{id}`
 
-Update session metadata. Currently supports renaming the session title.
+Update session metadata. Supports renaming the title, updating the role, and changing the profile scope.
+
+Closed or archived sessions are read-only. This endpoint returns `409 session_closed` when clients try to modify them.
 
 **Request Body**
 
 ```json
 {
-  "title": "My refactoring session"
+  "title": "My refactoring session",
+  "profile": "caelum",
+  "confirm_close_active_profile_session": true
 }
 ```
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `title` | string | No | New session title (cannot be empty) |
+| `model_role` | string | No | Update the stored role and re-resolve the model |
+| `profile` | string | No | Set or clear the session profile (`""` clears it) |
+| `confirm_close_active_profile_session` | bool | No | Required when reassigning an active session into a profile that already has another active interactive session |
 
 **Response `200`**
 
@@ -518,6 +647,8 @@ Alternative clear form:
 
 Provide exactly one of `project_id`, `project_slug`, or `clear=true`.
 
+Closed or archived sessions are read-only. This endpoint returns `409 session_closed` when clients try to modify them.
+
 #### Conversation Summarization
 
 Compress older conversation history into a concise summary, preserving recent turns and workflow state (todos, artifacts).
@@ -602,6 +733,8 @@ By default, the response is a **Server-Sent Event (SSE) stream** that delivers r
 
 When `files` are provided, the referenced uploads are attached to the message. Image files (JPEG, PNG, GIF, WebP) are sent to the LLM as vision content. Text and document files are read and injected as context blocks in the prompt.
 
+Closed sessions reject new prompts with `409 session_closed`. The same read-only guard also applies to message deletion and the other session-scoped mutation endpoints. This gives clients a clean handoff state after a profiled conversation has been archived and closed.
+
 **Query Parameters**
 
 | Param | Type | Default | Description |
@@ -629,10 +762,26 @@ Events are separated by a blank line. The stream ends when the `complete` event 
 | `reasoning` | Model thinking/reasoning token | `{"content": "token"}` |
 | `text_delta` | Streaming text token from LLM | `{"content": "token"}` |
 | `tool_call` | Agent is calling a tool | `{"id": "call_abc", "tool": "list_dir", "arguments": {"path": "."}}` |
+| `batch_start` | A parallel tool batch is starting | `{"count": 2}` or other batch metadata |
+| `batch_end` | A parallel tool batch finished | `{"count": 2}` or other batch metadata |
 | `tool_result` | Tool execution completed | `{"content": "...", "success": true}` |
 | `child_start` | Child agent spawned | `{"role": "coder", "depth": 0}` |
 | `child_end` | Child agent finished | `{"depth": 0}` |
+| `review_start` | Automated review round started | `{"round": 1, "max_rounds": 2, "depth": 0}` |
+| `review_end` | Automated review round finished | `{"round": 1, "verdict": "approved", "approved": true, "depth": 0}` |
 | `done` | Agent turn content complete | `{"content": "Here are the files..."}` |
+| `warning` | Non-fatal warning | `{"message": "Warning description"}` |
+| `budget_warning` | Turn is nearing context budget exhaustion | `{"usage_percent": 92.5, "threshold_percent": 90.0}` |
+| `summary` | Auto-summarization completed | `{"messages_summarized": 18, "tokens_saved": 5400, "auto": true}` |
+| `memory_extraction` | Memory extraction completed | `{"memories_saved": 3, "source": "turn", "auto": true}` |
+| `notification` | Pending workflow notification surfaced to the model | `{"kind": "task.completed", "title": "Build finished"}` |
+| `loop_start` | Loop execution started | `{"loop_id": "loop-123"}` |
+| `loop_iteration_start` | Loop iteration started | `{"loop_id": "loop-123", "iteration": 2}` |
+| `loop_stage_start` | Loop stage started | `{"loop_id": "loop-123", "iteration": 2, "role": "coder"}` |
+| `loop_stage_end` | Loop stage finished | `{"loop_id": "loop-123", "iteration": 2, "role": "coder"}` |
+| `loop_iteration_end` | Loop iteration finished | `{"loop_id": "loop-123", "iteration": 2}` |
+| `loop_complete` | Loop execution completed | `{"loop_id": "loop-123", "status": "completed"}` |
+| `title` | Session title generated after the turn | `{"title": "Refactor auth flow"}` |
 | `error` | An error occurred | `{"message": "Error description"}` |
 | `complete` | Final event with full turn result | See below |
 
@@ -651,9 +800,70 @@ The `complete` event carries the full turn result:
   "tools_used": ["list_dir"],
   "child_agent_count": 0,
   "restart_requested": false,
+  "iteration_limit_reached": false,
+  "budget_exhausted": false,
+  "context_usage": {
+    "max_tokens": 128000,
+    "reserved_tokens": 8192,
+    "used_tokens": 24500,
+    "usage_percent": 20.4,
+    "available_tokens": 95308,
+    "effective_budget": 119808,
+    "breakdown": {
+      "system": 5000,
+      "memory": 1200,
+      "user": 800,
+      "assistant": 7000,
+      "tool": 9000,
+      "summary": 1500
+    }
+  },
+  "file_edits": [
+    {
+      "file_path": "/workspace/src/Example.php",
+      "operation": "update"
+    }
+  ],
+  "review_feedback": null,
+  "review_approved": null,
+  "background_tasks": {
+    "agents": [
+      {
+        "id": "task_123",
+        "status": "running",
+        "title": "Refactor auth",
+        "role": "coder",
+        "started_at": "2026-04-21T12:00:00+00:00",
+        "created_at": "2026-04-21T11:59:30+00:00"
+      }
+    ],
+    "tools": [],
+    "total_count": 1
+  },
   "error": null
 }
 ```
+
+Relevant fields for REPL-style footer rendering:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `iterations` | int | Total model loop iterations used by the turn |
+| `duration_ms` | int | End-to-end execution time in milliseconds |
+| `prompt_tokens` | int | Estimated input token usage |
+| `completion_tokens` | int | Estimated output token usage |
+| `total_tokens` | int | Sum of prompt and completion tokens |
+| `tools_used` | string[] | Unique tool names invoked during the turn |
+| `child_agent_count` | int | Number of child agents spawned |
+| `restart_requested` | bool | Whether the turn requested a Coqui restart |
+| `iteration_limit_reached` | bool | Whether the turn stopped because the iteration cap was reached |
+| `budget_exhausted` | bool | Whether the turn stopped because the context budget was exhausted |
+| `context_usage` | object or `null` | Structured context-window usage data for frontend progress-bar rendering |
+| `file_edits` | object[] or `null` | Files edited during the turn with operation type |
+| `review_feedback` | string or `null` | Post-turn automated review feedback when available |
+| `review_approved` | bool or `null` | Review verdict when post-turn review ran |
+| `background_tasks` | object or `null` | Active background agent/tool summary. `started_at` and `created_at` are included so clients can compute elapsed durations. |
+| `error` | string or `null` | Error summary when the turn fails |
 
 **Example SSE Stream**
 
@@ -689,7 +899,7 @@ event: done
 data: {"content":"Here are the directories inside `src/`:\n\n- Agent/\n- Api/\n- Command/\n- Config/"}
 
 event: complete
-data: {"content":"Here are the directories inside `src/`:\n\n- Agent/\n- Api/\n- Command/\n- Config/","iterations":2,"prompt_tokens":1250,"completion_tokens":340,"total_tokens":1590,"duration_ms":4521,"tools_used":["list_dir"],"child_agent_count":0,"restart_requested":false,"error":null}
+data: {"content":"Here are the directories inside `src/`:\n\n- Agent/\n- Api/\n- Command/\n- Config/","iterations":2,"prompt_tokens":1250,"completion_tokens":340,"total_tokens":1590,"duration_ms":4521,"tools_used":["list_dir"],"child_agent_count":0,"restart_requested":false,"iteration_limit_reached":false,"budget_exhausted":false,"context_usage":{"max_tokens":128000,"reserved_tokens":8192,"used_tokens":24500,"usage_percent":20.4,"available_tokens":95308,"effective_budget":119808,"breakdown":{"system":5000,"memory":1200,"user":800,"assistant":7000,"tool":9000,"summary":1500}},"file_edits":[{"file_path":"/workspace/src/Example.php","operation":"update"}],"review_feedback":null,"review_approved":null,"background_tasks":{"agents":[{"id":"task_123","status":"running","title":"Refactor auth","role":"coder","started_at":"2026-04-21T12:00:00+00:00","created_at":"2026-04-21T11:59:30+00:00"}],"tools":[],"total_count":1},"error":null}
 
 ```
 
@@ -708,6 +918,46 @@ When streaming is disabled, the server blocks until the agent completes and retu
   "tools_used": ["list_dir"],
   "child_agent_count": 0,
   "restart_requested": false,
+  "iteration_limit_reached": false,
+  "budget_exhausted": false,
+  "context_usage": {
+    "max_tokens": 128000,
+    "reserved_tokens": 8192,
+    "used_tokens": 24500,
+    "usage_percent": 20.4,
+    "available_tokens": 95308,
+    "effective_budget": 119808,
+    "breakdown": {
+      "system": 5000,
+      "memory": 1200,
+      "user": 800,
+      "assistant": 7000,
+      "tool": 9000,
+      "summary": 1500
+    }
+  },
+  "file_edits": [
+    {
+      "file_path": "/workspace/src/Example.php",
+      "operation": "update"
+    }
+  ],
+  "review_feedback": null,
+  "review_approved": null,
+  "background_tasks": {
+    "agents": [
+      {
+        "id": "task_123",
+        "status": "running",
+        "title": "Refactor auth",
+        "role": "coder",
+        "started_at": "2026-04-21T12:00:00+00:00",
+        "created_at": "2026-04-21T11:59:30+00:00"
+      }
+    ],
+    "tools": [],
+    "total_count": 1
+  },
   "error": null
 }
 ```
@@ -725,6 +975,7 @@ The `prompt` field is limited to **1 MiB** (1,048,576 bytes). Prompts exceeding 
 | `404` | `session_not_found` | Session does not exist |
 | `404` | `not_found` | Referenced file ID not found in this session |
 | `409` | `agent_busy` | Session already has an active agent run |
+| `409` | `session_closed` | Session is closed or archived and cannot be mutated |
 
 #### `DELETE /api/v1/sessions/{id}/messages/{messageId}`
 
@@ -766,6 +1017,8 @@ Files are session-scoped uploads that can be attached to messages for multimodal
 #### `POST /api/v1/sessions/{id}/files`
 
 Upload one or more files to a session. Uses `multipart/form-data` encoding.
+
+Closed or archived sessions are read-only. `POST` and `DELETE` file endpoints return `409 session_closed` when clients try to mutate historical sessions.
 
 **Request**
 
@@ -897,6 +1150,8 @@ A turn represents a single request-response cycle within a session. Each turn co
 
 List turns for a session, ordered by turn number.
 
+Historical turn responses expose the same post-turn summary fields returned by the live `complete` event when that data is available. This lets clients reuse the same footer/progress rendering for both live and historical views.
+
 **Query Parameters**
 
 | Param | Type | Default | Description |
@@ -915,14 +1170,45 @@ List turns for a session, ordered by turn number.
       "turn_number": 1,
       "user_prompt": "List the files in the current directory",
       "response_text": "Here are the files...",
+      "content": "Here are the files...",
       "model": "openai/gpt-5",
       "prompt_tokens": 1250,
       "completion_tokens": 340,
       "total_tokens": 1590,
       "iterations": 2,
       "duration_ms": 4521,
-      "tools_used": "[\"list_dir\"]",
+      "tools_used": ["list_dir"],
       "child_agent_count": 0,
+      "turn_process_id": "tp1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+      "restart_requested": false,
+      "iteration_limit_reached": false,
+      "budget_exhausted": false,
+      "context_usage": {
+        "max_tokens": 128000,
+        "reserved_tokens": 8192,
+        "used_tokens": 24500,
+        "usage_percent": 20.4,
+        "available_tokens": 95308,
+        "effective_budget": 119808,
+        "breakdown": {
+          "system": 5000,
+          "memory": 1200,
+          "user": 800,
+          "assistant": 7000,
+          "tool": 9000,
+          "summary": 1500
+        }
+      },
+      "file_edits": [
+        {
+          "file_path": "/workspace/src/Example.php",
+          "operation": "update"
+        }
+      ],
+      "review_feedback": null,
+      "review_approved": null,
+      "background_tasks": null,
+      "error": null,
       "created_at": "2026-02-16T14:30:05+00:00",
       "completed_at": "2026-02-16T14:30:10+00:00"
     }
@@ -933,7 +1219,7 @@ List turns for a session, ordered by turn number.
 
 #### `GET /api/v1/sessions/{id}/turns/{turnId}`
 
-Get a single turn with its associated messages.
+Get a single turn with its associated messages. For API-origin turns, the detail response also includes an `events` array with the stored SSE event log so clients can replay or inspect the intermediate progress state after completion.
 
 **Response `200`**
 
@@ -944,14 +1230,45 @@ Get a single turn with its associated messages.
   "turn_number": 1,
   "user_prompt": "List the files in the current directory",
   "response_text": "Here are the files...",
+  "content": "Here are the files...",
   "model": "openai/gpt-5",
   "prompt_tokens": 1250,
   "completion_tokens": 340,
   "total_tokens": 1590,
   "iterations": 2,
   "duration_ms": 4521,
-  "tools_used": "[\"list_dir\"]",
+  "tools_used": ["list_dir"],
   "child_agent_count": 0,
+  "turn_process_id": "tp1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+  "restart_requested": false,
+  "iteration_limit_reached": false,
+  "budget_exhausted": false,
+  "context_usage": {
+    "max_tokens": 128000,
+    "reserved_tokens": 8192,
+    "used_tokens": 24500,
+    "usage_percent": 20.4,
+    "available_tokens": 95308,
+    "effective_budget": 119808,
+    "breakdown": {
+      "system": 5000,
+      "memory": 1200,
+      "user": 800,
+      "assistant": 7000,
+      "tool": 9000,
+      "summary": 1500
+    }
+  },
+  "file_edits": [
+    {
+      "file_path": "/workspace/src/Example.php",
+      "operation": "update"
+    }
+  ],
+  "review_feedback": null,
+  "review_approved": null,
+  "background_tasks": null,
+  "error": null,
   "created_at": "2026-02-16T14:30:05+00:00",
   "completed_at": "2026-02-16T14:30:10+00:00",
   "messages": [
@@ -963,7 +1280,62 @@ Get a single turn with its associated messages.
       "tool_call_id": null,
       "created_at": "2026-02-16T14:30:05+00:00"
     }
+  ],
+  "events": [
+    {
+      "id": 1,
+      "event_type": "review_start",
+      "data": {
+        "round": 1,
+        "max_rounds": 2,
+        "depth": 0
+      },
+      "created_at": "2026-02-16T14:30:06+00:00"
+    },
+    {
+      "id": 2,
+      "event_type": "budget_warning",
+      "data": {
+        "usage_percent": 92.5,
+        "threshold_percent": 90.0
+      },
+      "created_at": "2026-02-16T14:30:09+00:00"
+    }
   ]
+}
+```
+
+#### `GET /api/v1/sessions/{id}/turns/{turnId}/events`
+
+Get the replayable stored SSE event history for a turn without fetching the nested message payload. This is useful when the client wants to reconstruct live progress UI from historical runs but already has the turn summary and does not need message records.
+
+**Response `200`**
+
+```json
+{
+  "session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+  "turn_id": "t1a2b3c4d5e6f7g8h9i0j1k2l3m4n5o6",
+  "events": [
+    {
+      "id": 1,
+      "event_type": "review_start",
+      "data": {
+        "round": 1,
+        "max_rounds": 2,
+        "depth": 0
+      },
+      "created_at": "2026-02-16T14:30:06+00:00"
+    },
+    {
+      "id": 2,
+      "event_type": "title",
+      "data": {
+        "title": "Refactor auth flow"
+      },
+      "created_at": "2026-02-16T14:30:10+00:00"
+    }
+  ],
+  "count": 2
 }
 ```
 
@@ -1042,6 +1414,11 @@ Returns all roles with full metadata. The response merges three layers:
 2. **Config roles** — defined in `openclaw.json` under `agents.defaults.roles`.
 3. **Custom roles** — user-created role files in `roles/`.
 
+Supports two optional picker-oriented query parameters:
+
+- `profile={name}` resolves models and role overrides for a specific profile and filters out roles disallowed by that profile's `preferences.json` role policy.
+- `selectable=true` excludes template-only roles such as internal utility roles.
+
 **Response `200`**
 
 ```json
@@ -1068,13 +1445,23 @@ Returns all roles with full metadata. The response merges three layers:
       "editable": true
     }
   ],
-  "count": 2
+  "count": 2,
+  "profile": null,
+  "selectable_only": false
 }
 ```
+
+#### `GET /api/v1/roles`
+
+App-facing alias for `GET /api/v1/config/roles`.
+
+Unlike the config route, this alias defaults to `selectable=true` so picker UIs get switchable roles by default.
 
 #### `GET /api/v1/config/roles/{name}`
 
 Get a single role with full details. System roles return metadata without instructions. Custom roles include the full instruction text.
+
+Supports `?profile={name}` to resolve profile-specific role overrides and effective models.
 
 **Response `200`** (custom role):
 
@@ -1089,9 +1476,16 @@ Get a single role with full details. System roles return metadata without instru
   "is_system": false,
   "editable": true,
   "model": "openai/gpt-5",
-  "instructions": "You are a coding specialist..."
+  "instructions": "You are a coding specialist...",
+  "profile": null,
+  "profile_override": false,
+  "selectable": true
 }
 ```
+
+#### `GET /api/v1/roles/{name}`
+
+App-facing alias for `GET /api/v1/config/roles/{name}`.
 
 **Response `404`**
 
@@ -1116,12 +1510,28 @@ Lists discovered profiles so clients can offer a profile picker instead of manua
     {
       "name": "caelum",
       "display_name": "Caelum",
-      "description": "A calm companion."
+      "description": "A calm companion.",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "is_default": true,
+      "allowed_roles": ["analyst", "orchestrator"],
+      "role_restrictions": {
+        "allow": ["orchestrator", "analyst"],
+        "deny": []
+      },
+      "has_role_restrictions": true
     },
     {
       "name": "trinity",
       "display_name": "Trinity",
-      "description": "A precise hacker and guide."
+      "description": "A precise hacker and guide.",
+      "model": null,
+      "is_default": false,
+      "allowed_roles": ["analyst", "orchestrator"],
+      "role_restrictions": {
+        "allow": [],
+        "deny": []
+      },
+      "has_role_restrictions": false
     }
   ],
   "count": 2,
@@ -1129,9 +1539,70 @@ Lists discovered profiles so clients can offer a profile picker instead of manua
 }
 ```
 
+#### `GET /api/v1/config/profiles/{name}`
+
+Return a single profile record with picker-friendly policy details.
+
+**Response `200`**
+
+```json
+{
+  "name": "caelum",
+  "display_name": "Caelum",
+  "description": "A calm companion.",
+  "model": "anthropic/claude-sonnet-4-20250514",
+  "is_default": true,
+  "allowed_roles": ["analyst", "orchestrator"],
+  "role_restrictions": {
+    "allow": ["orchestrator", "analyst"],
+    "deny": []
+  },
+  "has_role_restrictions": true,
+  "preferences": {
+    "is_valid": true,
+    "validation_errors": [],
+    "features": {
+      "artifacts": true,
+      "projects": true,
+      "loops": true,
+      "todos": true,
+      "background_tasks": true
+    },
+    "prompt_sections": {
+      "soul": true,
+      "backstory": true,
+      "base": true,
+      "memory": true,
+      "preferences": true,
+      "tools": true,
+      "security": true,
+      "done": true,
+      "deferred_toolkits": true,
+      "project_context": true
+    },
+    "roles": {
+      "allow": ["orchestrator", "analyst"],
+      "deny": []
+    },
+    "labels": []
+  },
+  "soul": "# Caelum\n\nA calm companion."
+}
+```
+
+**Response `404`** — profile not found.
+
+#### `GET /api/v1/profiles`
+
+App-facing alias for `GET /api/v1/config/profiles`.
+
+#### `GET /api/v1/profiles/{name}`
+
+App-facing alias for `GET /api/v1/config/profiles/{name}`.
+
 #### `GET /api/v1/config/models`
 
-Lists all available models from all configured providers.
+Lists all configured models with resolved metadata. Results are enriched from saved model metadata and Coqui's shared fallback resolver.
 
 **Response `200`**
 
@@ -1143,14 +1614,28 @@ Lists all available models from all configured providers.
       "id": "openai/gpt-5",
       "name": "gpt-5",
       "reasoning": false,
-      "input": ["text"]
+      "input": ["text"],
+      "contextWindow": 272000,
+      "maxTokens": 8192,
+      "family": "gpt",
+      "toolCalls": true,
+      "vision": false,
+      "thinking": false,
+      "metadataSource": "provider-api"
     },
     {
       "provider": "anthropic",
       "id": "anthropic/claude-sonnet-4-20250514",
       "name": "claude-sonnet-4-20250514",
       "reasoning": true,
-      "input": ["text"]
+      "input": ["text"],
+      "contextWindow": 200000,
+      "maxTokens": 16000,
+      "family": "claude",
+      "toolCalls": true,
+      "vision": false,
+      "thinking": false,
+      "metadataSource": "provider-api"
     }
   ],
   "count": 2,
@@ -1386,9 +1871,81 @@ List projects, optionally filtered by status.
 | `status` | string | `null` | Filter by `active`, `completed`, or `archived` |
 | `limit` | int | `50` | Max projects to return (capped at 200) |
 
+#### `POST /api/v1/projects`
+
+Create a new project.
+
+**Request Body**
+
+```json
+{
+  "title": "Career Ops",
+  "slug": "career-ops",
+  "description": "Career workflow system"
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "project": {
+    "id": "proj_123",
+    "title": "Career Ops",
+    "slug": "career-ops",
+    "status": "active"
+  }
+}
+```
+
 #### `GET /api/v1/projects/{idOrSlug}`
 
 Get a project by ID or slug. The response includes summary sprint counts and the currently active sprint, if any.
+
+#### `PATCH /api/v1/projects/{idOrSlug}`
+
+Update project fields.
+
+Supported fields:
+
+- `title`
+- `description`
+- `status`
+
+**Response `200`**
+
+Returns the same detail payload as `GET /api/v1/projects/{idOrSlug}`.
+
+#### `DELETE /api/v1/projects/{idOrSlug}`
+
+Permanently delete an archived project.
+
+Projects must be archived before deletion. Deletion clears any session `active_project_id` references pointing at that project.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "id": "proj_123"
+}
+```
+
+#### `POST /api/v1/projects/{idOrSlug}/archive`
+
+Archive a project.
+
+**Response `200`**
+
+Returns the same detail payload as `GET /api/v1/projects/{idOrSlug}` with `project.status = "archived"`.
+
+#### `POST /api/v1/projects/{idOrSlug}/activate`
+
+Activate a project.
+
+**Response `200`**
+
+Returns the same detail payload as `GET /api/v1/projects/{idOrSlug}` with `project.status = "active"`.
 
 #### `GET /api/v1/projects/{idOrSlug}/sprints`
 
@@ -1400,9 +1957,97 @@ List sprints for one project.
 |-------|------|---------|-------------|
 | `status` | string | `null` | Optional sprint status filter |
 
+#### `POST /api/v1/projects/{idOrSlug}/sprints`
+
+Create a sprint inside a project.
+
+**Request Body**
+
+```json
+{
+  "title": "MVP Sprint",
+  "acceptance_criteria": "Core app shell is navigable.",
+  "contract_artifact_id": "artifact_contract_123",
+  "max_review_rounds": 4
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "sprint": {
+    "id": "spr_123",
+    "project_id": "proj_123",
+    "title": "MVP Sprint",
+    "status": "planned",
+    "max_review_rounds": 4
+  },
+  "project": {
+    "id": "proj_123",
+    "slug": "career-ops"
+  }
+}
+```
+
 #### `GET /api/v1/sprints/{id}`
 
 Get a sprint by ID, including its parent project summary.
+
+#### `PATCH /api/v1/sprints/{id}`
+
+Update editable sprint fields.
+
+Supported fields:
+
+- `title`
+- `acceptance_criteria`
+- `contract_artifact_id`
+- `last_session_id`
+- `max_review_rounds`
+
+**Response `200`**
+
+Returns the same detail payload as `GET /api/v1/sprints/{id}`.
+
+#### `DELETE /api/v1/sprints/{id}`
+
+Delete a sprint while it is still in the `planned` state.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "id": "spr_123"
+}
+```
+
+#### `POST /api/v1/sprints/{id}/start`
+
+Transition a sprint from `planned` to `in_progress`.
+
+#### `POST /api/v1/sprints/{id}/submit-review`
+
+Transition a sprint from `in_progress` to `review`.
+
+#### `POST /api/v1/sprints/{id}/complete`
+
+Transition a sprint from `review` to `complete`.
+
+#### `POST /api/v1/sprints/{id}/reject`
+
+Transition a sprint from `review` to `rejected`.
+
+Optional request body:
+
+```json
+{
+  "reviewer_notes": "Needs stronger acceptance coverage."
+}
+```
+
+All sprint action routes return the same detail payload as `GET /api/v1/sprints/{id}`.
 
 ### Background Tasks
 
@@ -1441,6 +2086,8 @@ Create a new background task. The task is started immediately if under the concu
 | `max_iterations` | int | No | `25` | Maximum agent iterations (1–100) |
 | `project_id` | string | No | `null` | Attach the task to an existing project |
 | `sprint_id` | string | No | `null` | Attach the task to an existing sprint. When provided, the sprint must exist and belong to the specified project if `project_id` is also set. |
+
+When `parent_session_id` is provided, it must refer to a writable session. Closed or archived parent sessions return `409 session_closed`.
 
 **Response `201`**
 
@@ -1711,7 +2358,7 @@ List todos for a session with optional filters.
 
 #### `POST /api/v1/sessions/{id}/todos`
 
-Create a single todo.
+Create a single session-scoped todo.
 
 **Request Body**
 
@@ -1721,24 +2368,37 @@ Create a single todo.
   "priority": "high",
   "artifact_id": "abc123",
   "parent_id": null,
-  "notes": "See auth spec"
+  "sprint_id": "sprint_123",
+  "notes": "See auth spec",
+  "sort_order": 3
 }
 ```
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `title` | string | Yes | — | Task description (max 200 chars) |
+| `title` | string | Yes | — | Task description |
 | `priority` | string | No | `"medium"` | `high`, `medium`, or `low` |
 | `artifact_id` | string | No | `null` | Link to an artifact |
 | `parent_id` | string | No | `null` | Parent todo ID (for subtasks) |
+| `sprint_id` | string | No | `null` | Link the todo to a sprint |
 | `notes` | string | No | `null` | Additional context |
+| `sort_order` | integer | No | auto | Override the default sort order |
 
 **Response `201`**
 
 ```json
 {
   "id": "a1b2c3d4",
-  "title": "Implement authentication module"
+  "session_id": "s1a2b3c4",
+  "title": "Implement authentication module",
+  "status": "pending",
+  "priority": "high",
+  "artifact_id": "abc123",
+  "parent_id": null,
+  "sprint_id": "sprint_123",
+  "notes": "See auth spec",
+  "sort_order": 3,
+  "subtasks": []
 }
 ```
 
@@ -1747,49 +2407,6 @@ Create a single todo.
 ```json
 {
   "error": "Title is required",
-  "code": "validation_error"
-}
-```
-
-#### `POST /api/v1/sessions/{id}/todos/bulk`
-
-Create multiple todos in a single request. Max 25 items per call.
-
-**Request Body**
-
-```json
-{
-  "items": [
-    {"title": "Step 1: Design schema", "priority": "high", "notes": "See RFC"},
-    {"title": "Step 2: Implement store", "priority": "medium"},
-    {"title": "Step 3: Add API endpoints", "priority": "medium"}
-  ],
-  "artifact_id": "plan-abc123"
-}
-```
-
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `items` | array | Yes | — | Array of todo objects (max 25) |
-| `items[].title` | string | Yes | — | Task description (max 200 chars) |
-| `items[].priority` | string | No | `"medium"` | `high`, `medium`, or `low` |
-| `items[].notes` | string | No | `null` | Additional context |
-| `artifact_id` | string | No | `null` | Link all created todos to this artifact |
-
-**Response `201`**
-
-```json
-{
-  "ids": ["a1b2c3d4", "e5f6g7h8", "i9j0k1l2"],
-  "count": 3
-}
-```
-
-**Response `400`** — too many items:
-
-```json
-{
-  "error": "Maximum 25 items per bulk create",
   "code": "validation_error"
 }
 ```
@@ -1818,13 +2435,11 @@ Get a specific todo with its subtasks.
 
 ```json
 {
-  "todo": {
-    "id": "a1b2c3d4",
-    "title": "Implement authentication module",
-    "status": "in_progress",
-    "priority": "high",
-    "subtasks": []
-  }
+  "id": "a1b2c3d4",
+  "title": "Implement authentication module",
+  "status": "in_progress",
+  "priority": "high",
+  "subtasks": []
 }
 ```
 
@@ -1853,16 +2468,23 @@ Update a todo's fields.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `title` | string | No | New title (max 200 chars) |
+| `title` | string | No | New title |
 | `status` | string | No | `pending`, `in_progress`, `completed`, `cancelled` |
 | `priority` | string | No | `high`, `medium`, `low` |
 | `notes` | string | No | Updated notes |
+| `artifact_id` | string or `null` | No | Relink or clear the linked artifact |
+| `parent_id` | string or `null` | No | Relink or clear the parent todo |
+| `sprint_id` | string or `null` | No | Relink or clear the sprint |
+| `sort_order` | integer | No | Override the current sort order |
 
 **Response `200`**
 
 ```json
 {
-  "updated": true
+  "id": "a1b2c3d4",
+  "status": "in_progress",
+  "priority": "high",
+  "subtasks": []
 }
 ```
 
@@ -1887,8 +2509,8 @@ Update multiple todos in a single request. Max 25 items per call.
 | `updates[].id` | string | Yes | Todo ID to update |
 | `updates[].status` | string | No | New status |
 | `updates[].priority` | string | No | New priority |
-| `updates[].title` | string | No | New title (max 200 chars) |
-| `updates[].notes` | string | No | Updated notes |
+| `updates[].title` | string | No | New title |
+| `updates[].notes` | string or `null` | No | Updated notes |
 
 **Response `200`**
 
@@ -1898,15 +2520,68 @@ Update multiple todos in a single request. Max 25 items per call.
 }
 ```
 
-#### `POST /api/v1/sessions/{id}/todos/{todoId}/complete`
+#### `POST /api/v1/sessions/{id}/todos/reorder`
 
-Mark a todo as completed.
+Set explicit sort orders for multiple todos.
+
+**Request Body**
+
+```json
+{
+  "ordering": [
+    {"id": "a1b2c3d4", "sort_order": 1},
+    {"id": "e5f6g7h8", "sort_order": 2}
+  ]
+}
+```
 
 **Response `200`**
 
 ```json
 {
-  "completed": true
+  "reordered_count": 2
+}
+```
+
+#### `POST /api/v1/sessions/{id}/todos/{todoId}/complete`
+
+Mark a todo as completed. Optional request fields: `completed_by`, `notes`.
+
+**Response `200`**
+
+```json
+{
+  "id": "a1b2c3d4",
+  "status": "completed",
+  "subtasks": []
+}
+```
+
+#### `POST /api/v1/sessions/{id}/todos/{todoId}/reopen`
+
+Reopen a completed or cancelled todo back to `pending`.
+
+**Response `200`**
+
+```json
+{
+  "id": "a1b2c3d4",
+  "status": "pending",
+  "subtasks": []
+}
+```
+
+#### `POST /api/v1/sessions/{id}/todos/{todoId}/cancel`
+
+Cancel a pending or in-progress todo.
+
+**Response `200`**
+
+```json
+{
+  "id": "a1b2c3d4",
+  "status": "cancelled",
+  "subtasks": []
 }
 ```
 
@@ -1918,7 +2593,8 @@ Delete a todo and all its subtasks.
 
 ```json
 {
-  "deleted": true
+  "deleted": true,
+  "id": "a1b2c3d4"
 }
 ```
 
@@ -1926,7 +2602,46 @@ Delete a todo and all its subtasks.
 
 Artifacts are versioned content objects scoped to a session. They support a lifecycle (`draft` → `review` → `final`) and are used for structured planning, code generation, and handoff between roles.
 
-The HTTP API currently exposes artifacts as read-only inspection resources. Artifact creation and mutation happen through the REPL or agent tools.
+Session-scoped artifact creation and mutation are available through the HTTP API. Closed or archived sessions still reject artifact writes with `409 session_closed`.
+
+#### `POST /api/v1/sessions/{id}/artifacts`
+
+Create a new artifact in a session.
+
+**Request Body**
+
+```json
+{
+  "title": "Database migration plan",
+  "content": "## Steps\n1. ...",
+  "type": "plan",
+  "stage": "draft",
+  "language": "markdown",
+  "project_id": "proj_123",
+  "sprint_id": "sprint_123",
+  "tags": ["database", "migration"],
+  "summary": "Initial migration rollout plan"
+}
+```
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `title` | string | Yes | — | Artifact title |
+| `content` | string | Yes | — | Initial artifact content |
+| `type` | string | No | `"code"` | Artifact category |
+| `stage` | string | No | `"draft"` | `draft`, `review`, or `final` |
+| `language` | string | No | `null` | Optional language or format hint |
+| `filepath` | string | No | `null` | Optional workspace path |
+| `metadata` | object | No | `{}` | Base metadata object |
+| `tags` | array | No | — | Convenience shorthand for `metadata.tags` |
+| `summary` | string | No | — | Convenience shorthand for `metadata.summary` |
+| `project_id` | string | No | `null` | Link the artifact to a project |
+| `sprint_id` | string | No | `null` | Link the artifact to a sprint |
+| `persistent` | boolean | No | `false` | Keep the artifact outside normal session cleanup |
+
+**Response `201`**
+
+Returns the full current artifact object.
 
 #### `GET /api/v1/sessions/{id}/artifacts`
 
@@ -1952,6 +2667,7 @@ List artifacts for a session with optional filters.
       "stage": "draft",
       "language": null,
       "filepath": null,
+      "metadata": null,
       "version": 1,
       "created_by": "plan",
       "created_at": "2026-02-16T14:30:00Z",
@@ -1979,6 +2695,29 @@ Returns the full artifact object including content.
 }
 ```
 
+#### `PATCH /api/v1/sessions/{id}/artifacts/{artifactId}`
+
+Patch artifact metadata, stage, links, or content.
+
+If `content` is included, the patch creates a new artifact version. Without `content`, metadata-only changes stay on the current version row.
+
+**Request Body**
+
+```json
+{
+  "title": "Database migration plan v2",
+  "content": "## Updated Steps\n1. ...",
+  "change_summary": "Added rollback notes",
+  "stage": "review",
+  "tags": ["database", "migration", "rollback"],
+  "summary": "Expanded rollout plan"
+}
+```
+
+**Response `200`**
+
+Returns the full current artifact object.
+
 #### `GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions`
 
 List all versions of an artifact.
@@ -1990,6 +2729,7 @@ List all versions of an artifact.
   "artifact_id": "art_1a2b3c4d",
   "versions": [
     {
+      "id": "ver_123",
       "version": 1,
       "content": "## Steps\n1. ...",
       "change_summary": "Initial version",
@@ -2005,6 +2745,46 @@ List all versions of an artifact.
     }
   ],
   "count": 2
+}
+```
+
+#### `POST /api/v1/sessions/{id}/artifacts/{artifactId}/versions`
+
+Create a new artifact version directly.
+
+**Request Body**
+
+```json
+{
+  "content": "## Updated Steps\n1. ...",
+  "change_summary": "Added rollback notes",
+  "title": "Database migration plan v2",
+  "stage": "review"
+}
+```
+
+**Response `200`**
+
+Returns the full current artifact object.
+
+#### `POST /api/v1/sessions/{id}/artifacts/{artifactId}/versions/{versionId}/restore`
+
+Restore an older artifact version by version row id.
+
+**Response `200`**
+
+Returns the full current artifact object with a newly created version containing the restored content.
+
+#### `DELETE /api/v1/sessions/{id}/artifacts/{artifactId}`
+
+Delete an artifact and its version history.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "id": "art_1a2b3c4d"
 }
 ```
 
@@ -2098,11 +2878,95 @@ List all schedules with optional filters.
 }
 ```
 
+#### `GET /api/v1/schedules/upcoming`
+
+List enabled schedules that are due within a bounded window.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `hours` | integer | Look-ahead window in hours. Defaults to `24`, max `720`. |
+
+**Response `200`**
+
+```json
+{
+  "schedules": [
+    {
+      "id": "a1b2c3d4",
+      "name": "daily-review",
+      "next_run_at": "2026-02-17T09:00:00Z",
+      "enabled": 1
+    }
+  ],
+  "count": 1,
+  "hours": 24
+}
+```
+
+#### `GET /api/v1/schedules/stats`
+
+Return aggregate schedule counts without fetching the full schedule list.
+
+**Response `200`**
+
+```json
+{
+  "total": 3,
+  "enabled": 2,
+  "disabled": 1,
+  "total_runs": 42
+}
+```
+
 #### `GET /api/v1/schedules/{id}`
 
 Get a schedule by ID.
 
 **Response `200`** — full schedule object.
+
+**Response `404`** — schedule not found.
+
+#### `GET /api/v1/schedules/{id}/runs`
+
+List recent background task runs triggered by a schedule.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `limit` | integer | Maximum runs to return. Defaults to `20`, max `100`. |
+
+**Response `200`**
+
+```json
+{
+  "schedule": {
+    "id": "a1b2c3d4",
+    "name": "daily-review"
+  },
+  "runs": [
+    {
+      "id": "task_123",
+      "session_id": "sess_123",
+      "status": "completed",
+      "title": "Weekday review",
+      "result": "Review complete",
+      "error": null,
+      "metadata": {
+        "source": "schedule"
+      },
+      "created_at": "2026-02-17T09:00:00Z",
+      "completed_at": "2026-02-17T09:01:00Z"
+    }
+  ],
+  "count": 1,
+  "counts": {
+    "completed": 1
+  }
+}
+```
 
 **Response `404`** — schedule not found.
 
@@ -2172,6 +3036,8 @@ Loop stage advancement only happens while the API server is running. `LoopManage
 Create and start a loop.
 
 Use `session_id` when the loop should inherit the session's active project and downstream profile context. Use `project_id` or `project_slug` to pin the loop to a project directly. Use `sprint_id` to bind the first iteration to an existing sprint; when only `sprint_id` is supplied, the loop inherits that sprint's project automatically.
+
+When `session_id` is provided, it must refer to a writable session. Closed or archived sessions return `409 session_closed`.
 
 **Request Body**
 
@@ -2253,7 +3119,20 @@ List all loops with optional status filter.
       "updated_at": "2026-02-16T14:30:00Z"
     }
   ],
-  "count": 1
+  "count": 1,
+  "active": 1
+}
+```
+
+#### `GET /api/v1/loops/active/count`
+
+Return the number of currently running loops.
+
+**Response `200`**
+
+```json
+{
+  "active": 1
 }
 ```
 
@@ -2300,6 +3179,91 @@ List available loop definitions.
   "count": 1
 }
 ```
+
+#### `GET /api/v1/loops/{id}/history`
+
+Get the full iteration timeline for a loop, including stage-level results.
+
+**Response `200`**
+
+```json
+{
+  "loop": {
+    "id": "abc123",
+    "status": "completed"
+  },
+  "history": [
+    {
+      "id": "iter123",
+      "iteration_number": 1,
+      "status": "needs_rework",
+      "duration_seconds": 120,
+      "stage_count": 2,
+      "completed_stage_count": 1,
+      "stages": [
+        {
+          "id": "stage123",
+          "role": "plan",
+          "status": "completed"
+        },
+        {
+          "id": "stage124",
+          "role": "reviewer",
+          "status": "failed"
+        }
+      ]
+    }
+  ],
+  "count": 1
+}
+```
+
+**Response `404`** — loop not found.
+
+#### `GET /api/v1/loops/{id}/metrics`
+
+Return aggregate counts and timing summaries for a loop.
+
+**Response `200`**
+
+```json
+{
+  "loop_id": "abc123",
+  "status": "completed",
+  "current_iteration": 2,
+  "duration_seconds": 300,
+  "iterations": {
+    "total": 2,
+    "by_status": {
+      "needs_rework": 1,
+      "completed": 1
+    }
+  },
+  "stages": {
+    "total": 4,
+    "by_status": {
+      "completed": 3,
+      "failed": 1
+    },
+    "by_role": {
+      "plan": 2,
+      "reviewer": 2
+    }
+  },
+  "timings": {
+    "total_iteration_seconds": 240,
+    "average_iteration_seconds": 120,
+    "iteration_timings": [
+      {
+        "iteration_number": 1,
+        "duration_seconds": 120
+      }
+    ]
+  }
+}
+```
+
+**Response `404`** — loop not found.
 
 #### `GET /api/v1/loops/{id}`
 
@@ -2348,6 +3312,61 @@ Get detailed loop status including current iteration and stage information.
 }
 ```
 
+#### `PATCH /api/v1/loops/{id}`
+
+Update operator-editable loop fields without redefining the loop configuration.
+
+Supported fields:
+
+- `goal`
+- `max_iterations`
+- `metadata`
+- `labels` (stored under `metadata.labels`)
+
+`max_iterations` may be set to `null` to clear the override. Active loops can be edited, but `max_iterations` cannot be lowered below the current iteration number.
+
+**Request Body**
+
+```json
+{
+  "goal": "Ship loop edit and delete support",
+  "max_iterations": 4,
+  "metadata": {
+    "dispatch": {
+      "operator_note": "Keep the patch scope narrow."
+    }
+  },
+  "labels": ["backend", "app-api"]
+}
+```
+
+**Response `200`**
+
+Returns the same normalized loop state payload as `GET /api/v1/loops/{id}`.
+
+**Response `409`**
+
+Returned when `max_iterations` is lower than the loop's current iteration.
+
+#### `DELETE /api/v1/loops/{id}`
+
+Delete a terminal loop and all of its iterations and stages.
+
+Running and paused loops cannot be deleted.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "id": "abc123"
+}
+```
+
+**Response `409`**
+
+Returned when the loop is still `running` or `paused`.
+
 #### `POST /api/v1/loops/{id}/pause`
 
 Pause a running loop.
@@ -2392,6 +3411,25 @@ Cancel a running or paused loop.
 ```
 
 **Response `409`** — loop is already terminal.
+
+#### `POST /api/v1/loops/{id}/skip-stage`
+
+Skip the first non-completed stage on the current iteration and reopen the loop so the manager can continue from the next pending stage.
+
+This is an operator recovery action for loops that are no longer actively running. Running stages cannot be skipped because there is still work in flight.
+
+**Response `200`**
+
+Returns the same normalized loop state payload as `GET /api/v1/loops/{id}`.
+
+**Response `409`**
+
+Returned when:
+
+- the loop is still `running`
+- there is no current iteration to recover
+- there is no non-completed stage left to skip
+- the current actionable stage is already `running`
 
 #### `GET /api/v1/loops/{id}/iterations`
 
@@ -2442,6 +3480,124 @@ Get a specific iteration with all its stage details.
   "completed_at": "2026-02-16T14:15:00Z"
 }
 ```
+
+#### `POST /api/v1/loops/{id}/iterations/{iterationId}/retry`
+
+Reset the latest failed or needs-rework iteration back to a runnable state.
+
+This clears the iteration's stage execution records, restores the loop to `running`, and leaves dispatch metadata in a pending state so the loop manager can resume from stage `0` on the next tick.
+
+**Response `200`**
+
+Returns the same normalized loop state payload as `GET /api/v1/loops/{id}`.
+
+**Response `409`**
+
+Returned when:
+
+- the target iteration is not the latest iteration
+- the loop is still `running`
+- the iteration is not in `failed` or `needs_rework`
+
+### Channels
+
+Channels provide first-class outbound user communication surfaces such as Signal, Telegram, and Discord. The API server owns live channel runtimes; the REPL can edit config and inspect stored state, but only the API server performs runtime reconciliation and transport work.
+
+#### `GET /api/v1/channels`
+
+List configured channel instances with joined runtime health.
+
+**Query Parameters**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `enabled` | bool | `null` | Filter to enabled or disabled instances |
+| `driver` | string | `null` | Filter by driver name |
+
+#### `POST /api/v1/channels`
+
+Create a channel instance and reconcile it into the running API process immediately.
+
+**Request Body**
+
+```json
+{
+  "name": "signal-primary",
+  "driver": "signal",
+  "displayName": "Signal Primary",
+  "defaultProfile": "caelum",
+  "settings": {
+    "transport": "signal-cli"
+  }
+}
+```
+
+Supported fields: `name`, `driver`, `enabled`, `displayName`, `defaultProfile`, `settings`, `allowedScopes`, and `security`.
+
+#### `GET /api/v1/channels/drivers`
+
+List registered built-in and external channel drivers with capability metadata.
+
+#### `GET /api/v1/channels/{id}`
+
+Get one channel instance by id or name.
+
+#### `PATCH /api/v1/channels/{id}`
+
+Update any mutable channel fields from the create payload.
+
+#### `DELETE /api/v1/channels/{id}`
+
+Remove a configured channel instance and stop its runtime on the running API server.
+
+#### `POST /api/v1/channels/{id}/enable`
+
+Enable a channel instance and reconcile it immediately.
+
+#### `POST /api/v1/channels/{id}/disable`
+
+Disable a channel instance and stop its runtime immediately.
+
+#### `POST /api/v1/channels/{id}/test`
+
+Force a reconcile/tick cycle and return the refreshed channel row.
+
+#### `GET /api/v1/channels/{id}/health`
+
+Return the stored runtime health snapshot for one channel.
+
+#### `GET /api/v1/channels/{id}/links`
+
+List channel identity links.
+
+#### `POST /api/v1/channels/{id}/links`
+
+Create a channel identity link.
+
+**Request Body**
+
+```json
+{
+  "remote_user_key": "signal:+15551234567",
+  "profile": "caelum"
+}
+```
+
+#### `DELETE /api/v1/channels/{id}/links/{linkId}`
+
+Delete a channel identity link.
+
+#### `GET /api/v1/channels/{id}/conversations`
+
+List stored channel conversation records for one instance.
+
+#### `GET /api/v1/channels/{id}/events`
+
+List stored inbound event records for one instance.
+
+#### `GET /api/v1/channels/{id}/deliveries`
+
+List stored delivery records for one instance.
 
 ### Webhooks
 
@@ -2613,7 +3769,7 @@ List recent delivery logs for a webhook.
       "event_type": "push",
       "payload_summary": "{\"ref\": \"refs/heads/main\", ...}",
       "task_id": "t1a2b3c4",
-      "status": "accepted",
+      "status": "delivered",
       "source_ip": "140.82.115.1",
       "created_at": "2026-02-16T14:30:00Z"
     }
@@ -2621,7 +3777,71 @@ List recent delivery logs for a webhook.
 }
 ```
 
-Delivery statuses: `accepted`, `rejected_disabled`, `rejected_signature`, `rejected_event`, `rejected_empty`, `rejected_too_large`.
+Delivery statuses currently include `delivered`, `test_delivered`, `filtered`, `rejected_disabled`, `rejected_signature`, `rejected_empty`, and `rejected_too_large`.
+
+#### `GET /api/v1/webhooks/{id}/deliveries/{deliveryId}`
+
+Fetch one delivery log entry for a webhook. If the delivery spawned a background task, the linked task record is included alongside the delivery metadata.
+
+**Response `200`**
+
+```json
+{
+  "delivery": {
+    "id": "d1a2b3c4",
+    "webhook_id": "w1a2b3c4",
+    "event_type": "push",
+    "task_id": "t1a2b3c4",
+    "status": "delivered"
+  },
+  "task": {
+    "id": "t1a2b3c4",
+    "status": "pending",
+    "role": "orchestrator"
+  }
+}
+```
+
+**Response `404`** — webhook or delivery not found.
+
+#### `POST /api/v1/webhooks/{id}/test`
+
+Create a synthetic delivery for a webhook using the real prompt-rendering and background-task dispatch path.
+
+This endpoint is useful for validating prompt templates, routing, and profile assignment without waiting for an external service to send a live event. Test deliveries are logged with `status: test_delivered` and do not increment the webhook trigger counters.
+
+**Request Body**
+
+```json
+{
+  "event_type": "pull_request",
+  "payload": {
+    "repository": {
+      "full_name": "carmelo/coqui"
+    },
+    "sender": {
+      "login": "carmelo"
+    }
+  }
+}
+```
+
+Both fields are optional. When omitted, `event_type` defaults to `test` and a minimal synthetic payload is generated automatically.
+
+**Response `200`**
+
+```json
+{
+  "status": "accepted",
+  "delivery_id": "d1a2b3c4",
+  "task_id": "t1a2b3c4",
+  "session_id": "s1a2b3c4",
+  "event_type": "pull_request",
+  "prompt_preview": "Handle pull_request from carmelo/coqui"
+}
+```
+
+**Response `404`** — webhook not found.
 
 ## Toolkit Management
 
@@ -2758,11 +3978,20 @@ Set the visibility of a package or an individual tool.
 
 Return the fully constructed system prompt that the agent would receive on its next turn, together with tool and toolkit counts plus prompt-source metadata. Useful for debugging context size, inspecting which files are contributing to the prompt, and tracking which folders are consuming the prompt budget.
 
+**Query Parameters**
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `role` | string | `orchestrator` | Role scope to resolve before rendering the prompt preview |
+| `profile` | string | `null` | Optional profile scope to apply while rendering the prompt preview |
+
 **Response `200`**
 
 ```json
 {
   "profile": "caelum",
+  "role": "orchestrator",
+  "resolved_model": "ollama/qwen3:latest",
   "prompt": "You are Coqui, an autonomous AI agent...\n\n## Available Tools\n...",
   "tool_count": 42,
   "toolkit_count": 7,
@@ -2834,6 +4063,8 @@ Return the fully constructed system prompt that the agent would receive on its n
 | Field | Type | Description |
 |-------|------|-------------|
 | `profile` | string\|null | Explicit profile scope used to render the prompt preview |
+| `role` | string | Effective role used to render the prompt preview |
+| `resolved_model` | string\|null | Exact resolved model string for the requested `role` + `profile` scope |
 | `prompt` | string | Full rendered system prompt text |
 | `tool_count` | int | Number of tools currently in the agent's context (enabled + stub) |
 | `toolkit_count` | int | Number of toolkit packages contributing tools |
@@ -2843,6 +4074,51 @@ Return the fully constructed system prompt that the agent would receive on its n
 | `toolkit_breakdown` | array | Per-toolkit token breakdown with guidelines and tool schema counts |
 | `budget` | object | Full prompt budget snapshot, including prompt sections and loading decisions |
 | `prompt_sources` | object | File, folder, and synthetic-source breakdown for prompt token usage |
+
+#### `GET /api/v1/server/commands`
+
+Return the runtime slash-command catalog that powers REPL help output. This is the HTTP equivalent of `/help` for clients that want to expose command discovery or contextual help without scraping documentation.
+
+**Response `200`**
+
+```json
+{
+  "sections": [
+    {
+      "name": "Context & Inspection",
+      "commands": [
+        {
+          "name": "/prompt",
+          "usage": "/prompt [export]",
+          "description": "Show the rendered system prompt, source breakdowns, or export it to the workspace.",
+          "help_description": "Show the rendered system prompt, source breakdowns, or export it to the workspace.",
+          "aliases": [],
+          "first_arguments": ["export"],
+          "section": "Context & Inspection"
+        }
+      ]
+    }
+  ],
+  "commands": [
+    {
+      "name": "/help",
+      "usage": "/help",
+      "description": "Show the command reference.",
+      "help_description": "Show the command reference.",
+      "aliases": [],
+      "first_arguments": [],
+      "section": "System & Exit"
+    }
+  ],
+  "count": 31
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sections` | array | Commands grouped by the same help-section headings used in the REPL |
+| `commands` | array | Flat list of command metadata for search/filter UIs |
+| `count` | int | Total number of commands returned |
 
 #### `GET /api/v1/server/backstory`
 
@@ -3051,11 +4327,21 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/task-cancel <id>` | `POST /api/v1/tasks/{id}/cancel` | Cancels a running or pending task |
 | `/projects` | `GET /api/v1/projects` | Lists projects |
 | `/sprints` | `GET /api/v1/projects/{idOrSlug}/sprints` | Lists sprints for a project |
-| `/help` | `GET /api/v1/server/info` | Returns available commands and server capabilities |
+| `—` | `GET /api/v1/server/info` | Returns server runtime capabilities and status |
 | `/toolkits` | `GET /api/v1/toolkits` | Lists all toolkit packages and tools with visibility |
 | `/toolkits enable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to enabled |
 | `/toolkits stub <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to stub |
 | `/toolkits disable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to disabled |
+| `/channels` | `GET /api/v1/channels` | Lists channels with runtime state |
+| `/channels drivers` | `GET /api/v1/channels/drivers` | Lists registered channel drivers |
+| `/channels status <id>` | `GET /api/v1/channels/{id}` | Shows channel details |
+| `/channels health <id>` | `GET /api/v1/channels/{id}/health` | Shows channel health |
+| `/channels enable <id>` | `POST /api/v1/channels/{id}/enable` | Enables a channel instance |
+| `/channels disable <id>` | `POST /api/v1/channels/{id}/disable` | Disables a channel instance |
+| `/channels delete <id>` | `DELETE /api/v1/channels/{id}` | Deletes a channel instance |
+| `/channels links <id>` | `GET /api/v1/channels/{id}/links` | Lists identity links for a channel |
+| `/channels deliveries <id>` | `GET /api/v1/channels/{id}/deliveries` | Lists delivery records for a channel |
+| `/help` | `GET /api/v1/server/commands` | Returns the runtime slash-command catalog |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
 | `/backstory` | `GET /api/v1/server/backstory?profile=<name>` | Returns generated backstory content and source breakdowns |
 | `/budget` | `GET /api/v1/server/budget` | Returns prompt and toolkit budget info |
@@ -3065,6 +4351,8 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/loops pause <id>` | `POST /api/v1/loops/{id}/pause` | Pauses a running loop |
 | `/loops resume <id>` | `POST /api/v1/loops/{id}/resume` | Resumes a paused loop |
 | `/loops stop <id>` | `POST /api/v1/loops/{id}/stop` | Cancels a running or paused loop |
+| `/loops skip-stage <id>` | `POST /api/v1/loops/{id}/skip-stage` | Skips the current blocked stage and reopens the loop |
+| `/loops retry <id> <iterationId>` | `POST /api/v1/loops/{id}/iterations/{iterationId}/retry` | Retries the latest failed iteration |
 | `/schedules` | `GET /api/v1/schedules` | Lists schedules |
 | `/schedules status <id>` | `GET /api/v1/schedules/{id}` | Shows schedule details |
 | `/schedules enable <id>` | `POST /api/v1/schedules/{id}/enable` | Enables a mutable schedule |
@@ -3072,6 +4360,8 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/schedules trigger <id>` | `POST /api/v1/schedules/{id}/trigger` | Forces a mutable schedule to run on the next tick |
 | `/webhooks status <id>` | `GET /api/v1/webhooks/{id}` | Shows webhook details |
 | `/webhooks deliveries <id>` | `GET /api/v1/webhooks/{id}/deliveries` | Shows recent delivery logs |
+| `/webhooks delivery <id> <deliveryId>` | `GET /api/v1/webhooks/{id}/deliveries/{deliveryId}` | Shows one delivery log with linked task details |
+| `/webhooks test <id>` | `POST /api/v1/webhooks/{id}/test` | Dispatches a synthetic webhook delivery |
 | `/webhooks enable <id>` | `PUT /api/v1/webhooks/{id}` | Enables a webhook subscription |
 | `/webhooks disable <id>` | `PUT /api/v1/webhooks/{id}` | Disables a webhook subscription |
 | `/webhooks delete <id>` | `DELETE /api/v1/webhooks/{id}` | Deletes a webhook subscription |
@@ -3087,7 +4377,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/sessions` | Yes | List sessions |
 | `POST` | `/api/v1/sessions` | Yes | Create session |
 | `GET` | `/api/v1/sessions/{id}` | Yes | Get session |
-| `PATCH` | `/api/v1/sessions/{id}` | Yes | Update session (title) |
+| `PATCH` | `/api/v1/sessions/{id}` | Yes | Update session metadata |
 | `DELETE` | `/api/v1/sessions/{id}` | Yes | Delete session |
 | `GET` | `/api/v1/sessions/{id}/project` | Yes | Get the session active project |
 | `PATCH` | `/api/v1/sessions/{id}/project` | Yes | Set or clear the session active project |
@@ -3100,6 +4390,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `DELETE` | `/api/v1/sessions/{id}/files/{fileId}` | Yes | Delete a file |
 | `GET` | `/api/v1/sessions/{id}/turns` | Yes | List turns |
 | `GET` | `/api/v1/sessions/{id}/turns/{turnId}` | Yes | Get turn with messages |
+| `GET` | `/api/v1/sessions/{id}/turns/{turnId}/events` | Yes | List replayable turn events |
 | `GET` | `/api/v1/sessions/{id}/child-runs` | Yes | List child agent runs |
 | `GET` | `/api/v1/config` | Yes | Get config (sanitized) |
 | `POST` | `/api/v1/config/validate` | Yes | Validate a candidate config payload |
@@ -3113,6 +4404,22 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/tasks` | Yes | Create background task |
 | `GET` | `/api/v1/tasks` | Yes | List tasks |
 | `GET` | `/api/v1/tasks/{id}` | Yes | Get task detail |
+| `POST` | `/api/v1/projects` | Yes | Create project |
+| `GET` | `/api/v1/projects` | Yes | List projects |
+| `GET` | `/api/v1/projects/{idOrSlug}` | Yes | Get project detail |
+| `PATCH` | `/api/v1/projects/{idOrSlug}` | Yes | Update project |
+| `DELETE` | `/api/v1/projects/{idOrSlug}` | Yes | Delete archived project |
+| `POST` | `/api/v1/projects/{idOrSlug}/archive` | Yes | Archive project |
+| `POST` | `/api/v1/projects/{idOrSlug}/activate` | Yes | Activate project |
+| `GET` | `/api/v1/projects/{idOrSlug}/sprints` | Yes | List project sprints |
+| `POST` | `/api/v1/projects/{idOrSlug}/sprints` | Yes | Create sprint |
+| `GET` | `/api/v1/sprints/{id}` | Yes | Get sprint detail |
+| `PATCH` | `/api/v1/sprints/{id}` | Yes | Update sprint |
+| `DELETE` | `/api/v1/sprints/{id}` | Yes | Delete planned sprint |
+| `POST` | `/api/v1/sprints/{id}/start` | Yes | Start sprint |
+| `POST` | `/api/v1/sprints/{id}/submit-review` | Yes | Submit sprint for review |
+| `POST` | `/api/v1/sprints/{id}/complete` | Yes | Complete sprint |
+| `POST` | `/api/v1/sprints/{id}/reject` | Yes | Reject sprint |
 | `GET` | `/api/v1/tasks/{id}/events` | Yes | Stream task events (SSE) |
 | `POST` | `/api/v1/tasks/{id}/input` | Yes | Inject input into running task |
 | `POST` | `/api/v1/tasks/{id}/cancel` | Yes | Cancel a task |
@@ -3126,11 +4433,28 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/server/stats` | Yes | Database and server statistics |
 | `GET` | `/api/v1/server/quality` | Yes | Quality and health summary |
 | `GET` | `/api/v1/server/info` | Yes | Server capabilities and commands |
+| `GET` | `/api/v1/server/commands` | Yes | Get runtime slash-command metadata (`/help` equivalent) |
 | `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt |
 | `GET` | `/api/v1/server/backstory` | Yes | Get generated backstory content and manifest metadata |
 | `GET` | `/api/v1/server/budget` | Yes | Get prompt and toolkit budget state |
 | `GET` | `/api/v1/toolkits` | Yes | List toolkits and tools with visibility |
 | `POST` | `/api/v1/toolkits/visibility` | Yes | Set package or tool visibility |
+| `GET` | `/api/v1/channels` | Yes | List channels with runtime state |
+| `POST` | `/api/v1/channels` | Yes | Create a channel instance |
+| `GET` | `/api/v1/channels/drivers` | Yes | List registered channel drivers |
+| `GET` | `/api/v1/channels/{id}` | Yes | Get one channel instance |
+| `PATCH` | `/api/v1/channels/{id}` | Yes | Update a channel instance |
+| `DELETE` | `/api/v1/channels/{id}` | Yes | Delete a channel instance |
+| `POST` | `/api/v1/channels/{id}/enable` | Yes | Enable a channel instance |
+| `POST` | `/api/v1/channels/{id}/disable` | Yes | Disable a channel instance |
+| `POST` | `/api/v1/channels/{id}/test` | Yes | Reconcile and refresh a channel instance |
+| `GET` | `/api/v1/channels/{id}/health` | Yes | Get channel health |
+| `GET` | `/api/v1/channels/{id}/links` | Yes | List channel identity links |
+| `POST` | `/api/v1/channels/{id}/links` | Yes | Create a channel identity link |
+| `DELETE` | `/api/v1/channels/{id}/links/{linkId}` | Yes | Delete a channel identity link |
+| `GET` | `/api/v1/channels/{id}/conversations` | Yes | List stored channel conversations |
+| `GET` | `/api/v1/channels/{id}/events` | Yes | List stored inbound channel events |
+| `GET` | `/api/v1/channels/{id}/deliveries` | Yes | List stored channel deliveries |
 | `GET` | `/api/v1/schedules` | Yes | List schedules |
 | `GET` | `/api/v1/schedules/{id}` | Yes | Get schedule |
 | `POST` | `/api/v1/schedules` | Yes | Create schedule |
@@ -3143,11 +4467,15 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/loops` | Yes | List loops |
 | `GET` | `/api/v1/loops/definitions` | Yes | List loop definitions |
 | `GET` | `/api/v1/loops/{id}` | Yes | Get loop details |
+| `PATCH` | `/api/v1/loops/{id}` | Yes | Update editable loop fields |
+| `DELETE` | `/api/v1/loops/{id}` | Yes | Delete a terminal loop |
 | `POST` | `/api/v1/loops/{id}/pause` | Yes | Pause a running loop |
 | `POST` | `/api/v1/loops/{id}/resume` | Yes | Resume a paused loop |
 | `POST` | `/api/v1/loops/{id}/stop` | Yes | Cancel a running or paused loop |
+| `POST` | `/api/v1/loops/{id}/skip-stage` | Yes | Skip the current actionable non-running stage |
 | `GET` | `/api/v1/loops/{id}/iterations` | Yes | List loop iterations |
 | `GET` | `/api/v1/loops/{id}/iterations/{iterationId}` | Yes | Get iteration with stages |
+| `POST` | `/api/v1/loops/{id}/iterations/{iterationId}/retry` | Yes | Retry the latest failed iteration |
 | `POST` | `/api/v1/webhooks/incoming/{name}` | No* | Receive webhook (signature-verified) |
 | `GET` | `/api/v1/webhooks` | Yes | List webhook subscriptions |
 | `POST` | `/api/v1/webhooks` | Yes | Create webhook subscription |
@@ -3156,11 +4484,26 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `DELETE` | `/api/v1/webhooks/{id}` | Yes | Delete webhook |
 | `POST` | `/api/v1/webhooks/{id}/rotate` | Yes | Rotate signing secret |
 | `GET` | `/api/v1/webhooks/{id}/deliveries` | Yes | List delivery logs |
+| `GET` | `/api/v1/webhooks/{id}/deliveries/{deliveryId}` | Yes | Get one delivery log with linked task details |
+| `POST` | `/api/v1/webhooks/{id}/test` | Yes | Dispatch a synthetic test delivery |
+| `POST` | `/api/v1/sessions/{id}/artifacts` | Yes | Create artifact |
 | `GET` | `/api/v1/sessions/{id}/artifacts` | Yes | List artifacts |
 | `GET` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Get artifact |
+| `PATCH` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Update artifact metadata or content |
+| `DELETE` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Delete artifact |
 | `GET` | `/api/v1/sessions/{id}/artifacts/{artifactId}/versions` | Yes | List artifact versions |
+| `POST` | `/api/v1/sessions/{id}/artifacts/{artifactId}/versions` | Yes | Create artifact version |
+| `POST` | `/api/v1/sessions/{id}/artifacts/{artifactId}/versions/{versionId}/restore` | Yes | Restore artifact version |
+| `POST` | `/api/v1/sessions/{id}/todos` | Yes | Create todo |
 | `GET` | `/api/v1/sessions/{id}/todos` | Yes | List todos |
 | `GET` | `/api/v1/sessions/{id}/todos/stats` | Yes | Get todo statistics |
+| `PATCH` | `/api/v1/sessions/{id}/todos/bulk` | Yes | Bulk update todos |
+| `POST` | `/api/v1/sessions/{id}/todos/reorder` | Yes | Reorder todos |
 | `GET` | `/api/v1/sessions/{id}/todos/{todoId}` | Yes | Get todo detail |
+| `PATCH` | `/api/v1/sessions/{id}/todos/{todoId}` | Yes | Update todo |
+| `DELETE` | `/api/v1/sessions/{id}/todos/{todoId}` | Yes | Delete todo |
+| `POST` | `/api/v1/sessions/{id}/todos/{todoId}/complete` | Yes | Complete todo |
+| `POST` | `/api/v1/sessions/{id}/todos/{todoId}/reopen` | Yes | Reopen todo |
+| `POST` | `/api/v1/sessions/{id}/todos/{todoId}/cancel` | Yes | Cancel todo |
 
-Mutation-heavy workflows for roles, artifacts, todos, summarization, restart, and update continue to live in the REPL and agent tool layer rather than the HTTP API.
+Mutation-heavy workflows for roles, summarization, restart, and update continue to live in the REPL and agent tool layer rather than the HTTP API.

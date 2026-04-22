@@ -241,3 +241,47 @@ test('accepts visibility registry constructor parameter', function () {
         rmdir($tmpDir);
     }
 });
+
+test('filters available roles and rejects disallowed child roles for the active profile', function () {
+    $workspace = sys_get_temp_dir() . '/coqui-spawn-profile-' . bin2hex(random_bytes(4));
+    mkdir($workspace . '/profiles/caelum', 0755, true);
+    file_put_contents($workspace . '/profiles/caelum/preferences.json', json_encode([
+        'prompts' => [
+            'roles' => [
+                'allow' => ['orchestrator', 'reviewer'],
+            ],
+        ],
+    ], JSON_THROW_ON_ERROR));
+
+    try {
+        $config = OpenClawConfig::fromArray([
+            'agents' => [
+                'defaults' => [
+                    'model' => ['primary' => 'ollama/qwen3:latest'],
+                    'roles' => [
+                        'coder' => 'anthropic/claude',
+                        'reviewer' => 'openai/gpt-4o',
+                    ],
+                ],
+            ],
+        ]);
+
+        $tool = new SpawnAgentTool(
+            roleResolver: new RoleResolver($config),
+            config: $config,
+            projectRoot: $workspace,
+            workspacePath: $workspace,
+            activeProfile: 'caelum',
+            activeProfilePath: $workspace . '/profiles/caelum',
+        );
+
+        $schema = $tool->toFunctionSchema();
+        $result = $tool->execute(['role' => 'coder', 'task' => 'Write code']);
+
+        expect($schema['function']['parameters']['properties']['role']['enum'])->toBe(['reviewer']);
+        expect($result->status->value)->toBe('error');
+        expect($result->content)->toContain('does not allow role "coder"');
+    } finally {
+        cleanupTestTree($workspace);
+    }
+});
