@@ -6,13 +6,13 @@ namespace CoquiBot\Coqui\Exception;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 
-final class GroupSessionException extends \RuntimeException
+final class GroupSessionException extends SessionTypeException
 {
     public function __construct(
-        public readonly ApiErrorCode $errorCode,
+        ApiErrorCode $errorCode,
         string $message,
-        public readonly mixed $details = null,
+        mixed $details = null,
     ) {
-        parent::__construct($message);
+        parent::__construct($errorCode, $message, $details);
     }
 }

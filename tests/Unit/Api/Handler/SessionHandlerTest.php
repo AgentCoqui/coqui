@@ -135,9 +135,11 @@ test('session handler create persists a valid profile', function () {
         expect($response->getStatusCode())->toBe(201);
         expect($body['profile'])->toBe('caelum');
         expect($body['model'])->toBe('ollama/qwen3:latest');
+        expect($body['session_type'])->toBe('interactive');
         expect($session)->not->toBeNull();
         expect($session['profile'])->toBe('caelum');
         expect($session['model'])->toBe('ollama/qwen3:latest');
+        expect($session['session_type'])->toBe('interactive');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
@@ -335,6 +337,7 @@ test('session handler resolve reuses the latest scoped interactive session', fun
         expect($response->getStatusCode())->toBe(200);
         expect($body['id'])->toBe($profileSessionId);
         expect($body['created'])->toBeFalse();
+        expect($body['session_type'])->toBe('interactive');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
@@ -361,6 +364,7 @@ test('session handler resolve creates a scoped session when none exists', functi
         expect($response->getStatusCode())->toBe(201);
         expect($body['created'])->toBeTrue();
         expect($body['profile'])->toBe('caelum');
+        expect($body['session_type'])->toBe('interactive');
         expect($session)->not->toBeNull();
         expect($session['profile'])->toBe('caelum');
     } finally {
@@ -406,6 +410,7 @@ test('session handler create persists a group session with normalized members', 
 
         expect($response->getStatusCode())->toBe(201);
         expect($body['group_enabled'])->toBe(1);
+        expect($body['session_type'])->toBe('group');
         expect($body['profile'])->toBeNull();
         expect($body['model_role'])->toBe('orchestrator');
         expect($body['group_composition_key'])->toBe('caelum|nova');
@@ -497,6 +502,7 @@ test('session handler resolve reuses an existing active group session with the s
         expect($response->getStatusCode())->toBe(200);
         expect($body['id'])->toBe($activeSessionId);
         expect($body['created'])->toBeFalse();
+        expect($body['session_type'])->toBe('group');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }

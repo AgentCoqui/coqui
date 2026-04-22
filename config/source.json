@@ -496,7 +496,14 @@
             "path": "src/Exception/GroupSessionException.php",
             "fqcn": "CoquiBot\\Coqui\\Exception\\GroupSessionException",
             "layer": "exception",
-            "description": "Typed runtime exception for shared group-session policy failures. Carries the ApiErrorCode, a human-readable message, and optional structured details so API and REPL adapters can surface consistent conflict and validation responses.",
+            "description": "Typed runtime exception for shared group-session policy failures. Extends SessionTypeException so the new session-type API layer can handle group conflicts through the same error surface while still preserving the group-specific exception type for existing callers.",
+            "methods": []
+        },
+        {
+            "path": "src/Exception/SessionTypeException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\SessionTypeException",
+            "layer": "exception",
+            "description": "Base runtime exception for session-type lifecycle and validation failures. Carries ApiErrorCode plus optional structured details so type handlers can surface consistent API conflict and validation responses without embedding HTTP concerns into their core logic.",
             "methods": []
         },
         {
@@ -1039,6 +1046,13 @@
             "fqcn": "CoquiBot\\Coqui\\Contract\\SystemRole",
             "layer": "contract",
             "description": "String-backed enum centralizing built-in role name constants: Orchestrator, Coder, Reviewer, Learner, Evaluator, TitleGenerator, PlanTodoGenerator. Eliminates magic role strings scattered across the codebase.",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/SessionType.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\SessionType",
+            "layer": "contract",
+            "description": "String-backed enum for canonical session kinds. Interactive is the default single-agent session, while Group marks orchestrator-managed multi-profile conversations. Also provides fallback row resolution during the compatibility window where legacy group_enabled data still exists.",
             "methods": []
         },
         {
@@ -2036,7 +2050,7 @@
             "path": "src/Api/Handler/SessionHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SessionHandler",
             "layer": "command",
-            "description": "Session API endpoints: GET /api/v1/sessions (list with lifecycle status filters and archived-history discovery counts), POST /api/v1/sessions (always create), POST /api/v1/sessions/resolve (reuse the latest interactive session for a profile or unprofiled scope, or create one), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (update title/role/profile while keeping the resolved model in sync for writable sessions only), DELETE /api/v1/sessions/{id} (delete), GET /api/v1/sessions/{id}/child-runs (child agent runs).",
+            "description": "Session API endpoints: GET /api/v1/sessions (list with lifecycle status filters and archived-history discovery counts), POST /api/v1/sessions (always create), POST /api/v1/sessions/resolve (reuse or create a session for the requested scope), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (update title/role/profile while keeping the resolved model in sync for writable sessions only), DELETE /api/v1/sessions/{id} (delete), GET /api/v1/sessions/{id}/child-runs (child agent runs). Create and resolve now delegate request normalization plus type-specific lifecycle behavior to the session-type API layer instead of embedding the full interactive-vs-group branching directly in this handler.",
             "methods": [
                 "list(request): Response — lifecycle-filtered session discovery with active/closed/archived counts",
                 "create(request): Response",
@@ -2045,6 +2059,69 @@
                 "update(request, id): Response — PATCH to update title/role/profile for writable sessions and refresh resolved model metadata",
                 "delete(request, id): Response",
                 "childRuns(request, id): Response — list child agent runs for a session"
+            ]
+        },
+        {
+            "path": "src/Api/Session/SessionScope.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionScope",
+            "layer": "command",
+            "description": "Readonly normalized session-scope request object for the API session layer. Carries the requested session type, resolved role, optional profile scope, group-member composition, round cap, and confirmation flags so the top-level SessionHandler can stay thin.",
+            "methods": []
+        },
+        {
+            "path": "src/Api/Session/SessionTypeOperationResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionTypeOperationResult",
+            "layer": "command",
+            "description": "Readonly result object returned by API session-type handlers. Carries the hydrated session payload plus whether the operation created a new session or reused an existing one.",
+            "methods": []
+        },
+        {
+            "path": "src/Api/Session/SessionTypeHandlerInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionTypeHandlerInterface",
+            "layer": "command",
+            "description": "Contract for API session-type handlers. Concrete implementations own create and resolve lifecycle behavior for one canonical session type while the top-level SessionHandler remains an HTTP facade.",
+            "methods": [
+                "type(): SessionType — return the canonical session type handled by this implementation",
+                "create(SessionScope): SessionTypeOperationResult — create a session for this type",
+                "resolve(SessionScope): SessionTypeOperationResult — reuse or create a session for this type"
+            ]
+        },
+        {
+            "path": "src/Api/Session/SessionTypeRegistry.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionTypeRegistry",
+            "layer": "command",
+            "description": "Small registry mapping SessionType values to API session-type handlers. This is the current extensibility seam for create and resolve operations and is designed to grow as new session types are added.",
+            "methods": [
+                "handlerFor(SessionType): SessionTypeHandlerInterface — return the registered handler for the requested session type"
+            ]
+        },
+        {
+            "path": "src/Api/Session/SessionScopeResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionScopeResolver",
+            "layer": "command",
+            "description": "Normalizes API session create or resolve request bodies into SessionScope value objects. Centralizes role lookup, profile validation, group membership validation, round-cap parsing, and confirmation-flag parsing so type handlers receive a consistent request model.",
+            "methods": [
+                "resolve(?array): SessionScope|Response — validate and normalize the incoming API request body"
+            ]
+        },
+        {
+            "path": "src/Api/Session/InteractiveSessionTypeHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\InteractiveSessionTypeHandler",
+            "layer": "command",
+            "description": "API session-type handler for the default interactive session model. Owns profile-scoped active-session conflict handling, duplicate cleanup, role normalization against profile preferences, and session creation or reuse for unprofiled and profiled interactive sessions.",
+            "methods": [
+                "create(SessionScope): SessionTypeOperationResult — create a new interactive session, optionally finalizing the previous active profiled session",
+                "resolve(SessionScope): SessionTypeOperationResult — reuse an existing interactive session for the requested scope or create one"
+            ]
+        },
+        {
+            "path": "src/Api/Session/GroupSessionTypeHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\GroupSessionTypeHandler",
+            "layer": "command",
+            "description": "API session-type handler for orchestrator-managed group sessions. Delegates composition normalization, duplicate-composition conflict handling, and session creation or reuse to GroupSessionService while presenting the same SessionTypeOperationResult contract as other session types.",
+            "methods": [
+                "create(SessionScope): SessionTypeOperationResult — create a fresh group session for the requested composition",
+                "resolve(SessionScope): SessionTypeOperationResult — reuse the active composition session or create one"
             ]
         },
         {
@@ -2234,7 +2311,7 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. Session rows now expose derived lifecycle status labels plus aggregate lifecycle counts so archived history can be inspected without reactivating it. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, and closed/archive lifecycle metadata.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. Session rows now expose a canonical session_type discriminator alongside compatibility group fields, plus derived lifecycle status labels and aggregate lifecycle counts so archived history can be inspected without reactivating it. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, closed/archive lifecycle metadata, and the additive session_type column used by the new session-type architecture.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
                 "listSessions(int $limit, bool $excludeTaskSessions=true, bool $activeOnly=true, ?string $status=null): array — lists recent sessions with optional lifecycle filtering",

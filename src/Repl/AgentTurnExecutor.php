@@ -14,6 +14,7 @@ use CoquiBot\Coqui\Exception\InteractionCancelledException;
 use CoquiBot\Coqui\Exception\ShutdownRequestedException;
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
+use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -108,9 +109,10 @@ final class AgentTurnExecutor
 
         try {
             $session = $this->storage->getSession($sessionId);
-            $groupEnabled = is_array($session) && ((int) ($session['group_enabled'] ?? 0)) === 1;
+            $sessionType = is_array($session) ? SessionType::fromSessionRow($session) : SessionType::Interactive;
+            $groupEnabled = $sessionType === SessionType::Group;
 
-            if ($groupEnabled) {
+            if ($groupEnabled && is_array($session)) {
                 $result = $this->executeGroupTurn($prompt, $sessionId, $session, $executionPolicy);
             } else {
                 $result = $this->agentRunner->run(

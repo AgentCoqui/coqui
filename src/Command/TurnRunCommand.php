@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
+use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Observer\TurnProcessObserver;
@@ -159,7 +160,7 @@ final class TurnRunCommand extends Command
             $role = ($sessionRole !== '' && $sessionRole !== 'orchestrator') ? $sessionRole : null;
             $profileRaw = $session['profile'] ?? null;
             $profile = is_string($profileRaw) ? $profileRaw : null;
-            $groupEnabled = ((int) ($session['group_enabled'] ?? 0)) === 1;
+            $groupEnabled = is_array($session) && SessionType::fromSessionRow($session) === SessionType::Group;
 
             if ($groupEnabled) {
                 $members = $storage->listSessionGroupMemberNames($sessionId);

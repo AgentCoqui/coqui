@@ -30,6 +30,18 @@ test('getSession returns session data', function () {
     expect($session['id'])->toBe($id);
     expect($session['model_role'])->toBe('coder');
     expect($session['model'])->toBe('anthropic/claude');
+    expect($session['session_type'])->toBe('interactive');
+});
+
+test('group sessions expose explicit session type alongside compatibility fields', function () {
+    $sessionId = $this->storage->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['nova', 'caelum'], 3);
+
+    $session = $this->storage->getSession($sessionId);
+
+    expect($session)->not->toBeNull();
+    expect($session['session_type'])->toBe('group');
+    expect($session['group_enabled'])->toBe(1);
+    expect($session['group_composition_key'])->toBe('caelum|nova');
 });
 
 test('getSession returns null for missing session', function () {
