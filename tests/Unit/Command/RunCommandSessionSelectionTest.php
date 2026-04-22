@@ -5,6 +5,7 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Command\RunCommand;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\OpenClawConfig;
+use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
@@ -19,6 +20,7 @@ function createRunCommandSessionFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-run-command-session-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
+    mkdir($workspacePath . '/profiles', 0755, true);
 
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);
@@ -40,7 +42,7 @@ function createRunCommandSessionFixture(): array
         memoryStore: new MemoryStore($workspacePath . '/memory.db'),
     );
 
-    $boot = testBootManagerForRunCommand($workspacePath, $roleResolver);
+    $boot = testBootManagerForRunCommand($workspacePath, $roleResolver, new ProfileDiscovery($workspacePath));
     $output = new BufferedOutput();
     $command = new RunCommand();
 
@@ -61,15 +63,16 @@ function cleanupRunCommandSessionFixture(array $fixture): void
     cleanupTestTree($fixture['workspacePath']);
 }
 
-function testBootManagerForRunCommand(string $workspacePath, RoleResolver $roleResolver): BootManager
+function testBootManagerForRunCommand(string $workspacePath, RoleResolver $roleResolver, ProfileDiscovery $profileDiscovery): BootManager
 {
     $reflection = new ReflectionClass(BootManager::class);
     /** @var BootManager $boot */
     $boot = $reflection->newInstanceWithoutConstructor();
 
-    $initializer = function () use ($workspacePath, $roleResolver): void {
+    $initializer = function () use ($workspacePath, $roleResolver, $profileDiscovery): void {
         $this->workspacePath = $workspacePath;
         $this->roleResolver = $roleResolver;
+        $this->profileDiscovery = $profileDiscovery;
     };
 
     \Closure::bind($initializer, $boot, BootManager::class)();

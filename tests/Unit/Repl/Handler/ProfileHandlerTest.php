@@ -9,9 +9,12 @@ use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -46,8 +49,14 @@ function createProfileHandlerFixture(): array
             ],
         ],
     ]));
+    $lifecycleManager = new ProfileSessionLifecycleManager(
+        storage: $storage,
+        providerFactory: new ProviderFactory($config),
+        roleResolver: $roleResolver,
+        memoryStore: new MemoryStore($workspacePath . '/memory.db'),
+    );
     $boot = testBootManagerForProfiles($workspacePath, $profileDiscovery, $roleResolver, $configManager, $config);
-    $sessionHandler = new SessionHandler($boot, $storage);
+    $sessionHandler = new SessionHandler($boot, $storage, $lifecycleManager);
     $output = new BufferedOutput();
 
     return [

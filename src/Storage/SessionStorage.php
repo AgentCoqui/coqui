@@ -1585,7 +1585,7 @@ final class SessionStorage
             return $row;
         }
 
-        if ((int) ($row['group_enabled'] ?? 0) === 1) {
+        if (SessionType::fromSessionRow($row) === SessionType::Group) {
             $row['group_members'] = $includeMembers && isset($row['id'])
                 ? $this->listSessionGroupMembers((string) $row['id'])
                 : [];
@@ -1615,6 +1615,7 @@ final class SessionStorage
     {
         $stmt = $this->db->prepare(<<<SQL
                         SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                                                                         s.session_type,
                                      s.group_enabled, s.group_composition_key, s.group_max_rounds,
                                      s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
                                      (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
@@ -1622,7 +1623,7 @@ final class SessionStorage
             LEFT JOIN background_tasks bt ON bt.session_id = s.id
             WHERE bt.id IS NULL
               AND s.profile = :profile
-                            AND COALESCE(s.group_enabled, 0) = 0
+                            AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
         SQL);
@@ -2163,7 +2164,7 @@ final class SessionStorage
             SELECT id
             FROM sessions
             WHERE profile = :profile
-              AND COALESCE(group_enabled, 0) = 0
+                            AND COALESCE(session_type, CASE WHEN COALESCE(group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND is_closed = 0
             ORDER BY updated_at DESC
             LIMIT 1
@@ -2183,7 +2184,7 @@ final class SessionStorage
             LEFT JOIN background_tasks bt ON bt.session_id = s.id
             WHERE bt.id IS NULL
               AND s.profile IS NULL
-              AND COALESCE(s.group_enabled, 0) = 0
+                            AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
@@ -2227,7 +2228,7 @@ final class SessionStorage
             LEFT JOIN background_tasks bt ON bt.session_id = s.id
             WHERE bt.id IS NULL
               AND s.profile = :profile
-              AND COALESCE(s.group_enabled, 0) = 0
+                            AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
