@@ -58,7 +58,7 @@ final class ImagePreviewService
         }
 
         $workspace = $this->workspaceRealPath();
-        $candidate = str_starts_with($normalized, '/')
+        $candidate = $this->isAbsolutePath($normalized)
             ? $normalized
             : $this->workspacePath . '/' . ltrim($normalized, '/');
 
@@ -114,6 +114,10 @@ final class ImagePreviewService
                 return null;
             }
 
+            if (preg_match('#^/[A-Za-z]:/#', $parsedPath) === 1) {
+                $parsedPath = substr($parsedPath, 1);
+            }
+
             return rawurldecode($parsedPath);
         }
 
@@ -127,11 +131,31 @@ final class ImagePreviewService
             throw FileSystemException::pathEscapesSandbox($this->workspacePath);
         }
 
-        return $resolved;
+        return $this->normalizePath($resolved);
     }
 
     private function isWithinWorkspace(string $resolvedPath, string $resolvedWorkspace): bool
     {
-        return $resolvedPath === $resolvedWorkspace || str_starts_with($resolvedPath, $resolvedWorkspace . '/');
+        $normalizedPath = rtrim($this->normalizePath($resolvedPath), '/');
+        $normalizedWorkspace = rtrim($resolvedWorkspace, '/');
+
+        return $normalizedPath === $normalizedWorkspace
+            || str_starts_with($normalizedPath, $normalizedWorkspace . '/');
+    }
+
+    private function normalizePath(string $path): string
+    {
+        $normalized = str_replace('\\', '/', $path);
+
+        if (preg_match('/^[A-Z]:/i', $normalized) === 1) {
+            $normalized = strtolower($normalized[0]) . substr($normalized, 1);
+        }
+
+        return $normalized;
+    }
+
+    private function isAbsolutePath(string $path): bool
+    {
+        return str_starts_with($path, '/') || preg_match('/^[a-z]:\//i', $this->normalizePath($path)) === 1;
     }
 }

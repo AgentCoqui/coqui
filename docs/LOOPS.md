@@ -253,6 +253,7 @@ loop_control(action: "stop", id: "all")         # Cancels every active loop
 | `POST` | `/api/v1/loops` | Create/start a loop |
 | `GET` | `/api/v1/loops/definitions` | List definitions |
 | `GET` | `/api/v1/loops/{id}` | Get loop details |
+| `PATCH` | `/api/v1/loops/{id}` | Update editable loop fields |
 | `DELETE` | `/api/v1/loops/{id}` | Delete a loop |
 | `POST` | `/api/v1/loops/{id}/pause` | Pause loop |
 | `POST` | `/api/v1/loops/{id}/resume` | Resume loop |

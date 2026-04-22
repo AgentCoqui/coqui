@@ -371,8 +371,8 @@ final class ApiCommand extends Command
         $backstoryHandler = new BackstoryHandler(new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery()));
         $budgetHandler = new BudgetHandler($previewRunner);
         $commandCatalogHandler = new CommandCatalogHandler();
-        $artifactHandler = new ArtifactHandler($artifactStore);
-        $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
+        $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
+        $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore, $storage, $artifactStore, $projectStore);
         $scheduleHandler = new ScheduleHandler($scheduleStore);
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
         $webhookMgmtHandler = new WebhookManagementHandler($webhookStore, $boot->profileDiscovery());
@@ -383,7 +383,7 @@ final class ApiCommand extends Command
             $boot->channelDiscovery(),
             $boot->profileDiscovery(),
         );
-        $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore) : null;
+        $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore, $storage) : null;
         $sessionProjectHandler = $projectStore !== null ? new SessionProjectHandler($storage, $projectStore) : null;
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
@@ -642,10 +642,22 @@ final class ApiCommand extends Command
         $router->post($v1 . '/tasks/{id}/input', [$task, 'addInput']);
         $router->post($v1 . '/tasks/{id}/cancel', [$task, 'cancel']);
         if ($project !== null) {
+            $router->post($v1 . '/projects', [$project, 'create']);
             $router->get($v1 . '/projects', [$project, 'list']);
             $router->get($v1 . '/projects/{idOrSlug}', [$project, 'get']);
+            $router->patch($v1 . '/projects/{idOrSlug}', [$project, 'update']);
+            $router->delete($v1 . '/projects/{idOrSlug}', [$project, 'delete']);
+            $router->post($v1 . '/projects/{idOrSlug}/archive', [$project, 'archive']);
+            $router->post($v1 . '/projects/{idOrSlug}/activate', [$project, 'activate']);
+            $router->post($v1 . '/projects/{idOrSlug}/sprints', [$project, 'createSprint']);
             $router->get($v1 . '/projects/{idOrSlug}/sprints', [$project, 'sprints']);
             $router->get($v1 . '/sprints/{id}', [$project, 'sprint']);
+            $router->patch($v1 . '/sprints/{id}', [$project, 'updateSprint']);
+            $router->delete($v1 . '/sprints/{id}', [$project, 'deleteSprint']);
+            $router->post($v1 . '/sprints/{id}/start', [$project, 'startSprint']);
+            $router->post($v1 . '/sprints/{id}/submit-review', [$project, 'submitReview']);
+            $router->post($v1 . '/sprints/{id}/complete', [$project, 'completeSprint']);
+            $router->post($v1 . '/sprints/{id}/reject', [$project, 'rejectSprint']);
         }
 
         // Child runs
@@ -665,15 +677,28 @@ final class ApiCommand extends Command
         $router->get($v1 . '/server/budget', [$budget, 'get']);
         $router->get($v1 . '/server/commands', [$commands, 'get']);
 
-        // Artifacts (read-only — create/update/delete are REPL-only)
+        // Artifacts
+        $router->post($v1 . '/sessions/{id}/artifacts', [$artifact, 'create']);
         $router->get($v1 . '/sessions/{id}/artifacts', [$artifact, 'list']);
-        $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'get']);
         $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}/versions', [$artifact, 'versions']);
+        $router->post($v1 . '/sessions/{id}/artifacts/{artifactId}/versions', [$artifact, 'createVersion']);
+        $router->post($v1 . '/sessions/{id}/artifacts/{artifactId}/versions/{versionId}/restore', [$artifact, 'restoreVersion']);
+        $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'get']);
+        $router->patch($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'update']);
+        $router->delete($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'delete']);
 
-        // Todos (read-only — create/update/complete/delete are REPL-only)
+        // Todos
+        $router->post($v1 . '/sessions/{id}/todos', [$todo, 'create']);
         $router->get($v1 . '/sessions/{id}/todos', [$todo, 'list']);
         $router->get($v1 . '/sessions/{id}/todos/stats', [$todo, 'stats']);
+        $router->patch($v1 . '/sessions/{id}/todos/bulk', [$todo, 'bulkUpdate']);
+        $router->post($v1 . '/sessions/{id}/todos/reorder', [$todo, 'reorder']);
         $router->get($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'get']);
+        $router->patch($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'update']);
+        $router->delete($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'delete']);
+        $router->post($v1 . '/sessions/{id}/todos/{todoId}/complete', [$todo, 'complete']);
+        $router->post($v1 . '/sessions/{id}/todos/{todoId}/reopen', [$todo, 'reopen']);
+        $router->post($v1 . '/sessions/{id}/todos/{todoId}/cancel', [$todo, 'cancel']);
 
         // Toolkit visibility management
         $router->get($v1 . '/toolkits', [$toolkit, 'list']);
