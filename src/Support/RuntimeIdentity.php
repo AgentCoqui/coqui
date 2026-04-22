@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Support;
 
+use CoquiBot\Coqui\Config\PathHelper;
+
 final class RuntimeIdentity
 {
     public static function fingerprintPath(string $path): string
@@ -16,9 +18,8 @@ final class RuntimeIdentity
     private static function normalizePath(string $path): string
     {
         $resolved = realpath($path);
-        $normalized = $resolved !== false ? $resolved : $path;
-        $normalized = str_replace('\\', '/', $normalized);
-        $normalized = rtrim($normalized, '/');
+        $normalized = PathHelper::normalizeForComparison($resolved !== false ? $resolved : $path);
+        $normalized = PathHelper::trimTrailingSlash($normalized);
 
         if (DIRECTORY_SEPARATOR === '\\') {
             $normalized = strtolower($normalized);

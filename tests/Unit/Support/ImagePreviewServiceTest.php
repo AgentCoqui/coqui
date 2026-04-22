@@ -57,6 +57,14 @@ test('image preview service accepts file urls inside the workspace', function ()
     }
 });
 
+test('image preview service recognizes windows-style local image paths', function () {
+    $service = new ImagePreviewService(sys_get_temp_dir());
+
+    expect($service->canPreviewPath('C:\\Users\\Runner\\AppData\\Local\\Temp\\example.png'))->toBeTrue()
+        ->and($service->canPreviewPath('file://C:\\Users\\Runner\\AppData\\Local\\Temp\\example.png'))->toBeTrue()
+        ->and($service->canPreviewPath('file:///C:\\Users\\Runner\\AppData\\Local\\Temp\\example.png'))->toBeTrue();
+});
+
 test('image preview service rejects paths outside the workspace', function () {
     $workspace = sys_get_temp_dir() . '/coqui-image-preview-inside-' . bin2hex(random_bytes(8));
     $outside = sys_get_temp_dir() . '/coqui-image-preview-outside-' . bin2hex(random_bytes(8)) . '.png';
