@@ -3412,6 +3412,25 @@ Cancel a running or paused loop.
 
 **Response `409`** — loop is already terminal.
 
+#### `POST /api/v1/loops/{id}/skip-stage`
+
+Skip the first non-completed stage on the current iteration and reopen the loop so the manager can continue from the next pending stage.
+
+This is an operator recovery action for loops that are no longer actively running. Running stages cannot be skipped because there is still work in flight.
+
+**Response `200`**
+
+Returns the same normalized loop state payload as `GET /api/v1/loops/{id}`.
+
+**Response `409`**
+
+Returned when:
+
+- the loop is still `running`
+- there is no current iteration to recover
+- there is no non-completed stage left to skip
+- the current actionable stage is already `running`
+
 #### `GET /api/v1/loops/{id}/iterations`
 
 List all iterations for a loop.
@@ -3461,6 +3480,24 @@ Get a specific iteration with all its stage details.
   "completed_at": "2026-02-16T14:15:00Z"
 }
 ```
+
+#### `POST /api/v1/loops/{id}/iterations/{iterationId}/retry`
+
+Reset the latest failed or needs-rework iteration back to a runnable state.
+
+This clears the iteration's stage execution records, restores the loop to `running`, and leaves dispatch metadata in a pending state so the loop manager can resume from stage `0` on the next tick.
+
+**Response `200`**
+
+Returns the same normalized loop state payload as `GET /api/v1/loops/{id}`.
+
+**Response `409`**
+
+Returned when:
+
+- the target iteration is not the latest iteration
+- the loop is still `running`
+- the iteration is not in `failed` or `needs_rework`
 
 ### Channels
 
@@ -3732,7 +3769,7 @@ List recent delivery logs for a webhook.
       "event_type": "push",
       "payload_summary": "{\"ref\": \"refs/heads/main\", ...}",
       "task_id": "t1a2b3c4",
-      "status": "accepted",
+      "status": "delivered",
       "source_ip": "140.82.115.1",
       "created_at": "2026-02-16T14:30:00Z"
     }
@@ -3740,7 +3777,71 @@ List recent delivery logs for a webhook.
 }
 ```
 
-Delivery statuses: `accepted`, `rejected_disabled`, `rejected_signature`, `rejected_event`, `rejected_empty`, `rejected_too_large`.
+Delivery statuses currently include `delivered`, `test_delivered`, `filtered`, `rejected_disabled`, `rejected_signature`, `rejected_empty`, and `rejected_too_large`.
+
+#### `GET /api/v1/webhooks/{id}/deliveries/{deliveryId}`
+
+Fetch one delivery log entry for a webhook. If the delivery spawned a background task, the linked task record is included alongside the delivery metadata.
+
+**Response `200`**
+
+```json
+{
+  "delivery": {
+    "id": "d1a2b3c4",
+    "webhook_id": "w1a2b3c4",
+    "event_type": "push",
+    "task_id": "t1a2b3c4",
+    "status": "delivered"
+  },
+  "task": {
+    "id": "t1a2b3c4",
+    "status": "pending",
+    "role": "orchestrator"
+  }
+}
+```
+
+**Response `404`** — webhook or delivery not found.
+
+#### `POST /api/v1/webhooks/{id}/test`
+
+Create a synthetic delivery for a webhook using the real prompt-rendering and background-task dispatch path.
+
+This endpoint is useful for validating prompt templates, routing, and profile assignment without waiting for an external service to send a live event. Test deliveries are logged with `status: test_delivered` and do not increment the webhook trigger counters.
+
+**Request Body**
+
+```json
+{
+  "event_type": "pull_request",
+  "payload": {
+    "repository": {
+      "full_name": "carmelo/coqui"
+    },
+    "sender": {
+      "login": "carmelo"
+    }
+  }
+}
+```
+
+Both fields are optional. When omitted, `event_type` defaults to `test` and a minimal synthetic payload is generated automatically.
+
+**Response `200`**
+
+```json
+{
+  "status": "accepted",
+  "delivery_id": "d1a2b3c4",
+  "task_id": "t1a2b3c4",
+  "session_id": "s1a2b3c4",
+  "event_type": "pull_request",
+  "prompt_preview": "Handle pull_request from carmelo/coqui"
+}
+```
+
+**Response `404`** — webhook not found.
 
 ## Toolkit Management
 
@@ -4250,6 +4351,8 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/loops pause <id>` | `POST /api/v1/loops/{id}/pause` | Pauses a running loop |
 | `/loops resume <id>` | `POST /api/v1/loops/{id}/resume` | Resumes a paused loop |
 | `/loops stop <id>` | `POST /api/v1/loops/{id}/stop` | Cancels a running or paused loop |
+| `/loops skip-stage <id>` | `POST /api/v1/loops/{id}/skip-stage` | Skips the current blocked stage and reopens the loop |
+| `/loops retry <id> <iterationId>` | `POST /api/v1/loops/{id}/iterations/{iterationId}/retry` | Retries the latest failed iteration |
 | `/schedules` | `GET /api/v1/schedules` | Lists schedules |
 | `/schedules status <id>` | `GET /api/v1/schedules/{id}` | Shows schedule details |
 | `/schedules enable <id>` | `POST /api/v1/schedules/{id}/enable` | Enables a mutable schedule |
@@ -4257,6 +4360,8 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/schedules trigger <id>` | `POST /api/v1/schedules/{id}/trigger` | Forces a mutable schedule to run on the next tick |
 | `/webhooks status <id>` | `GET /api/v1/webhooks/{id}` | Shows webhook details |
 | `/webhooks deliveries <id>` | `GET /api/v1/webhooks/{id}/deliveries` | Shows recent delivery logs |
+| `/webhooks delivery <id> <deliveryId>` | `GET /api/v1/webhooks/{id}/deliveries/{deliveryId}` | Shows one delivery log with linked task details |
+| `/webhooks test <id>` | `POST /api/v1/webhooks/{id}/test` | Dispatches a synthetic webhook delivery |
 | `/webhooks enable <id>` | `PUT /api/v1/webhooks/{id}` | Enables a webhook subscription |
 | `/webhooks disable <id>` | `PUT /api/v1/webhooks/{id}` | Disables a webhook subscription |
 | `/webhooks delete <id>` | `DELETE /api/v1/webhooks/{id}` | Deletes a webhook subscription |
@@ -4367,8 +4472,10 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/loops/{id}/pause` | Yes | Pause a running loop |
 | `POST` | `/api/v1/loops/{id}/resume` | Yes | Resume a paused loop |
 | `POST` | `/api/v1/loops/{id}/stop` | Yes | Cancel a running or paused loop |
+| `POST` | `/api/v1/loops/{id}/skip-stage` | Yes | Skip the current actionable non-running stage |
 | `GET` | `/api/v1/loops/{id}/iterations` | Yes | List loop iterations |
 | `GET` | `/api/v1/loops/{id}/iterations/{iterationId}` | Yes | Get iteration with stages |
+| `POST` | `/api/v1/loops/{id}/iterations/{iterationId}/retry` | Yes | Retry the latest failed iteration |
 | `POST` | `/api/v1/webhooks/incoming/{name}` | No* | Receive webhook (signature-verified) |
 | `GET` | `/api/v1/webhooks` | Yes | List webhook subscriptions |
 | `POST` | `/api/v1/webhooks` | Yes | Create webhook subscription |
@@ -4377,6 +4484,8 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `DELETE` | `/api/v1/webhooks/{id}` | Yes | Delete webhook |
 | `POST` | `/api/v1/webhooks/{id}/rotate` | Yes | Rotate signing secret |
 | `GET` | `/api/v1/webhooks/{id}/deliveries` | Yes | List delivery logs |
+| `GET` | `/api/v1/webhooks/{id}/deliveries/{deliveryId}` | Yes | Get one delivery log with linked task details |
+| `POST` | `/api/v1/webhooks/{id}/test` | Yes | Dispatch a synthetic test delivery |
 | `POST` | `/api/v1/sessions/{id}/artifacts` | Yes | Create artifact |
 | `GET` | `/api/v1/sessions/{id}/artifacts` | Yes | List artifacts |
 | `GET` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Get artifact |

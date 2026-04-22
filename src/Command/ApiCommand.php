@@ -375,8 +375,9 @@ final class ApiCommand extends Command
         $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
         $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore, $storage, $artifactStore, $projectStore);
         $scheduleHandler = new ScheduleHandler($scheduleStore, $storage);
-        $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
-        $webhookMgmtHandler = new WebhookManagementHandler($webhookStore, $boot->profileDiscovery());
+        $webhookDispatcher = new \CoquiBot\Coqui\Api\Webhook\WebhookDispatchService($webhookStore, $storage);
+        $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry, $webhookDispatcher);
+        $webhookMgmtHandler = new WebhookManagementHandler($webhookStore, $boot->profileDiscovery(), $storage, $webhookDispatcher);
         $channelHandler = new ChannelHandler(
             $channelStore,
             $channelManager,

@@ -400,6 +400,24 @@ final class WebhookStore
     }
 
     /**
+     * @return array<string, mixed>|null
+     */
+    public function getDelivery(string $deliveryId, ?string $webhookId = null): ?array
+    {
+        if ($webhookId !== null) {
+            $stmt = $this->db->prepare('SELECT * FROM webhook_deliveries WHERE id = ? AND webhook_id = ?');
+            $stmt->execute([$deliveryId, $webhookId]);
+        } else {
+            $stmt = $this->db->prepare('SELECT * FROM webhook_deliveries WHERE id = ?');
+            $stmt->execute([$deliveryId]);
+        }
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row !== false ? $row : null;
+    }
+
+    /**
      * Purge old delivery records.
      */
     public function purgeOldDeliveries(int $retentionDays = self::DELIVERY_RETENTION_DAYS): int

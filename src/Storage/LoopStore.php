@@ -342,6 +342,36 @@ final class LoopStore
         }
     }
 
+    /**
+     * Reset an iteration so it can be retried.
+     */
+    public function resetIterationForRetry(string $id): void
+    {
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+
+        $stmt = $this->db->prepare(<<<'SQL'
+            UPDATE loop_iterations
+            SET status = 'running', outcome_summary = NULL, started_at = ?, completed_at = NULL
+            WHERE id = ?
+        SQL);
+        $stmt->execute([$now, $id]);
+    }
+
+    /**
+     * Reopen an iteration without resetting its stage history.
+     */
+    public function reopenIteration(string $id): void
+    {
+        $now = gmdate('Y-m-d\TH:i:s\Z');
+
+        $stmt = $this->db->prepare(<<<'SQL'
+            UPDATE loop_iterations
+            SET status = 'running', outcome_summary = NULL, completed_at = NULL, started_at = COALESCE(started_at, ?)
+            WHERE id = ?
+        SQL);
+        $stmt->execute([$now, $id]);
+    }
+
     // ──────────────────────────────────────────────
     //  Stage CRUD
     // ──────────────────────────────────────────────
@@ -419,6 +449,25 @@ final class LoopStore
             SQL);
             $stmt->execute([$status, $taskId, $artifactId, $metadataJson, $resultSummary, $completedAt, $id]);
         }
+    }
+
+    /**
+     * Reset all stages for an iteration back to pending.
+     */
+    public function resetStagesForIteration(string $iterationId): void
+    {
+        $stmt = $this->db->prepare(<<<'SQL'
+            UPDATE loop_stages
+            SET task_id = NULL,
+                artifact_id = NULL,
+                metadata = NULL,
+                status = 'pending',
+                result_summary = NULL,
+                started_at = NULL,
+                completed_at = NULL
+            WHERE iteration_id = ?
+        SQL);
+        $stmt->execute([$iterationId]);
     }
 
     // ──────────────────────────────────────────────
