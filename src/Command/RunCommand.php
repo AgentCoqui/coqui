@@ -29,6 +29,7 @@ use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
+use CoquiBot\Coqui\Repl\Handler\GroupHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
@@ -54,6 +55,7 @@ use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\GroupSessionService;
 use CoquiBot\Coqui\Support\ImagePreviewService;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -409,6 +411,11 @@ final class RunCommand extends Command
             $this->boot->channelDiscovery(),
             $this->boot->profileDiscovery(),
         );
+        $groupSessionService = new GroupSessionService(
+            $this->storage,
+            $this->boot->roleResolver(),
+            $this->boot->profileDiscovery(),
+        );
 
         $router = new SlashCommandRouter(
             session: $sessionHandler,
@@ -432,6 +439,7 @@ final class RunCommand extends Command
             ),
             project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
+            group: new GroupHandler($groupSessionService, $this->storage),
             profile: new ProfileHandler($this->boot, $sessionHandler),
             backstory: new BackstoryHandler($this->boot->profileDiscovery(), $this->boot->workspacePath()),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),

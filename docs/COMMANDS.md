@@ -32,7 +32,16 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/profile default <name|none>` | Set or clear the default startup profile in `openclaw.json` |
 | `/profile reset` | Clear profile, revert to default identity (resumes the last unprofiled session or creates one) |
 | `/profiles` | List all available personality profiles |
+| `/group` | Show help, or show the current group session when the active session is group-enabled |
+| `/group status` | Show the active group session's members, round cap, and orchestrator role |
+| `/group start <member1,member2,...> [--rounds=N]` | Start or resume an orchestrator-managed group session for the requested member set |
+| `/group add <profile>` | Add one member to the current group session |
+| `/group remove <profile>` | Remove one member from the current group session |
+| `/group replace <member1,member2,...> [--rounds=N]` | Replace the current group membership, optionally updating the round cap |
+| `/group rounds <n>` | Update the maximum per-turn coordination rounds for the current group session |
 | `/model [role]` | Show model configuration (optionally for a specific role) |
+
+Group sessions stay orchestrator-managed and clear any single active profile scope. Starting or reshaping a group session reuses the same membership validation and duplicate-composition rules as the HTTP API.
 
 ### Configuration & System
 

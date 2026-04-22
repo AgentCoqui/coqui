@@ -31,6 +31,7 @@ final class ReplCommandCatalog
             new ReplCommandSpec('/resume', '/resume <session-id>', 'Resume a specific session.', section: 'Core Commands'),
             new ReplCommandSpec('/role', '/role [name|edit|reset]', 'Show or switch the active role, or edit a role file.', firstArguments: ['edit', 'reset'], section: 'Core Commands'),
             new ReplCommandSpec('/roles', '/roles [action]', 'List roles or run update [name], ignore <name>, or unignore <name>.', firstArguments: ['list', 'update', 'ignore', 'unignore'], section: 'Core Commands'),
+            new ReplCommandSpec('/group', '/group [action]', 'Inspect or manage session-based group chats.', firstArguments: ['status', 'start', 'add', 'remove', 'replace', 'rounds', 'help'], section: 'Core Commands'),
             new ReplCommandSpec('/profile', '/profile [name|default|reset]', 'Show or switch the active profile, set a default with default <name|none>, or clear it.', firstArguments: ['default', 'reset', 'none'], section: 'Core Commands'),
             new ReplCommandSpec('/profiles', '/profiles', 'List available profiles.', section: 'Core Commands'),
             new ReplCommandSpec('/model', '/model [role]', 'Show resolved model configuration, optionally for one role.', section: 'Context & Inspection'),
