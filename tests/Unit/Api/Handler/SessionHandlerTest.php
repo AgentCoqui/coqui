@@ -508,6 +508,57 @@ test('session handler resolve reuses an existing active group session with the s
     }
 });
 
+test('session handler update can change group round cap while preserving group session type', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'nova'], 3);
+
+        $response = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId,
+                ['Content-Type' => 'application/json'],
+                json_encode(['group_max_rounds' => 5]) ?: '',
+            ),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['group_max_rounds'])->toBe(5);
+        expect($body['session_type'])->toBe('group');
+        expect($body['group_enabled'])->toBe(1);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler update rejects assigning a profile to a group session', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'nova'], 3);
+
+        $response = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId,
+                ['Content-Type' => 'application/json'],
+                json_encode(['profile' => 'caelum']) ?: '',
+            ),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['code'])->toBe('validation_error');
+        expect($body['error'])->toContain('Group sessions do not support a single active profile.');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
 test('session handler group member endpoints list add and remove members', function () {
     $fixture = createApiSessionHandlerFixture();
 
@@ -571,6 +622,26 @@ test('session handler replace members requires confirmation before colliding wit
         expect($response->getStatusCode())->toBe(409);
         expect($body['code'])->toBe('group_session_active');
         expect($body['details']['group_composition_key'])->toBe('caelum|nova');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler member endpoints reject interactive sessions through the session type capability seam', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+
+        $response = $fixture['handler']->members(
+            new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/members'),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['code'])->toBe('validation_error');
+        expect($body['error'])->toContain('Session is not a group session.');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }

@@ -13,4 +13,10 @@ interface SessionTypeHandlerInterface
     public function create(SessionScope $scope): SessionTypeOperationResult;
 
     public function resolve(SessionScope $scope): SessionTypeOperationResult;
+
+    /**
+     * @param array<string, mixed> $session
+     * @return array<string, mixed>
+     */
+    public function update(array $session, SessionUpdateRequest $request): array;
 }

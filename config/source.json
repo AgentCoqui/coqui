@@ -484,6 +484,27 @@
             ]
         },
         {
+            "path": "src/Support/InteractiveSessionOperationResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\InteractiveSessionOperationResult",
+            "layer": "support",
+            "description": "Readonly value object returned by InteractiveSessionService. Carries the hydrated interactive session payload, whether a new session was created, and any older active session IDs closed during conflict cleanup.",
+            "methods": []
+        },
+        {
+            "path": "src/Support/InteractiveSessionService.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\InteractiveSessionService",
+            "layer": "support",
+            "description": "Shared lifecycle and policy service for interactive sessions across API and REPL. Resolves or creates unprofiled and profiled sessions, enforces single-active-profile semantics, applies profile role policy, and owns interactive PATCH update rules so those behaviors do not diverge across surfaces.",
+            "methods": [
+                "createSession(string, ?string): InteractiveSessionOperationResult — create a new interactive session with the requested role and optional profile scope",
+                "createScopedSession(string, ?string, bool): InteractiveSessionOperationResult — create a scoped interactive session and optionally close conflicting active profiled sessions",
+                "resolveScopedSession(string, ?string, bool): InteractiveSessionOperationResult — reuse the latest scoped interactive session or create one",
+                "createFreshProfileSession(string, string, bool): InteractiveSessionOperationResult — replace the active profiled session with a fresh one",
+                "updateSession(array, string, ?string, bool, ?string): array — apply interactive-session PATCH updates for title, role, and profile scope",
+                "enforceProfileRolePolicy(array): array — normalize a session role against any active profile preferences"
+            ]
+        },
+        {
             "path": "src/CoquiSpace/SpaceInstallCompletionCache.php",
             "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\SpaceInstallCompletionCache",
             "layer": "coqui-space",
@@ -510,7 +531,7 @@
             "path": "src/Repl/Handler/SessionHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\SessionHandler",
             "layer": "command",
-            "description": "Handles session-related REPL commands: /new, /history, /sessions, /resume, /model. Owns workspace .coqui-session persistence plus scoped interactive session resolution for unprofiled, profiled, and attached-session startup flows.",
+            "description": "Handles session-related REPL commands: /new, /history, /sessions, /resume, /model. Owns workspace .coqui-session persistence and now delegates interactive session create/resolve/fresh-profile lifecycle to InteractiveSessionService so REPL startup and profile switching follow the same scoped-session policy as the API.",
             "methods": [
                 "createNewSession(): string — creates a new session and returns its ID",
                 "loadOrCreateSession(SymfonyStyle): string — resolves the last active unprofiled interactive session or creates one",
@@ -2050,15 +2071,35 @@
             "path": "src/Api/Handler/SessionHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SessionHandler",
             "layer": "command",
-            "description": "Session API endpoints: GET /api/v1/sessions (list with lifecycle status filters and archived-history discovery counts), POST /api/v1/sessions (always create), POST /api/v1/sessions/resolve (reuse or create a session for the requested scope), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (update title/role/profile while keeping the resolved model in sync for writable sessions only), DELETE /api/v1/sessions/{id} (delete), GET /api/v1/sessions/{id}/child-runs (child agent runs). Create and resolve now delegate request normalization plus type-specific lifecycle behavior to the session-type API layer instead of embedding the full interactive-vs-group branching directly in this handler.",
+            "description": "Session API endpoints: GET /api/v1/sessions (list with lifecycle status filters and archived-history discovery counts), POST /api/v1/sessions (always create), POST /api/v1/sessions/resolve (reuse or create a session for the requested scope), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (type-aware writable-session updates), group member endpoints under /api/v1/sessions/{id}/members, DELETE /api/v1/sessions/{id} (delete), and GET /api/v1/sessions/{id}/child-runs (child agent runs). Create, resolve, PATCH, and group member operations now delegate request normalization plus type-specific lifecycle behavior to the session-type API layer instead of embedding the full interactive-vs-group branching directly in this handler.",
             "methods": [
                 "list(request): Response — lifecycle-filtered session discovery with active/closed/archived counts",
                 "create(request): Response",
                 "resolve(request): Response — return the latest interactive session for a scope or create one",
                 "get(request, id): Response",
-                "update(request, id): Response — PATCH to update title/role/profile for writable sessions and refresh resolved model metadata",
+                "update(request, id): Response — PATCH to normalize the request and delegate type-specific session updates",
+                "members(request, id): Response — list group members through the type-specific group capability",
+                "replaceMembers(request, id): Response — replace group membership through the type-specific group capability",
+                "addMember(request, id): Response — add one group member through the type-specific group capability",
+                "removeMember(request, id, profile): Response — remove one group member through the type-specific group capability",
                 "delete(request, id): Response",
                 "childRuns(request, id): Response — list child agent runs for a session"
+            ]
+        },
+        {
+            "path": "src/Api/Session/SessionUpdateRequest.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionUpdateRequest",
+            "layer": "command",
+            "description": "Readonly normalized PATCH request object for the session API layer. Tracks which mutable fields were explicitly provided and carries validated title, role, profile, group toggle, member, and round-cap updates so type handlers can apply precise patch semantics.",
+            "methods": []
+        },
+        {
+            "path": "src/Api/Session/SessionUpdateRequestResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionUpdateRequestResolver",
+            "layer": "command",
+            "description": "Normalizes API session PATCH request bodies into SessionUpdateRequest value objects. Centralizes field-level validation and parsing so interactive and group session handlers can share one consistent patch input model.",
+            "methods": [
+                "resolve(?array): SessionUpdateRequest|Response — validate and normalize the incoming PATCH body"
             ]
         },
         {
@@ -2076,14 +2117,27 @@
             "methods": []
         },
         {
+            "path": "src/Api/Session/GroupSessionEndpointHandlerInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\GroupSessionEndpointHandlerInterface",
+            "layer": "command",
+            "description": "Optional API session-type capability for group-only endpoints. Implementations own member listing and membership mutations so the top-level SessionHandler can dispatch group-specific endpoints without embedding group policy directly.",
+            "methods": [
+                "listMembers(array): array — return the group member listing payload for a session",
+                "replaceMembers(array, mixed): array — replace the full member set for a group session",
+                "addMember(array, mixed): array — add one member to a group session",
+                "removeMember(array, string, mixed): array — remove one member from a group session"
+            ]
+        },
+        {
             "path": "src/Api/Session/SessionTypeHandlerInterface.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionTypeHandlerInterface",
             "layer": "command",
-            "description": "Contract for API session-type handlers. Concrete implementations own create and resolve lifecycle behavior for one canonical session type while the top-level SessionHandler remains an HTTP facade.",
+            "description": "Contract for API session-type handlers. Concrete implementations own create, resolve, and update lifecycle behavior for one canonical session type while the top-level SessionHandler remains an HTTP facade.",
             "methods": [
                 "type(): SessionType — return the canonical session type handled by this implementation",
                 "create(SessionScope): SessionTypeOperationResult — create a session for this type",
-                "resolve(SessionScope): SessionTypeOperationResult — reuse or create a session for this type"
+                "resolve(SessionScope): SessionTypeOperationResult — reuse or create a session for this type",
+                "update(array, SessionUpdateRequest): array — apply PATCH updates for this type"
             ]
         },
         {
@@ -2108,20 +2162,26 @@
             "path": "src/Api/Session/InteractiveSessionTypeHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Session\\InteractiveSessionTypeHandler",
             "layer": "command",
-            "description": "API session-type handler for the default interactive session model. Owns profile-scoped active-session conflict handling, duplicate cleanup, role normalization against profile preferences, and session creation or reuse for unprofiled and profiled interactive sessions.",
+            "description": "API session-type handler for the default interactive session model. Delegates create, resolve, and PATCH behavior to InteractiveSessionService so profile-scoped conflict handling, duplicate cleanup, and role normalization are shared with the REPL.",
             "methods": [
                 "create(SessionScope): SessionTypeOperationResult — create a new interactive session, optionally finalizing the previous active profiled session",
-                "resolve(SessionScope): SessionTypeOperationResult — reuse an existing interactive session for the requested scope or create one"
+                "resolve(SessionScope): SessionTypeOperationResult — reuse an existing interactive session for the requested scope or create one",
+                "update(array, SessionUpdateRequest): array — apply interactive-session PATCH updates"
             ]
         },
         {
             "path": "src/Api/Session/GroupSessionTypeHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Session\\GroupSessionTypeHandler",
             "layer": "command",
-            "description": "API session-type handler for orchestrator-managed group sessions. Delegates composition normalization, duplicate-composition conflict handling, and session creation or reuse to GroupSessionService while presenting the same SessionTypeOperationResult contract as other session types.",
+            "description": "API session-type handler for orchestrator-managed group sessions. Delegates composition normalization, duplicate-composition conflict handling, and session creation or reuse to GroupSessionService while also enforcing the group-specific PATCH rules and implementing the group-only member endpoint capability.",
             "methods": [
                 "create(SessionScope): SessionTypeOperationResult — create a fresh group session for the requested composition",
-                "resolve(SessionScope): SessionTypeOperationResult — reuse the active composition session or create one"
+                "resolve(SessionScope): SessionTypeOperationResult — reuse the active composition session or create one",
+                "update(array, SessionUpdateRequest): array — apply group-session PATCH updates and invariants",
+                "listMembers(array): array — build the group member listing payload for a group session",
+                "replaceMembers(array, mixed): array — replace the full member set for a group session",
+                "addMember(array, mixed): array — add one member to a group session",
+                "removeMember(array, string, mixed): array — remove one member from a group session"
             ]
         },
         {
