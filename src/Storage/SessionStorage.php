@@ -13,6 +13,7 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
+use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Support\ProcessSpawner;
 use PDO;
 use PDOException;
@@ -222,11 +223,16 @@ final class SessionStorage
         $this->migrateAddColumn('sessions', 'group_enabled', 'INTEGER NOT NULL DEFAULT 0');
         $this->migrateAddColumn('sessions', 'group_composition_key', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('sessions', 'group_max_rounds', 'INTEGER DEFAULT NULL');
+        $this->migrateAddColumn('sessions', 'session_type', "TEXT NOT NULL DEFAULT 'interactive'");
         $this->migrateAddColumn('sessions', 'is_closed', 'INTEGER NOT NULL DEFAULT 0');
         $this->migrateAddColumn('sessions', 'is_archived', 'INTEGER NOT NULL DEFAULT 0');
         $this->migrateAddColumn('sessions', 'closed_at', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('sessions', 'archived_at', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('sessions', 'closure_reason', 'TEXT DEFAULT NULL');
+
+        $this->db->exec("UPDATE sessions SET session_type = 'group' WHERE COALESCE(group_enabled, 0) = 1 AND COALESCE(session_type, '') != 'group'");
+
+        $this->db->exec("UPDATE sessions SET session_type = 'interactive' WHERE COALESCE(group_enabled, 0) = 0 AND COALESCE(session_type, '') = ''");
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_profile_updated ON sessions(profile, updated_at DESC)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_closed_updated ON sessions(is_closed, updated_at DESC)');
@@ -313,14 +319,19 @@ final class SessionStorage
         bool $groupEnabled = false,
         ?string $groupCompositionKey = null,
         ?int $groupMaxRounds = null,
+        SessionType|string|null $sessionType = null,
     ): string
     {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
+        $resolvedSessionType = $sessionType instanceof SessionType
+            ? $sessionType
+            : (is_string($sessionType) ? SessionType::tryFrom($sessionType) : null);
+        $resolvedSessionType ??= SessionType::fromGroupFlag($groupEnabled);
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO sessions (id, model_role, model, profile, group_enabled, group_composition_key, group_max_rounds, created_at, updated_at)
-            VALUES (:id, :model_role, :model, :profile, :group_enabled, :group_composition_key, :group_max_rounds, :created_at, :updated_at)
+            INSERT INTO sessions (id, model_role, model, profile, group_enabled, group_composition_key, group_max_rounds, session_type, created_at, updated_at)
+            VALUES (:id, :model_role, :model, :profile, :group_enabled, :group_composition_key, :group_max_rounds, :session_type, :created_at, :updated_at)
         SQL);
 
         $stmt->execute([
@@ -331,6 +342,7 @@ final class SessionStorage
             'group_enabled' => $groupEnabled ? 1 : 0,
             'group_composition_key' => $groupEnabled ? $groupCompositionKey : null,
             'group_max_rounds' => $groupEnabled ? $groupMaxRounds : null,
+            'session_type' => $resolvedSessionType->value,
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -360,6 +372,7 @@ final class SessionStorage
                 groupEnabled: true,
                 groupCompositionKey: $compositionKey,
                 groupMaxRounds: $groupMaxRounds,
+                sessionType: SessionType::Group,
             );
             $this->persistGroupMembers($sessionId, $normalizedMembers);
             $this->db->commit();
@@ -385,6 +398,7 @@ final class SessionStorage
             $stmt = $this->db->prepare(<<<SQL
                 UPDATE sessions
                 SET group_enabled = 1,
+                    session_type = :session_type,
                     profile = NULL,
                     group_composition_key = :group_composition_key,
                     group_max_rounds = :group_max_rounds,
@@ -393,6 +407,7 @@ final class SessionStorage
             SQL);
 
             $stmt->execute([
+                'session_type' => SessionType::Group->value,
                 'group_composition_key' => $compositionKey,
                 'group_max_rounds' => $groupMaxRounds,
                 'updated_at' => date('c'),
@@ -464,15 +479,20 @@ final class SessionStorage
     public function isGroupSession(string $sessionId): bool
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT 1
+            SELECT session_type, group_enabled
             FROM sessions
-            WHERE id = :id AND group_enabled = 1
+            WHERE id = :id
             LIMIT 1
         SQL);
 
         $stmt->execute(['id' => $sessionId]);
 
-        return $stmt->fetchColumn() !== false;
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            return false;
+        }
+
+        return SessionType::fromSessionRow($row) === SessionType::Group;
     }
 
     /**
@@ -1538,10 +1558,12 @@ final class SessionStorage
         $isClosed = (int) ($row['is_closed'] ?? 0);
         $isArchived = (int) ($row['is_archived'] ?? 0);
         $groupEnabled = (int) ($row['group_enabled'] ?? 0);
+        $sessionType = SessionType::fromSessionRow($row);
 
         $row['is_closed'] = $isClosed;
         $row['is_archived'] = $isArchived;
-        $row['group_enabled'] = $groupEnabled;
+        $row['session_type'] = $sessionType->value;
+        $row['group_enabled'] = $sessionType === SessionType::Group ? 1 : $groupEnabled;
         $row['group_member_count'] = (int) ($row['group_member_count'] ?? 0);
         $row['group_max_rounds'] = is_scalar($row['group_max_rounds'] ?? null)
             ? (int) $row['group_max_rounds']

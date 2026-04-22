@@ -5,13 +5,19 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\Session\GroupSessionTypeHandler;
+use CoquiBot\Coqui\Api\Session\InteractiveSessionTypeHandler;
+use CoquiBot\Coqui\Api\Session\SessionScopeResolver;
+use CoquiBot\Coqui\Api\Session\SessionTypeRegistry;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Exception\GroupSessionException;
+use CoquiBot\Coqui\Exception\SessionTypeException;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\GroupSessionService;
 use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
@@ -32,8 +38,6 @@ use React\Http\Message\Response;
  */
 final readonly class SessionHandler
 {
-    private const int DEFAULT_GROUP_MAX_ROUNDS = 3;
-
     public function __construct(
         private SessionStorage $storage,
         private RoleResolver $roleResolver,
@@ -102,52 +106,18 @@ final readonly class SessionHandler
     public function create(ServerRequestInterface $request): Response
     {
         $body = $this->requestBody($request) ?? [];
-        [$modelRole, $profile, $groupEnabled, $groupMembers, $groupMaxRounds, $error] = $this->resolveRequestedSessionScope($body);
-        if ($error instanceof Response) {
-            return $error;
+        $scope = $this->sessionScopeResolver()->resolve($body);
+        if ($scope instanceof Response) {
+            return $scope;
         }
 
-        if ($groupEnabled) {
-            try {
-                $result = $this->groupSessions()->createFreshSession(
-                    modelRole: $modelRole,
-                    members: $groupMembers,
-                    groupMaxRounds: $groupMaxRounds ?? GroupSessionService::DEFAULT_MAX_ROUNDS,
-                    confirmCloseActive: $this->confirmCloseActiveGroupSession($body),
-                    closureReasonPrefix: 'api_create_group_session',
-                );
-            } catch (GroupSessionException $e) {
-                return $this->groupSessionErrorResponse($e);
-            }
-
-            return Router::jsonResponse($result->session, 201);
+        try {
+            $result = $this->sessionTypeRegistry()->handlerFor($scope->type)->create($scope);
+        } catch (SessionTypeException $e) {
+            return $this->sessionTypeErrorResponse($e);
         }
 
-        if ($profile !== null) {
-            $activeSessions = $this->storage->listActiveInteractiveSessionsForProfile($profile);
-            if ($activeSessions !== [] && !$this->confirmCloseActiveProfileSession($body)) {
-                return $this->profileSessionActiveConflict($profile, $activeSessions);
-            }
-
-            if ($activeSessions !== []) {
-                $this->lifecycleManager()?->finalizeOtherActiveInteractiveSessionsForProfile(
-                    $profile,
-                    '',
-                    sprintf('api_create_profile_session:%s', $profile),
-                );
-            }
-        }
-
-        $model = $this->roleResolver->resolve($modelRole, $profile);
-        $sessionId = $this->storage->createSession($modelRole, $model, $profile);
-
-        return Router::jsonResponse($this->storage->getSession($sessionId) ?? [
-            'id' => $sessionId,
-            'model_role' => $modelRole,
-            'model' => $model,
-            'profile' => $profile,
-            'active_project_id' => null,
-        ], 201);
+        return Router::jsonResponse($result->session, 201);
     }
 
     /**
@@ -156,94 +126,18 @@ final readonly class SessionHandler
     public function resolve(ServerRequestInterface $request): Response
     {
         $body = $this->requestBody($request) ?? [];
-        [$modelRole, $profile, $groupEnabled, $groupMembers, $groupMaxRounds, $error] = $this->resolveRequestedSessionScope($body);
-        if ($error instanceof Response) {
-            return $error;
+        $scope = $this->sessionScopeResolver()->resolve($body);
+        if ($scope instanceof Response) {
+            return $scope;
         }
 
-        if ($groupEnabled) {
-            try {
-                $result = $this->groupSessions()->resolveOrCreateSession(
-                    modelRole: $modelRole,
-                    members: $groupMembers,
-                    groupMaxRounds: $groupMaxRounds ?? GroupSessionService::DEFAULT_MAX_ROUNDS,
-                );
-            } catch (GroupSessionException $e) {
-                return $this->groupSessionErrorResponse($e);
-            }
-
-            return Router::jsonResponse($result->session + ['created' => $result->created], $result->created ? 201 : 200);
+        try {
+            $result = $this->sessionTypeRegistry()->handlerFor($scope->type)->resolve($scope);
+        } catch (SessionTypeException $e) {
+            return $this->sessionTypeErrorResponse($e);
         }
 
-        if ($profile !== null) {
-            $activeSessions = $this->storage->listActiveInteractiveSessionsForProfile($profile);
-            if ($activeSessions !== []) {
-                $sessionId = (string) $activeSessions[0]['id'];
-                $this->lifecycleManager()?->finalizeOtherActiveInteractiveSessionsForProfile(
-                    $profile,
-                    $sessionId,
-                    sprintf('api_profile_duplicate_cleanup:%s', $profile),
-                );
-
-                $session = $this->storage->getSession($sessionId);
-
-                if ($session !== null) {
-                    $effectiveRole = $this->normalizeRoleForProfile((string) $session['model_role'], $profile);
-                    if ($effectiveRole !== (string) $session['model_role']) {
-                        $effectiveModel = $this->roleResolver->resolve($effectiveRole, $profile);
-                        $this->storage->updateSessionRole($sessionId, $effectiveRole, $effectiveModel);
-                        $session = $this->storage->getSession($sessionId) ?? $session;
-                    }
-
-                    return Router::jsonResponse([
-                        'id' => $session['id'],
-                        'model_role' => $session['model_role'],
-                        'model' => $session['model'],
-                        'profile' => $session['profile'] ?? null,
-                        'active_project_id' => $session['active_project_id'] ?? null,
-                        'created' => false,
-                    ]);
-                }
-            }
-        }
-
-        $sessionId = $profile === null
-            ? $this->storage->getLatestInteractiveUnprofiledSessionId()
-            : $this->storage->getLatestInteractiveSessionIdForProfile($profile);
-
-        if ($sessionId !== null) {
-            $session = $this->storage->getSession($sessionId);
-
-            if ($session !== null) {
-                $effectiveRole = $this->normalizeRoleForProfile((string) $session['model_role'], $profile);
-                if ($effectiveRole !== (string) $session['model_role']) {
-                    $effectiveModel = $this->roleResolver->resolve($effectiveRole, $profile);
-                    $this->storage->updateSessionRole($sessionId, $effectiveRole, $effectiveModel);
-                    $session = $this->storage->getSession($sessionId) ?? $session;
-                }
-
-                return Router::jsonResponse([
-                    'id' => $session['id'],
-                    'model_role' => $session['model_role'],
-                    'model' => $session['model'],
-                    'profile' => $session['profile'] ?? null,
-                    'active_project_id' => $session['active_project_id'] ?? null,
-                    'created' => false,
-                ]);
-            }
-        }
-
-        $model = $this->roleResolver->resolve($modelRole, $profile);
-        $createdSessionId = $this->storage->createSession($modelRole, $model, $profile);
-
-        return Router::jsonResponse([
-            'id' => $createdSessionId,
-            'model_role' => $modelRole,
-            'model' => $model,
-            'profile' => $profile,
-            'active_project_id' => null,
-            'created' => true,
-        ], 201);
+        return Router::jsonResponse($result->session + ['created' => $result->created], $result->created ? 201 : 200);
     }
 
     /**
@@ -292,7 +186,7 @@ final readonly class SessionHandler
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
 
-        $isGroupSession = ((int) ($session['group_enabled'] ?? 0)) === 1;
+        $isGroupSession = SessionType::fromSessionRow($session) === SessionType::Group;
 
         if (array_key_exists('group_enabled', $body)) {
             $requestedGroupEnabled = filter_var($body['group_enabled'], FILTER_VALIDATE_BOOLEAN);
@@ -591,116 +485,6 @@ final readonly class SessionHandler
         ]);
     }
 
-    /**
-     * @param array<string, mixed>|null $body
-     * @return array{0: string, 1: ?string, 2: bool, 3: list<string>, 4: ?int, 5: ?Response}
-     */
-    private function resolveRequestedSessionScope(?array $body): array
-    {
-        $modelRole = is_array($body) && isset($body['model_role'])
-            ? trim((string) $body['model_role'])
-            : 'orchestrator';
-
-        if ($modelRole === '') {
-            return ['orchestrator', null, false, [], null, Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'model_role cannot be empty')];
-        }
-
-        $profile = is_array($body) && array_key_exists('profile', $body)
-            ? $this->normalizeProfileValue($body['profile'])
-            : null;
-
-        $groupEnabled = is_array($body)
-            && array_key_exists('group_enabled', $body)
-            && filter_var($body['group_enabled'], FILTER_VALIDATE_BOOLEAN);
-
-        $groupMembers = [];
-        $groupMaxRounds = null;
-
-        if (!$this->roleResolver->hasRole($modelRole)) {
-            return [
-                $modelRole,
-                $profile,
-                false,
-                [],
-                null,
-                Router::errorResponse(
-                    ApiErrorCode::VALIDATION_ERROR,
-                    sprintf('Unknown role "%s". Use GET /api/v1/config/roles to see available roles.', $modelRole),
-                ),
-            ];
-        }
-
-        if ($groupEnabled) {
-            if ($profile !== null) {
-                return [
-                    $modelRole,
-                    $profile,
-                    true,
-                    [],
-                    null,
-                    Router::errorResponse(
-                        ApiErrorCode::VALIDATION_ERROR,
-                        'Group sessions do not support a single active profile.',
-                    ),
-                ];
-            }
-
-            if ($modelRole !== SystemRole::Orchestrator->value) {
-                return [
-                    $modelRole,
-                    null,
-                    true,
-                    [],
-                    null,
-                    Router::errorResponse(
-                        ApiErrorCode::VALIDATION_ERROR,
-                        'Only the orchestrator can manage group sessions.',
-                    ),
-                ];
-            }
-
-            try {
-                $groupMembers = $this->groupSessions()->normalizeMembers($body['members'] ?? null);
-                $groupMaxRounds = $this->groupSessions()->resolveMaxRounds($body['group_max_rounds'] ?? self::DEFAULT_GROUP_MAX_ROUNDS);
-            } catch (GroupSessionException $e) {
-                return [$modelRole, null, true, [], null, $this->groupSessionErrorResponse($e)];
-            }
-        } elseif (is_array($body) && array_key_exists('members', $body)) {
-            return [
-                $modelRole,
-                $profile,
-                false,
-                [],
-                null,
-                Router::errorResponse(
-                    ApiErrorCode::VALIDATION_ERROR,
-                    'members may only be provided when group_enabled is true.',
-                ),
-            ];
-        }
-
-        if ($profile !== null && !$this->profileDiscovery->profileExists($profile)) {
-            return [
-                $modelRole,
-                $profile,
-                false,
-                [],
-                null,
-                Router::errorResponse(
-                    ApiErrorCode::VALIDATION_ERROR,
-                    sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or clear the profile.', $profile),
-                ),
-            ];
-        }
-
-        $roleError = $this->validateProfileRole($profile, $modelRole);
-        if ($roleError instanceof Response) {
-            return [$modelRole, $profile, false, [], null, $roleError];
-        }
-
-        return [$modelRole, $profile, $groupEnabled, $groupMembers, $groupMaxRounds, null];
-    }
-
     private function validateProfileRole(?string $profile, string $role): ?Response
     {
         $preferences = $this->loadProfilePreferences($profile);
@@ -712,16 +496,6 @@ final readonly class SessionHandler
             ApiErrorCode::VALIDATION_ERROR,
             sprintf('Profile "%s" does not allow role "%s".', $profile, $role),
         );
-    }
-
-    private function normalizeRoleForProfile(string $role, ?string $profile): string
-    {
-        $preferences = $this->loadProfilePreferences($profile);
-        if ($preferences === null || $preferences->isRoleAllowed($role)) {
-            return $role;
-        }
-
-        return SystemRole::Orchestrator->value;
     }
 
     private function loadProfilePreferences(?string $profile): ?ProfilePreferences
@@ -760,7 +534,7 @@ final readonly class SessionHandler
      */
     private function requireGroupSession(array $session): array|Response
     {
-        if (((int) ($session['group_enabled'] ?? 0)) !== 1) {
+        if (SessionType::fromSessionRow($session) !== SessionType::Group) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Session is not a group session.');
         }
 
@@ -822,6 +596,33 @@ final readonly class SessionHandler
 
     private function groupSessionErrorResponse(GroupSessionException $e): Response
     {
+        return $this->sessionTypeErrorResponse($e);
+    }
+
+    private function sessionTypeErrorResponse(SessionTypeException $e): Response
+    {
         return Router::errorResponse($e->errorCode, $e->getMessage(), $e->details);
+    }
+
+    private function sessionScopeResolver(): SessionScopeResolver
+    {
+        return new SessionScopeResolver(
+            $this->roleResolver,
+            $this->profileDiscovery,
+            $this->groupSessions(),
+        );
+    }
+
+    private function sessionTypeRegistry(): SessionTypeRegistry
+    {
+        return new SessionTypeRegistry(
+            new InteractiveSessionTypeHandler(
+                $this->storage,
+                $this->roleResolver,
+                $this->profileDiscovery,
+                $this->lifecycleManager,
+            ),
+            new GroupSessionTypeHandler($this->groupSessions()),
+        );
     }
 }

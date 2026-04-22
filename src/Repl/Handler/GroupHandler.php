@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Exception\GroupSessionException;
 use CoquiBot\Coqui\Repl\RouteResult;
@@ -320,7 +321,7 @@ final readonly class GroupHandler
     private function requireCurrentGroupSession(SymfonyStyle $io, string $sessionId): ?array
     {
         $session = $this->storage->getSession($sessionId);
-        if ($session === null || ((int) ($session['group_enabled'] ?? 0)) !== 1) {
+        if ($session === null || SessionType::fromSessionRow($session) !== SessionType::Group) {
             $io->warning('Current session is not a group session. Use /group start <members...> first.');
             return null;
         }
