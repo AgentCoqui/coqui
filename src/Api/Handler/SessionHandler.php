@@ -23,6 +23,7 @@ use React\Http\Message\Response;
  * POST   /api/v1/sessions                    — create session
  * POST   /api/v1/sessions/resolve            — resolve or create scoped interactive session
  * GET    /api/v1/sessions/{id}               — get session detail
+ * GET    /api/v1/sessions/{id}/summary       — get session summary counts
  * PATCH  /api/v1/sessions/{id}               — update session (title)
  * DELETE /api/v1/sessions/{id}               — delete session
  * GET    /api/v1/sessions/{id}/child-runs    — list child agent runs
@@ -45,6 +46,8 @@ final readonly class SessionHandler
         $limit = isset($params['limit']) ? min((int) $params['limit'], 200) : 50;
         $includeClosed = filter_var($params['include_closed'] ?? false, FILTER_VALIDATE_BOOLEAN);
         $status = isset($params['status']) ? strtolower(trim((string) $params['status'])) : null;
+        $profileFilterSpecified = array_key_exists('profile', $params);
+        $profileParam = $profileFilterSpecified ? strtolower(trim((string) ($params['profile'] ?? ''))) : null;
 
         if ($status === '') {
             $status = null;
@@ -61,12 +64,29 @@ final readonly class SessionHandler
             $status = 'all';
         }
 
-        $sessions = $this->storage->listSessions($limit, true, $status === null, $status);
+        $profile = null;
+        $unprofiledOnly = false;
+        if ($profileFilterSpecified) {
+            if ($profileParam === null || $profileParam === '' || $profileParam === 'none') {
+                $unprofiledOnly = true;
+            } else {
+                if (!$this->profileDiscovery->profileExists($profileParam)) {
+                    return Router::errorResponse(
+                        ApiErrorCode::VALIDATION_ERROR,
+                        sprintf('Unknown profile "%s". Use GET /api/v1/profiles to see available profiles.', $profileParam),
+                    );
+                }
+                $profile = $profileParam;
+            }
+        }
+
+        $sessions = $this->storage->listSessions($limit, true, $status === null, $status, $profile, $unprofiledOnly);
 
         return Router::jsonResponse([
             'sessions' => $sessions,
             'count' => count($sessions),
             'status' => $status ?? 'active',
+            'profile' => $profileFilterSpecified ? ($profile ?? 'none') : null,
             'counts' => $this->storage->getSessionStatusCounts(),
         ]);
     }
@@ -202,6 +222,24 @@ final readonly class SessionHandler
         }
 
         return Router::jsonResponse($session);
+    }
+
+    /**
+     * GET /api/v1/sessions/{id}/summary
+     */
+    public function summary(ServerRequestInterface $request, string $id): Response
+    {
+        $session = SessionAccess::requireReadableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
+        }
+
+        $summary = $this->storage->getSessionSummary($id);
+        if ($summary === null) {
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        }
+
+        return Router::jsonResponse($summary);
     }
 
     /**

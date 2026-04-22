@@ -10,6 +10,8 @@ use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\ModelMetadataResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Config\ProfilePreferences;
+use CoquiBot\Coqui\Config\RoleResolver;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -31,6 +33,7 @@ final readonly class ConfigHandler
         private ConfigValidator $validator,
         private ProfileDiscovery $profileDiscovery,
         private ?ModelMetadataResolver $modelMetadataResolver = null,
+        private ?RoleResolver $roleResolver = null,
     ) {}
 
     /**
@@ -125,11 +128,7 @@ final readonly class ConfigHandler
     public function profiles(ServerRequestInterface $request): Response
     {
         $profiles = array_values(array_map(
-            static fn(array $profile): array => [
-                'name' => $profile['name'],
-                'display_name' => $profile['display_name'],
-                'description' => $profile['description'],
-            ],
+            fn(array $profile): array => $this->normalizeProfileSummary($profile),
             $this->profileDiscovery->discoverAll(),
         ));
 
@@ -138,6 +137,19 @@ final readonly class ConfigHandler
             'count' => count($profiles),
             'default_profile' => $this->config->getDefaultProfile(),
         ]);
+    }
+
+    /**
+     * GET /api/v1/config/profiles/{name} — get profile detail for picker UIs.
+     */
+    public function profile(ServerRequestInterface $request, string $name): Response
+    {
+        $profile = $this->profileDiscovery->discoverAll()[strtolower($name)] ?? null;
+        if ($profile === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, sprintf('Profile "%s" not found', $name));
+        }
+
+        return Router::jsonResponse($this->normalizeProfileDetail($profile));
     }
 
     /**
@@ -166,5 +178,49 @@ final readonly class ConfigHandler
         $modelsConfig['providers'] = $providers;
 
         return $modelsConfig;
+    }
+
+    /**
+     * @param array{name: string, display_name: string, description: string, path: string} $profile
+     * @return array<string, mixed>
+     */
+    private function normalizeProfileSummary(array $profile): array
+    {
+        $preferences = ProfilePreferences::fromProfilePath($profile['path']);
+        $selectableRoles = $this->roleResolver !== null
+            ? array_values($this->roleResolver->selectableRoles())
+            : [];
+        $allowedRoles = $this->roleResolver !== null
+            ? $preferences->filterAllowedRoles($selectableRoles)
+            : [];
+
+        return [
+            'name' => $profile['name'],
+            'display_name' => $profile['display_name'],
+            'description' => $profile['description'],
+            'model' => $this->profileDiscovery->readProfileModel($profile['name']),
+            'is_default' => $this->config->getDefaultProfile() === $profile['name'],
+            'allowed_roles' => $allowedRoles,
+            'role_restrictions' => [
+                'allow' => $preferences->allowedRoles(),
+                'deny' => $preferences->deniedRoles(),
+            ],
+            'has_role_restrictions' => $preferences->hasRoleRestrictions(),
+        ];
+    }
+
+    /**
+     * @param array{name: string, display_name: string, description: string, path: string} $profile
+     * @return array<string, mixed>
+     */
+    private function normalizeProfileDetail(array $profile): array
+    {
+        $preferences = ProfilePreferences::fromProfilePath($profile['path']);
+
+        return [
+            ...$this->normalizeProfileSummary($profile),
+            'preferences' => $preferences->inspectionSummary(),
+            'soul' => $this->profileDiscovery->readSoul($profile['name']),
+        ];
     }
 }

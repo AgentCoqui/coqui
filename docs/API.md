@@ -204,7 +204,7 @@ Use this document as the canonical HTTP API reference. The current API is best s
 
 ### Recommended Integration Flow
 
-1. If your client exposes personalities, call `GET /api/v1/config/profiles` first.
+1. If your client exposes personalities, call `GET /api/v1/profiles` first.
 2. Prefer `POST /api/v1/sessions/resolve` for sticky app sessions, or `POST /api/v1/sessions` when you explicitly need a fresh conversation.
 3. Upload files with `POST /api/v1/sessions/{id}/files` before sending a prompt when the turn needs images or document context.
 4. Call `POST /api/v1/sessions/{id}/messages` to send prompts.
@@ -289,6 +289,7 @@ List sessions, ordered by most recently updated.
 | `limit` | int | `50` | Max sessions to return (capped at 200) |
 | `status` | string | `"active"` | Filter by lifecycle state: `active`, `closed`, `archived`, or `all` |
 | `include_closed` | bool | `false` | Legacy alias for `status=all` when `status` is omitted |
+| `profile` | string | unset | Filter by profile scope. Use a profile name like `caelum` or `none` for unprofiled sessions only |
 
 **Response `200`**
 
@@ -313,6 +314,7 @@ List sessions, ordered by most recently updated.
   ],
   "count": 1,
   "status": "active",
+  "profile": null,
   "counts": {
     "active": 1,
     "closed": 3,
@@ -323,6 +325,8 @@ List sessions, ordered by most recently updated.
 ```
 
 Use `GET /api/v1/sessions?status=archived` to browse historical conversations without making them active again. Once you have a session ID, the normal read endpoints such as `GET /api/v1/sessions/{id}`, `GET /api/v1/sessions/{id}/messages`, and `GET /api/v1/sessions/{id}/turns` continue to work for archived history.
+
+Use `GET /api/v1/sessions?profile=caelum&status=all` to browse a single profile scope, or `GET /api/v1/sessions?profile=none&status=all` to browse only unprofiled sessions.
 
 #### `POST /api/v1/sessions`
 
@@ -455,6 +459,64 @@ Get session details.
   "created_at": "2026-02-16T14:30:00+00:00",
   "updated_at": "2026-02-16T15:45:12+00:00",
   "token_count": 12450
+}
+```
+
+#### `GET /api/v1/sessions/{id}/summary`
+
+Return a compact dashboard view for a session without fetching every child collection separately.
+
+**Response `200`**
+
+```json
+{
+  "session": {
+    "id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "profile": "caelum",
+    "status": "active"
+  },
+  "counts": {
+    "messages": {
+      "total": 24,
+      "active": 18,
+      "summarized": 6
+    },
+    "turns": 4,
+    "child_runs": 2,
+    "tasks": {
+      "total": 3,
+      "by_status": {
+        "completed": 2,
+        "failed": 1
+      }
+    },
+    "artifacts": {
+      "total": 2,
+      "persistent": 1,
+      "by_stage": {
+        "draft": 1,
+        "final": 1
+      }
+    },
+    "todos": {
+      "total": 5,
+      "pending": 1,
+      "in_progress": 1,
+      "completed": 3,
+      "cancelled": 0
+    }
+  },
+  "latest_turn": {
+    "id": "turn_123",
+    "turn_number": 4,
+    "content": "Summary complete",
+    "tools_used": ["read_file", "apply_patch"],
+    "created_at": "2026-02-16T15:43:00+00:00",
+    "completed_at": "2026-02-16T15:45:12+00:00"
+  },
+  "latest_message_at": "2026-02-16T15:45:12+00:00",
+  "latest_task_at": "2026-02-16T15:44:20+00:00",
+  "latest_activity_at": "2026-02-16T15:45:12+00:00"
 }
 ```
 
@@ -1352,6 +1414,11 @@ Returns all roles with full metadata. The response merges three layers:
 2. **Config roles** — defined in `openclaw.json` under `agents.defaults.roles`.
 3. **Custom roles** — user-created role files in `roles/`.
 
+Supports two optional picker-oriented query parameters:
+
+- `profile={name}` resolves models and role overrides for a specific profile and filters out roles disallowed by that profile's `preferences.json` role policy.
+- `selectable=true` excludes template-only roles such as internal utility roles.
+
 **Response `200`**
 
 ```json
@@ -1378,13 +1445,23 @@ Returns all roles with full metadata. The response merges three layers:
       "editable": true
     }
   ],
-  "count": 2
+  "count": 2,
+  "profile": null,
+  "selectable_only": false
 }
 ```
+
+#### `GET /api/v1/roles`
+
+App-facing alias for `GET /api/v1/config/roles`.
+
+Unlike the config route, this alias defaults to `selectable=true` so picker UIs get switchable roles by default.
 
 #### `GET /api/v1/config/roles/{name}`
 
 Get a single role with full details. System roles return metadata without instructions. Custom roles include the full instruction text.
+
+Supports `?profile={name}` to resolve profile-specific role overrides and effective models.
 
 **Response `200`** (custom role):
 
@@ -1399,9 +1476,16 @@ Get a single role with full details. System roles return metadata without instru
   "is_system": false,
   "editable": true,
   "model": "openai/gpt-5",
-  "instructions": "You are a coding specialist..."
+  "instructions": "You are a coding specialist...",
+  "profile": null,
+  "profile_override": false,
+  "selectable": true
 }
 ```
+
+#### `GET /api/v1/roles/{name}`
+
+App-facing alias for `GET /api/v1/config/roles/{name}`.
 
 **Response `404`**
 
@@ -1426,18 +1510,95 @@ Lists discovered profiles so clients can offer a profile picker instead of manua
     {
       "name": "caelum",
       "display_name": "Caelum",
-      "description": "A calm companion."
+      "description": "A calm companion.",
+      "model": "anthropic/claude-sonnet-4-20250514",
+      "is_default": true,
+      "allowed_roles": ["analyst", "orchestrator"],
+      "role_restrictions": {
+        "allow": ["orchestrator", "analyst"],
+        "deny": []
+      },
+      "has_role_restrictions": true
     },
     {
       "name": "trinity",
       "display_name": "Trinity",
-      "description": "A precise hacker and guide."
+      "description": "A precise hacker and guide.",
+      "model": null,
+      "is_default": false,
+      "allowed_roles": ["analyst", "orchestrator"],
+      "role_restrictions": {
+        "allow": [],
+        "deny": []
+      },
+      "has_role_restrictions": false
     }
   ],
   "count": 2,
   "default_profile": "caelum"
 }
 ```
+
+#### `GET /api/v1/config/profiles/{name}`
+
+Return a single profile record with picker-friendly policy details.
+
+**Response `200`**
+
+```json
+{
+  "name": "caelum",
+  "display_name": "Caelum",
+  "description": "A calm companion.",
+  "model": "anthropic/claude-sonnet-4-20250514",
+  "is_default": true,
+  "allowed_roles": ["analyst", "orchestrator"],
+  "role_restrictions": {
+    "allow": ["orchestrator", "analyst"],
+    "deny": []
+  },
+  "has_role_restrictions": true,
+  "preferences": {
+    "is_valid": true,
+    "validation_errors": [],
+    "features": {
+      "artifacts": true,
+      "projects": true,
+      "loops": true,
+      "todos": true,
+      "background_tasks": true
+    },
+    "prompt_sections": {
+      "soul": true,
+      "backstory": true,
+      "base": true,
+      "memory": true,
+      "preferences": true,
+      "tools": true,
+      "security": true,
+      "done": true,
+      "deferred_toolkits": true,
+      "project_context": true
+    },
+    "roles": {
+      "allow": ["orchestrator", "analyst"],
+      "deny": []
+    },
+    "labels": []
+  },
+  "soul": "# Caelum\n\nA calm companion."
+}
+```
+
+**Response `404`** — profile not found.
+
+#### `GET /api/v1/profiles`
+
+App-facing alias for `GET /api/v1/config/profiles`.
+
+#### `GET /api/v1/profiles/{name}`
+
+App-facing alias for `GET /api/v1/config/profiles/{name}`.
 
 #### `GET /api/v1/config/models`
 

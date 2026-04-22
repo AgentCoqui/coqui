@@ -350,9 +350,10 @@ final class ApiCommand extends Command
                 $boot->config(),
                 $boot->providerFactory(),
             ),
+            $boot->roleResolver(),
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
-        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
+        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->profileDiscovery());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
         $evaluationHandler = new EvaluationHandler($evaluationStore);
@@ -595,6 +596,7 @@ final class ApiCommand extends Command
         $router->post($v1 . '/sessions', [$session, 'create']);
         $router->post($v1 . '/sessions/resolve', [$session, 'resolve']);
         $router->get($v1 . '/sessions/{id}', [$session, 'get']);
+        $router->get($v1 . '/sessions/{id}/summary', [$session, 'summary']);
         $router->patch($v1 . '/sessions/{id}', [$session, 'update']);
         $router->delete($v1 . '/sessions/{id}', [$session, 'delete']);
         if ($sessionProject !== null) {
@@ -623,10 +625,15 @@ final class ApiCommand extends Command
         $router->post($v1 . '/config/validate', [$config, 'validate']);
         $router->get($v1 . '/config/models', [$config, 'models']);
         $router->get($v1 . '/config/profiles', [$config, 'profiles']);
+        $router->get($v1 . '/config/profiles/{name}', [$config, 'profile']);
 
         // Roles (read-only — create/update/delete are REPL-only)
         $router->get($v1 . '/config/roles', [$role, 'list']);
         $router->get($v1 . '/config/roles/{name}', [$role, 'get']);
+        $router->get($v1 . '/roles', [$role, 'list']);
+        $router->get($v1 . '/roles/{name}', [$role, 'get']);
+        $router->get($v1 . '/profiles', [$config, 'profiles']);
+        $router->get($v1 . '/profiles/{name}', [$config, 'profile']);
 
         // Credentials
         $router->get($v1 . '/credentials', [$credential, 'list']);
