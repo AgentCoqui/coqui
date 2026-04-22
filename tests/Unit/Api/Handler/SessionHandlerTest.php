@@ -8,8 +8,10 @@ use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Memory\MemoryStore;
+use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use React\Http\Message\ServerRequest;
@@ -527,6 +529,94 @@ test('session handler list filters archived history and returns lifecycle counts
             'total' => 2,
         ]);
         expect($fixture['storage']->getSession($activeId)['status'])->toBe('active');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler list filters sessions by profile scope', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $profiledSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $unprofiledSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+
+        $profiledResponse = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/sessions?profile=caelum&status=all'));
+        $profiledBody = json_decode((string) $profiledResponse->getBody(), true);
+
+        $unprofiledResponse = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/sessions?profile=none&status=all'));
+        $unprofiledBody = json_decode((string) $unprofiledResponse->getBody(), true);
+
+        expect($profiledResponse->getStatusCode())->toBe(200);
+        expect($profiledBody['profile'])->toBe('caelum');
+        expect($profiledBody['count'])->toBe(1);
+        expect($profiledBody['sessions'][0]['id'])->toBe($profiledSessionId);
+
+        expect($unprofiledResponse->getStatusCode())->toBe(200);
+        expect($unprofiledBody['profile'])->toBe('none');
+        expect($unprofiledBody['count'])->toBe(1);
+        expect($unprofiledBody['sessions'][0]['id'])->toBe($unprofiledSessionId);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler summary returns aggregate counts and latest turn data', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $todoStore = new TodoStore($fixture['storage']->getPdo());
+        $artifactStore = new ArtifactStore($fixture['storage']->getPdo());
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $fixture['storage']->addMessage($sessionId, 'user', 'Summarize this session');
+        $fixture['storage']->addMessage($sessionId, 'assistant', 'Working on it');
+
+        $turnId = $fixture['storage']->createTurn($sessionId, 'Summarize this session', 'ollama/qwen3:latest');
+        $fixture['storage']->completeTurn(
+            $turnId,
+            'Summary complete',
+            12,
+            34,
+            46,
+            2,
+            1500,
+            json_encode(['read_file', 'apply_patch']) ?: '[]',
+            1,
+        );
+
+        $fixture['storage']->logChildRun($sessionId, 1, 'analyst', 'openai/gpt-4.1-mini', 'Review the session', 'Reviewed', 77);
+
+        $taskId = $fixture['storage']->createTask(
+            sessionId: $sessionId,
+            prompt: 'Summarize the session',
+            title: 'Session summary task',
+        );
+        $fixture['storage']->updateTaskStatus($taskId, 'completed', ['result' => 'done']);
+
+        $artifactId = $artifactStore->create($sessionId, 'Session Notes', 'Summary content', stage: 'final', persistent: true);
+        $todoId = $todoStore->create($sessionId, 'Review session summary');
+        $todoStore->complete($todoId, 'agent');
+
+        $response = $fixture['handler']->summary(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/summary'), $sessionId);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['session']['id'])->toBe($sessionId);
+        expect($body['counts']['messages']['total'])->toBe(2);
+        expect($body['counts']['messages']['active'])->toBe(2);
+        expect($body['counts']['turns'])->toBe(1);
+        expect($body['counts']['child_runs'])->toBe(1);
+        expect($body['counts']['tasks']['total'])->toBe(1);
+        expect($body['counts']['tasks']['by_status']['completed'])->toBe(1);
+        expect($body['counts']['artifacts']['total'])->toBe(1);
+        expect($body['counts']['artifacts']['persistent'])->toBe(1);
+        expect($body['counts']['artifacts']['by_stage']['final'])->toBe(1);
+        expect($body['counts']['todos']['completed'])->toBe(1);
+        expect($body['latest_turn']['id'])->toBe($turnId);
+        expect($body['latest_turn']['tools_used'])->toBe(['read_file', 'apply_patch']);
+        expect($body['latest_activity_at'])->not->toBeNull();
+        expect($artifactId)->not->toBe('');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }

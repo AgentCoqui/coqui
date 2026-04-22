@@ -15,6 +15,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CoquiBot\Coqui\Support\ProcessSpawner;
 use PDO;
+use PDOException;
 
 /**
  * SQLite-backed session persistence for Coqui.
@@ -308,12 +309,20 @@ final class SessionStorage
     /**
      * @return array<array<string, mixed>>
      */
-    public function listSessions(int $limit = 50, bool $excludeTaskSessions = true, bool $activeOnly = true, ?string $status = null): array
+    public function listSessions(
+        int $limit = 50,
+        bool $excludeTaskSessions = true,
+        bool $activeOnly = true,
+        ?string $status = null,
+        ?string $profile = null,
+        bool $unprofiledOnly = false,
+    ): array
     {
         $join = $excludeTaskSessions
             ? 'LEFT JOIN background_tasks bt ON bt.session_id = s.id'
             : '';
         $conditions = [];
+        $params = [];
 
         if ($excludeTaskSessions) {
             $conditions[] = 'bt.id IS NULL';
@@ -327,6 +336,13 @@ final class SessionStorage
             $conditions[] = 's.is_archived = 1';
         } elseif ($activeOnly) {
             $conditions[] = 's.is_closed = 0';
+        }
+
+        if ($unprofiledOnly) {
+            $conditions[] = 's.profile IS NULL';
+        } elseif ($profile !== null) {
+            $conditions[] = 's.profile = :profile';
+            $params['profile'] = $profile;
         }
 
         $filter = $conditions !== []
@@ -343,10 +359,189 @@ final class SessionStorage
             LIMIT :limit
         SQL);
 
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
         $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
 
         return $this->normalizeSessionRows($stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Build a lightweight session summary for app dashboards and pickers.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getSessionSummary(string $id): ?array
+    {
+        $session = $this->getSession($id);
+        if ($session === null) {
+            return null;
+        }
+
+        $messagesTotal = $this->safeQueryScalarPreparedInt(
+            'SELECT COUNT(*) FROM messages WHERE session_id = :session_id',
+            ['session_id' => $id],
+        );
+        $messagesActive = $this->safeQueryScalarPreparedInt(
+            'SELECT COUNT(*) FROM messages WHERE session_id = :session_id AND COALESCE(is_summarized, 0) = 0',
+            ['session_id' => $id],
+        );
+        $turnsTotal = $this->safeQueryScalarPreparedInt(
+            'SELECT COUNT(*) FROM turns WHERE session_id = :session_id',
+            ['session_id' => $id],
+        );
+        $childRunsTotal = $this->safeQueryScalarPreparedInt(
+            'SELECT COUNT(*) FROM child_runs WHERE session_id = :session_id',
+            ['session_id' => $id],
+        );
+
+        $taskCounts = [
+            'total' => 0,
+            'by_status' => [],
+        ];
+        try {
+            $taskStmt = $this->db->prepare(<<<SQL
+                SELECT status, COUNT(*) AS count
+                FROM background_tasks
+                WHERE session_id = :session_id
+                GROUP BY status
+            SQL);
+            $taskStmt->execute(['session_id' => $id]);
+            foreach ($taskStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $status = (string) ($row['status'] ?? 'unknown');
+                $count = (int) ($row['count'] ?? 0);
+                $taskCounts['by_status'][$status] = $count;
+                $taskCounts['total'] += $count;
+            }
+        } catch (PDOException) {
+            $taskCounts = ['total' => 0, 'by_status' => []];
+        }
+
+        $artifactTotal = $this->safeQueryScalarPreparedInt(
+            'SELECT COUNT(*) FROM artifacts WHERE session_id = :session_id',
+            ['session_id' => $id],
+        );
+        $artifactPersistent = $this->safeQueryScalarPreparedInt(
+            'SELECT COUNT(*) FROM artifacts WHERE session_id = :session_id AND persistent = 1',
+            ['session_id' => $id],
+        );
+        $artifactStages = [];
+        try {
+            $artifactStmt = $this->db->prepare(<<<SQL
+                SELECT stage, COUNT(*) AS count
+                FROM artifacts
+                WHERE session_id = :session_id
+                GROUP BY stage
+            SQL);
+            $artifactStmt->execute(['session_id' => $id]);
+            foreach ($artifactStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $artifactStages[(string) ($row['stage'] ?? 'unknown')] = (int) ($row['count'] ?? 0);
+            }
+        } catch (PDOException) {
+            $artifactStages = [];
+        }
+
+        $todoStats = [
+            'total' => 0,
+            'pending' => 0,
+            'in_progress' => 0,
+            'completed' => 0,
+            'cancelled' => 0,
+        ];
+        try {
+            $todoStmt = $this->db->prepare(<<<SQL
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                    SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
+                FROM todos
+                WHERE session_id = :session_id
+            SQL);
+            $todoStmt->execute(['session_id' => $id]);
+            $todoRow = $todoStmt->fetch(PDO::FETCH_ASSOC);
+            if (is_array($todoRow)) {
+                $todoStats = [
+                    'total' => (int) ($todoRow['total'] ?? 0),
+                    'pending' => (int) ($todoRow['pending'] ?? 0),
+                    'in_progress' => (int) ($todoRow['in_progress'] ?? 0),
+                    'completed' => (int) ($todoRow['completed'] ?? 0),
+                    'cancelled' => (int) ($todoRow['cancelled'] ?? 0),
+                ];
+            }
+        } catch (PDOException) {
+            $todoStats = [
+                'total' => 0,
+                'pending' => 0,
+                'in_progress' => 0,
+                'completed' => 0,
+                'cancelled' => 0,
+            ];
+        }
+
+        $latestTurn = null;
+        try {
+            $latestTurnStmt = $this->db->prepare(<<<SQL
+                SELECT id, session_id, turn_number, user_prompt, response_text, model,
+                       prompt_tokens, completion_tokens, total_tokens, iterations,
+                       duration_ms, tools_used, child_agent_count, turn_process_id,
+                       result_payload, created_at, completed_at
+                FROM turns
+                WHERE session_id = :session_id
+                ORDER BY turn_number DESC
+                LIMIT 1
+            SQL);
+            $latestTurnStmt->execute(['session_id' => $id]);
+            $latestTurnRow = $latestTurnStmt->fetch(PDO::FETCH_ASSOC);
+            if (is_array($latestTurnRow)) {
+                $latestTurn = $this->normalizeTurnRow($latestTurnRow);
+            }
+        } catch (PDOException) {
+            $latestTurn = null;
+        }
+
+        $latestMessageAt = $this->safeQueryScalarPreparedString(
+            'SELECT MAX(created_at) FROM messages WHERE session_id = :session_id',
+            ['session_id' => $id],
+        );
+        $latestTaskAt = $this->safeQueryScalarPreparedString(
+            'SELECT MAX(created_at) FROM background_tasks WHERE session_id = :session_id',
+            ['session_id' => $id],
+        );
+
+        return [
+            'session' => $session,
+            'counts' => [
+                'messages' => [
+                    'total' => $messagesTotal,
+                    'active' => $messagesActive,
+                    'summarized' => max(0, $messagesTotal - $messagesActive),
+                ],
+                'turns' => $turnsTotal,
+                'child_runs' => $childRunsTotal,
+                'tasks' => $taskCounts,
+                'artifacts' => [
+                    'total' => $artifactTotal,
+                    'persistent' => $artifactPersistent,
+                    'by_stage' => $artifactStages,
+                ],
+                'todos' => $todoStats,
+            ],
+            'latest_turn' => $latestTurn,
+            'latest_message_at' => $latestMessageAt,
+            'latest_task_at' => $latestTaskAt,
+            'latest_activity_at' => $this->maxIsoTimestamp([
+                is_string($session['updated_at'] ?? null) ? $session['updated_at'] : null,
+                is_array($latestTurn) && is_string($latestTurn['completed_at'] ?? null) && $latestTurn['completed_at'] !== ''
+                    ? $latestTurn['completed_at']
+                    : (is_array($latestTurn) && is_string($latestTurn['created_at'] ?? null) ? $latestTurn['created_at'] : null),
+                $latestMessageAt,
+                $latestTaskAt,
+            ]),
+        ];
     }
 
     /**
@@ -908,6 +1103,52 @@ final class SessionStorage
         }
 
         return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * @param array<string, scalar|null> $params
+     */
+    private function safeQueryScalarPreparedInt(string $sql, array $params): int
+    {
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+
+            return (int) $stmt->fetchColumn();
+        } catch (PDOException) {
+            return 0;
+        }
+    }
+
+    /**
+     * @param array<string, scalar|null> $params
+     */
+    private function safeQueryScalarPreparedString(string $sql, array $params): ?string
+    {
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $value = $stmt->fetchColumn();
+
+            return is_string($value) && $value !== '' ? $value : null;
+        } catch (PDOException) {
+            return null;
+        }
+    }
+
+    /**
+     * @param array<int, ?string> $values
+     */
+    private function maxIsoTimestamp(array $values): ?string
+    {
+        $normalized = array_values(array_filter($values, static fn(?string $value): bool => is_string($value) && $value !== ''));
+        if ($normalized === []) {
+            return null;
+        }
+
+        usort($normalized, static fn(string $left, string $right): int => strcmp($left, $right));
+
+        return $normalized[array_key_last($normalized)] ?? null;
     }
 
     /**
