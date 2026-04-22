@@ -17,12 +17,16 @@ use CoquiBot\Coqui\Storage\TodoStore;
 use CarmeloSantana\PHPAgents\Agent\Output;
 use CarmeloSantana\PHPAgents\Enum\AgentFinishReason;
 use CarmeloSantana\PHPAgents\Enum\Role;
+use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CarmeloSantana\PHPAgents\Message\AssistantMessage;
 use CarmeloSantana\PHPAgents\Message\Conversation;
 use CarmeloSantana\PHPAgents\Message\SystemMessage;
+use CarmeloSantana\PHPAgents\Message\ToolResultMessage;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CarmeloSantana\PHPAgents\Provider\Usage;
+use CarmeloSantana\PHPAgents\Tool\ToolCall;
+use CarmeloSantana\PHPAgents\Tool\ToolResult;
 
 function makeTestCredentialResolver(string $workspacePath): CredentialResolverInterface
 {
@@ -253,6 +257,41 @@ test('collectFileEdits returns normalized recent edit entries', function () {
             'file_path' => $fixture['workspacePath'] . '/src/Test.php',
             'operation' => 'write_file',
         ]);
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
+test('persistTurnMessages stores actor metadata for assistant and tool messages', function () {
+    $fixture = createAgentRunnerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $turnId = $fixture['storage']->createTurn($sessionId, 'Review the change.');
+
+        $runner = makeAgentRunnerFixture(
+            config: $fixture['config'],
+            storage: $fixture['storage'],
+            workspacePath: $fixture['workspacePath'],
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+        );
+
+        $conversation = new Conversation();
+        $conversation->add(new SystemMessage('System'));
+        $conversation->add(new UserMessage('Review the change.'));
+        $conversation->add(new AssistantMessage('', [new ToolCall('call_1', 'read_file', ['path' => 'README.md'])]));
+        $conversation->add(new ToolResultMessage((new ToolResult(ToolResultStatus::Success, 'README contents'))->withCallId('call_1')));
+        $conversation->add(new AssistantMessage('The README looks good.'));
+
+        $method = new ReflectionMethod($runner, 'persistTurnMessages');
+        $method->invoke($runner, $conversation, 0, $sessionId, $turnId, 'nova', 'orchestrator');
+
+        $messages = $fixture['storage']->getMessages($sessionId);
+
+        expect(array_column($messages, 'role'))->toBe(['assistant', 'tool', 'assistant']);
+        expect(array_column($messages, 'actor_name'))->toBe(['nova', 'nova', 'nova']);
+        expect(array_column($messages, 'actor_role'))->toBe(['orchestrator', 'orchestrator', 'orchestrator']);
     } finally {
         cleanupAgentRunnerFixture($fixture);
     }
