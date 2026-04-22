@@ -259,7 +259,7 @@
                     },
                     "cost": {
                         "input": 2.5,
-                        "output": 15
+                        "output": 15.0
                     }
                 },
                 {
@@ -479,7 +479,7 @@
                     },
                     "cost": {
                         "input": 2.5,
-                        "output": 10
+                        "output": 10.0
                     }
                 },
                 {
@@ -811,8 +811,8 @@
                         "maxTokens": "static-fallback"
                     },
                     "cost": {
-                        "input": 2,
-                        "output": 8
+                        "input": 2.0,
+                        "output": 8.0
                     }
                 },
                 {
@@ -857,8 +857,8 @@
                         "maxTokens": "static-fallback"
                     },
                     "cost": {
-                        "input": 2,
-                        "output": 8
+                        "input": 2.0,
+                        "output": 8.0
                     }
                 },
                 {
@@ -1019,7 +1019,7 @@
                     },
                     "cost": {
                         "input": 1.25,
-                        "output": 10
+                        "output": 10.0
                     }
                 },
                 {
@@ -1048,7 +1048,7 @@
                     },
                     "cost": {
                         "input": 0.25,
-                        "output": 2
+                        "output": 2.0
                     }
                 },
                 {
@@ -1292,7 +1292,7 @@
                     },
                     "cost": {
                         "input": 1.25,
-                        "output": 10
+                        "output": 10.0
                     }
                 },
                 {
@@ -1366,7 +1366,7 @@
                     },
                     "cost": {
                         "input": 1.75,
-                        "output": 14
+                        "output": 14.0
                     }
                 },
                 {
@@ -1582,8 +1582,8 @@
                         "maxTokens": "static-fallback"
                     },
                     "cost": {
-                        "input": 30,
-                        "output": 180
+                        "input": 30.0,
+                        "output": 180.0
                     }
                 },
                 {

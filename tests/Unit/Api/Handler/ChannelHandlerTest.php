@@ -100,7 +100,8 @@ test('channel api handler creates and lists configured channels', function (): v
         expect($createResponse->getStatusCode())->toBe(201);
         expect($createBody['channel']['name'])->toBe('signal-primary');
         expect($createBody['channel']['driver'])->toBe('signal');
-        expect($createBody['channel']['worker_status'])->toBe('placeholder');
+        expect($createBody['channel']['worker_status'])->toBe('invalid_configuration');
+        expect($createBody['channel']['last_error'])->toBe('signal settings.account is required');
 
         $listResponse = $fixture['router']->dispatch(new ServerRequest('GET', '/api/v1/channels'));
         $listBody = json_decode((string) $listResponse->getBody(), true);
