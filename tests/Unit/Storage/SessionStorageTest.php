@@ -103,6 +103,26 @@ test('addMessage with tool calls', function () {
     expect($messages[0]['tool_calls'])->toBe($toolCalls);
 });
 
+test('addMessage persists actor metadata for attributed messages', function () {
+    $sessionId = $this->storage->createSession('test', 'model');
+    $turnId = $this->storage->createTurn($sessionId, 'Hello team');
+
+    $this->storage->addMessage(
+        $sessionId,
+        'assistant',
+        'I can take this one.',
+        turnId: $turnId,
+        actorName: 'nova',
+        actorRole: 'orchestrator',
+    );
+
+    $messages = $this->storage->getMessages($sessionId);
+
+    expect($messages)->toHaveCount(1);
+    expect($messages[0]['actor_name'])->toBe('nova');
+    expect($messages[0]['actor_role'])->toBe('orchestrator');
+});
+
 test('loadConversation rebuilds conversation object', function () {
     $sessionId = $this->storage->createSession('test', 'model');
 
