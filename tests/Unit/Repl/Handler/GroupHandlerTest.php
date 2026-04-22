@@ -131,6 +131,7 @@ test('group handler shows status for the current group session', function () {
         expect($display)->toContain('Group Session');
         expect($display)->toContain('@caelum, @nova');
         expect($display)->toContain('3');
+        expect($display)->toContain('@everyone/@group');
     } finally {
         cleanupGroupHandlerFixture($fixture);
     }

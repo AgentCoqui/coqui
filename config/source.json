@@ -64,6 +64,15 @@
             ]
         },
         {
+            "path": "src/Agent/GroupTurnCoordinator.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\GroupTurnCoordinator",
+            "layer": "agent",
+            "description": "Coordinates one stored turn across all members of a group-enabled session. Creates the shared turn record, persists the user prompt, selects responders from prompt mentions or the default all-member fallback, expands @everyone/@group broadcast mentions, collects per-actor replies, and emits replayable lifecycle events with selection_source and selection_rationale metadata so REPL and API surfaces can explain why each responder set was chosen.",
+            "methods": [
+                "run(string $sessionId, string $prompt, string $modelString, string $modelRole, array $members, int $maxRounds, ?string $turnProcessId, ?array $filePaths, callable $executeActor, ?callable $notifyLifecycleEvent): AgentTurnResult — execute one orchestrator-managed group turn with fan-out, handoff selection, and lifecycle event emission"
+            ]
+        },
+        {
             "path": "src/Agent/PromptBudgetManager.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\PromptBudgetManager",
             "layer": "agent",
@@ -187,7 +196,7 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface, the /channels operator surface, and the shared GroupSessionService-backed /group command into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface, the /channels operator surface, and the shared GroupSessionService-backed /group command into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. The visible prompt context line now shows active group membership for group-enabled sessions while leaving the low-level readline marker neutral. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system, resolves session, enters REPL or headless mode",
                 "runRepl(SymfonyStyle, bool): int — interactive REPL loop with readline, signal handling, slash command routing, and agent turn execution",
@@ -201,7 +210,7 @@
             "path": "src/Repl/AgentTurnExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\AgentTurnExecutor",
             "layer": "command",
-            "description": "Executes a single agent turn: builds execution policy, sets up cancellation token and SIGINT handler, switches terminal to raw mode for ESC detection, runs the agent via AgentRunner, renders output, handles title generation and sprint continuation.",
+            "description": "Executes a single REPL turn. Builds execution policy, sets up cancellation token and SIGINT handler, switches the terminal to raw mode for ESC detection, and then either runs a standard orchestrator turn via AgentRunner or routes a group-enabled session through GroupTurnCoordinator so the REPL shares the same multi-member fan-out logic as the API/background paths. For group sessions it also forwards synthetic lifecycle events into the terminal observer stack so actor labels and responder-selection rationale render live.",
             "methods": [
                 "execute(string, string, string, SymfonyStyle, bool, bool, ?string&): AgentTurnResult — full agent turn lifecycle"
             ]
@@ -347,7 +356,7 @@
             "path": "src/Repl/Handler/GroupHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\GroupHandler",
             "layer": "command",
-            "description": "Handles the /group REPL command family. Uses GroupSessionService to start or resume orchestrator-managed group sessions, inspect status, add or remove members, replace the full membership set, and change the group round cap while preserving duplicate-composition safety checks shared with the API.",
+            "description": "Handles the /group REPL command family. Uses GroupSessionService to start or resume orchestrator-managed group sessions, inspect status, add or remove members, replace the full membership set, and change the group round cap while preserving duplicate-composition safety checks shared with the API. The REPL notices and status output also explain the runtime reply-routing rules: default all-member fan-out, @name narrowing, and @everyone/@group broadcast.",
             "methods": [
                 "handle(SymfonyStyle, string, string): RouteResult — dispatches /group subcommands and may switch the active session"
             ]
@@ -1704,7 +1713,7 @@
             "path": "src/Observer/TerminalObserver.php",
             "fqcn": "CoquiBot\\Coqui\\Observer\\TerminalObserver",
             "layer": "observer",
-            "description": "SplObserver implementation that streams agent events to the terminal. Handles events: agent.start, agent.iteration, agent.tool_call, agent.tool_result, agent.done, agent.error, child.start, child.end. Manages indent level for nested child agent output, auto-renders one workspace-local ANSI image preview per turn for successful image-bearing tool results, and shares the preview limit with streamed markdown rendering.",
+            "description": "SplObserver implementation that streams agent events to the terminal. Handles standard agent events plus group_round_start and group_round_end lifecycle events. Tracks actor context so start, iteration, reasoning, tool, and done output can be labeled with the active group member, renders responder-selection rationale for group rounds, manages indent level for nested child agent output, auto-renders one workspace-local ANSI image preview per turn for successful image-bearing tool results, and shares the preview limit with streamed markdown rendering.",
             "methods": [
                 "update(SplSubject $subject): void — dispatches agent events to terminal rendering",
                 "handleEvent(string $event, mixed $data): void — direct event handling for child spawn notifications"

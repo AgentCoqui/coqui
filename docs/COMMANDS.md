@@ -43,6 +43,8 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 
 Group sessions stay orchestrator-managed and clear any single active profile scope. Starting or reshaping a group session reuses the same membership validation and duplicate-composition rules as the HTTP API.
 
+When the active session is group-enabled, the REPL prompt shows the current member list, for example `You (group session with @alex-hormozi, @trinity)`. Prompts without explicit member mentions fan out to all members in stored order. Use `@name` to narrow the responder set or `@everyone` / `@group` to force a full-team reply. During a turn, streamed start, iteration, and reasoning output is labeled with the active member so you can see who is speaking and why that responder set was chosen.
+
 ### Configuration & System
 
 | Command | Description |

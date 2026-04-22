@@ -1119,6 +1119,17 @@ When streaming is disabled, the server blocks until the agent completes and retu
 }
 ```
 
+**Group session turn routing**
+
+When the target session is group-enabled, message execution stays orchestrator-managed but fans out across the session members inside a single stored turn.
+
+- Prompts without explicit member mentions default to all group members in stored order.
+- `@name` narrows the responder set to the mentioned members in mention order.
+- `@everyone` and `@group` expand to all eligible members.
+- Historical message records and turn payloads expose `actor_name` and `actor_role` so clients can label who produced each assistant or tool message.
+
+During SSE playback for API-origin turns, the replayable event stream and stored turn events include group lifecycle events such as `group_round_start`, `group_actor_start`, `group_actor_end`, and `group_round_end`, plus actor metadata on per-agent events, so clients can reconstruct the same responder-selection story shown in the REPL.
+
 **Prompt Size Limit**
 
 The `prompt` field is limited to **1 MiB** (1,048,576 bytes). Prompts exceeding this limit return a `413` error with code `payload_too_large`.
@@ -1378,6 +1389,8 @@ Historical turn responses expose the same post-turn summary fields returned by t
 
 Get a single turn with its associated messages. For API-origin turns, the detail response also includes an `events` array with the stored SSE event log so clients can replay or inspect the intermediate progress state after completion.
 
+For group-enabled turns, the response also includes `actor_responses` in the top-level turn payload and `actor_name` / `actor_role` on nested messages. `actor_responses` preserves the grouped per-member reply order that was used to compose the final `content` field.
+
 **Response `200`**
 
 ```json
@@ -1425,6 +1438,20 @@ Get a single turn with its associated messages. For API-origin turns, the detail
   "review_feedback": null,
   "review_approved": null,
   "background_tasks": null,
+  "actor_responses": [
+    {
+      "actor_name": "alex-hormozi",
+      "actor_role": "orchestrator",
+      "content": "Good morning. I can take the first pass.",
+      "round": 1
+    },
+    {
+      "actor_name": "trinity",
+      "actor_role": "orchestrator",
+      "content": "I agree with the plan and can review the follow-up.",
+      "round": 1
+    }
+  ],
   "error": null,
   "created_at": "2026-02-16T14:30:05+00:00",
   "completed_at": "2026-02-16T14:30:10+00:00",
@@ -1435,26 +1462,31 @@ Get a single turn with its associated messages. For API-origin turns, the detail
       "content": "List the files in the current directory",
       "tool_calls": null,
       "tool_call_id": null,
+      "actor_name": null,
+      "actor_role": null,
       "created_at": "2026-02-16T14:30:05+00:00"
     }
   ],
   "events": [
     {
       "id": 1,
-      "event_type": "review_start",
+      "event_type": "group_round_start",
       "data": {
         "round": 1,
-        "max_rounds": 2,
-        "depth": 0
+        "responders": ["alex-hormozi", "trinity"],
+        "max_rounds": 3,
+        "selection_source": "default_all",
+        "selection_rationale": "No explicit member mentions were provided, so all group members respond in stored order."
       },
       "created_at": "2026-02-16T14:30:06+00:00"
     },
     {
       "id": 2,
-      "event_type": "budget_warning",
+      "event_type": "iteration",
       "data": {
-        "usage_percent": 92.5,
-        "threshold_percent": 90.0
+        "number": 1,
+        "actor_name": "alex-hormozi",
+        "actor_role": "orchestrator"
       },
       "created_at": "2026-02-16T14:30:09+00:00"
     }
@@ -1466,6 +1498,14 @@ Get a single turn with its associated messages. For API-origin turns, the detail
 
 Get the replayable stored SSE event history for a turn without fetching the nested message payload. This is useful when the client wants to reconstruct live progress UI from historical runs but already has the turn summary and does not need message records.
 
+For group-enabled turns, this endpoint exposes the same lifecycle events used during live playback. The most important event types are:
+
+- `group_round_start` — selected responders for one coordination round, including `selection_source` and `selection_rationale`
+- `group_actor_start` — the member currently beginning a response segment
+- `group_actor_end` — the completed member segment plus its next-responder handoff metadata
+- `group_round_end` — the aggregate next responder list chosen for the following round
+- standard per-agent events such as `iteration`, `reasoning`, `tool_call`, `tool_result`, and `done`, each with `actor_name` and `actor_role` when the event came from a group member
+
 **Response `200`**
 
 ```json
@@ -1475,19 +1515,23 @@ Get the replayable stored SSE event history for a turn without fetching the nest
   "events": [
     {
       "id": 1,
-      "event_type": "review_start",
+      "event_type": "group_round_start",
       "data": {
         "round": 1,
-        "max_rounds": 2,
-        "depth": 0
+        "responders": ["alex-hormozi", "trinity"],
+        "max_rounds": 3,
+        "selection_source": "default_all",
+        "selection_rationale": "No explicit member mentions were provided, so all group members respond in stored order."
       },
       "created_at": "2026-02-16T14:30:06+00:00"
     },
     {
       "id": 2,
-      "event_type": "title",
+      "event_type": "group_actor_start",
       "data": {
-        "title": "Refactor auth flow"
+        "round": 1,
+        "actor_name": "alex-hormozi",
+        "actor_role": "orchestrator"
       },
       "created_at": "2026-02-16T14:30:10+00:00"
     }

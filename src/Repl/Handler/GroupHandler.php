@@ -67,7 +67,7 @@ final readonly class GroupHandler
         }
 
         $io->success(sprintf(
-            '%s group session %s with %s.',
+            '%s group session %s with %s. Prompts without @mentions fan out to everyone; use @name to narrow or @everyone/@group to broadcast.',
             $result->created ? 'Started' : 'Resumed',
             $this->shortSessionId((string) $result->session['id']),
             $this->formatMembers($this->extractSessionMembers($result->session)),
@@ -236,6 +236,7 @@ final readonly class GroupHandler
             ['Members' => $this->formatMembers($this->extractSessionMembers($groupSession))],
             ['Max rounds' => (string) $this->currentGroupMaxRounds($groupSession)],
             ['Model role' => (string) ($groupSession['model_role'] ?? SystemRole::Orchestrator->value)],
+            ['Reply routing' => 'All members respond by default; use @name to narrow or @everyone/@group to broadcast'],
         );
 
         return RouteResult::continue();
@@ -254,6 +255,8 @@ final readonly class GroupHandler
             '  /group rounds <n>',
             '',
             'Group sessions stay orchestrator-managed and clear any single active profile scope.',
+            'General prompts fan out to all members in stored order unless you narrow them with @name.',
+            'Use @everyone or @group in a prompt to force a full-team response.',
         ]);
 
         return RouteResult::continue();

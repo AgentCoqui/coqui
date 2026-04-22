@@ -205,6 +205,36 @@ test('agent.start shows started message', function () {
     expect($output->fetch())->toContain('Agent started');
 });
 
+test('agent.start and reasoning include the active actor label when set', function () {
+    [$observer, $output] = makeTerminalObserver();
+
+    $observer->setActorContext('trinity', 'orchestrator');
+    $observer->handleEvent('agent.start', null);
+    $observer->handleEvent('agent.reasoning', 'Greeting the user.');
+
+    $text = $output->fetch();
+    expect($text)->toContain('Agent started');
+    expect($text)->toContain('(@trinity)');
+    expect($text)->toContain('Greeting the user.');
+});
+
+test('group round start prints responder selection rationale', function () {
+    [$observer, $output] = makeTerminalObserver();
+
+    $observer->handleEvent('group_round_start', [
+        'round' => 1,
+        'max_rounds' => 3,
+        'responders' => ['alex-hormozi', 'trinity'],
+        'selection_source' => 'default_all',
+        'selection_rationale' => 'No explicit member mentions were provided, so all group members respond in stored order.',
+    ]);
+
+    $text = $output->fetch();
+    expect($text)->toContain('Group round 1/3');
+    expect($text)->toContain('@alex-hormozi, @trinity');
+    expect($text)->toContain('all group members respond in stored order');
+});
+
 test('agent.error shows error message', function () {
     [$observer, $output] = makeTerminalObserver();
 

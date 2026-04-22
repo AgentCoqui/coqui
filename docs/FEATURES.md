@@ -346,12 +346,14 @@ In the interactive REPL, successful screenshot-producing tools can now render on
 
 **What it does:** All conversations are stored in SQLite with turn-level granularity. Resume any previous session, review conversation history, and maintain context across restarts.
 
-**How it helps:** Pick up where you left off. Long-running projects maintain their full history, and background tasks persist their execution records.
+**How it helps:** Pick up where you left off. Long-running projects maintain their full history, background tasks persist their execution records, and orchestrator-led group sessions preserve their member set plus turn-by-turn actor attribution.
 
 **How to use it:**
 - Resume: `/resume <session-id>` or `coqui run --session <id>`.
 - List: `/sessions` to see all sessions.
 - New: `/new` to start fresh.
+
+Group sessions are first-class persistent sessions. In the REPL, the prompt shows the active member list, general prompts fan out to all members by default, `@name` narrows the responder set, and `@everyone` or `@group` forces a full-team reply. See [COMMANDS.md](COMMANDS.md) and [API.md](API.md) for the full runtime and inspection contract.
 
 ## <a id="automatic-updates"></a> 🔄 Automatic Updates
 

@@ -23,8 +23,9 @@ final readonly class GroupTurnCoordinator
 
     /**
      * @param list<string> $members
-    * @param string[]|null $filePaths
-    * @param callable(string, string, int, ?array<int, string>, string): AgentTurnResult $executeActor
+     * @param string[]|null $filePaths
+     * @param callable(string, string, int, ?array<int, string>, string): AgentTurnResult $executeActor
+     * @param null|callable(string, array<string, mixed>): void $notifyLifecycleEvent
      */
     public function run(
         string $sessionId,
@@ -36,13 +37,15 @@ final readonly class GroupTurnCoordinator
         ?string $turnProcessId,
         ?array $filePaths,
         callable $executeActor,
+        ?callable $notifyLifecycleEvent = null,
     ): AgentTurnResult {
         $turnId = $this->storage->createTurn($sessionId, $prompt, $modelString, $turnProcessId);
         $this->storage->addMessage($sessionId, 'user', $prompt, turnId: $turnId);
 
         $maxRounds = max(1, $maxRounds);
         $round = 1;
-        $queue = $this->resolveInitialResponders($prompt, $members);
+        $selection = $this->resolveResponderSelection($prompt, $members, initialRound: true);
+        $queue = $selection['responders'];
         $deferredWork = new DeferredWorkQueue();
         $actorResponses = [];
         $toolsUsed = [];
@@ -62,20 +65,23 @@ final readonly class GroupTurnCoordinator
         $startedAt = hrtime(true);
 
         while ($queue !== [] && $round <= $maxRounds) {
-            $this->appendLifecycleEvent($turnProcessId, 'group_round_start', [
+            $this->emitLifecycleEvent($turnProcessId, $notifyLifecycleEvent, 'group_round_start', [
                 'round' => $round,
                 'responders' => $queue,
                 'max_rounds' => $maxRounds,
+                'selection_source' => $selection['source'],
+                'selection_rationale' => $selection['rationale'],
             ]);
 
             $nextRound = [];
+            $handoffSelections = [];
 
             foreach ($queue as $actorName) {
                 $actorPrompt = $round === 1
                     ? $this->buildInitialActorPrompt($actorName, $members)
                     : $this->buildFollowUpActorPrompt($actorName, $members, $round, $maxRounds);
 
-                $this->appendLifecycleEvent($turnProcessId, 'group_actor_start', [
+                $this->emitLifecycleEvent($turnProcessId, $notifyLifecycleEvent, 'group_actor_start', [
                     'round' => $round,
                     'actor_name' => $actorName,
                     'actor_role' => $modelRole,
@@ -166,27 +172,42 @@ final readonly class GroupTurnCoordinator
                     ];
                 }
 
-                foreach ($this->extractMentionedMembers($segmentResult->content, $members, $actorName) as $mentionedActor) {
+                $handoffSelection = $this->resolveResponderSelection($segmentResult->content, $members, $actorName, false);
+                $handoffSelections[] = [
+                    'actor_name' => $actorName,
+                    'source' => $handoffSelection['source'],
+                    'responders' => $handoffSelection['responders'],
+                    'rationale' => $handoffSelection['rationale'],
+                ];
+
+                foreach ($handoffSelection['responders'] as $mentionedActor) {
                     if (!in_array($mentionedActor, $nextRound, true)) {
                         $nextRound[] = $mentionedActor;
                     }
                 }
 
-                $this->appendLifecycleEvent($turnProcessId, 'group_actor_end', [
+                $this->emitLifecycleEvent($turnProcessId, $notifyLifecycleEvent, 'group_actor_end', [
                     'round' => $round,
                     'actor_name' => $actorName,
                     'actor_role' => $modelRole,
-                    'mentioned_next' => $nextRound,
+                    'mentioned_next' => $handoffSelection['responders'],
+                    'selection_source' => $handoffSelection['source'],
+                    'selection_rationale' => $handoffSelection['rationale'],
                 ]);
             }
 
-            $this->appendLifecycleEvent($turnProcessId, 'group_round_end', [
+            $nextSelection = $this->combineHandoffSelections($handoffSelections, $nextRound);
+
+            $this->emitLifecycleEvent($turnProcessId, $notifyLifecycleEvent, 'group_round_end', [
                 'round' => $round,
                 'next_responders' => $nextRound,
                 'max_rounds' => $maxRounds,
+                'selection_source' => $nextSelection['source'],
+                'selection_rationale' => $nextSelection['rationale'],
             ]);
 
             $queue = $nextRound;
+            $selection = $nextSelection;
             $round++;
         }
 
@@ -218,22 +239,11 @@ final readonly class GroupTurnCoordinator
 
     /**
      * @param list<string> $members
-     * @return list<string>
-     */
-    private function resolveInitialResponders(string $prompt, array $members): array
-    {
-        $mentioned = $this->extractMentionedMembers($prompt, $members);
-
-        return $mentioned !== [] ? $mentioned : $members;
-    }
-
-    /**
-     * @param list<string> $members
      */
     private function buildInitialActorPrompt(string $actorName, array $members): string
     {
         return sprintf(
-            'You are @%s in a group session with members: %s. Respond to the latest user message already in the conversation history. Keep the reply distinct, concise, and collaborative. If another member should continue in this same turn, mention them explicitly with @name.',
+            'You are @%s in a group session with members: %s. Respond to the latest user message already in the conversation history. Keep the reply distinct, concise, and collaborative. If another member should continue in this same turn, mention them explicitly with @name. If the whole team should continue, use @everyone or @group.',
             $actorName,
             $this->formatMembers($members),
         );
@@ -245,7 +255,7 @@ final readonly class GroupTurnCoordinator
     private function buildFollowUpActorPrompt(string $actorName, array $members, int $round, int $maxRounds): string
     {
         return sprintf(
-            'You are @%s continuing the same group turn in a session with members: %s. This is follow-up round %d of %d. Review the latest group messages already in history, add only a useful direct follow-up, avoid repeating earlier points, and mention another member with @name only if they should respond next.',
+            'You are @%s continuing the same group turn in a session with members: %s. This is follow-up round %d of %d. Review the latest group messages already in history, add only a useful direct follow-up, avoid repeating earlier points, and mention another member with @name only if they should respond next. Use @everyone or @group only when the whole team should respond.',
             $actorName,
             $this->formatMembers($members),
             $round,
@@ -257,7 +267,7 @@ final readonly class GroupTurnCoordinator
      * @param list<string> $members
      * @return list<string>
      */
-    private function extractMentionedMembers(string $content, array $members, ?string $excludeActor = null): array
+    private function extractExplicitMemberMentions(string $content, array $members, ?string $excludeActor = null): array
     {
         if ($content === '') {
             return [];
@@ -279,6 +289,113 @@ final readonly class GroupTurnCoordinator
         }
 
         return $resolved;
+    }
+
+    /**
+     * @param list<string> $members
+     * @return array{responders: list<string>, source: string, rationale: string}
+     */
+    private function resolveResponderSelection(
+        string $content,
+        array $members,
+        ?string $excludeActor = null,
+        bool $initialRound = false,
+    ): array {
+        if ($this->containsBroadcastMention($content)) {
+            $responders = $this->broadcastResponders($members, $excludeActor);
+
+            return [
+                'responders' => $responders,
+                'source' => 'broadcast',
+                'rationale' => $excludeActor === null
+                    ? 'Broadcast mention @everyone/@group requested all members in stored order.'
+                    : sprintf('Broadcast handoff from @%s requested all eligible members in stored order.', $excludeActor),
+            ];
+        }
+
+        $mentioned = $this->extractExplicitMemberMentions($content, $members, $excludeActor);
+        if ($mentioned !== []) {
+            return [
+                'responders' => $mentioned,
+                'source' => $initialRound ? 'direct_mentions' : 'handoff_mentions',
+                'rationale' => $excludeActor === null
+                    ? sprintf('Explicit member mentions selected the responders in mention order: %s.', $this->formatMembers($mentioned))
+                    : sprintf('Direct handoff from @%s selected the next responders in mention order: %s.', $excludeActor, $this->formatMembers($mentioned)),
+            ];
+        }
+
+        if ($initialRound) {
+            return [
+                'responders' => $members,
+                'source' => 'default_all',
+                'rationale' => 'No explicit member mentions were provided, so all group members respond in stored order.',
+            ];
+        }
+
+        return [
+            'responders' => [],
+            'source' => 'none',
+            'rationale' => 'No member mentions were emitted, so the turn stops after this round.',
+        ];
+    }
+
+    private function containsBroadcastMention(string $content): bool
+    {
+        return (bool) preg_match('/@(?:everyone|group)\b/i', $content);
+    }
+
+    /**
+     * @param list<string> $members
+     * @return list<string>
+     */
+    private function broadcastResponders(array $members, ?string $excludeActor = null): array
+    {
+        if ($excludeActor === null || $excludeActor === '') {
+            return $members;
+        }
+
+        return array_values(array_filter(
+            $members,
+            static fn(string $member): bool => $member !== $excludeActor,
+        ));
+    }
+
+    /**
+     * @param array<int, array{actor_name: string, source: string, responders: list<string>, rationale: string}> $handoffSelections
+     * @param list<string> $nextRound
+     * @return array{responders: list<string>, source: string, rationale: string}
+     */
+    private function combineHandoffSelections(array $handoffSelections, array $nextRound): array
+    {
+        if ($nextRound === []) {
+            return [
+                'responders' => [],
+                'source' => 'none',
+                'rationale' => 'No member mentions were emitted, so the turn stops after this round.',
+            ];
+        }
+
+        foreach ($handoffSelections as $selection) {
+            if ($selection['source'] === 'broadcast') {
+                return [
+                    'responders' => $nextRound,
+                    'source' => 'broadcast',
+                    'rationale' => sprintf(
+                        'Broadcast handoff selected all eligible members in stored order: %s.',
+                        $this->formatMembers($nextRound),
+                    ),
+                ];
+            }
+        }
+
+        return [
+            'responders' => $nextRound,
+            'source' => 'handoff_mentions',
+            'rationale' => sprintf(
+                'Member handoff mentions selected the next responders in order: %s.',
+                $this->formatMembers($nextRound),
+            ),
+        ];
     }
 
     /**
@@ -334,8 +451,17 @@ final readonly class GroupTurnCoordinator
     /**
      * @param array<string, mixed> $data
      */
-    private function appendLifecycleEvent(?string $turnProcessId, string $eventType, array $data): void
+    private function emitLifecycleEvent(
+        ?string $turnProcessId,
+        ?callable $notifyLifecycleEvent,
+        string $eventType,
+        array $data,
+    ): void
     {
+        if ($notifyLifecycleEvent !== null) {
+            $notifyLifecycleEvent($eventType, $data);
+        }
+
         if ($turnProcessId === null || $turnProcessId === '') {
             return;
         }

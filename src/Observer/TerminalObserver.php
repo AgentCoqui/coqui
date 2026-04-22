@@ -27,6 +27,7 @@ final class TerminalObserver implements SplObserver
     private bool $hasStreamedText = false;
     private bool $hasStreamedReasoning = false;
     private bool $statusLineVisible = false;
+    private ?string $currentActorName = null;
     private readonly StreamingMarkdownBuffer $markdownBuffer;
     private readonly ImagePreviewState $imagePreviewState;
     private ?AnimatedTickCallback $tickCallback = null;
@@ -54,11 +55,21 @@ final class TerminalObserver implements SplObserver
         $this->tickCallback = $callback;
     }
 
+    public function setActorContext(?string $actorName, ?string $actorRole): void
+    {
+        $this->currentActorName = is_string($actorName) && $actorName !== '' ? $actorName : null;
+    }
+
     public function update(SplSubject $subject): void
     {
         // Handle loop events from transient SplSubject
         if (method_exists($subject, 'getEventName') && method_exists($subject, 'getEventData')) {
-            $this->handleEvent($subject->getEventName(), $subject->getEventData());
+            /** @var callable(): string $getEventName */
+            $getEventName = [$subject, 'getEventName'];
+            /** @var callable(): mixed $getEventData */
+            $getEventData = [$subject, 'getEventData'];
+
+            $this->handleEvent($getEventName(), $getEventData());
             return;
         }
 
@@ -72,8 +83,13 @@ final class TerminalObserver implements SplObserver
             return;
         }
 
-        $event = $subject->lastEvent();
-        $data = $subject->lastEventData();
+        /** @var callable(): string $lastEvent */
+        $lastEvent = [$subject, 'lastEvent'];
+        /** @var callable(): mixed $lastEventData */
+        $lastEventData = [$subject, 'lastEventData'];
+
+        $event = $lastEvent();
+        $data = $lastEventData();
 
         $this->handleEvent($event, $data);
     }
@@ -96,16 +112,21 @@ final class TerminalObserver implements SplObserver
                 $this->hasStreamedReasoning = false;
                 $this->imagePreviewState->reset();
                 $this->markdownBuffer->reset();
-                $this->output->writeln("{$indent}<fg=cyan>▶ Agent started</>");
+                $this->output->writeln(sprintf('%s<fg=cyan>▶ Agent started</>%s', $indent, $this->actorDisplaySuffix()));
                 $this->showStatusLine();
             })(),
 
             'agent.iteration' => (function () use ($indent, $data): void {
+                if (is_array($data)) {
+                    $this->syncActorContextFromData($data);
+                }
+
+                $number = is_array($data) ? ($data['number'] ?? '?') : $data;
                 if ($this->hasStreamedReasoning) {
                     $this->output->writeln('');
                     $this->hasStreamedReasoning = false;
                 }
-                $this->output->writeln("{$indent}<fg=gray>  ⟳ Iteration {$data}</>");
+                $this->output->writeln(sprintf('%s<fg=gray>  ⟳ Iteration %s</>%s', $indent, (string) $number, $this->actorDisplaySuffix()));
                 $this->showStatusLine();
             })(),
 
@@ -137,6 +158,10 @@ final class TerminalObserver implements SplObserver
 
             'agent.status' => $this->handleStatus($data),
 
+            'group_round_start' => $this->handleGroupRoundStart($data, $indent),
+
+            'group_round_end' => $this->handleGroupRoundEnd($data, $indent),
+
             'child.start' => $this->handleChildStart($data, $indent),
 
             'child.end' => $this->handleChildEnd($indent),
@@ -158,6 +183,11 @@ final class TerminalObserver implements SplObserver
 
     private function handleReasoningDelta(mixed $data): void
     {
+        if (is_array($data)) {
+            $this->syncActorContextFromData($data);
+            $data = is_string($data['content'] ?? null) ? $data['content'] : '';
+        }
+
         if (!is_string($data) || $data === '') {
             return;
         }
@@ -169,7 +199,7 @@ final class TerminalObserver implements SplObserver
                 $this->clearStatusLine();
             }
             $this->hasStreamedReasoning = true;
-            $this->output->write('<fg=gray>  ⛭ </>');
+            $this->output->write('<fg=gray>  ⛭' . $this->actorPlainSuffix() . ' </>');
         }
 
         $this->output->write('<fg=gray>' . $data . '</>');
@@ -190,6 +220,11 @@ final class TerminalObserver implements SplObserver
 
     private function handleToolCall(mixed $data, string $indent): void
     {
+        if (is_array($data)) {
+            $this->syncActorContextFromData($data);
+            $data = $data['tool_call'] ?? null;
+        }
+
         if (!$data instanceof ToolCall) {
             return;
         }
@@ -225,12 +260,23 @@ final class TerminalObserver implements SplObserver
         }
 
         $args = $this->formatArguments($data->arguments);
-        $this->output->writeln("{$indent}<fg=gray>  ▸ Using:</> <fg=yellow>{$data->name}</><fg=gray>({$args})</>");
+        $this->output->writeln(sprintf(
+            '%s<fg=gray>  ▸ Using%s:</> <fg=yellow>%s</><fg=gray>(%s)</>',
+            $indent,
+            $this->actorPlainSuffix(),
+            $data->name,
+            $args,
+        ));
         $this->showStatusLine($data->name);
     }
 
     private function handleToolResult(mixed $data, string $indent): void
     {
+        if (is_array($data)) {
+            $this->syncActorContextFromData($data);
+            $data = $data['tool_result'] ?? null;
+        }
+
         if (!$data instanceof ToolResult) {
             return;
         }
@@ -241,7 +287,14 @@ final class TerminalObserver implements SplObserver
 
         $imageResult = $this->buildImageToolResultDisplay($data);
         if ($imageResult !== null) {
-            $this->output->writeln("{$indent}    <fg={$color}>{$icon}</> <fg=gray>{$imageResult['summary']}</>");
+            $this->output->writeln(sprintf(
+                '%s    <fg=%s>%s</> <fg=gray>%s%s</>',
+                $indent,
+                $color,
+                $icon,
+                $imageResult['summary'],
+                $this->actorPlainSuffix(),
+            ));
             $this->output->writeln("{$indent}      <fg=gray>Path:</> {$imageResult['path']}");
 
             if (is_string($imageResult['preview']) && trim($imageResult['preview']) !== '') {
@@ -257,12 +310,24 @@ final class TerminalObserver implements SplObserver
         // Truncate content for display
         $content = $this->truncateToolResultContent($data->content);
 
-        $this->output->writeln("{$indent}    <fg={$color}>{$icon}</> <fg=gray>{$content}</>");
+        $this->output->writeln(sprintf(
+            '%s    <fg=%s>%s</> <fg=gray>%s%s</>',
+            $indent,
+            $color,
+            $icon,
+            $content,
+            $this->actorPlainSuffix(),
+        ));
         $this->showStatusLine();
     }
 
     private function handleTextDelta(mixed $data): void
     {
+        if (is_array($data)) {
+            $this->syncActorContextFromData($data);
+            $data = is_string($data['content'] ?? null) ? $data['content'] : '';
+        }
+
         if (!is_string($data) || $data === '') {
             return;
         }
@@ -290,6 +355,10 @@ final class TerminalObserver implements SplObserver
 
     private function handleDone(mixed $data, string $indent): void
     {
+        if (is_array($data)) {
+            $this->syncActorContextFromData($data);
+        }
+
         if ($this->hasStreamedReasoning) {
             $this->output->writeln('');
             $this->hasStreamedReasoning = false;
@@ -307,9 +376,14 @@ final class TerminalObserver implements SplObserver
             if (strlen((string) $data['response']) > 50) {
                 $preview .= '...';
             }
-            $this->output->writeln("{$indent}<fg=green>✓ Done</> <fg=gray>{$preview}</>");
+            $this->output->writeln(sprintf(
+                '%s<fg=green>✓ Done</>%s <fg=gray>%s</>',
+                $indent,
+                $this->actorDisplaySuffix(),
+                $preview,
+            ));
         } else {
-            $this->output->writeln("{$indent}<fg=green>✓ Done</>");
+            $this->output->writeln(sprintf('%s<fg=green>✓ Done</>%s', $indent, $this->actorDisplaySuffix()));
         }
     }
 
@@ -425,6 +499,58 @@ final class TerminalObserver implements SplObserver
 
         $label = (string) ($data['label'] ?? '');
         $this->showStatusLine($label);
+    }
+
+    private function handleGroupRoundStart(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $round = (int) ($data['round'] ?? 1);
+        $maxRounds = (int) ($data['max_rounds'] ?? 1);
+        $responders = is_array($data['responders'] ?? null)
+            ? array_values(array_filter($data['responders'], is_string(...)))
+            : [];
+        $rationale = is_string($data['selection_rationale'] ?? null)
+            ? trim($data['selection_rationale'])
+            : '';
+        $responderLabel = $responders === []
+            ? 'no responders selected'
+            : implode(', ', array_map(static fn(string $responder): string => '@' . $responder, $responders));
+
+        $this->output->writeln(sprintf(
+            '%s<fg=magenta>◉ Group round %d/%d</> <fg=gray>→ %s</>',
+            $indent,
+            $round,
+            $maxRounds,
+            $responderLabel,
+        ));
+
+        if ($rationale !== '') {
+            $this->output->writeln(sprintf('%s  <fg=gray>↳ %s</>', $indent, $rationale));
+        }
+    }
+
+    private function handleGroupRoundEnd(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $nextResponders = is_array($data['next_responders'] ?? null)
+            ? array_values(array_filter($data['next_responders'], is_string(...)))
+            : [];
+
+        if ($nextResponders === []) {
+            return;
+        }
+
+        $this->output->writeln(sprintf(
+            '%s  <fg=gray>Next up: %s</>',
+            $indent,
+            implode(', ', array_map(static fn(string $responder): string => '@' . $responder, $nextResponders)),
+        ));
     }
 
     /**
@@ -670,14 +796,18 @@ final class TerminalObserver implements SplObserver
      */
     private function showStatusLine(string $context = ''): void
     {
+        $label = $context !== '' ? "Working on {$context}" : 'Working';
+        if ($this->currentActorName !== null) {
+            $label .= sprintf(' (@%s)', $this->currentActorName);
+        }
+
         if ($this->tickCallback !== null) {
             $this->tickCallback->resume();
-            $this->tickCallback->setContext($context);
+            $this->tickCallback->setContext($label);
             // Force immediate redraw to eliminate gap between clearStatusLine and next timer tick
             $this->tickCallback->tick();
             return;
         }
-        $label = $context !== '' ? "Working on {$context}" : 'Working';
         // \r moves to column 0, \033[K clears to end of line
         $this->output->write("\r\033[K  <fg=gray>{$label}...</> <fg=#666666>(press ESC to cancel)</>");
         $this->statusLineVisible = true;
@@ -697,5 +827,30 @@ final class TerminalObserver implements SplObserver
         }
         $this->output->write("\r\033[K");
         $this->statusLineVisible = false;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function syncActorContextFromData(array $data): void
+    {
+        $this->setActorContext(
+            is_string($data['actor_name'] ?? null) ? $data['actor_name'] : null,
+            is_string($data['actor_role'] ?? null) ? $data['actor_role'] : null,
+        );
+    }
+
+    private function actorDisplaySuffix(): string
+    {
+        return $this->currentActorName !== null
+            ? sprintf(' <fg=gray>(@%s)</>', $this->currentActorName)
+            : '';
+    }
+
+    private function actorPlainSuffix(): string
+    {
+        return $this->currentActorName !== null
+            ? sprintf(' (@%s)', $this->currentActorName)
+            : '';
     }
 }

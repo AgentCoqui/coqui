@@ -149,3 +149,119 @@ test('group turn coordinator finalizes the stored turn when a responder fails mi
     expect($turn['error'])->toBe('Provider timeout');
     expect($turn['actor_responses'])->toBe($turnResult->actorResponses);
 });
+
+test('group turn coordinator defaults the first round to all members and emits selection rationale', function () {
+    $calls = [];
+    $events = [];
+
+    $turnResult = $this->coordinator->run(
+        sessionId: $this->sessionId,
+        prompt: 'How is everyone doing today?',
+        modelString: 'test/model',
+        modelRole: 'orchestrator',
+        members: ['caelum', 'iris', 'nova'],
+        maxRounds: 1,
+        turnProcessId: null,
+        filePaths: null,
+        executeActor: function (string $actorPrompt, string $actorName, int $round, ?array $filePaths, string $turnId) use (&$calls): AgentTurnResult {
+            $calls[] = ['actor' => $actorName, 'round' => $round];
+
+            $content = sprintf('@%s checking in.', $actorName);
+            $this->storage->addMessage(
+                $this->sessionId,
+                'assistant',
+                $content,
+                turnId: $turnId,
+                actorName: $actorName,
+                actorRole: 'orchestrator',
+            );
+
+            return new AgentTurnResult(
+                content: $content,
+                iterations: 1,
+                promptTokens: 8,
+                completionTokens: 4,
+                totalTokens: 12,
+                durationMs: 15,
+                toolsUsed: [],
+                childAgentCount: 0,
+                restartRequested: false,
+            );
+        },
+        notifyLifecycleEvent: function (string $eventType, array $data) use (&$events): void {
+            $events[] = ['event_type' => $eventType, 'data' => $data];
+        },
+    );
+
+    expect(array_column($calls, 'actor'))->toBe(['caelum', 'iris', 'nova']);
+    expect($turnResult->actorResponses)->toHaveCount(3);
+    expect($events[0]['event_type'])->toBe('group_round_start');
+    expect($events[0]['data']['selection_source'])->toBe('default_all');
+    expect($events[0]['data']['selection_rationale'])->toContain('all group members respond in stored order');
+});
+
+test('group turn coordinator expands broadcast mentions for initial and follow-up selection', function () {
+    $calls = [];
+    $events = [];
+
+    $this->coordinator->run(
+        sessionId: $this->sessionId,
+        prompt: '@group weigh in on the plan.',
+        modelString: 'test/model',
+        modelRole: 'orchestrator',
+        members: ['caelum', 'iris', 'nova'],
+        maxRounds: 2,
+        turnProcessId: null,
+        filePaths: null,
+        executeActor: function (string $actorPrompt, string $actorName, int $round, ?array $filePaths, string $turnId) use (&$calls): AgentTurnResult {
+            $calls[] = $actorName . ':' . $round;
+
+            $content = match ($actorName . ':' . $round) {
+                'caelum:1' => 'Backend looks good. @everyone share any final concerns.',
+                default => sprintf('@%s has no blockers.', $actorName),
+            };
+
+            $this->storage->addMessage(
+                $this->sessionId,
+                'assistant',
+                $content,
+                turnId: $turnId,
+                actorName: $actorName,
+                actorRole: 'orchestrator',
+            );
+
+            return new AgentTurnResult(
+                content: $content,
+                iterations: 1,
+                promptTokens: 8,
+                completionTokens: 4,
+                totalTokens: 12,
+                durationMs: 15,
+                toolsUsed: [],
+                childAgentCount: 0,
+                restartRequested: false,
+            );
+        },
+        notifyLifecycleEvent: function (string $eventType, array $data) use (&$events): void {
+            $events[] = ['event_type' => $eventType, 'data' => $data];
+        },
+    );
+
+    expect($calls)->toBe([
+        'caelum:1',
+        'iris:1',
+        'nova:1',
+        'iris:2',
+        'nova:2',
+    ]);
+    expect($events[0]['data']['selection_source'])->toBe('broadcast');
+    expect($events[0]['data']['selection_rationale'])->toContain('@everyone/@group');
+
+    $roundEndEvents = array_values(array_filter(
+        $events,
+        static fn(array $event): bool => $event['event_type'] === 'group_round_end',
+    ));
+
+    expect($roundEndEvents)->toHaveCount(2);
+    expect($roundEndEvents[0]['data']['selection_source'])->toBe('broadcast');
+});
