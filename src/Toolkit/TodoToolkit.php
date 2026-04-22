@@ -33,9 +33,23 @@ use CoquiBot\Coqui\Storage\TodoStore;
  * - todo_list: List todos with optional filters
  * - todo_get: Get full details of a specific todo
  * - todo_delete: Remove one, many, or scoped todos (completed/all)
+ *
+ * @phpstan-type BulkTodoUpdate array{
+ *     id: non-empty-string,
+ *     title?: non-empty-string,
+ *     status?: 'pending'|'in_progress'|'completed'|'cancelled',
+ *     priority?: 'high'|'medium'|'low',
+ *     notes?: string|null
+ * }
  */
 final class TodoToolkit implements ToolkitInterface
 {
+    /** @var list<'pending'|'in_progress'|'completed'|'cancelled'> */
+    private const array ALLOWED_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'];
+
+    /** @var list<'high'|'medium'|'low'> */
+    private const array ALLOWED_PRIORITIES = ['high', 'medium', 'low'];
+
     public function __construct(
         private readonly TodoStore $store,
         private readonly string $sessionId,
@@ -195,7 +209,6 @@ final class TodoToolkit implements ToolkitInterface
             return ToolResult::error('Maximum 25 items per call.');
         }
 
-        $validPriorities = ['high', 'medium', 'low'];
         foreach ($items as $i => $item) {
             if (!is_array($item) || !isset($item['title']) || trim((string) $item['title']) === '') {
                 return ToolResult::error(sprintf('Item %d: title is required.', $i + 1));
@@ -203,7 +216,7 @@ final class TodoToolkit implements ToolkitInterface
             if (mb_strlen(trim((string) $item['title'])) > 200) {
                 return ToolResult::error(sprintf('Item %d: title must be 200 characters or less.', $i + 1));
             }
-            if (isset($item['priority']) && !in_array($item['priority'], $validPriorities, true)) {
+            if (isset($item['priority']) && !in_array($item['priority'], self::ALLOWED_PRIORITIES, true)) {
                 return ToolResult::error(sprintf('Item %d: invalid priority "%s".', $i + 1, $item['priority']));
             }
         }
@@ -306,37 +319,67 @@ final class TodoToolkit implements ToolkitInterface
             return ToolResult::error('Maximum 25 items per call.');
         }
 
-        $validStatuses = ['pending', 'in_progress', 'completed', 'cancelled'];
-        $validPriorities = ['high', 'medium', 'low'];
-        /** @var list<array{id: string, title?: string, status?: string, priority?: string, notes?: string}> $typedUpdates */
+        /** @var list<BulkTodoUpdate> $typedUpdates */
         $typedUpdates = [];
         foreach ($updates as $i => $update) {
-            if (!is_array($update) || !isset($update['id']) || trim((string) $update['id']) === '') {
-                return ToolResult::error(sprintf('Item %d: id is required.', $i + 1));
-            }
-            if (isset($update['status']) && !in_array($update['status'], $validStatuses, true)) {
-                return ToolResult::error(sprintf('Item %d: invalid status "%s".', $i + 1, $update['status']));
-            }
-            if (isset($update['priority']) && !in_array($update['priority'], $validPriorities, true)) {
-                return ToolResult::error(sprintf('Item %d: invalid priority "%s".', $i + 1, $update['priority']));
-            }
-            if (isset($update['title']) && mb_strlen(trim((string) $update['title'])) > 200) {
-                return ToolResult::error(sprintf('Item %d: title must be 200 characters or less.', $i + 1));
+            if (!is_array($update)) {
+                return ToolResult::error(sprintf('Item %d: each update must be an object.', $i + 1));
             }
 
-            $typed = ['id' => (string) $update['id']];
-            if (isset($update['title'])) {
-                $typed['title'] = (string) $update['title'];
+            $id = trim((string) ($update['id'] ?? ''));
+            if ($id === '') {
+                return ToolResult::error(sprintf('Item %d: id is required.', $i + 1));
             }
-            if (isset($update['status'])) {
-                $typed['status'] = (string) $update['status'];
+
+            /** @var BulkTodoUpdate $typed */
+            $typed = ['id' => $id];
+            $fieldCount = 0;
+
+            if (array_key_exists('title', $update)) {
+                $title = trim((string) $update['title']);
+                if ($title === '') {
+                    return ToolResult::error(sprintf('Item %d: title cannot be empty.', $i + 1));
+                }
+                if (mb_strlen($title) > 200) {
+                    return ToolResult::error(sprintf('Item %d: title must be 200 characters or less.', $i + 1));
+                }
+
+                /** @var non-empty-string $title */
+                $typed['title'] = $title;
+                $fieldCount++;
             }
-            if (isset($update['priority'])) {
-                $typed['priority'] = (string) $update['priority'];
+
+            if (array_key_exists('status', $update)) {
+                $status = strtolower(trim((string) $update['status']));
+                if (!in_array($status, self::ALLOWED_STATUSES, true)) {
+                    return ToolResult::error(sprintf('Item %d: invalid status "%s".', $i + 1, (string) $update['status']));
+                }
+
+                /** @var 'pending'|'in_progress'|'completed'|'cancelled' $status */
+                $typed['status'] = $status;
+                $fieldCount++;
             }
-            if (isset($update['notes'])) {
-                $typed['notes'] = (string) $update['notes'];
+
+            if (array_key_exists('priority', $update)) {
+                $priority = strtolower(trim((string) $update['priority']));
+                if (!in_array($priority, self::ALLOWED_PRIORITIES, true)) {
+                    return ToolResult::error(sprintf('Item %d: invalid priority "%s".', $i + 1, (string) $update['priority']));
+                }
+
+                /** @var 'high'|'medium'|'low' $priority */
+                $typed['priority'] = $priority;
+                $fieldCount++;
             }
+
+            if (array_key_exists('notes', $update)) {
+                $typed['notes'] = $update['notes'] !== null ? (string) $update['notes'] : null;
+                $fieldCount++;
+            }
+
+            if ($fieldCount === 0) {
+                return ToolResult::error(sprintf('Item %d: provide at least one mutable field.', $i + 1));
+            }
+
             $typedUpdates[] = $typed;
         }
 
