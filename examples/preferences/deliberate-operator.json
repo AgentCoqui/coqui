@@ -1,0 +1,43 @@
+{
+  "prompt_directives": {
+    "response_style": "structured and measured",
+    "decision_making": "state tradeoffs before recommending a path",
+    "collaboration": "call out risks and assumptions early"
+  },
+  "behavior": {
+    "temperature_hint": 0.35,
+    "planning_mode": "deliberate",
+    "response_density": "high-signal"
+  },
+  "prompts": {
+    "features": {
+      "artifacts": true,
+      "projects": false,
+      "loops": true,
+      "todos": true,
+      "background_tasks": false
+    },
+    "prompt_sections": {
+      "tools": "stub",
+      "project": false,
+      "deferred": false,
+      "done": "stub"
+    },
+    "roles": {
+      "allow": [
+        "orchestrator",
+        "plan",
+        "coder",
+        "reviewer",
+        "philosopher"
+      ],
+      "deny": [
+        "muse",
+        "vision"
+      ]
+    },
+    "labels": {
+      "backstory": "Operating Context"
+    }
+  }
+}

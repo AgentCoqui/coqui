@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Renderer\MarkdownRenderer;
 use CoquiBot\Coqui\Renderer\PromptUsageBar;
 use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
+use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
@@ -26,9 +27,12 @@ use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
+use CoquiBot\Coqui\Support\ImagePreviewService;
+use CoquiBot\Coqui\Support\ImagePreviewState;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use CoquiBot\Coqui\Support\ToolkitDatabaseFactory;
 use CoquiBot\Coqui\Contract\SystemRole;
+use CoquiBot\Coqui\Repl\ToolkitScreenHost;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Output\OutputInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -54,6 +58,7 @@ final class SlashCommandRouter
         private readonly TodoHandler $todo,
         private readonly ScheduleHandler $schedule,
         private readonly BudgetHandler $budget,
+        private readonly ChannelHandler $channel,
         private readonly QualityHandler $quality,
         private readonly ProjectHandler $project,
         private readonly RoleHandler $role,
@@ -70,6 +75,7 @@ final class SlashCommandRouter
         private readonly PromptInspectionService $promptInspection,
         private readonly OutputInterface $output,
         private readonly string $workspacePath,
+        private readonly ?ImagePreviewService $imagePreviewService,
         private readonly \Closure $onHintsToggle,
         private readonly \Closure $onMultilineToggle,
         array $toolkitCommandHandlers = [],
@@ -101,7 +107,7 @@ final class SlashCommandRouter
         $result = match ($cmd) {
             '/quit', '/exit', '/q' => $this->handleQuit($io),
             '/restart' => RouteResult::exit(ConfigHandler::RESTART_EXIT_CODE),
-            '/new' => $this->handleNew($io),
+            '/new' => $this->handleNew($io, $sessionId, $activeProfile),
             '/history' => $this->handleHistory($io, $sessionId),
             '/sessions' => $this->handleSessions($io, $sessionId),
             '/resume' => $this->handleResume($io, $arg),
@@ -116,9 +122,10 @@ final class SlashCommandRouter
             '/update' => $this->handleUpdate($io),
             '/toolkits' => $this->handleToolkits($io, $arg),
             '/budget' => $this->handleBudget($io, $arg, $activeRole, $activeProfile),
+            '/channels' => $this->handleChannels($io, $arg),
             '/prompt' => $this->handlePrompt($io, $arg, $activeRole, $activeProfile),
             '/summarize' => $this->handleSummarize($io, $arg, $sessionId),
-            '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId),
+            '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId, $activeProfile),
             '/roles' => $this->handleRoles($io, $arg, $activeRole),
             '/profile' => $this->handleProfile($io, $arg, $activeRole, $activeProfile),
             '/profiles' => $this->handleProfiles($io, $activeProfile),
@@ -147,11 +154,16 @@ final class SlashCommandRouter
         return RouteResult::exit(Command::SUCCESS);
     }
 
-    private function handleNew(SymfonyStyle $io): RouteResult
+    private function handleNew(SymfonyStyle $io, string $sessionId, ?string $activeProfile): RouteResult
     {
-        $sessionId = $this->session->createNewSession();
-        $io->success('New session started: ' . $sessionId);
-        return RouteResult::stateChange(newSessionId: $sessionId, newActiveRole: SystemRole::Orchestrator->value);
+        $newSessionId = $this->session->startFreshSession($io, $sessionId, $activeProfile);
+        if ($newSessionId === null) {
+            return RouteResult::continue();
+        }
+
+        $io->success('New session started: ' . $newSessionId);
+
+        return RouteResult::stateChange(newSessionId: $newSessionId, newActiveRole: SystemRole::Orchestrator->value);
     }
 
     private function handleHistory(SymfonyStyle $io, string $sessionId): RouteResult
@@ -250,6 +262,12 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
+    private function handleChannels(SymfonyStyle $io, string $arg): RouteResult
+    {
+        $this->channel->handle($io, $arg);
+        return RouteResult::continue();
+    }
+
     private function handlePrompt(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
     {
         $role = $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null;
@@ -262,7 +280,7 @@ final class SlashCommandRouter
 
         $preview = $this->promptInspection->inspect($role, $activeProfile);
         $io->section('System Prompt');
-        $io->write(MarkdownRenderer::render($preview['prompt']));
+        $this->renderMarkdown($io, $preview['prompt']);
         $io->newLine();
         $io->text([
             '<fg=gray>Tool count:</> ' . $preview['tool_count'],
@@ -385,9 +403,9 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleRole(SymfonyStyle $io, string $arg, string $activeRole, string $sessionId): RouteResult
+    private function handleRole(SymfonyStyle $io, string $arg, string $activeRole, string $sessionId, ?string $activeProfile): RouteResult
     {
-        $newRole = $this->role->handleRole($io, $arg, $activeRole, $sessionId);
+        $newRole = $this->role->handleRole($io, $arg, $activeRole, $sessionId, $activeProfile);
         if ($newRole !== null) {
             return RouteResult::stateChange(newActiveRole: $newRole);
         }
@@ -503,6 +521,15 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
+    private function renderMarkdown(SymfonyStyle $io, string $markdown): void
+    {
+        $io->write(MarkdownRenderer::render(
+            $markdown,
+            $this->imagePreviewService,
+            new ImagePreviewState(),
+        ));
+    }
+
     /**
      * Dispatch to a toolkit-provided command handler, or show unknown command error.
      */
@@ -527,6 +554,7 @@ final class SlashCommandRouter
                 sessionId: $sessionId,
                 output: $this->output,
                 databaseFactory: new ToolkitDatabaseFactory($this->workspacePath),
+                screenHost: new ToolkitScreenHost($this->output),
             );
             $this->toolkitHandlers[$name]->handle($context, $arg);
 

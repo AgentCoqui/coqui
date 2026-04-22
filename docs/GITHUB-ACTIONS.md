@@ -200,7 +200,7 @@ The full workflow lives at `.github/workflows/ci.yml`. Key design decisions:
 
 ## Platform Support
 
-Linux and macOS are the primary supported platforms. WSL is the recommended environment for Windows users.
+Linux and macOS are the primary supported platforms. WSL2 is the supported environment for Windows users.
 
 The CI matrix runs `windows-latest` for basic cross-platform coverage, but `ShellToolkit` and `FileSystemToolkit` are designed for Unix environments — tests that rely on Unix commands (`ls`, `rm`, `grep`, etc.) or Unix path/permission semantics are skipped on Windows. Windows CI failures in those areas do not indicate product bugs.
 

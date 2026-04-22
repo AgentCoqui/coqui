@@ -17,7 +17,7 @@ function createApiProjectHandlerFixture(): array
         'dbPath' => $dbPath,
         'storage' => $storage,
         'projectStore' => $projectStore,
-        'handler' => new ProjectHandler($projectStore),
+        'handler' => new ProjectHandler($projectStore, $storage),
     ];
 }
 
@@ -95,6 +95,171 @@ test('project handler returns project sprint listing and sprint detail', functio
         expect($getResponse->getStatusCode())->toBe(200);
         expect($getBody['sprint']['id'])->toBe($sprintId);
         expect($getBody['project']['id'])->toBe($projectId);
+    } finally {
+        cleanupApiProjectHandlerFixture($fixture);
+    }
+});
+
+test('project handler creates updates archives and deletes projects', function () {
+    $fixture = createApiProjectHandlerFixture();
+
+    try {
+        $createResponse = $fixture['handler']->create(
+            new ServerRequest(
+                'POST',
+                '/api/v1/projects',
+                ['Content-Type' => 'application/json'],
+                json_encode([
+                    'title' => 'Career Ops',
+                    'slug' => 'career-ops',
+                    'description' => 'Career workflow system',
+                ]) ?: '',
+            ),
+        );
+        $createBody = json_decode((string) $createResponse->getBody(), true);
+        $projectId = $createBody['project']['id'];
+
+        $updateResponse = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/projects/career-ops',
+                ['Content-Type' => 'application/json'],
+                json_encode([
+                    'title' => 'Career Ops Platform',
+                    'description' => 'Career workflow system v2',
+                ]) ?: '',
+            ),
+            'career-ops',
+        );
+        $archiveResponse = $fixture['handler']->archive(
+            new ServerRequest('POST', '/api/v1/projects/' . $projectId . '/archive'),
+            $projectId,
+        );
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $fixture['storage']->setActiveProject($sessionId, $projectId);
+
+        $deleteResponse = $fixture['handler']->delete(
+            new ServerRequest('DELETE', '/api/v1/projects/' . $projectId),
+            $projectId,
+        );
+        $deleteBody = json_decode((string) $deleteResponse->getBody(), true);
+
+        expect($createResponse->getStatusCode())->toBe(201);
+        expect($updateResponse->getStatusCode())->toBe(200);
+        expect(json_decode((string) $updateResponse->getBody(), true)['project']['title'])->toBe('Career Ops Platform');
+        expect($archiveResponse->getStatusCode())->toBe(200);
+        expect(json_decode((string) $archiveResponse->getBody(), true)['project']['status'])->toBe('archived');
+        expect($deleteResponse->getStatusCode())->toBe(200);
+        expect($deleteBody['deleted'])->toBeTrue();
+        expect($fixture['projectStore']->getProject($projectId))->toBeNull();
+        expect($fixture['storage']->getActiveProjectId($sessionId))->toBeNull();
+    } finally {
+        cleanupApiProjectHandlerFixture($fixture);
+    }
+});
+
+test('project handler creates updates and transitions sprint lifecycle', function () {
+    $fixture = createApiProjectHandlerFixture();
+
+    try {
+        $projectId = $fixture['projectStore']->createProject('Mobile App', 'mobile-app');
+
+        $createResponse = $fixture['handler']->createSprint(
+            new ServerRequest(
+                'POST',
+                '/api/v1/projects/mobile-app/sprints',
+                ['Content-Type' => 'application/json'],
+                json_encode([
+                    'title' => 'MVP Sprint',
+                    'acceptance_criteria' => 'Core app shell is navigable.',
+                    'contract_artifact_id' => 'artifact-contract',
+                    'max_review_rounds' => 4,
+                ]) ?: '',
+            ),
+            'mobile-app',
+        );
+        $createBody = json_decode((string) $createResponse->getBody(), true);
+        $sprintId = $createBody['sprint']['id'];
+
+        $updateResponse = $fixture['handler']->updateSprint(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sprints/' . $sprintId,
+                ['Content-Type' => 'application/json'],
+                json_encode([
+                    'title' => 'MVP Sprint Alpha',
+                    'max_review_rounds' => 5,
+                ]) ?: '',
+            ),
+            $sprintId,
+        );
+
+        $startResponse = $fixture['handler']->startSprint(new ServerRequest('POST', '/api/v1/sprints/' . $sprintId . '/start'), $sprintId);
+        $reviewResponse = $fixture['handler']->submitReview(new ServerRequest('POST', '/api/v1/sprints/' . $sprintId . '/submit-review'), $sprintId);
+        $rejectResponse = $fixture['handler']->rejectSprint(
+            new ServerRequest(
+                'POST',
+                '/api/v1/sprints/' . $sprintId . '/reject',
+                ['Content-Type' => 'application/json'],
+                json_encode(['reviewer_notes' => 'Needs stronger acceptance coverage.']) ?: '',
+            ),
+            $sprintId,
+        );
+        $restartResponse = $fixture['handler']->startSprint(new ServerRequest('POST', '/api/v1/sprints/' . $sprintId . '/start'), $sprintId);
+        $resubmitResponse = $fixture['handler']->submitReview(new ServerRequest('POST', '/api/v1/sprints/' . $sprintId . '/submit-review'), $sprintId);
+        $completeResponse = $fixture['handler']->completeSprint(new ServerRequest('POST', '/api/v1/sprints/' . $sprintId . '/complete'), $sprintId);
+
+        expect($createResponse->getStatusCode())->toBe(201);
+        expect($createBody['sprint']['status'])->toBe('planned');
+        expect((int) $createBody['sprint']['max_review_rounds'])->toBe(4);
+
+        $updatedBody = json_decode((string) $updateResponse->getBody(), true);
+        expect($updateResponse->getStatusCode())->toBe(200);
+        expect($updatedBody['sprint']['title'])->toBe('MVP Sprint Alpha');
+        expect((int) $updatedBody['sprint']['max_review_rounds'])->toBe(5);
+
+        expect(json_decode((string) $startResponse->getBody(), true)['sprint']['status'])->toBe('in_progress');
+        expect(json_decode((string) $reviewResponse->getBody(), true)['sprint']['status'])->toBe('review');
+
+        $rejectBody = json_decode((string) $rejectResponse->getBody(), true);
+        expect($rejectBody['sprint']['status'])->toBe('rejected');
+        expect($rejectBody['sprint']['reviewer_notes'])->toBe('Needs stronger acceptance coverage.');
+        expect((int) $rejectBody['sprint']['review_round'])->toBe(1);
+
+        expect(json_decode((string) $restartResponse->getBody(), true)['sprint']['status'])->toBe('in_progress');
+        expect(json_decode((string) $resubmitResponse->getBody(), true)['sprint']['status'])->toBe('review');
+
+        $completeBody = json_decode((string) $completeResponse->getBody(), true);
+        expect($completeBody['sprint']['status'])->toBe('complete');
+        expect($completeBody['project']['id'])->toBe($projectId);
+    } finally {
+        cleanupApiProjectHandlerFixture($fixture);
+    }
+});
+
+test('project handler only deletes planned sprints', function () {
+    $fixture = createApiProjectHandlerFixture();
+
+    try {
+        $projectId = $fixture['projectStore']->createProject('Website Refresh', 'website-refresh');
+        $plannedSprintId = $fixture['projectStore']->createSprint($projectId, 'Plan Scope');
+        $activeSprintId = $fixture['projectStore']->createSprint($projectId, 'Implement Homepage');
+        $fixture['projectStore']->transitionSprint($activeSprintId, 'in_progress');
+
+        $plannedDelete = $fixture['handler']->deleteSprint(
+            new ServerRequest('DELETE', '/api/v1/sprints/' . $plannedSprintId),
+            $plannedSprintId,
+        );
+        $activeDelete = $fixture['handler']->deleteSprint(
+            new ServerRequest('DELETE', '/api/v1/sprints/' . $activeSprintId),
+            $activeSprintId,
+        );
+
+        expect($plannedDelete->getStatusCode())->toBe(200);
+        expect($fixture['projectStore']->getSprint($plannedSprintId))->toBeNull();
+        expect($activeDelete->getStatusCode())->toBe(409);
+        expect($fixture['projectStore']->getSprint($activeSprintId))->not->toBeNull();
     } finally {
         cleanupApiProjectHandlerFixture($fixture);
     }

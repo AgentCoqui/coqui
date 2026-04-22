@@ -143,9 +143,29 @@ final class OpenClawConfig implements ConfigInterface
 
     public function getImageModel(): ?string
     {
-        $model = $this->get('agents.defaults.imageModel.primary');
+        $model = $this->get('agents.defaults.model.imageModel');
 
         return is_string($model) ? $model : null;
+    }
+
+    /**
+     * @return string[]
+     */
+    public function getImageFallbacks(): array
+    {
+        $fallbacks = $this->get('agents.defaults.model.imageFallbacks', []);
+
+        return is_array($fallbacks) ? array_values(array_filter($fallbacks, 'is_string')) : [];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getImageProviders(): array
+    {
+        $providers = $this->get('images.providers', []);
+
+        return is_array($providers) ? $providers : [];
     }
 
     /**
@@ -153,9 +173,21 @@ final class OpenClawConfig implements ConfigInterface
      */
     public function getImageConfig(): array
     {
-        $config = $this->get('agents.defaults.imageModel', []);
+        $config = [
+            'primary' => $this->getImageModel(),
+            'fallbacks' => $this->getImageFallbacks(),
+            'providers' => $this->getImageProviders(),
+        ];
 
-        return is_array($config) ? $config : [];
+        $ownerName = $this->get('images.ownerName');
+        if (is_string($ownerName) && trim($ownerName) !== '') {
+            $config['ownerName'] = trim($ownerName);
+        }
+
+        return array_filter(
+            $config,
+            static fn(mixed $value): bool => $value !== null,
+        );
     }
 
     /**
@@ -248,6 +280,52 @@ final class OpenClawConfig implements ConfigInterface
                 'maxAttempts' => is_int($maxAttempts) && $maxAttempts >= 1 ? $maxAttempts : CoquiDefaults::NOTIFICATION_AUTOMATION_MAX_ATTEMPTS,
                 'retryDelaySeconds' => is_int($retryDelaySeconds) && $retryDelaySeconds >= 1 ? $retryDelaySeconds : CoquiDefaults::NOTIFICATION_AUTOMATION_RETRY_DELAY_SECONDS,
             ],
+        ];
+    }
+
+    /**
+     * Get normalized channel configuration.
+     *
+     * @return array{
+     *     defaults: array<string, mixed>,
+     *     instances: array<string, mixed>
+     * }
+     */
+    public function getChannelConfig(): array
+    {
+        $channels = $this->get('channels', []);
+        $defaults = is_array($channels) && isset($channels['defaults']) && is_array($channels['defaults'])
+            ? $channels['defaults']
+            : [];
+        $instances = is_array($channels) && isset($channels['instances']) && is_array($channels['instances'])
+            ? $channels['instances']
+            : [];
+
+        $normalizedDefaults = [
+            'unknownUserPolicy' => is_string($defaults['unknownUserPolicy'] ?? null)
+                ? $defaults['unknownUserPolicy']
+                : CoquiDefaults::CHANNEL_UNKNOWN_USER_POLICY,
+            'executionPolicy' => is_string($defaults['executionPolicy'] ?? null)
+                ? $defaults['executionPolicy']
+                : CoquiDefaults::CHANNEL_EXECUTION_POLICY,
+            'inboundRateLimit' => is_int($defaults['inboundRateLimit'] ?? null) && $defaults['inboundRateLimit'] > 0
+                ? $defaults['inboundRateLimit']
+                : CoquiDefaults::CHANNEL_INBOUND_RATE_LIMIT,
+            'outboundConcurrency' => is_int($defaults['outboundConcurrency'] ?? null) && $defaults['outboundConcurrency'] > 0
+                ? $defaults['outboundConcurrency']
+                : CoquiDefaults::CHANNEL_OUTBOUND_CONCURRENCY,
+            'healthCheckIntervalSeconds' => is_int($defaults['healthCheckIntervalSeconds'] ?? null) && $defaults['healthCheckIntervalSeconds'] > 0
+                ? $defaults['healthCheckIntervalSeconds']
+                : CoquiDefaults::CHANNEL_HEALTH_CHECK_INTERVAL_SECONDS,
+        ];
+
+        if (isset($defaults['defaultProfile']) && is_string($defaults['defaultProfile']) && trim($defaults['defaultProfile']) !== '') {
+            $normalizedDefaults['defaultProfile'] = trim($defaults['defaultProfile']);
+        }
+
+        return [
+            'defaults' => $normalizedDefaults,
+            'instances' => $instances,
         ];
     }
 

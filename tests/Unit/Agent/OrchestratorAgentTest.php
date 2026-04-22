@@ -15,6 +15,9 @@ use CoquiBot\Coqui\Contract\MountDefinition;
 use CoquiBot\Coqui\Memory\MemoryEntry;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
+use CoquiBot\Coqui\Storage\ProjectStore;
+use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Tool\StubTool;
 
 beforeEach(function () {
     $this->workspace = sys_get_temp_dir() . '/coqui-agent-test-' . bin2hex(random_bytes(4));
@@ -507,6 +510,61 @@ test('activeRole instructions uses role markdown when role exists', function () 
     rmdir($rolesDir);
     unlink($this->workspace . '/prompts/soul.md');
     rmdir($this->workspace . '/prompts');
+});
+
+test('profile policy can disable project toolkits and stub non-core standalone tools', function () {
+    $dbPath = sys_get_temp_dir() . '/coqui-agent-policy-' . bin2hex(random_bytes(4)) . '.db';
+    $storage = new SessionStorage($dbPath);
+    $projectStore = new ProjectStore($storage->getPdo());
+    $sessionId = $storage->createSession('orchestrator', 'ollama/qwen3:latest');
+
+    try {
+        $agent = new OrchestratorAgent(
+            provider: $this->provider,
+            roleResolver: $this->roleResolver,
+            config: $this->config,
+            projectRoot: $this->projectRoot,
+            workspacePath: $this->workspace,
+            storage: $storage,
+            sessionId: $sessionId,
+            projectStore: $projectStore,
+            profilePreferences: ProfilePreferences::fromArray([
+                'prompts' => [
+                    'features' => [
+                        'artifacts' => false,
+                        'todos' => false,
+                        'projects' => false,
+                        'loops' => false,
+                    ],
+                    'prompt_sections' => [
+                        'tools' => 'stub',
+                    ],
+                ],
+            ]),
+        );
+
+        $toolNames = array_map(static fn($tool) => $tool->name(), array_slice($agent->tools(), 2));
+        $stubbedTools = array_filter(array_slice($agent->tools(), 2), static fn($tool) => $tool instanceof StubTool);
+        $breakdownClasses = array_map(
+            static fn(array $entry): string => $entry['class'],
+            $agent->getToolkitTokenBreakdown(new HeuristicCounter()),
+        );
+        $policy = $agent->getProfilePolicySummary();
+
+        expect($toolNames)->toContain('spawn_agent');
+        expect($stubbedTools)->not->toBeEmpty();
+        expect($breakdownClasses)->not->toContain('CoquiBot\\Coqui\\Toolkit\\ArtifactToolkit');
+        expect($breakdownClasses)->not->toContain('CoquiBot\\Coqui\\Toolkit\\TodoToolkit');
+        expect($breakdownClasses)->not->toContain('CoquiBot\\Coqui\\Toolkit\\SprintToolkit');
+        expect($policy)->not->toBeNull();
+        expect($policy['tools_stubbed'])->toBeTrue();
+        expect($policy['excluded_tool_prompt_slugs'])->toContain('artifacts');
+        expect($policy['excluded_tool_prompt_slugs'])->toContain('todos');
+        expect($policy['excluded_tool_prompt_slugs'])->toContain('sprints');
+        expect($policy['excluded_tool_prompt_slugs'])->toContain('loops');
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+    }
 });
 
 // --- Profile soul loading ---

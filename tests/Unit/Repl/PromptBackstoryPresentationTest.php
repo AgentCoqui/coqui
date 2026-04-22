@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Repl\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
+use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
@@ -129,6 +130,7 @@ function createPromptBackstoryRouterFixture(): array
         $instantiate(TodoHandler::class),
         $instantiate(ScheduleHandler::class),
         $instantiate(BudgetHandler::class),
+        $instantiate(ChannelHandler::class),
         $instantiate(QualityHandler::class),
         $instantiate(ProjectHandler::class),
         $instantiate(RoleHandler::class),
@@ -145,6 +147,7 @@ function createPromptBackstoryRouterFixture(): array
         new PromptInspectionService($runner, $workspacePath, $projectRoot),
         $output,
         $workspacePath,
+        null,
         static function (): void {},
         static function (?bool $enable = null): void {},
     );

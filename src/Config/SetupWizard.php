@@ -5,8 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PHPAgents\Config\ModelDefinition;
-use CarmeloSantana\PHPAgents\Provider\OllamaProvider;
-use CarmeloSantana\PHPAgents\Provider\OpenAICompatibleProvider;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Repl\InterruptiblePrompt;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -29,13 +28,17 @@ final class SetupWizard
     private array $modelMetadata = [];
 
     private readonly InterruptiblePrompt $prompt;
+    private readonly ModelMetadataResolver $modelMetadataResolver;
 
     public function __construct(
         private readonly SymfonyStyle $io,
         private readonly DefaultsLoader $defaults,
         private readonly ?CredentialResolver $credentialResolver = null,
+        ?ModelMetadataResolver $modelMetadataResolver = null,
     ) {
         $this->prompt = new InterruptiblePrompt($io);
+        $this->modelMetadataResolver = $modelMetadataResolver
+            ?? new ModelMetadataResolver($defaults, new ModelFamilyResolver($defaults->familyNames()));
     }
 
     /**
@@ -203,7 +206,7 @@ final class SetupWizard
         }
 
         $defaults = $existingConfig['agents']['defaults'] ?? [];
-        $currentImageModelConfig = is_array($defaults['imageModel'] ?? null) ? $defaults['imageModel'] : [];
+        $currentImageModelConfig = $this->extractExistingImageConfig($existingConfig);
 
         // --- Providers & Models ---
         if (in_array('providers', $selectedKeys, true)) {
@@ -357,9 +360,22 @@ final class SetupWizard
         }
 
         if ($imageModelConfig !== []) {
-            $config['agents']['defaults']['imageModel'] = $imageModelConfig;
+            $config['agents']['defaults']['model']['imageModel'] = $imageModelConfig['primary'] ?? null;
+            $config['agents']['defaults']['model']['imageFallbacks'] = $imageModelConfig['fallbacks'] ?? [];
+
+            $images = [
+                'providers' => $imageModelConfig['providers'] ?? [],
+            ];
+
+            if (isset($imageModelConfig['ownerName']) && is_string($imageModelConfig['ownerName']) && trim($imageModelConfig['ownerName']) !== '') {
+                $images['ownerName'] = trim($imageModelConfig['ownerName']);
+            }
+
+            $config['images'] = $images;
         } else {
-            unset($config['agents']['defaults']['imageModel']);
+            unset($config['agents']['defaults']['model']['imageModel']);
+            unset($config['agents']['defaults']['model']['imageFallbacks']);
+            unset($config['images']);
         }
 
         if ($mounts !== []) {
@@ -374,6 +390,39 @@ final class SetupWizard
         }
 
         return $config;
+    }
+
+    /**
+     * @param array<string, mixed> $existingConfig
+     * @return array<string, mixed>
+     */
+    private function extractExistingImageConfig(array $existingConfig): array
+    {
+        $modelDefaults = $existingConfig['agents']['defaults']['model'] ?? [];
+        $images = $existingConfig['images'] ?? [];
+
+        if (!is_array($modelDefaults)) {
+            $modelDefaults = [];
+        }
+
+        if (!is_array($images)) {
+            $images = [];
+        }
+
+        $config = [
+            'primary' => is_string($modelDefaults['imageModel'] ?? null) ? $modelDefaults['imageModel'] : null,
+            'fallbacks' => is_array($modelDefaults['imageFallbacks'] ?? null) ? $modelDefaults['imageFallbacks'] : [],
+            'providers' => is_array($images['providers'] ?? null) ? $images['providers'] : [],
+        ];
+
+        if (is_string($images['ownerName'] ?? null) && trim($images['ownerName']) !== '') {
+            $config['ownerName'] = trim($images['ownerName']);
+        }
+
+        return array_filter(
+            $config,
+            static fn(mixed $value): bool => $value !== null,
+        );
     }
 
     /**
@@ -429,13 +478,11 @@ final class SetupWizard
             $primary = $defaultPrimary;
         }
 
-        $openAiDefaults = is_array($defaults['vendors']['openai'] ?? null) ? $defaults['vendors']['openai'] : [];
-        $existingOpenAi = is_array($existingConfig['vendors']['openai'] ?? null) ? $existingConfig['vendors']['openai'] : [];
-        $openAiBaseUrl = is_string($this->configuredProviders['openai']['baseUrl'] ?? null) && $this->configuredProviders['openai']['baseUrl'] !== ''
-            ? $this->configuredProviders['openai']['baseUrl']
-            : ((is_string($existingOpenAi['baseUrl'] ?? null) && $existingOpenAi['baseUrl'] !== '')
-                ? $existingOpenAi['baseUrl']
-                : (is_string($openAiDefaults['baseUrl'] ?? null) ? $openAiDefaults['baseUrl'] : 'https://api.openai.com/v1'));
+        $openAiDefaults = is_array($defaults['providers']['openai'] ?? null) ? $defaults['providers']['openai'] : [];
+        $existingOpenAi = is_array($existingConfig['providers']['openai'] ?? null) ? $existingConfig['providers']['openai'] : [];
+        $openAiBaseUrl = (is_string($existingOpenAi['baseUrl'] ?? null) && $existingOpenAi['baseUrl'] !== '')
+            ? $existingOpenAi['baseUrl']
+            : (is_string($openAiDefaults['baseUrl'] ?? null) ? $openAiDefaults['baseUrl'] : 'https://api.openai.com/v1');
         $openAiSize = $this->choice(
             'OpenAI image size',
             ['1024x1024', '1792x1024', '1024x1792'],
@@ -451,13 +498,11 @@ final class SetupWizard
                 : (is_string($openAiDefaults['quality'] ?? null) ? $openAiDefaults['quality'] : 'standard'),
         );
 
-        $ollamaDefaults = is_array($defaults['vendors']['ollama'] ?? null) ? $defaults['vendors']['ollama'] : [];
-        $existingOllama = is_array($existingConfig['vendors']['ollama'] ?? null) ? $existingConfig['vendors']['ollama'] : [];
-        $ollamaBase = is_string($this->configuredProviders['ollama']['baseUrl'] ?? null) && $this->configuredProviders['ollama']['baseUrl'] !== ''
-            ? $this->configuredProviders['ollama']['baseUrl']
-            : ((is_string($existingOllama['host'] ?? null) && $existingOllama['host'] !== '')
-                ? $existingOllama['host']
-                : (is_string($ollamaDefaults['host'] ?? null) ? $ollamaDefaults['host'] : 'http://localhost:11434'));
+        $ollamaDefaults = is_array($defaults['providers']['ollama'] ?? null) ? $defaults['providers']['ollama'] : [];
+        $existingOllama = is_array($existingConfig['providers']['ollama'] ?? null) ? $existingConfig['providers']['ollama'] : [];
+        $ollamaBase = (is_string($existingOllama['baseUrl'] ?? null) && $existingOllama['baseUrl'] !== '')
+            ? $existingOllama['baseUrl']
+            : (is_string($ollamaDefaults['baseUrl'] ?? null) ? $ollamaDefaults['baseUrl'] : 'http://localhost:11434');
 
         $fallbacks = array_values(array_filter(
             array_keys($modelChoices),
@@ -467,7 +512,7 @@ final class SetupWizard
         $config = [
             'primary' => $primary,
             'fallbacks' => $fallbacks,
-            'vendors' => [
+            'providers' => [
                 'openai' => [
                     'model' => 'gpt-image-1.5',
                     'baseUrl' => $openAiBaseUrl,
@@ -480,7 +525,7 @@ final class SetupWizard
                         : (is_string($existingOllama['model'] ?? null) && $existingOllama['model'] !== ''
                             ? $existingOllama['model']
                             : (is_string($ollamaDefaults['model'] ?? null) ? $ollamaDefaults['model'] : 'jmorgan/z-image-turbo:fp8')),
-                    'host' => $this->normalizeOllamaHost($ollamaBase),
+                    'baseUrl' => $this->normalizeOllamaHost($ollamaBase),
                 ],
             ],
         ];
@@ -619,46 +664,34 @@ final class SetupWizard
     private function fetchModelsFromProvider(string $provider, string $baseUrl, string $apiKey): array
     {
         $resolvedKey = $this->resolveApiKey($apiKey);
+        $providerConfig = OpenClawConfig::fromArray([
+            'models' => [
+                'providers' => [
+                    $provider => [
+                        'baseUrl' => $baseUrl,
+                        'apiKey' => $resolvedKey,
+                        'api' => $this->configuredProviders[$provider]['api']
+                            ?? ($this->defaults->provider($provider)['api'] ?? 'openai-completions'),
+                    ],
+                ],
+            ],
+        ]);
 
-        $definitions = match ($provider) {
-            'ollama' => (new OllamaProvider(baseUrl: $baseUrl))->models(),
-            default => (new OpenAICompatibleProvider(
-                model: '',
-                baseUrl: $baseUrl,
-                apiKey: $resolvedKey,
-            ))->models(),
-        };
+        $definitions = (new ProviderFactory($providerConfig))
+            ->create($provider . '/__discovery__')
+            ->models();
 
         return array_map(
             function (ModelDefinition $m) use ($provider): array {
-                // Start with fields from the API-discovered ModelDefinition
-                $model = [
-                    'id' => $m->id,
-                    'name' => $m->name,
-                    'contextWindow' => $m->contextWindow,
-                    'maxTokens' => $m->maxTokens,
-                    'reasoning' => $m->reasoning,
-                ];
+                $resolved = $this->modelMetadataResolver->enrichDiscovered($provider, $m);
+                $model = $resolved->toArray();
 
-                if ($m->numCtx !== null) {
-                    $model['numCtx'] = $m->numCtx;
-                }
-
-                // Enrich with curated metadata from defaults.json when available
-                $curated = $this->defaults->curatedModel($provider, $m->id);
-                if ($curated !== null) {
-                    $model = array_merge($model, $curated);
-                    // Preserve the API-discovered name if curated didn't provide one
-                    $model['name'] = $curated['name'] ?? $m->name;
-                }
-
-                // Prefer numCtx from Ollama model details as it reflects the actual
-                // context window. Fall back to CONTEXT_WINDOW_FALLBACK for unknown
-                // models whose contextWindow is still the ModelDefinition placeholder (4096).
-                if ($m->numCtx !== null && $m->numCtx > CoquiDefaults::CONTEXT_WINDOW_RESERVED) {
-                    $model['contextWindow'] = $m->numCtx;
-                } elseif ($model['contextWindow'] <= CoquiDefaults::CONTEXT_WINDOW_RESERVED) {
+                if (($model['contextWindow'] ?? 0) <= CoquiDefaults::CONTEXT_WINDOW_RESERVED) {
                     $model['contextWindow'] = CoquiDefaults::CONTEXT_WINDOW_FALLBACK;
+                }
+
+                if (($model['maxTokens'] ?? 0) <= 0) {
+                    $model['maxTokens'] = CoquiDefaults::CONTEXT_WINDOW_RESERVED;
                 }
 
                 return $model;
@@ -1340,6 +1373,26 @@ final class SetupWizard
                     $modelEntry['numCtx'] = (int) $meta['numCtx'];
                 }
 
+                if (isset($meta['family']) && is_string($meta['family']) && $meta['family'] !== '') {
+                    $modelEntry['family'] = $meta['family'];
+                }
+
+                if (!empty($meta['toolCalls'])) {
+                    $modelEntry['toolCalls'] = true;
+                }
+
+                if (!empty($meta['thinking'])) {
+                    $modelEntry['thinking'] = true;
+                }
+
+                if (isset($meta['metadataSource']) && is_string($meta['metadataSource']) && $meta['metadataSource'] !== '') {
+                    $modelEntry['metadataSource'] = $meta['metadataSource'];
+                }
+
+                if (isset($meta['fieldSources']) && is_array($meta['fieldSources']) && $meta['fieldSources'] !== []) {
+                    $modelEntry['fieldSources'] = $meta['fieldSources'];
+                }
+
                 $providerModels[] = $modelEntry;
             }
 
@@ -1390,14 +1443,15 @@ final class SetupWizard
         }
 
         if ($imageModelConfig !== []) {
-            $defaults['imageModel'] = $imageModelConfig;
+            $defaults['model']['imageModel'] = $imageModelConfig['primary'];
+            $defaults['model']['imageFallbacks'] = $imageModelConfig['fallbacks'] ?? [];
         }
 
         if ($mounts !== []) {
             $defaults['mounts'] = $mounts;
         }
 
-        return [
+        $config = [
             'agents' => [
                 'defaults' => $defaults,
             ],
@@ -1406,6 +1460,20 @@ final class SetupWizard
                 'providers' => $modelDefinitions,
             ],
         ];
+
+        if ($imageModelConfig !== []) {
+            $images = [
+                'providers' => $imageModelConfig['providers'] ?? [],
+            ];
+
+            if (isset($imageModelConfig['ownerName']) && is_string($imageModelConfig['ownerName']) && trim($imageModelConfig['ownerName']) !== '') {
+                $images['ownerName'] = trim($imageModelConfig['ownerName']);
+            }
+
+            $config['images'] = $images;
+        }
+
+        return $config;
     }
 
     private function normalizeOllamaHost(string $value): string

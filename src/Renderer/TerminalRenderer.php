@@ -7,6 +7,8 @@ namespace CoquiBot\Coqui\Renderer;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\BackgroundTaskSummary;
 use CoquiBot\Coqui\Contract\OutputRendererInterface;
+use CoquiBot\Coqui\Support\ImagePreviewService;
+use CoquiBot\Coqui\Support\ImagePreviewState;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -25,13 +27,14 @@ final class TerminalRenderer implements OutputRendererInterface
     public function __construct(
         private readonly SymfonyStyle $io,
         bool|\Closure $showHints = true,
+        private readonly ?ImagePreviewService $imagePreviewService = null,
     ) {
         $this->showHints = $showHints instanceof \Closure
             ? $showHints
             : static fn(): bool => $showHints;
     }
 
-public function render(AgentTurnResult $result, bool $contentStreamed = false): void
+    public function render(AgentTurnResult $result, bool $contentStreamed = false): void
     {
         $this->io->newLine();
 
@@ -42,7 +45,11 @@ public function render(AgentTurnResult $result, bool $contentStreamed = false): 
 
         if (!$contentStreamed) {
             $this->io->writeln('<fg=green>Assistant:</>');
-            $rendered = MarkdownRenderer::render($result->content);
+            $rendered = MarkdownRenderer::render(
+                $result->content,
+                $this->imagePreviewService,
+                new ImagePreviewState(),
+            );
             $this->io->write($rendered);
         }
 

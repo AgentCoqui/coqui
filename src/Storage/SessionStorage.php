@@ -15,6 +15,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CoquiBot\Coqui\Support\ProcessSpawner;
 use PDO;
+use PDOException;
 
 /**
  * SQLite-backed session persistence for Coqui.
@@ -117,6 +118,8 @@ final class SessionStorage
                 duration_ms INTEGER DEFAULT 0,
                 tools_used TEXT,
                 child_agent_count INTEGER DEFAULT 0,
+                turn_process_id TEXT DEFAULT NULL,
+                result_payload TEXT DEFAULT NULL,
                 created_at TEXT NOT NULL,
                 completed_at TEXT,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
@@ -132,8 +135,11 @@ final class SessionStorage
         // Migrations for existing tables — add turn_id FK columns
         $this->migrateAddColumn('messages', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
         $this->migrateAddColumn('audit_log', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
+        $this->migrateAddColumn('turns', 'turn_process_id', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('turns', 'result_payload', 'TEXT DEFAULT NULL');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_messages_turn ON messages(turn_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_audit_log_turn ON audit_log(turn_id)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turns_turn_process ON turns(turn_process_id)');
 
         // Migration: add title column to sessions
         $this->migrateAddColumn('sessions', 'title', 'TEXT DEFAULT NULL');
@@ -209,8 +215,14 @@ final class SessionStorage
 
         // Migration: personality profile per session
         $this->migrateAddColumn('sessions', 'profile', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('sessions', 'is_closed', 'INTEGER NOT NULL DEFAULT 0');
+        $this->migrateAddColumn('sessions', 'is_archived', 'INTEGER NOT NULL DEFAULT 0');
+        $this->migrateAddColumn('sessions', 'closed_at', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('sessions', 'archived_at', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('sessions', 'closure_reason', 'TEXT DEFAULT NULL');
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_profile_updated ON sessions(profile, updated_at DESC)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_closed_updated ON sessions(is_closed, updated_at DESC)');
 
         // Migration: child-run metadata for typed handoffs and provenance
         $this->migrateAddColumn('child_runs', 'metadata', 'TEXT DEFAULT NULL');
@@ -297,17 +309,49 @@ final class SessionStorage
     /**
      * @return array<array<string, mixed>>
      */
-    public function listSessions(int $limit = 50, bool $excludeTaskSessions = true): array
+    public function listSessions(
+        int $limit = 50,
+        bool $excludeTaskSessions = true,
+        bool $activeOnly = true,
+        ?string $status = null,
+        ?string $profile = null,
+        bool $unprofiledOnly = false,
+    ): array
     {
         $join = $excludeTaskSessions
             ? 'LEFT JOIN background_tasks bt ON bt.session_id = s.id'
             : '';
-        $filter = $excludeTaskSessions
-            ? 'WHERE bt.id IS NULL'
+        $conditions = [];
+        $params = [];
+
+        if ($excludeTaskSessions) {
+            $conditions[] = 'bt.id IS NULL';
+        }
+
+        if ($status === 'active') {
+            $conditions[] = 's.is_closed = 0';
+        } elseif ($status === 'closed') {
+            $conditions[] = 's.is_closed = 1';
+        } elseif ($status === 'archived') {
+            $conditions[] = 's.is_archived = 1';
+        } elseif ($activeOnly) {
+            $conditions[] = 's.is_closed = 0';
+        }
+
+        if ($unprofiledOnly) {
+            $conditions[] = 's.profile IS NULL';
+        } elseif ($profile !== null) {
+            $conditions[] = 's.profile = :profile';
+            $params['profile'] = $profile;
+        }
+
+        $filter = $conditions !== []
+            ? 'WHERE ' . implode(' AND ', $conditions)
             : '';
 
         $stmt = $this->db->prepare(<<<SQL
-            SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count
+            SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                   s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason
             FROM sessions s
             {$join}
             {$filter}
@@ -315,10 +359,189 @@ final class SessionStorage
             LIMIT :limit
         SQL);
 
+        foreach ($params as $key => $value) {
+            $stmt->bindValue($key, $value);
+        }
         $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->normalizeSessionRows($stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * Build a lightweight session summary for app dashboards and pickers.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getSessionSummary(string $id): ?array
+    {
+        $session = $this->getSession($id);
+        if ($session === null) {
+            return null;
+        }
+
+        $messagesTotal = $this->safeQueryScalarPreparedInt(
+            'SELECT COUNT(*) FROM messages WHERE session_id = :session_id',
+            ['session_id' => $id],
+        );
+        $messagesActive = $this->safeQueryScalarPreparedInt(
+            'SELECT COUNT(*) FROM messages WHERE session_id = :session_id AND COALESCE(is_summarized, 0) = 0',
+            ['session_id' => $id],
+        );
+        $turnsTotal = $this->safeQueryScalarPreparedInt(
+            'SELECT COUNT(*) FROM turns WHERE session_id = :session_id',
+            ['session_id' => $id],
+        );
+        $childRunsTotal = $this->safeQueryScalarPreparedInt(
+            'SELECT COUNT(*) FROM child_runs WHERE session_id = :session_id',
+            ['session_id' => $id],
+        );
+
+        $taskCounts = [
+            'total' => 0,
+            'by_status' => [],
+        ];
+        try {
+            $taskStmt = $this->db->prepare(<<<SQL
+                SELECT status, COUNT(*) AS count
+                FROM background_tasks
+                WHERE session_id = :session_id
+                GROUP BY status
+            SQL);
+            $taskStmt->execute(['session_id' => $id]);
+            foreach ($taskStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $status = (string) ($row['status'] ?? 'unknown');
+                $count = (int) ($row['count'] ?? 0);
+                $taskCounts['by_status'][$status] = $count;
+                $taskCounts['total'] += $count;
+            }
+        } catch (PDOException) {
+            $taskCounts = ['total' => 0, 'by_status' => []];
+        }
+
+        $artifactTotal = $this->safeQueryScalarPreparedInt(
+            'SELECT COUNT(*) FROM artifacts WHERE session_id = :session_id',
+            ['session_id' => $id],
+        );
+        $artifactPersistent = $this->safeQueryScalarPreparedInt(
+            'SELECT COUNT(*) FROM artifacts WHERE session_id = :session_id AND persistent = 1',
+            ['session_id' => $id],
+        );
+        $artifactStages = [];
+        try {
+            $artifactStmt = $this->db->prepare(<<<SQL
+                SELECT stage, COUNT(*) AS count
+                FROM artifacts
+                WHERE session_id = :session_id
+                GROUP BY stage
+            SQL);
+            $artifactStmt->execute(['session_id' => $id]);
+            foreach ($artifactStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $artifactStages[(string) ($row['stage'] ?? 'unknown')] = (int) ($row['count'] ?? 0);
+            }
+        } catch (PDOException) {
+            $artifactStages = [];
+        }
+
+        $todoStats = [
+            'total' => 0,
+            'pending' => 0,
+            'in_progress' => 0,
+            'completed' => 0,
+            'cancelled' => 0,
+        ];
+        try {
+            $todoStmt = $this->db->prepare(<<<SQL
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                    SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
+                FROM todos
+                WHERE session_id = :session_id
+            SQL);
+            $todoStmt->execute(['session_id' => $id]);
+            $todoRow = $todoStmt->fetch(PDO::FETCH_ASSOC);
+            if (is_array($todoRow)) {
+                $todoStats = [
+                    'total' => (int) ($todoRow['total'] ?? 0),
+                    'pending' => (int) ($todoRow['pending'] ?? 0),
+                    'in_progress' => (int) ($todoRow['in_progress'] ?? 0),
+                    'completed' => (int) ($todoRow['completed'] ?? 0),
+                    'cancelled' => (int) ($todoRow['cancelled'] ?? 0),
+                ];
+            }
+        } catch (PDOException) {
+            $todoStats = [
+                'total' => 0,
+                'pending' => 0,
+                'in_progress' => 0,
+                'completed' => 0,
+                'cancelled' => 0,
+            ];
+        }
+
+        $latestTurn = null;
+        try {
+            $latestTurnStmt = $this->db->prepare(<<<SQL
+                SELECT id, session_id, turn_number, user_prompt, response_text, model,
+                       prompt_tokens, completion_tokens, total_tokens, iterations,
+                       duration_ms, tools_used, child_agent_count, turn_process_id,
+                       result_payload, created_at, completed_at
+                FROM turns
+                WHERE session_id = :session_id
+                ORDER BY turn_number DESC
+                LIMIT 1
+            SQL);
+            $latestTurnStmt->execute(['session_id' => $id]);
+            $latestTurnRow = $latestTurnStmt->fetch(PDO::FETCH_ASSOC);
+            if (is_array($latestTurnRow)) {
+                $latestTurn = $this->normalizeTurnRow($latestTurnRow);
+            }
+        } catch (PDOException) {
+            $latestTurn = null;
+        }
+
+        $latestMessageAt = $this->safeQueryScalarPreparedString(
+            'SELECT MAX(created_at) FROM messages WHERE session_id = :session_id',
+            ['session_id' => $id],
+        );
+        $latestTaskAt = $this->safeQueryScalarPreparedString(
+            'SELECT MAX(created_at) FROM background_tasks WHERE session_id = :session_id',
+            ['session_id' => $id],
+        );
+
+        return [
+            'session' => $session,
+            'counts' => [
+                'messages' => [
+                    'total' => $messagesTotal,
+                    'active' => $messagesActive,
+                    'summarized' => max(0, $messagesTotal - $messagesActive),
+                ],
+                'turns' => $turnsTotal,
+                'child_runs' => $childRunsTotal,
+                'tasks' => $taskCounts,
+                'artifacts' => [
+                    'total' => $artifactTotal,
+                    'persistent' => $artifactPersistent,
+                    'by_stage' => $artifactStages,
+                ],
+                'todos' => $todoStats,
+            ],
+            'latest_turn' => $latestTurn,
+            'latest_message_at' => $latestMessageAt,
+            'latest_task_at' => $latestTaskAt,
+            'latest_activity_at' => $this->maxIsoTimestamp([
+                is_string($session['updated_at'] ?? null) ? $session['updated_at'] : null,
+                is_array($latestTurn) && is_string($latestTurn['completed_at'] ?? null) && $latestTurn['completed_at'] !== ''
+                    ? $latestTurn['completed_at']
+                    : (is_array($latestTurn) && is_string($latestTurn['created_at'] ?? null) ? $latestTurn['created_at'] : null),
+                $latestMessageAt,
+                $latestTaskAt,
+            ]),
+        ];
     }
 
     /**
@@ -327,7 +550,8 @@ final class SessionStorage
     public function getSession(string $id): ?array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, model_role, model, title, profile, active_project_id, created_at, updated_at, token_count
+            SELECT id, model_role, model, title, profile, active_project_id, created_at, updated_at, token_count,
+                   is_closed, is_archived, closed_at, archived_at, closure_reason
             FROM sessions
             WHERE id = :id
         SQL);
@@ -339,7 +563,47 @@ final class SessionStorage
             return null;
         }
 
-        return $session;
+        return $this->normalizeSessionRow($session);
+    }
+
+    /**
+     * @return array{active: int, closed: int, archived: int, total: int}
+     */
+    public function getSessionStatusCounts(bool $excludeTaskSessions = true): array
+    {
+        $join = $excludeTaskSessions
+            ? 'LEFT JOIN background_tasks bt ON bt.session_id = s.id'
+            : '';
+        $filter = $excludeTaskSessions
+            ? 'WHERE bt.id IS NULL'
+            : '';
+
+        $stmt = $this->db->query(<<<SQL
+            SELECT
+                SUM(CASE WHEN s.is_closed = 0 THEN 1 ELSE 0 END) AS active_count,
+                SUM(CASE WHEN s.is_closed = 1 THEN 1 ELSE 0 END) AS closed_count,
+                SUM(CASE WHEN s.is_archived = 1 THEN 1 ELSE 0 END) AS archived_count,
+                COUNT(*) AS total_count
+            FROM sessions s
+            {$join}
+            {$filter}
+        SQL);
+
+        if ($stmt === false) {
+            return ['active' => 0, 'closed' => 0, 'archived' => 0, 'total' => 0];
+        }
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row === false) {
+            return ['active' => 0, 'closed' => 0, 'archived' => 0, 'total' => 0];
+        }
+
+        return [
+            'active' => (int) ($row['active_count'] ?? 0),
+            'closed' => (int) ($row['closed_count'] ?? 0),
+            'archived' => (int) ($row['archived_count'] ?? 0),
+            'total' => (int) ($row['total_count'] ?? 0),
+        ];
     }
 
     /**
@@ -524,7 +788,7 @@ final class SessionStorage
 
         $stmt->execute(['session_id' => $sessionId]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->normalizeSessionRows($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -842,6 +1106,52 @@ final class SessionStorage
     }
 
     /**
+     * @param array<string, scalar|null> $params
+     */
+    private function safeQueryScalarPreparedInt(string $sql, array $params): int
+    {
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+
+            return (int) $stmt->fetchColumn();
+        } catch (PDOException) {
+            return 0;
+        }
+    }
+
+    /**
+     * @param array<string, scalar|null> $params
+     */
+    private function safeQueryScalarPreparedString(string $sql, array $params): ?string
+    {
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $value = $stmt->fetchColumn();
+
+            return is_string($value) && $value !== '' ? $value : null;
+        } catch (PDOException) {
+            return null;
+        }
+    }
+
+    /**
+     * @param array<int, ?string> $values
+     */
+    private function maxIsoTimestamp(array $values): ?string
+    {
+        $normalized = array_values(array_filter($values, static fn(?string $value): bool => is_string($value) && $value !== ''));
+        if ($normalized === []) {
+            return null;
+        }
+
+        usort($normalized, static fn(string $left, string $right): int => strcmp($left, $right));
+
+        return $normalized[array_key_last($normalized)] ?? null;
+    }
+
+    /**
      * Verify all expected tables exist.
      *
      * @return array{ok: bool, missing: string[]}
@@ -862,6 +1172,146 @@ final class SessionStorage
         }
 
         return ['ok' => empty($missing), 'missing' => $missing];
+    }
+
+    public function isSessionClosed(string $sessionId): bool
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT is_closed
+            FROM sessions
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute(['id' => $sessionId]);
+        $value = $stmt->fetchColumn();
+
+        return $value !== false && (int) $value === 1;
+    }
+
+    public function isSessionArchived(string $sessionId): bool
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT is_archived
+            FROM sessions
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute(['id' => $sessionId]);
+        $value = $stmt->fetchColumn();
+
+        return $value !== false && (int) $value === 1;
+    }
+
+    public function isSessionWritable(string $sessionId): bool
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT 1
+            FROM sessions
+            WHERE id = :id AND is_closed = 0
+            LIMIT 1
+        SQL);
+
+        $stmt->execute(['id' => $sessionId]);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
+    public function closeSession(string $sessionId, string $reason, bool $archive = true): void
+    {
+        $now = date('c');
+
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions
+            SET is_closed = 1,
+                is_archived = :is_archived,
+                closed_at = :closed_at,
+                archived_at = :archived_at,
+                closure_reason = :closure_reason,
+                updated_at = :updated_at
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'is_archived' => $archive ? 1 : 0,
+            'closed_at' => $now,
+            'archived_at' => $archive ? $now : null,
+            'closure_reason' => $reason,
+            'updated_at' => $now,
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function normalizeSessionRow(array $row): array
+    {
+        if ($row === []) {
+            return $row;
+        }
+
+        $isClosed = (int) ($row['is_closed'] ?? 0);
+        $isArchived = (int) ($row['is_archived'] ?? 0);
+
+        $row['is_closed'] = $isClosed;
+        $row['is_archived'] = $isArchived;
+        $row['status'] = $isArchived === 1
+            ? 'archived'
+            : ($isClosed === 1 ? 'closed' : 'active');
+
+        return $row;
+    }
+
+    /**
+     * @param array<array<string, mixed>> $rows
+     * @return array<array<string, mixed>>
+     */
+    private function normalizeSessionRows(array $rows): array
+    {
+        return array_map(fn(array $row): array => $this->normalizeSessionRow($row), $rows);
+    }
+
+    /**
+     * @return array<array<string, mixed>>
+     */
+    public function listActiveInteractiveSessionsForProfile(string $profile): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                   s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason
+            FROM sessions s
+            LEFT JOIN background_tasks bt ON bt.session_id = s.id
+            WHERE bt.id IS NULL
+              AND s.profile = :profile
+              AND s.is_closed = 0
+            ORDER BY s.updated_at DESC
+        SQL);
+
+        $stmt->execute(['profile' => $profile]);
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function closeOtherActiveInteractiveSessionsForProfile(string $profile, string $keepSessionId, string $reason): array
+    {
+        $sessions = $this->listActiveInteractiveSessionsForProfile($profile);
+        $closedIds = [];
+
+        foreach ($sessions as $session) {
+            $sessionId = (string) ($session['id'] ?? '');
+            if ($sessionId === '' || $sessionId === $keepSessionId) {
+                continue;
+            }
+
+            $this->closeSession($sessionId, $reason, true);
+            $closedIds[] = $sessionId;
+        }
+
+        return $closedIds;
     }
 
     /**
@@ -1043,6 +1493,7 @@ final class SessionStorage
         string $sessionId,
         string $userPrompt,
         ?string $model = null,
+        ?string $turnProcessId = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
@@ -1057,8 +1508,8 @@ final class SessionStorage
         $turnNumber = (int) $stmt->fetchColumn();
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO turns (id, session_id, turn_number, user_prompt, model, created_at)
-            VALUES (:id, :session_id, :turn_number, :user_prompt, :model, :created_at)
+            INSERT INTO turns (id, session_id, turn_number, user_prompt, model, turn_process_id, created_at)
+            VALUES (:id, :session_id, :turn_number, :user_prompt, :model, :turn_process_id, :created_at)
         SQL);
 
         $stmt->execute([
@@ -1067,6 +1518,7 @@ final class SessionStorage
             'turn_number' => $turnNumber,
             'user_prompt' => $userPrompt,
             'model' => $model,
+            'turn_process_id' => $turnProcessId,
             'created_at' => $now,
         ]);
 
@@ -1118,6 +1570,25 @@ final class SessionStorage
     }
 
     /**
+     * Persist the rich serialized result payload for historical turn inspection.
+     *
+     * @param array<string, mixed> $payload
+     */
+    public function storeTurnResultPayload(string $turnId, array $payload): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE turns
+            SET result_payload = :result_payload
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'result_payload' => json_encode($payload, JSON_UNESCAPED_SLASHES) ?: '{}',
+            'id' => $turnId,
+        ]);
+    }
+
+    /**
      * Get turns for a session ordered by turn number.
      *
      * @return array<array<string, mixed>>
@@ -1127,7 +1598,8 @@ final class SessionStorage
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, session_id, turn_number, user_prompt, response_text, model,
                    prompt_tokens, completion_tokens, total_tokens, iterations,
-                   duration_ms, tools_used, child_agent_count, created_at, completed_at
+                   duration_ms, tools_used, child_agent_count, turn_process_id,
+                   result_payload, created_at, completed_at
             FROM turns
             WHERE session_id = :session_id
             ORDER BY turn_number ASC
@@ -1138,7 +1610,36 @@ final class SessionStorage
         $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
         $stmt->execute();
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return array_map(
+            fn(array $turn): array => $this->normalizeTurnRow($turn),
+            $stmt->fetchAll(PDO::FETCH_ASSOC),
+        );
+    }
+
+    /**
+     * Get a single normalized turn row without nested messages.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getTurn(string $turnId): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, turn_number, user_prompt, response_text, model,
+                   prompt_tokens, completion_tokens, total_tokens, iterations,
+                   duration_ms, tools_used, child_agent_count, turn_process_id,
+                   result_payload, created_at, completed_at
+            FROM turns
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute(['id' => $turnId]);
+        $turn = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($turn === false) {
+            return null;
+        }
+
+        return $this->normalizeTurnRow($turn);
     }
 
     /**
@@ -1148,18 +1649,9 @@ final class SessionStorage
      */
     public function getTurnWithMessages(string $turnId): ?array
     {
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT id, session_id, turn_number, user_prompt, response_text, model,
-                   prompt_tokens, completion_tokens, total_tokens, iterations,
-                   duration_ms, tools_used, child_agent_count, created_at, completed_at
-            FROM turns
-            WHERE id = :id
-        SQL);
+        $turn = $this->getTurn($turnId);
 
-        $stmt->execute(['id' => $turnId]);
-        $turn = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($turn === false) {
+        if ($turn === null) {
             return null;
         }
 
@@ -1172,8 +1664,99 @@ final class SessionStorage
 
         $msgStmt->execute(['turn_id' => $turnId]);
         $turn['messages'] = $msgStmt->fetchAll(PDO::FETCH_ASSOC);
+        $turn['events'] = isset($turn['turn_process_id']) && is_string($turn['turn_process_id']) && $turn['turn_process_id'] !== ''
+            ? $this->getDecodedTurnEvents($turn['turn_process_id'])
+            : [];
 
         return $turn;
+    }
+
+    /**
+     * @param array<string, mixed> $turn
+     * @return array<string, mixed>
+     */
+    private function normalizeTurnRow(array $turn): array
+    {
+        $payload = $this->decodeTurnResultPayload($turn['result_payload'] ?? null);
+
+        $normalized = $turn;
+        $normalized['tools_used'] = $this->decodeToolsUsed($turn['tools_used'] ?? null);
+        $normalized['content'] = (string) ($turn['response_text'] ?? '');
+        $normalized['restart_requested'] = false;
+        $normalized['iteration_limit_reached'] = false;
+        $normalized['budget_exhausted'] = false;
+        $normalized['context_usage'] = null;
+        $normalized['file_edits'] = null;
+        $normalized['error'] = null;
+        $normalized['review_feedback'] = null;
+        $normalized['review_approved'] = null;
+        $normalized['background_tasks'] = null;
+
+        if ($payload !== null) {
+            $normalized = array_replace($normalized, $payload);
+        }
+
+        unset($normalized['result_payload']);
+
+        return $normalized;
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function decodeToolsUsed(mixed $rawToolsUsed): array
+    {
+        if (is_array($rawToolsUsed)) {
+            return array_values(array_filter($rawToolsUsed, is_string(...)));
+        }
+
+        if (!is_string($rawToolsUsed) || $rawToolsUsed === '') {
+            return [];
+        }
+
+        $decoded = json_decode($rawToolsUsed, true);
+
+        return is_array($decoded)
+            ? array_values(array_filter($decoded, is_string(...)))
+            : [];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function decodeTurnResultPayload(mixed $rawPayload): ?array
+    {
+        if (is_array($rawPayload)) {
+            return $rawPayload;
+        }
+
+        if (!is_string($rawPayload) || $rawPayload === '') {
+            return null;
+        }
+
+        $decoded = json_decode($rawPayload, true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public function getDecodedTurnEvents(string $turnProcessId, int $limit = 500): array
+    {
+        return array_map(
+            function (array $event): array {
+                $data = $event['data'] ?? '{}';
+
+                return [
+                    'id' => (int) $event['id'],
+                    'event_type' => (string) $event['event_type'],
+                    'data' => is_string($data) ? (json_decode($data, true) ?? new \stdClass()) : $data,
+                    'created_at' => (string) $event['created_at'],
+                ];
+            },
+            $this->getTurnEvents($turnProcessId, limit: $limit),
+        );
     }
 
     /**
@@ -1199,7 +1782,7 @@ final class SessionStorage
         $stmt = $this->db->prepare(<<<SQL
             SELECT id
             FROM sessions
-            WHERE profile = :profile
+            WHERE profile = :profile AND is_closed = 0
             ORDER BY updated_at DESC
             LIMIT 1
         SQL);
@@ -1218,6 +1801,7 @@ final class SessionStorage
             LEFT JOIN background_tasks bt ON bt.session_id = s.id
             WHERE bt.id IS NULL
               AND s.profile IS NULL
+                            AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
         SQL);
@@ -1238,6 +1822,7 @@ final class SessionStorage
             FROM sessions s
             LEFT JOIN background_tasks bt ON bt.session_id = s.id
             WHERE bt.id IS NULL
+              AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
         SQL);
@@ -1259,6 +1844,7 @@ final class SessionStorage
             LEFT JOIN background_tasks bt ON bt.session_id = s.id
             WHERE bt.id IS NULL
               AND s.profile = :profile
+                            AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
         SQL);
@@ -1271,6 +1857,10 @@ final class SessionStorage
 
     public function isInteractiveSession(string $sessionId): bool
     {
+        if ($this->isSessionClosed($sessionId)) {
+            return false;
+        }
+
         $stmt = $this->db->prepare(<<<SQL
             SELECT 1
             FROM background_tasks
@@ -1517,6 +2107,30 @@ final class SessionStorage
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         return $row === false ? null : $row;
+    }
+
+    /**
+     * List background task runs for a schedule.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function listTasksForSchedule(string $scheduleId, int $limit = 20): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, parent_session_id, pid, status, title, prompt, role,
+                   metadata, result, error, max_iterations, schedule_id, project_id, sprint_id,
+                   created_at, started_at, completed_at, cancelled_at
+            FROM background_tasks
+            WHERE schedule_id = :schedule_id
+            ORDER BY created_at DESC
+            LIMIT :limit
+        SQL);
+
+        $stmt->bindValue('schedule_id', $scheduleId);
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
     /**

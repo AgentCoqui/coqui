@@ -6,9 +6,13 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Api\SessionAccess;
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
@@ -19,6 +23,7 @@ use React\Http\Message\Response;
  * POST   /api/v1/sessions                    — create session
  * POST   /api/v1/sessions/resolve            — resolve or create scoped interactive session
  * GET    /api/v1/sessions/{id}               — get session detail
+ * GET    /api/v1/sessions/{id}/summary       — get session summary counts
  * PATCH  /api/v1/sessions/{id}               — update session (title)
  * DELETE /api/v1/sessions/{id}               — delete session
  * GET    /api/v1/sessions/{id}/child-runs    — list child agent runs
@@ -29,6 +34,7 @@ final readonly class SessionHandler
         private SessionStorage $storage,
         private RoleResolver $roleResolver,
         private ProfileDiscovery $profileDiscovery,
+        private ?ProfileSessionLifecycleManager $lifecycleManager = null,
     ) {}
 
     /**
@@ -38,12 +44,50 @@ final readonly class SessionHandler
     {
         $params = $request->getQueryParams();
         $limit = isset($params['limit']) ? min((int) $params['limit'], 200) : 50;
+        $includeClosed = filter_var($params['include_closed'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $status = isset($params['status']) ? strtolower(trim((string) $params['status'])) : null;
+        $profileFilterSpecified = array_key_exists('profile', $params);
+        $profileParam = $profileFilterSpecified ? strtolower(trim((string) ($params['profile'] ?? ''))) : null;
 
-        $sessions = $this->storage->listSessions($limit);
+        if ($status === '') {
+            $status = null;
+        }
+
+        if ($status !== null && !in_array($status, ['active', 'closed', 'archived', 'all'], true)) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                'Invalid status filter. Use active, closed, archived, or all.',
+            );
+        }
+
+        if ($status === null && $includeClosed) {
+            $status = 'all';
+        }
+
+        $profile = null;
+        $unprofiledOnly = false;
+        if ($profileFilterSpecified) {
+            if ($profileParam === null || $profileParam === '' || $profileParam === 'none') {
+                $unprofiledOnly = true;
+            } else {
+                if (!$this->profileDiscovery->profileExists($profileParam)) {
+                    return Router::errorResponse(
+                        ApiErrorCode::VALIDATION_ERROR,
+                        sprintf('Unknown profile "%s". Use GET /api/v1/profiles to see available profiles.', $profileParam),
+                    );
+                }
+                $profile = $profileParam;
+            }
+        }
+
+        $sessions = $this->storage->listSessions($limit, true, $status === null, $status, $profile, $unprofiledOnly);
 
         return Router::jsonResponse([
             'sessions' => $sessions,
             'count' => count($sessions),
+            'status' => $status ?? 'active',
+            'profile' => $profileFilterSpecified ? ($profile ?? 'none') : null,
+            'counts' => $this->storage->getSessionStatusCounts(),
         ]);
     }
 
@@ -55,6 +99,23 @@ final readonly class SessionHandler
         [$modelRole, $profile, $error] = $this->resolveRequestedSessionScope($request);
         if ($error instanceof Response) {
             return $error;
+        }
+
+        $body = $this->requestBody($request);
+
+        if ($profile !== null) {
+            $activeSessions = $this->storage->listActiveInteractiveSessionsForProfile($profile);
+            if ($activeSessions !== [] && !$this->confirmCloseActiveProfileSession($body)) {
+                return $this->profileSessionActiveConflict($profile, $activeSessions);
+            }
+
+            if ($activeSessions !== []) {
+                $this->lifecycleManager()?->finalizeOtherActiveInteractiveSessionsForProfile(
+                    $profile,
+                    '',
+                    sprintf('api_create_profile_session:%s', $profile),
+                );
+            }
         }
 
         $model = $this->roleResolver->resolve($modelRole, $profile);
@@ -79,6 +140,38 @@ final readonly class SessionHandler
             return $error;
         }
 
+        if ($profile !== null) {
+            $activeSessions = $this->storage->listActiveInteractiveSessionsForProfile($profile);
+            if ($activeSessions !== []) {
+                $sessionId = (string) $activeSessions[0]['id'];
+                $this->lifecycleManager()?->finalizeOtherActiveInteractiveSessionsForProfile(
+                    $profile,
+                    $sessionId,
+                    sprintf('api_profile_duplicate_cleanup:%s', $profile),
+                );
+
+                $session = $this->storage->getSession($sessionId);
+
+                if ($session !== null) {
+                    $effectiveRole = $this->normalizeRoleForProfile((string) $session['model_role'], $profile);
+                    if ($effectiveRole !== (string) $session['model_role']) {
+                        $effectiveModel = $this->roleResolver->resolve($effectiveRole, $profile);
+                        $this->storage->updateSessionRole($sessionId, $effectiveRole, $effectiveModel);
+                        $session = $this->storage->getSession($sessionId) ?? $session;
+                    }
+
+                    return Router::jsonResponse([
+                        'id' => $session['id'],
+                        'model_role' => $session['model_role'],
+                        'model' => $session['model'],
+                        'profile' => $session['profile'] ?? null,
+                        'active_project_id' => $session['active_project_id'] ?? null,
+                        'created' => false,
+                    ]);
+                }
+            }
+        }
+
         $sessionId = $profile === null
             ? $this->storage->getLatestInteractiveUnprofiledSessionId()
             : $this->storage->getLatestInteractiveSessionIdForProfile($profile);
@@ -87,6 +180,13 @@ final readonly class SessionHandler
             $session = $this->storage->getSession($sessionId);
 
             if ($session !== null) {
+                $effectiveRole = $this->normalizeRoleForProfile((string) $session['model_role'], $profile);
+                if ($effectiveRole !== (string) $session['model_role']) {
+                    $effectiveModel = $this->roleResolver->resolve($effectiveRole, $profile);
+                    $this->storage->updateSessionRole($sessionId, $effectiveRole, $effectiveModel);
+                    $session = $this->storage->getSession($sessionId) ?? $session;
+                }
+
                 return Router::jsonResponse([
                     'id' => $session['id'],
                     'model_role' => $session['model_role'],
@@ -116,13 +216,30 @@ final readonly class SessionHandler
      */
     public function get(ServerRequestInterface $request, string $id): Response
     {
-        $session = $this->storage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireReadableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         return Router::jsonResponse($session);
+    }
+
+    /**
+     * GET /api/v1/sessions/{id}/summary
+     */
+    public function summary(ServerRequestInterface $request, string $id): Response
+    {
+        $session = SessionAccess::requireReadableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
+        }
+
+        $summary = $this->storage->getSessionSummary($id);
+        if ($summary === null) {
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        }
+
+        return Router::jsonResponse($summary);
     }
 
     /**
@@ -130,13 +247,12 @@ final readonly class SessionHandler
      */
     public function update(ServerRequestInterface $request, string $id): Response
     {
-        $session = $this->storage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireWritableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
-        $body = json_decode((string) $request->getBody(), true);
+        $body = $this->requestBody($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -155,7 +271,7 @@ final readonly class SessionHandler
                 return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'model_role cannot be empty');
             }
 
-             if (!$this->roleResolver->hasRole($role)) {
+            if (!$this->roleResolver->hasRole($role)) {
                 return Router::errorResponse(
                     ApiErrorCode::VALIDATION_ERROR,
                     sprintf('Unknown role "%s". Use GET /api/v1/config/roles to see available roles.', $role),
@@ -177,10 +293,38 @@ final readonly class SessionHandler
             }
 
             $resolvedProfile = $profile !== '' ? $profile : null;
-            $this->storage->updateSessionProfile($id, $resolvedProfile);
         }
 
         $resolvedRole = (string) ($session['model_role'] ?? 'orchestrator');
+        $roleError = $this->validateProfileRole($resolvedProfile, $resolvedRole);
+        if ($roleError instanceof Response) {
+            return $roleError;
+        }
+
+        if ($resolvedProfile !== null && !$this->storage->isSessionClosed($id)) {
+            $activeSessions = $this->storage->listActiveInteractiveSessionsForProfile($resolvedProfile);
+            $conflicts = array_values(array_filter(
+                $activeSessions,
+                static fn(array $activeSession): bool => (string) ($activeSession['id'] ?? '') !== $id,
+            ));
+
+            if ($conflicts !== [] && !$this->confirmCloseActiveProfileSession($body)) {
+                return $this->profileSessionActiveConflict($resolvedProfile, $conflicts);
+            }
+
+            if ($conflicts !== []) {
+                $this->lifecycleManager()?->finalizeOtherActiveInteractiveSessionsForProfile(
+                    $resolvedProfile,
+                    $id,
+                    sprintf('api_profile_reassignment:%s', $resolvedProfile),
+                );
+            }
+        }
+
+        if (array_key_exists('profile', $body)) {
+            $this->storage->updateSessionProfile($id, $resolvedProfile);
+        }
+
         $resolvedModel = $this->roleResolver->resolve($resolvedRole, $resolvedProfile);
         $this->storage->updateSessionRole($id, $resolvedRole, $resolvedModel);
 
@@ -266,7 +410,44 @@ final readonly class SessionHandler
             ];
         }
 
+        $roleError = $this->validateProfileRole($profile, $modelRole);
+        if ($roleError instanceof Response) {
+            return [$modelRole, $profile, $roleError];
+        }
+
         return [$modelRole, $profile, null];
+    }
+
+    private function validateProfileRole(?string $profile, string $role): ?Response
+    {
+        $preferences = $this->loadProfilePreferences($profile);
+        if ($preferences === null || $preferences->isRoleAllowed($role)) {
+            return null;
+        }
+
+        return Router::errorResponse(
+            ApiErrorCode::VALIDATION_ERROR,
+            sprintf('Profile "%s" does not allow role "%s".', $profile, $role),
+        );
+    }
+
+    private function normalizeRoleForProfile(string $role, ?string $profile): string
+    {
+        $preferences = $this->loadProfilePreferences($profile);
+        if ($preferences === null || $preferences->isRoleAllowed($role)) {
+            return $role;
+        }
+
+        return SystemRole::Orchestrator->value;
+    }
+
+    private function loadProfilePreferences(?string $profile): ?ProfilePreferences
+    {
+        if ($profile === null || !$this->profileDiscovery->profileExists($profile)) {
+            return null;
+        }
+
+        return ProfilePreferences::fromProfilePath($this->profileDiscovery->getProfilePath($profile));
     }
 
     private function normalizeProfileValue(mixed $value): ?string
@@ -278,5 +459,49 @@ final readonly class SessionHandler
         $profile = strtolower(trim($value));
 
         return $profile !== '' ? $profile : null;
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function requestBody(ServerRequestInterface $request): ?array
+    {
+        $decoded = json_decode((string) $request->getBody(), true);
+
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    /**
+     * @param array<string, mixed>|null $body
+     */
+    private function confirmCloseActiveProfileSession(?array $body): bool
+    {
+        return is_array($body)
+            && array_key_exists('confirm_close_active_profile_session', $body)
+            && filter_var($body['confirm_close_active_profile_session'], FILTER_VALIDATE_BOOLEAN);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $activeSessions
+     */
+    private function profileSessionActiveConflict(string $profile, array $activeSessions): Response
+    {
+        $primary = $activeSessions[0] ?? [];
+
+        return Router::errorResponse(
+            ApiErrorCode::PROFILE_SESSION_ACTIVE,
+            sprintf('Profile "%s" already has an active session. Confirm closure before starting or reassigning a fresh session.', $profile),
+            [
+                'profile' => $profile,
+                'active_session_id' => $primary['id'] ?? null,
+                'active_session_count' => count($activeSessions),
+                'confirm_field' => 'confirm_close_active_profile_session',
+            ],
+        );
+    }
+
+    private function lifecycleManager(): ?ProfileSessionLifecycleManager
+    {
+        return $this->lifecycleManager;
     }
 }

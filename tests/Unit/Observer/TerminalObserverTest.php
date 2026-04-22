@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\TerminalObserver;
+use CoquiBot\Coqui\Support\ImagePreviewService;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\ToolStatus;
@@ -31,6 +32,18 @@ function makeTerminalObserverWithTicker(): array
     $observer->setTickCallback($ticker);
 
     return [$observer, $output, $ticker];
+}
+
+function makeImagePreviewService(string $workspace): ImagePreviewService
+{
+    return new ImagePreviewService(
+        $workspace,
+        static fn(string $path, int $width): array => [
+            'preview' => 'PREVIEW:' . basename($path) . ':' . $width,
+            'preview_format' => 'ansi_blocks',
+            'unavailable_reason' => null,
+        ],
+    );
 }
 
 // --- agent.reasoning ---
@@ -327,4 +340,70 @@ test('spinner does not interfere with streaming text', function () {
     expect($text)->toContain('Hello world');
     // After the first text_delta, no spinner frames should have been drawn
     expect(substr_count($text, 'Working'))->toBe(0);
+});
+
+test('tool result renders image preview for workspace screenshot payloads', function () {
+    $workspace = sys_get_temp_dir() . '/coqui-terminal-observer-preview-' . bin2hex(random_bytes(8));
+    $imagePath = $workspace . '/browser/screenshots/example.png';
+
+    mkdir(dirname($imagePath), 0755, true);
+    file_put_contents($imagePath, 'fixture');
+
+    try {
+        $output = new BufferedOutput();
+        $observer = new TerminalObserver($output, makeImagePreviewService($workspace));
+
+        $observer->handleEvent('agent.start', null);
+        $output->fetch();
+
+        $observer->handleEvent('agent.tool_result', ToolResult::success(json_encode([
+            'session' => 'integration',
+            'page_id' => 'page-1',
+            'path' => 'browser/screenshots/example.png',
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}'));
+
+        $text = $output->fetch();
+
+        expect($text)->toContain('Image captured: example.png')
+            ->and($text)->toContain('Path:')
+            ->and($text)->toContain('PREVIEW:example.png:40');
+    } finally {
+        cleanupTestTree($workspace);
+    }
+});
+
+test('tool result only auto-previews the first image in a turn', function () {
+    $workspace = sys_get_temp_dir() . '/coqui-terminal-observer-first-preview-' . bin2hex(random_bytes(8));
+    $firstPath = $workspace . '/browser/screenshots/first.png';
+    $secondPath = $workspace . '/browser/screenshots/second.png';
+
+    mkdir(dirname($firstPath), 0755, true);
+    file_put_contents($firstPath, 'fixture');
+    file_put_contents($secondPath, 'fixture');
+
+    try {
+        $output = new BufferedOutput();
+        $observer = new TerminalObserver($output, makeImagePreviewService($workspace));
+
+        $observer->handleEvent('agent.start', null);
+        $output->fetch();
+
+        $observer->handleEvent('agent.tool_result', ToolResult::success(json_encode([
+            'session' => 'integration',
+            'page_id' => 'page-1',
+            'path' => 'browser/screenshots/first.png',
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}'));
+        $observer->handleEvent('agent.tool_result', ToolResult::success(json_encode([
+            'session' => 'integration',
+            'page_id' => 'page-1',
+            'path' => 'browser/screenshots/second.png',
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}'));
+
+        $text = $output->fetch();
+
+        expect(substr_count($text, 'PREVIEW:'))->toBe(1)
+            ->and($text)->toContain('Image captured: second.png');
+    } finally {
+        cleanupTestTree($workspace);
+    }
 });

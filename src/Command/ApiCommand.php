@@ -6,6 +6,8 @@ namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
+use CoquiBot\Coqui\Api\ChannelExecutionManager;
+use CoquiBot\Coqui\Api\ChannelManager;
 use CoquiBot\Coqui\Api\LoopManager;
 use CoquiBot\Coqui\Api\ScheduleManager;
 use CoquiBot\Coqui\Api\WatchJob\ScheduleFileWatchJob;
@@ -16,6 +18,8 @@ use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
 use CoquiBot\Coqui\Api\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
+use CoquiBot\Coqui\Api\Handler\ChannelHandler;
+use CoquiBot\Coqui\Api\Handler\CommandCatalogHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
 use CoquiBot\Coqui\Api\Handler\EvaluationHandler;
@@ -43,8 +47,11 @@ use CoquiBot\Coqui\Api\Middleware\RequestSizeMiddleware;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Api\Webhook\WebhookVerifierRegistry;
 use CoquiBot\Coqui\Backstory\BackstoryInspectionService;
+use CoquiBot\Coqui\Channel\ChannelConfigurationEditor;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
+use CoquiBot\Coqui\Config\ModelFamilyResolver;
+use CoquiBot\Coqui\Config\ModelMetadataResolver;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Notification\NotificationPublisher;
 use CoquiBot\Coqui\Notification\NotificationAutomationRunner;
@@ -55,12 +62,14 @@ use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
 use CoquiBot\Coqui\Agent\ToolBoundEvaluator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\Coqui\Support\PromptInspectionService;
+use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
 use React\EventLoop\Loop;
 use React\Http\HttpServer;
 use React\Http\Middleware\LimitConcurrentRequestsMiddleware;
@@ -205,6 +214,7 @@ final class ApiCommand extends Command
         // Schedule & webhook stores (created early for health endpoint)
         $scheduleStore = new ScheduleStore($storage->getPdo());
         $webhookStore = new WebhookStore($storage->getPdo());
+        $channelStore = new ChannelStore($storage->getPdo());
 
         $artifactStore = new ArtifactStore($storage->getPdo());
         $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($storage->getPdo());
@@ -219,6 +229,19 @@ final class ApiCommand extends Command
         $notificationAutomationConfig = $notificationConfig['automation'];
 
         $scheduleManager = new ScheduleManager($storage, $scheduleStore);
+        $channelManager = new ChannelManager(
+            config: $boot->config(),
+            discovery: $boot->channelDiscovery(),
+            store: $channelStore,
+            configManager: $boot->configManager(),
+            runtimeContext: [
+                'workspacePath' => $boot->workspacePath(),
+                'projectRoot' => $workDir,
+                'credentialResolver' => $boot->credentialResolver(),
+            ],
+        );
+        $channelManager->reconcile();
+        $channelExecutionManager = new ChannelExecutionManager($boot->config(), $channelStore, $storage);
         $qualityAutomation = new QualityAutomationCoordinator(
             config: $boot->config(),
             storage: $storage,
@@ -304,21 +327,37 @@ final class ApiCommand extends Command
             scheduleStore: $scheduleStore,
         );
 
-        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $qualityStatus);
-        $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->profileDiscovery());
+        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $channelManager, $qualityStatus);
+        $profileSessionLifecycle = new ProfileSessionLifecycleManager(
+            storage: $storage,
+            providerFactory: $boot->providerFactory(),
+            roleResolver: $boot->roleResolver(),
+            memoryStore: $boot->memoryStore(),
+            todoStore: $boot->todoStore(),
+            artifactStore: $boot->artifactStore(),
+        );
+
+        $sessionHandler = new SessionHandler($storage, $boot->roleResolver(), $boot->profileDiscovery(), $profileSessionLifecycle);
         $messageHandler = new MessageHandler($storage, $turnManager, $uploadStorage);
         $turnHandler = new TurnHandler($storage);
         $configHandler = new ConfigHandler(
             $boot->config(),
             new ConfigValidator(),
             $boot->profileDiscovery(),
+            new ModelMetadataResolver(
+                $boot->defaultsLoader(),
+                new ModelFamilyResolver($boot->defaultsLoader()->familyNames()),
+                $boot->config(),
+                $boot->providerFactory(),
+            ),
+            $boot->roleResolver(),
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
-        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver());
+        $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->profileDiscovery());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
         $evaluationHandler = new EvaluationHandler($evaluationStore);
-        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $qualityStatus);
+        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $channelManager, $qualityStatus);
 
         $previewRunner = AgentRunnerFactory::create(
             boot: $boot,
@@ -332,12 +371,21 @@ final class ApiCommand extends Command
         $promptHandler = new PromptHandler($promptInspectionService);
         $backstoryHandler = new BackstoryHandler(new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery()));
         $budgetHandler = new BudgetHandler($previewRunner);
-        $artifactHandler = new ArtifactHandler($artifactStore);
-        $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore);
-        $scheduleHandler = new ScheduleHandler($scheduleStore);
-        $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
-        $webhookMgmtHandler = new WebhookManagementHandler($webhookStore, $boot->profileDiscovery());
-        $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore) : null;
+        $commandCatalogHandler = new CommandCatalogHandler();
+        $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
+        $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore, $storage, $artifactStore, $projectStore);
+        $scheduleHandler = new ScheduleHandler($scheduleStore, $storage);
+        $webhookDispatcher = new \CoquiBot\Coqui\Api\Webhook\WebhookDispatchService($webhookStore, $storage);
+        $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry, $webhookDispatcher);
+        $webhookMgmtHandler = new WebhookManagementHandler($webhookStore, $boot->profileDiscovery(), $storage, $webhookDispatcher);
+        $channelHandler = new ChannelHandler(
+            $channelStore,
+            $channelManager,
+            new ChannelConfigurationEditor($boot->configManager(), $boot->channelDiscovery(), $boot->profileDiscovery()),
+            $boot->channelDiscovery(),
+            $boot->profileDiscovery(),
+        );
+        $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore, $storage) : null;
         $sessionProjectHandler = $projectStore !== null ? new SessionProjectHandler($storage, $projectStore) : null;
 
         $loopApiHandler = ($loopStore !== null && $loopDiscovery !== null)
@@ -346,7 +394,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -402,13 +450,14 @@ final class ApiCommand extends Command
         // Graceful shutdown on SIGTERM/SIGINT — close socket + stop event loop
         // SIGINT (2) = direct Ctrl+C — show shutdown message (standalone mode)
         // SIGTERM (15) = sent by launcher — stay silent (launcher owns the UX)
-        $shutdownHandler = static function (int $signal) use ($socket, $output, $taskManager, $turnManager): void {
+        $shutdownHandler = static function (int $signal) use ($socket, $output, $taskManager, $turnManager, $channelManager): void {
             $output->writeln('');
             if ($signal === 2) {
                 $output->writeln('');
                 $output->writeln(' <info>[INFO] Shutting down Coqui.</info>');
                 $output->writeln('');
             }
+            $channelManager->shutdown();
             $turnManager->shutdown();
             $taskManager->shutdown();
             $socket->close();
@@ -493,6 +542,14 @@ final class ApiCommand extends Command
             });
         }
 
+        Loop::addPeriodicTimer(5.0, static function () use ($channelManager): void {
+            $channelManager->tick();
+        });
+
+        Loop::addPeriodicTimer(2.0, static function () use ($channelExecutionManager): void {
+            $channelExecutionManager->tick();
+        });
+
         return Command::SUCCESS;
     }
 
@@ -519,11 +576,13 @@ final class ApiCommand extends Command
         PromptHandler $prompt,
         BackstoryHandler $backstory,
         BudgetHandler $budget,
+        CommandCatalogHandler $commands,
         ArtifactHandler $artifact,
         \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
         ScheduleHandler $schedule,
         WebhookHandler $webhook,
         WebhookManagementHandler $webhookMgmt,
+        ChannelHandler $channel,
         ?ApiLoopHandler $loop,
         ?ProjectHandler $project,
         ?SessionProjectHandler $sessionProject,
@@ -538,6 +597,7 @@ final class ApiCommand extends Command
         $router->post($v1 . '/sessions', [$session, 'create']);
         $router->post($v1 . '/sessions/resolve', [$session, 'resolve']);
         $router->get($v1 . '/sessions/{id}', [$session, 'get']);
+        $router->get($v1 . '/sessions/{id}/summary', [$session, 'summary']);
         $router->patch($v1 . '/sessions/{id}', [$session, 'update']);
         $router->delete($v1 . '/sessions/{id}', [$session, 'delete']);
         if ($sessionProject !== null) {
@@ -559,16 +619,22 @@ final class ApiCommand extends Command
         // Turns
         $router->get($v1 . '/sessions/{id}/turns', [$turn, 'list']);
         $router->get($v1 . '/sessions/{id}/turns/{turnId}', [$turn, 'get']);
+        $router->get($v1 . '/sessions/{id}/turns/{turnId}/events', [$turn, 'events']);
 
         // Config (read-only — updates are REPL-only)
         $router->get($v1 . '/config', [$config, 'get']);
         $router->post($v1 . '/config/validate', [$config, 'validate']);
         $router->get($v1 . '/config/models', [$config, 'models']);
         $router->get($v1 . '/config/profiles', [$config, 'profiles']);
+        $router->get($v1 . '/config/profiles/{name}', [$config, 'profile']);
 
         // Roles (read-only — create/update/delete are REPL-only)
         $router->get($v1 . '/config/roles', [$role, 'list']);
         $router->get($v1 . '/config/roles/{name}', [$role, 'get']);
+        $router->get($v1 . '/roles', [$role, 'list']);
+        $router->get($v1 . '/roles/{name}', [$role, 'get']);
+        $router->get($v1 . '/profiles', [$config, 'profiles']);
+        $router->get($v1 . '/profiles/{name}', [$config, 'profile']);
 
         // Credentials
         $router->get($v1 . '/credentials', [$credential, 'list']);
@@ -584,10 +650,22 @@ final class ApiCommand extends Command
         $router->post($v1 . '/tasks/{id}/input', [$task, 'addInput']);
         $router->post($v1 . '/tasks/{id}/cancel', [$task, 'cancel']);
         if ($project !== null) {
+            $router->post($v1 . '/projects', [$project, 'create']);
             $router->get($v1 . '/projects', [$project, 'list']);
             $router->get($v1 . '/projects/{idOrSlug}', [$project, 'get']);
+            $router->patch($v1 . '/projects/{idOrSlug}', [$project, 'update']);
+            $router->delete($v1 . '/projects/{idOrSlug}', [$project, 'delete']);
+            $router->post($v1 . '/projects/{idOrSlug}/archive', [$project, 'archive']);
+            $router->post($v1 . '/projects/{idOrSlug}/activate', [$project, 'activate']);
+            $router->post($v1 . '/projects/{idOrSlug}/sprints', [$project, 'createSprint']);
             $router->get($v1 . '/projects/{idOrSlug}/sprints', [$project, 'sprints']);
             $router->get($v1 . '/sprints/{id}', [$project, 'sprint']);
+            $router->patch($v1 . '/sprints/{id}', [$project, 'updateSprint']);
+            $router->delete($v1 . '/sprints/{id}', [$project, 'deleteSprint']);
+            $router->post($v1 . '/sprints/{id}/start', [$project, 'startSprint']);
+            $router->post($v1 . '/sprints/{id}/submit-review', [$project, 'submitReview']);
+            $router->post($v1 . '/sprints/{id}/complete', [$project, 'completeSprint']);
+            $router->post($v1 . '/sprints/{id}/reject', [$project, 'rejectSprint']);
         }
 
         // Child runs
@@ -605,16 +683,30 @@ final class ApiCommand extends Command
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
         $router->get($v1 . '/server/backstory', [$backstory, 'get']);
         $router->get($v1 . '/server/budget', [$budget, 'get']);
+        $router->get($v1 . '/server/commands', [$commands, 'get']);
 
-        // Artifacts (read-only — create/update/delete are REPL-only)
+        // Artifacts
+        $router->post($v1 . '/sessions/{id}/artifacts', [$artifact, 'create']);
         $router->get($v1 . '/sessions/{id}/artifacts', [$artifact, 'list']);
-        $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'get']);
         $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}/versions', [$artifact, 'versions']);
+        $router->post($v1 . '/sessions/{id}/artifacts/{artifactId}/versions', [$artifact, 'createVersion']);
+        $router->post($v1 . '/sessions/{id}/artifacts/{artifactId}/versions/{versionId}/restore', [$artifact, 'restoreVersion']);
+        $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'get']);
+        $router->patch($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'update']);
+        $router->delete($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'delete']);
 
-        // Todos (read-only — create/update/complete/delete are REPL-only)
+        // Todos
+        $router->post($v1 . '/sessions/{id}/todos', [$todo, 'create']);
         $router->get($v1 . '/sessions/{id}/todos', [$todo, 'list']);
         $router->get($v1 . '/sessions/{id}/todos/stats', [$todo, 'stats']);
+        $router->patch($v1 . '/sessions/{id}/todos/bulk', [$todo, 'bulkUpdate']);
+        $router->post($v1 . '/sessions/{id}/todos/reorder', [$todo, 'reorder']);
         $router->get($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'get']);
+        $router->patch($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'update']);
+        $router->delete($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'delete']);
+        $router->post($v1 . '/sessions/{id}/todos/{todoId}/complete', [$todo, 'complete']);
+        $router->post($v1 . '/sessions/{id}/todos/{todoId}/reopen', [$todo, 'reopen']);
+        $router->post($v1 . '/sessions/{id}/todos/{todoId}/cancel', [$todo, 'cancel']);
 
         // Toolkit visibility management
         $router->get($v1 . '/toolkits', [$toolkit, 'list']);
@@ -623,7 +715,10 @@ final class ApiCommand extends Command
         // Schedules
         $router->post($v1 . '/schedules', [$schedule, 'create']);
         $router->get($v1 . '/schedules', [$schedule, 'list']);
+        $router->get($v1 . '/schedules/upcoming', [$schedule, 'upcoming']);
+        $router->get($v1 . '/schedules/stats', [$schedule, 'stats']);
         $router->get($v1 . '/schedules/{id}', [$schedule, 'get']);
+        $router->get($v1 . '/schedules/{id}/runs', [$schedule, 'runs']);
         $router->patch($v1 . '/schedules/{id}', [$schedule, 'update']);
         $router->delete($v1 . '/schedules/{id}', [$schedule, 'delete']);
         $router->post($v1 . '/schedules/{id}/enable', [$schedule, 'enable']);
@@ -633,6 +728,9 @@ final class ApiCommand extends Command
         // Webhooks (incoming receiver + management CRUD)
         $webhook->register($router);
         $webhookMgmt->register($router);
+
+        // Channels
+        $channel->register($router);
 
         // Loops
         $loop?->register($router);

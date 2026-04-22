@@ -7,6 +7,8 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Api\SessionAccess;
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
@@ -82,14 +84,10 @@ final readonly class TaskHandler
         // Validate parent session exists if provided
         $parentSession = null;
         if ($parentSessionId !== null) {
-            $parentSession = $this->storage->getSession($parentSessionId);
-        }
-
-        if ($parentSessionId !== null && $parentSession === null) {
-            return Router::errorResponse(
-                ApiErrorCode::SESSION_NOT_FOUND,
-                'Parent session not found',
-            );
+            $parentSession = SessionAccess::requireWritableSession($this->storage, $parentSessionId);
+            if ($parentSession instanceof Response) {
+                return $parentSession;
+            }
         }
 
         $inheritedProfile = is_array($parentSession) && is_string($parentSession['profile'] ?? null) && $parentSession['profile'] !== ''
@@ -108,6 +106,13 @@ final readonly class TaskHandler
             return Router::errorResponse(
                 ApiErrorCode::VALIDATION_ERROR,
                 sprintf('Unknown profile "%s". Create profiles/{name}/soul.md in the workspace or omit the profile.', $profile),
+            );
+        }
+
+        if (($preferences = $this->loadProfilePreferences($profile)) !== null && !$preferences->isRoleAllowed($role)) {
+            return Router::errorResponse(
+                ApiErrorCode::VALIDATION_ERROR,
+                sprintf('Profile "%s" does not allow role "%s".', $profile, $role),
             );
         }
 
@@ -178,6 +183,15 @@ final readonly class TaskHandler
             'sprint_id' => $sprintId,
             'created_at' => $task['created_at'] ?? date('c'),
         ], 201);
+    }
+
+    private function loadProfilePreferences(?string $profile): ?ProfilePreferences
+    {
+        if ($profile === null || !$this->profileDiscovery->profileExists($profile)) {
+            return null;
+        }
+
+        return ProfilePreferences::fromProfilePath($this->profileDiscovery->getProfilePath($profile));
     }
 
     /**

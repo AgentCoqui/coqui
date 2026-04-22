@@ -6,7 +6,10 @@ use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
+use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -18,7 +21,7 @@ function createReplSessionHandlerFixture(): array
 
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);
-    $roleResolver = new RoleResolver(OpenClawConfig::fromArray([
+    $config = OpenClawConfig::fromArray([
         'agents' => [
             'defaults' => [
                 'model' => ['primary' => 'ollama/qwen3:latest'],
@@ -27,7 +30,14 @@ function createReplSessionHandlerFixture(): array
                 ],
             ],
         ],
-    ]));
+    ]);
+    $roleResolver = new RoleResolver($config);
+    $lifecycleManager = new ProfileSessionLifecycleManager(
+        storage: $storage,
+        providerFactory: new ProviderFactory($config),
+        roleResolver: $roleResolver,
+        memoryStore: new MemoryStore($workspacePath . '/memory.db'),
+    );
     $boot = testBootManagerForSessionHandler($workspacePath, $roleResolver);
     $output = new BufferedOutput();
 
@@ -35,7 +45,7 @@ function createReplSessionHandlerFixture(): array
         'workspacePath' => $workspacePath,
         'dbPath' => $dbPath,
         'storage' => $storage,
-        'handler' => new SessionHandler($boot, $storage),
+        'handler' => new SessionHandler($boot, $storage, $lifecycleManager),
         'io' => new SymfonyStyle(new ArrayInput([]), $output),
         'output' => $output,
     ];
@@ -199,6 +209,73 @@ test('session handler ignores background task sessions for profile resume', func
 
         expect($resolvedSessionId)->toBe($interactiveSessionId);
         expect($fixture['output']->fetch())->toContain('Resumed latest profile session "caelum"');
+    } finally {
+        cleanupReplSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler keeps latest active profile session and closes older duplicates', function () {
+    $fixture = createReplSessionHandlerFixture();
+
+    try {
+        $olderSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $latestSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+
+        setSessionUpdatedAt($fixture['storage'], $olderSessionId, '2026-01-01T00:00:00+00:00');
+        setSessionUpdatedAt($fixture['storage'], $latestSessionId, '2026-01-03T00:00:00+00:00');
+
+        file_put_contents($fixture['workspacePath'] . '/.coqui-session', $olderSessionId);
+
+        $resolvedSessionId = $fixture['handler']->loadOrCreateProfileSession($fixture['io'], 'caelum');
+        $olderSession = $fixture['storage']->getSession($olderSessionId);
+        $visibleSessions = $fixture['storage']->listSessions(10, true, true);
+
+        expect($resolvedSessionId)->toBe($latestSessionId);
+        expect($olderSession['is_closed'])->toBe(1);
+        expect($olderSession['is_archived'])->toBe(1);
+        expect($visibleSessions)->toHaveCount(1);
+        expect($visibleSessions[0]['id'])->toBe($latestSessionId);
+        expect($fixture['output']->fetch())->toContain('Archived 1 older active session(s) for profile "caelum".');
+    } finally {
+        cleanupReplSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler starts fresh profiled session by closing the current one', function () {
+    $fixture = createReplSessionHandlerFixture();
+
+    try {
+        $currentSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $fixture['storage']->addMessage($currentSessionId, 'user', 'Keep this continuity');
+        $fixture['storage']->addMessage($currentSessionId, 'assistant', 'Acknowledged');
+
+        $newSessionId = $fixture['handler']->startFreshSession(null, $currentSessionId, 'caelum');
+        $currentSession = $fixture['storage']->getSession($currentSessionId);
+        $newSession = $fixture['storage']->getSession((string) $newSessionId);
+
+        expect($newSessionId)->not->toBeNull();
+        expect($newSessionId)->not->toBe($currentSessionId);
+        expect($currentSession['is_closed'])->toBe(1);
+        expect($currentSession['closure_reason'])->toBe('repl_new_profile_session:caelum');
+        expect($newSession)->not->toBeNull();
+        expect($newSession['profile'])->toBe('caelum');
+        expect($newSession['model_role'])->toBe('orchestrator');
+    } finally {
+        cleanupReplSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler rejects resume for closed sessions', function () {
+    $fixture = createReplSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $fixture['storage']->closeSession($sessionId, 'test-close');
+
+        $resolvedSessionId = $fixture['handler']->resume($fixture['io'], $sessionId);
+
+        expect($resolvedSessionId)->toBeNull();
+        expect($fixture['output']->fetch())->toContain('is closed');
     } finally {
         cleanupReplSessionHandlerFixture($fixture);
     }

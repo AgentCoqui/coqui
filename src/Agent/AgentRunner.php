@@ -118,8 +118,9 @@ final class AgentRunner
         ?array $filePaths = null,
         ?string $role = null,
         ?string $profile = null,
+        ?string $turnProcessId = null,
     ): AgentTurnResult {
-        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths, role: $role, profile: $profile);
+        return $this->doRun($prompt, $sessionId, $executionPolicy, $observer, filePaths: $filePaths, role: $role, profile: $profile, turnProcessId: $turnProcessId);
     }
 
     /**
@@ -195,6 +196,7 @@ final class AgentRunner
         ?string $defaultProjectId = null,
         ?string $defaultSprintId = null,
         ?string $profile = null,
+        ?string $turnProcessId = null,
     ): AgentTurnResult {
         // Load prior conversation history from database
         $history = $this->storage->loadConversation($sessionId);
@@ -204,7 +206,7 @@ final class AgentRunner
         $modelString = $this->roleResolver->resolve($effectiveRole, $profile);
 
         // Create turn record before execution
-        $turnId = $this->storage->createTurn($sessionId, $prompt, $modelString);
+        $turnId = $this->storage->createTurn($sessionId, $prompt, $modelString, $turnProcessId);
         $startTime = hrtime(true);
         $turnStartedAt = (new \DateTimeImmutable())->format('c');
 
@@ -468,7 +470,7 @@ final class AgentRunner
                 // Non-fatal — background task summary is optional
             }
 
-            return new AgentTurnResult(
+            $turnResult = new AgentTurnResult(
                 content: $output->content,
                 iterations: $output->iterations,
                 promptTokens: $usage->promptTokens,
@@ -487,6 +489,10 @@ final class AgentRunner
                 deferredWork: $deferredWork,
                 backgroundTasks: $backgroundTasks,
             );
+
+            $this->persistTurnResultPayload($turnId, $turnResult);
+
+            return $turnResult;
         } catch (\Throwable $e) {
             // Complete turn even on error so duration/state is tracked
             $durationMs = (int) ((hrtime(true) - $startTime) / 1_000_000);
@@ -502,7 +508,7 @@ final class AgentRunner
                 childAgentCount: 0,
             );
 
-            return new AgentTurnResult(
+            $turnResult = new AgentTurnResult(
                 content: '',
                 iterations: 0,
                 promptTokens: 0,
@@ -514,6 +520,19 @@ final class AgentRunner
                 restartRequested: $restartRequested,
                 error: $e->getMessage(),
             );
+
+            $this->persistTurnResultPayload($turnId, $turnResult);
+
+            return $turnResult;
+        }
+    }
+
+    private function persistTurnResultPayload(string $turnId, AgentTurnResult $turnResult): void
+    {
+        try {
+            $this->storage->storeTurnResultPayload($turnId, $turnResult->toArray());
+        } catch (\Throwable) {
+            // Historical enrichment is best-effort and should not fail the turn.
         }
     }
 
@@ -645,13 +664,15 @@ final class AgentRunner
      *
      * Used by the /prompt REPL command and GET /api/v1/server/prompt endpoint.
      *
-     * @return array{prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, applied_loading_modes: array<string, ToolkitLoadingMode>, budget_snapshot: array<string, mixed>}
+        * @return array{effective_role: string, resolved_model: string, prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, applied_loading_modes: array<string, ToolkitLoadingMode>, budget_snapshot: array<string, mixed>, profile_policy: array<string, mixed>|null}
      */
     public function buildPromptPreview(?string $role = null, ?string $profile = null): array
     {
         $preview = $this->buildPromptPreviewData($role, $profile);
 
         return [
+            'effective_role' => $preview['effective_role'],
+            'resolved_model' => $preview['model_string'],
             'prompt' => $preview['prompt'],
             'tool_count' => $preview['snapshot']->toolCount,
             'toolkit_count' => $preview['snapshot']->toolkitCount,
@@ -662,6 +683,7 @@ final class AgentRunner
             'tool_schemas' => $preview['tool_schemas'],
             'applied_loading_modes' => $preview['agent']->getAppliedLoadingModes(),
             'budget_snapshot' => $preview['snapshot']->toArray(),
+            'profile_policy' => $preview['agent']->getProfilePolicySummary(),
         ];
     }
 
@@ -671,7 +693,7 @@ final class AgentRunner
     }
 
     /**
-     * @return array{prompt: string, snapshot: PromptBudgetSnapshot, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, agent: OrchestratorAgent}
+     * @return array{effective_role: string, model_string: string, prompt: string, snapshot: PromptBudgetSnapshot, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, agent: OrchestratorAgent}
      */
     private function buildPromptPreviewData(?string $role = null, ?string $profile = null): array
     {
@@ -706,6 +728,8 @@ final class AgentRunner
         );
 
         return [
+            'effective_role' => $previewContext['effective_role'],
+            'model_string' => $previewContext['model_string'],
             'prompt' => $promptText,
             'snapshot' => $snapshot,
             'tool_schemas' => $toolSchemas,

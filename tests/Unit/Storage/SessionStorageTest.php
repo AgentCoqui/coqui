@@ -47,6 +47,33 @@ test('listSessions returns all sessions', function () {
     expect($sessions)->toHaveCount(2);
 });
 
+test('session rows expose derived status and status counts', function () {
+    $activeId = $this->storage->createSession('orchestrator', 'model1');
+    $closedId = $this->storage->createSession('coder', 'model2');
+    $archivedId = $this->storage->createSession('analyst', 'model3');
+
+    $this->storage->closeSession($closedId, 'closed-only', false);
+    $this->storage->closeSession($archivedId, 'archived-history', true);
+
+    $activeSession = $this->storage->getSession($activeId);
+    $closedSession = $this->storage->getSession($closedId);
+    $archivedSession = $this->storage->getSession($archivedId);
+    $archivedSessions = $this->storage->listSessions(status: 'archived', activeOnly: false);
+    $counts = $this->storage->getSessionStatusCounts();
+
+    expect($activeSession['status'])->toBe('active');
+    expect($closedSession['status'])->toBe('closed');
+    expect($archivedSession['status'])->toBe('archived');
+    expect($archivedSessions)->toHaveCount(1);
+    expect($archivedSessions[0]['id'])->toBe($archivedId);
+    expect($counts)->toBe([
+        'active' => 1,
+        'closed' => 2,
+        'archived' => 1,
+        'total' => 3,
+    ]);
+});
+
 test('addMessage saves and retrieves messages', function () {
     $sessionId = $this->storage->createSession('test', 'model');
 
@@ -273,6 +300,72 @@ test('appendTurnEvent stores and retrieves turn process events', function () {
     ]);
 });
 
+test('appendTurnEvent preserves rich complete payload fields', function () {
+    $sessionId = $this->storage->createSession('test', 'model');
+    $turnProcessId = $this->storage->createTurnProcess($sessionId, 'Hello');
+    $payload = [
+        'content' => 'Done',
+        'iterations' => 1,
+        'prompt_tokens' => 10,
+        'completion_tokens' => 5,
+        'total_tokens' => 15,
+        'duration_ms' => 250,
+        'tools_used' => ['list_dir'],
+        'child_agent_count' => 0,
+        'restart_requested' => false,
+        'iteration_limit_reached' => false,
+        'budget_exhausted' => false,
+        'context_usage' => [
+            'max_tokens' => 128000,
+            'reserved_tokens' => 8192,
+            'used_tokens' => 42,
+            'usage_percent' => 0,
+            'available_tokens' => 119766,
+            'effective_budget' => 119808,
+            'breakdown' => [
+                'system' => 10,
+                'memory' => 0,
+                'user' => 8,
+                'assistant' => 12,
+                'tool' => 12,
+                'summary' => 0,
+            ],
+        ],
+        'file_edits' => [
+            ['file_path' => '/tmp/example.php', 'operation' => 'update'],
+        ],
+        'error' => null,
+        'review_feedback' => 'Approved',
+        'review_approved' => true,
+        'background_tasks' => [
+            'agents' => [[
+                'id' => 'task-1',
+                'status' => 'running',
+                'title' => 'Review',
+                'role' => 'reviewer',
+                'started_at' => '2026-04-21T12:00:00+00:00',
+                'created_at' => '2026-04-21T11:59:30+00:00',
+            ]],
+            'tools' => [[
+                'id' => 'task-2',
+                'status' => 'pending',
+                'title' => 'Fetch docs',
+                'tool_name' => 'web_fetch',
+                'started_at' => null,
+                'created_at' => '2026-04-21T11:59:45+00:00',
+            ]],
+            'total_count' => 2,
+        ],
+    ];
+
+    $this->storage->appendTurnEvent($turnProcessId, 'complete', $payload);
+
+    $events = $this->storage->getTurnEvents($turnProcessId);
+
+    expect($events)->toHaveCount(1);
+    expect(json_decode((string) $events[0]['data'], true))->toBe($payload);
+});
+
 test('findRecentTaskByTitle returns most recent matching task', function () {
     $sessionId = $this->storage->createSession('learner', 'quality-automation');
 
@@ -437,6 +530,40 @@ test('summary message is not filtered after soft-delete', function () {
     // loadConversation should return the summary + new question (2 messages)
     $conversation = $this->storage->loadConversation($sessionId);
     expect($conversation->count())->toBe(2);
+});
+
+test('listSessions hides closed sessions by default', function () {
+    $openSessionId = $this->storage->createSession('orchestrator', 'model-open');
+    $closedSessionId = $this->storage->createSession('orchestrator', 'model-closed');
+
+    $this->storage->closeSession($closedSessionId, 'test-close');
+
+    $activeSessions = $this->storage->listSessions();
+    $allSessions = $this->storage->listSessions(50, true, false);
+
+    expect(array_column($activeSessions, 'id'))->toContain($openSessionId);
+    expect(array_column($activeSessions, 'id'))->not->toContain($closedSessionId);
+    expect(array_column($allSessions, 'id'))->toContain($closedSessionId);
+});
+
+test('getLatestInteractiveSessionIdForProfile ignores closed sessions', function () {
+    $closedSessionId = $this->storage->createSession('orchestrator', 'model-closed', 'caelum');
+    $activeSessionId = $this->storage->createSession('orchestrator', 'model-active', 'caelum');
+
+    $this->storage->closeSession($closedSessionId, 'test-close');
+
+    expect($this->storage->getLatestInteractiveSessionIdForProfile('caelum'))->toBe($activeSessionId);
+});
+
+test('isSessionWritable returns false once a session is closed', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+
+    expect($this->storage->isSessionWritable($sessionId))->toBeTrue();
+
+    $this->storage->closeSession($sessionId, 'test-close');
+
+    expect($this->storage->isSessionWritable($sessionId))->toBeFalse();
+    expect($this->storage->isSessionClosed($sessionId))->toBeTrue();
 });
 
 // ─── Background Task Summary ────────────────────────────────────────────────

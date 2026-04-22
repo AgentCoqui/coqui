@@ -238,15 +238,46 @@ final readonly class DefaultsLoader
     {
         return $this->data['defaults']['workspace'] ?? '~/.coqui/.workspace';
     }
-    
+
+    public function defaultImageModel(): ?string
+    {
+        $model = $this->data['defaults']['imageModel'] ?? null;
+
+        return is_string($model) && $model !== '' ? $model : null;
+    }
+
+    /**
+     * @return string[]
+     */
+    public function defaultImageFallbacks(): array
+    {
+        $fallbacks = $this->data['defaults']['imageFallbacks'] ?? [];
+
+        return is_array($fallbacks) ? array_values(array_filter($fallbacks, 'is_string')) : [];
+    }
+
     /**
      * @return array<string, mixed>
      */
     public function defaultImageConfig(): array
     {
-        $config = $this->data['defaults']['imageModel'] ?? [];
+        $providers = $this->data['images']['providers'] ?? [];
+        $ownerName = $this->data['images']['ownerName'] ?? null;
 
-        return is_array($config) ? $config : [];
+        $config = [
+            'primary' => $this->defaultImageModel(),
+            'fallbacks' => $this->defaultImageFallbacks(),
+            'providers' => is_array($providers) ? $providers : [],
+        ];
+
+        if (is_string($ownerName) && trim($ownerName) !== '') {
+            $config['ownerName'] = trim($ownerName);
+        }
+
+        return array_filter(
+            $config,
+            static fn(mixed $value): bool => $value !== null,
+        );
     }
 
     /**
@@ -254,8 +285,7 @@ final readonly class DefaultsLoader
      */
     public function defaultImageChoices(): array
     {
-        $config = $this->defaultImageConfig();
-        $choices = $config['choices'] ?? [];
+        $choices = $this->data['images']['choices'] ?? [];
 
         return is_array($choices) ? $choices : [];
     }

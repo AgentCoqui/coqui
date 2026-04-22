@@ -23,6 +23,7 @@ use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
 use CoquiBot\Coqui\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Config\DefaultsLoader;
+use CoquiBot\Coqui\Config\ModelMetadataResolver;
 use CoquiBot\Coqui\Config\ModelFamilyResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Provider\FallbackProvider;
@@ -127,6 +128,9 @@ final class OrchestratorAgent extends AbstractAgent
      * When a toolkit is deferred, its prompt slug is excluded from system prompt injection.
      */
     private const array TOOLKIT_PROMPT_SLUG_MAP = [
+        'ArtifactToolkit' => 'artifacts',
+        'TodoToolkit' => 'todos',
+        'SprintToolkit' => 'sprints',
         'LoopToolkit' => 'loops',
         'ScheduleToolkit' => 'schedules',
         'WebhookToolkit' => 'webhooks',
@@ -371,30 +375,34 @@ final class OrchestratorAgent extends AbstractAgent
         // the execution session. This allows cross-stage data sharing within a loop.
         $toolkitSessionId = $this->workScopeSessionId ?? $this->sessionId;
 
-        if ($this->storage !== null && $toolkitSessionId !== null) {
+        if ($this->storage !== null && $toolkitSessionId !== null && $this->isProfileFeatureEnabled('artifacts')) {
             $artifactStore = new \CoquiBot\Coqui\Storage\ArtifactStore($this->storage->getPdo());
             $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
 
-            $planTodoGenerator = new PlanTodoGenerator(
-                roleResolver: $this->roleResolver,
-                config: $this->config,
-                todoStore: $todoStore,
-                roleDiscovery: $this->roleDiscovery,
-                providerFactory: $sharedFactory,
-            );
+            $planTodoGenerator = $this->isProfileFeatureEnabled('todos')
+                ? new PlanTodoGenerator(
+                    roleResolver: $this->roleResolver,
+                    config: $this->config,
+                    todoStore: $todoStore,
+                    roleDiscovery: $this->roleDiscovery,
+                    providerFactory: $sharedFactory,
+                )
+                : null;
 
             $this->addToolkit(new ArtifactToolkit(
                 $artifactStore,
                 $toolkitSessionId,
                 planTodoGenerator: $planTodoGenerator,
-                todoStore: $todoStore,
+                todoStore: $this->isProfileFeatureEnabled('todos') ? $todoStore : null,
                 defaultProjectId: $this->defaultProjectId,
                 defaultSprintId: $this->defaultSprintId,
             ));
+        } else {
+            $this->excludeToolkitPromptSlug('artifacts');
         }
 
         // Todo toolkit — session-scoped task tracking for planning and implementation
-        if ($this->storage !== null && $toolkitSessionId !== null) {
+        if ($this->storage !== null && $toolkitSessionId !== null && $this->isProfileFeatureEnabled('todos')) {
             $todoStore ??= new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo());
             $activeRoleName = $this->activeRole ?? 'orchestrator';
             $this->addToolkit(new TodoToolkit(
@@ -404,10 +412,12 @@ final class OrchestratorAgent extends AbstractAgent
                 $effectiveAccessLevel,
                 $artifactStore ?? null,
             ));
+        } else {
+            $this->excludeToolkitPromptSlug('todos');
         }
 
         // Sprint toolkit — project and sprint management across sessions
-        if ($this->projectStore !== null) {
+        if ($this->projectStore !== null && $this->isProfileFeatureEnabled('projects')) {
             $todoStore ??= $this->storage !== null
                 ? new \CoquiBot\Coqui\Storage\TodoStore($this->storage->getPdo())
                 : null;
@@ -421,6 +431,8 @@ final class OrchestratorAgent extends AbstractAgent
                     $this->storage,
                 ));
             }
+        } else {
+            $this->excludeToolkitPromptSlug('sprints');
         }
 
         // Project source toolkit — read-only access to the Coqui project codebase
@@ -444,7 +456,12 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         // Loop toolkit — automated multi-role loop workflows (top-level agents only)
-        if ($this->storage !== null && $effectiveAccessLevel === 'full' && $this->workScopeSessionId === null) {
+        if (
+            $this->storage !== null
+            && $effectiveAccessLevel === 'full'
+            && $this->workScopeSessionId === null
+            && $this->isProfileFeatureEnabled('loops')
+        ) {
             if ($this->roleToolkitResolver->isToolkitAllowed(\CoquiBot\Coqui\Toolkit\LoopToolkit::class)) {
                 $loopStore = new \CoquiBot\Coqui\Storage\LoopStore($this->storage->getPdo());
                 $loopDiscovery = new \CoquiBot\Coqui\Config\LoopDiscovery(
@@ -462,6 +479,8 @@ final class OrchestratorAgent extends AbstractAgent
                     : null;
                 $this->addToolkit(new \CoquiBot\Coqui\Toolkit\LoopToolkit($loopStore, $loopDiscovery, $loopExecutor, $this->sessionId, null, $this->workspacePath));
             }
+        } else {
+            $this->excludeToolkitPromptSlug('loops');
         }
 
         // --- Candidate toolkits: collected first, then budget-gated ---
@@ -589,7 +608,35 @@ final class OrchestratorAgent extends AbstractAgent
         }
 
         // --- Budget gate: decide which candidates load eagerly vs deferred ---
-        $this->applyToolkitBudgetGate($candidateToolkits);
+        if ($this->shouldProfileStubTools()) {
+            $counter = new HeuristicCounter();
+
+            foreach ($candidateToolkits as $entry) {
+                $toolkit = $entry['toolkit'];
+                $package = $entry['package'];
+                $basename = self::toolkitBasename($toolkit);
+                $tokens = $counter->count($toolkit->guidelines()) + $counter->countTools($toolkit->tools());
+
+                $this->addToolkit(new StubToolkit($toolkit), $package);
+                $this->deferredToolkitInfo[] = [
+                    'name' => $basename,
+                    'description' => $entry['description'],
+                    'package' => $package,
+                ];
+                $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Deferred;
+                $this->recordToolkitLoadingDecision(
+                    name: $basename,
+                    package: $package,
+                    description: $entry['description'],
+                    mode: ToolkitLoadingMode::Deferred,
+                    configuredMode: ToolkitLoadingMode::Deferred,
+                    reason: 'profile_tools_stub',
+                    tokens: $tokens,
+                );
+            }
+        } else {
+            $this->applyToolkitBudgetGate($candidateToolkits);
+        }
 
         // Compute excluded tool prompt slugs based on deferred toolkits
         $deferredNames = array_column($this->deferredToolkitInfo, 'name');
@@ -670,6 +717,9 @@ final class OrchestratorAgent extends AbstractAgent
             $this->configTool = new ConfigTool(
                 configManager: $configManager,
                 configGuard: $configGuard ?? new ConfigGuard(),
+                defaultsLoader: $this->defaultsLoader,
+                familyResolver: $this->familyResolver,
+                providerFactory: $sharedFactory,
             );
         }
 
@@ -860,9 +910,9 @@ final class OrchestratorAgent extends AbstractAgent
             $parts[] = $memoryBlock;
         }
 
-        $preferencesBlock = $this->profilePreferences?->renderPromptSection();
-        if ($preferencesBlock !== null) {
-            $parts[] = $preferencesBlock;
+        $preferencesSection = $this->buildProfilePreferencesPromptSection();
+        if ($preferencesSection !== null) {
+            $parts[] = $preferencesSection->content;
         }
 
         if (trim($body) !== '') {
@@ -975,24 +1025,77 @@ final class OrchestratorAgent extends AbstractAgent
         // Soul
         $soulPath = rtrim($this->activeProfilePath, '/') . '/soul.md';
         $soul = null;
-        if (is_file($soulPath)) {
-            $content = $parser->readFile($soulPath)['body'];
-            if (trim($content) !== '') {
-                $soul = "<!-- Profile Identity -->\n" . trim($content);
+        if ($this->isProfilePromptSectionEnabled('soul')) {
+            if ($this->isProfilePromptSectionStubbed('soul')) {
+                $soul = $this->buildProfilePromptSectionStub('soul');
+            } elseif (is_file($soulPath)) {
+                $content = $parser->readFile($soulPath)['body'];
+                if (trim($content) !== '') {
+                    $soul = "<!-- Profile Identity -->\n" . trim($content);
+                }
             }
         }
 
         // Backstory
         $backstoryPath = rtrim($this->activeProfilePath, '/') . '/backstory.md';
         $backstory = null;
-        if (is_file($backstoryPath)) {
-            $content = file_get_contents($backstoryPath);
-            if ($content !== false && trim($content) !== '') {
-                $backstory = trim($content);
+        if ($this->isProfilePromptSectionEnabled('backstory')) {
+            if ($this->isProfilePromptSectionStubbed('backstory')) {
+                $backstory = $this->buildProfilePromptSectionStub('backstory');
+            } elseif (is_file($backstoryPath)) {
+                $content = file_get_contents($backstoryPath);
+                if ($content !== false && trim($content) !== '') {
+                    $backstory = trim($content);
+                }
             }
         }
 
         return [$soul, $backstory];
+    }
+
+    private function isProfilePromptSectionEnabled(string $section, bool $default = true): bool
+    {
+        return $this->profilePreferences?->isPromptSectionEnabled($section, $default) ?? $default;
+    }
+
+    private function isProfilePromptSectionStubbed(string $section): bool
+    {
+        return $this->profilePreferences?->isPromptSectionStubbed($section) === true;
+    }
+
+    private function isProfileFeatureEnabled(string $feature, bool $default = true): bool
+    {
+        return $this->profilePreferences?->isFeatureEnabled($feature, $default) ?? $default;
+    }
+
+    private function shouldProfileStubTools(): bool
+    {
+        return $this->isProfilePromptSectionStubbed('tools');
+    }
+
+    private function excludeToolkitPromptSlug(string $slug): void
+    {
+        if (!in_array($slug, $this->excludedToolPromptSlugs, true)) {
+            $this->excludedToolPromptSlugs[] = $slug;
+        }
+    }
+
+    private function profilePreferencesSource(): ?string
+    {
+        return $this->activeProfilePath !== null ? rtrim($this->activeProfilePath, '/') . '/preferences.json' : null;
+    }
+
+    private function buildProfilePromptSectionStub(string $section): string
+    {
+        return match ($section) {
+            'soul' => '# Soul' . "\n\n" . 'Core identity instructions are intentionally condensed for this profile.',
+            'backstory' => '## Backstory' . "\n\n" . 'Narrative continuity is intentionally condensed for this profile.',
+            'preferences' => '## Preferences' . "\n\n" . 'Profile-specific communication preferences are intentionally condensed for this profile.',
+            'memory' => '## BACKGROUND KNOWLEDGE (Core Memories)' . "\n\n" . 'Core memories are available but intentionally condensed for this profile.',
+            'project_context' => '## ACTIVE PROJECT' . "\n\n" . 'Project context is available but intentionally condensed for this profile.',
+            'deferred_toolkits' => '## DEFERRED TOOLKITS' . "\n\n" . 'Additional toolkits may be available through discovery tools, but their guidance is intentionally condensed for this profile.',
+            default => '## Prompt Section' . "\n\n" . 'This prompt section is intentionally condensed for this profile.',
+        };
     }
 
     /**
@@ -1066,6 +1169,14 @@ final class OrchestratorAgent extends AbstractAgent
      */
     private function buildMemoryBlock(): ?string
     {
+        if (!$this->isProfilePromptSectionEnabled('memory')) {
+            return null;
+        }
+
+        if ($this->isProfilePromptSectionStubbed('memory')) {
+            return $this->buildProfilePromptSectionStub('memory');
+        }
+
         if ($this->memorySummarizer === null) {
             return null;
         }
@@ -1115,6 +1226,18 @@ final class OrchestratorAgent extends AbstractAgent
      */
     private function injectProjectContext(string $rendered): string
     {
+        if (!$this->isProfileFeatureEnabled('projects')) {
+            return $rendered;
+        }
+
+        if (!$this->isProfilePromptSectionEnabled('project_context')) {
+            return $rendered;
+        }
+
+        if ($this->isProfilePromptSectionStubbed('project_context')) {
+            return $rendered . "\n\n" . $this->buildProfilePromptSectionStub('project_context');
+        }
+
         $projectId = $this->resolveActiveProjectId();
         if ($projectId === null || $this->projectStore === null) {
             return $rendered;
@@ -1188,6 +1311,14 @@ final class OrchestratorAgent extends AbstractAgent
      */
     private function injectDeferredToolkitHint(string $rendered): string
     {
+        if (!$this->isProfilePromptSectionEnabled('deferred_toolkits')) {
+            return $rendered;
+        }
+
+        if ($this->isProfilePromptSectionStubbed('deferred_toolkits')) {
+            return $rendered . "\n\n" . $this->buildProfilePromptSectionStub('deferred_toolkits');
+        }
+
         if (empty($this->deferredToolkitInfo)) {
             return $rendered;
         }
@@ -1273,7 +1404,7 @@ final class OrchestratorAgent extends AbstractAgent
                 continue;
             }
 
-            $tools[] = $vis === ToolkitVisibility::Stub ? new StubTool($tool) : $tool;
+            $tools[] = ($vis === ToolkitVisibility::Stub || $this->shouldProfileStubTools()) ? new StubTool($tool) : $tool;
         }
 
         return $tools;
@@ -1334,6 +1465,22 @@ final class OrchestratorAgent extends AbstractAgent
     public function getOwnToolkitCount(): int
     {
         return count($this->ownToolkits);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getProfilePolicySummary(): ?array
+    {
+        if ($this->profilePreferences === null) {
+            return null;
+        }
+
+        $summary = $this->profilePreferences->inspectionSummary();
+        $summary['tools_stubbed'] = $this->shouldProfileStubTools();
+        $summary['excluded_tool_prompt_slugs'] = array_values(array_unique($this->excludedToolPromptSlugs));
+
+        return $summary;
     }
 
     /**
@@ -1612,6 +1759,23 @@ final class OrchestratorAgent extends AbstractAgent
 
     private function buildProfilePreferencesPromptSection(): ?PromptSection
     {
+        if (!$this->isProfilePromptSectionEnabled('preferences')) {
+            return null;
+        }
+
+        if ($this->isProfilePromptSectionStubbed('preferences')) {
+            return new PromptSection(
+                id: 'prompt.preferences',
+                title: 'Preferences',
+                content: $this->buildProfilePromptSectionStub('preferences'),
+                priority: PromptSectionPriority::Critical,
+                rationale: 'Profile preferences remain pinned, even when condensed, so profile behavior stays legible in prompt inspection.',
+                decision: 'pinned_critical',
+                group: 'identity',
+                source: $this->profilePreferencesSource(),
+            );
+        }
+
         $preferencesBlock = $this->profilePreferences?->renderPromptSection();
         if ($preferencesBlock === null || trim($preferencesBlock) === '') {
             return null;
@@ -1625,7 +1789,7 @@ final class OrchestratorAgent extends AbstractAgent
             rationale: 'Profile preferences tune communication and behavior for the active persona, so they must stay pinned with identity context.',
             decision: 'pinned_critical',
             group: 'identity',
-            source: $this->activeProfilePath !== null ? rtrim($this->activeProfilePath, '/') . '/preferences.json' : null,
+            source: $this->profilePreferencesSource(),
         );
     }
 
@@ -1634,6 +1798,23 @@ final class OrchestratorAgent extends AbstractAgent
      */
     private function buildMemoryPromptSections(): array
     {
+        if (!$this->isProfilePromptSectionEnabled('memory')) {
+            return [];
+        }
+
+        if ($this->isProfilePromptSectionStubbed('memory')) {
+            return [new PromptSection(
+                id: 'context.core-memories',
+                title: 'Core Memories',
+                content: $this->buildProfilePromptSectionStub('memory'),
+                priority: PromptSectionPriority::Workflow,
+                rationale: 'Core memories remain visible to prompt inspection even when condensed by profile policy.',
+                decision: 'pinned_workflow',
+                group: 'memory',
+                source: $this->profilePreferencesSource(),
+            )];
+        }
+
         if ($this->memorySummarizer === null) {
             return [];
         }
@@ -1661,6 +1842,27 @@ final class OrchestratorAgent extends AbstractAgent
 
     private function buildActiveProjectPromptSection(): ?PromptSection
     {
+        if (!$this->isProfileFeatureEnabled('projects')) {
+            return null;
+        }
+
+        if (!$this->isProfilePromptSectionEnabled('project_context')) {
+            return null;
+        }
+
+        if ($this->isProfilePromptSectionStubbed('project_context')) {
+            return new PromptSection(
+                id: 'context.active-project',
+                title: 'Active Project',
+                content: $this->buildProfilePromptSectionStub('project_context'),
+                priority: PromptSectionPriority::Workflow,
+                rationale: 'Project context remains discoverable in prompt inspection even when condensed by profile policy.',
+                decision: 'pinned_workflow',
+                group: 'project',
+                source: $this->profilePreferencesSource(),
+            );
+        }
+
         $projectId = $this->resolveActiveProjectId();
         if ($projectId === null || $this->projectStore === null) {
             return null;
@@ -1733,6 +1935,23 @@ final class OrchestratorAgent extends AbstractAgent
 
     private function buildDeferredToolkitPromptSection(): ?PromptSection
     {
+        if (!$this->isProfilePromptSectionEnabled('deferred_toolkits')) {
+            return null;
+        }
+
+        if ($this->isProfilePromptSectionStubbed('deferred_toolkits')) {
+            return new PromptSection(
+                id: 'context.deferred-toolkits',
+                title: 'Deferred Toolkits',
+                content: $this->buildProfilePromptSectionStub('deferred_toolkits'),
+                priority: PromptSectionPriority::Volatile,
+                rationale: 'Deferred toolkit visibility can be condensed by profile policy without changing actual toolkit availability.',
+                decision: 'included_volatile',
+                group: 'tool_discovery',
+                source: $this->profilePreferencesSource(),
+            );
+        }
+
         if ($this->deferredToolkitInfo === []) {
             return null;
         }
@@ -1844,59 +2063,24 @@ final class OrchestratorAgent extends AbstractAgent
 
 
     /**
-     * Resolve a ContextWindow from the model definition in config.
-     *
-     * Uses a 4-layer resolution chain:
-     * 1. User-configured model definition (openclaw.json)
-     * 2. Curated model from defaults.json
-     * 3. Family-level defaults from defaults.json
-     * 4. Conservative hardcoded fallback (128K/4K)
+     * Resolve a ContextWindow from the shared model metadata resolver.
      */
     private function resolveContextWindow(ConfigInterface $config, RoleResolver $roleResolver): ContextWindowInterface
     {
-        if ($config instanceof OpenClawConfig) {
-            $modelString = $roleResolver->resolve('orchestrator');
-            $parts = explode('/', $modelString, 2);
-            $provider = $parts[0];
-            $modelId = $parts[1] ?? $modelString;
+        if ($config instanceof OpenClawConfig && $this->defaultsLoader !== null) {
+            $resolver = new ModelMetadataResolver(
+                $this->defaultsLoader,
+                $this->familyResolver ?? new ModelFamilyResolver($this->defaultsLoader->familyNames()),
+                $config,
+                $this->providerFactory,
+            );
 
-            // Layer 1: User-configured model definition (openclaw.json)
-            $modelDef = $config->getModelDefinition($modelId)
-                ?? $config->getModelDefinition($modelString);
-
-            // Only use the model definition if it carries a meaningful context window.
-            // A value at or below CONTEXT_WINDOW_RESERVED indicates a placeholder default
-            // written by an older setup wizard run — fall through to Layer 2/3/4 instead.
-            if ($modelDef !== null && $modelDef->contextWindow > CoquiDefaults::CONTEXT_WINDOW_RESERVED) {
+            $modelDef = $resolver->resolve($roleResolver->resolve('orchestrator'), true);
+            if ($modelDef !== null) {
                 return ContextWindow::fromModel($modelDef);
-            }
-
-            // Layer 2: Curated model from defaults.json
-            if ($this->defaultsLoader !== null && $provider !== '') {
-                $curated = $this->defaultsLoader->curatedModel($provider, $modelId);
-                if ($curated !== null) {
-                    $def = ModelDefinition::fromOpenClaw($provider, $curated);
-
-                    return ContextWindow::fromModel($def);
-                }
-            }
-
-            // Layer 3: Family-level defaults
-            if ($this->defaultsLoader !== null && $this->familyResolver !== null) {
-                $family = $this->familyResolver->resolveFamily($modelId);
-                if ($family !== null) {
-                    $familyDefaults = $this->defaultsLoader->familyDefaults($family);
-                    if ($familyDefaults !== null) {
-                        return new ContextWindow(
-                            maxTok: $familyDefaults['contextWindow'],
-                            reservedTok: $familyDefaults['maxTokens'],
-                        );
-                    }
-                }
             }
         }
 
-        // Layer 4: Conservative hardcoded fallback
         return new ContextWindow(maxTok: CoquiDefaults::CONTEXT_WINDOW_FALLBACK, reservedTok: CoquiDefaults::CONTEXT_WINDOW_RESERVED);
     }
 

@@ -1,0 +1,40 @@
+{
+  "prompt_directives": {
+    "response_style": "brief and exact",
+    "feedback": "favor direct critique over soft framing",
+    "priority": "reduce noise and keep only what changes the outcome"
+  },
+  "behavior": {
+    "temperature_hint": 0.15,
+    "verbosity": "lean",
+    "critique_mode": true
+  },
+  "prompts": {
+    "features": {
+      "artifacts": false,
+      "projects": true,
+      "loops": false,
+      "todos": false,
+      "background_tasks": true
+    },
+    "prompt_sections": {
+      "soul": false,
+      "backstory": false,
+      "preferences": false,
+      "deferred_toolkits": "stub",
+      "memory": true
+    },
+    "roles": {
+      "allow": [
+        "orchestrator",
+        "explorer",
+        "learner",
+        "reviewer"
+      ],
+      "deny": [
+        "coder",
+        "muse"
+      ]
+    }
+  }
+}

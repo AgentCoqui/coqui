@@ -30,7 +30,7 @@ final class BackstoryAssembler
     /**
      * Generate backstory.md from the backstory/ source directory.
      */
-    public function generate(string $profilePath): BackstoryResult
+    public function generate(string $profilePath, ?string $headingLabel = null): BackstoryResult
     {
         $startTime = hrtime(true);
 
@@ -88,7 +88,7 @@ final class BackstoryAssembler
         }
 
         try {
-            return $this->writeBackstory($handle, $inventory, $manifestPath, $startTime);
+            return $this->writeBackstory($handle, $inventory, $manifestPath, $startTime, $headingLabel ?? 'Backstory');
         } finally {
             fclose($handle);
         }
@@ -144,11 +144,11 @@ final class BackstoryAssembler
     /**
      * @param resource $handle
      */
-    private function writeBackstory($handle, BackstorySourceInventory $inventory, string $manifestPath, int $startTime): BackstoryResult
+    private function writeBackstory($handle, BackstorySourceInventory $inventory, string $manifestPath, int $startTime, string $headingLabel): BackstoryResult
     {
         $entries = $inventory->supportedEntries;
 
-        fwrite($handle, "## Backstory\n\n");
+        fwrite($handle, '## ' . trim($headingLabel) . "\n\n");
 
         $manifestFiles = [];
         $manifestErrors = [];
