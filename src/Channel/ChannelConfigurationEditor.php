@@ -213,7 +213,7 @@ final readonly class ChannelConfigurationEditor
             $errors[] = 'enabled must be a boolean';
         }
 
-        if ($errors === [] && $driverInstance !== null) {
+        if ($errors === [] && $driverInstance !== null && !$creating) {
             $driverErrors = $driverInstance->validateInstanceConfig($input);
             foreach ($driverErrors as $error) {
                 $errors[] = $error;

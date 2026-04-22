@@ -147,6 +147,7 @@ function createPromptBackstoryRouterFixture(): array
         new PromptInspectionService($runner, $workspacePath, $projectRoot),
         $output,
         $workspacePath,
+        null,
         static function (): void {},
         static function (?bool $enable = null): void {},
     );

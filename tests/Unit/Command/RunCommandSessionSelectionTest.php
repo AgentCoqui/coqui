@@ -6,8 +6,11 @@ use CoquiBot\Coqui\Command\RunCommand;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -19,7 +22,7 @@ function createRunCommandSessionFixture(): array
 
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);
-    $roleResolver = new RoleResolver(OpenClawConfig::fromArray([
+    $config = OpenClawConfig::fromArray([
         'agents' => [
             'defaults' => [
                 'model' => ['primary' => 'ollama/qwen3:latest'],
@@ -28,7 +31,14 @@ function createRunCommandSessionFixture(): array
                 ],
             ],
         ],
-    ]));
+    ]);
+    $roleResolver = new RoleResolver($config);
+    $lifecycleManager = new ProfileSessionLifecycleManager(
+        storage: $storage,
+        providerFactory: new ProviderFactory($config),
+        roleResolver: $roleResolver,
+        memoryStore: new MemoryStore($workspacePath . '/memory.db'),
+    );
 
     $boot = testBootManagerForRunCommand($workspacePath, $roleResolver);
     $output = new BufferedOutput();
@@ -38,7 +48,7 @@ function createRunCommandSessionFixture(): array
         'workspacePath' => $workspacePath,
         'dbPath' => $dbPath,
         'storage' => $storage,
-        'handler' => new SessionHandler($boot, $storage),
+        'handler' => new SessionHandler($boot, $storage, $lifecycleManager),
         'command' => $command,
         'io' => new SymfonyStyle(new ArrayInput([], $command->getDefinition()), $output),
         'output' => $output,
