@@ -184,3 +184,19 @@ test('turn process observer persists transient loop events', function () {
         'role' => 'coder',
     ]);
 });
+
+test('turn process observer adds actor metadata when configured for a group responder', function () {
+    $observer = new TurnProcessObserver($this->storage, $this->turnProcessId, 'nova', 'orchestrator');
+
+    $observer->update(makeTurnAgentStub('agent.text_delta', 'Let me take point on this.'));
+
+    $events = $this->storage->getTurnEvents($this->turnProcessId);
+
+    expect($events)->toHaveCount(1);
+    expect($events[0]['event_type'])->toBe('text_delta');
+    expect(json_decode((string) $events[0]['data'], true))->toBe([
+        'content' => 'Let me take point on this.',
+        'actor_name' => 'nova',
+        'actor_role' => 'orchestrator',
+    ]);
+});

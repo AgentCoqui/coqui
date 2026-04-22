@@ -23,8 +23,8 @@ final readonly class GroupTurnCoordinator
 
     /**
      * @param list<string> $members
-     * @param string[]|null $filePaths
-     * @param callable(string, string, int, ?array): AgentTurnResult $executeActor
+    * @param string[]|null $filePaths
+    * @param callable(string, string, int, ?array<int, string>, string): AgentTurnResult $executeActor
      */
     public function run(
         string $sessionId,
@@ -81,7 +81,7 @@ final readonly class GroupTurnCoordinator
                     'actor_role' => $modelRole,
                 ]);
 
-                $segmentResult = $executeActor($actorPrompt, $actorName, $round, $filePaths);
+                $segmentResult = $executeActor($actorPrompt, $actorName, $round, $filePaths, $turnId);
 
                 if ($segmentResult->deferredWork !== null && !$segmentResult->deferredWork->isEmpty()) {
                     $queueToProcess = $segmentResult->deferredWork;
@@ -145,11 +145,9 @@ final readonly class GroupTurnCoordinator
 
                 if (is_array($segmentResult->fileEdits)) {
                     foreach ($segmentResult->fileEdits as $edit) {
-                        $filePath = is_string($edit['file_path'] ?? null) ? $edit['file_path'] : null;
-                        $operation = is_string($edit['operation'] ?? null) ? $edit['operation'] : null;
-                        if ($filePath === null || $operation === null) {
-                            continue;
-                        }
+                        /** @var array{file_path: string, operation: string} $edit */
+                        $filePath = $edit['file_path'];
+                        $operation = $edit['operation'];
 
                         $fileEdits[$filePath . '|' . $operation] = [
                             'file_path' => $filePath,
@@ -270,7 +268,7 @@ final readonly class GroupTurnCoordinator
         $resolved = [];
         $seen = [];
 
-        foreach ($matches[1] ?? [] as $mentioned) {
+        foreach ($matches[1] as $mentioned) {
             $candidate = strtolower((string) $mentioned);
             if (!isset($knownMembers[$candidate]) || $candidate === $excludeActor || isset($seen[$candidate])) {
                 continue;
