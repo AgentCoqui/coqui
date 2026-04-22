@@ -373,7 +373,7 @@ final class ApiCommand extends Command
         $commandCatalogHandler = new CommandCatalogHandler();
         $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
         $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore, $storage, $artifactStore, $projectStore);
-        $scheduleHandler = new ScheduleHandler($scheduleStore);
+        $scheduleHandler = new ScheduleHandler($scheduleStore, $storage);
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry);
         $webhookMgmtHandler = new WebhookManagementHandler($webhookStore, $boot->profileDiscovery());
         $channelHandler = new ChannelHandler(
@@ -707,7 +707,10 @@ final class ApiCommand extends Command
         // Schedules
         $router->post($v1 . '/schedules', [$schedule, 'create']);
         $router->get($v1 . '/schedules', [$schedule, 'list']);
+        $router->get($v1 . '/schedules/upcoming', [$schedule, 'upcoming']);
+        $router->get($v1 . '/schedules/stats', [$schedule, 'stats']);
         $router->get($v1 . '/schedules/{id}', [$schedule, 'get']);
+        $router->get($v1 . '/schedules/{id}/runs', [$schedule, 'runs']);
         $router->patch($v1 . '/schedules/{id}', [$schedule, 'update']);
         $router->delete($v1 . '/schedules/{id}', [$schedule, 'delete']);
         $router->post($v1 . '/schedules/{id}/enable', [$schedule, 'enable']);

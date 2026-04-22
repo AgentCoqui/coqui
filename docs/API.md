@@ -2717,11 +2717,95 @@ List all schedules with optional filters.
 }
 ```
 
+#### `GET /api/v1/schedules/upcoming`
+
+List enabled schedules that are due within a bounded window.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `hours` | integer | Look-ahead window in hours. Defaults to `24`, max `720`. |
+
+**Response `200`**
+
+```json
+{
+  "schedules": [
+    {
+      "id": "a1b2c3d4",
+      "name": "daily-review",
+      "next_run_at": "2026-02-17T09:00:00Z",
+      "enabled": 1
+    }
+  ],
+  "count": 1,
+  "hours": 24
+}
+```
+
+#### `GET /api/v1/schedules/stats`
+
+Return aggregate schedule counts without fetching the full schedule list.
+
+**Response `200`**
+
+```json
+{
+  "total": 3,
+  "enabled": 2,
+  "disabled": 1,
+  "total_runs": 42
+}
+```
+
 #### `GET /api/v1/schedules/{id}`
 
 Get a schedule by ID.
 
 **Response `200`** — full schedule object.
+
+**Response `404`** — schedule not found.
+
+#### `GET /api/v1/schedules/{id}/runs`
+
+List recent background task runs triggered by a schedule.
+
+**Query Parameters**
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `limit` | integer | Maximum runs to return. Defaults to `20`, max `100`. |
+
+**Response `200`**
+
+```json
+{
+  "schedule": {
+    "id": "a1b2c3d4",
+    "name": "daily-review"
+  },
+  "runs": [
+    {
+      "id": "task_123",
+      "session_id": "sess_123",
+      "status": "completed",
+      "title": "Weekday review",
+      "result": "Review complete",
+      "error": null,
+      "metadata": {
+        "source": "schedule"
+      },
+      "created_at": "2026-02-17T09:00:00Z",
+      "completed_at": "2026-02-17T09:01:00Z"
+    }
+  ],
+  "count": 1,
+  "counts": {
+    "completed": 1
+  }
+}
+```
 
 **Response `404`** — schedule not found.
 
@@ -2874,7 +2958,20 @@ List all loops with optional status filter.
       "updated_at": "2026-02-16T14:30:00Z"
     }
   ],
-  "count": 1
+  "count": 1,
+  "active": 1
+}
+```
+
+#### `GET /api/v1/loops/active/count`
+
+Return the number of currently running loops.
+
+**Response `200`**
+
+```json
+{
+  "active": 1
 }
 ```
 
@@ -2921,6 +3018,91 @@ List available loop definitions.
   "count": 1
 }
 ```
+
+#### `GET /api/v1/loops/{id}/history`
+
+Get the full iteration timeline for a loop, including stage-level results.
+
+**Response `200`**
+
+```json
+{
+  "loop": {
+    "id": "abc123",
+    "status": "completed"
+  },
+  "history": [
+    {
+      "id": "iter123",
+      "iteration_number": 1,
+      "status": "needs_rework",
+      "duration_seconds": 120,
+      "stage_count": 2,
+      "completed_stage_count": 1,
+      "stages": [
+        {
+          "id": "stage123",
+          "role": "plan",
+          "status": "completed"
+        },
+        {
+          "id": "stage124",
+          "role": "reviewer",
+          "status": "failed"
+        }
+      ]
+    }
+  ],
+  "count": 1
+}
+```
+
+**Response `404`** — loop not found.
+
+#### `GET /api/v1/loops/{id}/metrics`
+
+Return aggregate counts and timing summaries for a loop.
+
+**Response `200`**
+
+```json
+{
+  "loop_id": "abc123",
+  "status": "completed",
+  "current_iteration": 2,
+  "duration_seconds": 300,
+  "iterations": {
+    "total": 2,
+    "by_status": {
+      "needs_rework": 1,
+      "completed": 1
+    }
+  },
+  "stages": {
+    "total": 4,
+    "by_status": {
+      "completed": 3,
+      "failed": 1
+    },
+    "by_role": {
+      "plan": 2,
+      "reviewer": 2
+    }
+  },
+  "timings": {
+    "total_iteration_seconds": 240,
+    "average_iteration_seconds": 120,
+    "iteration_timings": [
+      {
+        "iteration_number": 1,
+        "duration_seconds": 120
+      }
+    ]
+  }
+}
+```
+
+**Response `404`** — loop not found.
 
 #### `GET /api/v1/loops/{id}`
 

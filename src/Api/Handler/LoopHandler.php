@@ -23,6 +23,8 @@ use React\Http\Message\Response;
  * GET    /api/v1/loops                    — list loops
  * GET    /api/v1/loops/definitions        — list available definitions
  * GET    /api/v1/loops/{id}               — get loop status
+ * GET    /api/v1/loops/{id}/history       — get full loop iteration history
+ * GET    /api/v1/loops/{id}/metrics       — get aggregate loop metrics
  * POST   /api/v1/loops/{id}/pause         — pause loop
  * POST   /api/v1/loops/{id}/resume        — resume loop
  * POST   /api/v1/loops/{id}/stop          — cancel loop
@@ -189,6 +191,16 @@ final readonly class LoopHandler
     }
 
     /**
+     * GET /api/v1/loops/active/count
+     */
+    public function activeCount(ServerRequestInterface $request): Response
+    {
+        return Router::jsonResponse([
+            'active' => $this->store->countActive(),
+        ]);
+    }
+
+    /**
      * GET /api/v1/loops/definitions
      */
     public function definitions(ServerRequestInterface $request): Response
@@ -230,6 +242,95 @@ final readonly class LoopHandler
         }
 
         return Router::jsonResponse($state);
+    }
+
+    /**
+     * GET /api/v1/loops/{id}/history
+     */
+    public function history(ServerRequestInterface $request, string $id): Response
+    {
+        $loop = $this->store->getLoop($id);
+        if ($loop === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
+        }
+
+        $iterations = $this->store->listIterations($id);
+        $history = array_map(function (array $iteration): array {
+            $stages = array_map(
+                fn(array $stage): array => $this->normalizeStage($stage),
+                $this->store->listStages((string) $iteration['id']),
+            );
+
+            return [
+                ...$iteration,
+                'duration_seconds' => $this->durationSeconds($iteration['started_at'] ?? null, $iteration['completed_at'] ?? null),
+                'stage_count' => count($stages),
+                'completed_stage_count' => count(array_filter($stages, static fn(array $stage): bool => ($stage['status'] ?? null) === 'completed')),
+                'stages' => $stages,
+            ];
+        }, $iterations);
+
+        return Router::jsonResponse([
+            'loop' => $this->normalizeLoop($loop),
+            'history' => $history,
+            'count' => count($history),
+        ]);
+    }
+
+    /**
+     * GET /api/v1/loops/{id}/metrics
+     */
+    public function metrics(ServerRequestInterface $request, string $id): Response
+    {
+        $loop = $this->store->getLoop($id);
+        if ($loop === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Loop not found');
+        }
+
+        $iterations = $this->store->listIterations($id);
+        $iterationCounts = [];
+        $stageCounts = [];
+        $stageRoleCounts = [];
+        $stagesTotal = 0;
+
+        foreach ($iterations as $iteration) {
+            $iterationStatus = (string) ($iteration['status'] ?? 'unknown');
+            $iterationCounts[$iterationStatus] = ($iterationCounts[$iterationStatus] ?? 0) + 1;
+
+            foreach ($this->store->listStages((string) $iteration['id']) as $stage) {
+                $stagesTotal++;
+                $stageStatus = (string) ($stage['status'] ?? 'unknown');
+                $stageCounts[$stageStatus] = ($stageCounts[$stageStatus] ?? 0) + 1;
+
+                $role = (string) ($stage['role'] ?? 'unknown');
+                $stageRoleCounts[$role] = ($stageRoleCounts[$role] ?? 0) + 1;
+            }
+        }
+
+        $timings = $this->store->getIterationTimings($id);
+        $totalIterationSeconds = array_sum(array_map(static fn(array $timing): float => (float) $timing['duration_seconds'], $timings));
+        $loopDuration = $this->durationSeconds($loop['started_at'] ?? null, $loop['completed_at'] ?? null);
+
+        return Router::jsonResponse([
+            'loop_id' => $id,
+            'status' => $loop['status'] ?? null,
+            'current_iteration' => (int) ($loop['current_iteration'] ?? 0),
+            'duration_seconds' => $loopDuration,
+            'iterations' => [
+                'total' => count($iterations),
+                'by_status' => $iterationCounts,
+            ],
+            'stages' => [
+                'total' => $stagesTotal,
+                'by_status' => $stageCounts,
+                'by_role' => $stageRoleCounts,
+            ],
+            'timings' => [
+                'total_iteration_seconds' => $totalIterationSeconds,
+                'average_iteration_seconds' => count($timings) > 0 ? $totalIterationSeconds / count($timings) : 0.0,
+                'iteration_timings' => $timings,
+            ],
+        ]);
     }
 
     /**
@@ -472,8 +573,11 @@ final readonly class LoopHandler
             $router->delete($v1 . '/loops/{id}', [$this, 'delete']);
         }
         $router->get($v1 . '/loops', [$this, 'list']);
+        $router->get($v1 . '/loops/active/count', [$this, 'activeCount']);
         $router->get($v1 . '/loops/definitions', [$this, 'definitions']);
         $router->get($v1 . '/loops/{id}', [$this, 'get']);
+        $router->get($v1 . '/loops/{id}/history', [$this, 'history']);
+        $router->get($v1 . '/loops/{id}/metrics', [$this, 'metrics']);
         if ($this->executor !== null) {
             $router->post($v1 . '/loops/{id}/pause', [$this, 'pause']);
             $router->post($v1 . '/loops/{id}/resume', [$this, 'resume']);
@@ -550,6 +654,24 @@ final readonly class LoopHandler
         $state['stages'] = array_map(fn(array $stage): array => $this->normalizeStage($stage), $state['stages']);
 
         return $state;
+    }
+
+    private function durationSeconds(mixed $startedAt, mixed $completedAt): ?float
+    {
+        if (!is_string($startedAt) || $startedAt === '') {
+            return null;
+        }
+
+        try {
+            $start = new \DateTimeImmutable($startedAt);
+            $end = is_string($completedAt) && $completedAt !== ''
+                ? new \DateTimeImmutable($completedAt)
+                : new \DateTimeImmutable('now');
+
+            return max(0.0, (float) ($end->getTimestamp() - $start->getTimestamp()));
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
 }
