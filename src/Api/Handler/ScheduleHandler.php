@@ -7,6 +7,8 @@ namespace CoquiBot\Coqui\Api\Handler;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\ScheduleStore;
+use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\JsonHelper;
 use CoquiBot\Coqui\Utility\ScheduleValidator;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
@@ -27,6 +29,7 @@ final readonly class ScheduleHandler
 {
     public function __construct(
         private ScheduleStore $store,
+        private ?SessionStorage $storage = null,
     ) {}
 
     /**
@@ -139,6 +142,35 @@ final readonly class ScheduleHandler
     }
 
     /**
+     * GET /api/v1/schedules/upcoming?hours=24
+     */
+    public function upcoming(ServerRequestInterface $request): Response
+    {
+        $params = $request->getQueryParams();
+        $hours = isset($params['hours']) ? (int) $params['hours'] : 24;
+        if ($hours < 1) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'hours must be greater than 0');
+        }
+
+        $hours = min($hours, 24 * 30);
+        $schedules = $this->store->getUpcoming($hours);
+
+        return Router::jsonResponse([
+            'schedules' => $schedules,
+            'count' => count($schedules),
+            'hours' => $hours,
+        ]);
+    }
+
+    /**
+     * GET /api/v1/schedules/stats
+     */
+    public function stats(ServerRequestInterface $request): Response
+    {
+        return Router::jsonResponse($this->store->getStats());
+    }
+
+    /**
      * GET /api/v1/schedules/{id}
      */
     public function get(ServerRequestInterface $request, string $id): Response
@@ -149,6 +181,44 @@ final readonly class ScheduleHandler
         }
 
         return Router::jsonResponse($schedule);
+    }
+
+    /**
+     * GET /api/v1/schedules/{id}/runs?limit=20
+     */
+    public function runs(ServerRequestInterface $request, string $id): Response
+    {
+        $schedule = $this->store->get($id);
+        if ($schedule === null) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Schedule not found');
+        }
+
+        if ($this->storage === null) {
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Task storage is not available');
+        }
+
+        $params = $request->getQueryParams();
+        $limit = isset($params['limit']) ? (int) $params['limit'] : 20;
+        if ($limit < 1) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'limit must be greater than 0');
+        }
+
+        $limit = min($limit, 100);
+        $runs = $this->storage->listTasksForSchedule($id, $limit);
+        $runs = array_map(fn(array $run): array => $this->normalizeRun($run), $runs);
+
+        $counts = [];
+        foreach ($runs as $run) {
+            $status = (string) ($run['status'] ?? 'unknown');
+            $counts[$status] = ($counts[$status] ?? 0) + 1;
+        }
+
+        return Router::jsonResponse([
+            'schedule' => $schedule,
+            'runs' => $runs,
+            'count' => count($runs),
+            'counts' => $counts,
+        ]);
     }
 
     /**
@@ -332,5 +402,16 @@ final readonly class ScheduleHandler
         }
 
         return $schedule;
+    }
+
+    /**
+     * @param array<string, mixed> $run
+     * @return array<string, mixed>
+     */
+    private function normalizeRun(array $run): array
+    {
+        $run['metadata'] = JsonHelper::decodeJsonObject($run['metadata'] ?? null);
+
+        return $run;
     }
 }

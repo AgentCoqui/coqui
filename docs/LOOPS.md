@@ -250,9 +250,12 @@ loop_control(action: "stop", id: "all")         # Cancels every active loop
 | Method | Endpoint | Description |
 | --- | --- | --- |
 | `GET` | `/api/v1/loops` | List loops |
+| `GET` | `/api/v1/loops/active/count` | Count running loops |
 | `POST` | `/api/v1/loops` | Create/start a loop |
 | `GET` | `/api/v1/loops/definitions` | List definitions |
 | `GET` | `/api/v1/loops/{id}` | Get loop details |
+| `GET` | `/api/v1/loops/{id}/history` | Get full loop iteration history |
+| `GET` | `/api/v1/loops/{id}/metrics` | Get aggregate loop metrics |
 | `PATCH` | `/api/v1/loops/{id}` | Update editable loop fields |
 | `DELETE` | `/api/v1/loops/{id}` | Delete a loop |
 | `POST` | `/api/v1/loops/{id}/pause` | Pause loop |

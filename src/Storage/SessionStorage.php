@@ -1869,6 +1869,30 @@ final class SessionStorage
     }
 
     /**
+     * List background task runs for a schedule.
+     *
+     * @return array<array<string, mixed>>
+     */
+    public function listTasksForSchedule(string $scheduleId, int $limit = 20): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, parent_session_id, pid, status, title, prompt, role,
+                   metadata, result, error, max_iterations, schedule_id, project_id, sprint_id,
+                   created_at, started_at, completed_at, cancelled_at
+            FROM background_tasks
+            WHERE schedule_id = :schedule_id
+            ORDER BY created_at DESC
+            LIMIT :limit
+        SQL);
+
+        $stmt->bindValue('schedule_id', $scheduleId);
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
      * Find the most recent task created by a specific automation notification.
      *
      * @param list<string> $statuses

@@ -368,3 +368,105 @@ test('loop handler delete removes terminal loops', function () {
         cleanupLoopHandlerFixture($fixture);
     }
 });
+
+test('loop handler exposes full history and aggregate metrics', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $loopId = $fixture['loopStore']->createLoop(
+            definitionName: 'harness',
+            goal: 'Inspect loop history',
+            configuration: ['roles' => [['role' => 'plan'], ['role' => 'reviewer']]],
+            maxIterations: 3,
+            metadata: ['dispatch' => ['status' => 'pending']],
+        );
+
+        $iterationOne = $fixture['loopStore']->createIteration($loopId, 1, 'sprint-alpha');
+        $stageOneA = $fixture['loopStore']->createStage($iterationOne, 0, 'plan');
+        $stageOneB = $fixture['loopStore']->createStage($iterationOne, 1, 'reviewer');
+        $fixture['loopStore']->updateIterationStatus($iterationOne, 'running');
+        $fixture['loopStore']->updateStage($stageOneA, 'running', taskId: 'task-1');
+        $fixture['loopStore']->updateStage($stageOneA, 'completed', taskId: 'task-1', artifactId: 'artifact-1', resultSummary: 'Drafted plan');
+        $fixture['loopStore']->updateStage($stageOneB, 'running', taskId: 'task-2');
+        $fixture['loopStore']->updateStage($stageOneB, 'failed', taskId: 'task-2', resultSummary: 'Review failed');
+        $fixture['loopStore']->updateIterationStatus($iterationOne, 'needs_rework', 'First pass needs work');
+
+        $iterationTwo = $fixture['loopStore']->createIteration($loopId, 2, 'sprint-beta');
+        $stageTwoA = $fixture['loopStore']->createStage($iterationTwo, 0, 'plan');
+        $stageTwoB = $fixture['loopStore']->createStage($iterationTwo, 1, 'reviewer');
+        $fixture['loopStore']->updateIterationStatus($iterationTwo, 'running');
+        $fixture['loopStore']->updateStage($stageTwoA, 'running', taskId: 'task-3');
+        $fixture['loopStore']->updateStage($stageTwoA, 'completed', taskId: 'task-3', artifactId: 'artifact-2', resultSummary: 'Updated plan');
+        $fixture['loopStore']->updateStage($stageTwoB, 'running', taskId: 'task-4');
+        $fixture['loopStore']->updateStage($stageTwoB, 'completed', taskId: 'task-4', resultSummary: 'Review passed');
+        $fixture['loopStore']->updateIterationStatus($iterationTwo, 'completed', 'Approved');
+
+        $fixture['loopStore']->updateLoopProgress($loopId, 2, 2);
+        $fixture['loopStore']->updateLoopStatus($loopId, 'completed');
+
+        $historyResponse = $fixture['handler']->history(
+            new ServerRequest('GET', '/api/v1/loops/' . $loopId . '/history'),
+            $loopId,
+        );
+        $historyBody = json_decode((string) $historyResponse->getBody(), true);
+
+        $metricsResponse = $fixture['handler']->metrics(
+            new ServerRequest('GET', '/api/v1/loops/' . $loopId . '/metrics'),
+            $loopId,
+        );
+        $metricsBody = json_decode((string) $metricsResponse->getBody(), true);
+
+        expect($historyResponse->getStatusCode())->toBe(200);
+        expect($historyBody['count'])->toBe(2);
+        expect($historyBody['history'][0]['iteration_number'])->toBe(1);
+        expect($historyBody['history'][0]['stage_count'])->toBe(2);
+        expect($historyBody['history'][0]['completed_stage_count'])->toBe(1);
+        expect($historyBody['history'][0]['stages'][1]['status'])->toBe('failed');
+        expect($historyBody['history'][1]['iteration_number'])->toBe(2);
+        expect($historyBody['history'][1]['stages'][1]['status'])->toBe('completed');
+
+        expect($metricsResponse->getStatusCode())->toBe(200);
+        expect($metricsBody['status'])->toBe('completed');
+        expect($metricsBody['iterations']['total'])->toBe(2);
+        expect($metricsBody['iterations']['by_status']['needs_rework'])->toBe(1);
+        expect($metricsBody['iterations']['by_status']['completed'])->toBe(1);
+        expect($metricsBody['stages']['total'])->toBe(4);
+        expect($metricsBody['stages']['by_status']['completed'])->toBe(3);
+        expect($metricsBody['stages']['by_status']['failed'])->toBe(1);
+        expect($metricsBody['stages']['by_role']['plan'])->toBe(2);
+        expect($metricsBody['stages']['by_role']['reviewer'])->toBe(2);
+        expect($metricsBody['timings']['iteration_timings'])->toHaveCount(2);
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
+
+test('loop handler exposes active loop count', function () {
+    $fixture = createLoopHandlerFixture();
+
+    try {
+        $runningLoopId = $fixture['loopStore']->createLoop(
+            definitionName: 'harness',
+            goal: 'Track active loops',
+            configuration: ['roles' => []],
+        );
+
+        $completedLoopId = $fixture['loopStore']->createLoop(
+            definitionName: 'harness',
+            goal: 'Completed loop',
+            configuration: ['roles' => []],
+        );
+        $fixture['loopStore']->updateLoopStatus($completedLoopId, 'completed');
+
+        $response = $fixture['handler']->activeCount(
+            new ServerRequest('GET', '/api/v1/loops/active/count'),
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['active'])->toBe(1);
+        expect($fixture['loopStore']->getLoop($runningLoopId)['status'])->toBe('running');
+    } finally {
+        cleanupLoopHandlerFixture($fixture);
+    }
+});
