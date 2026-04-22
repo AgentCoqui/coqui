@@ -180,3 +180,38 @@ test('turn handler get includes messages and replayable event history for API tu
         cleanupTurnHandlerFixture($fixture);
     }
 });
+
+test('turn handler events lists replayable turn events without message payloads', function () {
+    $fixture = createTurnHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'openai/gpt-5');
+        $turnProcessId = $fixture['storage']->createTurnProcess($sessionId, 'Inspect history');
+        $turnId = $fixture['storage']->createTurn($sessionId, 'Inspect history', 'openai/gpt-5', $turnProcessId);
+
+        $fixture['storage']->appendTurnEvent($turnProcessId, 'review_start', [
+            'round' => 1,
+            'max_rounds' => 2,
+            'depth' => 0,
+        ]);
+        $fixture['storage']->appendTurnEvent($turnProcessId, 'title', [
+            'title' => 'History inspection',
+        ]);
+
+        $response = $fixture['handler']->events(
+            new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/turns/' . $turnId . '/events'),
+            $sessionId,
+            $turnId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['turn_id'])->toBe($turnId);
+        expect($body['count'])->toBe(2);
+        expect($body['events'][0]['event_type'])->toBe('review_start');
+        expect($body['events'][1]['event_type'])->toBe('title');
+        expect($body['events'][1]['data']['title'])->toBe('History inspection');
+    } finally {
+        cleanupTurnHandlerFixture($fixture);
+    }
+});

@@ -1376,11 +1376,11 @@ final class SessionStorage
     }
 
     /**
-     * Get a turn with its messages nested under a 'messages' key.
+     * Get a single normalized turn row without nested messages.
      *
      * @return array<string, mixed>|null
      */
-    public function getTurnWithMessages(string $turnId): ?array
+    public function getTurn(string $turnId): ?array
     {
         $stmt = $this->db->prepare(<<<SQL
             SELECT id, session_id, turn_number, user_prompt, response_text, model,
@@ -1398,7 +1398,21 @@ final class SessionStorage
             return null;
         }
 
-        $turn = $this->normalizeTurnRow($turn);
+        return $this->normalizeTurnRow($turn);
+    }
+
+    /**
+     * Get a turn with its messages nested under a 'messages' key.
+     *
+     * @return array<string, mixed>|null
+     */
+    public function getTurnWithMessages(string $turnId): ?array
+    {
+        $turn = $this->getTurn($turnId);
+
+        if ($turn === null) {
+            return null;
+        }
 
         $msgStmt = $this->db->prepare(<<<SQL
             SELECT id, role, content, tool_calls, tool_call_id, created_at
@@ -1487,7 +1501,7 @@ final class SessionStorage
     /**
      * @return array<int, array<string, mixed>>
      */
-    private function getDecodedTurnEvents(string $turnProcessId, int $limit = 500): array
+    public function getDecodedTurnEvents(string $turnProcessId, int $limit = 500): array
     {
         return array_map(
             function (array $event): array {
