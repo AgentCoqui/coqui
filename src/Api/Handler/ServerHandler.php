@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
+use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\ChannelManager;
@@ -34,6 +36,7 @@ final readonly class ServerHandler
         private ?LoopManager $loopManager = null,
         private ?ChannelManager $channelManager = null,
         private ?QualityAutomationStatusService $qualityAutomation = null,
+        private ?ApiLifecycleController $lifecycle = null,
     ) {}
 
     /**
@@ -90,7 +93,40 @@ final readonly class ServerHandler
             $data['quality_automation'] = $quality;
         }
 
+        if ($this->lifecycle !== null) {
+            $data['restart'] = $this->lifecycle->restartState();
+        }
+
         return Router::jsonResponse($data);
+    }
+
+    /**
+     * POST /api/v1/server/restart — restart the launcher-managed API process.
+     */
+    public function restart(ServerRequestInterface $request): Response
+    {
+        if ($this->lifecycle === null) {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, 'Server restart control is unavailable in this environment.');
+        }
+
+        $accepted = $this->lifecycle->requestRestart(
+            reason: 'API restart requested by operator.',
+            source: 'api.server.restart',
+        );
+
+        if (!$accepted) {
+            return Router::errorResponse(
+                ApiErrorCode::CONFLICT,
+                'API restart is only supported when the server is running under coqui-launcher.',
+                $this->lifecycle->restartState(),
+            );
+        }
+
+        return Router::jsonResponse([
+            'accepted' => true,
+            'message' => 'API restart requested.',
+            'restart' => $this->lifecycle->restartState(),
+        ], 202);
     }
 
     /**

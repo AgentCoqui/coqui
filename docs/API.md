@@ -1,6 +1,6 @@
 # Coqui HTTP API
 
-> **REPL-first**: The terminal REPL is Coqui's primary interface. The API provides the stable application-facing execution and inspection surface. User-facing read and monitoring workflows are documented here. Bot-oriented mutations and terminal-only control flows such as config editing, restart, and most loop or schedule mutations remain REPL-first or tool-driven.
+> **REPL-first**: The terminal REPL is Coqui's primary interface. The API provides the stable application-facing execution and inspection surface. User-facing read and monitoring workflows are documented here. Most loop, schedule, and config-editing control flows remain REPL-first or tool-driven, while launcher-managed API restarts and channel CRUD are now exposed over HTTP with explicit restart-state metadata.
 
 The Coqui HTTP API provides programmatic access to Coqui's AI agent capabilities. It enables headless operation, remote session management, and real-time streaming of agent responses via Server-Sent Events (SSE).
 
@@ -176,6 +176,7 @@ The `code` field is a stable machine-readable string that clients can branch on 
 | `conflict` | 409 | Resource already exists |
 | `agent_busy` | 409 | Session already has an active agent run |
 | `profile_session_active` | 409 | A profiled session is already active and the client must confirm closure before creating or reassigning a fresh one |
+| `group_session_active` | 409 | A group session with the requested composition is already active and the client must confirm closure before forcing a fresh composition session |
 | `role_builtin` | 409 | Cannot modify a built-in role |
 | `role_reserved` | 409 | Cannot create a role with a reserved name |
 | `session_closed` | 409 | Session is closed and read-only; mutating session-scoped requests are rejected |
@@ -255,6 +256,17 @@ Liveness check. Does **not** require authentication.
   "version": "dev",
   "uptime_seconds": 3421,
   "active_sessions": 1,
+  "restart": {
+    "required": false,
+    "reason": null,
+    "source": null,
+    "required_at": null,
+    "context": [],
+    "supported": true,
+    "managed_by_launcher": true,
+    "pid": 21093,
+    "started_at": "2026-04-22T20:59:23Z"
+  },
   "channels": {
     "total": 1,
     "enabled": 1,
@@ -272,11 +284,15 @@ A session is a persistent conversation context. Messages and turns are scoped to
 
 Profile-scoped sessions enforce a single active interactive conversation per profile. `POST /api/v1/sessions/resolve` keeps the newest active profiled session and archives/closes older duplicates automatically. `POST /api/v1/sessions` remains the fresh-conversation endpoint, but when a profiled session is already active it returns `409 profile_session_active` until the client explicitly confirms closure of that active profiled session.
 
+Group sessions are orchestrator-managed interactive sessions identified by a normalized member composition. Create or resolve them by setting `group_enabled=true` and passing a `members` array. `POST /api/v1/sessions/resolve` reuses the active group session for the same member composition, while `POST /api/v1/sessions` forces a fresh one and returns `409 group_session_active` unless the client explicitly confirms closure of the conflicting active composition.
+
 Session lifecycle fields have distinct meanings:
 
 - `closed` is the mutability state. Closed sessions are terminal and read-only: prompts, message deletion, file uploads/deletes, project reassignment, session metadata updates, and session-bound task or loop attachment are rejected with `409 session_closed`.
 - `archived` is the discovery state. Archived sessions are hidden from active listings by default but remain fully inspectable through the read endpoints.
 - In the current profile-rollover flow, archived sessions are also closed. A session may be closed without being archived if Coqui needs a terminal but still explicitly visible record.
+
+Channel-backed interactive sessions are still first-class visible sessions. Their payloads include `channel_bound: true` plus a `channel` object describing the bound channel instance. Ordinary app-style session resolution intentionally skips channel-backed sessions so a normal "resume latest chat" flow does not land inside a Signal, Telegram, or Discord conversation lane.
 
 #### `GET /api/v1/sessions`
 
@@ -307,6 +323,13 @@ List sessions, ordered by most recently updated.
       "closed_at": null,
       "archived_at": null,
       "closure_reason": null,
+      "channel_bound": true,
+      "channel": {
+        "instance_id": "channel_123",
+        "name": "signal-primary",
+        "driver": "signal",
+        "display_name": "Signal Primary"
+      },
       "created_at": "2026-02-16T14:30:00+00:00",
       "updated_at": "2026-02-16T15:45:12+00:00",
       "token_count": 12450
@@ -344,11 +367,26 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
 }
 ```
 
+Group-session requests use the same endpoint with a group scope instead of `profile`:
+
+```json
+{
+  "group_enabled": true,
+  "members": ["caelum", "nova"],
+  "group_max_rounds": 4,
+  "confirm_close_active_group_session": true
+}
+```
+
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `model_role` | string | No | `"orchestrator"` | Role to resolve the model from config. Must be a known role. |
 | `profile` | string | No | `null` | Personality profile name. Must match a `profiles/{name}/soul.md` in the workspace. |
+| `group_enabled` | bool | No | `false` | When `true`, create a group session instead of a single-profile or unprofiled session. Group sessions must remain orchestrator-managed. |
+| `members` | array<string> | When `group_enabled=true` | — | Group member profile names. Must be unique, known profiles. |
+| `group_max_rounds` | int | No | `3` | Max same-turn coordination rounds for a group session. Minimum `1`. |
 | `confirm_close_active_profile_session` | bool | No | `false` | Required when `profile` already has an active interactive session and the client explicitly wants to close/archive it before starting a fresh one |
+| `confirm_close_active_group_session` | bool | No | `false` | Required when the requested group composition already has another active interactive session and the client explicitly wants to close/archive it before forcing a fresh one |
 
 **Response `201`**
 
@@ -358,6 +396,30 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
   "profile": "caelum",
+  "active_project_id": null
+}
+```
+
+**Response `201`** — group session created:
+
+```json
+{
+  "id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
+  "model_role": "orchestrator",
+  "model": "openai/gpt-5",
+  "profile": null,
+  "group_enabled": 1,
+  "group_max_rounds": 4,
+  "group_members": [
+    {
+      "profile": "caelum",
+      "position": 0
+    },
+    {
+      "profile": "nova",
+      "position": 1
+    }
+  ],
   "active_project_id": null
 }
 ```
@@ -373,6 +435,20 @@ This endpoint always creates a fresh session. For REPL-style "resume the last ac
     "active_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
     "active_session_count": 1,
     "confirm_field": "confirm_close_active_profile_session"
+  }
+}
+```
+
+**Response `409`** — active group session must be confirmed first:
+
+```json
+{
+  "error": "Group session composition already has an active session. Confirm closure before starting a fresh group session.",
+  "code": "group_session_active",
+  "details": {
+    "members": ["caelum", "nova"],
+    "active_session_id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
+    "confirm_field": "confirm_close_active_group_session"
   }
 }
 ```
@@ -394,7 +470,7 @@ This mirrors REPL startup behavior:
 
 - Omit `profile` to target the unprofiled interactive session pool.
 - Pass `profile` to target a profile-specific interactive session pool.
-- Background-task sessions are excluded from reuse.
+- Hidden worker sessions and visible channel-backed sessions are excluded from ordinary reuse.
 - If multiple active interactive sessions exist for the same profile, Coqui keeps the newest one and archives/closes the older duplicates before responding.
 
 **Request Body**
@@ -406,10 +482,23 @@ This mirrors REPL startup behavior:
 }
 ```
 
+Group-session resolve requests use the same endpoint:
+
+```json
+{
+  "group_enabled": true,
+  "members": ["caelum", "nova"],
+  "group_max_rounds": 4
+}
+```
+
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `model_role` | string | No | `"orchestrator"` | Role used only when a new session must be created. Existing scoped sessions keep their stored role and model. |
 | `profile` | string | No | `null` | Personality profile scope. Omit to resolve the unprofiled session pool. |
+| `group_enabled` | bool | No | `false` | When `true`, resolve the group-session pool for the supplied member composition. |
+| `members` | array<string> | When `group_enabled=true` | — | Group member profile names. Order is normalized, so the same set resolves the same active session. |
+| `group_max_rounds` | int | No | `3` | Used only when a new group session must be created. Existing sessions keep their stored round cap. |
 
 **Response `200`** — existing session reused:
 
@@ -431,7 +520,19 @@ This mirrors REPL startup behavior:
   "id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
-  "profile": "caelum",
+  "profile": null,
+  "group_enabled": 1,
+  "group_max_rounds": 4,
+  "group_members": [
+    {
+      "profile": "caelum",
+      "position": 0
+    },
+    {
+      "profile": "nova",
+      "position": 1
+    }
+  ],
   "active_project_id": null,
   "created": true
 }
@@ -455,12 +556,21 @@ Get session details.
   "closed_at": null,
   "archived_at": null,
   "closure_reason": null,
+  "channel_bound": true,
+  "channel": {
+    "instance_id": "channel_123",
+    "name": "signal-primary",
+    "driver": "signal",
+    "display_name": "Signal Primary"
+  },
   "active_project_id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "created_at": "2026-02-16T14:30:00+00:00",
   "updated_at": "2026-02-16T15:45:12+00:00",
   "token_count": 12450
 }
 ```
+
+Group sessions include `group_enabled`, `group_max_rounds`, `group_composition_key`, and `group_members` in the returned session payload.
 
 #### `GET /api/v1/sessions/{id}/summary`
 
@@ -531,7 +641,7 @@ Return a compact dashboard view for a session without fetching every child colle
 
 #### `PATCH /api/v1/sessions/{id}`
 
-Update session metadata. Supports renaming the title, updating the role, and changing the profile scope.
+Update session metadata. Supports renaming the title, updating the role, changing the profile scope for non-group sessions, and updating `group_max_rounds` for existing group sessions.
 
 Closed or archived sessions are read-only. This endpoint returns `409 session_closed` when clients try to modify them.
 
@@ -545,12 +655,28 @@ Closed or archived sessions are read-only. This endpoint returns `409 session_cl
 }
 ```
 
+Group-session patch example:
+
+```json
+{
+  "group_max_rounds": 5
+}
+```
+
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `title` | string | No | New session title (cannot be empty) |
 | `model_role` | string | No | Update the stored role and re-resolve the model |
 | `profile` | string | No | Set or clear the session profile (`""` clears it) |
+| `group_max_rounds` | int | No | Update the round cap for an existing group session |
 | `confirm_close_active_profile_session` | bool | No | Required when reassigning an active session into a profile that already has another active interactive session |
+
+Group-session constraints:
+
+- `model_role` must remain `orchestrator`.
+- `profile` cannot be assigned to a group session.
+- `group_enabled` cannot be toggled after session creation.
+- `members` cannot be patched here; use the dedicated member endpoints below.
 
 **Response `200`**
 
@@ -586,6 +712,64 @@ Returns the updated session object:
   "code": "session_not_found"
 }
 ```
+
+#### `GET /api/v1/sessions/{id}/members`
+
+Return the normalized member list for a group session.
+
+**Response `200`**
+
+```json
+{
+  "session_id": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6",
+  "group_enabled": true,
+  "group_composition_key": "caelum|nova",
+  "group_max_rounds": 4,
+  "members": [
+    {
+      "profile": "caelum",
+      "position": 0
+    },
+    {
+      "profile": "nova",
+      "position": 1
+    }
+  ],
+  "count": 2
+}
+```
+
+#### `PUT /api/v1/sessions/{id}/members`
+
+Replace the full member list for an existing group session.
+
+**Request Body**
+
+```json
+{
+  "members": ["caelum", "iris"],
+  "confirm_close_active_group_session": true
+}
+```
+
+#### `POST /api/v1/sessions/{id}/members`
+
+Add one member to an existing group session.
+
+**Request Body**
+
+```json
+{
+  "profile": "iris",
+  "confirm_close_active_group_session": true
+}
+```
+
+#### `DELETE /api/v1/sessions/{id}/members/{profile}`
+
+Remove one member from an existing group session.
+
+For the mutating member endpoints, the response body is the updated session object. If the requested membership change would collide with another active group session composition, Coqui returns `409 group_session_active` until the client confirms closure with `confirm_close_active_group_session=true`.
 
 #### `DELETE /api/v1/sessions/{id}`
 
@@ -962,6 +1146,17 @@ When streaming is disabled, the server blocks until the agent completes and retu
 }
 ```
 
+**Group session turn routing**
+
+When the target session is group-enabled, message execution stays orchestrator-managed but fans out across the session members inside a single stored turn.
+
+- Prompts without explicit member mentions default to all group members in stored order.
+- `@name` narrows the responder set to the mentioned members in mention order.
+- `@everyone` and `@group` expand to all eligible members.
+- Historical message records and turn payloads expose `actor_name` and `actor_role` so clients can label who produced each assistant or tool message.
+
+During SSE playback for API-origin turns, the replayable event stream and stored turn events include group lifecycle events such as `group_round_start`, `group_actor_start`, `group_actor_end`, and `group_round_end`, plus actor metadata on per-agent events, so clients can reconstruct the same responder-selection story shown in the REPL.
+
 **Prompt Size Limit**
 
 The `prompt` field is limited to **1 MiB** (1,048,576 bytes). Prompts exceeding this limit return a `413` error with code `payload_too_large`.
@@ -1221,6 +1416,8 @@ Historical turn responses expose the same post-turn summary fields returned by t
 
 Get a single turn with its associated messages. For API-origin turns, the detail response also includes an `events` array with the stored SSE event log so clients can replay or inspect the intermediate progress state after completion.
 
+For group-enabled turns, the response also includes `actor_responses` in the top-level turn payload and `actor_name` / `actor_role` on nested messages. `actor_responses` preserves the grouped per-member reply order that was used to compose the final `content` field.
+
 **Response `200`**
 
 ```json
@@ -1268,6 +1465,20 @@ Get a single turn with its associated messages. For API-origin turns, the detail
   "review_feedback": null,
   "review_approved": null,
   "background_tasks": null,
+  "actor_responses": [
+    {
+      "actor_name": "alex-hormozi",
+      "actor_role": "orchestrator",
+      "content": "Good morning. I can take the first pass.",
+      "round": 1
+    },
+    {
+      "actor_name": "trinity",
+      "actor_role": "orchestrator",
+      "content": "I agree with the plan and can review the follow-up.",
+      "round": 1
+    }
+  ],
   "error": null,
   "created_at": "2026-02-16T14:30:05+00:00",
   "completed_at": "2026-02-16T14:30:10+00:00",
@@ -1278,26 +1489,31 @@ Get a single turn with its associated messages. For API-origin turns, the detail
       "content": "List the files in the current directory",
       "tool_calls": null,
       "tool_call_id": null,
+      "actor_name": null,
+      "actor_role": null,
       "created_at": "2026-02-16T14:30:05+00:00"
     }
   ],
   "events": [
     {
       "id": 1,
-      "event_type": "review_start",
+      "event_type": "group_round_start",
       "data": {
         "round": 1,
-        "max_rounds": 2,
-        "depth": 0
+        "responders": ["alex-hormozi", "trinity"],
+        "max_rounds": 3,
+        "selection_source": "default_all",
+        "selection_rationale": "No explicit member mentions were provided, so all group members respond in stored order."
       },
       "created_at": "2026-02-16T14:30:06+00:00"
     },
     {
       "id": 2,
-      "event_type": "budget_warning",
+      "event_type": "iteration",
       "data": {
-        "usage_percent": 92.5,
-        "threshold_percent": 90.0
+        "number": 1,
+        "actor_name": "alex-hormozi",
+        "actor_role": "orchestrator"
       },
       "created_at": "2026-02-16T14:30:09+00:00"
     }
@@ -1309,6 +1525,14 @@ Get a single turn with its associated messages. For API-origin turns, the detail
 
 Get the replayable stored SSE event history for a turn without fetching the nested message payload. This is useful when the client wants to reconstruct live progress UI from historical runs but already has the turn summary and does not need message records.
 
+For group-enabled turns, this endpoint exposes the same lifecycle events used during live playback. The most important event types are:
+
+- `group_round_start` — selected responders for one coordination round, including `selection_source` and `selection_rationale`
+- `group_actor_start` — the member currently beginning a response segment
+- `group_actor_end` — the completed member segment plus its next-responder handoff metadata
+- `group_round_end` — the aggregate next responder list chosen for the following round
+- standard per-agent events such as `iteration`, `reasoning`, `tool_call`, `tool_result`, and `done`, each with `actor_name` and `actor_role` when the event came from a group member
+
 **Response `200`**
 
 ```json
@@ -1318,19 +1542,23 @@ Get the replayable stored SSE event history for a turn without fetching the nest
   "events": [
     {
       "id": 1,
-      "event_type": "review_start",
+      "event_type": "group_round_start",
       "data": {
         "round": 1,
-        "max_rounds": 2,
-        "depth": 0
+        "responders": ["alex-hormozi", "trinity"],
+        "max_rounds": 3,
+        "selection_source": "default_all",
+        "selection_rationale": "No explicit member mentions were provided, so all group members respond in stored order."
       },
       "created_at": "2026-02-16T14:30:06+00:00"
     },
     {
       "id": 2,
-      "event_type": "title",
+      "event_type": "group_actor_start",
       "data": {
-        "title": "Refactor auth flow"
+        "round": 1,
+        "actor_name": "alex-hormozi",
+        "actor_role": "orchestrator"
       },
       "created_at": "2026-02-16T14:30:10+00:00"
     }
@@ -1805,7 +2033,7 @@ List all child agent runs for a session.
 
 ### Server
 
-Server endpoints provide runtime status and database-level statistics. These are useful for monitoring and debugging the API server.
+Server endpoints provide runtime status, restart-state visibility, and database-level statistics. These are useful for monitoring and debugging the API server.
 
 #### `GET /api/v1/server/info`
 
@@ -1819,6 +2047,17 @@ Runtime information including version, uptime, memory usage, and active workload
   "php_version": "8.4.2",
   "uptime_seconds": 3621,
   "active_sessions": 2,
+  "restart": {
+    "required": false,
+    "reason": null,
+    "source": null,
+    "required_at": null,
+    "context": [],
+    "supported": true,
+    "managed_by_launcher": true,
+    "pid": 21093,
+    "started_at": "2026-04-22T20:59:23Z"
+  },
   "memory": {
     "usage_bytes": 52428800,
     "peak_bytes": 67108864
@@ -1831,6 +2070,31 @@ Runtime information including version, uptime, memory usage, and active workload
 ```
 
 The `tasks` field is only present when the background task manager is enabled.
+
+#### `POST /api/v1/server/restart`
+
+Request a launcher-managed API restart. This endpoint is accepted only when the API process was started under `coqui-launcher` with restart support enabled.
+
+**Response `202`**
+
+```json
+{
+  "accepted": true,
+  "restart": {
+    "required": true,
+    "reason": "API restart requested by operator.",
+    "source": "api.server.restart",
+    "required_at": "2026-04-22T20:59:23Z",
+    "context": [],
+    "supported": true,
+    "managed_by_launcher": true,
+    "pid": 16819,
+    "started_at": "2026-04-22T20:58:24Z"
+  }
+}
+```
+
+When the process is not launcher-managed, the endpoint returns `409 restart_not_supported`.
 
 #### `GET /api/v1/server/stats`
 
@@ -3501,7 +3765,7 @@ Returned when:
 
 ### Channels
 
-Channels provide first-class outbound user communication surfaces such as Signal, Telegram, and Discord. The API server owns live channel runtimes; the REPL can edit config and inspect stored state, but only the API server performs runtime reconciliation and transport work.
+Channels provide first-class outbound user communication surfaces such as Signal, Telegram, and Discord. The API server owns live channel runtimes; the REPL can edit config and inspect stored state, but only the API server performs runtime reconciliation and transport work. Channel mutations now return a `restart` payload when operator action is required so clients can keep the API and persisted config in sync.
 
 #### `GET /api/v1/channels`
 
@@ -3516,7 +3780,7 @@ List configured channel instances with joined runtime health.
 
 #### `POST /api/v1/channels`
 
-Create a channel instance and reconcile it into the running API process immediately.
+Create a channel instance definition. The response includes the updated channel plus a `restart` object when the API should be restarted to reload runtimes against the persisted config cleanly.
 
 **Request Body**
 
@@ -3526,13 +3790,35 @@ Create a channel instance and reconcile it into the running API process immediat
   "driver": "signal",
   "displayName": "Signal Primary",
   "defaultProfile": "caelum",
+  "boundSessionId": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "settings": {
     "transport": "signal-cli"
   }
 }
 ```
 
-Supported fields: `name`, `driver`, `enabled`, `displayName`, `defaultProfile`, `settings`, `allowedScopes`, and `security`.
+Supported fields: `name`, `driver`, `enabled`, `displayName`, `defaultProfile`, `boundSessionId`, `settings`, `allowedScopes`, and `security`.
+
+`boundSessionId` is optional. When set, the channel instance routes all inbound conversations into one existing visible interactive session instead of creating per-conversation interactive sessions.
+
+**Response `201`**
+
+```json
+{
+  "channel": {
+    "id": "channel_123",
+    "name": "signal-primary",
+    "driver": "signal",
+    "display_name": "Signal Primary",
+    "default_profile": "caelum",
+    "bound_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+  },
+  "restart": {
+    "required": true,
+    "reason": "channel_configuration_changed"
+  }
+}
+```
 
 #### `GET /api/v1/channels/drivers`
 
@@ -3542,21 +3828,42 @@ List registered built-in and external channel drivers with capability metadata.
 
 Get one channel instance by id or name.
 
+**Response `200`**
+
+```json
+{
+  "channel": {
+    "id": "channel_123",
+    "name": "signal-primary",
+    "driver": "signal",
+    "display_name": "Signal Primary",
+    "enabled": true,
+    "default_profile": "caelum",
+    "bound_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "worker_status": "running",
+    "ready": true,
+    "summary": "Signal runtime ready."
+  }
+}
+```
+
 #### `PATCH /api/v1/channels/{id}`
 
-Update any mutable channel fields from the create payload.
+Update any mutable channel fields from the create payload. Successful mutations return the updated channel plus restart metadata when a clean API restart is required.
+
+Clients may send either `boundSessionId` or `bound_session_id` in update payloads. The response always normalizes the stored field to `bound_session_id`.
 
 #### `DELETE /api/v1/channels/{id}`
 
-Remove a configured channel instance and stop its runtime on the running API server.
+Remove a configured channel instance. Successful mutations return restart metadata when the API should be restarted to fully reconcile runtime state.
 
 #### `POST /api/v1/channels/{id}/enable`
 
-Enable a channel instance and reconcile it immediately.
+Enable a channel instance and return restart metadata when the API should be restarted to reload runtimes cleanly.
 
 #### `POST /api/v1/channels/{id}/disable`
 
-Disable a channel instance and stop its runtime immediately.
+Disable a channel instance and return restart metadata when the API should be restarted to reload runtimes cleanly.
 
 #### `POST /api/v1/channels/{id}/test`
 
@@ -4433,6 +4740,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/server/stats` | Yes | Database and server statistics |
 | `GET` | `/api/v1/server/quality` | Yes | Quality and health summary |
 | `GET` | `/api/v1/server/info` | Yes | Server capabilities and commands |
+| `POST` | `/api/v1/server/restart` | Yes | Restart a launcher-managed API process |
 | `GET` | `/api/v1/server/commands` | Yes | Get runtime slash-command metadata (`/help` equivalent) |
 | `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt |
 | `GET` | `/api/v1/server/backstory` | Yes | Get generated backstory content and manifest metadata |
@@ -4506,4 +4814,4 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/sessions/{id}/todos/{todoId}/reopen` | Yes | Reopen todo |
 | `POST` | `/api/v1/sessions/{id}/todos/{todoId}/cancel` | Yes | Cancel todo |
 
-Mutation-heavy workflows for roles, summarization, restart, and update continue to live in the REPL and agent tool layer rather than the HTTP API.
+Mutation-heavy workflows for roles, summarization, and update continue to live primarily in the REPL and agent tool layer. API restart and channel CRUD now expose explicit restart-state metadata over HTTP for app clients.

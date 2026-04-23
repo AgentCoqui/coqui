@@ -37,9 +37,13 @@ function createTabCompletionFixture(): array
     $workspacePath = sys_get_temp_dir() . '/coqui-tab-completion-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
     mkdir($workspacePath . '/profiles/caelum', 0755, true);
+    mkdir($workspacePath . '/profiles/nova', 0755, true);
+    mkdir($workspacePath . '/profiles/iris', 0755, true);
     mkdir($workspacePath . '/roles', 0755, true);
     mkdir($workspacePath . '/skills/review-skill', 0755, true);
     file_put_contents($workspacePath . '/profiles/caelum/soul.md', "# Caelum\n\nA calm companion.\n");
+    file_put_contents($workspacePath . '/profiles/nova/soul.md', "# Nova\n\nA direct collaborator.\n");
+    file_put_contents($workspacePath . '/profiles/iris/soul.md', "# Iris\n\nA careful reviewer.\n");
     copy(dirname(__DIR__, 3) . '/config/roles/coder.md', $workspacePath . '/roles/coder.md');
     file_put_contents($workspacePath . '/skills/review-skill/' . SpaceRegistry::ORIGIN_FILE, json_encode([
         'source' => 'coqui.space',
@@ -288,6 +292,10 @@ test('role, profile, session, task, and todo completion use live state', functio
         expect($fixture['completion']->complete('/role '))->toContain('edit');
         expect($fixture['completion']->complete('/role edit '))->toContain('coder');
         expect($fixture['completion']->complete('/roles update '))->toContain('coder');
+        expect($fixture['completion']->complete('/group '))->toContain('start');
+        expect($fixture['completion']->complete('/group '))->toContain('status');
+        expect($fixture['completion']->complete('/group start '))->toContain('caelum');
+        expect($fixture['completion']->complete('/group start '))->toContain('--rounds=3');
         expect($fixture['completion']->complete('/profile d'))->toContain('default');
         expect($fixture['completion']->complete('/profile '))->toContain('caelum');
         expect($fixture['completion']->complete('/profile default '))->toContain('caelum');
@@ -303,6 +311,23 @@ test('role, profile, session, task, and todo completion use live state', functio
         expect($fixture['completion']->complete('/todos complete '))->toContain($fixture['todoId']);
         expect($fixture['completion']->complete('/todos cancel '))->toContain($fixture['todoId']);
         expect($fixture['completion']->complete('/todos cancel '))->not->toContain('all');
+    } finally {
+        cleanupTabCompletionFixture($fixture);
+    }
+});
+
+test('group completion uses current group members for add and remove suggestions', function (): void {
+    $fixture = createTabCompletionFixture();
+
+    try {
+        $groupSessionId = $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'nova'], 3);
+        $fixture['completion']->setSessionId($groupSessionId);
+
+        expect($fixture['completion']->complete('/group add '))->toContain('iris');
+        expect($fixture['completion']->complete('/group add '))->not->toContain('caelum');
+        expect($fixture['completion']->complete('/group remove '))->toContain('caelum');
+        expect($fixture['completion']->complete('/group remove '))->toContain('nova');
+        expect($fixture['completion']->complete('/group rounds '))->toContain('3');
     } finally {
         cleanupTabCompletionFixture($fixture);
     }

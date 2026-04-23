@@ -6,6 +6,7 @@
         "command": "Symfony Console commands — CLI entry points and REPL loop",
         "config": "Configuration, safety, and discovery — workspace management, credential resolution, toolkit discovery",
         "contract": "Interfaces and value objects — the contracts that define extensibility points",
+        "exception": "Exceptions — typed runtime failures surfaced across API and REPL boundaries",
         "tool": "Tools — individual capabilities the agent can invoke during conversation",
         "toolkit": "Toolkits — groups of related tools with shared guidelines",
         "observer": "Observers — real-time event rendering for terminal output",
@@ -60,6 +61,15 @@
                 "buildWorkflowContext(string $sessionId): ?string — queries TodoStore and ArtifactStore to build workflow context for summarization",
                 "buildPromptPreview(?string): array — builds prompt text, token counts, schemas, and budget snapshot for REPL/API prompt inspection",
                 "buildBudgetPreview(?string): PromptBudgetSnapshot — builds role/model prompt-budget telemetry without the full prompt body"
+            ]
+        },
+        {
+            "path": "src/Agent/GroupTurnCoordinator.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\GroupTurnCoordinator",
+            "layer": "agent",
+            "description": "Coordinates one stored turn across all members of a group-enabled session. Creates the shared turn record, persists the user prompt, selects responders from prompt mentions or the default all-member fallback, expands @everyone/@group broadcast mentions, collects per-actor replies, and emits replayable lifecycle events with selection_source and selection_rationale metadata so REPL and API surfaces can explain why each responder set was chosen.",
+            "methods": [
+                "run(string $sessionId, string $prompt, string $modelString, string $modelRole, array $members, int $maxRounds, ?string $turnProcessId, ?array $filePaths, callable $executeActor, ?callable $notifyLifecycleEvent): AgentTurnResult — execute one orchestrator-managed group turn with fan-out, handoff selection, and lifecycle event emission"
             ]
         },
         {
@@ -186,7 +196,7 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface and the new /channels operator surface into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
+            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface, the /channels operator surface, and the shared GroupSessionService-backed /group command into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. The visible prompt context line now shows active group membership for group-enabled sessions while leaving the low-level readline marker neutral. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system, resolves session, enters REPL or headless mode",
                 "runRepl(SymfonyStyle, bool): int — interactive REPL loop with readline, signal handling, slash command routing, and agent turn execution",
@@ -200,7 +210,7 @@
             "path": "src/Repl/AgentTurnExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\AgentTurnExecutor",
             "layer": "command",
-            "description": "Executes a single agent turn: builds execution policy, sets up cancellation token and SIGINT handler, switches terminal to raw mode for ESC detection, runs the agent via AgentRunner, renders output, handles title generation and sprint continuation.",
+            "description": "Executes a single REPL turn. Builds execution policy, sets up cancellation token and SIGINT handler, switches the terminal to raw mode for ESC detection, and then either runs a standard orchestrator turn via AgentRunner or routes a group-enabled session through GroupTurnCoordinator so the REPL shares the same multi-member fan-out logic as the API/background paths. For group sessions it also forwards synthetic lifecycle events into the terminal observer stack so actor labels and responder-selection rationale render live.",
             "methods": [
                 "execute(string, string, string, SymfonyStyle, bool, bool, ?string&): AgentTurnResult — full agent turn lifecycle"
             ]
@@ -218,7 +228,7 @@
             "path": "src/Repl/SlashCommandRouter.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\SlashCommandRouter",
             "layer": "command",
-            "description": "Routes REPL slash commands to the appropriate handler class. Help output is generated from ReplCommandCatalog so the compact /help surface stays aligned with tab completion and routed commands. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, the new /channels operator controls, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Prompt-oriented slash-command markdown surfaces now render through the same workspace-local image preview context used by the interactive REPL so commands like /prompt can show one inline ANSI image preview when the rendered markdown references a local image. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
+            "description": "Routes REPL slash commands to the appropriate handler class. Help output is generated from ReplCommandCatalog so the compact /help surface stays aligned with tab completion and routed commands. Includes prompt-budget visibility via /budget, quality automation visibility via /quality, the /channels operator controls, the shared GroupSessionService-backed /group session controls, and /multiline toggle alongside the existing task, schedule, loop, role, and evaluation commands. Prompt-oriented slash-command markdown surfaces now render through the same workspace-local image preview context used by the interactive REPL so commands like /prompt can show one inline ANSI image preview when the rendered markdown references a local image. Returns RouteResult indicating whether to continue the loop, exit, or apply state changes (role/session). Multiline mode toggle uses a callback closure injected at construction.",
             "methods": [
                 "route(string, string, string, SymfonyStyle): RouteResult — dispatches a slash command string to the matching handler"
             ]
@@ -237,7 +247,7 @@
             "path": "src/Repl/ReplCommandCatalog.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\ReplCommandCatalog",
             "layer": "command",
-            "description": "Static registry of canonical REPL slash-command metadata. Serves as the shared source of truth for compact /help rows, top-level command completion, aliases, common first-argument choices, and canonical toolkit-command registration with collision reporting. Includes the core /channels operator command family.",
+            "description": "Static registry of canonical REPL slash-command metadata. Serves as the shared source of truth for compact /help rows, top-level command completion, aliases, common first-argument choices, and canonical toolkit-command registration with collision reporting. Includes the core /channels operator command family and the built-in /group command family.",
             "methods": [
                 "static all(): array — returns all command specs in display order",
                 "static find(string): ?ReplCommandSpec — resolves a command or alias to its canonical spec",
@@ -335,11 +345,20 @@
             "path": "src/Repl/TabCompletion.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\TabCompletion",
             "layer": "command",
-            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, todos, projects, profiles, schedules, channel instances, loop definitions, toolkit visibility metadata, and cached Coqui Space install suggestions.",
+            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, todos, projects, profiles, group-session membership, schedules, channel instances, loop definitions, toolkit visibility metadata, and cached Coqui Space install suggestions.",
             "methods": [
                 "register(): void — installs readline_completion_function",
                 "setSessionId(string): void — updates session for todo completions",
                 "complete(string): array — returns suggestions for a command line buffer"
+            ]
+        },
+        {
+            "path": "src/Repl/Handler/GroupHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\GroupHandler",
+            "layer": "command",
+            "description": "Handles the /group REPL command family. Uses GroupSessionService to start or resume orchestrator-managed group sessions, inspect status, add or remove members, replace the full membership set, and change the group round cap while preserving duplicate-composition safety checks shared with the API. The REPL notices and status output also explain the runtime reply-routing rules: default all-member fan-out, @name narrowing, and @everyone/@group broadcast.",
+            "methods": [
+                "handle(SymfonyStyle, string, string): RouteResult — dispatches /group subcommands and may switch the active session"
             ]
         },
         {
@@ -441,6 +460,51 @@
             ]
         },
         {
+            "path": "src/Support/GroupSessionOperationResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\GroupSessionOperationResult",
+            "layer": "support",
+            "description": "Readonly value object returned by GroupSessionService. Carries the hydrated session payload, whether the operation created a new session, and any closed duplicate session IDs.",
+            "methods": []
+        },
+        {
+            "path": "src/Support/GroupSessionService.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\GroupSessionService",
+            "layer": "support",
+            "description": "Shared policy and lifecycle service for orchestrator-managed group sessions. Normalizes members and round limits, detects duplicate active compositions, creates or resolves group sessions, and applies membership or round-cap updates for both API and REPL surfaces.",
+            "methods": [
+                "normalizeMembers(mixed): list<string> — validate and normalize a member list",
+                "normalizeMember(mixed): string — validate and normalize a single member profile",
+                "resolveMaxRounds(mixed, int): int — validate and normalize the group round cap",
+                "createFreshSession(string, array, int, bool, string): GroupSessionOperationResult — create a new group session, optionally closing conflicting active compositions",
+                "resolveOrCreateSession(string, array, int): GroupSessionOperationResult — reuse the active composition session or create one",
+                "replaceSessionMembers(string, array, int, bool, string): GroupSessionOperationResult — replace the full member set for an existing group session",
+                "addSessionMember(string, string, bool, int, string): GroupSessionOperationResult — add one member to an existing group session",
+                "removeSessionMember(string, string, bool, int, string): GroupSessionOperationResult — remove one member from an existing group session",
+                "updateSessionMaxRounds(string, mixed): GroupSessionOperationResult — update the round cap for an existing group session"
+            ]
+        },
+        {
+            "path": "src/Support/InteractiveSessionOperationResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\InteractiveSessionOperationResult",
+            "layer": "support",
+            "description": "Readonly value object returned by InteractiveSessionService. Carries the hydrated interactive session payload, whether a new session was created, and any older active session IDs closed during conflict cleanup.",
+            "methods": []
+        },
+        {
+            "path": "src/Support/InteractiveSessionService.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\InteractiveSessionService",
+            "layer": "support",
+            "description": "Shared lifecycle and policy service for interactive sessions across API and REPL. Resolves or creates unprofiled and profiled sessions, keeps ordinary latest-session behavior separate from channel-backed sessions, enforces single-active-profile semantics only for ordinary interactive sessions, applies profile role policy, and owns interactive PATCH update rules so those behaviors do not diverge across surfaces.",
+            "methods": [
+                "createSession(string, ?string): InteractiveSessionOperationResult — create a new interactive session with the requested role and optional profile scope",
+                "createScopedSession(string, ?string, bool): InteractiveSessionOperationResult — create a scoped interactive session and optionally close conflicting active profiled sessions",
+                "resolveScopedSession(string, ?string, bool): InteractiveSessionOperationResult — reuse the latest scoped interactive session or create one",
+                "createFreshProfileSession(string, string, bool): InteractiveSessionOperationResult — replace the active profiled session with a fresh one",
+                "updateSession(array, string, ?string, bool, ?string): array — apply interactive-session PATCH updates for title, role, and profile scope",
+                "enforceProfileRolePolicy(array): array — normalize a session role against any active profile preferences"
+            ]
+        },
+        {
             "path": "src/CoquiSpace/SpaceInstallCompletionCache.php",
             "fqcn": "CoquiBot\\Coqui\\CoquiSpace\\SpaceInstallCompletionCache",
             "layer": "coqui-space",
@@ -450,10 +514,24 @@
             ]
         },
         {
+            "path": "src/Exception/GroupSessionException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\GroupSessionException",
+            "layer": "exception",
+            "description": "Typed runtime exception for shared group-session policy failures. Extends SessionTypeException so the new session-type API layer can handle group conflicts through the same error surface while still preserving the group-specific exception type for existing callers.",
+            "methods": []
+        },
+        {
+            "path": "src/Exception/SessionTypeException.php",
+            "fqcn": "CoquiBot\\Coqui\\Exception\\SessionTypeException",
+            "layer": "exception",
+            "description": "Base runtime exception for session-type lifecycle and validation failures. Carries ApiErrorCode plus optional structured details so type handlers can surface consistent API conflict and validation responses without embedding HTTP concerns into their core logic.",
+            "methods": []
+        },
+        {
             "path": "src/Repl/Handler/SessionHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\SessionHandler",
             "layer": "command",
-            "description": "Handles session-related REPL commands: /new, /history, /sessions, /resume, /model. Owns workspace .coqui-session persistence plus scoped interactive session resolution for unprofiled, profiled, and attached-session startup flows.",
+            "description": "Handles session-related REPL commands: /new, /history, /sessions, /resume, /model. Owns workspace .coqui-session persistence and now delegates interactive session create/resolve/fresh-profile lifecycle to InteractiveSessionService so REPL startup and profile switching follow the same scoped-session policy as the API.",
             "methods": [
                 "createNewSession(): string — creates a new session and returns its ID",
                 "loadOrCreateSession(SymfonyStyle): string — resolves the last active unprofiled interactive session or creates one",
@@ -989,6 +1067,13 @@
             "fqcn": "CoquiBot\\Coqui\\Contract\\SystemRole",
             "layer": "contract",
             "description": "String-backed enum centralizing built-in role name constants: Orchestrator, Coder, Reviewer, Learner, Evaluator, TitleGenerator, PlanTodoGenerator. Eliminates magic role strings scattered across the codebase.",
+            "methods": []
+        },
+        {
+            "path": "src/Contract/SessionType.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\SessionType",
+            "layer": "contract",
+            "description": "String-backed enum for canonical session kinds. Interactive is the default single-agent session, while Group marks orchestrator-managed multi-profile conversations. Also provides fallback row resolution during the compatibility window where legacy group_enabled data still exists.",
             "methods": []
         },
         {
@@ -1663,7 +1748,7 @@
             "path": "src/Observer/TerminalObserver.php",
             "fqcn": "CoquiBot\\Coqui\\Observer\\TerminalObserver",
             "layer": "observer",
-            "description": "SplObserver implementation that streams agent events to the terminal. Handles events: agent.start, agent.iteration, agent.tool_call, agent.tool_result, agent.done, agent.error, child.start, child.end. Manages indent level for nested child agent output, auto-renders one workspace-local ANSI image preview per turn for successful image-bearing tool results, and shares the preview limit with streamed markdown rendering.",
+            "description": "SplObserver implementation that streams agent events to the terminal. Handles standard agent events plus group_round_start and group_round_end lifecycle events. Tracks actor context so start, iteration, reasoning, tool, and done output can be labeled with the active group member, renders responder-selection rationale for group rounds, manages indent level for nested child agent output, auto-renders one workspace-local ANSI image preview per turn for successful image-bearing tool results, and shares the preview limit with streamed markdown rendering.",
             "methods": [
                 "update(SplSubject $subject): void — dispatches agent events to terminal rendering",
                 "handleEvent(string $event, mixed $data): void — direct event handling for child spawn notifications"
@@ -1986,15 +2071,117 @@
             "path": "src/Api/Handler/SessionHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SessionHandler",
             "layer": "command",
-            "description": "Session API endpoints: GET /api/v1/sessions (list with lifecycle status filters and archived-history discovery counts), POST /api/v1/sessions (always create), POST /api/v1/sessions/resolve (reuse the latest interactive session for a profile or unprofiled scope, or create one), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (update title/role/profile while keeping the resolved model in sync for writable sessions only), DELETE /api/v1/sessions/{id} (delete), GET /api/v1/sessions/{id}/child-runs (child agent runs).",
+            "description": "Session API endpoints: GET /api/v1/sessions (list with lifecycle status filters and archived-history discovery counts), POST /api/v1/sessions (always create), POST /api/v1/sessions/resolve (reuse or create a session for the requested scope), GET /api/v1/sessions/{id} (detail), PATCH /api/v1/sessions/{id} (type-aware writable-session updates), group member endpoints under /api/v1/sessions/{id}/members, DELETE /api/v1/sessions/{id} (delete), and GET /api/v1/sessions/{id}/child-runs (child agent runs). Create, resolve, PATCH, and group member operations now delegate request normalization plus type-specific lifecycle behavior to the session-type API layer instead of embedding the full interactive-vs-group branching directly in this handler.",
             "methods": [
                 "list(request): Response — lifecycle-filtered session discovery with active/closed/archived counts",
                 "create(request): Response",
                 "resolve(request): Response — return the latest interactive session for a scope or create one",
                 "get(request, id): Response",
-                "update(request, id): Response — PATCH to update title/role/profile for writable sessions and refresh resolved model metadata",
+                "update(request, id): Response — PATCH to normalize the request and delegate type-specific session updates",
+                "members(request, id): Response — list group members through the type-specific group capability",
+                "replaceMembers(request, id): Response — replace group membership through the type-specific group capability",
+                "addMember(request, id): Response — add one group member through the type-specific group capability",
+                "removeMember(request, id, profile): Response — remove one group member through the type-specific group capability",
                 "delete(request, id): Response",
                 "childRuns(request, id): Response — list child agent runs for a session"
+            ]
+        },
+        {
+            "path": "src/Api/Session/SessionUpdateRequest.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionUpdateRequest",
+            "layer": "command",
+            "description": "Readonly normalized PATCH request object for the session API layer. Tracks which mutable fields were explicitly provided and carries validated title, role, profile, group toggle, member, and round-cap updates so type handlers can apply precise patch semantics.",
+            "methods": []
+        },
+        {
+            "path": "src/Api/Session/SessionUpdateRequestResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionUpdateRequestResolver",
+            "layer": "command",
+            "description": "Normalizes API session PATCH request bodies into SessionUpdateRequest value objects. Centralizes field-level validation and parsing so interactive and group session handlers can share one consistent patch input model.",
+            "methods": [
+                "resolve(?array): SessionUpdateRequest|Response — validate and normalize the incoming PATCH body"
+            ]
+        },
+        {
+            "path": "src/Api/Session/SessionScope.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionScope",
+            "layer": "command",
+            "description": "Readonly normalized session-scope request object for the API session layer. Carries the requested session type, resolved role, optional profile scope, group-member composition, round cap, and confirmation flags so the top-level SessionHandler can stay thin.",
+            "methods": []
+        },
+        {
+            "path": "src/Api/Session/SessionTypeOperationResult.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionTypeOperationResult",
+            "layer": "command",
+            "description": "Readonly result object returned by API session-type handlers. Carries the hydrated session payload plus whether the operation created a new session or reused an existing one.",
+            "methods": []
+        },
+        {
+            "path": "src/Api/Session/GroupSessionEndpointHandlerInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\GroupSessionEndpointHandlerInterface",
+            "layer": "command",
+            "description": "Optional API session-type capability for group-only endpoints. Implementations own member listing and membership mutations so the top-level SessionHandler can dispatch group-specific endpoints without embedding group policy directly.",
+            "methods": [
+                "listMembers(array): array — return the group member listing payload for a session",
+                "replaceMembers(array, mixed): array — replace the full member set for a group session",
+                "addMember(array, mixed): array — add one member to a group session",
+                "removeMember(array, string, mixed): array — remove one member from a group session"
+            ]
+        },
+        {
+            "path": "src/Api/Session/SessionTypeHandlerInterface.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionTypeHandlerInterface",
+            "layer": "command",
+            "description": "Contract for API session-type handlers. Concrete implementations own create, resolve, and update lifecycle behavior for one canonical session type while the top-level SessionHandler remains an HTTP facade.",
+            "methods": [
+                "type(): SessionType — return the canonical session type handled by this implementation",
+                "create(SessionScope): SessionTypeOperationResult — create a session for this type",
+                "resolve(SessionScope): SessionTypeOperationResult — reuse or create a session for this type",
+                "update(array, SessionUpdateRequest): array — apply PATCH updates for this type"
+            ]
+        },
+        {
+            "path": "src/Api/Session/SessionTypeRegistry.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionTypeRegistry",
+            "layer": "command",
+            "description": "Small registry mapping SessionType values to API session-type handlers. This is the current extensibility seam for create and resolve operations and is designed to grow as new session types are added.",
+            "methods": [
+                "handlerFor(SessionType): SessionTypeHandlerInterface — return the registered handler for the requested session type"
+            ]
+        },
+        {
+            "path": "src/Api/Session/SessionScopeResolver.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\SessionScopeResolver",
+            "layer": "command",
+            "description": "Normalizes API session create or resolve request bodies into SessionScope value objects. Centralizes role lookup, profile validation, group membership validation, round-cap parsing, and confirmation-flag parsing so type handlers receive a consistent request model.",
+            "methods": [
+                "resolve(?array): SessionScope|Response — validate and normalize the incoming API request body"
+            ]
+        },
+        {
+            "path": "src/Api/Session/InteractiveSessionTypeHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\InteractiveSessionTypeHandler",
+            "layer": "command",
+            "description": "API session-type handler for the default interactive session model. Delegates create, resolve, and PATCH behavior to InteractiveSessionService so profile-scoped conflict handling, duplicate cleanup, and role normalization are shared with the REPL.",
+            "methods": [
+                "create(SessionScope): SessionTypeOperationResult — create a new interactive session, optionally finalizing the previous active profiled session",
+                "resolve(SessionScope): SessionTypeOperationResult — reuse an existing interactive session for the requested scope or create one",
+                "update(array, SessionUpdateRequest): array — apply interactive-session PATCH updates"
+            ]
+        },
+        {
+            "path": "src/Api/Session/GroupSessionTypeHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Session\\GroupSessionTypeHandler",
+            "layer": "command",
+            "description": "API session-type handler for orchestrator-managed group sessions. Delegates composition normalization, duplicate-composition conflict handling, and session creation or reuse to GroupSessionService while also enforcing the group-specific PATCH rules and implementing the group-only member endpoint capability.",
+            "methods": [
+                "create(SessionScope): SessionTypeOperationResult — create a fresh group session for the requested composition",
+                "resolve(SessionScope): SessionTypeOperationResult — reuse the active composition session or create one",
+                "update(array, SessionUpdateRequest): array — apply group-session PATCH updates and invariants",
+                "listMembers(array): array — build the group member listing payload for a group session",
+                "replaceMembers(array, mixed): array — replace the full member set for a group session",
+                "addMember(array, mixed): array — add one member to a group session",
+                "removeMember(array, string, mixed): array — remove one member from a group session"
             ]
         },
         {
@@ -2107,9 +2294,10 @@
             "path": "src/Api/Handler/ServerHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ServerHandler",
             "layer": "command",
-            "description": "Server status and control endpoints: GET /api/v1/server/info (runtime info, uptime, memory, active sessions/tasks, compact channel and quality summaries), GET /api/v1/server/stats (database statistics and table integrity check), and GET /api/v1/server/quality (detailed quality automation state).",
+            "description": "Server status and control endpoints: GET /api/v1/server/info (runtime info, uptime, memory, active sessions/tasks, compact channel and quality summaries, plus restart-state metadata), GET /api/v1/server/stats (database statistics and table integrity check), GET /api/v1/server/quality (detailed quality automation state), and POST /api/v1/server/restart (launcher-managed API restart).",
             "methods": [
                 "info(request): Response — version, uptime, memory, active workload",
+                "restart(request): Response — request a launcher-managed API restart and return restart-state metadata",
                 "stats(request): Response — database stats and table check",
                 "quality(request): Response — detailed quality automation summary"
             ]
@@ -2152,7 +2340,7 @@
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, prompt-inspection, channel CRUD/inspection, and channel-health surfaces, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers plus the channel runtime and channel execution managers, and enters the ReactPHP event loop.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, prompt-inspection, channel CRUD/inspection, channel-health surfaces, and the launcher-aware server restart endpoint, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers plus the channel runtime and channel execution managers, and enters the ReactPHP event loop. Also installs ApiLifecycleController so health/server responses and channel mutations share persistent restart-state metadata.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
                 "registerRoutes(Router, ...handlers): void — registers all API routes including evaluation, prompt, budget, and loop endpoints",
@@ -2160,10 +2348,23 @@
             ]
         },
         {
+            "path": "src/Api/ApiLifecycleController.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\ApiLifecycleController",
+            "layer": "command",
+            "description": "Shared lifecycle and restart-state coordinator for the API process. Persists restart-required flags through RuntimeStateStore, reports launcher-managed restart capabilities to health/server surfaces, clears stale restart flags on boot, and invokes the configured exit callback when POST /api/v1/server/restart is accepted.",
+            "methods": [
+                "markBooted(): void — clear pending restart state for the current API boot",
+                "configureRestartHandler(callable): void — install the process-exit callback used for launcher-managed restarts",
+                "markRestartRequired(string, string, array): array — persist and return restart-required metadata",
+                "requestRestart(string, array): array — mark restart-required and invoke the configured restart handler",
+                "restartState(): array — return the current restart-state payload for API responses"
+            ]
+        },
+        {
             "path": "src/Api/ChannelExecutionManager.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\ChannelExecutionManager",
             "layer": "agent",
-            "description": "API-side channel worker that converts stored inbound channel events into Coqui background tasks, reuses per-conversation sessions, resolves identity links and scope policy, queues outbound deliveries from completed tasks, and finalizes inbound event lifecycle state after delivery.",
+            "description": "API-side channel worker that converts stored inbound channel events into Coqui background tasks, resolves identity links and scope policy, reuses either a channel-instance bound session or a per-conversation session, queues outbound deliveries from completed tasks, and finalizes inbound event lifecycle state after delivery.",
             "methods": [
                 "tick(): void — process newly received channel events, reconcile queued tasks, and finalize queued deliveries"
             ]
@@ -2184,7 +2385,7 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. Session rows now expose derived lifecycle status labels plus aggregate lifecycle counts so archived history can be inspected without reactivating it. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, and closed/archive lifecycle metadata.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. Session rows now expose explicit visibility for hiding synthetic worker sessions, derived channel metadata for channel-bound or conversation-backed sessions, a canonical session_type discriminator alongside compatibility group fields, and aggregate lifecycle counts so archived history can be inspected without reactivating it. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, closed/archive lifecycle metadata, visibility, and the additive session_type column used by the new session-type architecture.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
                 "listSessions(int $limit, bool $excludeTaskSessions=true, bool $activeOnly=true, ?string $status=null): array — lists recent sessions with optional lifecycle filtering",
@@ -2887,7 +3088,7 @@
             "path": "src/Channel/ChannelConfigurationEditor.php",
             "fqcn": "CoquiBot\\Coqui\\Channel\\ChannelConfigurationEditor",
             "layer": "config",
-            "description": "Shared mutator for the channels.instances config block inside openclaw.json. Used by both the API and REPL operator surfaces to create, update, enable, disable, and delete channel instances with driver and profile validation before saving.",
+            "description": "Shared mutator for the channels.instances config block inside openclaw.json. Used by both the API and REPL operator surfaces to create, update, enable, disable, and delete channel instances with driver, profile, and bound-session validation before saving.",
             "methods": [
                 "create(string, array): array — create a new channel instance definition",
                 "update(string, array): array — patch an existing channel instance definition",
@@ -2900,7 +3101,7 @@
             "path": "src/Storage/ChannelStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ChannelStore",
             "layer": "storage",
-            "description": "SQLite-backed persistence for the channel subsystem. Creates the channel tables for configured instances, identity links, conversations, inbound events, outbound deliveries, delivery attempts, and per-instance runtime state. The current implementation actively uses these tables for Signal inbound event execution, queued reply delivery, runtime health, and operator inspection surfaces.",
+            "description": "SQLite-backed persistence for the channel subsystem. Creates the channel tables for configured instances, identity links, conversations, inbound events, outbound deliveries, delivery attempts, and per-instance runtime state. Configured instances now also persist an optional bound session id so one channel instance can be routed into an existing visible chat. The current implementation actively uses these tables for Signal inbound event execution, queued reply delivery, runtime health, and operator inspection surfaces.",
             "methods": [
                 "upsertConfiguredInstance(array, ?array): string — create or update one configured channel instance row",
                 "get(string): ?array — fetch an instance by id with joined runtime state",
@@ -2933,6 +3134,17 @@
                 "pruneConfigInstances(array): int — remove config-sourced instances no longer present in config",
                 "updateRuntimeState(string, array): void — upsert the current health snapshot for an instance",
                 "getStats(): array — return aggregate configured/enabled/ready/error counts"
+            ]
+        },
+        {
+            "path": "src/Storage/RuntimeStateStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\RuntimeStateStore",
+            "layer": "storage",
+            "description": "SQLite-backed store for small shared runtime flags that must survive across REPL/API process boundaries. The current implementation persists API restart-required state so REPL edits, API channel mutations, and launcher-managed API restarts all agree on one operator-visible restart status.",
+            "methods": [
+                "apiRestartState(): array — return the persisted API restart payload",
+                "markApiRestartRequired(string, string, array, bool, bool, ?int, ?string): array — persist restart-required metadata for API clients and REPL warnings",
+                "clearApiRestartRequired(bool, bool, ?int, ?string): array — clear pending API restart metadata after boot"
             ]
         },
         {

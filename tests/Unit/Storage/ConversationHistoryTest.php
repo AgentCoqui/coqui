@@ -185,3 +185,54 @@ test('tool result messages are persisted and restored with correct pairing', fun
     expect($messages[2]->toolCallId())->toBe('tc_1');
     expect($messages[3]->toolCallId())->toBe('tc_2');
 });
+
+test('loadConversation decorates group session history with actor identity', function () {
+    $groupSessionId = $this->storage->createGroupSession('orchestrator', 'test/model', ['caelum', 'nova'], 3);
+    $toolCalls = json_encode([
+        ['id' => 'tc_group_1', 'name' => 'read_file', 'arguments' => ['path' => 'README.md']],
+    ], JSON_THROW_ON_ERROR);
+
+    $this->storage->addMessage($groupSessionId, 'user', 'Team, please review this.');
+    $this->storage->addMessage(
+        $groupSessionId,
+        'assistant',
+        '',
+        $toolCalls,
+        null,
+        null,
+        'nova',
+        'orchestrator',
+    );
+    $this->storage->addMessage(
+        $groupSessionId,
+        'tool',
+        'README contents',
+        null,
+        'tc_group_1',
+        null,
+        'nova',
+        'orchestrator',
+    );
+    $this->storage->addMessage(
+        $groupSessionId,
+        'assistant',
+        'I found the relevant section.',
+        null,
+        null,
+        null,
+        'caelum',
+        'orchestrator',
+    );
+
+    $conversation = $this->storage->loadConversation($groupSessionId);
+    $messages = $conversation->messages();
+
+    expect($messages)->toHaveCount(4);
+    expect($messages[1]->role())->toBe(Role::Assistant);
+    expect($messages[1]->toolCalls())->toHaveCount(1);
+    expect($messages[1]->content())->toBe('');
+    expect($messages[2]->role())->toBe(Role::Tool);
+    expect($messages[2]->content())->toBe("Tool result for @nova:\nREADME contents");
+    expect($messages[3]->role())->toBe(Role::Assistant);
+    expect($messages[3]->content())->toBe("@caelum says:\nI found the relevant section.");
+});

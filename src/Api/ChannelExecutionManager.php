@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api;
 
+use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\ChannelStore;
@@ -22,6 +23,7 @@ final readonly class ChannelExecutionManager
         private OpenClawConfig $config,
         private ChannelStore $channelStore,
         private SessionStorage $storage,
+        private RoleResolver $roleResolver,
     ) {}
 
     public function tick(): void
@@ -275,6 +277,15 @@ final readonly class ChannelExecutionManager
      */
     private function ensureConversationSession(array $channel, array $conversation, ?string $profile): string
     {
+        $boundSessionId = $this->stringOrNull($channel['bound_session_id'] ?? null);
+        if ($boundSessionId !== null) {
+            if ($profile !== null) {
+                $this->storage->updateSessionProfile($boundSessionId, $profile);
+            }
+
+            return $boundSessionId;
+        }
+
         $sessionId = $this->stringOrNull($conversation['session_id'] ?? null);
         if ($sessionId !== null) {
             if ($profile !== null) {
@@ -284,7 +295,11 @@ final readonly class ChannelExecutionManager
             return $sessionId;
         }
 
-        $sessionId = $this->storage->createSession(SystemRole::Orchestrator->value, 'channel:' . (string) $channel['driver'], $profile);
+        $sessionId = $this->storage->createSession(
+            SystemRole::Orchestrator->value,
+            $this->roleResolver->resolve(SystemRole::Orchestrator->value, $profile),
+            $profile,
+        );
         $this->storage->updateSessionTitle(
             $sessionId,
             sprintf('Channel · %s · %s', (string) $channel['name'], (string) ($conversation['remote_conversation_key'] ?? 'conversation')),

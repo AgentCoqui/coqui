@@ -29,6 +29,7 @@ use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
 use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
+use CoquiBot\Coqui\Repl\Handler\GroupHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
@@ -54,6 +55,8 @@ use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\RuntimeStateStore;
+use CoquiBot\Coqui\Support\GroupSessionService;
 use CoquiBot\Coqui\Support\ImagePreviewService;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -404,9 +407,16 @@ final class RunCommand extends Command
         $notificationPresenter = new NotificationPresenter();
         $notificationLimit = $notificationConfig['replDisplayLimit'];
         $channelStore = new ChannelStore($this->storage->getPdo());
+        $runtimeStateStore = new RuntimeStateStore($this->storage->getPdo());
         $channelConfigEditor = new ChannelConfigurationEditor(
             $this->boot->configManager(),
             $this->boot->channelDiscovery(),
+            $this->boot->profileDiscovery(),
+            $this->storage,
+        );
+        $groupSessionService = new GroupSessionService(
+            $this->storage,
+            $this->boot->roleResolver(),
             $this->boot->profileDiscovery(),
         );
 
@@ -421,6 +431,7 @@ final class RunCommand extends Command
                 $channelConfigEditor,
                 $this->boot->channelDiscovery(),
                 $this->boot->profileDiscovery(),
+                $runtimeStateStore,
             ),
             quality: new QualityHandler(
                 new QualityAutomationStatusService(
@@ -432,6 +443,7 @@ final class RunCommand extends Command
             ),
             project: new ProjectHandler($this->boot, $this->storage),
             role: new RoleHandler($this->boot, $this->storage),
+            group: new GroupHandler($groupSessionService, $this->storage),
             profile: new ProfileHandler($this->boot, $sessionHandler),
             backstory: new BackstoryHandler($this->boot->profileDiscovery(), $this->boot->workspacePath()),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
@@ -487,13 +499,7 @@ final class RunCommand extends Command
                     ? sprintf(' <fg=magenta>[%s]</>', $this->activeProjectSlug)
                     : '';
                 $multilineTag = $this->multilineMode ? ' <fg=yellow>[multiline]</>' : '';
-                $contextParts = [];
-                if ($this->activeProfile !== null) {
-                    $contextParts[] = $this->activeProfile;
-                }
-                if ($this->activeRole !== SystemRole::Orchestrator->value) {
-                    $contextParts[] = $this->activeRole;
-                }
+                $contextParts = $this->buildUserPromptContextParts();
                 if ($contextParts !== []) {
                     $io->writeln(sprintf(' <fg=cyan>You</> <fg=gray>(%s)</>%s%s:', implode(', ', $contextParts), $projectTag, $multilineTag));
                 } else {
@@ -918,6 +924,30 @@ final class RunCommand extends Command
         }
 
         return ' ›' . $badge . ' ';
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function buildUserPromptContextParts(): array
+    {
+        if ($this->sessionId !== '' && $this->storage->isGroupSession($this->sessionId)) {
+            $members = $this->storage->listSessionGroupMemberNames($this->sessionId);
+
+            return $members === []
+                ? ['group session']
+                : ['group session with ' . implode(', ', array_map(static fn(string $member): string => '@' . $member, $members))];
+        }
+
+        $contextParts = [];
+        if ($this->activeProfile !== null) {
+            $contextParts[] = $this->activeProfile;
+        }
+        if ($this->activeRole !== SystemRole::Orchestrator->value) {
+            $contextParts[] = $this->activeRole;
+        }
+
+        return $contextParts;
     }
 
     private function installReadlineHandler(string $prompt, callable $callback): void

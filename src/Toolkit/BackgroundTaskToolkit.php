@@ -241,7 +241,7 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
 
         // Create a dedicated session for the task
         $model = 'background-task'; // Resolved at runtime by TaskRunCommand
-        $sessionId = $this->storage->createSession($role, $model, $parentProfile);
+        $sessionId = $this->storage->createSession($role, $model, $parentProfile, visibility: 'hidden');
 
         // Propagate active project context from parent session
         $parentProjectId = $this->storage->getActiveProjectId($this->parentSessionId);
@@ -307,7 +307,7 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
         $parentProfile = is_array($parentSession) && is_string($parentSession['profile'] ?? null) && $parentSession['profile'] !== ''
             ? $parentSession['profile']
             : null;
-        $sessionId = $this->storage->createSession('tool', $model, $parentProfile);
+        $sessionId = $this->storage->createSession('tool', $model, $parentProfile, visibility: 'hidden');
 
         // Create the task record with tool metadata
         $taskId = $this->storage->createTask(

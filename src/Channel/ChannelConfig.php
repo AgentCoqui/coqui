@@ -96,6 +96,7 @@ final readonly class ChannelConfig
     {
         $displayName = $entry['displayName'] ?? $entry['display_name'] ?? null;
         $defaultProfile = $entry['defaultProfile'] ?? $entry['default_profile'] ?? null;
+        $boundSessionId = $entry['boundSessionId'] ?? $entry['bound_session_id'] ?? null;
         $settings = $entry['settings'] ?? [];
         $allowedScopes = $entry['allowedScopes'] ?? $entry['allowed_scopes'] ?? [];
         $security = $entry['security'] ?? [];
@@ -106,6 +107,7 @@ final readonly class ChannelConfig
             'enabled' => is_bool($entry['enabled'] ?? null) ? (bool) $entry['enabled'] : true,
             'display_name' => is_string($displayName) && trim($displayName) !== '' ? trim($displayName) : $name,
             'default_profile' => is_string($defaultProfile) && trim($defaultProfile) !== '' ? trim($defaultProfile) : null,
+            'bound_session_id' => is_string($boundSessionId) && trim($boundSessionId) !== '' ? trim($boundSessionId) : null,
             'settings' => is_array($settings) ? $settings : [],
             'allowed_scopes' => is_array($allowedScopes) ? $allowedScopes : [],
             'security' => is_array($security) ? $security : [],

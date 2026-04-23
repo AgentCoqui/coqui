@@ -13,6 +13,7 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
+use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Support\ProcessSpawner;
 use PDO;
 use PDOException;
@@ -69,6 +70,8 @@ final class SessionStorage
                 content TEXT NOT NULL,
                 tool_calls TEXT,
                 tool_call_id TEXT,
+                actor_name TEXT DEFAULT NULL,
+                actor_role TEXT DEFAULT NULL,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
             )
@@ -134,6 +137,8 @@ final class SessionStorage
 
         // Migrations for existing tables — add turn_id FK columns
         $this->migrateAddColumn('messages', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
+        $this->migrateAddColumn('messages', 'actor_name', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('messages', 'actor_role', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('audit_log', 'turn_id', 'TEXT REFERENCES turns(id) ON DELETE SET NULL');
         $this->migrateAddColumn('turns', 'turn_process_id', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('turns', 'result_payload', 'TEXT DEFAULT NULL');
@@ -215,14 +220,40 @@ final class SessionStorage
 
         // Migration: personality profile per session
         $this->migrateAddColumn('sessions', 'profile', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('sessions', 'group_enabled', 'INTEGER NOT NULL DEFAULT 0');
+        $this->migrateAddColumn('sessions', 'group_composition_key', 'TEXT DEFAULT NULL');
+        $this->migrateAddColumn('sessions', 'group_max_rounds', 'INTEGER DEFAULT NULL');
+        $this->migrateAddColumn('sessions', 'session_type', "TEXT NOT NULL DEFAULT 'interactive'");
+        $this->migrateAddColumn('sessions', 'visibility', "TEXT NOT NULL DEFAULT 'visible'");
         $this->migrateAddColumn('sessions', 'is_closed', 'INTEGER NOT NULL DEFAULT 0');
         $this->migrateAddColumn('sessions', 'is_archived', 'INTEGER NOT NULL DEFAULT 0');
         $this->migrateAddColumn('sessions', 'closed_at', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('sessions', 'archived_at', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('sessions', 'closure_reason', 'TEXT DEFAULT NULL');
 
+        $this->db->exec("UPDATE sessions SET session_type = 'group' WHERE COALESCE(group_enabled, 0) = 1 AND COALESCE(session_type, '') != 'group'");
+
+        $this->db->exec("UPDATE sessions SET session_type = 'interactive' WHERE COALESCE(group_enabled, 0) = 0 AND COALESCE(session_type, '') = ''");
+        $this->db->exec("UPDATE sessions SET visibility = 'visible' WHERE COALESCE(visibility, '') = ''");
+
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_profile_updated ON sessions(profile, updated_at DESC)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_closed_updated ON sessions(is_closed, updated_at DESC)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_group_enabled_updated ON sessions(group_enabled, updated_at DESC)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_visibility_updated ON sessions(visibility, updated_at DESC)');
+        $this->db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_active_group_composition ON sessions(group_composition_key) WHERE group_enabled = 1 AND is_closed = 0 AND group_composition_key IS NOT NULL');
+
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS session_group_members (
+                session_id TEXT NOT NULL,
+                profile_name TEXT NOT NULL,
+                member_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (session_id, profile_name),
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+            )
+        SQL);
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_group_members_session_order ON session_group_members(session_id, member_order, profile_name)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_group_members_profile ON session_group_members(profile_name)');
 
         // Migration: child-run metadata for typed handoffs and provenance
         $this->migrateAddColumn('child_runs', 'metadata', 'TEXT DEFAULT NULL');
@@ -284,14 +315,28 @@ final class SessionStorage
         }
     }
 
-    public function createSession(string $modelRole, string $model, ?string $profile = null): string
+    public function createSession(
+        string $modelRole,
+        string $model,
+        ?string $profile = null,
+        bool $groupEnabled = false,
+        ?string $groupCompositionKey = null,
+        ?int $groupMaxRounds = null,
+        SessionType|string|null $sessionType = null,
+        string $visibility = 'visible',
+    ): string
     {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
+        $resolvedSessionType = $sessionType instanceof SessionType
+            ? $sessionType
+            : (is_string($sessionType) ? SessionType::tryFrom($sessionType) : null);
+        $resolvedSessionType ??= SessionType::fromGroupFlag($groupEnabled);
+        $resolvedVisibility = $this->normalizeVisibility($visibility);
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO sessions (id, model_role, model, profile, created_at, updated_at)
-            VALUES (:id, :model_role, :model, :profile, :created_at, :updated_at)
+            INSERT INTO sessions (id, model_role, model, profile, group_enabled, group_composition_key, group_max_rounds, session_type, visibility, created_at, updated_at)
+            VALUES (:id, :model_role, :model, :profile, :group_enabled, :group_composition_key, :group_max_rounds, :session_type, :visibility, :created_at, :updated_at)
         SQL);
 
         $stmt->execute([
@@ -299,11 +344,216 @@ final class SessionStorage
             'model_role' => $modelRole,
             'model' => $model,
             'profile' => $profile,
+            'group_enabled' => $groupEnabled ? 1 : 0,
+            'group_composition_key' => $groupEnabled ? $groupCompositionKey : null,
+            'group_max_rounds' => $groupEnabled ? $groupMaxRounds : null,
+            'session_type' => $resolvedSessionType->value,
+            'visibility' => $resolvedVisibility,
             'created_at' => $now,
             'updated_at' => $now,
         ]);
 
         return $id;
+    }
+
+    /**
+     * @param list<string> $members
+     */
+    public function createGroupSession(
+        string $modelRole,
+        string $model,
+        array $members,
+        ?int $groupMaxRounds = null,
+    ): string {
+        $normalizedMembers = $this->normalizeGroupMembers($members);
+        $compositionKey = $this->buildGroupCompositionKey($normalizedMembers);
+
+        $this->db->beginTransaction();
+
+        try {
+            $sessionId = $this->createSession(
+                modelRole: $modelRole,
+                model: $model,
+                profile: null,
+                groupEnabled: true,
+                groupCompositionKey: $compositionKey,
+                groupMaxRounds: $groupMaxRounds,
+                sessionType: SessionType::Group,
+            );
+            $this->persistGroupMembers($sessionId, $normalizedMembers);
+            $this->db->commit();
+
+            return $sessionId;
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * @param list<string> $members
+     */
+    public function replaceSessionGroupMembers(string $sessionId, array $members, ?int $groupMaxRounds = null): void
+    {
+        $normalizedMembers = $this->normalizeGroupMembers($members);
+        $compositionKey = $this->buildGroupCompositionKey($normalizedMembers);
+
+        $this->db->beginTransaction();
+
+        try {
+            $stmt = $this->db->prepare(<<<SQL
+                UPDATE sessions
+                SET group_enabled = 1,
+                    session_type = :session_type,
+                    profile = NULL,
+                    group_composition_key = :group_composition_key,
+                    group_max_rounds = :group_max_rounds,
+                    updated_at = :updated_at
+                WHERE id = :id
+            SQL);
+
+            $stmt->execute([
+                'session_type' => SessionType::Group->value,
+                'group_composition_key' => $compositionKey,
+                'group_max_rounds' => $groupMaxRounds,
+                'updated_at' => date('c'),
+                'id' => $sessionId,
+            ]);
+
+            $delete = $this->db->prepare('DELETE FROM session_group_members WHERE session_id = :session_id');
+            $delete->execute(['session_id' => $sessionId]);
+
+            $this->persistGroupMembers($sessionId, $normalizedMembers);
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            throw $e;
+        }
+    }
+
+    public function updateSessionGroupSettings(string $sessionId, ?int $groupMaxRounds): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            UPDATE sessions
+            SET group_max_rounds = :group_max_rounds,
+                updated_at = :updated_at
+            WHERE id = :id
+        SQL);
+
+        $stmt->execute([
+            'group_max_rounds' => $groupMaxRounds,
+            'updated_at' => date('c'),
+            'id' => $sessionId,
+        ]);
+    }
+
+    /**
+     * @return list<array{profile: string, order: int, joined_at: string}>
+     */
+    public function listSessionGroupMembers(string $sessionId): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT profile_name, member_order, created_at
+            FROM session_group_members
+            WHERE session_id = :session_id
+            ORDER BY member_order ASC, profile_name ASC
+        SQL);
+
+        $stmt->execute(['session_id' => $sessionId]);
+
+        return array_values(array_map(
+            static fn(array $row): array => [
+                'profile' => (string) $row['profile_name'],
+                'order' => (int) $row['member_order'],
+                'joined_at' => (string) $row['created_at'],
+            ],
+            $stmt->fetchAll(PDO::FETCH_ASSOC),
+        ));
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function listSessionGroupMemberNames(string $sessionId): array
+    {
+        return array_map(
+            static fn(array $member): string => (string) $member['profile'],
+            $this->listSessionGroupMembers($sessionId),
+        );
+    }
+
+    public function isGroupSession(string $sessionId): bool
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT session_type, group_enabled
+            FROM sessions
+            WHERE id = :id
+            LIMIT 1
+        SQL);
+
+        $stmt->execute(['id' => $sessionId]);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!is_array($row)) {
+            return false;
+        }
+
+        return SessionType::fromSessionRow($row) === SessionType::Group;
+    }
+
+    /**
+     * @return array<array<string, mixed>>
+     */
+    public function listActiveInteractiveGroupSessionsByCompositionKey(string $compositionKey): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                 s.visibility,
+                   s.group_enabled, s.group_composition_key, s.group_max_rounds,
+                   s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
+                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
+                   (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
+            FROM sessions s
+             {$this->sessionChannelJoin('s')}
+             WHERE s.visibility = 'visible'
+              AND s.group_enabled = 1
+              AND s.group_composition_key = :group_composition_key
+              AND s.is_closed = 0
+            ORDER BY s.updated_at DESC
+        SQL);
+
+        $stmt->execute(['group_composition_key' => $compositionKey]);
+
+        return $this->normalizeSessionRows($stmt->fetchAll(PDO::FETCH_ASSOC));
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function closeOtherActiveInteractiveGroupSessionsByCompositionKey(string $compositionKey, string $keepSessionId, string $reason): array
+    {
+        $sessions = $this->listActiveInteractiveGroupSessionsByCompositionKey($compositionKey);
+        $closedIds = [];
+
+        foreach ($sessions as $session) {
+            $sessionId = (string) ($session['id'] ?? '');
+            if ($sessionId === '' || $sessionId === $keepSessionId) {
+                continue;
+            }
+
+            $this->closeSession($sessionId, $reason, true);
+            $closedIds[] = $sessionId;
+        }
+
+        return $closedIds;
+    }
+
+    /**
+     * @param list<string> $members
+     */
+    public function buildGroupCompositionKey(array $members): string
+    {
+        return implode('|', $this->normalizeGroupMembers($members));
     }
 
     /**
@@ -318,14 +568,11 @@ final class SessionStorage
         bool $unprofiledOnly = false,
     ): array
     {
-        $join = $excludeTaskSessions
-            ? 'LEFT JOIN background_tasks bt ON bt.session_id = s.id'
-            : '';
         $conditions = [];
         $params = [];
 
         if ($excludeTaskSessions) {
-            $conditions[] = 'bt.id IS NULL';
+            $conditions[] = "s.visibility = 'visible'";
         }
 
         if ($status === 'active') {
@@ -350,10 +597,14 @@ final class SessionStorage
             : '';
 
         $stmt = $this->db->prepare(<<<SQL
-            SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
-                   s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason
+             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                 s.visibility,
+                 s.group_enabled, s.group_composition_key, s.group_max_rounds,
+                 s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
+                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
+                 (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
             FROM sessions s
-            {$join}
+            {$this->sessionChannelJoin('s')}
             {$filter}
             ORDER BY s.updated_at DESC
             LIMIT :limit
@@ -550,10 +801,15 @@ final class SessionStorage
     public function getSession(string $id): ?array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, model_role, model, title, profile, active_project_id, created_at, updated_at, token_count,
-                   is_closed, is_archived, closed_at, archived_at, closure_reason
-            FROM sessions
-            WHERE id = :id
+             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                 s.visibility,
+                 s.group_enabled, s.group_composition_key, s.group_max_rounds,
+                 s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
+                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
+                 (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
+             FROM sessions s
+             {$this->sessionChannelJoin('s')}
+             WHERE s.id = :id
         SQL);
 
         $stmt->execute(['id' => $id]);
@@ -563,7 +819,7 @@ final class SessionStorage
             return null;
         }
 
-        return $this->normalizeSessionRow($session);
+        return $this->hydrateSessionRow($this->normalizeSessionRow($session), true);
     }
 
     /**
@@ -571,11 +827,8 @@ final class SessionStorage
      */
     public function getSessionStatusCounts(bool $excludeTaskSessions = true): array
     {
-        $join = $excludeTaskSessions
-            ? 'LEFT JOIN background_tasks bt ON bt.session_id = s.id'
-            : '';
         $filter = $excludeTaskSessions
-            ? 'WHERE bt.id IS NULL'
+            ? "WHERE s.visibility = 'visible'"
             : '';
 
         $stmt = $this->db->query(<<<SQL
@@ -585,7 +838,6 @@ final class SessionStorage
                 SUM(CASE WHEN s.is_archived = 1 THEN 1 ELSE 0 END) AS archived_count,
                 COUNT(*) AS total_count
             FROM sessions s
-            {$join}
             {$filter}
         SQL);
 
@@ -748,13 +1000,15 @@ final class SessionStorage
         ?string $toolCalls = null,
         ?string $toolCallId = null,
         ?string $turnId = null,
+        ?string $actorName = null,
+        ?string $actorRole = null,
     ): string {
         $id = bin2hex(random_bytes(16));
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO messages (id, session_id, role, content, tool_calls, tool_call_id, turn_id, created_at)
-            VALUES (:id, :session_id, :role, :content, :tool_calls, :tool_call_id, :turn_id, :created_at)
+            INSERT INTO messages (id, session_id, role, content, tool_calls, tool_call_id, turn_id, actor_name, actor_role, created_at)
+            VALUES (:id, :session_id, :role, :content, :tool_calls, :tool_call_id, :turn_id, :actor_name, :actor_role, :created_at)
         SQL);
 
         $stmt->execute([
@@ -765,6 +1019,8 @@ final class SessionStorage
             'tool_calls' => $toolCalls,
             'tool_call_id' => $toolCallId,
             'turn_id' => $turnId,
+            'actor_name' => $actorName,
+            'actor_role' => $actorRole,
             'created_at' => $now,
         ]);
 
@@ -780,7 +1036,7 @@ final class SessionStorage
     public function getMessages(string $sessionId): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, role, content, tool_calls, tool_call_id, created_at
+            SELECT id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
             FROM messages
             WHERE session_id = :session_id
             ORDER BY created_at ASC
@@ -788,7 +1044,7 @@ final class SessionStorage
 
         $stmt->execute(['session_id' => $sessionId]);
 
-        return $this->normalizeSessionRows($stmt->fetchAll(PDO::FETCH_ASSOC));
+        return $this->normalizeMessageRows($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -804,7 +1060,7 @@ final class SessionStorage
     public function getActiveMessages(string $sessionId): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, role, content, tool_calls, tool_call_id, created_at
+            SELECT id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
             FROM messages
             WHERE session_id = :session_id AND is_summarized = 0
             ORDER BY created_at ASC
@@ -812,7 +1068,7 @@ final class SessionStorage
 
         $stmt->execute(['session_id' => $sessionId]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->normalizeMessageRows($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -825,8 +1081,10 @@ final class SessionStorage
      */
     public function loadConversation(string $sessionId): Conversation
     {
+        $isGroupSession = $this->isGroupSession($sessionId);
+
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, role, content, tool_calls, tool_call_id, created_at
+            SELECT id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
             FROM messages
             WHERE session_id = :session_id AND is_summarized = 0
             ORDER BY created_at ASC
@@ -840,6 +1098,13 @@ final class SessionStorage
             try {
                 $role = Role::from($msg['role']);
                 $content = $this->sanitizeUtf8($msg['content'] ?? '');
+                if ($isGroupSession) {
+                    $content = $this->decorateGroupConversationContent(
+                        $role,
+                        is_string($msg['actor_name'] ?? null) ? $msg['actor_name'] : null,
+                        $content,
+                    );
+                }
                 $toolCalls = $msg['tool_calls'] !== null
                     ? $this->decodeToolCalls($msg['tool_calls'])
                     : [];
@@ -1242,6 +1507,51 @@ final class SessionStorage
     }
 
     /**
+     * @param list<string> $members
+     */
+    private function persistGroupMembers(string $sessionId, array $members): void
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO session_group_members (session_id, profile_name, member_order, created_at)
+            VALUES (:session_id, :profile_name, :member_order, :created_at)
+        SQL);
+
+        $now = date('c');
+
+        foreach ($members as $index => $profileName) {
+            $stmt->execute([
+                'session_id' => $sessionId,
+                'profile_name' => $profileName,
+                'member_order' => $index,
+                'created_at' => $now,
+            ]);
+        }
+    }
+
+    /**
+     * @param list<string> $members
+     * @return list<string>
+     */
+    private function normalizeGroupMembers(array $members): array
+    {
+        $normalized = [];
+
+        foreach ($members as $member) {
+            $value = strtolower(trim($member));
+            if ($value === '') {
+                continue;
+            }
+
+            $normalized[$value] = true;
+        }
+
+        $names = array_keys($normalized);
+        sort($names, SORT_STRING);
+
+        return $names;
+    }
+
+    /**
      * @param array<string, mixed> $row
      * @return array<string, mixed>
      */
@@ -1253,12 +1563,55 @@ final class SessionStorage
 
         $isClosed = (int) ($row['is_closed'] ?? 0);
         $isArchived = (int) ($row['is_archived'] ?? 0);
+        $groupEnabled = (int) ($row['group_enabled'] ?? 0);
+        $sessionType = SessionType::fromSessionRow($row);
+        $visibility = $this->normalizeVisibility((string) ($row['visibility'] ?? 'visible'));
 
         $row['is_closed'] = $isClosed;
         $row['is_archived'] = $isArchived;
+        $row['session_type'] = $sessionType->value;
+        $row['visibility'] = $visibility;
+        $row['group_enabled'] = $sessionType === SessionType::Group ? 1 : $groupEnabled;
+        $row['group_member_count'] = (int) ($row['group_member_count'] ?? 0);
+        $row['group_max_rounds'] = is_scalar($row['group_max_rounds'] ?? null)
+            ? (int) $row['group_max_rounds']
+            : null;
         $row['status'] = $isArchived === 1
             ? 'archived'
             : ($isClosed === 1 ? 'closed' : 'active');
+
+        return $row;
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     * @return array<string, mixed>
+     */
+    private function hydrateSessionRow(array $row, bool $includeMembers = false): array
+    {
+        if ($row === []) {
+            return $row;
+        }
+
+        $channelBound = is_string($row['channel_instance_id'] ?? null) && $row['channel_instance_id'] !== '';
+        $row['channel_bound'] = $channelBound;
+        $row['channel'] = $channelBound
+            ? [
+                'instance_id' => (string) $row['channel_instance_id'],
+                'name' => (string) ($row['channel_name'] ?? ''),
+                'driver' => (string) ($row['channel_driver'] ?? ''),
+                'display_name' => (string) (($row['channel_display_name'] ?? '') !== '' ? $row['channel_display_name'] : ($row['channel_name'] ?? '')),
+            ]
+            : null;
+        unset($row['channel_instance_id'], $row['channel_name'], $row['channel_driver'], $row['channel_display_name']);
+
+        if (SessionType::fromSessionRow($row) === SessionType::Group) {
+            $row['group_members'] = $includeMembers && isset($row['id'])
+                ? $this->listSessionGroupMembers((string) $row['id'])
+                : [];
+        } else {
+            $row['group_members'] = [];
+        }
 
         return $row;
     }
@@ -1269,7 +1622,10 @@ final class SessionStorage
      */
     private function normalizeSessionRows(array $rows): array
     {
-        return array_map(fn(array $row): array => $this->normalizeSessionRow($row), $rows);
+        return array_map(
+            fn(array $row): array => $this->hydrateSessionRow($this->normalizeSessionRow($row)),
+            $rows,
+        );
     }
 
     /**
@@ -1278,19 +1634,24 @@ final class SessionStorage
     public function listActiveInteractiveSessionsForProfile(string $profile): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
-                   s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason
+                                                SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                                                                         s.session_type, s.visibility,
+                                     s.group_enabled, s.group_composition_key, s.group_max_rounds,
+                                     s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
+                                                                         sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
+                                     (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
             FROM sessions s
-            LEFT JOIN background_tasks bt ON bt.session_id = s.id
-            WHERE bt.id IS NULL
+                        {$this->sessionChannelJoin('s')}
+                        WHERE s.visibility = 'visible'
               AND s.profile = :profile
+                            AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
         SQL);
 
         $stmt->execute(['profile' => $profile]);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->normalizeSessionRows($stmt->fetchAll(PDO::FETCH_ASSOC));
     }
 
     /**
@@ -1656,14 +2017,14 @@ final class SessionStorage
         }
 
         $msgStmt = $this->db->prepare(<<<SQL
-            SELECT id, role, content, tool_calls, tool_call_id, created_at
+            SELECT id, role, content, tool_calls, tool_call_id, actor_name, actor_role, created_at
             FROM messages
             WHERE turn_id = :turn_id
             ORDER BY created_at ASC
         SQL);
 
         $msgStmt->execute(['turn_id' => $turnId]);
-        $turn['messages'] = $msgStmt->fetchAll(PDO::FETCH_ASSOC);
+        $turn['messages'] = $this->normalizeMessageRows($msgStmt->fetchAll(PDO::FETCH_ASSOC));
         $turn['events'] = isset($turn['turn_process_id']) && is_string($turn['turn_process_id']) && $turn['turn_process_id'] !== ''
             ? $this->getDecodedTurnEvents($turn['turn_process_id'])
             : [];
@@ -1699,6 +2060,47 @@ final class SessionStorage
         unset($normalized['result_payload']);
 
         return $normalized;
+    }
+
+    /**
+     * @param array<string, mixed> $message
+     * @return array<string, mixed>
+     */
+    private function normalizeMessageRow(array $message): array
+    {
+        $message['actor_name'] = is_string($message['actor_name'] ?? null) && $message['actor_name'] !== ''
+            ? $message['actor_name']
+            : null;
+        $message['actor_role'] = is_string($message['actor_role'] ?? null) && $message['actor_role'] !== ''
+            ? $message['actor_role']
+            : null;
+
+        return $message;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $messages
+     * @return array<int, array<string, mixed>>
+     */
+    private function normalizeMessageRows(array $messages): array
+    {
+        return array_map(
+            fn(array $message): array => $this->normalizeMessageRow($message),
+            $messages,
+        );
+    }
+
+    private function decorateGroupConversationContent(Role $role, ?string $actorName, string $content): string
+    {
+        if ($actorName === null || $actorName === '') {
+            return $content;
+        }
+
+        return match ($role) {
+            Role::Assistant => trim($content) === '' ? $content : sprintf("@%s says:\n%s", $actorName, $content),
+            Role::Tool => sprintf("Tool result for @%s:\n%s", $actorName, $content),
+            default => $content,
+        };
     }
 
     /**
@@ -1782,7 +2184,9 @@ final class SessionStorage
         $stmt = $this->db->prepare(<<<SQL
             SELECT id
             FROM sessions
-            WHERE profile = :profile AND is_closed = 0
+            WHERE profile = :profile
+                            AND COALESCE(session_type, CASE WHEN COALESCE(group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
+              AND is_closed = 0
             ORDER BY updated_at DESC
             LIMIT 1
         SQL);
@@ -1798,10 +2202,12 @@ final class SessionStorage
         $stmt = $this->db->query(<<<SQL
             SELECT s.id
             FROM sessions s
-            LEFT JOIN background_tasks bt ON bt.session_id = s.id
-            WHERE bt.id IS NULL
+                        {$this->sessionChannelJoin('s')}
+                        WHERE s.visibility = 'visible'
               AND s.profile IS NULL
-                            AND s.is_closed = 0
+                            AND sc.channel_instance_id IS NULL
+                            AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
+              AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
         SQL);
@@ -1820,8 +2226,10 @@ final class SessionStorage
         $stmt = $this->db->query(<<<SQL
             SELECT s.id
             FROM sessions s
-            LEFT JOIN background_tasks bt ON bt.session_id = s.id
-            WHERE bt.id IS NULL
+                        {$this->sessionChannelJoin('s')}
+                        WHERE s.visibility = 'visible'
+                            AND sc.channel_instance_id IS NULL
+                            AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
@@ -1841,10 +2249,12 @@ final class SessionStorage
         $stmt = $this->db->prepare(<<<SQL
             SELECT s.id
             FROM sessions s
-            LEFT JOIN background_tasks bt ON bt.session_id = s.id
-            WHERE bt.id IS NULL
+                        {$this->sessionChannelJoin('s')}
+                        WHERE s.visibility = 'visible'
+                            AND sc.channel_instance_id IS NULL
               AND s.profile = :profile
-                            AND s.is_closed = 0
+                            AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
+              AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
         SQL);
@@ -1863,14 +2273,86 @@ final class SessionStorage
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT 1
-            FROM background_tasks
-            WHERE session_id = :session_id
+            FROM sessions
+            WHERE id = :session_id
+              AND visibility = 'visible'
+              AND COALESCE(session_type, CASE WHEN COALESCE(group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
             LIMIT 1
         SQL);
 
         $stmt->execute(['session_id' => $sessionId]);
 
-        return $stmt->fetchColumn() === false;
+        return $stmt->fetchColumn() !== false;
+    }
+
+    private function normalizeVisibility(string $visibility): string
+    {
+        return $visibility === 'hidden' ? 'hidden' : 'visible';
+    }
+
+    private function sessionChannelJoin(string $sessionAlias): string
+    {
+        if (!$this->channelTablesAvailable()) {
+            return <<<SQL
+                LEFT JOIN (
+                    SELECT NULL AS session_id,
+                           NULL AS channel_instance_id,
+                           NULL AS channel_name,
+                           NULL AS channel_driver,
+                           NULL AS channel_display_name
+                    WHERE 1 = 0
+                ) sc ON sc.session_id = {$sessionAlias}.id
+            SQL;
+        }
+
+        return <<<SQL
+            LEFT JOIN (
+                SELECT session_id,
+                       MIN(channel_instance_id) AS channel_instance_id,
+                       MIN(channel_name) AS channel_name,
+                       MIN(channel_driver) AS channel_driver,
+                       MIN(channel_display_name) AS channel_display_name
+                FROM (
+                    SELECT ci.bound_session_id AS session_id,
+                           ci.id AS channel_instance_id,
+                           ci.name AS channel_name,
+                           ci.driver AS channel_driver,
+                           ci.display_name AS channel_display_name
+                    FROM channel_instances ci
+                    WHERE ci.bound_session_id IS NOT NULL
+
+                    UNION ALL
+
+                    SELECT cc.session_id AS session_id,
+                           ci.id AS channel_instance_id,
+                           ci.name AS channel_name,
+                           ci.driver AS channel_driver,
+                           ci.display_name AS channel_display_name
+                    FROM channel_conversations cc
+                    INNER JOIN channel_instances ci ON ci.id = cc.channel_instance_id
+                    WHERE cc.session_id IS NOT NULL
+                ) channel_sessions
+                GROUP BY session_id
+            ) sc ON sc.session_id = {$sessionAlias}.id
+        SQL;
+    }
+
+    private function channelTablesAvailable(): bool
+    {
+        $stmt = $this->db->query(<<<SQL
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name IN ('channel_instances', 'channel_conversations')
+        SQL);
+
+        if ($stmt === false) {
+            return false;
+        }
+
+        $names = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        return count($names) === 2;
     }
 
     // -------------------------------------------------------------------------

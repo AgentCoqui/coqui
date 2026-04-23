@@ -5,17 +5,21 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\GroupTurnCoordinator;
 use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Contract\AgentTurnResult as ContractAgentTurnResult;
 use CoquiBot\Coqui\Exception\InteractionCancelledException;
 use CoquiBot\Coqui\Exception\ShutdownRequestedException;
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
+use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Renderer\TerminalRenderer;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Support\ImagePreviewService;
+use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use React\EventLoop\Loop;
 use React\EventLoop\TimerInterface;
 use Symfony\Component\Console\Style\SymfonyStyle;
@@ -104,15 +108,24 @@ final class AgentTurnExecutor
         }
 
         try {
-            $result = $this->agentRunner->run(
-                $prompt,
-                $sessionId,
-                $executionPolicy,
-                $cancellationToken,
-                role: $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null,
-                profile: $activeProfile,
-            );
+            $session = $this->storage->getSession($sessionId);
+            $sessionType = is_array($session) ? SessionType::fromSessionRow($session) : SessionType::Interactive;
+            $groupEnabled = $sessionType === SessionType::Group;
+
+            if ($groupEnabled && is_array($session)) {
+                $result = $this->executeGroupTurn($prompt, $sessionId, $session, $executionPolicy);
+            } else {
+                $result = $this->agentRunner->run(
+                    $prompt,
+                    $sessionId,
+                    $executionPolicy,
+                    $cancellationToken,
+                    role: $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null,
+                    profile: $activeProfile,
+                );
+            }
         } finally {
+            $this->escObserver->setActorContext(null, null);
             $this->escObserver->endTurn();
             $this->tickCallback?->stop();
             if ($timer !== null) {
@@ -185,6 +198,74 @@ final class AgentTurnExecutor
         }
 
         return new AgentTurnResult(continuationPrompt: $continuationPrompt);
+    }
+
+    /**
+     * @param array<string, mixed> $session
+     */
+    private function executeGroupTurn(
+        string $prompt,
+        string $sessionId,
+        array $session,
+        ToolExecutionPolicyInterface $executionPolicy,
+    ): ContractAgentTurnResult {
+        $members = $this->storage->listSessionGroupMemberNames($sessionId);
+        $sessionRole = is_string($session['model_role'] ?? null) && $session['model_role'] !== ''
+            ? $session['model_role']
+            : SystemRole::Orchestrator->value;
+        $role = $sessionRole !== SystemRole::Orchestrator->value ? $sessionRole : null;
+        $groupMaxRounds = is_int($session['group_max_rounds'] ?? null)
+            ? $session['group_max_rounds']
+            : 3;
+        $groupModel = is_string($session['model'] ?? null) && $session['model'] !== ''
+            ? $session['model']
+            : $this->boot->roleResolver()->resolve($sessionRole, null);
+        $coordinator = new GroupTurnCoordinator($this->storage);
+
+        return $coordinator->run(
+            sessionId: $sessionId,
+            prompt: $prompt,
+            modelString: $groupModel,
+            modelRole: $sessionRole,
+            members: $members,
+            maxRounds: $groupMaxRounds,
+            turnProcessId: null,
+            filePaths: null,
+            executeActor: function (string $actorPrompt, string $actorName, int $round, ?array $actorFilePaths, string $turnId) use (
+                $executionPolicy,
+                $sessionId,
+                $role,
+                $sessionRole,
+            ): ContractAgentTurnResult {
+                $this->escObserver->setActorContext($actorName, $role ?? $sessionRole);
+
+                return $this->agentRunner->runSegment(
+                    prompt: $actorPrompt,
+                    sessionId: $sessionId,
+                    turnId: $turnId,
+                    executionPolicy: $executionPolicy,
+                    observer: $this->escObserver,
+                    filePaths: $actorFilePaths,
+                    role: $role,
+                    profile: $actorName,
+                    actorName: $actorName,
+                    actorRole: $role ?? $sessionRole,
+                );
+            },
+            notifyLifecycleEvent: fn(string $event, array $data) => $this->dispatchGroupLifecycleEvent($event, $data),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function dispatchGroupLifecycleEvent(string $event, array $data): void
+    {
+        $this->escObserver->setActorContext(
+            is_string($data['actor_name'] ?? null) ? $data['actor_name'] : null,
+            is_string($data['actor_role'] ?? null) ? $data['actor_role'] : null,
+        );
+        $this->escObserver->handleEvent($event, $data);
     }
 
     private function maybeGenerateTitle(string $sessionId, string $prompt): void

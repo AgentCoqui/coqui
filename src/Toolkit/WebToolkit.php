@@ -286,7 +286,7 @@ final class WebToolkit implements ToolkitInterface
         $parentProfile = is_array($parentSession) && is_string($parentSession['profile'] ?? null) && $parentSession['profile'] !== ''
             ? $parentSession['profile']
             : null;
-        $sessionId = $this->storage->createSession('tool', 'background-tool', $parentProfile);
+        $sessionId = $this->storage->createSession('tool', 'background-tool', $parentProfile, visibility: 'hidden');
         $parentProjectId = $this->storage->getActiveProjectId($this->parentSessionId);
         if ($parentProjectId !== null) {
             $this->storage->setActiveProject($sessionId, $parentProjectId);

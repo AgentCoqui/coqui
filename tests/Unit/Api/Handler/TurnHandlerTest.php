@@ -215,3 +215,100 @@ test('turn handler events lists replayable turn events without message payloads'
         cleanupTurnHandlerFixture($fixture);
     }
 });
+
+test('turn handler exposes actor responses and group lifecycle events for group turns', function () {
+    $fixture = createTurnHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createGroupSession('orchestrator', 'openai/gpt-5', ['alex-hormozi', 'trinity'], 3);
+        $turnProcessId = $fixture['storage']->createTurnProcess($sessionId, 'How is everyone doing today?');
+        $turnId = $fixture['storage']->createTurn($sessionId, 'How is everyone doing today?', 'openai/gpt-5', $turnProcessId);
+
+        $fixture['storage']->addMessage($sessionId, 'user', 'How is everyone doing today?', turnId: $turnId);
+        $fixture['storage']->addMessage(
+            $sessionId,
+            'assistant',
+            'Good morning from Alex.',
+            turnId: $turnId,
+            actorName: 'alex-hormozi',
+            actorRole: 'orchestrator',
+        );
+        $fixture['storage']->addMessage(
+            $sessionId,
+            'assistant',
+            'Trinity here, all good.',
+            turnId: $turnId,
+            actorName: 'trinity',
+            actorRole: 'orchestrator',
+        );
+        $fixture['storage']->completeTurn(
+            turnId: $turnId,
+            responseText: '@alex-hormozi: Good morning from Alex.\n\n@trinity: Trinity here, all good.',
+            promptTokens: 16,
+            completionTokens: 12,
+            totalTokens: 28,
+            iterations: 2,
+            durationMs: 400,
+            toolsUsed: '[]',
+            childAgentCount: 0,
+        );
+        $fixture['storage']->storeTurnResultPayload($turnId, [
+            'content' => '@alex-hormozi: Good morning from Alex.\n\n@trinity: Trinity here, all good.',
+            'tools_used' => [],
+            'restart_requested' => false,
+            'iteration_limit_reached' => false,
+            'budget_exhausted' => false,
+            'context_usage' => null,
+            'file_edits' => null,
+            'actor_responses' => [
+                [
+                    'actor_name' => 'alex-hormozi',
+                    'actor_role' => 'orchestrator',
+                    'content' => 'Good morning from Alex.',
+                    'round' => 1,
+                ],
+                [
+                    'actor_name' => 'trinity',
+                    'actor_role' => 'orchestrator',
+                    'content' => 'Trinity here, all good.',
+                    'round' => 1,
+                ],
+            ],
+            'error' => null,
+            'review_feedback' => null,
+            'review_approved' => null,
+            'background_tasks' => null,
+        ]);
+
+        $fixture['storage']->appendTurnEvent($turnProcessId, 'group_round_start', [
+            'round' => 1,
+            'responders' => ['alex-hormozi', 'trinity'],
+            'max_rounds' => 3,
+            'selection_source' => 'default_all',
+            'selection_rationale' => 'No explicit member mentions were provided, so all group members respond in stored order.',
+        ]);
+        $fixture['storage']->appendTurnEvent($turnProcessId, 'iteration', [
+            'number' => 1,
+            'actor_name' => 'alex-hormozi',
+            'actor_role' => 'orchestrator',
+        ]);
+
+        $response = $fixture['handler']->get(
+            new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/turns/' . $turnId),
+            $sessionId,
+            $turnId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['actor_responses'])->toHaveCount(2);
+        expect($body['actor_responses'][0]['actor_name'])->toBe('alex-hormozi');
+        expect($body['messages'][1]['actor_name'])->toBe('alex-hormozi');
+        expect($body['messages'][2]['actor_role'])->toBe('orchestrator');
+        expect($body['events'][0]['event_type'])->toBe('group_round_start');
+        expect($body['events'][0]['data']['selection_source'])->toBe('default_all');
+        expect($body['events'][1]['data']['actor_name'])->toBe('alex-hormozi');
+    } finally {
+        cleanupTurnHandlerFixture($fixture);
+    }
+});

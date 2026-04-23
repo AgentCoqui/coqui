@@ -81,6 +81,7 @@ final class EscCancellationObserver implements SplObserver
         $this->messageShown = false;
         $this->resetPendingEscape();
         $this->drainPendingInput();
+        $this->inner->setActorContext(null, null);
         $this->active = true;
     }
 
@@ -96,6 +97,18 @@ final class EscCancellationObserver implements SplObserver
         $this->messageShown = false;
         $this->resetPendingEscape();
         $this->drainPendingInput();
+        $this->inner->setActorContext(null, null);
+    }
+
+    public function setActorContext(?string $actorName, ?string $actorRole): void
+    {
+        $this->inner->setActorContext($actorName, $actorRole);
+    }
+
+    public function handleEvent(string $event, mixed $data): void
+    {
+        $this->poll();
+        $this->inner->handleEvent($event, $data);
     }
 
     public function poll(): void

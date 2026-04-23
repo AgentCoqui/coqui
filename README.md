@@ -226,6 +226,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full CLI reference including `a
 | `/resume <id>` | Resume a session by ID |
 | `/role [name]` | Show/switch active role |
 | `/profile [name]` | Show/switch the active profile |
+| `/group` | Inspect or manage orchestrator-led group sessions |
 | `/toolkits` | Manage toolkit visibility |
 | `/prompt` | Inspect or export the rendered system prompt |
 | `/image` | Generate and manage workspace images |

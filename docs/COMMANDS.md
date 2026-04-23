@@ -32,7 +32,18 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/profile default <name|none>` | Set or clear the default startup profile in `openclaw.json` |
 | `/profile reset` | Clear profile, revert to default identity (resumes the last unprofiled session or creates one) |
 | `/profiles` | List all available personality profiles |
+| `/group` | Show help, or show the current group session when the active session is group-enabled |
+| `/group status` | Show the active group session's members, round cap, and orchestrator role |
+| `/group start <member1,member2,...> [--rounds=N]` | Start or resume an orchestrator-managed group session for the requested member set |
+| `/group add <profile>` | Add one member to the current group session |
+| `/group remove <profile>` | Remove one member from the current group session |
+| `/group replace <member1,member2,...> [--rounds=N]` | Replace the current group membership, optionally updating the round cap |
+| `/group rounds <n>` | Update the maximum per-turn coordination rounds for the current group session |
 | `/model [role]` | Show model configuration (optionally for a specific role) |
+
+Group sessions stay orchestrator-managed and clear any single active profile scope. Starting or reshaping a group session reuses the same membership validation and duplicate-composition rules as the HTTP API.
+
+When the active session is group-enabled, the REPL prompt shows the current member list, for example `You (group session with @alex-hormozi, @trinity)`. Prompts without explicit member mentions fan out to all members in stored order. Use `@name` to narrow the responder set or `@everyone` / `@group` to force a full-team reply. During a turn, streamed start, iteration, and reasoning output is labeled with the active member so you can see who is speaking and why that responder set was chosen.
 
 ### Configuration & System
 
@@ -41,7 +52,7 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/config` | Show current configuration |
 | `/config show` | Show the raw `openclaw.json` file |
 | `/config edit` | Reconfigure via setup wizard, then restart |
-| `/restart` | Restart Coqui (re-reads config, re-discovers toolkits) |
+| `/restart` | Restart the current Coqui REPL process (re-reads config, re-discovers toolkits) |
 | `/update` | Check for and apply dependency updates, then restart |
 | `/help` | Show the command reference table |
 | `/quit` | Exit Coqui |
@@ -156,8 +167,8 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 | `/channels drivers` | Show registered channel drivers and declared capabilities |
 | `/channels status <name\|id>` | Show one channel's configuration and runtime state |
 | `/channels health <name\|id>` | Show compact health output for one channel |
-| `/channels add <driver> <name>` | Advanced operator control: create a channel instance in `openclaw.json` |
-| `/channels set <name\|id> <field> <value>` | Advanced operator control: update `driver`, `displayName`, `defaultProfile`, `enabled`, `settings`, `allowedScopes`, or `security` |
+| `/channels add <driver> <name> [driver-args...]` | Advanced operator control: create a channel instance in `openclaw.json` (for Signal: optional account number as the third argument) |
+| `/channels set <name\|id> <field> <value>` | Advanced operator control: update `driver`, `displayName`, `defaultProfile`, `boundSessionId`, `enabled`, `settings`, `allowedScopes`, or `security` |
 | `/channels enable <name\|id>` | Advanced operator control: enable a channel instance |
 | `/channels disable <name\|id>` | Advanced operator control: disable a channel instance |
 | `/channels delete <name\|id>` | Advanced operator control: remove a channel instance |

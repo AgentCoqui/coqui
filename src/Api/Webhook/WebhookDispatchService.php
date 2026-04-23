@@ -41,7 +41,7 @@ final readonly class WebhookDispatchService
         $profile = is_string($webhook['profile'] ?? null) && $webhook['profile'] !== ''
             ? (string) $webhook['profile']
             : null;
-        $sessionId = $this->storage->createSession($role, 'webhook', $profile);
+        $sessionId = $this->storage->createSession($role, 'webhook', $profile, visibility: 'hidden');
 
         $taskId = $this->storage->createTask(
             sessionId: $sessionId,

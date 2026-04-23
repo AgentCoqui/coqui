@@ -58,7 +58,7 @@ final readonly class EscalateLoopFailureAction implements NotificationAutomation
             ? $targetSession['profile']
             : null;
 
-        $executionSessionId = $this->storage->createSession(SystemRole::Orchestrator->value, '', $profile);
+        $executionSessionId = $this->storage->createSession(SystemRole::Orchestrator->value, '', $profile, visibility: 'hidden');
         $activeProjectId = $this->storage->getActiveProjectId($targetSessionId);
         if ($activeProjectId !== null) {
             $this->storage->setActiveProject($executionSessionId, $activeProjectId);

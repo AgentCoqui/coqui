@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
+use CoquiBot\Coqui\Agent\GroupTurnCoordinator;
 use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
+use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Observer\NullObserver;
 use CoquiBot\Coqui\Observer\TurnProcessObserver;
@@ -158,17 +160,61 @@ final class TurnRunCommand extends Command
             $role = ($sessionRole !== '' && $sessionRole !== 'orchestrator') ? $sessionRole : null;
             $profileRaw = $session['profile'] ?? null;
             $profile = is_string($profileRaw) ? $profileRaw : null;
+            $groupEnabled = is_array($session) && SessionType::fromSessionRow($session) === SessionType::Group;
 
-            $turnResult = $agentRunner->runWithObserver(
-                $prompt,
-                $sessionId,
-                $executionPolicy,
-                $turnObserver,
-                $filePaths,
-                $role,
-                $profile,
-                $turnProcessId,
-            );
+            if ($groupEnabled) {
+                $members = $storage->listSessionGroupMemberNames($sessionId);
+                $groupMaxRounds = is_int($session['group_max_rounds'] ?? null)
+                    ? $session['group_max_rounds']
+                    : 3;
+                $groupModel = is_string($session['model'] ?? null) && $session['model'] !== ''
+                    ? $session['model']
+                    : $boot->roleResolver()->resolve($sessionRole, null);
+
+                $coordinator = new GroupTurnCoordinator($storage);
+                $turnResult = $coordinator->run(
+                    sessionId: $sessionId,
+                    prompt: $prompt,
+                    modelString: $groupModel,
+                    modelRole: $sessionRole,
+                    members: $members,
+                    maxRounds: $groupMaxRounds,
+                    turnProcessId: $turnProcessId,
+                    filePaths: $filePaths,
+                    executeActor: function (string $actorPrompt, string $actorName, int $round, ?array $actorFilePaths, string $turnId) use (
+                        $agentRunner,
+                        $executionPolicy,
+                        $sessionId,
+                        $storage,
+                        $turnProcessId,
+                        $role,
+                    ): AgentTurnResult {
+                        return $agentRunner->runSegment(
+                            prompt: $actorPrompt,
+                            sessionId: $sessionId,
+                            turnId: $turnId,
+                            executionPolicy: $executionPolicy,
+                            observer: new TurnProcessObserver($storage, $turnProcessId, $actorName, $role ?? 'orchestrator'),
+                            filePaths: $actorFilePaths,
+                            role: $role,
+                            profile: $actorName,
+                            actorName: $actorName,
+                            actorRole: $role ?? 'orchestrator',
+                        );
+                    },
+                );
+            } else {
+                $turnResult = $agentRunner->runWithObserver(
+                    $prompt,
+                    $sessionId,
+                    $executionPolicy,
+                    $turnObserver,
+                    $filePaths,
+                    $role,
+                    $profile,
+                    $turnProcessId,
+                );
+            }
 
             if ($cancellationToken->isCancelled()) {
                 $storage->updateTurnProcessStatus($turnProcessId, 'failed', [

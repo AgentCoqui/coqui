@@ -452,7 +452,7 @@ final class ConfigValidator
             $errors[] = sprintf('%s.enabled must be a boolean', $path);
         }
 
-        foreach (['displayName', 'defaultProfile'] as $key) {
+        foreach (['displayName', 'defaultProfile', 'boundSessionId'] as $key) {
             if (array_key_exists($key, $instance) && (!is_string($instance[$key]) || trim($instance[$key]) === '')) {
                 $errors[] = sprintf('%s.%s must be a non-empty string', $path, $key);
             }

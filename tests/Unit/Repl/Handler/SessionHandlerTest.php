@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\OpenClawConfig;
+use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Memory\MemoryStore;
@@ -18,6 +19,7 @@ function createReplSessionHandlerFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-repl-session-handler-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
+    mkdir($workspacePath . '/profiles', 0755, true);
 
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);
@@ -38,7 +40,7 @@ function createReplSessionHandlerFixture(): array
         roleResolver: $roleResolver,
         memoryStore: new MemoryStore($workspacePath . '/memory.db'),
     );
-    $boot = testBootManagerForSessionHandler($workspacePath, $roleResolver);
+    $boot = testBootManagerForSessionHandler($workspacePath, $roleResolver, new ProfileDiscovery($workspacePath));
     $output = new BufferedOutput();
 
     return [
@@ -57,15 +59,16 @@ function cleanupReplSessionHandlerFixture(array $fixture): void
     cleanupTestTree($fixture['workspacePath']);
 }
 
-function testBootManagerForSessionHandler(string $workspacePath, RoleResolver $roleResolver): BootManager
+function testBootManagerForSessionHandler(string $workspacePath, RoleResolver $roleResolver, ProfileDiscovery $profileDiscovery): BootManager
 {
     $reflection = new ReflectionClass(BootManager::class);
     /** @var BootManager $boot */
     $boot = $reflection->newInstanceWithoutConstructor();
 
-    $initializer = function () use ($workspacePath, $roleResolver): void {
+    $initializer = function () use ($workspacePath, $roleResolver, $profileDiscovery): void {
         $this->workspacePath = $workspacePath;
         $this->roleResolver = $roleResolver;
+        $this->profileDiscovery = $profileDiscovery;
     };
 
     \Closure::bind($initializer, $boot, BootManager::class)();
@@ -98,6 +101,7 @@ test('session handler creates and attaches a new default profile session when no
 
         expect($session)->not->toBeNull();
         expect($session['profile'])->toBe('caelum');
+        expect($session['session_type'])->toBe('interactive');
         expect(trim((string) file_get_contents($sessionFile)))->toBe($sessionId);
     } finally {
         cleanupReplSessionHandlerFixture($fixture);
@@ -173,9 +177,7 @@ test('session handler ignores attached and latest background task sessions for u
 
     try {
         $interactiveSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
-        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
-
-        attachBackgroundTaskToSession($fixture['storage'], $backgroundSessionId);
+        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', visibility: 'hidden');
 
         setSessionUpdatedAt($fixture['storage'], $interactiveSessionId, '2026-01-02T00:00:00+00:00');
         setSessionUpdatedAt($fixture['storage'], $backgroundSessionId, '2026-01-05T00:00:00+00:00');
@@ -196,9 +198,7 @@ test('session handler ignores background task sessions for profile resume', func
 
     try {
         $interactiveSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
-        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
-
-        attachBackgroundTaskToSession($fixture['storage'], $backgroundSessionId);
+        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum', visibility: 'hidden');
 
         setSessionUpdatedAt($fixture['storage'], $interactiveSessionId, '2026-01-02T00:00:00+00:00');
         setSessionUpdatedAt($fixture['storage'], $backgroundSessionId, '2026-01-05T00:00:00+00:00');
@@ -260,6 +260,7 @@ test('session handler starts fresh profiled session by closing the current one',
         expect($newSession)->not->toBeNull();
         expect($newSession['profile'])->toBe('caelum');
         expect($newSession['model_role'])->toBe('orchestrator');
+        expect($newSession['session_type'])->toBe('interactive');
     } finally {
         cleanupReplSessionHandlerFixture($fixture);
     }

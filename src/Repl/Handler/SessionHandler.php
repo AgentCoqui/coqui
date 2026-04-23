@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Repl\Handler;
 
 use CoquiBot\Coqui\Config\BootManager;
-use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Repl\TimeFormatter;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\InteractiveSessionService;
 use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
@@ -27,8 +27,8 @@ final class SessionHandler
 
     public function createNewSession(string $role = 'orchestrator', ?string $profile = null): string
     {
-        $modelString = $this->boot->roleResolver()->resolve($role, $profile);
-        $sessionId = $this->storage->createSession($role, $modelString, $profile);
+        $result = $this->interactiveSessions()->createSession($role, $profile);
+        $sessionId = (string) $result->session['id'];
         $this->saveSessionFile($sessionId);
 
         return $sessionId;
@@ -50,12 +50,16 @@ final class SessionHandler
             return null;
         }
 
-        $this->lifecycleManager()->finalizeSession(
-            $currentSessionId,
-            sprintf('repl_new_profile_session:%s', $activeProfile),
+        $result = $this->interactiveSessions()->createFreshProfileSession(
+            currentSessionId: $currentSessionId,
+            profile: $activeProfile,
+            modelRole: SystemRole::Orchestrator->value,
+            closureReasonPrefix: 'repl_new_profile_session',
         );
+        $newSessionId = (string) $result->session['id'];
+        $this->saveSessionFile($newSessionId);
 
-        return $this->createNewSession(SystemRole::Orchestrator->value, $activeProfile);
+        return $newSessionId;
     }
 
     public function loadOrCreateSession(?SymfonyStyle $io, string $role = 'orchestrator'): string
@@ -137,25 +141,15 @@ final class SessionHandler
             $currentRole = SystemRole::Orchestrator->value;
         }
 
-        if ($profile === null || !$this->boot->profileDiscovery()->profileExists($profile)) {
-            return $currentRole;
+        $effectiveRole = $this->interactiveSessions()->enforceProfileRolePolicy($sessionId, $profile);
+        if ($effectiveRole !== $currentRole) {
+            $this->writeInfo(
+                $io,
+                sprintf('Profile "%s" does not allow role "%s". Reverted session to orchestrator.', $profile, $currentRole),
+            );
         }
 
-        $profilePath = $this->boot->profileDiscovery()->getProfilePath($profile);
-        $preferences = ProfilePreferences::fromProfilePath($profilePath);
-        if ($preferences->isRoleAllowed($currentRole)) {
-            return $currentRole;
-        }
-
-        $fallbackRole = SystemRole::Orchestrator->value;
-        $modelString = $this->boot->roleResolver()->resolve($fallbackRole, $profile);
-        $this->storage->updateSessionRole($sessionId, $fallbackRole, $modelString);
-        $this->writeInfo(
-            $io,
-            sprintf('Profile "%s" does not allow role "%s". Reverted session to orchestrator.', $profile, $currentRole),
-        );
-
-        return $fallbackRole;
+        return $effectiveRole;
     }
 
     public function showHistory(SymfonyStyle $io, string $sessionId): void
@@ -268,16 +262,10 @@ final class SessionHandler
             return $attachedId;
         }
 
-        $latestId = $this->storage->getLatestInteractiveUnprofiledSessionId();
-
-        if ($latestId !== null) {
-            $this->saveSessionFile($latestId);
-            $this->writeInfo($io, $this->latestScopeMessage($profile, $latestId));
-            return $latestId;
-        }
-
-        $sessionId = $this->createNewSession($role, $profile);
-        $this->writeInfo($io, $this->createdScopeMessage($profile, $sessionId));
+        $result = $this->interactiveSessions()->resolveScopedSession($role, $profile, 'repl_unprofiled_duplicate_cleanup');
+        $sessionId = (string) $result->session['id'];
+        $this->saveSessionFile($sessionId);
+        $this->writeInfo($io, $result->created ? $this->createdScopeMessage($profile, $sessionId) : $this->latestScopeMessage($profile, $sessionId));
 
         return $sessionId;
     }
@@ -285,34 +273,23 @@ final class SessionHandler
     private function loadOrCreateProfileScopedSession(?SymfonyStyle $io, string $profile, string $role): string
     {
         $attachedId = $this->loadAttachedInteractiveSessionIdForScope($profile);
-        $sessions = $this->storage->listActiveInteractiveSessionsForProfile($profile);
+        $result = $this->interactiveSessions()->resolveScopedSession($role, $profile, 'profile_duplicate_cleanup');
+        $sessionId = (string) $result->session['id'];
 
-        if ($sessions !== []) {
-            $latestId = (string) $sessions[0]['id'];
-            $finalized = $this->lifecycleManager()->finalizeOtherActiveInteractiveSessionsForProfile(
-                $profile,
-                $latestId,
-                sprintf('profile_duplicate_cleanup:%s', $profile),
+        if ($result->closedSessionIds !== []) {
+            $this->writeInfo(
+                $io,
+                sprintf('Archived %d older active session(s) for profile "%s".', count($result->closedSessionIds), $profile),
             );
-
-            if ($finalized !== []) {
-                $this->writeInfo(
-                    $io,
-                    sprintf('Archived %d older active session(s) for profile "%s".', count($finalized), $profile),
-                );
-            }
-
-            $this->saveSessionFile($latestId);
-            $message = $attachedId === $latestId
-                ? $this->attachedScopeMessage($profile, $latestId)
-                : $this->latestScopeMessage($profile, $latestId);
-            $this->writeInfo($io, $message);
-
-            return $latestId;
         }
 
-        $sessionId = $this->createNewSession($role, $profile);
-        $this->writeInfo($io, $this->createdScopeMessage($profile, $sessionId));
+        $this->saveSessionFile($sessionId);
+        $message = $result->created
+            ? $this->createdScopeMessage($profile, $sessionId)
+            : ($attachedId === $sessionId
+                ? $this->attachedScopeMessage($profile, $sessionId)
+                : $this->latestScopeMessage($profile, $sessionId));
+        $this->writeInfo($io, $message);
 
         return $sessionId;
     }
@@ -385,6 +362,16 @@ final class SessionHandler
         }
 
         return $this->lifecycleManager;
+    }
+
+    private function interactiveSessions(): InteractiveSessionService
+    {
+        return new InteractiveSessionService(
+            $this->storage,
+            $this->boot->roleResolver(),
+            $this->boot->profileDiscovery(),
+            $this->lifecycleManager(),
+        );
     }
 
     private function attachedScopeMessage(?string $profile, string $sessionId): string

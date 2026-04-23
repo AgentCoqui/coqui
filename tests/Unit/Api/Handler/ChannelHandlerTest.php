@@ -5,6 +5,7 @@ declare(strict_types=1);
 use CoquiBot\Coqui\Api\ChannelManager;
 use CoquiBot\Coqui\Api\Handler\ChannelHandler;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Channel\ChannelConfigurationEditor;
 use CoquiBot\Coqui\Channel\ChannelDiscovery;
 use CoquiBot\Coqui\Config\ConfigManager;
@@ -12,6 +13,7 @@ use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Storage\ChannelStore;
+use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use React\Http\Message\ServerRequest;
 
@@ -52,9 +54,10 @@ function makeApiChannelHandlerFixture(): array
     $handler = new ChannelHandler(
         $store,
         $channelManager,
-        new ChannelConfigurationEditor($configManager, $channelDiscovery, $profileDiscovery),
+        new ChannelConfigurationEditor($configManager, $channelDiscovery, $profileDiscovery, $storage),
         $channelDiscovery,
         $profileDiscovery,
+        new ApiLifecycleController(new RuntimeStateStore($storage->getPdo()), false, gmdate('Y-m-d\TH:i:s\Z'), 0),
     );
     $router = new Router();
     $handler->register($router);
@@ -149,6 +152,36 @@ test('channel api handler creates identity links for configured channels', funct
         expect($linksResponse->getStatusCode())->toBe(200);
         expect($linksBody['links'])->toHaveCount(1);
         expect($linksBody['links'][0]['profile'])->toBe('assistant');
+    } finally {
+        cleanupApiChannelHandlerFixture($fixture);
+    }
+});
+
+test('channel api handler accepts bound session ids', function (): void {
+    $fixture = makeApiChannelHandlerFixture();
+
+    try {
+        $storage = new SessionStorage($fixture['dbPath']);
+        $sessionId = $storage->createSession('orchestrator', 'openai/gpt-4.1-mini');
+
+        $createRequest = new ServerRequest(
+            'POST',
+            '/api/v1/channels',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'name' => 'signal-primary',
+                'driver' => 'signal',
+                'displayName' => 'Signal Primary',
+                'boundSessionId' => $sessionId,
+                'settings' => ['account' => '+15551234567'],
+            ], JSON_THROW_ON_ERROR),
+        );
+
+        $createResponse = $fixture['router']->dispatch($createRequest);
+        $createBody = json_decode((string) $createResponse->getBody(), true);
+
+        expect($createResponse->getStatusCode())->toBe(201);
+        expect($createBody['channel']['bound_session_id'])->toBe($sessionId);
     } finally {
         cleanupApiChannelHandlerFixture($fixture);
     }

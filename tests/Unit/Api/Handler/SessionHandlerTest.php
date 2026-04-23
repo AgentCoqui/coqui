@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
@@ -21,10 +22,15 @@ function createApiSessionHandlerFixture(): array
     $workspacePath = sys_get_temp_dir() . '/coqui-session-handler-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
     mkdir($workspacePath . '/profiles', 0755, true);
-    mkdir($workspacePath . '/profiles/caelum', 0755, true);
-    mkdir($workspacePath . '/profiles/caelum/roles', 0755, true);
+    foreach (['caelum', 'nova', 'iris'] as $profile) {
+        mkdir($workspacePath . '/profiles/' . $profile, 0755, true);
+        mkdir($workspacePath . '/profiles/' . $profile . '/roles', 0755, true);
+        file_put_contents($workspacePath . '/profiles/' . $profile . '/soul.md', sprintf(
+            "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n\n# %s\n\nA collaborative profile.",
+            ucfirst($profile),
+        ));
+    }
     mkdir($workspacePath . '/roles', 0755, true);
-    file_put_contents($workspacePath . '/profiles/caelum/soul.md', "---\nmodel: anthropic/claude-sonnet-4-20250514\n---\n\n# Caelum\n\nA calm companion.");
     file_put_contents($workspacePath . '/roles/analyst.md', <<<MD
 ---
 name: analyst
@@ -130,9 +136,11 @@ test('session handler create persists a valid profile', function () {
         expect($response->getStatusCode())->toBe(201);
         expect($body['profile'])->toBe('caelum');
         expect($body['model'])->toBe('ollama/qwen3:latest');
+        expect($body['session_type'])->toBe('interactive');
         expect($session)->not->toBeNull();
         expect($session['profile'])->toBe('caelum');
         expect($session['model'])->toBe('ollama/qwen3:latest');
+        expect($session['session_type'])->toBe('interactive');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
@@ -304,8 +312,7 @@ test('session handler resolve reuses the latest scoped interactive session', fun
 
     try {
         $profileSessionId = $fixture['storage']->createSession('orchestrator', 'anthropic/claude-sonnet-4-20250514', 'caelum');
-        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'anthropic/claude-sonnet-4-20250514', 'caelum');
-        $fixture['storage']->createTask($backgroundSessionId, 'Background task');
+        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'anthropic/claude-sonnet-4-20250514', 'caelum', visibility: 'hidden');
 
         $fixture['storage']->getPdo()
             ->prepare('UPDATE sessions SET updated_at = :updated_at WHERE id = :id')
@@ -330,6 +337,7 @@ test('session handler resolve reuses the latest scoped interactive session', fun
         expect($response->getStatusCode())->toBe(200);
         expect($body['id'])->toBe($profileSessionId);
         expect($body['created'])->toBeFalse();
+        expect($body['session_type'])->toBe('interactive');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
@@ -356,6 +364,7 @@ test('session handler resolve creates a scoped session when none exists', functi
         expect($response->getStatusCode())->toBe(201);
         expect($body['created'])->toBeTrue();
         expect($body['profile'])->toBe('caelum');
+        expect($body['session_type'])->toBe('interactive');
         expect($session)->not->toBeNull();
         expect($session['profile'])->toBe('caelum');
     } finally {
@@ -377,6 +386,309 @@ test('session handler get returns active project id when present', function () {
 
         expect($response->getStatusCode())->toBe(200);
         expect($body['active_project_id'])->toBe($projectId);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler list and get include channel metadata for bound sessions', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'channel:signal', 'caelum');
+        $channelStore = new ChannelStore($fixture['storage']->getPdo());
+        $channelId = $channelStore->upsertConfiguredInstance([
+            'name' => 'signal-primary',
+            'driver' => 'signal',
+            'display_name' => 'Signal Primary',
+            'default_profile' => 'caelum',
+            'bound_session_id' => $sessionId,
+            'settings' => ['account' => '+15551234567'],
+            'allowed_scopes' => [],
+            'security' => ['linkRequired' => true],
+        ], ['direct_messages' => true]);
+
+        $listResponse = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/sessions?status=all'));
+        $listBody = json_decode((string) $listResponse->getBody(), true);
+        $getResponse = $fixture['handler']->get(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId), $sessionId);
+        $getBody = json_decode((string) $getResponse->getBody(), true);
+
+        expect($listResponse->getStatusCode())->toBe(200);
+        expect($listBody['sessions'])->toHaveCount(1);
+        expect($listBody['sessions'][0]['channel_bound'])->toBeTrue();
+        expect($listBody['sessions'][0]['model'])->toBe('ollama/qwen3:latest');
+        expect($listBody['sessions'][0]['channel'])->toBe([
+            'instance_id' => $channelId,
+            'name' => 'signal-primary',
+            'driver' => 'signal',
+            'display_name' => 'Signal Primary',
+        ]);
+
+        expect($getResponse->getStatusCode())->toBe(200);
+        expect($getBody['channel_bound'])->toBeTrue();
+        expect($getBody['model'])->toBe('ollama/qwen3:latest');
+        expect($getBody['channel'])->toBe([
+            'instance_id' => $channelId,
+            'name' => 'signal-primary',
+            'driver' => 'signal',
+            'display_name' => 'Signal Primary',
+        ]);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler create persists a group session with normalized members', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/sessions',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'group_enabled' => true,
+                'members' => ['Nova', 'caelum'],
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(201);
+        expect($body['group_enabled'])->toBe(1);
+        expect($body['session_type'])->toBe('group');
+        expect($body['profile'])->toBeNull();
+        expect($body['model_role'])->toBe('orchestrator');
+        expect($body['group_composition_key'])->toBe('caelum|nova');
+        expect($body['group_member_count'])->toBe(2);
+        expect(array_column($body['group_members'], 'profile'))->toBe(['caelum', 'nova']);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler create requires confirmation when the same group member composition is already active', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $activeSessionId = $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'nova'], 3);
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/sessions',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'group_enabled' => true,
+                'members' => ['nova', 'caelum'],
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(409);
+        expect($body['code'])->toBe('group_session_active');
+        expect($body['details']['active_session_id'])->toBe($activeSessionId);
+        expect($body['details']['group_composition_key'])->toBe('caelum|nova');
+        expect($body['details']['confirm_field'])->toBe('confirm_close_active_group_session');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler create closes active group session when confirmation is supplied', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $activeSessionId = $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'nova'], 3);
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/sessions',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'group_enabled' => true,
+                'members' => ['nova', 'caelum'],
+                'confirm_close_active_group_session' => true,
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->create($request);
+        $body = json_decode((string) $response->getBody(), true);
+        $oldSession = $fixture['storage']->getSession($activeSessionId);
+
+        expect($response->getStatusCode())->toBe(201);
+        expect($body['id'])->not->toBe($activeSessionId);
+        expect($oldSession['is_closed'])->toBe(1);
+        expect($oldSession['closure_reason'])->toBe('api_create_group_session:caelum|nova');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler resolve reuses an existing active group session with the same members', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $activeSessionId = $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'nova'], 3);
+
+        $request = new ServerRequest(
+            'POST',
+            '/api/v1/sessions/resolve',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'group_enabled' => true,
+                'members' => ['nova', 'caelum'],
+            ]) ?: '',
+        );
+
+        $response = $fixture['handler']->resolve($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['id'])->toBe($activeSessionId);
+        expect($body['created'])->toBeFalse();
+        expect($body['session_type'])->toBe('group');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler update can change group round cap while preserving group session type', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'nova'], 3);
+
+        $response = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId,
+                ['Content-Type' => 'application/json'],
+                json_encode(['group_max_rounds' => 5]) ?: '',
+            ),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['group_max_rounds'])->toBe(5);
+        expect($body['session_type'])->toBe('group');
+        expect($body['group_enabled'])->toBe(1);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler update rejects assigning a profile to a group session', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'nova'], 3);
+
+        $response = $fixture['handler']->update(
+            new ServerRequest(
+                'PATCH',
+                '/api/v1/sessions/' . $sessionId,
+                ['Content-Type' => 'application/json'],
+                json_encode(['profile' => 'caelum']) ?: '',
+            ),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['code'])->toBe('validation_error');
+        expect($body['error'])->toContain('Group sessions do not support a single active profile.');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler group member endpoints list add and remove members', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'nova'], 3);
+
+        $listResponse = $fixture['handler']->members(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/members'), $sessionId);
+        $listBody = json_decode((string) $listResponse->getBody(), true);
+
+        expect($listResponse->getStatusCode())->toBe(200);
+        expect(array_column($listBody['members'], 'profile'))->toBe(['caelum', 'nova']);
+
+        $addResponse = $fixture['handler']->addMember(
+            new ServerRequest(
+                'POST',
+                '/api/v1/sessions/' . $sessionId . '/members',
+                ['Content-Type' => 'application/json'],
+                json_encode(['profile' => 'iris']) ?: '',
+            ),
+            $sessionId,
+        );
+        $addBody = json_decode((string) $addResponse->getBody(), true);
+
+        expect($addResponse->getStatusCode())->toBe(200);
+        expect($addBody['group_composition_key'])->toBe('caelum|iris|nova');
+        expect(array_column($addBody['group_members'], 'profile'))->toBe(['caelum', 'iris', 'nova']);
+
+        $removeResponse = $fixture['handler']->removeMember(
+            new ServerRequest('DELETE', '/api/v1/sessions/' . $sessionId . '/members/nova'),
+            $sessionId,
+            'nova',
+        );
+        $removeBody = json_decode((string) $removeResponse->getBody(), true);
+
+        expect($removeResponse->getStatusCode())->toBe(200);
+        expect($removeBody['group_composition_key'])->toBe('caelum|iris');
+        expect(array_column($removeBody['group_members'], 'profile'))->toBe(['caelum', 'iris']);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler replace members requires confirmation before colliding with another active group composition', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'nova'], 3);
+        $sessionId = $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'iris'], 3);
+
+        $response = $fixture['handler']->replaceMembers(
+            new ServerRequest(
+                'PUT',
+                '/api/v1/sessions/' . $sessionId . '/members',
+                ['Content-Type' => 'application/json'],
+                json_encode(['members' => ['nova', 'caelum']]) ?: '',
+            ),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(409);
+        expect($body['code'])->toBe('group_session_active');
+        expect($body['details']['group_composition_key'])->toBe('caelum|nova');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler member endpoints reject interactive sessions through the session type capability seam', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+
+        $response = $fixture['handler']->members(
+            new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/members'),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['code'])->toBe('validation_error');
+        expect($body['error'])->toContain('Session is not a group session.');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }
