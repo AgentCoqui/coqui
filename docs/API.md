@@ -1,6 +1,6 @@
 # Coqui HTTP API
 
-> **REPL-first**: The terminal REPL is Coqui's primary interface. The API provides the stable application-facing execution and inspection surface. User-facing read and monitoring workflows are documented here. Bot-oriented mutations and terminal-only control flows such as config editing, restart, and most loop or schedule mutations remain REPL-first or tool-driven.
+> **REPL-first**: The terminal REPL is Coqui's primary interface. The API provides the stable application-facing execution and inspection surface. User-facing read and monitoring workflows are documented here. Most loop, schedule, and config-editing control flows remain REPL-first or tool-driven, while launcher-managed API restarts and channel CRUD are now exposed over HTTP with explicit restart-state metadata.
 
 The Coqui HTTP API provides programmatic access to Coqui's AI agent capabilities. It enables headless operation, remote session management, and real-time streaming of agent responses via Server-Sent Events (SSE).
 
@@ -256,6 +256,17 @@ Liveness check. Does **not** require authentication.
   "version": "dev",
   "uptime_seconds": 3421,
   "active_sessions": 1,
+  "restart": {
+    "required": false,
+    "reason": null,
+    "source": null,
+    "required_at": null,
+    "context": [],
+    "supported": true,
+    "managed_by_launcher": true,
+    "pid": 21093,
+    "started_at": "2026-04-22T20:59:23Z"
+  },
   "channels": {
     "total": 1,
     "enabled": 1,
@@ -2006,7 +2017,7 @@ List all child agent runs for a session.
 
 ### Server
 
-Server endpoints provide runtime status and database-level statistics. These are useful for monitoring and debugging the API server.
+Server endpoints provide runtime status, restart-state visibility, and database-level statistics. These are useful for monitoring and debugging the API server.
 
 #### `GET /api/v1/server/info`
 
@@ -2020,6 +2031,17 @@ Runtime information including version, uptime, memory usage, and active workload
   "php_version": "8.4.2",
   "uptime_seconds": 3621,
   "active_sessions": 2,
+  "restart": {
+    "required": false,
+    "reason": null,
+    "source": null,
+    "required_at": null,
+    "context": [],
+    "supported": true,
+    "managed_by_launcher": true,
+    "pid": 21093,
+    "started_at": "2026-04-22T20:59:23Z"
+  },
   "memory": {
     "usage_bytes": 52428800,
     "peak_bytes": 67108864
@@ -2032,6 +2054,31 @@ Runtime information including version, uptime, memory usage, and active workload
 ```
 
 The `tasks` field is only present when the background task manager is enabled.
+
+#### `POST /api/v1/server/restart`
+
+Request a launcher-managed API restart. This endpoint is accepted only when the API process was started under `coqui-launcher` with restart support enabled.
+
+**Response `202`**
+
+```json
+{
+  "accepted": true,
+  "restart": {
+    "required": true,
+    "reason": "API restart requested by operator.",
+    "source": "api.server.restart",
+    "required_at": "2026-04-22T20:59:23Z",
+    "context": [],
+    "supported": true,
+    "managed_by_launcher": true,
+    "pid": 16819,
+    "started_at": "2026-04-22T20:58:24Z"
+  }
+}
+```
+
+When the process is not launcher-managed, the endpoint returns `409 restart_not_supported`.
 
 #### `GET /api/v1/server/stats`
 
@@ -3702,7 +3749,7 @@ Returned when:
 
 ### Channels
 
-Channels provide first-class outbound user communication surfaces such as Signal, Telegram, and Discord. The API server owns live channel runtimes; the REPL can edit config and inspect stored state, but only the API server performs runtime reconciliation and transport work.
+Channels provide first-class outbound user communication surfaces such as Signal, Telegram, and Discord. The API server owns live channel runtimes; the REPL can edit config and inspect stored state, but only the API server performs runtime reconciliation and transport work. Channel mutations now return a `restart` payload when operator action is required so clients can keep the API and persisted config in sync.
 
 #### `GET /api/v1/channels`
 
@@ -3717,7 +3764,7 @@ List configured channel instances with joined runtime health.
 
 #### `POST /api/v1/channels`
 
-Create a channel instance and reconcile it into the running API process immediately.
+Create a channel instance definition. The response includes the updated channel plus a `restart` object when the API should be restarted to reload runtimes against the persisted config cleanly.
 
 **Request Body**
 
@@ -3745,19 +3792,19 @@ Get one channel instance by id or name.
 
 #### `PATCH /api/v1/channels/{id}`
 
-Update any mutable channel fields from the create payload.
+Update any mutable channel fields from the create payload. Successful mutations return the updated channel plus restart metadata when a clean API restart is required.
 
 #### `DELETE /api/v1/channels/{id}`
 
-Remove a configured channel instance and stop its runtime on the running API server.
+Remove a configured channel instance. Successful mutations return restart metadata when the API should be restarted to fully reconcile runtime state.
 
 #### `POST /api/v1/channels/{id}/enable`
 
-Enable a channel instance and reconcile it immediately.
+Enable a channel instance and return restart metadata when the API should be restarted to reload runtimes cleanly.
 
 #### `POST /api/v1/channels/{id}/disable`
 
-Disable a channel instance and stop its runtime immediately.
+Disable a channel instance and return restart metadata when the API should be restarted to reload runtimes cleanly.
 
 #### `POST /api/v1/channels/{id}/test`
 
@@ -4634,6 +4681,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/server/stats` | Yes | Database and server statistics |
 | `GET` | `/api/v1/server/quality` | Yes | Quality and health summary |
 | `GET` | `/api/v1/server/info` | Yes | Server capabilities and commands |
+| `POST` | `/api/v1/server/restart` | Yes | Restart a launcher-managed API process |
 | `GET` | `/api/v1/server/commands` | Yes | Get runtime slash-command metadata (`/help` equivalent) |
 | `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt |
 | `GET` | `/api/v1/server/backstory` | Yes | Get generated backstory content and manifest metadata |
@@ -4707,4 +4755,4 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `POST` | `/api/v1/sessions/{id}/todos/{todoId}/reopen` | Yes | Reopen todo |
 | `POST` | `/api/v1/sessions/{id}/todos/{todoId}/cancel` | Yes | Cancel todo |
 
-Mutation-heavy workflows for roles, summarization, restart, and update continue to live in the REPL and agent tool layer rather than the HTTP API.
+Mutation-heavy workflows for roles, summarization, and update continue to live primarily in the REPL and agent tool layer. API restart and channel CRUD now expose explicit restart-state metadata over HTTP for app clients.

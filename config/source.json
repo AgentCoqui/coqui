@@ -2294,9 +2294,10 @@
             "path": "src/Api/Handler/ServerHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ServerHandler",
             "layer": "command",
-            "description": "Server status and control endpoints: GET /api/v1/server/info (runtime info, uptime, memory, active sessions/tasks, compact channel and quality summaries), GET /api/v1/server/stats (database statistics and table integrity check), and GET /api/v1/server/quality (detailed quality automation state).",
+            "description": "Server status and control endpoints: GET /api/v1/server/info (runtime info, uptime, memory, active sessions/tasks, compact channel and quality summaries, plus restart-state metadata), GET /api/v1/server/stats (database statistics and table integrity check), GET /api/v1/server/quality (detailed quality automation state), and POST /api/v1/server/restart (launcher-managed API restart).",
             "methods": [
                 "info(request): Response — version, uptime, memory, active workload",
+                "restart(request): Response — request a launcher-managed API restart and return restart-state metadata",
                 "stats(request): Response — database stats and table check",
                 "quality(request): Response — detailed quality automation summary"
             ]
@@ -2339,11 +2340,24 @@
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, prompt-inspection, channel CRUD/inspection, and channel-health surfaces, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers plus the channel runtime and channel execution managers, and enters the ReactPHP event loop.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, prompt-inspection, channel CRUD/inspection, channel-health surfaces, and the launcher-aware server restart endpoint, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers plus the channel runtime and channel execution managers, and enters the ReactPHP event loop. Also installs ApiLifecycleController so health/server responses and channel mutations share persistent restart-state metadata.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
                 "registerRoutes(Router, ...handlers): void — registers all API routes including evaluation, prompt, budget, and loop endpoints",
                 "resolveApiKey(BootManager): ?string — resolves API key from config/env/workspace"
+            ]
+        },
+        {
+            "path": "src/Api/ApiLifecycleController.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\ApiLifecycleController",
+            "layer": "command",
+            "description": "Shared lifecycle and restart-state coordinator for the API process. Persists restart-required flags through RuntimeStateStore, reports launcher-managed restart capabilities to health/server surfaces, clears stale restart flags on boot, and invokes the configured exit callback when POST /api/v1/server/restart is accepted.",
+            "methods": [
+                "markBooted(): void — clear pending restart state for the current API boot",
+                "configureRestartHandler(callable): void — install the process-exit callback used for launcher-managed restarts",
+                "markRestartRequired(string, string, array): array — persist and return restart-required metadata",
+                "requestRestart(string, array): array — mark restart-required and invoke the configured restart handler",
+                "restartState(): array — return the current restart-state payload for API responses"
             ]
         },
         {
@@ -3120,6 +3134,17 @@
                 "pruneConfigInstances(array): int — remove config-sourced instances no longer present in config",
                 "updateRuntimeState(string, array): void — upsert the current health snapshot for an instance",
                 "getStats(): array — return aggregate configured/enabled/ready/error counts"
+            ]
+        },
+        {
+            "path": "src/Storage/RuntimeStateStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\RuntimeStateStore",
+            "layer": "storage",
+            "description": "SQLite-backed store for small shared runtime flags that must survive across REPL/API process boundaries. The current implementation persists API restart-required state so REPL edits, API channel mutations, and launcher-managed API restarts all agree on one operator-visible restart status.",
+            "methods": [
+                "apiRestartState(): array — return the persisted API restart payload",
+                "markApiRestartRequired(string, string, array, bool, bool, ?int, ?string): array — persist restart-required metadata for API clients and REPL warnings",
+                "clearApiRestartRequired(bool, bool, ?int, ?string): array — clear pending API restart metadata after boot"
             ]
         },
         {

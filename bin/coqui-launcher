@@ -352,7 +352,7 @@ kill_port() {
 
     # Try lsof first, then ss + grep as fallback
     if command -v lsof &>/dev/null; then
-        pids=$(lsof -ti "tcp:${port}" 2>/dev/null || true)
+        pids=$(lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)
     elif command -v ss &>/dev/null; then
         pids=$(ss -tlnp "sport = :${port}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
     fi
@@ -373,7 +373,7 @@ kill_port() {
         waited=$((waited + 1))
         local remaining
         if command -v lsof &>/dev/null; then
-            remaining=$(lsof -ti "tcp:${port}" 2>/dev/null || true)
+            remaining=$(lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)
         elif command -v ss &>/dev/null; then
             remaining=$(ss -tlnp "sport = :${port}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
         fi
@@ -384,7 +384,7 @@ kill_port() {
 
     # Force kill any remaining
     if command -v lsof &>/dev/null; then
-        pids=$(lsof -ti "tcp:${port}" 2>/dev/null || true)
+        pids=$(lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)
     elif command -v ss &>/dev/null; then
         pids=$(ss -tlnp "sport = :${port}" 2>/dev/null | grep -oP 'pid=\K[0-9]+' || true)
     fi
@@ -400,7 +400,7 @@ kill_port() {
 port_in_use() {
     local port="$1"
     if command -v lsof &>/dev/null; then
-        lsof -ti "tcp:${port}" &>/dev/null && return 0
+        lsof -tiTCP:"${port}" -sTCP:LISTEN &>/dev/null && return 0
     elif command -v ss &>/dev/null; then
         ss -tlnp "sport = :${port}" 2>/dev/null | grep -q ":${port}" && return 0
     fi
@@ -431,7 +431,7 @@ port_pids() {
     local port="$1"
 
     if command -v lsof &>/dev/null; then
-        lsof -ti "tcp:${port}" 2>/dev/null || true
+        lsof -tiTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true
         return 0
     fi
 
@@ -754,7 +754,7 @@ fi
 run_api_loop() {
     while true; do
         set +e
-        "${COQUI_BIN}" api --host "${api_host}" --port "${api_port}" "${api_args[@]+"${api_args[@]}"}" "$@"
+        COQUI_LAUNCHER_MANAGED=1 COQUI_LAUNCHER_MODE=api "${COQUI_BIN}" api --host "${api_host}" --port "${api_port}" "${api_args[@]+"${api_args[@]}"}" "$@"
         local exit_code=$?
         set -e
 

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
+use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\ChannelManager;
@@ -33,6 +34,7 @@ final readonly class HealthHandler
         private ?WebhookStore $webhookStore = null,
         private ?ChannelManager $channelManager = null,
         private ?QualityAutomationStatusService $qualityAutomation = null,
+        private ?ApiLifecycleController $lifecycle = null,
     ) {}
 
     public function __invoke(ServerRequestInterface $request): Response
@@ -81,6 +83,10 @@ final readonly class HealthHandler
                 'linked_follow_ups' => $summary['follow_ups']['counts']['linked'],
                 'active_follow_ups' => count($summary['follow_ups']['active']),
             ];
+        }
+
+        if ($this->lifecycle !== null) {
+            $data['restart'] = $this->lifecycle->restartState();
         }
 
         return Router::jsonResponse($data);
