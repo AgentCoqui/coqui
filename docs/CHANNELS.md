@@ -227,7 +227,7 @@ Important notes:
 
 - `driver` must be `signal`
 - `settings.account` must match the account attached to `signal-cli`
-- channels only run under `coqui api` or `coqui-launcher`, because the API server owns runtime reconciliation and background execution
+- channels only run under the launcher-managed API runtime (`coqui`, `coqui --api-only`, or `coqui-launcher --api-only`), because the API server owns runtime reconciliation and background execution
 - `security.linkRequired` is recommended for the first integration so unknown senders do not automatically open sessions
 
 ## Start Coqui In API Mode
@@ -235,16 +235,16 @@ Important notes:
 Use either:
 
 ```bash
-coqui api
+coqui --api-only
 ```
 
 or:
 
 ```bash
-./bin/coqui-launcher
+coqui
 ```
 
-The launcher is useful if you want the REPL and the API together during testing.
+Use `coqui` when you want REPL + API together during testing. Use `coqui-launcher --api-only` only when you want the explicit launcher name.
 
 ## Link Allowed Senders To Profiles
 
@@ -361,7 +361,7 @@ You are ready to test the first Signal channel integration when all of these are
 - manual `signal-cli send` works
 - manual `signal-cli receive` works
 - `openclaw.json` contains a valid Signal channel instance
-- `coqui api` or `coqui-launcher` is running
+- `coqui`, `coqui --api-only`, or `coqui-launcher --api-only` is running
 - `/channels status signal-primary` shows a live runtime
 - the remote sender has been linked to a profile
 

@@ -1,16 +1,15 @@
 ###############################################################################
 # Coqui — Base Compose
 #
-# Runs Coqui as an interactive CLI REPL in a container.
+# Runs Coqui as the launcher-managed app in a container.
 # Connects to Ollama on the host machine via host.docker.internal.
 #
 # Usage:
-#   docker compose run --rm coqui                    # interactive REPL
+#   docker compose run --rm coqui                    # launcher-managed REPL + API
 #   docker compose run --rm coqui --auto-approve     # unattended mode
 #   docker compose run --rm coqui --help             # CLI help
 #
-# NOTE: Use `docker compose run` (not `up`) — Coqui is an interactive REPL
-# that requires a TTY, not a background daemon.
+# NOTE: Use `docker compose run` (not `up`) for the interactive launcher entrypoint.
 ###############################################################################
 
 services:

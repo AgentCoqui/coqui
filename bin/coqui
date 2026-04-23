@@ -3,26 +3,189 @@
 
 declare(strict_types=1);
 
-require_once __DIR__ . '/../vendor/autoload.php';
+/**
+ * Public Coqui entrypoint.
+ *
+ * Normal interactive usage is launcher-backed so the API, restart support,
+ * and background services come up consistently. Low-level console commands
+ * remain available for advanced and internal worker paths.
+ */
 
-use CoquiBot\Coqui\Command\ApiCommand;
-use CoquiBot\Coqui\Command\BenchmarkCommand;
-use CoquiBot\Coqui\Command\DoctorCommand;
-use CoquiBot\Coqui\Command\RunCommand;
-use CoquiBot\Coqui\Command\SetupCommand;
-use CoquiBot\Coqui\Support\AppVersion;
-use CoquiBot\Coqui\Command\TaskRunCommand;
-use CoquiBot\Coqui\Command\TurnRunCommand;
-use Symfony\Component\Console\Application;
+const COQUI_DIRECT_CONSOLE_COMMANDS = [
+	'benchmark',
+	'completion',
+	'doctor',
+	'help',
+	'list',
+	'task:run',
+	'turn:run',
+];
 
-$version = AppVersion::current();
-$app = new Application('coqui', $version);
-$app->addCommand(new RunCommand());
-$app->addCommand(new SetupCommand());
-$app->addCommand(new DoctorCommand());
-$app->addCommand(new BenchmarkCommand());
-$app->addCommand(new ApiCommand());
-$app->addCommand(new TaskRunCommand());
-$app->addCommand(new TurnRunCommand());
-$app->setDefaultCommand('run');
-$app->run();
+const COQUI_LAUNCHER_SUBCOMMANDS = [
+	'cleanup',
+	'status',
+	'stop',
+	'stop-api',
+];
+
+$arguments = $argv;
+array_shift($arguments);
+
+exit(dispatchCoqui($arguments));
+
+/**
+ * @param list<string> $arguments
+ */
+function dispatchCoqui(array $arguments): int
+{
+	if ($arguments === []) {
+		return runLauncher([]);
+	}
+
+	$first = $arguments[0];
+
+	if ($first === '--help' || $first === '-h') {
+		printWrapperHelp();
+		return 0;
+	}
+
+	if ($first === '--version' || $first === '-V') {
+		return runConsole($arguments);
+	}
+
+	if ($first === 'api') {
+		return runLauncher(array_merge(['--api-only'], array_slice($arguments, 1)));
+	}
+
+	if ($first === 'run') {
+		return runLauncher(array_merge(['--repl-only'], array_slice($arguments, 1)));
+	}
+
+	if ($first === 'setup') {
+		return runLauncher(array_merge(['--wizard'], array_slice($arguments, 1)));
+	}
+
+	if (in_array($first, COQUI_LAUNCHER_SUBCOMMANDS, true)) {
+		return runLauncher($arguments);
+	}
+
+	if (in_array($first, COQUI_DIRECT_CONSOLE_COMMANDS, true)) {
+		return runConsole($arguments);
+	}
+
+	if (isLauncherInvocation($arguments)) {
+		return runLauncher($arguments);
+	}
+
+	return runConsole($arguments);
+}
+
+/**
+ * @param list<string> $arguments
+ */
+function isLauncherInvocation(array $arguments): bool
+{
+	$first = $arguments[0] ?? '';
+
+	return str_starts_with($first, '-');
+}
+
+/**
+ * @param list<string> $arguments
+ */
+function runLauncher(array $arguments): int
+{
+	$launcherPath = __DIR__ . '/coqui-launcher';
+
+	if (!is_file($launcherPath)) {
+		fwrite(STDERR, "coqui-launcher not found at {$launcherPath}\n");
+		return 1;
+	}
+
+	$shell = getenv('BASH');
+	if (!is_string($shell) || $shell === '') {
+		$shell = '/bin/bash';
+	}
+
+	return runProcess(array_merge([$shell, $launcherPath], $arguments));
+}
+
+/**
+ * @param list<string> $arguments
+ */
+function runConsole(array $arguments): int
+{
+	$consolePath = __DIR__ . '/coqui-console';
+
+	if (!is_file($consolePath)) {
+		fwrite(STDERR, "coqui-console not found at {$consolePath}\n");
+		return 1;
+	}
+
+	return runProcess(array_merge([PHP_BINARY, $consolePath], $arguments));
+}
+
+/**
+ * @param list<string> $command
+ */
+function runProcess(array $command): int
+{
+	if ($command !== [] && function_exists('pcntl_exec')) {
+		$binary = array_shift($command);
+		if (is_string($binary) && $binary !== '') {
+			pcntl_exec($binary, $command);
+			fwrite(STDERR, "Failed to exec Coqui subprocess.\n");
+			return 1;
+		}
+	}
+
+	$process = @proc_open(
+		$command,
+		[
+			0 => STDIN,
+			1 => STDOUT,
+			2 => STDERR,
+		],
+		$pipes,
+		dirname(__DIR__),
+		null,
+	);
+
+	if (!is_resource($process)) {
+		fwrite(STDERR, "Failed to execute Coqui subprocess.\n");
+		return 1;
+	}
+
+	$exitCode = proc_close($process);
+
+	return is_int($exitCode) ? $exitCode : 1;
+}
+
+function printWrapperHelp(): void
+{
+	$script = basename(__FILE__);
+
+	echo "Coqui\n";
+	echo "\n";
+	echo "Launcher-first entrypoint for the full Coqui app.\n";
+	echo "\n";
+	echo "Usage:\n";
+	echo "  {$script}                      Start REPL + API via coqui-launcher\n";
+	echo "  {$script} --api-only           Start only the launcher-managed API\n";
+	echo "  {$script} --repl-only          Start only the REPL via the launcher\n";
+	echo "  {$script} status               Show launcher-managed service status\n";
+	echo "  {$script} stop                 Stop launcher-managed services\n";
+	echo "\n";
+	echo "Compatibility aliases:\n";
+	echo "  {$script} api [options]        Alias for --api-only\n";
+	echo "  {$script} run [options]        Alias for --repl-only\n";
+	echo "  {$script} setup [options]      Alias for --wizard\n";
+	echo "\n";
+	echo "Advanced console commands:\n";
+	echo "  {$script} doctor\n";
+	echo "  {$script} benchmark\n";
+	echo "  {$script} task:run <id>\n";
+	echo "  {$script} turn:run <id>\n";
+	echo "\n";
+	echo "For the full command reference, see docs/COMMANDS.md.\n";
+}

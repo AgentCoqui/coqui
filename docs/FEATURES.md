@@ -168,7 +168,7 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 **How to use it:**
 - Configure a channel instance in `openclaw.json` under `channels.instances`.
-- Start Coqui in API mode with `coqui api` or `coqui-launcher`.
+- Start Coqui with `coqui` or `coqui --api-only`.
 - Link trusted remote users to profiles with `/channels link <channel> <remote-user-key> <profile>`.
 - Inspect runtime state with `/channels`, `/channels status`, and `/channels deliveries`.
 - See [CHANNELS.md](CHANNELS.md) for the full Signal setup walkthrough, including `signal-cli` install, account attachment, manual transport tests, and Coqui end-to-end testing.
@@ -338,8 +338,9 @@ In the interactive REPL, successful screenshot-producing tools can now render on
 **How it helps:** Build web dashboards, mobile apps, or headless automation that uses the same AI engine as the CLI.
 
 **How to use it:**
-- Start: `coqui api` (default `127.0.0.1:3300`)
-- Or use the launcher: `coqui-launcher` starts both REPL and API together.
+- Start the full app: `coqui`
+- API only: `coqui --api-only` (default `127.0.0.1:3300`)
+- Explicit launcher name: `coqui-launcher` or `coqui-launcher --api-only`
 - See [API.md](API.md) for the full endpoint reference.
 
 ## <a id="persistent-sessions"></a> 💾 Persistent Sessions

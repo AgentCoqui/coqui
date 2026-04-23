@@ -8,35 +8,40 @@ The API is built on ReactPHP and runs as a long-lived PHP process. It shares the
 
 ## Starting the Server
 
+Use the launcher-managed entrypoint by default. The API is a required runtime for background tasks, channels, schedules, and other long-lived features.
+
 ```bash
-# Default: localhost:3300
-php bin/coqui api
+# Recommended default: full app (REPL + API)
+coqui
+
+# API only
+coqui --api-only
 
 # Listen on all interfaces (accessible from other devices on your network)
-php bin/coqui api --host 0.0.0.0
+coqui --api-only --host 0.0.0.0
 
 # Custom host and port
-php bin/coqui api --host 0.0.0.0 --port 3000
+coqui --api-only --host 0.0.0.0 --port 3000
 
 # With a specific config file
-php bin/coqui api --config /path/to/openclaw.json
+coqui --api-only --config /path/to/openclaw.json
 
 # With CORS origins restricted
-php bin/coqui api --cors-origin "http://localhost:3000,https://app.example.com"
+coqui --api-only --cors-origin "http://localhost:3000,https://app.example.com"
 
-# Via the launcher
+# Explicit launcher name
 ./bin/coqui-launcher --api-only --host 0.0.0.0
 
 # Via environment variable
-COQUI_API_HOST=0.0.0.0 ./bin/coqui-launcher
+COQUI_API_HOST=0.0.0.0 coqui
 
 # Via Make
-make api HOST=0.0.0.0
+make start
 make api HOST=0.0.0.0 PORT=3000
 
 # Docker (already binds to 0.0.0.0 inside the container)
-make docker-api              # port 3300
-make docker-api PORT=3000    # custom port
+make docker-start            # REPL + API
+make docker-api PORT=3000    # API only
 ```
 
 ### CLI Options
@@ -88,9 +93,9 @@ By default, the API server binds to `127.0.0.1` (localhost only). To access the 
 
 ```bash
 # Any of these methods work:
-php bin/coqui api --host 0.0.0.0
-./bin/coqui-launcher --host 0.0.0.0
-COQUI_API_HOST=0.0.0.0 ./bin/coqui-launcher
+coqui --api-only --host 0.0.0.0
+coqui --host 0.0.0.0
+COQUI_API_HOST=0.0.0.0 coqui
 make api HOST=0.0.0.0
 ```
 
@@ -4601,7 +4606,7 @@ All `POST`, `PUT`, and `PATCH` requests must include a `Content-Type` header con
 The server includes CORS headers on all responses. By default, all origins are allowed (`*`). Restrict origins with the `--cors-origin` flag:
 
 ```bash
-php bin/coqui api --cors-origin "http://localhost:3000,https://myapp.com"
+coqui --api-only --cors-origin "http://localhost:3000,https://myapp.com"
 ```
 
 Preflight `OPTIONS` requests are handled automatically with a `204` response.

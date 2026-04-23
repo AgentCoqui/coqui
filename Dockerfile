@@ -4,7 +4,7 @@
 # Personal operating system — PHP 8.4 CLI + extensions + Composer
 #
 # Usage:
-#   docker compose run --rm coqui            # interactive REPL
+#   docker compose run --rm coqui            # launcher-managed REPL + API
 #   docker compose run --rm coqui --help     # CLI help
 ###############################################################################
 
@@ -180,5 +180,5 @@ COPY --from=build --chown=coqui:coqui /app /app
 
 USER coqui
 
-ENTRYPOINT ["php", "bin/coqui"]
+ENTRYPOINT ["./bin/coqui"]
 CMD []

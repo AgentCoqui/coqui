@@ -178,7 +178,7 @@ final class ApiCommand extends Command
         }
 
         // Create background task manager + agent turn manager
-        $coquiBinPath = realpath(dirname(__DIR__, 2) . '/bin/coqui') ?: dirname(__DIR__, 2) . '/bin/coqui';
+        $coquiBinPath = realpath(dirname(__DIR__, 2) . '/bin/coqui-console') ?: dirname(__DIR__, 2) . '/bin/coqui-console';
         $maxConcurrentTasks = (int) ($boot->config()->get('api.tasks.maxConcurrent') ?? CoquiDefaults::MAX_CONCURRENT_TASKS);
 
         // Notification publisher for background task / loop lifecycle events
