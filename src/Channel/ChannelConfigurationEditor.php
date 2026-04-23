@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Channel;
 
 use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
+use CoquiBot\Coqui\Storage\SessionStorage;
 
 /**
  * Mutates the channels.instances config block in openclaw.json.
@@ -16,6 +17,7 @@ final readonly class ChannelConfigurationEditor
         private ConfigManager $configManager,
         private ChannelDiscovery $channelDiscovery,
         private ProfileDiscovery $profileDiscovery,
+        private SessionStorage $sessionStorage,
     ) {}
 
     /**
@@ -195,11 +197,27 @@ final readonly class ChannelConfigurationEditor
         }
 
         $defaultProfile = $input['defaultProfile'] ?? $input['default_profile'] ?? null;
+        $boundSessionId = $input['boundSessionId'] ?? $input['bound_session_id'] ?? null;
         if ($defaultProfile !== null && $defaultProfile !== '') {
             if (!is_string($defaultProfile) || trim($defaultProfile) === '') {
                 $errors[] = 'defaultProfile must be a non-empty string';
             } elseif (!$this->profileDiscovery->profileExists(trim($defaultProfile))) {
                 $errors[] = sprintf('Unknown profile "%s".', trim($defaultProfile));
+            }
+        }
+
+        if ($boundSessionId !== null && $boundSessionId !== '') {
+            if (!is_string($boundSessionId) || trim($boundSessionId) === '') {
+                $errors[] = 'boundSessionId must be a non-empty string';
+            } else {
+                $session = $this->sessionStorage->getSession(trim($boundSessionId));
+                if ($session === null) {
+                    $errors[] = sprintf('Unknown session "%s".', trim($boundSessionId));
+                } elseif ((string) ($session['session_type'] ?? 'interactive') !== 'interactive') {
+                    $errors[] = 'boundSessionId must reference an interactive session';
+                } elseif ((string) ($session['visibility'] ?? 'visible') !== 'visible') {
+                    $errors[] = 'boundSessionId must reference a visible session';
+                }
             }
         }
 
@@ -238,6 +256,11 @@ final readonly class ChannelConfigurationEditor
         if ($defaultProfile !== null) {
             $trimmedProfile = trim((string) $defaultProfile);
             $instance['defaultProfile'] = $trimmedProfile !== '' ? $trimmedProfile : null;
+        }
+
+        if ($boundSessionId !== null) {
+            $trimmedSessionId = trim((string) $boundSessionId);
+            $instance['boundSessionId'] = $trimmedSessionId !== '' ? $trimmedSessionId : null;
         }
 
         $settings = $input['settings'] ?? [];

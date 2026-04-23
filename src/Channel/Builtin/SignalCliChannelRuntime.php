@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Channel\Builtin;
 use CoquiBot\Coqui\Contract\ChannelRuntimeInterface;
 use CoquiBot\Coqui\Storage\ChannelStore;
 use React\ChildProcess\Process as ReactProcess;
+use React\Stream\WritableStreamInterface;
 
 /**
  * Long-lived Signal runtime backed by signal-cli JSON-RPC notifications.
@@ -188,7 +189,7 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
             return;
         }
 
-        if ($this->process === null || $this->process->stdin === null) {
+        if ($this->process === null || $this->process->stdin === null || !$this->process->stdin instanceof WritableStreamInterface) {
             $attemptCount = $this->channelStore->recordDeliveryAttempt(
                 deliveryId: $deliveryId,
                 resultStatus: 'failed',
@@ -236,13 +237,6 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
             'params' => $params,
             'id' => $requestId,
         ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-    }
-
-    private function extractProviderMessageId(string $stdout): ?string
-    {
-        $response = $this->decodeJsonLines($stdout);
-
-        return $this->extractProviderMessageIdFromResponse($response);
     }
 
     /**
@@ -782,30 +776,4 @@ SH;
         return substr($value, 0, $maxBytes - 3) . '...';
     }
 
-    /**
-     * @return array<string, mixed>
-     */
-    private function decodeJsonLines(string $output): array
-    {
-        $lines = preg_split('/\r?\n/', trim($output)) ?: [];
-
-        for ($index = count($lines) - 1; $index >= 0; $index--) {
-            $line = trim($lines[$index]);
-            if ($line === '') {
-                continue;
-            }
-
-            try {
-                $decoded = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
-            } catch (\JsonException) {
-                continue;
-            }
-
-            if (is_array($decoded)) {
-                return $decoded;
-            }
-        }
-
-        return [];
-    }
 }

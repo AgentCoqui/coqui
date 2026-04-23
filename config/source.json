@@ -494,7 +494,7 @@
             "path": "src/Support/InteractiveSessionService.php",
             "fqcn": "CoquiBot\\Coqui\\Support\\InteractiveSessionService",
             "layer": "support",
-            "description": "Shared lifecycle and policy service for interactive sessions across API and REPL. Resolves or creates unprofiled and profiled sessions, enforces single-active-profile semantics, applies profile role policy, and owns interactive PATCH update rules so those behaviors do not diverge across surfaces.",
+            "description": "Shared lifecycle and policy service for interactive sessions across API and REPL. Resolves or creates unprofiled and profiled sessions, keeps ordinary latest-session behavior separate from channel-backed sessions, enforces single-active-profile semantics only for ordinary interactive sessions, applies profile role policy, and owns interactive PATCH update rules so those behaviors do not diverge across surfaces.",
             "methods": [
                 "createSession(string, ?string): InteractiveSessionOperationResult — create a new interactive session with the requested role and optional profile scope",
                 "createScopedSession(string, ?string, bool): InteractiveSessionOperationResult — create a scoped interactive session and optionally close conflicting active profiled sessions",
@@ -2364,7 +2364,7 @@
             "path": "src/Api/ChannelExecutionManager.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\ChannelExecutionManager",
             "layer": "agent",
-            "description": "API-side channel worker that converts stored inbound channel events into Coqui background tasks, reuses per-conversation sessions, resolves identity links and scope policy, queues outbound deliveries from completed tasks, and finalizes inbound event lifecycle state after delivery.",
+            "description": "API-side channel worker that converts stored inbound channel events into Coqui background tasks, resolves identity links and scope policy, reuses either a channel-instance bound session or a per-conversation session, queues outbound deliveries from completed tasks, and finalizes inbound event lifecycle state after delivery.",
             "methods": [
                 "tick(): void — process newly received channel events, reconcile queued tasks, and finalize queued deliveries"
             ]
@@ -2385,7 +2385,7 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. Session rows now expose a canonical session_type discriminator alongside compatibility group fields, plus derived lifecycle status labels and aggregate lifecycle counts so archived history can be inspected without reactivating it. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, closed/archive lifecycle metadata, and the additive session_type column used by the new session-type architecture.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. Session rows now expose explicit visibility for hiding synthetic worker sessions, derived channel metadata for channel-bound or conversation-backed sessions, a canonical session_type discriminator alongside compatibility group fields, and aggregate lifecycle counts so archived history can be inspected without reactivating it. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, closed/archive lifecycle metadata, visibility, and the additive session_type column used by the new session-type architecture.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
                 "listSessions(int $limit, bool $excludeTaskSessions=true, bool $activeOnly=true, ?string $status=null): array — lists recent sessions with optional lifecycle filtering",
@@ -3088,7 +3088,7 @@
             "path": "src/Channel/ChannelConfigurationEditor.php",
             "fqcn": "CoquiBot\\Coqui\\Channel\\ChannelConfigurationEditor",
             "layer": "config",
-            "description": "Shared mutator for the channels.instances config block inside openclaw.json. Used by both the API and REPL operator surfaces to create, update, enable, disable, and delete channel instances with driver and profile validation before saving.",
+            "description": "Shared mutator for the channels.instances config block inside openclaw.json. Used by both the API and REPL operator surfaces to create, update, enable, disable, and delete channel instances with driver, profile, and bound-session validation before saving.",
             "methods": [
                 "create(string, array): array — create a new channel instance definition",
                 "update(string, array): array — patch an existing channel instance definition",
@@ -3101,7 +3101,7 @@
             "path": "src/Storage/ChannelStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ChannelStore",
             "layer": "storage",
-            "description": "SQLite-backed persistence for the channel subsystem. Creates the channel tables for configured instances, identity links, conversations, inbound events, outbound deliveries, delivery attempts, and per-instance runtime state. The current implementation actively uses these tables for Signal inbound event execution, queued reply delivery, runtime health, and operator inspection surfaces.",
+            "description": "SQLite-backed persistence for the channel subsystem. Creates the channel tables for configured instances, identity links, conversations, inbound events, outbound deliveries, delivery attempts, and per-instance runtime state. Configured instances now also persist an optional bound session id so one channel instance can be routed into an existing visible chat. The current implementation actively uses these tables for Signal inbound event execution, queued reply delivery, runtime health, and operator inspection surfaces.",
             "methods": [
                 "upsertConfiguredInstance(array, ?array): string — create or update one configured channel instance row",
                 "get(string): ?array — fetch an instance by id with joined runtime state",

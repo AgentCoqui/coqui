@@ -292,6 +292,8 @@ Session lifecycle fields have distinct meanings:
 - `archived` is the discovery state. Archived sessions are hidden from active listings by default but remain fully inspectable through the read endpoints.
 - In the current profile-rollover flow, archived sessions are also closed. A session may be closed without being archived if Coqui needs a terminal but still explicitly visible record.
 
+Channel-backed interactive sessions are still first-class visible sessions. Their payloads include `channel_bound: true` plus a `channel` object describing the bound channel instance. Ordinary app-style session resolution intentionally skips channel-backed sessions so a normal "resume latest chat" flow does not land inside a Signal, Telegram, or Discord conversation lane.
+
 #### `GET /api/v1/sessions`
 
 List sessions, ordered by most recently updated.
@@ -321,6 +323,13 @@ List sessions, ordered by most recently updated.
       "closed_at": null,
       "archived_at": null,
       "closure_reason": null,
+      "channel_bound": true,
+      "channel": {
+        "instance_id": "channel_123",
+        "name": "signal-primary",
+        "driver": "signal",
+        "display_name": "Signal Primary"
+      },
       "created_at": "2026-02-16T14:30:00+00:00",
       "updated_at": "2026-02-16T15:45:12+00:00",
       "token_count": 12450
@@ -461,7 +470,7 @@ This mirrors REPL startup behavior:
 
 - Omit `profile` to target the unprofiled interactive session pool.
 - Pass `profile` to target a profile-specific interactive session pool.
-- Background-task sessions are excluded from reuse.
+- Hidden worker sessions and visible channel-backed sessions are excluded from ordinary reuse.
 - If multiple active interactive sessions exist for the same profile, Coqui keeps the newest one and archives/closes the older duplicates before responding.
 
 **Request Body**
@@ -547,6 +556,13 @@ Get session details.
   "closed_at": null,
   "archived_at": null,
   "closure_reason": null,
+  "channel_bound": true,
+  "channel": {
+    "instance_id": "channel_123",
+    "name": "signal-primary",
+    "driver": "signal",
+    "display_name": "Signal Primary"
+  },
   "active_project_id": "p1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "created_at": "2026-02-16T14:30:00+00:00",
   "updated_at": "2026-02-16T15:45:12+00:00",
@@ -3774,13 +3790,35 @@ Create a channel instance definition. The response includes the updated channel 
   "driver": "signal",
   "displayName": "Signal Primary",
   "defaultProfile": "caelum",
+  "boundSessionId": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
   "settings": {
     "transport": "signal-cli"
   }
 }
 ```
 
-Supported fields: `name`, `driver`, `enabled`, `displayName`, `defaultProfile`, `settings`, `allowedScopes`, and `security`.
+Supported fields: `name`, `driver`, `enabled`, `displayName`, `defaultProfile`, `boundSessionId`, `settings`, `allowedScopes`, and `security`.
+
+`boundSessionId` is optional. When set, the channel instance routes all inbound conversations into one existing visible interactive session instead of creating per-conversation interactive sessions.
+
+**Response `201`**
+
+```json
+{
+  "channel": {
+    "id": "channel_123",
+    "name": "signal-primary",
+    "driver": "signal",
+    "display_name": "Signal Primary",
+    "default_profile": "caelum",
+    "bound_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"
+  },
+  "restart": {
+    "required": true,
+    "reason": "channel_configuration_changed"
+  }
+}
+```
 
 #### `GET /api/v1/channels/drivers`
 
@@ -3790,9 +3828,30 @@ List registered built-in and external channel drivers with capability metadata.
 
 Get one channel instance by id or name.
 
+**Response `200`**
+
+```json
+{
+  "channel": {
+    "id": "channel_123",
+    "name": "signal-primary",
+    "driver": "signal",
+    "display_name": "Signal Primary",
+    "enabled": true,
+    "default_profile": "caelum",
+    "bound_session_id": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6",
+    "worker_status": "running",
+    "ready": true,
+    "summary": "Signal runtime ready."
+  }
+}
+```
+
 #### `PATCH /api/v1/channels/{id}`
 
 Update any mutable channel fields from the create payload. Successful mutations return the updated channel plus restart metadata when a clean API restart is required.
+
+Clients may send either `boundSessionId` or `bound_session_id` in update payloads. The response always normalizes the stored field to `bound_session_id`.
 
 #### `DELETE /api/v1/channels/{id}`
 

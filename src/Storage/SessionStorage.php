@@ -224,6 +224,7 @@ final class SessionStorage
         $this->migrateAddColumn('sessions', 'group_composition_key', 'TEXT DEFAULT NULL');
         $this->migrateAddColumn('sessions', 'group_max_rounds', 'INTEGER DEFAULT NULL');
         $this->migrateAddColumn('sessions', 'session_type', "TEXT NOT NULL DEFAULT 'interactive'");
+        $this->migrateAddColumn('sessions', 'visibility', "TEXT NOT NULL DEFAULT 'visible'");
         $this->migrateAddColumn('sessions', 'is_closed', 'INTEGER NOT NULL DEFAULT 0');
         $this->migrateAddColumn('sessions', 'is_archived', 'INTEGER NOT NULL DEFAULT 0');
         $this->migrateAddColumn('sessions', 'closed_at', 'TEXT DEFAULT NULL');
@@ -233,10 +234,12 @@ final class SessionStorage
         $this->db->exec("UPDATE sessions SET session_type = 'group' WHERE COALESCE(group_enabled, 0) = 1 AND COALESCE(session_type, '') != 'group'");
 
         $this->db->exec("UPDATE sessions SET session_type = 'interactive' WHERE COALESCE(group_enabled, 0) = 0 AND COALESCE(session_type, '') = ''");
+        $this->db->exec("UPDATE sessions SET visibility = 'visible' WHERE COALESCE(visibility, '') = ''");
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_profile_updated ON sessions(profile, updated_at DESC)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_closed_updated ON sessions(is_closed, updated_at DESC)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_group_enabled_updated ON sessions(group_enabled, updated_at DESC)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_visibility_updated ON sessions(visibility, updated_at DESC)');
         $this->db->exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_active_group_composition ON sessions(group_composition_key) WHERE group_enabled = 1 AND is_closed = 0 AND group_composition_key IS NOT NULL');
 
         $this->db->exec(<<<SQL
@@ -320,6 +323,7 @@ final class SessionStorage
         ?string $groupCompositionKey = null,
         ?int $groupMaxRounds = null,
         SessionType|string|null $sessionType = null,
+        string $visibility = 'visible',
     ): string
     {
         $id = bin2hex(random_bytes(16));
@@ -328,10 +332,11 @@ final class SessionStorage
             ? $sessionType
             : (is_string($sessionType) ? SessionType::tryFrom($sessionType) : null);
         $resolvedSessionType ??= SessionType::fromGroupFlag($groupEnabled);
+        $resolvedVisibility = $this->normalizeVisibility($visibility);
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO sessions (id, model_role, model, profile, group_enabled, group_composition_key, group_max_rounds, session_type, created_at, updated_at)
-            VALUES (:id, :model_role, :model, :profile, :group_enabled, :group_composition_key, :group_max_rounds, :session_type, :created_at, :updated_at)
+            INSERT INTO sessions (id, model_role, model, profile, group_enabled, group_composition_key, group_max_rounds, session_type, visibility, created_at, updated_at)
+            VALUES (:id, :model_role, :model, :profile, :group_enabled, :group_composition_key, :group_max_rounds, :session_type, :visibility, :created_at, :updated_at)
         SQL);
 
         $stmt->execute([
@@ -343,6 +348,7 @@ final class SessionStorage
             'group_composition_key' => $groupEnabled ? $groupCompositionKey : null,
             'group_max_rounds' => $groupEnabled ? $groupMaxRounds : null,
             'session_type' => $resolvedSessionType->value,
+            'visibility' => $resolvedVisibility,
             'created_at' => $now,
             'updated_at' => $now,
         ]);
@@ -501,13 +507,15 @@ final class SessionStorage
     public function listActiveInteractiveGroupSessionsByCompositionKey(string $compositionKey): array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                 s.visibility,
                    s.group_enabled, s.group_composition_key, s.group_max_rounds,
                    s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
+                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
                    (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
             FROM sessions s
-            LEFT JOIN background_tasks bt ON bt.session_id = s.id
-            WHERE bt.id IS NULL
+             {$this->sessionChannelJoin('s')}
+             WHERE s.visibility = 'visible'
               AND s.group_enabled = 1
               AND s.group_composition_key = :group_composition_key
               AND s.is_closed = 0
@@ -560,14 +568,11 @@ final class SessionStorage
         bool $unprofiledOnly = false,
     ): array
     {
-        $join = $excludeTaskSessions
-            ? 'LEFT JOIN background_tasks bt ON bt.session_id = s.id'
-            : '';
         $conditions = [];
         $params = [];
 
         if ($excludeTaskSessions) {
-            $conditions[] = 'bt.id IS NULL';
+            $conditions[] = "s.visibility = 'visible'";
         }
 
         if ($status === 'active') {
@@ -593,11 +598,13 @@ final class SessionStorage
 
         $stmt = $this->db->prepare(<<<SQL
              SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                 s.visibility,
                  s.group_enabled, s.group_composition_key, s.group_max_rounds,
                  s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
+                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
                  (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
             FROM sessions s
-            {$join}
+            {$this->sessionChannelJoin('s')}
             {$filter}
             ORDER BY s.updated_at DESC
             LIMIT :limit
@@ -794,12 +801,15 @@ final class SessionStorage
     public function getSession(string $id): ?array
     {
         $stmt = $this->db->prepare(<<<SQL
-            SELECT id, model_role, model, title, profile, active_project_id, created_at, updated_at, token_count,
-                   group_enabled, group_composition_key, group_max_rounds,
-                   is_closed, is_archived, closed_at, archived_at, closure_reason,
-                   (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = sessions.id) AS group_member_count
-            FROM sessions
-            WHERE id = :id
+             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                 s.visibility,
+                 s.group_enabled, s.group_composition_key, s.group_max_rounds,
+                 s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
+                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
+                 (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
+             FROM sessions s
+             {$this->sessionChannelJoin('s')}
+             WHERE s.id = :id
         SQL);
 
         $stmt->execute(['id' => $id]);
@@ -817,11 +827,8 @@ final class SessionStorage
      */
     public function getSessionStatusCounts(bool $excludeTaskSessions = true): array
     {
-        $join = $excludeTaskSessions
-            ? 'LEFT JOIN background_tasks bt ON bt.session_id = s.id'
-            : '';
         $filter = $excludeTaskSessions
-            ? 'WHERE bt.id IS NULL'
+            ? "WHERE s.visibility = 'visible'"
             : '';
 
         $stmt = $this->db->query(<<<SQL
@@ -831,7 +838,6 @@ final class SessionStorage
                 SUM(CASE WHEN s.is_archived = 1 THEN 1 ELSE 0 END) AS archived_count,
                 COUNT(*) AS total_count
             FROM sessions s
-            {$join}
             {$filter}
         SQL);
 
@@ -1559,10 +1565,12 @@ final class SessionStorage
         $isArchived = (int) ($row['is_archived'] ?? 0);
         $groupEnabled = (int) ($row['group_enabled'] ?? 0);
         $sessionType = SessionType::fromSessionRow($row);
+        $visibility = $this->normalizeVisibility((string) ($row['visibility'] ?? 'visible'));
 
         $row['is_closed'] = $isClosed;
         $row['is_archived'] = $isArchived;
         $row['session_type'] = $sessionType->value;
+        $row['visibility'] = $visibility;
         $row['group_enabled'] = $sessionType === SessionType::Group ? 1 : $groupEnabled;
         $row['group_member_count'] = (int) ($row['group_member_count'] ?? 0);
         $row['group_max_rounds'] = is_scalar($row['group_max_rounds'] ?? null)
@@ -1584,6 +1592,18 @@ final class SessionStorage
         if ($row === []) {
             return $row;
         }
+
+        $channelBound = is_string($row['channel_instance_id'] ?? null) && $row['channel_instance_id'] !== '';
+        $row['channel_bound'] = $channelBound;
+        $row['channel'] = $channelBound
+            ? [
+                'instance_id' => (string) $row['channel_instance_id'],
+                'name' => (string) ($row['channel_name'] ?? ''),
+                'driver' => (string) ($row['channel_driver'] ?? ''),
+                'display_name' => (string) (($row['channel_display_name'] ?? '') !== '' ? $row['channel_display_name'] : ($row['channel_name'] ?? '')),
+            ]
+            : null;
+        unset($row['channel_instance_id'], $row['channel_name'], $row['channel_driver'], $row['channel_display_name']);
 
         if (SessionType::fromSessionRow($row) === SessionType::Group) {
             $row['group_members'] = $includeMembers && isset($row['id'])
@@ -1614,14 +1634,15 @@ final class SessionStorage
     public function listActiveInteractiveSessionsForProfile(string $profile): array
     {
         $stmt = $this->db->prepare(<<<SQL
-                        SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
-                                                                         s.session_type,
+                                                SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                                                                         s.session_type, s.visibility,
                                      s.group_enabled, s.group_composition_key, s.group_max_rounds,
                                      s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
+                                                                         sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
                                      (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
             FROM sessions s
-            LEFT JOIN background_tasks bt ON bt.session_id = s.id
-            WHERE bt.id IS NULL
+                        {$this->sessionChannelJoin('s')}
+                        WHERE s.visibility = 'visible'
               AND s.profile = :profile
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
@@ -2181,9 +2202,10 @@ final class SessionStorage
         $stmt = $this->db->query(<<<SQL
             SELECT s.id
             FROM sessions s
-            LEFT JOIN background_tasks bt ON bt.session_id = s.id
-            WHERE bt.id IS NULL
+                        {$this->sessionChannelJoin('s')}
+                        WHERE s.visibility = 'visible'
               AND s.profile IS NULL
+                            AND sc.channel_instance_id IS NULL
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
@@ -2204,8 +2226,10 @@ final class SessionStorage
         $stmt = $this->db->query(<<<SQL
             SELECT s.id
             FROM sessions s
-            LEFT JOIN background_tasks bt ON bt.session_id = s.id
-            WHERE bt.id IS NULL
+                        {$this->sessionChannelJoin('s')}
+                        WHERE s.visibility = 'visible'
+                            AND sc.channel_instance_id IS NULL
+                            AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
             ORDER BY s.updated_at DESC
             LIMIT 1
@@ -2225,8 +2249,9 @@ final class SessionStorage
         $stmt = $this->db->prepare(<<<SQL
             SELECT s.id
             FROM sessions s
-            LEFT JOIN background_tasks bt ON bt.session_id = s.id
-            WHERE bt.id IS NULL
+                        {$this->sessionChannelJoin('s')}
+                        WHERE s.visibility = 'visible'
+                            AND sc.channel_instance_id IS NULL
               AND s.profile = :profile
                             AND COALESCE(s.session_type, CASE WHEN COALESCE(s.group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND s.is_closed = 0
@@ -2248,14 +2273,86 @@ final class SessionStorage
 
         $stmt = $this->db->prepare(<<<SQL
             SELECT 1
-            FROM background_tasks
-            WHERE session_id = :session_id
+            FROM sessions
+            WHERE id = :session_id
+              AND visibility = 'visible'
+              AND COALESCE(session_type, CASE WHEN COALESCE(group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
             LIMIT 1
         SQL);
 
         $stmt->execute(['session_id' => $sessionId]);
 
-        return $stmt->fetchColumn() === false;
+        return $stmt->fetchColumn() !== false;
+    }
+
+    private function normalizeVisibility(string $visibility): string
+    {
+        return $visibility === 'hidden' ? 'hidden' : 'visible';
+    }
+
+    private function sessionChannelJoin(string $sessionAlias): string
+    {
+        if (!$this->channelTablesAvailable()) {
+            return <<<SQL
+                LEFT JOIN (
+                    SELECT NULL AS session_id,
+                           NULL AS channel_instance_id,
+                           NULL AS channel_name,
+                           NULL AS channel_driver,
+                           NULL AS channel_display_name
+                    WHERE 1 = 0
+                ) sc ON sc.session_id = {$sessionAlias}.id
+            SQL;
+        }
+
+        return <<<SQL
+            LEFT JOIN (
+                SELECT session_id,
+                       MIN(channel_instance_id) AS channel_instance_id,
+                       MIN(channel_name) AS channel_name,
+                       MIN(channel_driver) AS channel_driver,
+                       MIN(channel_display_name) AS channel_display_name
+                FROM (
+                    SELECT ci.bound_session_id AS session_id,
+                           ci.id AS channel_instance_id,
+                           ci.name AS channel_name,
+                           ci.driver AS channel_driver,
+                           ci.display_name AS channel_display_name
+                    FROM channel_instances ci
+                    WHERE ci.bound_session_id IS NOT NULL
+
+                    UNION ALL
+
+                    SELECT cc.session_id AS session_id,
+                           ci.id AS channel_instance_id,
+                           ci.name AS channel_name,
+                           ci.driver AS channel_driver,
+                           ci.display_name AS channel_display_name
+                    FROM channel_conversations cc
+                    INNER JOIN channel_instances ci ON ci.id = cc.channel_instance_id
+                    WHERE cc.session_id IS NOT NULL
+                ) channel_sessions
+                GROUP BY session_id
+            ) sc ON sc.session_id = {$sessionAlias}.id
+        SQL;
+    }
+
+    private function channelTablesAvailable(): bool
+    {
+        $stmt = $this->db->query(<<<SQL
+            SELECT name
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name IN ('channel_instances', 'channel_conversations')
+        SQL);
+
+        if ($stmt === false) {
+            return false;
+        }
+
+        $names = $stmt->fetchAll(PDO::FETCH_COLUMN);
+
+        return count($names) === 2;
     }
 
     // -------------------------------------------------------------------------

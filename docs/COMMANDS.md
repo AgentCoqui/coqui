@@ -168,7 +168,7 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 | `/channels status <name\|id>` | Show one channel's configuration and runtime state |
 | `/channels health <name\|id>` | Show compact health output for one channel |
 | `/channels add <driver> <name> [driver-args...]` | Advanced operator control: create a channel instance in `openclaw.json` (for Signal: optional account number as the third argument) |
-| `/channels set <name\|id> <field> <value>` | Advanced operator control: update `driver`, `displayName`, `defaultProfile`, `enabled`, `settings`, `allowedScopes`, or `security` |
+| `/channels set <name\|id> <field> <value>` | Advanced operator control: update `driver`, `displayName`, `defaultProfile`, `boundSessionId`, `enabled`, `settings`, `allowedScopes`, or `security` |
 | `/channels enable <name\|id>` | Advanced operator control: enable a channel instance |
 | `/channels disable <name\|id>` | Advanced operator control: disable a channel instance |
 | `/channels delete <name\|id>` | Advanced operator control: remove a channel instance |

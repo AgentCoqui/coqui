@@ -275,6 +275,15 @@ final readonly class ChannelExecutionManager
      */
     private function ensureConversationSession(array $channel, array $conversation, ?string $profile): string
     {
+        $boundSessionId = $this->stringOrNull($channel['bound_session_id'] ?? null);
+        if ($boundSessionId !== null) {
+            if ($profile !== null) {
+                $this->storage->updateSessionProfile($boundSessionId, $profile);
+            }
+
+            return $boundSessionId;
+        }
+
         $sessionId = $this->stringOrNull($conversation['session_id'] ?? null);
         if ($sessionId !== null) {
             if ($profile !== null) {

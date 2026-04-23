@@ -82,9 +82,66 @@ test('channel execution manager turns linked inbound events into background task
         expect($event['task_id'])->toBeString();
         expect($conversation)->not->toBeNull();
         expect($conversation['session_id'])->toBe($event['session_id']);
+        expect($fixture['storage']->getSession((string) $event['session_id'])['channel']['driver'])->toBe('signal');
         expect($task)->not->toBeNull();
         expect($task['status'])->toBe('pending');
         expect($task['prompt'])->toContain('Hello from Signal');
+    } finally {
+        releaseTestObjectProperties((object) $fixture);
+        cleanupSqliteTestDb($fixture['dbPath']);
+    }
+});
+
+test('channel execution manager reuses a channel bound session', function (): void {
+    $fixture = makeChannelExecutionFixture();
+    $config = OpenClawConfig::fromArray([
+        'channels' => [
+            'defaults' => [
+                'unknownUserPolicy' => 'allow',
+                'defaultProfile' => 'caelum',
+            ],
+        ],
+    ]);
+
+    try {
+        $boundSessionId = $fixture['storage']->createSession('orchestrator', 'openai/gpt-4.1-mini', 'caelum');
+        $channelId = $fixture['channelStore']->upsertConfiguredInstance([
+            'name' => 'signal-primary',
+            'driver' => 'signal',
+            'enabled' => true,
+            'display_name' => 'Signal Primary',
+            'default_profile' => 'caelum',
+            'bound_session_id' => $boundSessionId,
+            'settings' => ['account' => '+15551234567'],
+            'allowed_scopes' => [],
+            'security' => [],
+            'source' => 'config',
+        ]);
+        $conversationId = $fixture['channelStore']->upsertConversation(
+            channelInstanceId: $channelId,
+            remoteConversationKey: 'signal-dm:+15557654321',
+            metadata: ['driver' => 'signal'],
+        );
+        $eventId = $fixture['channelStore']->createInboundEvent(
+            channelInstanceId: $channelId,
+            conversationId: $conversationId,
+            providerEventId: '1713571200015',
+            dedupeKey: 'signal:+15557654321:1713571200015:1',
+            eventType: 'data_message',
+            remoteUserKey: '+15557654321',
+            payload: ['source' => '+15557654321'],
+            normalized: ['message' => 'Bind to this chat'],
+            receivedAt: '2026-04-20T00:05:00Z',
+        );
+
+        $manager = new ChannelExecutionManager($config, $fixture['channelStore'], $fixture['storage']);
+        $manager->tick();
+
+        $event = $fixture['channelStore']->getInboundEvent((string) $eventId);
+        $conversation = $fixture['channelStore']->getConversation($conversationId);
+
+        expect($event['session_id'])->toBe($boundSessionId);
+        expect($conversation['session_id'])->toBe($boundSessionId);
     } finally {
         releaseTestObjectProperties((object) $fixture);
         cleanupSqliteTestDb($fixture['dbPath']);

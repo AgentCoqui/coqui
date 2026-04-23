@@ -142,6 +142,7 @@ final class LoopManager
             modelRole: $stageResult->role,
             model: '',
             profile: $activeProfile,
+            visibility: 'hidden',
         );
 
         // Propagate active project context from parent session to task session

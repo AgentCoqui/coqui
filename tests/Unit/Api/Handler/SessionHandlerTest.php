@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
@@ -311,8 +312,7 @@ test('session handler resolve reuses the latest scoped interactive session', fun
 
     try {
         $profileSessionId = $fixture['storage']->createSession('orchestrator', 'anthropic/claude-sonnet-4-20250514', 'caelum');
-        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'anthropic/claude-sonnet-4-20250514', 'caelum');
-        $fixture['storage']->createTask($backgroundSessionId, 'Background task');
+        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'anthropic/claude-sonnet-4-20250514', 'caelum', visibility: 'hidden');
 
         $fixture['storage']->getPdo()
             ->prepare('UPDATE sessions SET updated_at = :updated_at WHERE id = :id')
@@ -386,6 +386,51 @@ test('session handler get returns active project id when present', function () {
 
         expect($response->getStatusCode())->toBe(200);
         expect($body['active_project_id'])->toBe($projectId);
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler list and get include channel metadata for bound sessions', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $channelStore = new ChannelStore($fixture['storage']->getPdo());
+        $channelId = $channelStore->upsertConfiguredInstance([
+            'name' => 'signal-primary',
+            'driver' => 'signal',
+            'display_name' => 'Signal Primary',
+            'default_profile' => 'caelum',
+            'bound_session_id' => $sessionId,
+            'settings' => ['account' => '+15551234567'],
+            'allowed_scopes' => [],
+            'security' => ['linkRequired' => true],
+        ], ['direct_messages' => true]);
+
+        $listResponse = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/sessions?status=all'));
+        $listBody = json_decode((string) $listResponse->getBody(), true);
+        $getResponse = $fixture['handler']->get(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId), $sessionId);
+        $getBody = json_decode((string) $getResponse->getBody(), true);
+
+        expect($listResponse->getStatusCode())->toBe(200);
+        expect($listBody['sessions'])->toHaveCount(1);
+        expect($listBody['sessions'][0]['channel_bound'])->toBeTrue();
+        expect($listBody['sessions'][0]['channel'])->toBe([
+            'instance_id' => $channelId,
+            'name' => 'signal-primary',
+            'driver' => 'signal',
+            'display_name' => 'Signal Primary',
+        ]);
+
+        expect($getResponse->getStatusCode())->toBe(200);
+        expect($getBody['channel_bound'])->toBeTrue();
+        expect($getBody['channel'])->toBe([
+            'instance_id' => $channelId,
+            'name' => 'signal-primary',
+            'driver' => 'signal',
+            'display_name' => 'Signal Primary',
+        ]);
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }

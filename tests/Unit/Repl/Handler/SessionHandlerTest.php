@@ -177,9 +177,7 @@ test('session handler ignores attached and latest background task sessions for u
 
     try {
         $interactiveSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
-        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
-
-        attachBackgroundTaskToSession($fixture['storage'], $backgroundSessionId);
+        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', visibility: 'hidden');
 
         setSessionUpdatedAt($fixture['storage'], $interactiveSessionId, '2026-01-02T00:00:00+00:00');
         setSessionUpdatedAt($fixture['storage'], $backgroundSessionId, '2026-01-05T00:00:00+00:00');
@@ -200,9 +198,7 @@ test('session handler ignores background task sessions for profile resume', func
 
     try {
         $interactiveSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
-        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
-
-        attachBackgroundTaskToSession($fixture['storage'], $backgroundSessionId);
+        $backgroundSessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum', visibility: 'hidden');
 
         setSessionUpdatedAt($fixture['storage'], $interactiveSessionId, '2026-01-02T00:00:00+00:00');
         setSessionUpdatedAt($fixture['storage'], $backgroundSessionId, '2026-01-05T00:00:00+00:00');
