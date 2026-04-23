@@ -11,6 +11,7 @@ use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Storage\ChannelStore;
+use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Input\ArrayInput;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -60,9 +61,10 @@ function makeReplChannelHandlerFixture(): array
         'manager' => $manager,
         'handler' => new ChannelHandler(
             $store,
-            new ChannelConfigurationEditor($configManager, $channelDiscovery, $profileDiscovery),
+            new ChannelConfigurationEditor($configManager, $channelDiscovery, $profileDiscovery, $storage),
             $channelDiscovery,
             $profileDiscovery,
+            new RuntimeStateStore($storage->getPdo()),
         ),
         'io' => new SymfonyStyle(new ArrayInput([]), $output),
         'output' => $output,
@@ -106,6 +108,25 @@ test('channel repl handler manages identity links', function (): void {
 
         expect($display)->toContain('signal:+15551234567');
         expect($display)->toContain('assistant');
+    } finally {
+        cleanupReplChannelHandlerFixture($fixture);
+    }
+});
+
+test('channel repl handler sets a bound session id', function (): void {
+    $fixture = makeReplChannelHandlerFixture();
+
+    try {
+        $sessionId = (new SessionStorage($fixture['dbPath']))->createSession('orchestrator', 'openai/gpt-4.1-mini');
+        $fixture['handler']->handle($fixture['io'], 'add signal signal-primary +15551234567');
+        $fixture['output']->fetch();
+
+        $fixture['handler']->handle($fixture['io'], 'set signal-primary boundSessionId ' . $sessionId);
+        $display = $fixture['output']->fetch();
+        $config = $fixture['configManager']->toArray();
+
+        expect($display)->toContain('Updated channel "signal-primary"');
+        expect($config['channels']['instances']['signal-primary']['boundSessionId'])->toBe($sessionId);
     } finally {
         cleanupReplChannelHandlerFixture($fixture);
     }

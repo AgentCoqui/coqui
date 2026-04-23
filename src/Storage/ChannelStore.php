@@ -28,6 +28,7 @@ final class ChannelStore
                 enabled INTEGER NOT NULL DEFAULT 1,
                 display_name TEXT,
                 default_profile TEXT,
+                bound_session_id TEXT,
                 config_json TEXT NOT NULL DEFAULT '{}',
                 allowed_scopes_json TEXT NOT NULL DEFAULT '[]',
                 security_json TEXT NOT NULL DEFAULT '{}',
@@ -37,6 +38,8 @@ final class ChannelStore
             )
         SQL);
 
+        $this->migrateAddColumn('channel_instances', 'bound_session_id', 'TEXT DEFAULT NULL');
+
         $this->db->exec(<<<'SQL'
             CREATE INDEX IF NOT EXISTS idx_channel_instances_driver
                 ON channel_instances(driver)
@@ -45,6 +48,11 @@ final class ChannelStore
         $this->db->exec(<<<'SQL'
             CREATE INDEX IF NOT EXISTS idx_channel_instances_enabled
                 ON channel_instances(enabled)
+        SQL);
+
+        $this->db->exec(<<<'SQL'
+            CREATE INDEX IF NOT EXISTS idx_channel_instances_bound_session
+                ON channel_instances(bound_session_id)
         SQL);
 
         $this->db->exec(<<<'SQL'
@@ -244,7 +252,7 @@ final class ChannelStore
             $stmt = $this->db->prepare(<<<'SQL'
                 UPDATE channel_instances
                 SET driver = ?, source = ?, enabled = ?, display_name = ?, default_profile = ?,
-                    config_json = ?, allowed_scopes_json = ?, security_json = ?, capabilities_json = ?, updated_at = ?
+                    bound_session_id = ?, config_json = ?, allowed_scopes_json = ?, security_json = ?, capabilities_json = ?, updated_at = ?
                 WHERE id = ?
             SQL);
 
@@ -254,6 +262,7 @@ final class ChannelStore
                 (bool) ($definition['enabled'] ?? true) ? 1 : 0,
                 (string) ($definition['display_name'] ?? $definition['name']),
                 $definition['default_profile'] ?? null,
+                $definition['bound_session_id'] ?? null,
                 $this->encodeJson($definition['settings'] ?? []),
                 $this->encodeJson($definition['allowed_scopes'] ?? []),
                 $this->encodeJson($definition['security'] ?? []),
@@ -268,9 +277,9 @@ final class ChannelStore
         $id = bin2hex(random_bytes(16));
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO channel_instances
-                (id, name, driver, source, enabled, display_name, default_profile,
+                (id, name, driver, source, enabled, display_name, default_profile, bound_session_id,
                  config_json, allowed_scopes_json, security_json, capabilities_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         SQL);
 
         $stmt->execute([
@@ -281,6 +290,7 @@ final class ChannelStore
             (bool) ($definition['enabled'] ?? true) ? 1 : 0,
             (string) ($definition['display_name'] ?? $definition['name']),
             $definition['default_profile'] ?? null,
+            $definition['bound_session_id'] ?? null,
             $this->encodeJson($definition['settings'] ?? []),
             $this->encodeJson($definition['allowed_scopes'] ?? []),
             $this->encodeJson($definition['security'] ?? []),
@@ -1022,6 +1032,9 @@ final class ChannelStore
         $row['allowed_scopes'] = $this->decodeJsonColumn($row['allowed_scopes_json'] ?? '[]', []);
         $row['security'] = $this->decodeJsonColumn($row['security_json'] ?? '{}', []);
         $row['capabilities'] = $this->decodeJsonColumn($row['capabilities_json'] ?? '{}', []);
+        $row['bound_session_id'] = is_string($row['bound_session_id'] ?? null) && trim((string) $row['bound_session_id']) !== ''
+            ? trim((string) $row['bound_session_id'])
+            : null;
 
         return $row;
     }

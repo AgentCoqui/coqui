@@ -120,7 +120,7 @@ final readonly class QualityAutomationCoordinator
         $title = sprintf('Quality Learning Follow-up: %s', $evaluationId);
         $triggerContext = $this->resolveLearnerTriggerContext($evaluationId);
 
-        $learnerSessionId = $this->storage->createSession(SystemRole::Learner->value, self::QUALITY_CREATED_BY);
+        $learnerSessionId = $this->storage->createSession(SystemRole::Learner->value, self::QUALITY_CREATED_BY, visibility: 'hidden');
         $taskId = $this->storage->createTask(
             sessionId: $learnerSessionId,
             prompt: $this->buildLearnerFollowUpPrompt(

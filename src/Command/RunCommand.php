@@ -412,6 +412,7 @@ final class RunCommand extends Command
             $this->boot->configManager(),
             $this->boot->channelDiscovery(),
             $this->boot->profileDiscovery(),
+            $this->storage,
         );
         $groupSessionService = new GroupSessionService(
             $this->storage,

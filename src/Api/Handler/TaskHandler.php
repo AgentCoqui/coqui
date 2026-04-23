@@ -152,7 +152,7 @@ final readonly class TaskHandler
 
         // Create the dedicated session for this task
         $model = $this->roleResolver->resolve($role, $profile);
-        $sessionId = $this->storage->createSession($role, $model, $profile);
+        $sessionId = $this->storage->createSession($role, $model, $profile, visibility: 'hidden');
 
         // Create the task record
         $taskId = $this->storage->createTask(

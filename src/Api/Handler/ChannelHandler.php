@@ -364,6 +364,10 @@ final readonly class ChannelHandler
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
 
+        if (array_key_exists('bound_session_id', $body) && !array_key_exists('boundSessionId', $body)) {
+            $body['boundSessionId'] = $body['bound_session_id'];
+        }
+
         return $body;
     }
 

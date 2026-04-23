@@ -587,6 +587,64 @@ test('getLatestInteractiveSessionIdForProfile ignores closed sessions', function
     expect($this->storage->getLatestInteractiveSessionIdForProfile('caelum'))->toBe($activeSessionId);
 });
 
+test('listSessions hides hidden worker sessions and exposes channel metadata', function () {
+    $visibleSessionId = $this->storage->createSession('orchestrator', 'channel:signal', 'caelum');
+    $hiddenSessionId = $this->storage->createSession('orchestrator', 'model-hidden', visibility: 'hidden');
+    $channelStore = new \CoquiBot\Coqui\Storage\ChannelStore($this->storage->getPdo());
+
+    $channelStore->upsertConfiguredInstance([
+        'name' => 'signal-primary',
+        'driver' => 'signal',
+        'enabled' => true,
+        'display_name' => 'Signal Primary',
+        'default_profile' => 'caelum',
+        'bound_session_id' => $visibleSessionId,
+        'settings' => ['account' => '+15551234567'],
+        'allowed_scopes' => [],
+        'security' => [],
+        'source' => 'config',
+    ]);
+
+    $sessions = $this->storage->listSessions();
+    $sessionIds = array_column($sessions, 'id');
+    $visibleSession = array_values(array_filter($sessions, static fn(array $session): bool => $session['id'] === $visibleSessionId))[0] ?? null;
+
+    expect($sessionIds)->toContain($visibleSessionId);
+    expect($sessionIds)->not->toContain($hiddenSessionId);
+    expect($visibleSession)->not->toBeNull();
+    expect($visibleSession['channel_bound'])->toBeTrue();
+    expect($visibleSession['channel']['driver'])->toBe('signal');
+});
+
+test('latest interactive helpers ignore channel bound sessions', function () {
+    $ordinarySessionId = $this->storage->createSession('orchestrator', 'model-ordinary', 'caelum');
+    $channelSessionId = $this->storage->createSession('orchestrator', 'channel:signal', 'caelum');
+    $channelStore = new \CoquiBot\Coqui\Storage\ChannelStore($this->storage->getPdo());
+
+    $channelStore->upsertConfiguredInstance([
+        'name' => 'signal-primary',
+        'driver' => 'signal',
+        'enabled' => true,
+        'display_name' => 'Signal Primary',
+        'default_profile' => 'caelum',
+        'bound_session_id' => $channelSessionId,
+        'settings' => ['account' => '+15551234567'],
+        'allowed_scopes' => [],
+        'security' => [],
+        'source' => 'config',
+    ]);
+
+    $this->storage->getPdo()
+        ->prepare('UPDATE sessions SET updated_at = :updated_at WHERE id = :id')
+        ->execute(['updated_at' => '2026-01-01T00:00:00+00:00', 'id' => $ordinarySessionId]);
+    $this->storage->getPdo()
+        ->prepare('UPDATE sessions SET updated_at = :updated_at WHERE id = :id')
+        ->execute(['updated_at' => '2026-01-05T00:00:00+00:00', 'id' => $channelSessionId]);
+
+    expect($this->storage->getLatestInteractiveSessionIdForProfile('caelum'))->toBe($ordinarySessionId);
+    expect($this->storage->getLatestInteractiveSessionId())->toBe($ordinarySessionId);
+});
+
 test('isSessionWritable returns false once a session is closed', function () {
     $sessionId = $this->storage->createSession('orchestrator', 'model');
 

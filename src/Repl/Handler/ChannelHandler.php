@@ -100,6 +100,7 @@ final readonly class ChannelHandler
             ['Display' => (string) ($channel['display_name'] ?? $channel['name'])],
             ['Enabled' => ((bool) ($channel['enabled'] ?? false)) ? 'yes' : 'no'],
             ['Default profile' => (string) ($channel['default_profile'] ?? '-')],
+            ['Bound session' => (string) ($channel['bound_session_id'] ?? '-')],
             ['Ready' => ((bool) ($channel['ready'] ?? false)) ? 'yes' : 'no'],
             ['Worker status' => (string) ($channel['worker_status'] ?? 'missing')],
             ['Last heartbeat' => (string) ($channel['last_heartbeat_at'] ?? '-')],
@@ -248,7 +249,9 @@ final readonly class ChannelHandler
         }
 
         $channel = $this->channelStore->getByIdOrName($name);
-        if ($channel === null) {
+        $channelName = is_array($channel) ? (string) $channel['name'] : $name;
+
+        if ($channel === null && $this->configEditor->get($channelName) === null) {
             $io->error(sprintf('No channel found matching "%s".', $name));
             return;
         }
@@ -264,6 +267,7 @@ final readonly class ChannelHandler
             'driver' => ['driver' => $rawValue],
             'displayName', 'display_name' => ['displayName' => $rawValue],
             'defaultProfile', 'default_profile' => ['defaultProfile' => in_array(strtolower($rawValue), ['none', 'null'], true) ? null : $rawValue],
+            'boundSessionId', 'bound_session_id' => ['boundSessionId' => in_array(strtolower($rawValue), ['none', 'null'], true) ? null : $rawValue],
             'enabled' => ['enabled' => $this->parseBoolean($rawValue)],
             'settings' => ['settings' => $this->decodeJsonArgument($rawValue)],
             'allowedScopes', 'allowed_scopes' => ['allowedScopes' => $this->decodeJsonArgument($rawValue)],
@@ -272,7 +276,7 @@ final readonly class ChannelHandler
         };
 
         if ($patch === null) {
-            $io->error('Supported fields: driver, displayName, defaultProfile, enabled, settings, allowedScopes, security');
+            $io->error('Supported fields: driver, displayName, defaultProfile, boundSessionId, enabled, settings, allowedScopes, security');
             return;
         }
 
@@ -288,7 +292,7 @@ final readonly class ChannelHandler
             }
         }
 
-        $errors = $this->configEditor->update((string) $channel['name'], $patch);
+        $errors = $this->configEditor->update($channelName, $patch);
         if ($errors !== []) {
             $io->error($errors);
             return;
@@ -297,10 +301,10 @@ final readonly class ChannelHandler
         $this->runtimeStateStore->markApiRestartRequired(
             'Channel configuration changed. Restart the API server to ensure channel runtimes reload cleanly.',
             'repl.channels.update',
-            ['channel_name' => (string) $channel['name'], 'operation' => 'update'],
+            ['channel_name' => $channelName, 'operation' => 'update'],
         );
 
-        $io->success(sprintf('Updated channel "%s". Restart the API server to apply config changes if needed.', $channel['name']));
+        $io->success(sprintf('Updated channel "%s". Restart the API server to apply config changes if needed.', $channelName));
     }
 
     private function handleLinks(SymfonyStyle $io, string $target): void

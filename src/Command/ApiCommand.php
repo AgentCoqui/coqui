@@ -393,7 +393,7 @@ final class ApiCommand extends Command
         $channelHandler = new ChannelHandler(
             $channelStore,
             $channelManager,
-            new ChannelConfigurationEditor($boot->configManager(), $boot->channelDiscovery(), $boot->profileDiscovery()),
+            new ChannelConfigurationEditor($boot->configManager(), $boot->channelDiscovery(), $boot->profileDiscovery(), $storage),
             $boot->channelDiscovery(),
             $boot->profileDiscovery(),
             $lifecycle,

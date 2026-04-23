@@ -124,6 +124,7 @@ final class ScheduleManager
             modelRole: $role,
             model: '',
             profile: $activeProfile,
+            visibility: 'hidden',
         );
 
         // Create the background task linked to the schedule

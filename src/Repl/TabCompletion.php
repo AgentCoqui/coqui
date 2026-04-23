@@ -289,7 +289,7 @@ final class TabCompletion
         }
 
         if (count($parts) === 4 && $parts[1] === 'set') {
-            return $this->completeChoices(['driver', 'displayName', 'defaultProfile', 'enabled', 'settings', 'allowedScopes', 'security'], $parts[3]);
+            return $this->completeChoices(['driver', 'displayName', 'defaultProfile', 'boundSessionId', 'enabled', 'settings', 'allowedScopes', 'security'], $parts[3]);
         }
 
         return [];

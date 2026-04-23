@@ -323,6 +323,16 @@ final class OpenClawConfig implements ConfigInterface
             $normalizedDefaults['defaultProfile'] = trim($defaults['defaultProfile']);
         }
 
+        foreach ($instances as $name => $instance) {
+            if (!is_array($instance)) {
+                continue;
+            }
+
+            if (isset($instance['boundSessionId']) && is_string($instance['boundSessionId']) && trim($instance['boundSessionId']) !== '') {
+                $instances[$name]['boundSessionId'] = trim($instance['boundSessionId']);
+            }
+        }
+
         return [
             'defaults' => $normalizedDefaults,
             'instances' => $instances,
