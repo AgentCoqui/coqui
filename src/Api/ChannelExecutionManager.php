@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api;
 
+use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\ChannelStore;
@@ -22,6 +23,7 @@ final readonly class ChannelExecutionManager
         private OpenClawConfig $config,
         private ChannelStore $channelStore,
         private SessionStorage $storage,
+        private RoleResolver $roleResolver,
     ) {}
 
     public function tick(): void
@@ -293,7 +295,11 @@ final readonly class ChannelExecutionManager
             return $sessionId;
         }
 
-        $sessionId = $this->storage->createSession(SystemRole::Orchestrator->value, 'channel:' . (string) $channel['driver'], $profile);
+        $sessionId = $this->storage->createSession(
+            SystemRole::Orchestrator->value,
+            $this->roleResolver->resolve(SystemRole::Orchestrator->value, $profile),
+            $profile,
+        );
         $this->storage->updateSessionTitle(
             $sessionId,
             sprintf('Channel · %s · %s', (string) $channel['name'], (string) ($conversation['remote_conversation_key'] ?? 'conversation')),

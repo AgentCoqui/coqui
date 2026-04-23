@@ -395,7 +395,7 @@ test('session handler list and get include channel metadata for bound sessions',
     $fixture = createApiSessionHandlerFixture();
 
     try {
-        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest', 'caelum');
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'channel:signal', 'caelum');
         $channelStore = new ChannelStore($fixture['storage']->getPdo());
         $channelId = $channelStore->upsertConfiguredInstance([
             'name' => 'signal-primary',
@@ -416,6 +416,7 @@ test('session handler list and get include channel metadata for bound sessions',
         expect($listResponse->getStatusCode())->toBe(200);
         expect($listBody['sessions'])->toHaveCount(1);
         expect($listBody['sessions'][0]['channel_bound'])->toBeTrue();
+        expect($listBody['sessions'][0]['model'])->toBe('ollama/qwen3:latest');
         expect($listBody['sessions'][0]['channel'])->toBe([
             'instance_id' => $channelId,
             'name' => 'signal-primary',
@@ -425,6 +426,7 @@ test('session handler list and get include channel metadata for bound sessions',
 
         expect($getResponse->getStatusCode())->toBe(200);
         expect($getBody['channel_bound'])->toBeTrue();
+        expect($getBody['model'])->toBe('ollama/qwen3:latest');
         expect($getBody['channel'])->toBe([
             'instance_id' => $channelId,
             'name' => 'signal-primary',
