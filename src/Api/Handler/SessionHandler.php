@@ -89,7 +89,10 @@ final readonly class SessionHandler
             }
         }
 
-        $sessions = $this->storage->listSessions($limit, true, $status === null, $status, $profile, $unprofiledOnly);
+        $sessions = array_map(
+            fn(array $session): array => $this->normalizeSessionForResponse($session),
+            $this->storage->listSessions($limit, true, $status === null, $status, $profile, $unprofiledOnly),
+        );
 
         return Router::jsonResponse([
             'sessions' => $sessions,
@@ -150,7 +153,7 @@ final readonly class SessionHandler
             return $session;
         }
 
-        return Router::jsonResponse($session);
+        return Router::jsonResponse($this->normalizeSessionForResponse($session));
     }
 
     /**
@@ -379,5 +382,32 @@ final readonly class SessionHandler
     private function sessionUpdateRequestResolver(): SessionUpdateRequestResolver
     {
         return new SessionUpdateRequestResolver();
+    }
+
+    /**
+     * @param array<string, mixed> $session
+     * @return array<string, mixed>
+     */
+    private function normalizeSessionForResponse(array $session): array
+    {
+        $model = is_string($session['model'] ?? null) ? trim((string) $session['model']) : '';
+        $role = is_string($session['model_role'] ?? null) ? trim((string) $session['model_role']) : '';
+
+        if ($model !== '' && !str_starts_with($model, 'channel:')) {
+            return $session;
+        }
+
+        if ($role === '') {
+            return $session;
+        }
+
+        $profile = is_string($session['profile'] ?? null) ? trim((string) $session['profile']) : null;
+        if ($profile === '') {
+            $profile = null;
+        }
+
+        $session['model'] = $this->roleResolver->resolve($role, $profile);
+
+        return $session;
     }
 }

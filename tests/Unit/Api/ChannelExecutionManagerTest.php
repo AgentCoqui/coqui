@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Api\ChannelExecutionManager;
 use CoquiBot\Coqui\Config\OpenClawConfig;
+use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
@@ -67,7 +68,7 @@ test('channel execution manager turns linked inbound events into background task
             receivedAt: '2026-04-20T00:00:00Z',
         );
 
-        $manager = new ChannelExecutionManager($config, $fixture['channelStore'], $fixture['storage']);
+        $manager = new ChannelExecutionManager($config, $fixture['channelStore'], $fixture['storage'], new RoleResolver($config));
         $manager->tick();
 
         $event = $fixture['channelStore']->getInboundEvent((string) $eventId);
@@ -83,6 +84,7 @@ test('channel execution manager turns linked inbound events into background task
         expect($conversation)->not->toBeNull();
         expect($conversation['session_id'])->toBe($event['session_id']);
         expect($fixture['storage']->getSession((string) $event['session_id'])['channel']['driver'])->toBe('signal');
+        expect($fixture['storage']->getSession((string) $event['session_id'])['model'])->toBe('ollama/qwen3:latest');
         expect($task)->not->toBeNull();
         expect($task['status'])->toBe('pending');
         expect($task['prompt'])->toContain('Hello from Signal');
@@ -134,7 +136,7 @@ test('channel execution manager reuses a channel bound session', function (): vo
             receivedAt: '2026-04-20T00:05:00Z',
         );
 
-        $manager = new ChannelExecutionManager($config, $fixture['channelStore'], $fixture['storage']);
+        $manager = new ChannelExecutionManager($config, $fixture['channelStore'], $fixture['storage'], new RoleResolver($config));
         $manager->tick();
 
         $event = $fixture['channelStore']->getInboundEvent((string) $eventId);
@@ -188,7 +190,7 @@ test('channel execution manager queues deliveries for completed channel tasks an
             receivedAt: '2026-04-20T00:01:00Z',
         );
 
-        $manager = new ChannelExecutionManager($config, $fixture['channelStore'], $fixture['storage']);
+        $manager = new ChannelExecutionManager($config, $fixture['channelStore'], $fixture['storage'], new RoleResolver($config));
         $manager->tick();
 
         $event = $fixture['channelStore']->getInboundEvent((string) $eventId);
@@ -258,7 +260,7 @@ test('channel execution manager rejects unknown users when channel policy requir
             receivedAt: '2026-04-20T00:03:00Z',
         );
 
-        $manager = new ChannelExecutionManager($config, $fixture['channelStore'], $fixture['storage']);
+        $manager = new ChannelExecutionManager($config, $fixture['channelStore'], $fixture['storage'], new RoleResolver($config));
         $manager->tick();
 
         $event = $fixture['channelStore']->getInboundEvent((string) $eventId);

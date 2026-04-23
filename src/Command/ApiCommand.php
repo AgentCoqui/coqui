@@ -253,7 +253,12 @@ final class ApiCommand extends Command
             ],
         );
         $channelManager->reconcile();
-        $channelExecutionManager = new ChannelExecutionManager($boot->config(), $channelStore, $storage);
+        $channelExecutionManager = new ChannelExecutionManager(
+            $boot->config(),
+            $channelStore,
+            $storage,
+            $boot->roleResolver(),
+        );
         $qualityAutomation = new QualityAutomationCoordinator(
             config: $boot->config(),
             storage: $storage,
