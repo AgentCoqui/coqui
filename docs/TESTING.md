@@ -3,7 +3,7 @@
 Coqui uses a small number of test layers with different goals:
 
 - Pest unit tests under `tests/Unit/` cover PHP classes directly.
-- Bash tests under `tests/bash/` cover launcher and shell-specific behavior.
+- Bash tests under `tests/bash/` cover launcher, installer helper, and other shell-specific behavior.
 - PHPStan runs separately as static analysis and should be treated as part of the test gate.
 
 The current suite is mostly SQLite-backed and filesystem-backed unit testing. Most tests create temporary workspaces, temporary SQLite databases, and real store/tool instances instead of relying heavily on mocks.
@@ -15,7 +15,7 @@ The current suite is mostly SQLite-backed and filesystem-backed unit testing. Mo
 - `tests/Unit/Config/` — config parsing, guards, discovery, role/toolkit resolution
 - `tests/Unit/Storage/` — SQLite persistence and query behavior
 - `tests/Unit/Toolkit/` and `tests/Unit/Tool/` — tool and toolkit behavior
-- `tests/bash/` — launcher and signal-handling tests
+- `tests/bash/` — launcher, mock-installer, and signal-handling tests
 
 ## Default Commands
 

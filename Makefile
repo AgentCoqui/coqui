@@ -93,6 +93,7 @@ analyse: ## Run PHPStan static analysis
 test-launcher: ## Run bash unit tests for the launcher script
 	@bash tests/bash/launcher-sigint-test.sh
 	@bash tests/bash/launcher-default-mode-test.sh
+	@bash tests/bash/mock-install-test.sh
 
 # =============================================================================
 # Docker

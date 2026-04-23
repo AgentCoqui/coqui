@@ -11,7 +11,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs four main jobs:
 - **Tests** — `composer test` across the full matrix
 - **Coverage** — `composer test:coverage -- --clover build/coverage/clover.xml` on one stable lane, uploading Clover XML
 - **PHPStan** — `composer analyse` at level 8 with bleeding edge rules
-- **Bash Tests** — `bash tests/bash/launcher-sigint-test.sh` for launcher signal-handling behavior
+- **Bash Tests** — shell regressions for launcher behavior and the dev mock installer
 
 ### PHP Version Matrix
 
