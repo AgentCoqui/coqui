@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Channel\ChannelConfigurationEditor;
 use CoquiBot\Coqui\Channel\ChannelDiscovery;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Storage\ChannelStore;
+use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use Symfony\Component\Console\Style\SymfonyStyle;
 
 /**
@@ -20,6 +21,7 @@ final readonly class ChannelHandler
         private ChannelConfigurationEditor $configEditor,
         private ChannelDiscovery $channelDiscovery,
         private ProfileDiscovery $profileDiscovery,
+        private RuntimeStateStore $runtimeStateStore,
     ) {}
 
     public function handle(SymfonyStyle $io, string $arg): void
@@ -56,6 +58,11 @@ final readonly class ChannelHandler
 
         $stats = $this->channelStore->getStats();
         $io->section(sprintf('Channels (%d enabled / %d total)', $stats['enabled'], $stats['total']));
+
+        $restart = $this->runtimeStateStore->apiRestartState();
+        if ($restart['required']) {
+            $io->warning('API restart pending: channel changes have been saved and the running API should be restarted to fully apply them.');
+        }
 
         $rows = [];
         foreach ($channels as $channel) {
@@ -180,6 +187,12 @@ final readonly class ChannelHandler
             return;
         }
 
+        $this->runtimeStateStore->markApiRestartRequired(
+            'Channel configuration changed. Restart the API server to ensure channel runtimes reload cleanly.',
+            'repl.channels.delete',
+            ['channel_name' => (string) $channel['name'], 'operation' => 'delete'],
+        );
+
         $io->success(sprintf('Deleted channel "%s". Restart the API server to apply the removal if it is already running.', $channel['name']));
     }
 
@@ -191,20 +204,33 @@ final readonly class ChannelHandler
         $driver = trim((string) ($parts[1] ?? ''));
         $name = trim((string) ($parts[2] ?? ''));
         if ($driver === '' || $name === '') {
-            $io->error('Usage: /channels add <driver> <name>');
+            $io->error('Usage: /channels add <driver> <name> [signal-account]');
             return;
         }
 
-        $errors = $this->configEditor->create($name, [
+        $account = trim((string) ($parts[3] ?? ''));
+        $payload = [
             'driver' => $driver,
             'displayName' => $name,
             'enabled' => true,
-        ]);
+        ];
+
+        if ($driver === 'signal' && $account !== '') {
+            $payload['settings'] = ['account' => $account];
+        }
+
+        $errors = $this->configEditor->create($name, $payload);
 
         if ($errors !== []) {
             $io->error($errors);
             return;
         }
+
+        $this->runtimeStateStore->markApiRestartRequired(
+            'Channel configuration changed. Restart the API server to ensure channel runtimes reload cleanly.',
+            'repl.channels.create',
+            ['channel_name' => $name, 'operation' => 'create'],
+        );
 
         $io->success(sprintf('Saved channel "%s" with driver "%s". Restart the API server to apply it if needed.', $name, $driver));
     }
@@ -267,6 +293,12 @@ final readonly class ChannelHandler
             $io->error($errors);
             return;
         }
+
+        $this->runtimeStateStore->markApiRestartRequired(
+            'Channel configuration changed. Restart the API server to ensure channel runtimes reload cleanly.',
+            'repl.channels.update',
+            ['channel_name' => (string) $channel['name'], 'operation' => 'update'],
+        );
 
         $io->success(sprintf('Updated channel "%s". Restart the API server to apply config changes if needed.', $channel['name']));
     }
@@ -409,6 +441,12 @@ final readonly class ChannelHandler
             $io->error($errors);
             return;
         }
+
+        $this->runtimeStateStore->markApiRestartRequired(
+            'Channel configuration changed. Restart the API server to ensure channel runtimes reload cleanly.',
+            $enabled ? 'repl.channels.enable' : 'repl.channels.disable',
+            ['channel_name' => (string) $channel['name'], 'operation' => $enabled ? 'enable' : 'disable'],
+        );
 
         $io->success(sprintf('%s channel "%s". Restart the API server to apply the change if needed.', $enabled ? 'Enabled' : 'Disabled', $channel['name']));
     }

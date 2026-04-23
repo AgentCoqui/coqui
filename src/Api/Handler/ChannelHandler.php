@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\ChannelManager;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Channel\ChannelConfigurationEditor;
@@ -25,6 +26,7 @@ final readonly class ChannelHandler
         private ChannelConfigurationEditor $configEditor,
         private ChannelDiscovery $channelDiscovery,
         private ProfileDiscovery $profileDiscovery,
+        private ApiLifecycleController $lifecycle,
     ) {}
 
     public function register(Router $router): void
@@ -112,6 +114,11 @@ final readonly class ChannelHandler
         return Router::jsonResponse([
             'channel' => $this->syncAndFetch($name),
             'message' => 'Channel created.',
+            'restart' => $this->lifecycle->markRestartRequired(
+                'Channel configuration changed. Restart the API server to ensure channel runtimes reload cleanly.',
+                'api.channels.create',
+                ['channel_name' => $name, 'operation' => 'create'],
+            ),
         ], 201);
     }
 
@@ -145,6 +152,11 @@ final readonly class ChannelHandler
         return Router::jsonResponse([
             'channel' => $this->syncAndFetch((string) $channel['name']),
             'message' => 'Channel updated.',
+            'restart' => $this->lifecycle->markRestartRequired(
+                'Channel configuration changed. Restart the API server to ensure channel runtimes reload cleanly.',
+                'api.channels.update',
+                ['channel_name' => (string) $channel['name'], 'operation' => 'update'],
+            ),
         ]);
     }
 
@@ -162,7 +174,14 @@ final readonly class ChannelHandler
         $this->channelManager->reconcile();
         $this->channelManager->tick();
 
-        return Router::jsonResponse(['deleted' => true]);
+        return Router::jsonResponse([
+            'deleted' => true,
+            'restart' => $this->lifecycle->markRestartRequired(
+                'Channel configuration changed. Restart the API server to ensure channel runtimes reload cleanly.',
+                'api.channels.delete',
+                ['channel_name' => (string) $channel['name'], 'operation' => 'delete'],
+            ),
+        ]);
     }
 
     private function handleEnable(ServerRequestInterface $request, string $id): Response
@@ -297,6 +316,11 @@ final readonly class ChannelHandler
         return Router::jsonResponse([
             'channel' => $this->syncAndFetch((string) $channel['name']),
             'message' => $message,
+            'restart' => $this->lifecycle->markRestartRequired(
+                'Channel configuration changed. Restart the API server to ensure channel runtimes reload cleanly.',
+                $enabled ? 'api.channels.enable' : 'api.channels.disable',
+                ['channel_name' => (string) $channel['name'], 'operation' => $enabled ? 'enable' : 'disable'],
+            ),
         ]);
     }
 

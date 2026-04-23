@@ -52,7 +52,7 @@ When the active session is group-enabled, the REPL prompt shows the current memb
 | `/config` | Show current configuration |
 | `/config show` | Show the raw `openclaw.json` file |
 | `/config edit` | Reconfigure via setup wizard, then restart |
-| `/restart` | Restart Coqui (re-reads config, re-discovers toolkits) |
+| `/restart` | Restart the current Coqui REPL process (re-reads config, re-discovers toolkits) |
 | `/update` | Check for and apply dependency updates, then restart |
 | `/help` | Show the command reference table |
 | `/quit` | Exit Coqui |
@@ -167,7 +167,7 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 | `/channels drivers` | Show registered channel drivers and declared capabilities |
 | `/channels status <name\|id>` | Show one channel's configuration and runtime state |
 | `/channels health <name\|id>` | Show compact health output for one channel |
-| `/channels add <driver> <name>` | Advanced operator control: create a channel instance in `openclaw.json` |
+| `/channels add <driver> <name> [driver-args...]` | Advanced operator control: create a channel instance in `openclaw.json` (for Signal: optional account number as the third argument) |
 | `/channels set <name\|id> <field> <value>` | Advanced operator control: update `driver`, `displayName`, `defaultProfile`, `enabled`, `settings`, `allowedScopes`, or `security` |
 | `/channels enable <name\|id>` | Advanced operator control: enable a channel instance |
 | `/channels disable <name\|id>` | Advanced operator control: disable a channel instance |

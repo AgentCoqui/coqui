@@ -44,6 +44,12 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
 
     private string $stderrBuffer = '';
 
+    /** @var array<string, array{deliveryId: string}> */
+    private array $pendingSendRequests = [];
+
+    /** @var array<string, true> */
+    private array $pendingDeliveryIds = [];
+
     /**
      * @param array<string, mixed> $instanceDefinition
      */
@@ -100,6 +106,9 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
             $this->process->terminate();
             $this->process = null;
         }
+
+        $this->pendingSendRequests = [];
+        $this->pendingDeliveryIds = [];
     }
 
     public function healthReport(): array
@@ -161,67 +170,95 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
         $message = trim((string) ($payload['message'] ?? ''));
         $groupId = $this->firstNonEmptyString([$payload['group_id'] ?? null]);
         $recipient = $this->firstNonEmptyString([$payload['recipient'] ?? null]);
+        $deliveryId = (string) $delivery['id'];
 
         if ($message === '' || ($groupId === null && $recipient === null)) {
             $attemptCount = $this->channelStore->recordDeliveryAttempt(
-                deliveryId: (string) $delivery['id'],
+                deliveryId: $deliveryId,
                 resultStatus: 'failed',
                 providerResponseBody: 'Delivery payload is missing message text or destination.',
             );
-            $this->channelStore->markDeliveryFailed((string) $delivery['id'], $attemptCount, 'Delivery payload is missing message text or destination.');
+            $this->channelStore->markDeliveryFailed($deliveryId, $attemptCount, 'Delivery payload is missing message text or destination.');
             $this->lastError = 'Invalid queued Signal delivery payload.';
             $this->consecutiveFailures++;
             return;
         }
 
-        $request = [
-            'jsonrpc' => '2.0',
-            'method' => 'send',
-            'params' => $groupId !== null
-                ? ['groupId' => $groupId, 'message' => $message]
-                : ['recipient' => [$recipient], 'message' => $message],
-            'id' => (string) $delivery['id'],
-        ];
+        if (isset($this->pendingDeliveryIds[$deliveryId])) {
+            return;
+        }
 
-        [$exitCode, $stdout, $stderr] = $this->runCommand(
-            [$this->binaryPath(), '-a', $this->account(), 'jsonRpc'],
-            (json_encode($request, JSON_UNESCAPED_SLASHES) ?: '{}') . "\n",
-        );
-
-        if ($exitCode !== 0) {
-            $error = $this->truncate(trim($stderr !== '' ? $stderr : $stdout));
+        if ($this->process === null || $this->process->stdin === null) {
             $attemptCount = $this->channelStore->recordDeliveryAttempt(
-                deliveryId: (string) $delivery['id'],
+                deliveryId: $deliveryId,
                 resultStatus: 'failed',
-                providerResponseBody: $error,
+                providerResponseBody: 'Signal JSON-RPC process is not available for outbound delivery.',
             );
-            $this->channelStore->markDeliveryFailed((string) $delivery['id'], $attemptCount, $error !== '' ? $error : 'signal-cli send failed.');
-            $this->lastError = $error !== '' ? $error : 'signal-cli send failed.';
+            $this->channelStore->markDeliveryFailed($deliveryId, $attemptCount, 'Signal JSON-RPC process is not available for outbound delivery.');
+            $this->lastError = 'Signal JSON-RPC process is not available for outbound delivery.';
             $this->consecutiveFailures++;
             return;
         }
 
-        $response = $this->decodeJsonLines($stdout);
-        $providerMessageId = null;
-        if (is_array($response['result'] ?? null) && isset($response['result']['timestamp'])) {
-            $providerMessageId = (string) $response['result']['timestamp'];
+        $requestId = 'send-' . $deliveryId;
+        $request = $this->buildSendRequest($requestId, $message, $recipient, $groupId);
+        $written = $this->process->stdin->write($request . "\n");
+
+        if ($written === false) {
+            $attemptCount = $this->channelStore->recordDeliveryAttempt(
+                deliveryId: $deliveryId,
+                resultStatus: 'failed',
+                providerResponseBody: 'Failed to write outbound request to Signal JSON-RPC process.',
+            );
+            $this->channelStore->markDeliveryFailed($deliveryId, $attemptCount, 'Failed to write outbound request to Signal JSON-RPC process.');
+            $this->lastError = 'Failed to write outbound request to Signal JSON-RPC process.';
+            $this->consecutiveFailures++;
+            return;
         }
 
-        $attemptCount = $this->channelStore->recordDeliveryAttempt(
-            deliveryId: (string) $delivery['id'],
-            resultStatus: 'sent',
-            providerResponseBody: $this->truncate(trim($stdout)),
-        );
-        $this->channelStore->markDeliverySent((string) $delivery['id'], $attemptCount, $providerMessageId);
-        $this->lastSendAt = gmdate('Y-m-d\TH:i:s\Z');
-        $this->lastError = null;
-        $this->consecutiveFailures = 0;
-        $this->summary = sprintf(
-            'Signal runtime active for %s. %d inbound event(s) pending, %d outbound delivery(s) queued.',
-            $this->instanceName(),
-            $this->inboundBacklog,
-            $this->channelStore->countQueuedDeliveries($this->channelInstanceId),
-        );
+        $this->pendingSendRequests[$requestId] = ['deliveryId' => $deliveryId];
+        $this->pendingDeliveryIds[$deliveryId] = true;
+    }
+
+    private function buildSendRequest(string $requestId, string $message, ?string $recipient, ?string $groupId): string
+    {
+        $params = ['message' => $message];
+
+        if ($groupId !== null) {
+            $params['groupId'] = $groupId;
+        } elseif ($recipient !== null) {
+            $params['recipient'] = $recipient;
+        }
+
+        return json_encode([
+            'jsonrpc' => '2.0',
+            'method' => 'send',
+            'params' => $params,
+            'id' => $requestId,
+        ], JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
+    }
+
+    private function extractProviderMessageId(string $stdout): ?string
+    {
+        $response = $this->decodeJsonLines($stdout);
+
+        return $this->extractProviderMessageIdFromResponse($response);
+    }
+
+    /**
+     * @param array<string, mixed> $response
+     */
+    private function extractProviderMessageIdFromResponse(array $response): ?string
+    {
+        if (is_array($response['result'] ?? null) && isset($response['result']['timestamp'])) {
+            return (string) $response['result']['timestamp'];
+        }
+
+        if (isset($response['timestamp']) && (is_string($response['timestamp']) || is_int($response['timestamp']))) {
+            return (string) $response['timestamp'];
+        }
+
+        return null;
     }
 
     private function spawnProcess(): void
@@ -312,9 +349,81 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
             return;
         }
 
+        if (array_key_exists('id', $payload) && (array_key_exists('result', $payload) || array_key_exists('error', $payload))) {
+            $this->handleJsonRpcResponse($payload);
+            return;
+        }
+
         if (($payload['method'] ?? null) === 'receive' && is_array($payload['params']['envelope'] ?? null)) {
             $this->persistEnvelope($payload['params']['envelope']);
+            return;
         }
+
+        if ($this->looksLikeSignalEnvelope($payload)) {
+            $this->persistEnvelope($payload);
+        }
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function handleJsonRpcResponse(array $payload): void
+    {
+        $requestId = isset($payload['id']) && (is_string($payload['id']) || is_int($payload['id']))
+            ? (string) $payload['id']
+            : null;
+
+        if ($requestId === null || !isset($this->pendingSendRequests[$requestId])) {
+            return;
+        }
+
+        $deliveryId = $this->pendingSendRequests[$requestId]['deliveryId'];
+        unset($this->pendingSendRequests[$requestId], $this->pendingDeliveryIds[$deliveryId]);
+
+        if (is_array($payload['error'] ?? null)) {
+            $errorMessage = trim((string) ($payload['error']['message'] ?? 'signal-cli send failed.'));
+            $attemptCount = $this->channelStore->recordDeliveryAttempt(
+                deliveryId: $deliveryId,
+                resultStatus: 'failed',
+                providerResponseBody: $this->truncate(json_encode($payload, JSON_UNESCAPED_SLASHES) ?: $errorMessage),
+            );
+            $this->channelStore->markDeliveryFailed($deliveryId, $attemptCount, $errorMessage !== '' ? $errorMessage : 'signal-cli send failed.');
+            $this->lastError = $errorMessage !== '' ? $errorMessage : 'signal-cli send failed.';
+            $this->consecutiveFailures++;
+            return;
+        }
+
+        $providerMessageId = $this->extractProviderMessageIdFromResponse($payload);
+        $attemptCount = $this->channelStore->recordDeliveryAttempt(
+            deliveryId: $deliveryId,
+            resultStatus: 'sent',
+            providerResponseBody: $this->truncate(json_encode($payload, JSON_UNESCAPED_SLASHES) ?: ''),
+        );
+        $this->channelStore->markDeliverySent($deliveryId, $attemptCount, $providerMessageId);
+        $this->lastSendAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastError = null;
+        $this->consecutiveFailures = 0;
+        $this->summary = sprintf(
+            'Signal runtime active for %s. %d inbound event(s) pending, %d outbound delivery(s) queued.',
+            $this->instanceName(),
+            $this->inboundBacklog,
+            $this->channelStore->countQueuedDeliveries($this->channelInstanceId),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $payload
+     */
+    private function looksLikeSignalEnvelope(array $payload): bool
+    {
+        if (isset($payload['envelope']) && is_array($payload['envelope'])) {
+            return false;
+        }
+
+        return isset($payload['source'])
+            || isset($payload['sourceNumber'])
+            || isset($payload['dataMessage'])
+            || isset($payload['receiptMessage']);
     }
 
     /**
@@ -322,6 +431,10 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
      */
     private function persistEnvelope(array $envelope): void
     {
+        if (!$this->shouldPersistEnvelope($envelope)) {
+            return;
+        }
+
         $normalized = $this->normalizeEnvelope($envelope);
         $conversationId = $this->channelStore->upsertConversation(
             channelInstanceId: $this->channelInstanceId,
@@ -369,6 +482,28 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
             $this->inboundBacklog,
             $this->outboundBacklog,
         );
+    }
+
+    /**
+     * Ignore transport noise such as typing indicators, receipts, and empty envelopes.
+     * Only actionable user content should enter the inbound task pipeline.
+     *
+     * @param array<string, mixed> $envelope
+     */
+    private function shouldPersistEnvelope(array $envelope): bool
+    {
+        $dataMessage = is_array($envelope['dataMessage'] ?? null) ? $envelope['dataMessage'] : [];
+
+        if ($dataMessage === []) {
+            return false;
+        }
+
+        $messageText = $this->firstNonEmptyString([
+            $dataMessage['message'] ?? null,
+        ]);
+        $attachments = is_array($dataMessage['attachments'] ?? null) ? $dataMessage['attachments'] : [];
+
+        return $messageText !== null || $attachments !== [];
     }
 
     /**
@@ -499,7 +634,7 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
             2 => ['pipe', 'w'],
         ];
 
-        $process = @proc_open($command, $descriptors, $pipes, $this->workspacePath);
+        $process = @proc_open($this->buildIsolatedCommand($command), $descriptors, $pipes, $this->workspacePath);
         if (!is_resource($process)) {
             return [1, '', 'Failed to start process'];
         }
@@ -515,6 +650,41 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
         $exitCode = proc_close($process);
 
         return [$exitCode, (string) $stdout, (string) $stderr];
+    }
+
+    /**
+     * Wrap child commands so they do not inherit the API listener socket.
+     *
+     * ReactPHP's listener remains open across proc_open() children on this runtime,
+     * which lets signal-cli send processes inherit port 3300 and stall health/API
+     * requests. Close all non-stdio descriptors before exec'ing the real command.
+     *
+     * @param list<string> $command
+     * @return list<string>
+     */
+    private function buildIsolatedCommand(array $command): array
+    {
+        $script = <<<'SH'
+for fd_path in /dev/fd/*; do
+    [ -e "$fd_path" ] || continue
+    fd=${fd_path##*/}
+    case "$fd" in
+        ''|*[!0-9]*|0|1|2)
+            continue
+            ;;
+    esac
+    eval "exec ${fd}>&- ${fd}<&-" 2>/dev/null || true
+done
+exec "$@"
+SH;
+
+        return [
+            '/bin/sh',
+            '-c',
+            $script,
+            'signal-cli-wrapper',
+            ...$command,
+        ];
     }
 
     private function workerStatus(): string

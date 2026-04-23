@@ -55,6 +55,7 @@ use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use CoquiBot\Coqui\Support\GroupSessionService;
 use CoquiBot\Coqui\Support\ImagePreviewService;
 use CoquiBot\Coqui\Support\PromptInspectionService;
@@ -406,6 +407,7 @@ final class RunCommand extends Command
         $notificationPresenter = new NotificationPresenter();
         $notificationLimit = $notificationConfig['replDisplayLimit'];
         $channelStore = new ChannelStore($this->storage->getPdo());
+        $runtimeStateStore = new RuntimeStateStore($this->storage->getPdo());
         $channelConfigEditor = new ChannelConfigurationEditor(
             $this->boot->configManager(),
             $this->boot->channelDiscovery(),
@@ -428,6 +430,7 @@ final class RunCommand extends Command
                 $channelConfigEditor,
                 $this->boot->channelDiscovery(),
                 $this->boot->profileDiscovery(),
+                $runtimeStateStore,
             ),
             quality: new QualityHandler(
                 new QualityAutomationStatusService(

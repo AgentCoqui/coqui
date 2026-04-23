@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Api\AgentTurnManager;
+use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
 use CoquiBot\Coqui\Api\ChannelExecutionManager;
 use CoquiBot\Coqui\Api\ChannelManager;
@@ -67,6 +68,7 @@ use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
@@ -90,6 +92,8 @@ use CoquiBot\Coqui\Contract\CoquiDefaults;
 )]
 final class ApiCommand extends Command
 {
+    private const RESTART_EXIT_CODE = 10;
+
     protected function configure(): void
     {
         $this
@@ -215,6 +219,14 @@ final class ApiCommand extends Command
         $scheduleStore = new ScheduleStore($storage->getPdo());
         $webhookStore = new WebhookStore($storage->getPdo());
         $channelStore = new ChannelStore($storage->getPdo());
+        $runtimeStateStore = new RuntimeStateStore($storage->getPdo());
+        $lifecycle = new ApiLifecycleController(
+            runtimeStateStore: $runtimeStateStore,
+            managedByLauncher: getenv('COQUI_LAUNCHER_MANAGED') === '1',
+            startedAt: gmdate('Y-m-d\TH:i:s\Z'),
+            pid: getmypid() ?: 0,
+        );
+        $lifecycle->markBooted();
 
         $artifactStore = new ArtifactStore($storage->getPdo());
         $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($storage->getPdo());
@@ -327,7 +339,7 @@ final class ApiCommand extends Command
             scheduleStore: $scheduleStore,
         );
 
-        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $channelManager, $qualityStatus);
+        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $channelManager, $qualityStatus, $lifecycle);
         $profileSessionLifecycle = new ProfileSessionLifecycleManager(
             storage: $storage,
             providerFactory: $boot->providerFactory(),
@@ -357,7 +369,7 @@ final class ApiCommand extends Command
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
         $evaluationHandler = new EvaluationHandler($evaluationStore);
-        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $channelManager, $qualityStatus);
+        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $channelManager, $qualityStatus, $lifecycle);
 
         $previewRunner = AgentRunnerFactory::create(
             boot: $boot,
@@ -384,6 +396,7 @@ final class ApiCommand extends Command
             new ChannelConfigurationEditor($boot->configManager(), $boot->channelDiscovery(), $boot->profileDiscovery()),
             $boot->channelDiscovery(),
             $boot->profileDiscovery(),
+            $lifecycle,
         );
         $projectHandler = $projectStore !== null ? new ProjectHandler($projectStore, $storage) : null;
         $sessionProjectHandler = $projectStore !== null ? new SessionProjectHandler($storage, $projectStore) : null;
@@ -446,6 +459,17 @@ final class ApiCommand extends Command
         $listenAddress = "{$host}:{$port}";
         $context = ['socket' => ['so_reuseaddr' => true]];
         $socket = new SocketServer($listenAddress, $context);
+
+        $lifecycle->configureRestartHandler(function (string $reason) use ($output, $socket, $taskManager, $turnManager, $channelManager): void {
+            Loop::addTimer(0.15, function () use ($reason, $output, $socket, $taskManager, $turnManager, $channelManager): void {
+                $output->writeln(sprintf('<comment>Restart requested: %s</comment>', $reason));
+                $channelManager->shutdown();
+                $turnManager->shutdown();
+                $taskManager->shutdown();
+                $socket->close();
+                exit(self::RESTART_EXIT_CODE);
+            });
+        });
 
         // Graceful shutdown on SIGTERM/SIGINT — close socket + stop event loop
         // SIGINT (2) = direct Ctrl+C — show shutdown message (standalone mode)
@@ -684,6 +708,7 @@ final class ApiCommand extends Command
         $router->get($v1 . '/server/info', [$server, 'info']);
         $router->get($v1 . '/server/stats', [$server, 'stats']);
         $router->get($v1 . '/server/quality', [$server, 'quality']);
+        $router->post($v1 . '/server/restart', [$server, 'restart']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
         $router->get($v1 . '/server/backstory', [$backstory, 'get']);
         $router->get($v1 . '/server/budget', [$budget, 'get']);
