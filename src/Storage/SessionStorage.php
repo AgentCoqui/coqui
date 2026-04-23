@@ -2097,8 +2097,8 @@ final class SessionStorage
         }
 
         return match ($role) {
-            Role::Assistant => trim($content) === '' ? $content : sprintf('@%s says:%s%s', $actorName, PHP_EOL, $content),
-            Role::Tool => sprintf('Tool result for @%s:%s%s', $actorName, PHP_EOL, $content),
+            Role::Assistant => trim($content) === '' ? $content : sprintf("@%s says:\n%s", $actorName, $content),
+            Role::Tool => sprintf("Tool result for @%s:\n%s", $actorName, $content),
             default => $content,
         };
     }
