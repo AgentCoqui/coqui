@@ -235,6 +235,7 @@ final class SessionStorage
 
         $this->db->exec("UPDATE sessions SET session_type = 'interactive' WHERE COALESCE(group_enabled, 0) = 0 AND COALESCE(session_type, '') = ''");
         $this->db->exec("UPDATE sessions SET visibility = 'visible' WHERE COALESCE(visibility, '') = ''");
+        $this->repairLegacyBackgroundSessionVisibility();
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_profile_updated ON sessions(profile, updated_at DESC)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_closed_updated ON sessions(is_closed, updated_at DESC)');
@@ -800,26 +801,15 @@ final class SessionStorage
      */
     public function getSession(string $id): ?array
     {
-        $stmt = $this->db->prepare(<<<SQL
-             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
-                 s.visibility,
-                 s.group_enabled, s.group_composition_key, s.group_max_rounds,
-                 s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
-                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
-                 (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
-             FROM sessions s
-             {$this->sessionChannelJoin('s')}
-             WHERE s.id = :id
-        SQL);
+        return $this->fetchSessionById($id);
+    }
 
-        $stmt->execute(['id' => $id]);
-        $session = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($session === false) {
-            return null;
-        }
-
-        return $this->hydrateSessionRow($this->normalizeSessionRow($session), true);
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getSurfacedSession(string $id): ?array
+    {
+        return $this->fetchSessionById($id, visibleOnly: true);
     }
 
     /**
@@ -1576,6 +1566,7 @@ final class SessionStorage
         $row['group_max_rounds'] = is_scalar($row['group_max_rounds'] ?? null)
             ? (int) $row['group_max_rounds']
             : null;
+        $row['session_origin'] = $visibility === 'hidden' ? 'background' : 'user';
         $row['status'] = $isArchived === 1
             ? 'archived'
             : ($isClosed === 1 ? 'closed' : 'active');
@@ -1595,6 +1586,9 @@ final class SessionStorage
 
         $channelBound = is_string($row['channel_instance_id'] ?? null) && $row['channel_instance_id'] !== '';
         $row['channel_bound'] = $channelBound;
+        if ($channelBound) {
+            $row['session_origin'] = 'channel';
+        }
         $row['channel'] = $channelBound
             ? [
                 'instance_id' => (string) $row['channel_instance_id'],
@@ -2167,7 +2161,7 @@ final class SessionStorage
     public function getLatestSessionId(): ?string
     {
         $stmt = $this->db->query(<<<SQL
-            SELECT id FROM sessions ORDER BY updated_at DESC LIMIT 1
+            SELECT id FROM sessions WHERE visibility = 'visible' ORDER BY updated_at DESC LIMIT 1
         SQL);
 
         if ($stmt === false) {
@@ -2185,6 +2179,7 @@ final class SessionStorage
             SELECT id
             FROM sessions
             WHERE profile = :profile
+                            AND visibility = 'visible'
                             AND COALESCE(session_type, CASE WHEN COALESCE(group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND is_closed = 0
             ORDER BY updated_at DESC
@@ -2290,6 +2285,67 @@ final class SessionStorage
         return $visibility === 'hidden' ? 'hidden' : 'visible';
     }
 
+    private function repairLegacyBackgroundSessionVisibility(): void
+    {
+        if (!$this->backgroundTaskTableAvailable()) {
+            return;
+        }
+
+        $channelFilter = $this->channelTablesAvailable()
+            ? 'AND s.id NOT IN (
+                    SELECT ci.bound_session_id
+                    FROM channel_instances ci
+                    WHERE ci.bound_session_id IS NOT NULL
+                    UNION
+                    SELECT cc.session_id
+                    FROM channel_conversations cc
+                    WHERE cc.session_id IS NOT NULL
+                )'
+            : '';
+
+        $this->db->exec(<<<SQL
+            UPDATE sessions AS s
+            SET visibility = 'hidden'
+            WHERE COALESCE(s.visibility, 'visible') != 'hidden'
+              AND EXISTS (
+                    SELECT 1
+                    FROM background_tasks bt
+                    WHERE bt.session_id = s.id
+              )
+              {$channelFilter}
+        SQL);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchSessionById(string $id, bool $visibleOnly = false): ?array
+    {
+        $visibilityFilter = $visibleOnly ? "AND s.visibility = 'visible'" : '';
+
+        $stmt = $this->db->prepare(<<<SQL
+             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                 s.visibility,
+                 s.group_enabled, s.group_composition_key, s.group_max_rounds,
+                 s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
+                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
+                 (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
+             FROM sessions s
+             {$this->sessionChannelJoin('s')}
+             WHERE s.id = :id
+             {$visibilityFilter}
+        SQL);
+
+        $stmt->execute(['id' => $id]);
+        $session = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($session === false) {
+            return null;
+        }
+
+        return $this->hydrateSessionRow($this->normalizeSessionRow($session), true);
+    }
+
     private function sessionChannelJoin(string $sessionAlias): string
     {
         if (!$this->channelTablesAvailable()) {
@@ -2353,6 +2409,21 @@ final class SessionStorage
         $names = $stmt->fetchAll(PDO::FETCH_COLUMN);
 
         return count($names) === 2;
+    }
+
+    private function backgroundTaskTableAvailable(): bool
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name = :name
+            LIMIT 1
+        SQL);
+
+        $stmt->execute(['name' => 'background_tasks']);
+
+        return $stmt->fetchColumn() !== false;
     }
 
     // -------------------------------------------------------------------------

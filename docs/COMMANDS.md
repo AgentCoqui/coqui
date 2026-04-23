@@ -11,8 +11,8 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | Command | Description |
 | --- | --- |
 | `/new` | Start a new session. When a profile is active, Coqui warns that it will summarize the current chat, store memories, archive and close the current conversation, then start a fresh session for that same profile (resets role to `orchestrator`) |
-| `/sessions` | List active interactive sessions |
-| `/resume <id>` | Resume a specific active session by ID |
+| `/sessions` | List active surfaced interactive sessions. Internal hidden background sessions are excluded |
+| `/resume <id>` | Resume a specific active surfaced session by ID. Hidden internal sessions cannot be resumed from the REPL |
 | `/history` | Show conversation history for the current session |
 
 ### Agent & Roles

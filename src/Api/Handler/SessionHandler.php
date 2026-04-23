@@ -284,10 +284,9 @@ final readonly class SessionHandler
      */
     public function delete(ServerRequestInterface $request, string $id): Response
     {
-        $session = $this->storage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireWritableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $this->storage->deleteSession($id);
@@ -300,10 +299,9 @@ final readonly class SessionHandler
      */
     public function childRuns(ServerRequestInterface $request, string $id): Response
     {
-        $session = $this->storage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireReadableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $runs = $this->storage->getChildRuns($id);

@@ -312,3 +312,19 @@ test('turn handler exposes actor responses and group lifecycle events for group 
         cleanupTurnHandlerFixture($fixture);
     }
 });
+
+test('turn handler rejects hidden sessions', function () {
+    $fixture = createTurnHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('learner', 'background-task', visibility: 'hidden');
+
+        $response = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/turns'), $sessionId);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(404);
+        expect($body['code'])->toBe('session_not_found');
+    } finally {
+        cleanupTurnHandlerFixture($fixture);
+    }
+});

@@ -138,6 +138,7 @@ test('session handler create persists a valid profile', function () {
         expect($body['model'])->toBe('ollama/qwen3:latest');
         expect($body['session_type'])->toBe('interactive');
         expect($session)->not->toBeNull();
+    expect($session['session_origin'])->toBe('user');
         expect($session['profile'])->toBe('caelum');
         expect($session['model'])->toBe('ollama/qwen3:latest');
         expect($session['session_type'])->toBe('interactive');
@@ -417,6 +418,7 @@ test('session handler list and get include channel metadata for bound sessions',
         expect($listBody['sessions'])->toHaveCount(1);
         expect($listBody['sessions'][0]['channel_bound'])->toBeTrue();
         expect($listBody['sessions'][0]['model'])->toBe('ollama/qwen3:latest');
+        expect($listBody['sessions'][0]['session_origin'])->toBe('channel');
         expect($listBody['sessions'][0]['channel'])->toBe([
             'instance_id' => $channelId,
             'name' => 'signal-primary',
@@ -427,6 +429,7 @@ test('session handler list and get include channel metadata for bound sessions',
         expect($getResponse->getStatusCode())->toBe(200);
         expect($getBody['channel_bound'])->toBeTrue();
         expect($getBody['model'])->toBe('ollama/qwen3:latest');
+        expect($getBody['session_origin'])->toBe('channel');
         expect($getBody['channel'])->toBe([
             'instance_id' => $channelId,
             'name' => 'signal-primary',
@@ -841,6 +844,22 @@ test('session handler list filters archived history and returns lifecycle counts
             'total' => 2,
         ]);
         expect($fixture['storage']->getSession($activeId)['status'])->toBe('active');
+    } finally {
+        cleanupApiSessionHandlerFixture($fixture);
+    }
+});
+
+test('session handler get rejects hidden sessions', function () {
+    $fixture = createApiSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('learner', 'background-task', visibility: 'hidden');
+
+        $response = $fixture['handler']->get(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId), $sessionId);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(404);
+        expect($body['code'])->toBe('session_not_found');
     } finally {
         cleanupApiSessionHandlerFixture($fixture);
     }

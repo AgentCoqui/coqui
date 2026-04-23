@@ -64,3 +64,19 @@ test('file upload handler rejects deletes for closed sessions', function () {
         cleanupFileUploadHandlerFixture($fixture);
     }
 });
+
+test('file upload handler rejects reads for hidden sessions', function () {
+    $fixture = createFileUploadHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('learner', 'background-task', visibility: 'hidden');
+
+        $response = $fixture['handler']->list(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/files'), $sessionId);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(404);
+        expect($body['code'])->toBe('session_not_found');
+    } finally {
+        cleanupFileUploadHandlerFixture($fixture);
+    }
+});

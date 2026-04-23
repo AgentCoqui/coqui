@@ -299,9 +299,13 @@ Session lifecycle fields have distinct meanings:
 
 Channel-backed interactive sessions are still first-class visible sessions. Their payloads include `channel_bound: true` plus a `channel` object describing the bound channel instance. Ordinary app-style session resolution intentionally skips channel-backed sessions so a normal "resume latest chat" flow does not land inside a Signal, Telegram, or Discord conversation lane.
 
+Hidden sessions are internal execution lanes for background work. They are excluded from session listings and other user-facing session inspection endpoints even when a client already knows the raw session ID. Visible session payloads now include a derived `session_origin` label: `user` for ordinary interactive sessions and `channel` for channel-backed conversations. Hidden background sessions resolve internally as `background` but are not returned by the user-facing session endpoints.
+
 #### `GET /api/v1/sessions`
 
 List sessions, ordered by most recently updated.
+
+This endpoint is user-facing and only returns surfaced sessions (`visibility = visible`). Hidden background sessions such as learner, evaluator, scheduled, loop, webhook, and task execution lanes are intentionally excluded.
 
 **Query Parameters**
 
@@ -311,6 +315,8 @@ List sessions, ordered by most recently updated.
 | `status` | string | `"active"` | Filter by lifecycle state: `active`, `closed`, `archived`, or `all` |
 | `include_closed` | bool | `false` | Legacy alias for `status=all` when `status` is omitted |
 | `profile` | string | unset | Filter by profile scope. Use a profile name like `caelum` or `none` for unprofiled sessions only |
+
+Each returned session also includes `session_origin`, which is `user` for ordinary interactive sessions and `channel` for channel-backed visible conversations.
 
 **Response `200`**
 
@@ -544,6 +550,8 @@ Group-session resolve requests use the same endpoint:
 ```
 
 #### `GET /api/v1/sessions/{id}`
+
+Returns one surfaced session. Hidden background sessions are treated as not found on this user-facing endpoint.
 
 Get session details.
 
@@ -854,6 +862,8 @@ Compress older conversation history into a concise summary, preserving recent tu
 Conversation summarization is currently REPL-first and agent-tool driven. The HTTP API does not expose a summarize endpoint in the current router.
 
 #### `GET /api/v1/sessions/{id}/messages`
+
+Reads message history for one surfaced session. Hidden background sessions are treated as not found on this user-facing endpoint.
 
 List all messages in a session, ordered chronologically.
 
@@ -1347,6 +1357,8 @@ Delete a specific uploaded file.
 A turn represents a single request-response cycle within a session. Each turn contains the user prompt, agent response, token usage, timing, and tool usage metadata.
 
 #### `GET /api/v1/sessions/{id}/turns`
+
+Reads turn history for one surfaced session. Hidden background sessions are treated as not found on this user-facing endpoint.
 
 List turns for a session, ordered by turn number.
 
