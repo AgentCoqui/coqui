@@ -24,9 +24,11 @@
 </p>
 <!-- markdownlint-enable MD033 -->
 
-Coqui is your personal operating system — a lightweight, hackable agent runtime for coding, research, and everything in between.
+Coqui is your personal operating system for AI work: a lightweight, hackable agent runtime for coding, research, automation, and long-running projects.
 
-Automate workflows, manage long-running projects, persist memory across sessions, schedule recurring tasks, and extend its functionality with toolkits and skills. Whether you're writing code, running consciousness research, or organizing your life, Coqui adapts to how you work.
+Built on php-agents, it gives you a REPL, persistent memory, background tasks, schedules, artifacts, and runtime-extensible toolkits in one PHP 8.4 runtime you can inspect, modify, and self-host.
+
+Start with [Installation](#installation), [Getting Started](https://docs.coquibot.org/getting-started), [Features](https://docs.coquibot.org/features), or browse [coqui.space](https://coqui.space).
 
 > Coqui is a WIP and under rapid development. Be careful when running this tool. Always test in a safe environment.
 
