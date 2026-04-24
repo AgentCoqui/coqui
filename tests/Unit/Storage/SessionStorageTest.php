@@ -193,6 +193,59 @@ test('createTask stores structured metadata', function () {
     expect(json_decode((string) $task['metadata'], true)['stage_index'])->toBe(1);
 });
 
+test('enqueueSessionTitleJob dedupes active jobs for the same untitled session', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+
+    $firstJobId = $this->storage->enqueueSessionTitleJob($sessionId, 'First prompt');
+    $secondJobId = $this->storage->enqueueSessionTitleJob($sessionId, 'Second prompt');
+
+    expect($firstJobId)->not->toBeNull();
+    expect($secondJobId)->toBe($firstJobId);
+
+    $jobs = $this->storage->getPendingSessionTitleJobs();
+
+    expect($jobs)->toHaveCount(1);
+    expect($jobs[0]['id'])->toBe($firstJobId);
+    expect($jobs[0]['prompt'])->toBe('First prompt');
+});
+
+test('enqueueSessionTitleJob skips sessions that already have titles', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+    $this->storage->updateSessionTitle($sessionId, 'Existing title');
+
+    $jobId = $this->storage->enqueueSessionTitleJob($sessionId, 'Prompt that should be ignored');
+
+    expect($jobId)->toBeNull();
+    expect($this->storage->getPendingSessionTitleJobs())->toBe([]);
+});
+
+test('requeueOrphanedSessionTitleJobs retries untitled jobs and completes already-titled jobs', function () {
+    $untitledSessionId = $this->storage->createSession('orchestrator', 'model');
+    $titledSessionId = $this->storage->createSession('orchestrator', 'model');
+
+    $untitledJobId = $this->storage->enqueueSessionTitleJob($untitledSessionId, 'Untitled prompt');
+    $titledJobId = $this->storage->enqueueSessionTitleJob($titledSessionId, 'Titled prompt');
+
+    expect($untitledJobId)->not->toBeNull();
+    expect($titledJobId)->not->toBeNull();
+
+    $this->storage->updateSessionTitleJobStatus((string) $untitledJobId, 'running', ['pid' => 0]);
+    $this->storage->updateSessionTitleJobStatus((string) $titledJobId, 'running', ['pid' => 0]);
+    $this->storage->updateSessionTitle($titledSessionId, 'Recovered title');
+
+    $recovered = $this->storage->requeueOrphanedSessionTitleJobs();
+    $untitledJob = $this->storage->getSessionTitleJob((string) $untitledJobId);
+    $titledJob = $this->storage->getSessionTitleJob((string) $titledJobId);
+
+    expect($recovered)->toBe(2);
+    expect($untitledJob)->not->toBeNull();
+    expect($untitledJob['status'])->toBe('pending');
+    expect($untitledJob['pid'])->toBeNull();
+    expect($titledJob)->not->toBeNull();
+    expect($titledJob['status'])->toBe('completed');
+    expect($titledJob['pid'])->toBeNull();
+});
+
 test('deleteSession removes session and messages', function () {
     $sessionId = $this->storage->createSession('test', 'model');
     $this->storage->addMessage($sessionId, 'user', 'Hello');

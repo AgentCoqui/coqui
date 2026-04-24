@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Contract;
 
 /**
- * Holds non-critical closures to execute after the stats summary is rendered.
+ * Holds cheap in-process closures to execute after the stats summary is rendered.
  *
  * Allows the REPL to display output immediately while deferring
- * work like memory extraction and title generation.
+ * post-render work that is still safe to run on the same thread.
  */
 final class DeferredWorkQueue
 {

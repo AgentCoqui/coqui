@@ -952,6 +952,8 @@ data: <json_payload>
 
 Events are separated by a blank line. The stream ends when the `complete` event is sent and the connection closes.
 
+Session title generation is now queued after the interactive turn completes. The live SSE stream is not kept open for title generation, so clients should treat session titles as eventually consistent and refresh session detail later if they need the generated title.
+
 **SSE Event Types**
 
 | Event | Description | Data Shape |
@@ -980,7 +982,6 @@ Events are separated by a blank line. The stream ends when the `complete` event 
 | `loop_stage_end` | Loop stage finished | `{"loop_id": "loop-123", "iteration": 2, "role": "coder"}` |
 | `loop_iteration_end` | Loop iteration finished | `{"loop_id": "loop-123", "iteration": 2}` |
 | `loop_complete` | Loop execution completed | `{"loop_id": "loop-123", "status": "completed"}` |
-| `title` | Session title generated after the turn | `{"title": "Refactor auth flow"}` |
 | `error` | An error occurred | `{"message": "Error description"}` |
 | `complete` | Final event with full turn result | See below |
 
