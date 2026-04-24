@@ -17,8 +17,8 @@
 </p>
 
 <p align="center">
-  <a href="https://coquibot.org/">Website</a> ·
-  <a href="https://coquibot.org/docs">Docs</a> ·
+  <a href="https://agentcoqui.com/">Website</a> ·
+  <a href="https://agentcoqui.com/docs">Docs</a> ·
   <a href="https://coqui.space">Toolkits</a> ·
   <a href="https://github.com/sponsors/carmelosantana">Sponsor</a>
 </p>
@@ -26,9 +26,9 @@
 
 Coqui is your personal operating system for AI work: a lightweight, hackable agent runtime for coding, research, automation, and long-running projects.
 
-Built on php-agents, it gives you a REPL, persistent memory, background tasks, schedules, artifacts, and runtime-extensible toolkits in one PHP 8.4 runtime you can inspect, modify, and self-host.
+Built on [`php-agents`](https://github.com/carmelosantana/php-agents), it gives you a REPL, persistent memory, background tasks, schedules, artifacts, and runtime-extensible toolkits in one PHP 8.4 runtime you can inspect, modify, and self-host.
 
-Start with [Installation](#installation), [Getting Started](https://docs.coquibot.org/getting-started), [Features](https://docs.coquibot.org/features), or browse [coqui.space](https://coqui.space).
+Start with [Installation](#installation), [Getting Started](https://docs.agentcoqui.com/getting-started), [Features](https://docs.agentcoqui.com/features), or browse [coqui.space](https://coqui.space).
 
 > Coqui is a WIP and under rapid development. Be careful when running this tool. Always test in a safe environment.
 
@@ -102,7 +102,7 @@ The installer detects your OS, installs PHP 8.4+ and required extensions if miss
 ### Linux / macOS / WSL2
 
 ```bash
-curl -fsSL https://coquibot.org/install | bash
+curl -fsSL https://agentcoqui.com/install | bash
 ```
 
 ### Windows (WSL2 Bootstrap)
