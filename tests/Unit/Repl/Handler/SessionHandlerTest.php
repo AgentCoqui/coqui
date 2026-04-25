@@ -281,3 +281,19 @@ test('session handler rejects resume for closed sessions', function () {
         cleanupReplSessionHandlerFixture($fixture);
     }
 });
+
+test('session handler rejects resume for hidden internal sessions', function () {
+    $fixture = createReplSessionHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('learner', 'background-task', visibility: 'hidden');
+
+        $resolvedSessionId = $fixture['handler']->resume($fixture['io'], $sessionId);
+        $output = preg_replace('/\s+/', ' ', $fixture['output']->fetch()) ?? '';
+
+        expect($resolvedSessionId)->toBeNull();
+        expect($output)->toContain('internal and cannot be resumed from the REPL');
+    } finally {
+        cleanupReplSessionHandlerFixture($fixture);
+    }
+});

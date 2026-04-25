@@ -180,6 +180,640 @@
                         "contextWindow": "provider-inspection",
                         "maxTokens": "heuristic"
                     }
+                },
+                {
+                    "id": "qwen3.6:27b",
+                    "name": "qwen3.6:27b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "qwen35",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "qwen3-vl:30b",
+                    "name": "qwen3-vl:30b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "qwen3vlmoe",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "qwen3.6:35b",
+                    "name": "qwen3.6:35b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "qwen35moe",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "VladimirGav/gemma4-26b-16GB-VRAM:latest",
+                    "name": "gemma-4",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "gemma4",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "qwen3.5:2b",
+                    "name": "qwen3.5:2b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "qwen35",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "qwen3.5:0.8b",
+                    "name": "qwen3.5:0.8b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "qwen35",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "deepseek-coder:1.3b",
+                    "name": "deepseek-coder:1.3b",
+                    "contextWindow": 16384,
+                    "maxTokens": 4096,
+                    "family": "llama",
+                    "numCtx": 16384,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "qwen2.5-coder:3b",
+                    "name": "Qwen2.5-Coder",
+                    "contextWindow": 32768,
+                    "maxTokens": 4915,
+                    "toolCalls": true,
+                    "family": "qwen2",
+                    "numCtx": 32768,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "qwen2.5-coder:1.5b",
+                    "name": "Qwen2.5-Coder",
+                    "contextWindow": 32768,
+                    "maxTokens": 4915,
+                    "toolCalls": true,
+                    "family": "qwen2",
+                    "numCtx": 32768,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "qwen2.5-coder:0.5b",
+                    "name": "Qwen2.5-Coder",
+                    "contextWindow": 32768,
+                    "maxTokens": 4915,
+                    "toolCalls": true,
+                    "family": "qwen2",
+                    "numCtx": 32768,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "erukude/omni-json:1b",
+                    "name": "Llama-3.2",
+                    "contextWindow": 131072,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "llama",
+                    "numCtx": 131072,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "qwen3.5:27b",
+                    "name": "qwen3.5:27b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "qwen35",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "HammerAI/mistral-nemo-uncensored:latest",
+                    "name": "Mistral-Nemo",
+                    "contextWindow": 1024000,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "llama",
+                    "numCtx": 1024000,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "erukude/multiagent-orchestrator:3b",
+                    "name": "Llama-3.2",
+                    "contextWindow": 131072,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "llama",
+                    "numCtx": 131072,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "SimonPu/Devstral-Small:2512-Q4_K_M",
+                    "name": "SimonPu/Devstral-Small:2512-Q4_K_M",
+                    "contextWindow": 393216,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "mistral3",
+                    "numCtx": 393216,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "cattech3d/CatyAi-Council:latest",
+                    "name": "Llama-3.2",
+                    "contextWindow": 131072,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "llama",
+                    "numCtx": 131072,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "huihui_ai/gemma-4-abliterated:31b",
+                    "name": "huihui_ai/gemma-4-abliterated:31b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "gemma4",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "huihui_ai/gemma-4-abliterated:e2b",
+                    "name": "huihui_ai/gemma-4-abliterated:e2b",
+                    "contextWindow": 131072,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "gemma4",
+                    "numCtx": 131072,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "gemma4:26b",
+                    "name": "gemma4:26b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "gemma4",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "gemma4:e4b",
+                    "name": "gemma4:e4b",
+                    "contextWindow": 131072,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "gemma4",
+                    "numCtx": 131072,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "RogerBen/qwen3.5-35b-opus-distill:latest",
+                    "name": "Qwen3.5",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "family": "qwen35moe",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "fredrezones55/qwen3.5-opus:9b",
+                    "name": "fredrezones55/qwen3.5-opus:9b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "qwen35",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "fredrezones55/qwen3.5-opus:27b",
+                    "name": "fredrezones55/qwen3.5-opus:27b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "qwen35",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "kavai/qwen3.5-GPT5:9b",
+                    "name": "kavai/qwen3.5-GPT5:9b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "qwen35",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "kavai/qwen3.5-GPT5:27b",
+                    "name": "kavai/qwen3.5-GPT5:27b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "qwen35",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "rokteam/rok-oss:latest",
+                    "name": "Meta-Llama-3.1",
+                    "contextWindow": 131072,
+                    "maxTokens": 16384,
+                    "family": "llama",
+                    "numCtx": 131072,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "maternion/context-1:20b",
+                    "name": "maternion/context-1:20b",
+                    "contextWindow": 131072,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "gpt-oss",
+                    "numCtx": 131072,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "JorgeAtLLama/thematrix:latest",
+                    "name": "Meta-Llama-3.1",
+                    "contextWindow": 131072,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "llama",
+                    "numCtx": 131072,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "MeaTLoTioN/Homer_Simpson:latest",
+                    "name": "Llama-3.2",
+                    "contextWindow": 131072,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "llama",
+                    "numCtx": 131072,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "nishtahir/sera:32b",
+                    "name": "nishtahir/sera:32b",
+                    "contextWindow": 40960,
+                    "maxTokens": 6144,
+                    "toolCalls": true,
+                    "family": "qwen3",
+                    "numCtx": 40960,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "nishtahir/sera:8b",
+                    "name": "SERA",
+                    "contextWindow": 40960,
+                    "maxTokens": 6144,
+                    "toolCalls": true,
+                    "family": "qwen3",
+                    "numCtx": 40960,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "voytas26/openclaw-qwen3vl-8b-opt:latest",
+                    "name": "voytas26/openclaw-qwen3vl-8b-opt:latest",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "qwen3vl",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "jaahas/crow:latest",
+                    "name": "jaahas/crow:latest",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "qwen35",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "carstenuhlig/omnicoder-9b:latest",
+                    "name": "carstenuhlig/omnicoder-9b:latest",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "qwen35",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "qwen3-vl:2b",
+                    "name": "qwen3-vl:2b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "qwen3vl",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "devstral-small-2:24b",
+                    "name": "devstral-small-2:24b",
+                    "contextWindow": 393216,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "mistral3",
+                    "numCtx": 393216,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "ministral-3:14b",
+                    "name": "ministral-3:14b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "mistral3",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "mistral-small3.2:24b",
+                    "name": "mistral-small3.2:24b",
+                    "contextWindow": 131072,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "mistral3",
+                    "numCtx": 131072,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "qwen3-coder:30b",
+                    "name": "Qwen3-Coder",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "qwen3moe",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "gpt-oss:latest",
+                    "name": "gpt-oss:latest",
+                    "contextWindow": 131072,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "gptoss",
+                    "numCtx": 131072,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "nemotron-3-nano:4b",
+                    "name": "nemotron-3-nano:4b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "nemotron_h",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "nemotron-3-nano:latest",
+                    "name": "NVIDIA-Nemotron-3-Nano",
+                    "contextWindow": 1048576,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "nemotron_h_moe",
+                    "numCtx": 1048576,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "ministral-3:8b",
+                    "name": "ministral-3:8b",
+                    "contextWindow": 262144,
+                    "maxTokens": 16384,
+                    "vision": true,
+                    "toolCalls": true,
+                    "family": "mistral3",
+                    "numCtx": 262144,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
+                },
+                {
+                    "id": "glm-4.7-flash:latest",
+                    "name": "glm-4.7-flash:latest",
+                    "contextWindow": 202752,
+                    "maxTokens": 16384,
+                    "toolCalls": true,
+                    "family": "glm4moelite",
+                    "numCtx": 202752,
+                    "metadataSource": "provider-inspection",
+                    "fieldSources": {
+                        "contextWindow": "provider-inspection",
+                        "maxTokens": "heuristic"
+                    }
                 }
             ]
         },

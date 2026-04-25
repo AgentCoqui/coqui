@@ -136,9 +136,10 @@ step "Removing development files"
 
     # CI / dev tooling
     rm -rf .github/ 2>/dev/null || true
+    rm -rf .claude/ .vscode/ smoke-test/ 2>/dev/null || true
     rm -f .dockerignore Dockerfile 2>/dev/null || true
     rm -f phpstan.neon phpunit.xml 2>/dev/null || true
-    rm -f AGENTS.md .claude 2>/dev/null || true
+    rm -f AGENTS.md CLAUDE.md CHANGELOG.md 2>/dev/null || true
     rm -f .editorconfig .php-cs-fixer.php 2>/dev/null || true
 
     # Tests, examples, build scripts
@@ -232,11 +233,11 @@ step "Final cleanup"
     cd "${STAGE_DIR}"
 
     # Remove files that shouldn't be in a release but git archive may have missed
-    rm -f .gitattributes .gitignore
-    rm -rf .github/ 2>/dev/null || true
+    rm -f .gitattributes .gitignore .dockerignore Dockerfile phpstan.neon phpunit.xml AGENTS.md CLAUDE.md CHANGELOG.md
+    rm -rf .github/ .claude/ .vscode/ tests/ scripts/ examples/ smoke-test/ 2>/dev/null || true
 
     # Remove workspace artifacts
-    rm -rf .workspace/ 2>/dev/null || true
+    rm -rf .workspace/ workspace/ 2>/dev/null || true
 )
 
 info "Stage directory clean"

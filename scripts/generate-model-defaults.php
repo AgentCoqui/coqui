@@ -285,8 +285,7 @@ TXT);
         return 0;
     }
 
-    $encoded = json_encode($defaults, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-    file_put_contents($defaultsPath, $encoded . PHP_EOL);
+    file_put_contents($defaultsPath, encodeJsonDocument($defaults));
 
     fwrite(STDOUT, PHP_EOL . 'Updated ' . $defaultsPath . PHP_EOL);
 
@@ -1073,6 +1072,16 @@ function writeReport(string $reportPath, array $report): void
         mkdir($directory, 0755, true);
     }
 
-    $encoded = json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR);
-    file_put_contents($reportPath, $encoded . PHP_EOL);
+    file_put_contents($reportPath, encodeJsonDocument($report));
+}
+
+/**
+ * @param array<string, mixed> $payload
+ */
+function encodeJsonDocument(array $payload): string
+{
+    return json_encode(
+        $payload,
+        JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_PRESERVE_ZERO_FRACTION | JSON_THROW_ON_ERROR,
+    ) . PHP_EOL;
 }

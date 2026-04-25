@@ -53,7 +53,7 @@ final class ApiHealthCheck
                 'ok' => false,
                 'error' => sprintf(
                     'Cannot reach API server at %s:%s. Loops require the API server for stage execution. '
-                    . 'Start Coqui with "make start" or ensure "coqui api" is running.',
+                    . 'Start Coqui with "coqui" or ensure "coqui --api-only" is running.',
                     $host,
                     $port,
                 ),

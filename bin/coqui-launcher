@@ -15,12 +15,13 @@
 # Flags:
 #   --host HOST          API bind address (default 127.0.0.1, use 0.0.0.0 for network)
 #   --port PORT          API port (default 3300)
-#   --auto-approve       Forwarded to bin/coqui run
-#   --continue           Resume last session, auto-send "Continue." (forwarded to bin/coqui run)
-#   --unsafe             Forwarded to bin/coqui run and api
-#   --config PATH        Forwarded to bin/coqui run and api
-#   --workdir PATH       Forwarded to bin/coqui run and api
-#   --workspace PATH     Workspace directory (forwarded to bin/coqui run and api)
+#   --auto-approve       Forwarded to the internal REPL console process
+#   --continue           Resume last session, auto-send "Continue." in the REPL
+#   --unsafe             Forwarded to the internal REPL and API console processes
+#   --config PATH        Forwarded to the internal REPL and API console processes
+#   --workdir PATH       Forwarded to the internal REPL and API console processes
+#   --workspace PATH     Workspace directory (forwarded to the internal REPL and API console processes)
+#   --cors-origin LIST   Forwarded to API-only mode
 #   --background         Background all daemon services, return to shell
 #   --verbose            Set COQUI_VERBOSE=1 for detailed logging
 #
@@ -33,7 +34,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "${SCRIPT_DIR}")"
-COQUI_BIN="${SCRIPT_DIR}/coqui"
+COQUI_BIN="${SCRIPT_DIR}/coqui-console"
 
 readonly RESTART_EXIT_CODE=10
 readonly MAX_CRASHES=3
@@ -56,8 +57,8 @@ subcommand=""              # "stop", "stop-api", "status"
 api_host="${COQUI_API_HOST:-127.0.0.1}"
 api_port="${API_DEFAULT_PORT}"
 background=false
-coqui_args=()              # args forwarded to bin/coqui run
-api_args=()                # args forwarded to bin/coqui api
+coqui_args=()              # args forwarded to the internal REPL console process
+api_args=()                # args forwarded to the internal API console process
 verbose=false
 
 while [[ $# -gt 0 ]]; do
@@ -93,6 +94,8 @@ while [[ $# -gt 0 ]]; do
         --workspace)
             workspace_override="$2"
             coqui_args+=("--workspace" "$2"); api_args+=("--workspace" "$2"); shift 2 ;;
+        --cors-origin)
+            api_args+=("--cors-origin" "$2"); shift 2 ;;
         *)
             coqui_args+=("$1"); shift ;;
     esac
@@ -569,8 +572,8 @@ print_api_start_warning() {
         log_dim "$detail"
     fi
     log_dim "Next steps:"
-    log_dim "  1. Run ./bin/coqui-launcher status"
-    log_dim "  2. Run ./bin/coqui-launcher cleanup"
+    log_dim "  1. Run ./bin/coqui status"
+    log_dim "  2. Run ./bin/coqui cleanup"
     log_dim "  3. Inspect the port owner with: lsof -nP -iTCP:${port} -sTCP:LISTEN"
 }
 
@@ -817,7 +820,7 @@ start_api_bg() {
             ;;
         2)
             log "API: starting in background on http://${api_host}:${api_port} (PID ${pid})"
-            log_dim "Use ./bin/coqui-launcher status to confirm when the listener is fully ready."
+            log_dim "Use ./bin/coqui status to confirm when the listener is fully ready."
             ;;
         *)
             print_api_start_warning "$api_port" "The API supervisor process exited or the port never opened."

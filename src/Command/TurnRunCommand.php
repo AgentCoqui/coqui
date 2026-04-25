@@ -6,7 +6,6 @@ namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Agent\ConcurrentToolExecutor;
 use CoquiBot\Coqui\Agent\GroupTurnCoordinator;
-use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\BootManager;
@@ -247,8 +246,9 @@ final class TurnRunCommand extends Command
             // Write the final "complete" event with full metadata
             $storage->appendTurnEvent($turnProcessId, 'complete', $turnResult->toArray());
 
-            // Generate title if needed (best-effort, runs in same process)
-            $this->maybeGenerateTitle($sessionId, $prompt, $turnProcessId, $boot, $storage);
+            // Queue title generation out-of-band so the interactive response can
+            // complete without waiting for a second provider call.
+            $storage->enqueueSessionTitleJob($sessionId, $prompt, $turnProcessId);
 
             $storage->updateTurnProcessStatus($turnProcessId, 'completed', [
                 'result' => $turnResult->content,
@@ -272,60 +272,5 @@ final class TurnRunCommand extends Command
         }
     }
 
-    /**
-     * Generate a session title if one doesn't exist yet.
-     *
-     * Best-effort — failures are silently ignored.
-     */
-    private function maybeGenerateTitle(
-        string $sessionId,
-        string $prompt,
-        string $turnProcessId,
-        BootManager $boot,
-        SessionStorage $storage,
-    ): void {
-        try {
-            $session = $storage->getSession($sessionId);
-            if ($session === null || ($session['title'] ?? null) !== null) {
-                return;
-            }
-
-            $titleGenerator = new TitleGenerator(
-                roleResolver: $boot->roleResolver(),
-                config: $boot->config(),
-                roleDiscovery: $boot->roleDiscovery(),
-                providerFactory: $boot->providerFactory(),
-            );
-
-            $title = $titleGenerator->generate($prompt);
-            if ($title === null) {
-                $storage->appendTurnEvent($turnProcessId, 'warning', [
-                    'message' => 'Title generation returned no result',
-                ]);
-
-                return;
-            }
-
-            $storage->updateSessionTitle($sessionId, $title);
-            $storage->appendTurnEvent($turnProcessId, 'title', ['title' => $title]);
-        } catch (\Throwable $e) {
-            // Best-effort — do not let title generation failures affect the turn
-            error_log(sprintf(
-                '[Coqui] maybeGenerateTitle failed for session %s: %s in %s:%d',
-                $sessionId,
-                $e->getMessage(),
-                $e->getFile(),
-                $e->getLine(),
-            ));
-
-            try {
-                $storage->appendTurnEvent($turnProcessId, 'warning', [
-                    'message' => 'Title generation failed: ' . $e->getMessage(),
-                ]);
-            } catch (\Throwable) {
-                // Ignore secondary failure
-            }
-        }
-    }
 
 }

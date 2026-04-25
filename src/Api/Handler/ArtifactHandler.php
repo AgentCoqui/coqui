@@ -39,6 +39,11 @@ final readonly class ArtifactHandler
      */
     public function list(ServerRequestInterface $request, string $id): Response
     {
+        $session = $this->requireReadableSession($id);
+        if ($session instanceof Response) {
+            return $session;
+        }
+
         $params = $request->getQueryParams();
         $type = isset($params['type']) ? trim((string) $params['type']) : null;
         $stage = isset($params['stage']) ? trim((string) $params['stage']) : null;
@@ -69,6 +74,11 @@ final readonly class ArtifactHandler
      */
     public function versions(ServerRequestInterface $request, string $id, string $artifactId): Response
     {
+        $session = $this->requireReadableSession($id);
+        if ($session instanceof Response) {
+            return $session;
+        }
+
         $artifact = $this->store->get($artifactId, sessionId: $id);
         if ($artifact === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
@@ -402,8 +412,25 @@ final readonly class ArtifactHandler
         return SessionAccess::requireWritableSession($this->sessionStorage, $sessionId);
     }
 
+    /**
+     * @return array<string, mixed>|Response
+     */
+    private function requireReadableSession(string $sessionId): array|Response
+    {
+        if ($this->sessionStorage === null) {
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        }
+
+        return SessionAccess::requireReadableSession($this->sessionStorage, $sessionId);
+    }
+
     private function artifactDetailResponse(string $sessionId, string $artifactId, int $status = 200): Response
     {
+        $session = $this->requireReadableSession($sessionId);
+        if ($session instanceof Response) {
+            return $session;
+        }
+
         $artifact = $this->store->get($artifactId, sessionId: $sessionId);
         if ($artifact === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');

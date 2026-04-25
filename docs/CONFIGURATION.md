@@ -623,7 +623,7 @@ If omitted, models are resolved via provider-specific discovery (e.g., Ollama's 
 
 ## API Configuration (`api`)
 
-Settings for the HTTP API server (`coqui api`).
+Settings for the launcher-managed HTTP API server (`coqui` or `coqui --api-only`).
 
 | Key | Type | Default | Description |
 | --- | ---- | ------- | ----------- |

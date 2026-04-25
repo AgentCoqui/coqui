@@ -1030,10 +1030,10 @@ final class SetupWizard
     }
 
     /**
-    * Step 11: Generate an API key for the HTTP API server.
+     * Step 11: Generate an API key for the HTTP API server.
      *
      * The key is stored in the workspace .env file via CredentialResolver.
-     * Required for running `coqui api` — the server refuses to start
+     * Required for running the launcher-managed API runtime — the server refuses to start
      * without a key unless running on localhost.
      */
     private function configureApiKey(): void

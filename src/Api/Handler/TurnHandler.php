@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Api\SessionAccess;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
@@ -28,10 +29,9 @@ final readonly class TurnHandler
      */
     public function list(ServerRequestInterface $request, string $id): Response
     {
-        $session = $this->storage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireReadableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $params = $request->getQueryParams();
@@ -51,10 +51,9 @@ final readonly class TurnHandler
      */
     public function get(ServerRequestInterface $request, string $id, string $turnId): Response
     {
-        $session = $this->storage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireReadableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $turn = $this->storage->getTurnWithMessages($turnId);
@@ -76,10 +75,9 @@ final readonly class TurnHandler
      */
     public function events(ServerRequestInterface $request, string $id, string $turnId): Response
     {
-        $session = $this->storage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireReadableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $turn = $this->storage->getTurn($turnId);

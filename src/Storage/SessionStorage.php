@@ -235,6 +235,7 @@ final class SessionStorage
 
         $this->db->exec("UPDATE sessions SET session_type = 'interactive' WHERE COALESCE(group_enabled, 0) = 0 AND COALESCE(session_type, '') = ''");
         $this->db->exec("UPDATE sessions SET visibility = 'visible' WHERE COALESCE(visibility, '') = ''");
+        $this->repairLegacyBackgroundSessionVisibility();
 
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_profile_updated ON sessions(profile, updated_at DESC)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_sessions_closed_updated ON sessions(is_closed, updated_at DESC)');
@@ -297,6 +298,27 @@ final class SessionStorage
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turn_processes_session ON turn_processes(session_id)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turn_processes_status ON turn_processes(status)');
         $this->db->exec('CREATE INDEX IF NOT EXISTS idx_turn_events_turn_process ON turn_events(turn_process_id)');
+
+        $this->db->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS session_title_jobs (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                turn_process_id TEXT DEFAULT NULL,
+                prompt TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                pid INTEGER DEFAULT NULL,
+                error TEXT DEFAULT NULL,
+                created_at TEXT NOT NULL,
+                started_at TEXT DEFAULT NULL,
+                completed_at TEXT DEFAULT NULL,
+                FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+                FOREIGN KEY (turn_process_id) REFERENCES turn_processes(id) ON DELETE SET NULL
+            )
+        SQL);
+
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_title_jobs_status ON session_title_jobs(status)');
+        $this->db->exec('CREATE INDEX IF NOT EXISTS idx_session_title_jobs_session ON session_title_jobs(session_id)');
+        $this->db->exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_title_jobs_active_session ON session_title_jobs(session_id) WHERE status IN ('pending', 'running')");
     }
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
@@ -800,26 +822,15 @@ final class SessionStorage
      */
     public function getSession(string $id): ?array
     {
-        $stmt = $this->db->prepare(<<<SQL
-             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
-                 s.visibility,
-                 s.group_enabled, s.group_composition_key, s.group_max_rounds,
-                 s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
-                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
-                 (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
-             FROM sessions s
-             {$this->sessionChannelJoin('s')}
-             WHERE s.id = :id
-        SQL);
+        return $this->fetchSessionById($id);
+    }
 
-        $stmt->execute(['id' => $id]);
-        $session = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($session === false) {
-            return null;
-        }
-
-        return $this->hydrateSessionRow($this->normalizeSessionRow($session), true);
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getSurfacedSession(string $id): ?array
+    {
+        return $this->fetchSessionById($id, visibleOnly: true);
     }
 
     /**
@@ -872,6 +883,52 @@ final class SessionStorage
             'updated_at' => date('c'),
             'id' => $sessionId,
         ]);
+    }
+
+    /**
+     * Queue asynchronous title generation for a session's first prompt.
+     *
+     * Returns the queued or existing active job ID, or null when the session
+     * is missing or already has a title.
+     */
+    public function enqueueSessionTitleJob(string $sessionId, string $prompt, ?string $turnProcessId = null): ?string
+    {
+        if (trim($prompt) === '') {
+            return null;
+        }
+
+        $id = bin2hex(random_bytes(16));
+        $now = date('c');
+
+        $stmt = $this->db->prepare(<<<SQL
+            INSERT INTO session_title_jobs (id, session_id, turn_process_id, prompt, status, created_at)
+            SELECT :id, s.id, :turn_process_id, :prompt, 'pending', :created_at
+            FROM sessions s
+            WHERE s.id = :session_id
+              AND COALESCE(s.title, '') = ''
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM session_title_jobs j
+                  WHERE j.session_id = s.id
+                    AND j.status IN ('pending', 'running')
+              )
+        SQL);
+
+        $stmt->execute([
+            'id' => $id,
+            'session_id' => $sessionId,
+            'turn_process_id' => $turnProcessId,
+            'prompt' => $prompt,
+            'created_at' => $now,
+        ]);
+
+        if ($stmt->rowCount() > 0) {
+            return $id;
+        }
+
+        $existing = $this->findActiveSessionTitleJobForSession($sessionId);
+
+        return $existing !== null ? (string) $existing['id'] : null;
     }
 
     /**
@@ -1576,6 +1633,7 @@ final class SessionStorage
         $row['group_max_rounds'] = is_scalar($row['group_max_rounds'] ?? null)
             ? (int) $row['group_max_rounds']
             : null;
+        $row['session_origin'] = $visibility === 'hidden' ? 'background' : 'user';
         $row['status'] = $isArchived === 1
             ? 'archived'
             : ($isClosed === 1 ? 'closed' : 'active');
@@ -1595,6 +1653,9 @@ final class SessionStorage
 
         $channelBound = is_string($row['channel_instance_id'] ?? null) && $row['channel_instance_id'] !== '';
         $row['channel_bound'] = $channelBound;
+        if ($channelBound) {
+            $row['session_origin'] = 'channel';
+        }
         $row['channel'] = $channelBound
             ? [
                 'instance_id' => (string) $row['channel_instance_id'],
@@ -2167,7 +2228,7 @@ final class SessionStorage
     public function getLatestSessionId(): ?string
     {
         $stmt = $this->db->query(<<<SQL
-            SELECT id FROM sessions ORDER BY updated_at DESC LIMIT 1
+            SELECT id FROM sessions WHERE visibility = 'visible' ORDER BY updated_at DESC LIMIT 1
         SQL);
 
         if ($stmt === false) {
@@ -2185,6 +2246,7 @@ final class SessionStorage
             SELECT id
             FROM sessions
             WHERE profile = :profile
+                            AND visibility = 'visible'
                             AND COALESCE(session_type, CASE WHEN COALESCE(group_enabled, 0) = 1 THEN 'group' ELSE 'interactive' END) = 'interactive'
               AND is_closed = 0
             ORDER BY updated_at DESC
@@ -2290,6 +2352,67 @@ final class SessionStorage
         return $visibility === 'hidden' ? 'hidden' : 'visible';
     }
 
+    private function repairLegacyBackgroundSessionVisibility(): void
+    {
+        if (!$this->backgroundTaskTableAvailable()) {
+            return;
+        }
+
+        $channelFilter = $this->channelTablesAvailable()
+            ? 'AND s.id NOT IN (
+                    SELECT ci.bound_session_id
+                    FROM channel_instances ci
+                    WHERE ci.bound_session_id IS NOT NULL
+                    UNION
+                    SELECT cc.session_id
+                    FROM channel_conversations cc
+                    WHERE cc.session_id IS NOT NULL
+                )'
+            : '';
+
+        $this->db->exec(<<<SQL
+            UPDATE sessions AS s
+            SET visibility = 'hidden'
+            WHERE COALESCE(s.visibility, 'visible') != 'hidden'
+              AND EXISTS (
+                    SELECT 1
+                    FROM background_tasks bt
+                    WHERE bt.session_id = s.id
+              )
+              {$channelFilter}
+        SQL);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchSessionById(string $id, bool $visibleOnly = false): ?array
+    {
+        $visibilityFilter = $visibleOnly ? "AND s.visibility = 'visible'" : '';
+
+        $stmt = $this->db->prepare(<<<SQL
+             SELECT s.id, s.model_role, s.model, s.title, s.profile, s.active_project_id, s.created_at, s.updated_at, s.token_count,
+                 s.visibility,
+                 s.group_enabled, s.group_composition_key, s.group_max_rounds,
+                 s.is_closed, s.is_archived, s.closed_at, s.archived_at, s.closure_reason,
+                 sc.channel_instance_id, sc.channel_name, sc.channel_driver, sc.channel_display_name,
+                 (SELECT COUNT(*) FROM session_group_members gm WHERE gm.session_id = s.id) AS group_member_count
+             FROM sessions s
+             {$this->sessionChannelJoin('s')}
+             WHERE s.id = :id
+             {$visibilityFilter}
+        SQL);
+
+        $stmt->execute(['id' => $id]);
+        $session = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if ($session === false) {
+            return null;
+        }
+
+        return $this->hydrateSessionRow($this->normalizeSessionRow($session), true);
+    }
+
     private function sessionChannelJoin(string $sessionAlias): string
     {
         if (!$this->channelTablesAvailable()) {
@@ -2355,9 +2478,186 @@ final class SessionStorage
         return count($names) === 2;
     }
 
+    private function backgroundTaskTableAvailable(): bool
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT 1
+            FROM sqlite_master
+            WHERE type = 'table'
+              AND name = :name
+            LIMIT 1
+        SQL);
+
+        $stmt->execute(['name' => 'background_tasks']);
+
+        return $stmt->fetchColumn() !== false;
+    }
+
     // -------------------------------------------------------------------------
     // Background Tasks
     // -------------------------------------------------------------------------
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getSessionTitleJob(string $id): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT * FROM session_title_jobs WHERE id = :id
+        SQL);
+
+        $stmt->execute(['id' => $id]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
+    }
+
+    /**
+     * @return array<array<string, mixed>>
+     */
+    public function getPendingSessionTitleJobs(int $limit = 10): array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT id, session_id, turn_process_id, prompt
+            FROM session_title_jobs
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT :limit
+        SQL);
+
+        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
+        $stmt->execute();
+
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * @param array<string, mixed> $extra Additional columns to update (error, pid)
+     */
+    public function updateSessionTitleJobStatus(string $jobId, string $status, array $extra = []): void
+    {
+        $sets = ['status = :status'];
+        $params = ['status' => $status, 'id' => $jobId];
+        $now = date('c');
+
+        match ($status) {
+            'running' => $sets[] = 'started_at = :started_at',
+            'completed', 'failed' => $sets[] = 'completed_at = :completed_at',
+            default => null,
+        };
+
+        if ($status === 'running') {
+            $params['started_at'] = $now;
+        } elseif ($status === 'completed' || $status === 'failed') {
+            $params['completed_at'] = $now;
+        }
+
+        foreach ($extra as $col => $val) {
+            if (in_array($col, ['error', 'pid'], true)) {
+                $sets[] = "{$col} = :{$col}";
+                $params[$col] = $val;
+            }
+        }
+
+        $setClause = implode(', ', $sets);
+        $stmt = $this->db->prepare("UPDATE session_title_jobs SET {$setClause} WHERE id = :id");
+        $stmt->execute($params);
+    }
+
+    /**
+     * @param array<string, mixed> $extra Additional columns to update (error, pid)
+     */
+    public function updateSessionTitleJobStatusConditional(string $jobId, string $newStatus, string $expectedCurrentStatus, array $extra = []): bool
+    {
+        $sets = ['status = :new_status'];
+        $params = ['new_status' => $newStatus, 'expected_status' => $expectedCurrentStatus, 'id' => $jobId];
+        $now = date('c');
+
+        match ($newStatus) {
+            'running' => $sets[] = 'started_at = :started_at',
+            'completed', 'failed' => $sets[] = 'completed_at = :completed_at',
+            default => null,
+        };
+
+        if ($newStatus === 'running') {
+            $params['started_at'] = $now;
+        } elseif ($newStatus === 'completed' || $newStatus === 'failed') {
+            $params['completed_at'] = $now;
+        }
+
+        foreach ($extra as $col => $val) {
+            if (in_array($col, ['error', 'pid'], true)) {
+                $sets[] = "{$col} = :{$col}";
+                $params[$col] = $val;
+            }
+        }
+
+        $setClause = implode(', ', $sets);
+        $stmt = $this->db->prepare("UPDATE session_title_jobs SET {$setClause} WHERE id = :id AND status = :expected_status");
+        $stmt->execute($params);
+
+        return $stmt->rowCount() > 0;
+    }
+
+    /**
+     * Requeue dead in-flight title jobs after an API restart.
+     */
+    public function requeueOrphanedSessionTitleJobs(): int
+    {
+        $stmt = $this->db->query(<<<SQL
+            SELECT j.id, j.pid, s.title
+            FROM session_title_jobs j
+            INNER JOIN sessions s ON s.id = j.session_id
+            WHERE j.status = 'running'
+        SQL);
+
+        if ($stmt === false) {
+            return 0;
+        }
+
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $count = 0;
+        $now = date('c');
+
+        $requeue = $this->db->prepare(<<<SQL
+            UPDATE session_title_jobs
+            SET status = 'pending',
+                pid = NULL,
+                error = NULL,
+                started_at = NULL,
+                completed_at = NULL
+            WHERE id = :id
+        SQL);
+
+        $complete = $this->db->prepare(<<<SQL
+            UPDATE session_title_jobs
+            SET status = 'completed',
+                pid = NULL,
+                error = NULL,
+                completed_at = :completed_at
+            WHERE id = :id
+        SQL);
+
+        foreach ($rows as $row) {
+            $pid = (int) ($row['pid'] ?? 0);
+            if ($this->isExpectedCoquiProcessAlive($pid, 'session-title:run')) {
+                continue;
+            }
+
+            if (is_string($row['title'] ?? null) && trim((string) $row['title']) !== '') {
+                $complete->execute([
+                    'id' => $row['id'],
+                    'completed_at' => $now,
+                ]);
+            } else {
+                $requeue->execute(['id' => $row['id']]);
+            }
+
+            $count++;
+        }
+
+        return $count;
+    }
 
     /**
      * Create a new background task record.
@@ -3042,6 +3342,26 @@ final class SessionStorage
         $stmt->execute();
 
         return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function findActiveSessionTitleJobForSession(string $sessionId): ?array
+    {
+        $stmt = $this->db->prepare(<<<SQL
+            SELECT *
+            FROM session_title_jobs
+            WHERE session_id = :session_id
+              AND status IN ('pending', 'running')
+            ORDER BY created_at DESC
+            LIMIT 1
+        SQL);
+
+        $stmt->execute(['session_id' => $sessionId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        return $row === false ? null : $row;
     }
 
     // ─── Turn Process Methods ────────────────────────────────────────────────

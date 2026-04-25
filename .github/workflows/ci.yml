@@ -131,7 +131,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run ShellCheck
-        run: shellcheck bin/coqui-launcher tests/bash/launcher-sigint-test.sh scripts/build.sh scripts/ci-test.sh scripts/sync-workspace-toolkits.sh
+        run: shellcheck bin/coqui-launcher tests/bash/launcher-sigint-test.sh tests/bash/launcher-default-mode-test.sh tests/bash/mock-install-test.sh scripts/build.sh scripts/ci-test.sh scripts/mock-install.sh scripts/sync-workspace-toolkits.sh
 
   bash-tests:
     name: Bash Tests
@@ -140,5 +140,5 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run bash signal handling tests
-        run: bash tests/bash/launcher-sigint-test.sh
+      - name: Run bash regression tests
+        run: composer test-bash

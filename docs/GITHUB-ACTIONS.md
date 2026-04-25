@@ -11,7 +11,7 @@ The CI workflow (`.github/workflows/ci.yml`) runs four main jobs:
 - **Tests** — `composer test` across the full matrix
 - **Coverage** — `composer test:coverage -- --clover build/coverage/clover.xml` on one stable lane, uploading Clover XML
 - **PHPStan** — `composer analyse` at level 8 with bleeding edge rules
-- **Bash Tests** — `bash tests/bash/launcher-sigint-test.sh` for launcher signal-handling behavior
+- **Bash Tests** — shell regressions for launcher behavior and the dev mock installer
 
 ### PHP Version Matrix
 
@@ -31,6 +31,12 @@ Composer dependencies are cached by PHP version using the `actions/cache` action
 ### Release Version Source
 
 Release builds derive the application version from the git tag (`v1.2.3` becomes `1.2.3`) and inject it into `config/version.txt` inside the staged build. The root `composer.json` is not used as a manually maintained application version source.
+
+### Release Packaging
+
+Release archives are exported through `git archive`, with `.gitattributes` as the source of truth for `export-ignore` exclusions. Dev-only paths such as `.github/`, `.vscode/`, `CLAUDE.md`, `CHANGELOG.md`, and `smoke-test/` are filtered there first, then removed again in the release build step as a belt-and-suspenders cleanup before archiving.
+
+The Docker build uses `.dockerignore` to mirror those exclusions for the production image context so contributor files, smoke fixtures, and editor settings do not get copied into `/app` during the final `COPY . /app` layer.
 
 ## Relationship to php-agents
 

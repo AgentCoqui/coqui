@@ -66,6 +66,18 @@ test('mergeDiscoveredModel preserves curated budgets when discovered values are 
     ], $merged['fieldSources']);
 });
 
+test('encodeJsonDocument preserves zero fractions for whole-number prices', function () {
+    $encoded = encodeJsonDocument([
+        'cost' => [
+            'input' => 2.5,
+            'output' => 15.0,
+        ],
+    ]);
+
+    Assert::assertStringContainsString('"input": 2.5', $encoded);
+    Assert::assertStringContainsString('"output": 15.0', $encoded);
+});
+
 test('recoverProviderCatalog keeps existing curated xai models when direct discovery is empty', function () {
     $existingCurated = [
         [

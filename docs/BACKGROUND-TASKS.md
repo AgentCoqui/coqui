@@ -2,7 +2,7 @@
 
 Background tasks let Coqui run long-running agent work in a separate process while the main conversation continues. Instead of blocking the chat while the agent researches, codes, or processes data, you can kick off a background task and check in on its progress whenever you want.
 
-> **Requires the API server**: Task execution is handled by the API server's `BackgroundTaskManager`. The REPL can create and monitor tasks, but only the API server spawns the child processes that execute them. Start the API with `php bin/coqui api` or use the launcher's default mode which starts both.
+> **Requires the API server**: Task execution is handled by the API server's `BackgroundTaskManager`. The REPL can create and monitor tasks, but only the API server spawns the child processes that execute them. Start Coqui with `coqui` for the full launcher-managed app, or use `coqui --api-only` when you only need the API runtime.
 
 ## How It Works
 
@@ -57,7 +57,7 @@ If the API server restarts while tasks are running, orphaned tasks (status `runn
 Background tasks are **automatically available** when running the API server. No additional configuration is required.
 
 ```bash
-php bin/coqui api
+coqui
 ```
 
 Background task **tools** are available in both API and REPL modes. In REPL mode, the agent can create, list, check status, and cancel tasks. Task records are written to SQLite and remain queued until the API server picks them up for execution.
@@ -68,7 +68,7 @@ When Coqui creates a background task from the REPL or an agent tool, it now perf
 
 ### Requirements
 
-- The API server must be running (`php bin/coqui api`)
+- The API server must be running (`coqui` or `coqui --api-only`)
 - `pcntl` extension (for signal handling in child processes) — included in most PHP CLI installs
 - `posix` extension (for process management) — included in most PHP CLI installs
 

@@ -233,3 +233,22 @@ test('todo handler rejects writes for closed sessions', function () {
         cleanupTodoHandlerFixture($fixture);
     }
 });
+
+test('todo handler rejects reads for hidden sessions', function () {
+    $fixture = createTodoHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('learner', 'background-task', visibility: 'hidden');
+
+        $response = $fixture['handler']->stats(
+            new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/todos/stats'),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(404);
+        expect($body['code'])->toBe('session_not_found');
+    } finally {
+        cleanupTodoHandlerFixture($fixture);
+    }
+});

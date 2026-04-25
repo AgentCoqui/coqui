@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
-use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Config\AutoApprovalPolicy;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
 use CoquiBot\Coqui\Contract\AgentTurnResult;
@@ -37,7 +36,6 @@ final class AgentFiberExecutor
         private readonly AgentRunner $agentRunner,
         private readonly SessionStorage $storage,
         private readonly CatastrophicBlacklist $blacklist,
-        private readonly ?TitleGenerator $titleGenerator = null,
     ) {}
 
     /**
@@ -86,8 +84,7 @@ final class AgentFiberExecutor
                 // Process deferred work (memory extraction) after response is sent
                 $result->deferredWork?->process();
 
-                // Generate title on first turn if no title exists
-                $this->maybeGenerateTitle($sessionId, $prompt, $sseObserver);
+                $this->storage->enqueueSessionTitleJob($sessionId, $prompt);
             } catch (\Throwable $e) {
                 // Log the full error for operators, surface only a safe message to clients
                 error_log(sprintf(
@@ -202,8 +199,7 @@ final class AgentFiberExecutor
                 // Process deferred work (memory extraction) before resolving
                 $result->deferredWork?->process();
 
-                // Generate title on first turn (best-effort, no observer needed)
-                $this->maybeGenerateTitleBlocking($sessionId, $prompt);
+                $this->storage->enqueueSessionTitleJob($sessionId, $prompt);
 
                 $deferred->resolve($result->toArray());
             } catch (\Throwable $e) {
@@ -246,55 +242,4 @@ final class AgentFiberExecutor
         return isset($this->activeFibers[$sessionId]);
     }
 
-    /**
-     * Generate a title for the session if it doesn't already have one.
-     *
-     * Runs after writeComplete() so the main response is delivered first.
-     * Title generation is best-effort — failures are silently ignored.
-     */
-    private function maybeGenerateTitle(string $sessionId, string $prompt, SseObserver $observer): void
-    {
-        if ($this->titleGenerator === null) {
-            return;
-        }
-
-        // Only generate if the session has no title yet
-        $session = $this->storage->getSession($sessionId);
-        if ($session === null || ($session['title'] ?? null) !== null) {
-            return;
-        }
-
-        $title = $this->titleGenerator->generate($prompt);
-        if ($title === null) {
-            return;
-        }
-
-        // Persist and stream the title event
-        $this->storage->updateSessionTitle($sessionId, $title);
-        $observer->writeTitle($title);
-    }
-
-    /**
-     * Generate a title for blocking mode (no observer needed).
-     *
-     * Runs after the agent completes. Best-effort — failures are silently ignored.
-     */
-    private function maybeGenerateTitleBlocking(string $sessionId, string $prompt): void
-    {
-        if ($this->titleGenerator === null) {
-            return;
-        }
-
-        $session = $this->storage->getSession($sessionId);
-        if ($session === null || ($session['title'] ?? null) !== null) {
-            return;
-        }
-
-        $title = $this->titleGenerator->generate($prompt);
-        if ($title === null) {
-            return;
-        }
-
-        $this->storage->updateSessionTitle($sessionId, $title);
-    }
 }

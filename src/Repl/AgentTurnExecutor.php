@@ -6,7 +6,6 @@ namespace CoquiBot\Coqui\Repl;
 
 use CoquiBot\Coqui\Agent\AgentRunner;
 use CoquiBot\Coqui\Agent\GroupTurnCoordinator;
-use CoquiBot\Coqui\Agent\TitleGenerator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Contract\AgentTurnResult as ContractAgentTurnResult;
@@ -27,7 +26,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 /**
  * Executes a single agent turn: builds policy, manages cancellation tokens,
  * switches terminal to raw mode for ESC detection, runs the agent, renders
- * output, and handles post-turn tasks (title generation, sprint continuation).
+ * output, and handles post-turn tasks plus sprint continuation.
  */
 final class AgentTurnExecutor
 {
@@ -153,10 +152,11 @@ final class AgentTurnExecutor
             return new AgentTurnResult();
         }
 
-        // Enqueue title generation as deferred work (first-turn LLM call)
-        $result->deferredWork?->enqueue(fn() => $this->maybeGenerateTitle($sessionId, $prompt));
+        // Queue first-turn title generation for the API worker so prompt return
+        // is not blocked by a second provider call on the REPL thread.
+        $this->storage->enqueueSessionTitleJob($sessionId, $prompt);
 
-        // Process deferred work (memory extraction, title generation) after
+        // Process deferred work after
         // stats are visible but before returning control to the REPL.
         $result->deferredWork?->process();
 
@@ -266,31 +266,5 @@ final class AgentTurnExecutor
             is_string($data['actor_role'] ?? null) ? $data['actor_role'] : null,
         );
         $this->escObserver->handleEvent($event, $data);
-    }
-
-    private function maybeGenerateTitle(string $sessionId, string $prompt): void
-    {
-        try {
-            $session = $this->storage->getSession($sessionId);
-            if ($session === null || ($session['title'] ?? null) !== null) {
-                return;
-            }
-
-            $titleGenerator = new TitleGenerator(
-                roleResolver: $this->boot->roleResolver(),
-                config: $this->boot->config(),
-                roleDiscovery: $this->boot->roleDiscovery(),
-                providerFactory: $this->boot->providerFactory(),
-            );
-
-            $title = $titleGenerator->generate($prompt);
-            if ($title === null) {
-                return;
-            }
-
-            $this->storage->updateSessionTitle($sessionId, $title);
-        } catch (\Throwable $e) {
-            error_log(sprintf('[Coqui] REPL title generation failed: %s', $e->getMessage()));
-        }
     }
 }

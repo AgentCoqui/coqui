@@ -136,3 +136,19 @@ test('session project handler rejects updates for archived sessions', function (
         cleanupSessionProjectHandlerFixture($fixture);
     }
 });
+
+test('session project handler rejects reads for hidden sessions', function () {
+    $fixture = createSessionProjectHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('learner', 'background-task', visibility: 'hidden');
+
+        $response = $fixture['handler']->get(new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/project'), $sessionId);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(404);
+        expect($body['code'])->toBe('session_not_found');
+    } finally {
+        cleanupSessionProjectHandlerFixture($fixture);
+    }
+});

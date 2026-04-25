@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Command;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
+use CoquiBot\Coqui\Api\SessionTitleJobManager;
 use CoquiBot\Coqui\Api\ChannelExecutionManager;
 use CoquiBot\Coqui\Api\ChannelManager;
 use CoquiBot\Coqui\Api\LoopManager;
@@ -178,7 +179,7 @@ final class ApiCommand extends Command
         }
 
         // Create background task manager + agent turn manager
-        $coquiBinPath = realpath(dirname(__DIR__, 2) . '/bin/coqui') ?: dirname(__DIR__, 2) . '/bin/coqui';
+        $coquiBinPath = realpath(dirname(__DIR__, 2) . '/bin/coqui-console') ?: dirname(__DIR__, 2) . '/bin/coqui-console';
         $maxConcurrentTasks = (int) ($boot->config()->get('api.tasks.maxConcurrent') ?? CoquiDefaults::MAX_CONCURRENT_TASKS);
 
         // Notification publisher for background task / loop lifecycle events
@@ -196,6 +197,15 @@ final class ApiCommand extends Command
             publisher: $notificationPublisher,
         );
 
+        $titleJobManager = new SessionTitleJobManager(
+            storage: $storage,
+            coquiBinPath: $coquiBinPath,
+            configPath: $configPath ?? '',
+            workDir: $workDir,
+            workspacePath: $boot->workspacePath(),
+            unsafeMode: $unsafeMode,
+        );
+
         $turnManager = new AgentTurnManager(
             storage: $storage,
             coquiBinPath: $coquiBinPath,
@@ -208,7 +218,8 @@ final class ApiCommand extends Command
         // Crash recovery: mark orphaned tasks from previous server run as failed
         $orphanCount = $storage->markOrphanedTasksFailed();
         $orphanTurnCount = $storage->markOrphanedTurnProcessesFailed();
-        $totalOrphans = $orphanCount + $orphanTurnCount;
+        $orphanTitleCount = $storage->requeueOrphanedSessionTitleJobs();
+        $totalOrphans = $orphanCount + $orphanTurnCount + $orphanTitleCount;
         if ($totalOrphans > 0) {
             $output->writeln(sprintf('<comment>Recovered %d orphaned process(es) from previous run</comment>', $totalOrphans));
         }
@@ -465,11 +476,12 @@ final class ApiCommand extends Command
         $context = ['socket' => ['so_reuseaddr' => true]];
         $socket = new SocketServer($listenAddress, $context);
 
-        $lifecycle->configureRestartHandler(function (string $reason) use ($output, $socket, $taskManager, $turnManager, $channelManager): void {
-            Loop::addTimer(0.15, function () use ($reason, $output, $socket, $taskManager, $turnManager, $channelManager): void {
+        $lifecycle->configureRestartHandler(function (string $reason) use ($output, $socket, $taskManager, $titleJobManager, $turnManager, $channelManager): void {
+            Loop::addTimer(0.15, function () use ($reason, $output, $socket, $taskManager, $titleJobManager, $turnManager, $channelManager): void {
                 $output->writeln(sprintf('<comment>Restart requested: %s</comment>', $reason));
                 $channelManager->shutdown();
                 $turnManager->shutdown();
+                $titleJobManager->shutdown();
                 $taskManager->shutdown();
                 $socket->close();
                 exit(self::RESTART_EXIT_CODE);
@@ -479,7 +491,7 @@ final class ApiCommand extends Command
         // Graceful shutdown on SIGTERM/SIGINT — close socket + stop event loop
         // SIGINT (2) = direct Ctrl+C — show shutdown message (standalone mode)
         // SIGTERM (15) = sent by launcher — stay silent (launcher owns the UX)
-        $shutdownHandler = static function (int $signal) use ($socket, $output, $taskManager, $turnManager, $channelManager): void {
+        $shutdownHandler = static function (int $signal) use ($socket, $output, $taskManager, $titleJobManager, $turnManager, $channelManager): void {
             $output->writeln('');
             if ($signal === 2) {
                 $output->writeln('');
@@ -488,6 +500,7 @@ final class ApiCommand extends Command
             }
             $channelManager->shutdown();
             $turnManager->shutdown();
+            $titleJobManager->shutdown();
             $taskManager->shutdown();
             $socket->close();
             Loop::stop();
@@ -522,6 +535,10 @@ final class ApiCommand extends Command
         // Periodic timer: tick the background task manager every second
         Loop::addPeriodicTimer(1.0, static function () use ($taskManager): void {
             $taskManager->tick();
+        });
+
+        Loop::addPeriodicTimer(1.0, static function () use ($titleJobManager): void {
+            $titleJobManager->tick();
         });
 
         // Periodic timer: reap finished turn processes

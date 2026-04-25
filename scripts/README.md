@@ -101,3 +101,27 @@ php scripts/generate-model-defaults.php --write --env-file ~/.coqui/.workspace/.
 ```
 
 This step is opt-in so offline builds and release packaging without provider keys remain possible.
+
+## mock-install.sh
+
+Creates a dev-only mock install by symlinking a local checkout into the normal install path and refreshing the public `coqui` and `coqui-launcher` command symlinks.
+
+### Mock Install Usage
+
+```bash
+# From the repo root, install this checkout into ~/.coqui
+./scripts/mock-install.sh
+
+# Replace an existing install without prompting
+./scripts/mock-install.sh --force
+
+# Use a custom install path and bin dir
+COQUI_INSTALL_DIR=/tmp/coqui-dev COQUI_BIN_DIR=/tmp/bin ./scripts/mock-install.sh --force
+```
+
+### Mock Install Behavior
+
+1. Validates that the source directory looks like a Coqui checkout
+2. Replaces the install path with a symlink to that checkout
+3. Refreshes `coqui` and `coqui-launcher` command symlinks in a writable bin directory
+4. Writes a separate `.mock-install.env` marker next to the install path so the repo itself is not modified

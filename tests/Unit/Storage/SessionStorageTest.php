@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 
 beforeEach(function () {
@@ -31,6 +32,7 @@ test('getSession returns session data', function () {
     expect($session['model_role'])->toBe('coder');
     expect($session['model'])->toBe('anthropic/claude');
     expect($session['session_type'])->toBe('interactive');
+    expect($session['session_origin'])->toBe('user');
 });
 
 test('group sessions expose explicit session type alongside compatibility fields', function () {
@@ -191,6 +193,59 @@ test('createTask stores structured metadata', function () {
     expect(json_decode((string) $task['metadata'], true)['stage_index'])->toBe(1);
 });
 
+test('enqueueSessionTitleJob dedupes active jobs for the same untitled session', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+
+    $firstJobId = $this->storage->enqueueSessionTitleJob($sessionId, 'First prompt');
+    $secondJobId = $this->storage->enqueueSessionTitleJob($sessionId, 'Second prompt');
+
+    expect($firstJobId)->not->toBeNull();
+    expect($secondJobId)->toBe($firstJobId);
+
+    $jobs = $this->storage->getPendingSessionTitleJobs();
+
+    expect($jobs)->toHaveCount(1);
+    expect($jobs[0]['id'])->toBe($firstJobId);
+    expect($jobs[0]['prompt'])->toBe('First prompt');
+});
+
+test('enqueueSessionTitleJob skips sessions that already have titles', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+    $this->storage->updateSessionTitle($sessionId, 'Existing title');
+
+    $jobId = $this->storage->enqueueSessionTitleJob($sessionId, 'Prompt that should be ignored');
+
+    expect($jobId)->toBeNull();
+    expect($this->storage->getPendingSessionTitleJobs())->toBe([]);
+});
+
+test('requeueOrphanedSessionTitleJobs retries untitled jobs and completes already-titled jobs', function () {
+    $untitledSessionId = $this->storage->createSession('orchestrator', 'model');
+    $titledSessionId = $this->storage->createSession('orchestrator', 'model');
+
+    $untitledJobId = $this->storage->enqueueSessionTitleJob($untitledSessionId, 'Untitled prompt');
+    $titledJobId = $this->storage->enqueueSessionTitleJob($titledSessionId, 'Titled prompt');
+
+    expect($untitledJobId)->not->toBeNull();
+    expect($titledJobId)->not->toBeNull();
+
+    $this->storage->updateSessionTitleJobStatus((string) $untitledJobId, 'running', ['pid' => 0]);
+    $this->storage->updateSessionTitleJobStatus((string) $titledJobId, 'running', ['pid' => 0]);
+    $this->storage->updateSessionTitle($titledSessionId, 'Recovered title');
+
+    $recovered = $this->storage->requeueOrphanedSessionTitleJobs();
+    $untitledJob = $this->storage->getSessionTitleJob((string) $untitledJobId);
+    $titledJob = $this->storage->getSessionTitleJob((string) $titledJobId);
+
+    expect($recovered)->toBe(2);
+    expect($untitledJob)->not->toBeNull();
+    expect($untitledJob['status'])->toBe('pending');
+    expect($untitledJob['pid'])->toBeNull();
+    expect($titledJob)->not->toBeNull();
+    expect($titledJob['status'])->toBe('completed');
+    expect($titledJob['pid'])->toBeNull();
+});
+
 test('deleteSession removes session and messages', function () {
     $sessionId = $this->storage->createSession('test', 'model');
     $this->storage->addMessage($sessionId, 'user', 'Hello');
@@ -209,6 +264,86 @@ test('getLatestSessionId returns most recent', function () {
     $latest = $this->storage->getLatestSessionId();
 
     expect($latest)->toBe($id2);
+});
+
+test('getLatestSessionId ignores hidden sessions', function () {
+    $visibleId = $this->storage->createSession('test1', 'model');
+    sleep(1);
+    $this->storage->createSession('test2', 'model', visibility: 'hidden');
+
+    $latest = $this->storage->getLatestSessionId();
+
+    expect($latest)->toBe($visibleId);
+});
+
+test('getSurfacedSession excludes hidden sessions', function () {
+    $hiddenId = $this->storage->createSession('learner', 'background-task', visibility: 'hidden');
+
+    expect($this->storage->getSession($hiddenId))->not->toBeNull();
+    expect($this->storage->getSurfacedSession($hiddenId))->toBeNull();
+});
+
+test('session origin is derived as channel for channel-linked sessions', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'model');
+    $channelStore = new ChannelStore($this->storage->getPdo());
+    $channelStore->upsertConfiguredInstance([
+        'name' => 'signal-primary',
+        'driver' => 'signal',
+        'display_name' => 'Signal Primary',
+        'default_profile' => 'caelum',
+        'bound_session_id' => $sessionId,
+        'settings' => ['account' => '+15551234567'],
+        'allowed_scopes' => [],
+        'security' => ['linkRequired' => true],
+    ], ['direct_messages' => true]);
+
+    $session = $this->storage->getSession($sessionId);
+
+    expect($session)->not->toBeNull();
+    expect($session['channel_bound'])->toBeTrue();
+    expect($session['session_origin'])->toBe('channel');
+});
+
+test('reopening storage repairs legacy visible background task sessions', function () {
+    $sessionId = $this->storage->createSession('learner', 'legacy-model');
+    $this->storage->createTask($sessionId, 'Legacy background task', 'learner');
+
+    unset($this->storage);
+    $this->storage = new SessionStorage($this->dbPath);
+
+    $session = $this->storage->getSession($sessionId);
+
+    expect($session)->not->toBeNull();
+    expect($session['visibility'])->toBe('hidden');
+    expect($session['session_origin'])->toBe('background');
+    expect($this->storage->getSurfacedSession($sessionId))->toBeNull();
+});
+
+test('reopening storage preserves visible channel sessions with task records', function () {
+    $sessionId = $this->storage->createSession('orchestrator', 'channel:signal');
+    $channelStore = new ChannelStore($this->storage->getPdo());
+    $channelStore->upsertConfiguredInstance([
+        'name' => 'signal-primary',
+        'driver' => 'signal',
+        'display_name' => 'Signal Primary',
+        'default_profile' => 'caelum',
+        'bound_session_id' => $sessionId,
+        'settings' => ['account' => '+15551234567'],
+        'allowed_scopes' => [],
+        'security' => ['linkRequired' => true],
+    ], ['direct_messages' => true]);
+    $this->storage->createTask($sessionId, 'Channel reply task', 'orchestrator');
+
+    unset($this->storage);
+    $this->storage = new SessionStorage($this->dbPath);
+
+    $session = $this->storage->getSession($sessionId);
+
+    expect($session)->not->toBeNull();
+    expect($session['visibility'])->toBe('visible');
+    expect($session['channel_bound'])->toBeTrue();
+    expect($session['session_origin'])->toBe('channel');
+    expect($this->storage->getSurfacedSession($sessionId))->not->toBeNull();
 });
 
 test('updateTokenCount updates session tokens', function () {

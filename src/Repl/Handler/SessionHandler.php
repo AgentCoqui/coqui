@@ -240,6 +240,11 @@ final class SessionHandler
             return null;
         }
 
+        if (($session['visibility'] ?? 'visible') !== 'visible') {
+            $io->error(sprintf('Session %s is internal and cannot be resumed from the REPL.', $arg));
+            return null;
+        }
+
         if ($this->storage->isSessionClosed($arg)) {
             $io->error(sprintf('Session %s is closed and cannot be resumed.', $arg));
             return null;

@@ -14,7 +14,7 @@ final class SessionAccess
      */
     public static function requireReadableSession(SessionStorage $storage, string $sessionId): array|Response
     {
-        $session = $storage->getSession($sessionId);
+        $session = $storage->getSurfacedSession($sessionId);
 
         if ($session === null) {
             return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');

@@ -142,8 +142,8 @@ jobs:
           find vendor/ -type d -empty -delete 2>/dev/null || true
 
           # Final cleanup
-          rm -f .gitattributes .gitignore
-          rm -rf .github/ .workspace/ workspace/ 2>/dev/null || true
+          rm -f .gitattributes .gitignore .dockerignore Dockerfile phpstan.neon phpunit.xml AGENTS.md CLAUDE.md CHANGELOG.md
+          rm -rf .github/ .claude/ .vscode/ .workspace/ workspace/ tests/ scripts/ examples/ smoke-test/ 2>/dev/null || true
 
       - name: Verify build
         working-directory: BUILD/coqui

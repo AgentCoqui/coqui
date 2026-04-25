@@ -45,10 +45,9 @@ final readonly class MessageHandler
      */
     public function list(ServerRequestInterface $request, string $id): Response
     {
-        $session = $this->storage->getSession($id);
-
-        if ($session === null) {
-            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        $session = SessionAccess::requireReadableSession($this->storage, $id);
+        if ($session instanceof Response) {
+            return $session;
         }
 
         $messages = $this->storage->getMessages($id);

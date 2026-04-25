@@ -43,6 +43,11 @@ final readonly class TodoHandler
      */
     public function list(ServerRequestInterface $request, string $id): Response
     {
+        $session = $this->requireReadableSession($id);
+        if ($session instanceof Response) {
+            return $session;
+        }
+
         $params = $request->getQueryParams();
         $status = isset($params['status']) && trim((string) $params['status']) !== ''
             ? trim((string) $params['status']) : null;
@@ -73,6 +78,11 @@ final readonly class TodoHandler
      */
     public function stats(ServerRequestInterface $request, string $id): Response
     {
+        $session = $this->requireReadableSession($id);
+        if ($session instanceof Response) {
+            return $session;
+        }
+
         $params = $request->getQueryParams();
         $artifactId = isset($params['artifact_id']) ? trim((string) $params['artifact_id']) : null;
 
@@ -488,8 +498,25 @@ final readonly class TodoHandler
         return SessionAccess::requireWritableSession($this->sessionStorage, $sessionId);
     }
 
+    /**
+     * @return array<string, mixed>|Response
+     */
+    private function requireReadableSession(string $sessionId): array|Response
+    {
+        if ($this->sessionStorage === null) {
+            return Router::errorResponse(ApiErrorCode::SESSION_NOT_FOUND, 'Session not found');
+        }
+
+        return SessionAccess::requireReadableSession($this->sessionStorage, $sessionId);
+    }
+
     private function todoDetailResponse(string $sessionId, string $todoId, int $status = 200): Response
     {
+        $session = $this->requireReadableSession($sessionId);
+        if ($session instanceof Response) {
+            return $session;
+        }
+
         $todo = $this->store->get($todoId, sessionId: $sessionId);
 
         if ($todo === null) {

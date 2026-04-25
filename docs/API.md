@@ -8,35 +8,40 @@ The API is built on ReactPHP and runs as a long-lived PHP process. It shares the
 
 ## Starting the Server
 
+Use the launcher-managed entrypoint by default. The API is a required runtime for background tasks, channels, schedules, and other long-lived features.
+
 ```bash
-# Default: localhost:3300
-php bin/coqui api
+# Recommended default: full app (REPL + API)
+coqui
+
+# API only
+coqui --api-only
 
 # Listen on all interfaces (accessible from other devices on your network)
-php bin/coqui api --host 0.0.0.0
+coqui --api-only --host 0.0.0.0
 
 # Custom host and port
-php bin/coqui api --host 0.0.0.0 --port 3000
+coqui --api-only --host 0.0.0.0 --port 3000
 
 # With a specific config file
-php bin/coqui api --config /path/to/openclaw.json
+coqui --api-only --config /path/to/openclaw.json
 
 # With CORS origins restricted
-php bin/coqui api --cors-origin "http://localhost:3000,https://app.example.com"
+coqui --api-only --cors-origin "http://localhost:3000,https://app.example.com"
 
-# Via the launcher
+# Explicit launcher name
 ./bin/coqui-launcher --api-only --host 0.0.0.0
 
 # Via environment variable
-COQUI_API_HOST=0.0.0.0 ./bin/coqui-launcher
+COQUI_API_HOST=0.0.0.0 coqui
 
 # Via Make
-make api HOST=0.0.0.0
+make start
 make api HOST=0.0.0.0 PORT=3000
 
 # Docker (already binds to 0.0.0.0 inside the container)
-make docker-api              # port 3300
-make docker-api PORT=3000    # custom port
+make docker-start            # REPL + API
+make docker-api PORT=3000    # API only
 ```
 
 ### CLI Options
@@ -88,9 +93,9 @@ By default, the API server binds to `127.0.0.1` (localhost only). To access the 
 
 ```bash
 # Any of these methods work:
-php bin/coqui api --host 0.0.0.0
-./bin/coqui-launcher --host 0.0.0.0
-COQUI_API_HOST=0.0.0.0 ./bin/coqui-launcher
+coqui --api-only --host 0.0.0.0
+coqui --host 0.0.0.0
+COQUI_API_HOST=0.0.0.0 coqui
 make api HOST=0.0.0.0
 ```
 
@@ -294,9 +299,13 @@ Session lifecycle fields have distinct meanings:
 
 Channel-backed interactive sessions are still first-class visible sessions. Their payloads include `channel_bound: true` plus a `channel` object describing the bound channel instance. Ordinary app-style session resolution intentionally skips channel-backed sessions so a normal "resume latest chat" flow does not land inside a Signal, Telegram, or Discord conversation lane.
 
+Hidden sessions are internal execution lanes for background work. They are excluded from session listings and other user-facing session inspection endpoints even when a client already knows the raw session ID. Visible session payloads now include a derived `session_origin` label: `user` for ordinary interactive sessions and `channel` for channel-backed conversations. Hidden background sessions resolve internally as `background` but are not returned by the user-facing session endpoints.
+
 #### `GET /api/v1/sessions`
 
 List sessions, ordered by most recently updated.
+
+This endpoint is user-facing and only returns surfaced sessions (`visibility = visible`). Hidden background sessions such as learner, evaluator, scheduled, loop, webhook, and task execution lanes are intentionally excluded.
 
 **Query Parameters**
 
@@ -306,6 +315,8 @@ List sessions, ordered by most recently updated.
 | `status` | string | `"active"` | Filter by lifecycle state: `active`, `closed`, `archived`, or `all` |
 | `include_closed` | bool | `false` | Legacy alias for `status=all` when `status` is omitted |
 | `profile` | string | unset | Filter by profile scope. Use a profile name like `caelum` or `none` for unprofiled sessions only |
+
+Each returned session also includes `session_origin`, which is `user` for ordinary interactive sessions and `channel` for channel-backed visible conversations.
 
 **Response `200`**
 
@@ -539,6 +550,8 @@ Group-session resolve requests use the same endpoint:
 ```
 
 #### `GET /api/v1/sessions/{id}`
+
+Returns one surfaced session. Hidden background sessions are treated as not found on this user-facing endpoint.
 
 Get session details.
 
@@ -850,6 +863,8 @@ Conversation summarization is currently REPL-first and agent-tool driven. The HT
 
 #### `GET /api/v1/sessions/{id}/messages`
 
+Reads message history for one surfaced session. Hidden background sessions are treated as not found on this user-facing endpoint.
+
 List all messages in a session, ordered chronologically.
 
 **Response `200`**
@@ -937,6 +952,8 @@ data: <json_payload>
 
 Events are separated by a blank line. The stream ends when the `complete` event is sent and the connection closes.
 
+Session title generation is now queued after the interactive turn completes. The live SSE stream is not kept open for title generation, so clients should treat session titles as eventually consistent and refresh session detail later if they need the generated title.
+
 **SSE Event Types**
 
 | Event | Description | Data Shape |
@@ -965,7 +982,6 @@ Events are separated by a blank line. The stream ends when the `complete` event 
 | `loop_stage_end` | Loop stage finished | `{"loop_id": "loop-123", "iteration": 2, "role": "coder"}` |
 | `loop_iteration_end` | Loop iteration finished | `{"loop_id": "loop-123", "iteration": 2}` |
 | `loop_complete` | Loop execution completed | `{"loop_id": "loop-123", "status": "completed"}` |
-| `title` | Session title generated after the turn | `{"title": "Refactor auth flow"}` |
 | `error` | An error occurred | `{"message": "Error description"}` |
 | `complete` | Final event with full turn result | See below |
 
@@ -1342,6 +1358,8 @@ Delete a specific uploaded file.
 A turn represents a single request-response cycle within a session. Each turn contains the user prompt, agent response, token usage, timing, and tool usage metadata.
 
 #### `GET /api/v1/sessions/{id}/turns`
+
+Reads turn history for one surfaced session. Hidden background sessions are treated as not found on this user-facing endpoint.
 
 List turns for a session, ordered by turn number.
 
@@ -4601,7 +4619,7 @@ All `POST`, `PUT`, and `PATCH` requests must include a `Content-Type` header con
 The server includes CORS headers on all responses. By default, all origins are allowed (`*`). Restrict origins with the `--cors-origin` flag:
 
 ```bash
-php bin/coqui api --cors-origin "http://localhost:3000,https://myapp.com"
+coqui --api-only --cors-origin "http://localhost:3000,https://myapp.com"
 ```
 
 Preflight `OPTIONS` requests are handled automatically with a `204` response.

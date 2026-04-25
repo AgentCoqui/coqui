@@ -11,8 +11,8 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | Command | Description |
 | --- | --- |
 | `/new` | Start a new session. When a profile is active, Coqui warns that it will summarize the current chat, store memories, archive and close the current conversation, then start a fresh session for that same profile (resets role to `orchestrator`) |
-| `/sessions` | List active interactive sessions |
-| `/resume <id>` | Resume a specific active session by ID |
+| `/sessions` | List active surfaced interactive sessions. Internal hidden background sessions are excluded |
+| `/resume <id>` | Resume a specific active surfaced session by ID. Hidden internal sessions cannot be resumed from the REPL |
 | `/history` | Show conversation history for the current session |
 
 ### Agent & Roles
@@ -216,14 +216,28 @@ Options can be combined: `/summarize recent 5 focus "database schema"`.
 
 ## CLI Commands
 
-Coqui is invoked via `coqui` (or `php bin/coqui` from source). The default command is `run`.
+Coqui is invoked via `coqui`. By default, `coqui` starts the launcher-managed app: REPL in the foreground plus the API in the background. `coqui-launcher` is the explicit equivalent. Advanced console commands such as `doctor`, `benchmark`, `task:run`, and `turn:run` remain available when explicitly requested.
+
+### `coqui`
+
+Start the full launcher-managed app or use launcher service controls.
+
+```bash
+coqui                      # Start REPL + API (default)
+coqui --api-only           # Start only the launcher-managed API
+coqui --repl-only          # Start only the REPL via the launcher
+coqui --wizard             # Run the setup wizard
+coqui status               # Show launcher-managed service status
+coqui stop                 # Stop launcher-managed services
+coqui cleanup              # Clean stale/conflicting Coqui processes
+```
 
 ### `coqui run`
 
-Start the interactive REPL. This is the default when no subcommand is specified.
+Compatibility alias for REPL-only mode via the launcher.
 
 ```bash
-coqui                          # Start the REPL (default)
+coqui run                      # Start the REPL only
 coqui run --new                # Start a fresh session
 coqui run --session abc123     # Resume a specific session
 coqui run --profile caelum     # Resume or create the last active session for a profile
@@ -263,7 +277,7 @@ For very large prompts, prefer piping via stdin instead of `--prompt`. Coqui doe
 
 ### `coqui api`
 
-Start the HTTP API server (ReactPHP-based, with SSE streaming support).
+Compatibility alias for launcher-managed API-only mode.
 
 ```bash
 coqui api                             # Start on 127.0.0.1:3300
@@ -284,7 +298,7 @@ coqui api --host 0.0.0.0 --port 8080  # Listen on all interfaces, port 8080
 
 ### `coqui setup`
 
-Run the interactive setup wizard to create or edit `openclaw.json`.
+Compatibility alias for the launcher setup wizard.
 
 ```bash
 coqui setup                       # Configure in current directory
@@ -333,7 +347,7 @@ coqui benchmark --json
 
 ## Launcher
 
-The `coqui-launcher` script manages the REPL and API as co-processes with crash recovery and restart support.
+`coqui-launcher` is the explicit launcher name for the same public entrypoint surface exposed through `coqui`.
 
 ### Modes
 
@@ -355,10 +369,11 @@ coqui-launcher status            # Show which services are running
 | `--port <port>` | API port (default `3300`) |
 | `--auto-approve` | Forwarded to `coqui run` |
 | `--continue` | Forwarded to `coqui run` |
-| `--unsafe` | Forwarded to both `coqui run` and `coqui api` |
-| `--config <path>` | Forwarded to both `coqui run` and `coqui api` |
-| `--workdir <path>` | Forwarded to both `coqui run` and `coqui api` |
-| `--workspace <path>` | Forwarded to both `coqui run` and `coqui api` |
+| `--unsafe` | Forwarded to the launcher-managed REPL and API processes |
+| `--config <path>` | Forwarded to the launcher-managed REPL and API processes |
+| `--workdir <path>` | Forwarded to the launcher-managed REPL and API processes |
+| `--workspace <path>` | Forwarded to the launcher-managed REPL and API processes |
+| `--cors-origin <origins>` | Forwarded to launcher-managed API-only mode |
 | `--background` | Background all daemon services, return to shell |
 | `--verbose` | Enable detailed logging (`COQUI_VERBOSE=1`) |
 

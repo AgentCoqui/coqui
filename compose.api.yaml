@@ -9,7 +9,8 @@
 #   docker compose -f compose.yaml -f compose.api.yaml logs -f coqui-api
 #
 # Or via Makefile:
-#   make docker-api              # start API server (port 3300)
+#   make docker-start            # start the full launcher-managed app
+#   make docker-api              # start API-only mode (port 3300)
 #   make docker-api PORT=3500    # custom port
 #   make docker-api-stop         # stop API server
 ###############################################################################
@@ -25,7 +26,7 @@ services:
     image: coqui:dev
     container_name: coqui-api
     init: true
-    command: ["php", "bin/coqui", "api", "--host", "0.0.0.0", "--port", "3300", "--workspace", "/app/workspace"]
+    command: ["./bin/coqui", "--api-only", "--host", "0.0.0.0", "--port", "3300", "--workspace", "/app/workspace"]
 
     # API mode: not interactive — run as daemon
     stdin_open: false

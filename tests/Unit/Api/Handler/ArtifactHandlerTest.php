@@ -201,3 +201,22 @@ test('artifact handler rejects writes for closed sessions', function () {
         cleanupArtifactHandlerFixture($fixture);
     }
 });
+
+test('artifact handler rejects reads for hidden sessions', function () {
+    $fixture = createArtifactHandlerFixture();
+
+    try {
+        $sessionId = $fixture['storage']->createSession('learner', 'background-task', visibility: 'hidden');
+
+        $response = $fixture['handler']->list(
+            new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/artifacts'),
+            $sessionId,
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(404);
+        expect($body['code'])->toBe('session_not_found');
+    } finally {
+        cleanupArtifactHandlerFixture($fixture);
+    }
+});

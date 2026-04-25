@@ -13,102 +13,184 @@ echo ""
 echo "  coqui-launcher — default mode end-to-end test"
 echo ""
 
-if ! command -v perl >/dev/null 2>&1; then
-    pass "default mode test skipped (perl not available for stub listener)"
-else
-    tmpdir=$(mktemp -d)
-    trap 'rm -rf "$tmpdir"' EXIT
+tmpdir=$(mktemp -d)
+trap 'rm -rf "$tmpdir"' EXIT
 
-    mkdir -p "$tmpdir/bin" "$tmpdir/.workspace"
-    cp bin/coqui-launcher "$tmpdir/bin/coqui-launcher"
+mkdir -p "$tmpdir/bin" "$tmpdir/.workspace"
+cp bin/coqui "$tmpdir/bin/coqui"
+cp bin/coqui-launcher "$tmpdir/bin/coqui-launcher"
 
-    cat > "$tmpdir/bin/coqui" <<'STUB'
-#!/usr/bin/env bash
-set -euo pipefail
+cat > "$tmpdir/bin/coqui-console" <<'STUB'
+#!/usr/bin/env php
+<?php
 
-logfile="${COQUI_TEST_LOG:?}"
-mode="${1:-run}"
+declare(strict_types=1);
 
-if [[ "$mode" == "api" ]]; then
-    shift
-    host="127.0.0.1"
-    port="3300"
+$logfile = getenv('COQUI_TEST_LOG');
+if (!is_string($logfile) || $logfile === '') {
+    fwrite(STDERR, "COQUI_TEST_LOG is required\n");
+    exit(1);
+}
 
-    while [[ $# -gt 0 ]]; do
-        case "$1" in
-            --host)
-                host="$2"
-                shift 2
-                ;;
-            --port)
-                port="$2"
-                shift 2
-                ;;
-            *)
-                shift
-                ;;
-        esac
-    done
+$arguments = $argv;
+array_shift($arguments);
+$mode = $arguments[0] ?? 'run';
 
-    echo "api-start $$ $host $port" >> "$logfile"
+if ($mode === 'api') {
+    array_shift($arguments);
+    $host = '127.0.0.1';
+    $port = '3300';
 
-    cleanup() {
-        echo "api-stop $$" >> "$logfile"
-        if [[ -n "${listener_pid:-}" ]]; then
-            kill "$listener_pid" 2>/dev/null || true
-            wait "$listener_pid" 2>/dev/null || true
-        fi
-        exit 0
+    while ($arguments !== []) {
+        $flag = array_shift($arguments);
+        if ($flag === '--host' && $arguments !== []) {
+            $host = (string) array_shift($arguments);
+            continue;
+        }
+
+        if ($flag === '--port' && $arguments !== []) {
+            $port = (string) array_shift($arguments);
+            continue;
+        }
     }
 
-    trap cleanup TERM INT HUP EXIT
+    file_put_contents($logfile, sprintf("api-start %d %s %s\n", getmypid(), $host, $port), FILE_APPEND);
+    register_shutdown_function(static function () use ($logfile): void {
+        file_put_contents($logfile, sprintf("api-stop %d\n", getmypid()), FILE_APPEND);
+    });
 
-    perl -MIO::Socket::INET -e '
-        $SIG{TERM} = sub { exit 0 };
-        $SIG{INT} = sub { exit 0 };
-        $SIG{HUP} = sub { exit 0 };
-        my ($host, $port) = @ARGV;
-        my $server = IO::Socket::INET->new(
-            LocalAddr => $host,
-            LocalPort => $port,
-            Listen => 5,
-            ReuseAddr => 1,
-            Proto => q(tcp),
-        ) or die $!;
-        while (1) { sleep 1; }
-    ' "$host" "$port" &
-    listener_pid=$!
-    wait "$listener_pid"
-    exit 0
-fi
+    $server = @stream_socket_server(sprintf('tcp://%s:%s', $host, $port), $errno, $error);
+    if ($server === false) {
+        fwrite(STDERR, sprintf("%s (%d)\n", $error, $errno));
+        exit(1);
+    }
 
-echo "repl-run $$" >> "$logfile"
-exit 0
+    stream_set_blocking($server, false);
+    while (true) {
+        $read = [$server];
+        $write = null;
+        $except = null;
+        $changed = @stream_select($read, $write, $except, 1);
+        if ($changed === false || $changed === 0) {
+            continue;
+        }
+
+        $connection = @stream_socket_accept($server, 0);
+        if (is_resource($connection)) {
+            fclose($connection);
+        }
+    }
+}
+
+if ($mode === 'doctor') {
+    file_put_contents($logfile, sprintf("doctor-run %d\n", getmypid()), FILE_APPEND);
+    exit(0);
+}
+
+if ($mode === '--wizard') {
+    file_put_contents($logfile, sprintf("wizard-run %d\n", getmypid()), FILE_APPEND);
+    exit(0);
+}
+
+file_put_contents($logfile, sprintf("repl-run %d\n", getmypid()), FILE_APPEND);
+exit(0);
 STUB
 
-    chmod +x "$tmpdir/bin/coqui" "$tmpdir/bin/coqui-launcher"
+chmod +x "$tmpdir/bin/coqui" "$tmpdir/bin/coqui-launcher" "$tmpdir/bin/coqui-console"
 
-    if bash -euo pipefail -c '
-        port=$((44000 + ($$ % 1000)))
-        export COQUI_TEST_LOG="$1/launcher.log"
+if bash -euo pipefail -c '
+    port=$((44000 + ($$ % 1000)))
+    export COQUI_TEST_LOG="$1/launcher.log"
 
-        "$1/bin/coqui-launcher" --port "$port" --verbose >/tmp/coqui-launcher-default-test.out 2>&1
+    "$1/bin/coqui" --port "$port" --verbose >/tmp/coqui-launcher-default-test.out 2>&1
 
-        grep -q "repl-run" "$COQUI_TEST_LOG"
-        grep -q "api-start" "$COQUI_TEST_LOG"
+    grep -q "repl-run" "$COQUI_TEST_LOG"
+    grep -q "api-start" "$COQUI_TEST_LOG"
 
-        if ps -axo command= | grep -F "$1/bin/coqui" | grep -v grep >/dev/null; then
-            exit 1
-        fi
-
-        if lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | grep -F "$port" >/dev/null; then
-            exit 1
-        fi
-    ' _ "$tmpdir"; then
-        pass "default launcher mode starts REPL+API and leaves no stub processes behind"
-    else
-        fail "default launcher mode left stub processes or failed to execute the expected flow"
+    if ps -axo command= | grep -F "$1/bin/coqui-console" | grep -v grep >/dev/null; then
+        exit 1
     fi
+
+    if lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | grep -F "$port" >/dev/null; then
+        exit 1
+    fi
+' _ "$tmpdir"; then
+    pass "public coqui entrypoint starts launcher-managed REPL+API and leaves no console stub processes behind"
+else
+    fail "public coqui entrypoint failed to run launcher-managed default mode cleanly"
+fi
+
+if bash -euo pipefail -c '
+    export COQUI_TEST_LOG="$1/doctor.log"
+    : > "$COQUI_TEST_LOG"
+
+    "$1/bin/coqui" doctor >/tmp/coqui-doctor-test.out 2>&1
+
+    grep -q "doctor-run" "$COQUI_TEST_LOG"
+    ! grep -q "api-start" "$COQUI_TEST_LOG"
+    ! grep -q "repl-run" "$COQUI_TEST_LOG"
+' _ "$tmpdir"; then
+    pass "public coqui entrypoint preserves explicit advanced console commands"
+else
+    fail "public coqui entrypoint did not preserve explicit advanced console command routing"
+fi
+
+if bash -euo pipefail -c '
+    export COQUI_TEST_LOG="$1/run-alias.log"
+    : > "$COQUI_TEST_LOG"
+
+    "$1/bin/coqui" run --new >/tmp/coqui-run-alias-test.out 2>&1
+
+    grep -q "repl-run" "$COQUI_TEST_LOG"
+    ! grep -q "api-start" "$COQUI_TEST_LOG"
+' _ "$tmpdir"; then
+    pass "coqui run stays on REPL-only launcher mode"
+else
+    fail "coqui run did not stay on REPL-only launcher mode"
+fi
+
+if bash -euo pipefail -c '
+    export COQUI_TEST_LOG="$1/setup-alias.log"
+    : > "$COQUI_TEST_LOG"
+
+    "$1/bin/coqui" setup >/tmp/coqui-setup-alias-test.out 2>&1
+
+    grep -q "wizard-run" "$COQUI_TEST_LOG"
+    ! grep -q "api-start" "$COQUI_TEST_LOG"
+    ! grep -q "repl-run" "$COQUI_TEST_LOG"
+' _ "$tmpdir"; then
+    pass "coqui setup routes through the launcher wizard mode"
+else
+    fail "coqui setup did not route through the launcher wizard mode"
+fi
+
+if bash -euo pipefail -c '
+    port=$((45000 + ($$ % 1000)))
+    export COQUI_TEST_LOG="$1/api-only.log"
+    : > "$COQUI_TEST_LOG"
+
+    "$1/bin/coqui" api --background --port "$port" >/tmp/coqui-api-only-test.out 2>&1
+
+    for _ in 1 2 3 4 5 6 7 8 9 10; do
+        if lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | grep -F "$port" >/dev/null; then
+            break
+        fi
+        sleep 0.2
+    done
+
+    grep -q "api-start" "$COQUI_TEST_LOG"
+    ! grep -q "repl-run" "$COQUI_TEST_LOG"
+    lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | grep -F "$port" >/dev/null
+
+    "$1/bin/coqui" stop-api --port "$port" >/tmp/coqui-stop-api-test.out 2>&1
+
+    if lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | grep -F "$port" >/dev/null; then
+        exit 1
+    fi
+' _ "$tmpdir"; then
+    pass "coqui api routes to launcher-managed API-only mode without starting the REPL"
+else
+    fail "coqui api did not behave as launcher-managed API-only mode"
 fi
 
 echo ""

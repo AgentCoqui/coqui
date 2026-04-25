@@ -120,7 +120,7 @@ test('extractOwner with array owner returns handle key', function () {
     $item = [
         'owner' => [
             'handle' => 'carmelosantana',
-            'displayName' => 'Carmelo Santana',
+            'displayName' => 'Agent Coqui',
             'image' => 'https://example.com/avatar.jpg',
         ],
     ];

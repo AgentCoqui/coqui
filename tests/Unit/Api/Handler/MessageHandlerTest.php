@@ -139,6 +139,19 @@ test('message handler rejects deleting messages from closed sessions', function 
     expect($body['code'])->toBe('session_closed');
 });
 
+test('message handler rejects listing messages for hidden sessions', function () {
+    $hiddenSessionId = $this->storage->createSession('learner', 'background-task', visibility: 'hidden');
+
+    $response = $this->handler->list(
+        new ServerRequest('GET', '/api/v1/sessions/' . $hiddenSessionId . '/messages'),
+        $hiddenSessionId,
+    );
+    $body = json_decode((string) $response->getBody(), true);
+
+    expect($response->getStatusCode())->toBe(404);
+    expect($body['code'])->toBe('session_not_found');
+});
+
 test('message handler complete extraction preserves rich turn summary payload', function () {
     $turnProcessId = $this->storage->createTurnProcess($this->sessionId, 'Hello');
     $payload = [

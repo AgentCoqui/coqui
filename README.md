@@ -17,16 +17,18 @@
 </p>
 
 <p align="center">
-  <a href="https://coquibot.org/">Website</a> ·
-  <a href="https://coquibot.org/docs">Docs</a> ·
+  <a href="https://agentcoqui.com/">Website</a> ·
+  <a href="https://agentcoqui.com/docs">Docs</a> ·
   <a href="https://coqui.space">Toolkits</a> ·
   <a href="https://github.com/sponsors/carmelosantana">Sponsor</a>
 </p>
 <!-- markdownlint-enable MD033 -->
 
-Coqui is your personal operating system — a lightweight, hackable agent runtime for coding, research, and everything in between.
+Coqui is your personal operating system for AI work: a lightweight, hackable agent runtime for coding, research, automation, and long-running projects.
 
-Automate workflows, manage long-running projects, persist memory across sessions, schedule recurring tasks, and extend its functionality with toolkits and skills. Whether you're writing code, running consciousness research, or organizing your life, Coqui adapts to how you work.
+Built on [`php-agents`](https://github.com/carmelosantana/php-agents), it gives you a REPL, persistent memory, background tasks, schedules, artifacts, and runtime-extensible toolkits in one PHP 8.4 runtime you can inspect, modify, and self-host.
+
+Start with [Installation](#installation), [Getting Started](https://docs.agentcoqui.com/getting-started), [Features](https://docs.agentcoqui.com/features), or browse [coqui.space](https://coqui.space).
 
 > Coqui is a WIP and under rapid development. Be careful when running this tool. Always test in a safe environment.
 
@@ -100,7 +102,7 @@ The installer detects your OS, installs PHP 8.4+ and required extensions if miss
 ### Linux / macOS / WSL2
 
 ```bash
-curl -fsSL https://coquibot.org/install | bash
+curl -fsSL https://agentcoqui.com/install | bash
 ```
 
 ### Windows (WSL2 Bootstrap)
@@ -146,25 +148,21 @@ Alternatively, use the `--dev` flag with the installer to clone and set up in on
 ./bin/coqui
 ```
 
-That's it. Coqui starts a REPL session and you can start chatting:
+`./bin/coqui` is the main entry point. It starts the launcher-managed app: REPL in the foreground plus the API server in the background on port 3300.
 
-For automatic crash recovery and restart support, use the launcher:
+Use `./bin/coqui-launcher` when you want the explicit launcher name. Both entry points share the same launcher-managed behavior.
 
-```bash
-./bin/coqui-launcher
-```
-
-The launcher starts the REPL (foreground) + API server (background on port 3300) by default. It also handles:
+The launcher-managed app handles:
 
 - **Clean exit** (exit code 0) — `/quit` stops the launcher and all background services
 - **Restart** (exit code 10) — `/restart` or the `restart_coqui` tool triggers an immediate relaunch
 - **Crash recovery** — unexpected exits auto-relaunch up to 3 consecutive times
-- **Service management** — `./bin/coqui-launcher stop`, `status`, and `cleanup` to manage background services and reclaim stale Coqui-owned processes
+- **Service management** — `./bin/coqui status`, `stop`, and `cleanup` to manage background services and reclaim stale Coqui-owned processes
 
 If a previous session left stale Coqui processes behind, run:
 
 ```bash
-./bin/coqui-launcher cleanup
+./bin/coqui cleanup
 ```
 
 `cleanup` only targets stale or conflicting Coqui-owned processes for this checkout. It does not blindly kill unrelated PHP processes.
@@ -195,7 +193,7 @@ Once you're in the REPL:
 1. **Have a conversation** — ask questions, request code changes, or describe a task
 2. **Try a different role** — `/role coder` for focused coding, `/role plan` for structured planning
 3. **Extend with toolkits** — browse [coqui.space](https://coqui.space), install with `/space install <package>`, then restart Coqui to activate newly discovered tools and toolkit-provided REPL commands
-4. **Start the API** — `coqui api` or use the launcher for REPL + API together
+4. **Run API-only mode when needed** — `coqui --api-only` or `./bin/coqui-launcher --api-only`
 5. **Explore models** — map roles to models in `openclaw.json` for cost-optimized routing
 
 See [docs/ROLES.md](docs/ROLES.md) for all built-in roles and [docs/COMMANDS.md](docs/COMMANDS.md) for the full command reference.
@@ -485,11 +483,11 @@ Coqui discovers Composer-installed toolkits and toolkit-provided REPL commands o
 
 ### Configuration
 
-Pass a config file via the launcher or directly:
+Pass a config file via the main entry point or the explicit launcher name:
 
 ```bash
 # Native
-./bin/coqui-launcher --config openclaw.json
+./bin/coqui --config openclaw.json
 
 # Docker
 docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui

@@ -196,7 +196,7 @@
             "path": "src/Command/RunCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\RunCommand",
             "layer": "command",
-            "description": "Main Symfony Console command ('run'). Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface, the /channels operator surface, and the shared GroupSessionService-backed /group command into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. The visible prompt context line now shows active group membership for group-enabled sessions while leaving the low-level readline marker neutral. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
+            "description": "Main Symfony Console command ('run'). Reached through the internal console binary used by the launcher-backed public `coqui` wrapper. Boots the entire system via BootManager, initializes the session, constructs all REPL handler objects and the SlashCommandRouter, then enters the REPL loop. Delegates slash commands to SlashCommandRouter and agent turns to AgentTurnExecutor. Also wires shared status readers like the quality automation status surface, the /channels operator surface, and the shared GroupSessionService-backed /group command into REPL handlers. The readline path now performs throttled idle notification polling: transient informational notifications render as stacked blocks and unread badges, while open actionable notifications render as a sticky automation summary line without redrawing over active typing. The visible prompt context line now shows active group membership for group-enabled sessions while leaving the low-level readline marker neutral. Handles CLI flags --unsafe, --auto-approve, --update, --config, --new, --session, --workdir. Also supports headless mode (--no-terminal).",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — main entry point; boots system, resolves session, enters REPL or headless mode",
                 "runRepl(SymfonyStyle, bool): int — interactive REPL loop with readline, signal handling, slash command routing, and agent turn execution",
@@ -2340,7 +2340,7 @@
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Boots the system headlessly, creates all handlers including evaluation, role, prompt-inspection, channel CRUD/inspection, channel-health surfaces, and the launcher-aware server restart endpoint, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers plus the channel runtime and channel execution managers, and enters the ReactPHP event loop. Also installs ApiLifecycleController so health/server responses and channel mutations share persistent restart-state metadata.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Invoked through the internal console binary behind the launcher-managed public entrypoints so background task and turn workers can spawn a stable non-wrapper process path. Boots the system headlessly, creates all handlers including evaluation, role, prompt-inspection, channel CRUD/inspection, channel-health surfaces, and the launcher-aware server restart endpoint, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers plus the channel runtime and channel execution managers, and enters the ReactPHP event loop. Also installs ApiLifecycleController so health/server responses and channel mutations share persistent restart-state metadata.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
                 "registerRoutes(Router, ...handlers): void — registers all API routes including evaluation, prompt, budget, and loop endpoints",
@@ -2385,13 +2385,14 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, session title management, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. Session rows now expose explicit visibility for hiding synthetic worker sessions, derived channel metadata for channel-bound or conversation-backed sessions, a canonical session_type discriminator alongside compatibility group fields, and aggregate lifecycle counts so archived history can be inspected without reactivating it. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, closed/archive lifecycle metadata, visibility, and the additive session_type column used by the new session-type architecture.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events, session_title_jobs. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, queued session-title generation, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. Session rows now expose explicit visibility for hiding synthetic worker sessions, derived channel metadata for channel-bound or conversation-backed sessions, a canonical session_type discriminator alongside compatibility group fields, and aggregate lifecycle counts so archived history can be inspected without reactivating it. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. session_title_jobs is an internal queue for first-turn title generation that avoids blocking REPL/API response delivery while preserving replayable title events for turn inspection. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, closed/archive lifecycle metadata, visibility, and the additive session_type column used by the new session-type architecture.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
                 "listSessions(int $limit, bool $excludeTaskSessions=true, bool $activeOnly=true, ?string $status=null): array — lists recent sessions with optional lifecycle filtering",
                 "getSessionStatusCounts(bool $excludeTaskSessions=true): array{active:int,closed:int,archived:int,total:int} — aggregate lifecycle counts for inspection surfaces",
                 "getSession(string $id): ?array — retrieves session details including lifecycle flags",
                 "updateSessionTitle(string $sessionId, string $title): void — updates session title",
+                "enqueueSessionTitleJob(string $sessionId, string $prompt, ?string $turnProcessId = null): ?string — queues or dedupes an internal first-turn title generation job",
                 "closeSession(string $sessionId, string $reason, bool $archive): void — marks a session closed/archived without deleting it",
                 "listActiveInteractiveSessionsForProfile(string $profile): array — returns active profile-scoped interactive sessions ordered by recency",
                 "isSessionArchived(string $sessionId): bool — true when a session is hidden from active discovery and meant for historical inspection",
@@ -2865,6 +2866,18 @@
             ]
         },
         {
+            "path": "src/Api/SessionTitleJobManager.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\SessionTitleJobManager",
+            "layer": "api",
+            "description": "Manages internal session-title worker processes via proc_open. Ticked periodically by the API event loop to reap finished title workers and start pending jobs from SessionStorage::session_title_jobs so first-turn title generation no longer blocks REPL or API response delivery.",
+            "methods": [
+                "tick(): void — reap finished title workers and start pending jobs",
+                "shutdown(): void — terminate running title worker processes gracefully",
+                "activeCount(): int — number of running title workers",
+                "pendingCount(): int — number of queued title jobs"
+            ]
+        },
+        {
             "path": "src/Api/ScheduleManager.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\ScheduleManager",
             "layer": "api",
@@ -2971,6 +2984,15 @@
             "methods": [
                 "execute(input, output): int — run task by ID with role/maxIterations from DB, exit 0=completed, 1=failed, 2=cancelled",
                 "executeToolTask(taskId, task, boot, storage, workDir, unsafeMode, output): int — direct tool execution path for background tool tasks"
+            ]
+        },
+        {
+            "path": "src/Command/SessionTitleRunCommand.php",
+            "fqcn": "CoquiBot\\Coqui\\Command\\SessionTitleRunCommand",
+            "layer": "command",
+            "description": "Hidden Symfony Console command that executes one queued internal session-title job. Boots the runtime headlessly, re-checks that the target session still exists and remains untitled, calls TitleGenerator, persists the session title, and appends a replayable turn `title` event when the job originated from an API turn process.",
+            "methods": [
+                "execute(input, output): int — run one queued title job, exit 0=completed/no-op, 1=failed"
             ]
         },
         {
