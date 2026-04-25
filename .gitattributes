@@ -3,12 +3,15 @@
 
 # CI / Dev tooling
 /.github/             export-ignore
+/.vscode/             export-ignore
 /.dockerignore        export-ignore
 /Dockerfile            export-ignore
 /phpstan.neon         export-ignore
 /phpunit.xml          export-ignore
 /AGENTS.md            export-ignore
-/.claude              export-ignore
+/CLAUDE.md            export-ignore
+/CHANGELOG.md         export-ignore
+/.claude/             export-ignore
 
 # Dev / alternate Composer configs
 
@@ -16,6 +19,7 @@
 /tests/               export-ignore
 /scripts/             export-ignore
 /examples/            export-ignore
+/smoke-test/          export-ignore
 
 # Sample OpenClaw configs (user-specific, gitignored anyway)
 /openclaw-claude.json export-ignore

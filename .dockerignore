@@ -11,9 +11,15 @@ openclaw-*.json
 
 # Git
 .git/
+.github/
+.gitattributes
 .gitignore
 
-# IDE and editor files
+# Contributor and editor files
+.claude/
+AGENTS.md
+CLAUDE.md
+CHANGELOG.md
 .idea/
 .vscode/
 *.swp
@@ -28,11 +34,17 @@ BUILD/
 
 # Tests (not needed in production image)
 tests/
+smoke-test/
+examples/
+scripts/
+phpstan.neon
+phpunit.xml
 
 # Docker files (not needed in build context)
 compose*.yaml
 Makefile
 .dockerignore
+Dockerfile
 
 # OS files
 .DS_Store

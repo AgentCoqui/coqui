@@ -32,6 +32,12 @@ Composer dependencies are cached by PHP version using the `actions/cache` action
 
 Release builds derive the application version from the git tag (`v1.2.3` becomes `1.2.3`) and inject it into `config/version.txt` inside the staged build. The root `composer.json` is not used as a manually maintained application version source.
 
+### Release Packaging
+
+Release archives are exported through `git archive`, with `.gitattributes` as the source of truth for `export-ignore` exclusions. Dev-only paths such as `.github/`, `.vscode/`, `CLAUDE.md`, `CHANGELOG.md`, and `smoke-test/` are filtered there first, then removed again in the release build step as a belt-and-suspenders cleanup before archiving.
+
+The Docker build uses `.dockerignore` to mirror those exclusions for the production image context so contributor files, smoke fixtures, and editor settings do not get copied into `/app` during the final `COPY . /app` layer.
+
 ## Relationship to php-agents
 
 Coqui depends on `carmelosantana/php-agents` (installed from Packagist). Running Coqui's test suite indirectly exercises php-agents. However, php-agents has its own independent CI workflow — changes to that library are validated in isolation without running the full Coqui suite.
