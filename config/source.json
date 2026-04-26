@@ -2291,6 +2291,15 @@
             ]
         },
         {
+            "path": "src/Api/Handler/McpServerHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\McpServerHandler",
+            "layer": "command",
+            "description": "MCP server management API surface. Registers CRUD, connectivity, env-link, OAuth, search, and discovered-tool inspection endpoints under /api/v1/mcp using the shared MCP runtime service from the MCP toolkit package.",
+            "methods": [
+                "register(Router): void — attach all /api/v1/mcp routes"
+            ]
+        },
+        {
             "path": "src/Api/Handler/ServerHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ServerHandler",
             "layer": "command",

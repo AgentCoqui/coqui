@@ -4299,6 +4299,119 @@ Set the visibility of a package or an individual tool.
 
 ---
 
+### MCP Servers
+
+MCP server management is now available over HTTP and uses the same shared MCP runtime service as the `mcp` tool and `/mcp` REPL command. These endpoints are intended for operator flows such as adding or updating servers, linking credentials, inspecting discovered tools, and verifying connectivity.
+
+The API keeps MCP auditing live-only for now: each server snapshot includes the latest connection attempt, latest connectivity test result, durations, timestamps, and last discovered tool count, but does not persist a historical delivery-style audit ledger.
+
+#### `GET /api/v1/mcp/servers`
+
+List configured MCP servers with current live status and audit fields.
+
+#### `POST /api/v1/mcp/servers`
+
+Create a new MCP server definition.
+
+**Request Body**
+
+```json
+{
+  "name": "github",
+  "command": "npx",
+  "args": ["-y", "@modelcontextprotocol/server-github"]
+}
+```
+
+The response includes the normalized server snapshot plus a `runtime.applied` field. Values are currently `live` or `next_turn`.
+
+#### `GET /api/v1/mcp/servers/{name}`
+
+Return one MCP server snapshot including command, args, env links, live connection state, discovered tool count, and the current live audit fields.
+
+#### `PATCH /api/v1/mcp/servers/{name}`
+
+Update an existing MCP server command or args.
+
+**Request Body**
+
+```json
+{
+  "command": "uvx",
+  "args": ["mcp-server-fetch"]
+}
+```
+
+#### `DELETE /api/v1/mcp/servers/{name}`
+
+Remove a configured MCP server definition.
+
+#### `POST /api/v1/mcp/servers/{name}/enable`
+
+Enable a disabled MCP server.
+
+#### `POST /api/v1/mcp/servers/{name}/disable`
+
+Disable and disconnect an MCP server.
+
+#### `POST /api/v1/mcp/servers/{name}/connect`
+
+Connect a configured server immediately and return the refreshed snapshot plus `duration_ms`.
+
+#### `POST /api/v1/mcp/servers/{name}/disconnect`
+
+Disconnect a configured server immediately.
+
+#### `POST /api/v1/mcp/servers/{name}/refresh`
+
+Reconnect and refresh one server's discovered tool list.
+
+#### `POST /api/v1/mcp/servers/{name}/test`
+
+Run a lightweight connectivity test by reconnecting and verifying tool discovery. The response returns the refreshed server snapshot and `duration_ms`.
+
+#### `GET /api/v1/mcp/servers/{name}/tools`
+
+List the discovered MCP tool definitions for one server, including namespaced tool names and input schema metadata.
+
+#### `GET /api/v1/mcp/tools/search?query=<term>&server=<optional-name>`
+
+Search discovered MCP tool names and descriptions. This is an operator-facing inspection endpoint and complements the agent-facing `tool_search` runtime behavior.
+
+#### `POST /api/v1/mcp/servers/{name}/env`
+
+Create or update one server env link.
+
+**Request Body**
+
+```json
+{
+  "key": "GITHUB_TOKEN",
+  "value": "ghp_xxx"
+}
+```
+
+For secret-link-only flows, send `placeholder` instead of `value`.
+
+#### `POST /api/v1/mcp/servers/{name}/auth`
+
+Run browser-based OAuth for one server and store the resulting access token as an env link.
+
+**Request Body**
+
+```json
+{
+  "auth_url": "https://auth.example.com/authorize",
+  "token_url": "https://auth.example.com/token",
+  "client_id": "coqui-mcp",
+  "scopes": ["repo", "read:user"]
+}
+```
+
+MCP server mutations hot-apply where possible and do not require a full API restart.
+
+---
+
 #### `GET /api/v1/server/prompt`
 
 Return the fully constructed system prompt that the agent would receive on its next turn, together with tool and toolkit counts plus prompt-source metadata. Useful for debugging context size, inspecting which files are contributing to the prompt, and tracking which folders are consuming the prompt budget.
@@ -4657,6 +4770,20 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/toolkits enable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to enabled |
 | `/toolkits stub <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to stub |
 | `/toolkits disable <pkg>` | `POST /api/v1/toolkits/visibility` | Sets package or tool visibility to disabled |
+| `/mcp list` | `GET /api/v1/mcp/servers` | Lists configured MCP servers with live status |
+| `/mcp status <name>` | `GET /api/v1/mcp/servers/{name}` | Shows one MCP server snapshot |
+| `/mcp tools <name>` | `GET /api/v1/mcp/servers/{name}/tools` | Lists discovered MCP tools for one server |
+| `/mcp search <query> [server]` | `GET /api/v1/mcp/tools/search` | Searches discovered MCP tools |
+| `/mcp add <name> <command> [args...]` | `POST /api/v1/mcp/servers` | Creates an MCP server definition |
+| `/mcp update <name> <command> [args...]` | `PATCH /api/v1/mcp/servers/{name}` | Updates an MCP server definition |
+| `/mcp remove <name>` | `DELETE /api/v1/mcp/servers/{name}` | Deletes an MCP server definition |
+| `/mcp enable <name>` | `POST /api/v1/mcp/servers/{name}/enable` | Enables an MCP server |
+| `/mcp disable <name>` | `POST /api/v1/mcp/servers/{name}/disable` | Disables an MCP server |
+| `/mcp connect <name>` | `POST /api/v1/mcp/servers/{name}/connect` | Connects an MCP server immediately |
+| `/mcp disconnect <name>` | `POST /api/v1/mcp/servers/{name}/disconnect` | Disconnects an MCP server immediately |
+| `/mcp refresh <name>` | `POST /api/v1/mcp/servers/{name}/refresh` | Reconnects and refreshes MCP tools |
+| `/mcp test <name>` | `POST /api/v1/mcp/servers/{name}/test` | Tests MCP connectivity and tool discovery |
+| `/mcp set-env <name> <ENV_KEY>` | `POST /api/v1/mcp/servers/{name}/env` | Links a secret or env placeholder to an MCP server |
 | `/channels` | `GET /api/v1/channels` | Lists channels with runtime state |
 | `/channels drivers` | `GET /api/v1/channels/drivers` | Lists registered channel drivers |
 | `/channels status <id>` | `GET /api/v1/channels/{id}` | Shows channel details |
@@ -4765,6 +4892,21 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/server/budget` | Yes | Get prompt and toolkit budget state |
 | `GET` | `/api/v1/toolkits` | Yes | List toolkits and tools with visibility |
 | `POST` | `/api/v1/toolkits/visibility` | Yes | Set package or tool visibility |
+| `GET` | `/api/v1/mcp/servers` | Yes | List MCP servers with live status and audit fields |
+| `POST` | `/api/v1/mcp/servers` | Yes | Create an MCP server |
+| `GET` | `/api/v1/mcp/servers/{name}` | Yes | Get one MCP server snapshot |
+| `PATCH` | `/api/v1/mcp/servers/{name}` | Yes | Update one MCP server |
+| `DELETE` | `/api/v1/mcp/servers/{name}` | Yes | Delete one MCP server |
+| `POST` | `/api/v1/mcp/servers/{name}/enable` | Yes | Enable an MCP server |
+| `POST` | `/api/v1/mcp/servers/{name}/disable` | Yes | Disable an MCP server |
+| `POST` | `/api/v1/mcp/servers/{name}/connect` | Yes | Connect an MCP server |
+| `POST` | `/api/v1/mcp/servers/{name}/disconnect` | Yes | Disconnect an MCP server |
+| `POST` | `/api/v1/mcp/servers/{name}/refresh` | Yes | Refresh discovered MCP tools |
+| `POST` | `/api/v1/mcp/servers/{name}/test` | Yes | Test MCP connectivity |
+| `GET` | `/api/v1/mcp/servers/{name}/tools` | Yes | List discovered tools for one MCP server |
+| `GET` | `/api/v1/mcp/tools/search` | Yes | Search discovered MCP tools |
+| `POST` | `/api/v1/mcp/servers/{name}/env` | Yes | Link env config to an MCP server |
+| `POST` | `/api/v1/mcp/servers/{name}/auth` | Yes | Run browser-based OAuth for an MCP server |
 | `GET` | `/api/v1/channels` | Yes | List channels with runtime state |
 | `POST` | `/api/v1/channels` | Yes | Create a channel instance |
 | `GET` | `/api/v1/channels/drivers` | Yes | List registered channel drivers |

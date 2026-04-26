@@ -28,6 +28,7 @@ use CoquiBot\Coqui\Api\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler as ApiLoopHandler;
+use CoquiBot\Coqui\Api\Handler\McpServerHandler;
 use CoquiBot\Coqui\Api\Handler\MessageHandler;
 use CoquiBot\Coqui\Api\Handler\ProjectHandler;
 use CoquiBot\Coqui\Api\Handler\PromptHandler;
@@ -73,6 +74,10 @@ use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use CoquiBot\Coqui\Storage\WebhookStore;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
+use CoquiBot\Toolkits\Mcp\Auth\OAuthHandler as McpOAuthHandler;
+use CoquiBot\Toolkits\Mcp\Config\McpConfig;
+use CoquiBot\Toolkits\Mcp\McpManagementService;
+use CoquiBot\Toolkits\Mcp\McpServerManager;
 use React\EventLoop\Loop;
 use React\Http\HttpServer;
 use React\Http\Middleware\LimitConcurrentRequestsMiddleware;
@@ -400,6 +405,17 @@ final class ApiCommand extends Command
         $backstoryHandler = new BackstoryHandler(new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery()));
         $budgetHandler = new BudgetHandler($previewRunner);
         $commandCatalogHandler = new CommandCatalogHandler();
+        $mcpConfig = new McpConfig($boot->workspacePath());
+        $mcpServerManager = new McpServerManager($mcpConfig);
+        $mcpConfig->load();
+        if ($mcpConfig->listEnabledServers() !== []) {
+            $mcpServerManager->connectAll();
+        }
+        $mcpServerHandler = new McpServerHandler(new McpManagementService(
+            $mcpConfig,
+            $mcpServerManager,
+            new McpOAuthHandler($boot->workspacePath()),
+        ));
         $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
         $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore, $storage, $artifactStore, $projectStore);
         $scheduleHandler = new ScheduleHandler($scheduleStore, $storage);
@@ -423,7 +439,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -623,6 +639,7 @@ final class ApiCommand extends Command
         BackstoryHandler $backstory,
         BudgetHandler $budget,
         CommandCatalogHandler $commands,
+        McpServerHandler $mcp,
         ArtifactHandler $artifact,
         \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
         ScheduleHandler $schedule,
@@ -762,6 +779,9 @@ final class ApiCommand extends Command
         // Toolkit visibility management
         $router->get($v1 . '/toolkits', [$toolkit, 'list']);
         $router->post($v1 . '/toolkits/visibility', [$toolkit, 'setVisibility']);
+
+        // MCP servers
+        $mcp->register($router);
 
         // Schedules
         $router->post($v1 . '/schedules', [$schedule, 'create']);
