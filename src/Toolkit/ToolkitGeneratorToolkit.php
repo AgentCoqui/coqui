@@ -8,8 +8,14 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CarmeloSantana\PHPAgents\Tool\Parameter\ArrayParameter;
+use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
+use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
+use CarmeloSantana\PHPAgents\Tool\Parameter\MapParameter;
+use CarmeloSantana\PHPAgents\Tool\Parameter\ObjectParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CoquiBot\Coqui\Config\PathHelper;
+use CoquiBot\Coqui\Support\JsonHelper;
 use CoquiBot\Coqui\Support\StringHelper;
 
 /**
@@ -98,10 +104,11 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
                     'Comma-separated list of Composer dependencies with version constraints (e.g. "guzzlehttp/guzzle:^7.0,symfony/http-client:^7.0")',
                     required: false,
                 ),
-                new StringParameter(
+                new MapParameter(
                     'credentials',
-                    'JSON object mapping credential key names to descriptions (e.g. \'{"API_KEY": "Description"}\')',
+                    'Credential key names mapped to descriptions (e.g. {"API_KEY": "Description"})',
                     required: false,
+                    additionalProperties: ['type' => 'string'],
                 ),
             ],
             callback: fn(array $input): ToolResult => $this->executeCreate($input),
@@ -133,10 +140,17 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
                     'tool_description',
                     'Description of what the tool does',
                 ),
-                new StringParameter(
+                new ArrayParameter(
                     'parameters',
-                    'JSON array of parameter definitions: [{"name": "param", "type": "string|number|bool|enum", "description": "...", "required": true, "values": ["a","b"]}]',
+                    'Parameter definitions for the new tool',
                     required: false,
+                    items: new ObjectParameter('parameter', 'Tool parameter definition', required: true, properties: [
+                        new StringParameter('name', 'Parameter name', required: true),
+                        new StringParameter('type', 'Parameter type', required: false, enum: ['string', 'number', 'bool', 'enum']),
+                        new StringParameter('description', 'Parameter description', required: false),
+                        new BoolParameter('required', 'Whether the parameter is required', required: false),
+                        new ArrayParameter('values', 'Allowed values for enum parameters', required: false, items: new StringParameter('value', 'Allowed enum value', required: true)),
+                    ]),
                 ),
             ],
             callback: fn(array $input): ToolResult => $this->executeAddTool($input),
@@ -185,7 +199,7 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
         $dependencies = $this->parseDependencies($input['dependencies'] ?? '');
 
         // Parse credentials
-        $credentials = $this->parseCredentials($input['credentials'] ?? '');
+        $credentials = $this->parseCredentials($input['credentials'] ?? null);
 
         // Create directory structure
         mkdir($packageDir . '/src', 0755, true);
@@ -308,7 +322,7 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
         }
 
         // Parse parameters
-        $parameters = $this->parseToolParameters($input['parameters'] ?? '');
+        $parameters = $this->parseToolParameters($input['parameters'] ?? null);
 
         // Generate the method name from tool name
         $methodName = $this->toolNameToMethod($toolName);
@@ -734,21 +748,16 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
     /**
      * @return array<string, string>
      */
-    private function parseCredentials(string $raw): array
+    private function parseCredentials(mixed $raw): array
     {
-        $raw = trim($raw);
-        if ($raw === '') {
-            return [];
-        }
-
-        $decoded = json_decode($raw, true);
-        if (!is_array($decoded)) {
+        $decoded = JsonHelper::decodeJsonMap($raw);
+        if ($decoded === null || $decoded === []) {
             return [];
         }
 
         $credentials = [];
         foreach ($decoded as $key => $desc) {
-            if (is_string($key) && is_string($desc)) {
+            if (is_string($desc)) {
                 $credentials[$key] = $desc;
             }
         }
@@ -759,15 +768,10 @@ final class ToolkitGeneratorToolkit implements ToolkitInterface
     /**
      * @return array<int, array{name: string, type: string, description: string, required: bool, values?: string[]}>
      */
-    private function parseToolParameters(string $raw): array
+    private function parseToolParameters(mixed $raw): array
     {
-        $raw = trim($raw);
-        if ($raw === '') {
-            return [];
-        }
-
-        $decoded = json_decode($raw, true);
-        if (!is_array($decoded)) {
+        $decoded = JsonHelper::decodeJsonList($raw);
+        if ($decoded === null || $decoded === []) {
             return [];
         }
 

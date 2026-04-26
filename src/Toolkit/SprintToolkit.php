@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Toolkit;
 
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
+use CarmeloSantana\PHPAgents\Tool\Parameter\ArrayParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
@@ -16,6 +17,7 @@ use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Support\FileSystemOperations;
+use CoquiBot\Coqui\Support\JsonHelper;
 
 /**
  * Agent-facing toolkit for managing projects and sprints.
@@ -453,7 +455,7 @@ final readonly class SprintToolkit implements ToolkitInterface
             parameters: [
                 new StringParameter('project_id', 'Project ID or slug', required: true),
                 new StringParameter('title', 'Sprint title describing the work unit', required: true),
-                new StringParameter('acceptance_criteria', 'JSON array of acceptance criteria for the reviewer', required: false),
+                new ArrayParameter('acceptance_criteria', 'Acceptance criteria for the reviewer', required: false, items: new StringParameter('criterion', 'Acceptance criterion', required: true)),
                 new NumberParameter('max_review_rounds', 'Maximum review→rejected cycles before requiring user intervention (default: 3, max: 5)', required: false),
             ],
             callback: function (array $args): ToolResult {
@@ -473,7 +475,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                     $id = $this->projectStore->createSprint(
                         projectId: $project['id'],
                         title: $title,
-                        acceptanceCriteria: isset($args['acceptance_criteria']) ? trim($args['acceptance_criteria']) : null,
+                        acceptanceCriteria: self::normalizeAcceptanceCriteria($args['acceptance_criteria'] ?? null),
                         lastSessionId: $this->sessionId,
                         maxReviewRounds: isset($args['max_review_rounds']) ? (int) $args['max_review_rounds'] : 3,
                     );
@@ -651,7 +653,7 @@ final readonly class SprintToolkit implements ToolkitInterface
             parameters: [
                 new StringParameter('id', 'Sprint ID', required: true),
                 new StringParameter('title', 'New sprint title', required: false),
-                new StringParameter('acceptance_criteria', 'Updated acceptance criteria (JSON)', required: false),
+                new ArrayParameter('acceptance_criteria', 'Updated acceptance criteria', required: false, items: new StringParameter('criterion', 'Acceptance criterion', required: true)),
                 new StringParameter('contract_artifact_id', 'Link to the plan/contract artifact', required: false),
             ],
             callback: function (array $args): ToolResult {
@@ -664,7 +666,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                 $updated = $this->projectStore->updateSprint(
                     id: $id,
                     title: isset($args['title']) ? trim($args['title']) : null,
-                    acceptanceCriteria: isset($args['acceptance_criteria']) ? trim($args['acceptance_criteria']) : null,
+                    acceptanceCriteria: self::normalizeAcceptanceCriteria($args['acceptance_criteria'] ?? null),
                     contractArtifactId: isset($args['contract_artifact_id']) ? trim($args['contract_artifact_id']) : null,
                     lastSessionId: $this->sessionId,
                 );
@@ -674,6 +676,24 @@ final readonly class SprintToolkit implements ToolkitInterface
                     : ToolResult::error("Sprint not found: {$id}");
             },
         );
+    }
+
+    private static function normalizeAcceptanceCriteria(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_string($value) && trim($value) === '') {
+            return null;
+        }
+
+        $criteria = JsonHelper::decodeJsonList($value);
+        if ($criteria !== null) {
+            return json_encode($criteria, JSON_UNESCAPED_SLASHES) ?: null;
+        }
+
+        return is_string($value) ? trim($value) : null;
     }
 
     private function sprintDeleteTool(): ToolInterface

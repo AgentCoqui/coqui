@@ -156,6 +156,22 @@ test('create includes credentials in composer.json', function () {
     ]);
 });
 
+test('create accepts native credential map', function () {
+    $tool = findTool($this->tools, 'coqui_toolkit_create');
+    $tool->execute([
+        'name' => 'cred-map-test',
+        'description' => 'Credential map test',
+        'credentials' => ['MAP_API_KEY' => 'API key from native map'],
+    ]);
+
+    $composerPath = $this->tmpDir . '/packages/cred-map-test/composer.json';
+    $data = json_decode(file_get_contents($composerPath), true);
+
+    expect($data['extra']['php-agents']['credentials'])->toBe([
+        'MAP_API_KEY' => 'API key from native map',
+    ]);
+});
+
 test('create generates toolkit class with credentials support', function () {
     $tool = findTool($this->tools, 'coqui_toolkit_create');
     $tool->execute([
@@ -387,6 +403,31 @@ test('add_tool supports multiple parameter types', function () {
     expect($content)->toContain('NumberParameter');
     expect($content)->toContain('BoolParameter');
     expect($content)->toContain('EnumParameter');
+});
+
+test('add_tool accepts native parameter definitions', function () {
+    $createTool = findTool($this->tools, 'coqui_toolkit_create');
+    $createTool->execute(['name' => 'native-param', 'description' => 'Native param test']);
+
+    $addTool = findTool($this->tools, 'coqui_toolkit_add');
+    $result = $addTool->execute([
+        'toolkit_name' => 'native-param',
+        'tool_name' => 'typed_tool',
+        'tool_description' => 'Uses native parameter definitions',
+        'parameters' => [
+            ['name' => 'query', 'type' => 'string', 'description' => 'Search query', 'required' => true],
+            ['name' => 'verbose', 'type' => 'bool', 'description' => 'Verbose output', 'required' => false],
+        ],
+    ]);
+
+    expect($result->status->value)->toBe('success');
+
+    $classPath = $this->tmpDir . '/packages/native-param/src/NativeParamToolkit.php';
+    $content = file_get_contents($classPath);
+
+    expect($content)->toContain('typed_tool');
+    expect($content)->toContain('Search query');
+    expect($content)->toContain('BoolParameter');
 });
 
 // ── coqui_toolkits ────────────────────────────────────────────────────

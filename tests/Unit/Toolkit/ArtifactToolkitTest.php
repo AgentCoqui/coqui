@@ -264,6 +264,24 @@ test('artifact_bulk_stage updates artifacts by explicit ids', function () {
     expect($this->store->get($id2)['stage'])->toBe('review');
 });
 
+test('artifact_bulk_stage accepts native array ids', function () {
+    $id1 = $this->store->create($this->sessionId, 'One', 'content');
+    $id2 = $this->store->create($this->sessionId, 'Two', 'content');
+
+    $tool = toolFromToolkit($this->toolkit, 'artifact_stage');
+
+    $result = $tool->execute([
+        'ids' => [$id1, $id2],
+        'stage' => 'review',
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $data = json_decode($result->content, true);
+    expect($data['updated'])->toBe(2);
+    expect($this->store->get($id1)['stage'])->toBe('review');
+    expect($this->store->get($id2)['stage'])->toBe('review');
+});
+
 test('artifact_bulk_delete deletes artifacts selected by filter', function () {
     $this->store->create($this->sessionId, 'Draft One', 'content', type: 'code');
     $this->store->create($this->sessionId, 'Draft Two', 'content', type: 'code');
@@ -280,4 +298,21 @@ test('artifact_bulk_delete deletes artifacts selected by filter', function () {
     expect($data['deleted'])->toBe(2);
     expect($this->store->list($this->sessionId))->toHaveCount(1);
     expect($this->store->get($keepId))->not->toBeNull();
+});
+
+test('artifact_bulk_delete accepts native array ids', function () {
+    $id1 = $this->store->create($this->sessionId, 'Delete One', 'content');
+    $id2 = $this->store->create($this->sessionId, 'Delete Two', 'content');
+
+    $tool = toolFromToolkit($this->toolkit, 'artifact_delete');
+
+    $result = $tool->execute([
+        'ids' => [$id1, $id2],
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    $data = json_decode($result->content, true);
+    expect($data['deleted'])->toBe(2);
+    expect($this->store->get($id1))->toBeNull();
+    expect($this->store->get($id2))->toBeNull();
 });

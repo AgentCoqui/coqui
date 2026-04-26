@@ -8,6 +8,13 @@
       "name": "Carmelo Santana"
     }
   ],
+  "repositories": [
+    {
+      "type": "path",
+      "url": "/Users/carmelo/Projects/CoquiBot/Toolkits/coqui-toolkit-mcp-client"
+    }
+  ],
+  
   "require": {
     "php": "^8.4",
     "ext-dom": "*",
@@ -16,6 +23,7 @@
     "ext-xml": "*",
     "carmelosantana/coqui-toolkit-images": "^0.1",
     "carmelosantana/php-agents": "^0.12",
+    "coquibot/coqui-toolkit-mcp-client": "@dev",
     "dragonmantank/cron-expression": "^3.0",
     "league/commonmark": "^2.8",
     "league/html-to-markdown": "^5.1",

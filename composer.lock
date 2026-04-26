@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "b9aead33f97beb5f90445fa3de27c48e",
+    "content-hash": "aa66229f496698a0e0b4dadf4d33f6e7",
     "packages": [
         {
             "name": "carmelosantana/coqui-toolkit-images",
@@ -148,6 +148,69 @@
                 "source": "https://github.com/carmelosantana/php-agents/tree/v0.12.3"
             },
             "time": "2026-04-21T21:03:26+00:00"
+        },
+        {
+            "name": "coquibot/coqui-toolkit-mcp-client",
+            "version": "dev-main",
+            "dist": {
+                "type": "path",
+                "url": "/Users/carmelo/Projects/CoquiBot/Toolkits/coqui-toolkit-mcp-client",
+                "reference": "9020f680b4886baf0a6fb4d962aa4a65a9021cbb"
+            },
+            "require": {
+                "php": "^8.4"
+            },
+            "require-dev": {
+                "carmelosantana/php-agents": "^0.12",
+                "pestphp/pest": "^4.0",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "php-agents": {
+                    "toolkits": [
+                        "CoquiBot\\Toolkits\\Mcp\\McpToolkit"
+                    ],
+                    "description": "MCP (Model Context Protocol) — consume any MCP server as agent tools via stdio transport"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\Mcp\\": "src/"
+                }
+            },
+            "autoload-dev": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\Mcp\\Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "pest"
+                ],
+                "analyse": [
+                    "phpstan analyse --memory-limit=1G"
+                ]
+            },
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Carmelo Santana"
+                }
+            ],
+            "description": "MCP (Model Context Protocol) toolkit for Coqui — consume MCP servers as agent tools",
+            "keywords": [
+                "coqui",
+                "mcp",
+                "model-context-protocol",
+                "php-agents",
+                "toolkit"
+            ],
+            "transport-options": {
+                "relative": false
+            }
         },
         {
             "name": "dflydev/dot-access-data",
@@ -2269,7 +2332,7 @@
         },
         {
             "name": "symfony/polyfill-ctype",
-            "version": "v1.36.0",
+            "version": "v1.37.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-ctype.git",
@@ -2328,7 +2391,7 @@
                 "portable"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-ctype/tree/v1.36.0"
+                "source": "https://github.com/symfony/polyfill-ctype/tree/v1.37.0"
             },
             "funding": [
                 {
@@ -2352,16 +2415,16 @@
         },
         {
             "name": "symfony/polyfill-intl-grapheme",
-            "version": "v1.36.0",
+            "version": "v1.37.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-intl-grapheme.git",
-                "reference": "ad1b7b9092976d6c948b8a187cec9faaea9ec1df"
+                "reference": "4864388bfbd3001ce88e234fab652acd91fdc57e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/polyfill-intl-grapheme/zipball/ad1b7b9092976d6c948b8a187cec9faaea9ec1df",
-                "reference": "ad1b7b9092976d6c948b8a187cec9faaea9ec1df",
+                "url": "https://api.github.com/repos/symfony/polyfill-intl-grapheme/zipball/4864388bfbd3001ce88e234fab652acd91fdc57e",
+                "reference": "4864388bfbd3001ce88e234fab652acd91fdc57e",
                 "shasum": ""
             },
             "require": {
@@ -2410,7 +2473,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-intl-grapheme/tree/v1.36.0"
+                "source": "https://github.com/symfony/polyfill-intl-grapheme/tree/v1.37.0"
             },
             "funding": [
                 {
@@ -2430,11 +2493,11 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-04-10T16:19:22+00:00"
+            "time": "2026-04-26T13:13:48+00:00"
         },
         {
             "name": "symfony/polyfill-intl-normalizer",
-            "version": "v1.36.0",
+            "version": "v1.37.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-intl-normalizer.git",
@@ -2495,7 +2558,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-intl-normalizer/tree/v1.36.0"
+                "source": "https://github.com/symfony/polyfill-intl-normalizer/tree/v1.37.0"
             },
             "funding": [
                 {
@@ -2519,7 +2582,7 @@
         },
         {
             "name": "symfony/polyfill-mbstring",
-            "version": "v1.36.0",
+            "version": "v1.37.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-mbstring.git",
@@ -2580,7 +2643,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.36.0"
+                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.37.0"
             },
             "funding": [
                 {
@@ -2604,7 +2667,7 @@
         },
         {
             "name": "symfony/polyfill-php80",
-            "version": "v1.36.0",
+            "version": "v1.37.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-php80.git",
@@ -2664,7 +2727,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-php80/tree/v1.36.0"
+                "source": "https://github.com/symfony/polyfill-php80/tree/v1.37.0"
             },
             "funding": [
                 {
@@ -6078,7 +6141,9 @@
     ],
     "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {},
+    "stability-flags": {
+        "coquibot/coqui-toolkit-mcp-client": 20
+    },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {
