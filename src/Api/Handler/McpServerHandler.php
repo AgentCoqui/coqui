@@ -28,6 +28,9 @@ final readonly class McpServerHandler
         $router->delete('/api/v1/mcp/servers/{name}', $this->handleDelete(...));
         $router->post('/api/v1/mcp/servers/{name}/enable', $this->handleEnable(...));
         $router->post('/api/v1/mcp/servers/{name}/disable', $this->handleDisable(...));
+        $router->post('/api/v1/mcp/servers/{name}/promote', $this->handlePromote(...));
+        $router->post('/api/v1/mcp/servers/{name}/demote', $this->handleDemote(...));
+        $router->post('/api/v1/mcp/servers/{name}/auto', $this->handleAuto(...));
         $router->post('/api/v1/mcp/servers/{name}/connect', $this->handleConnect(...));
         $router->post('/api/v1/mcp/servers/{name}/disconnect', $this->handleDisconnect(...));
         $router->post('/api/v1/mcp/servers/{name}/refresh', $this->handleRefresh(...));
@@ -142,6 +145,21 @@ final readonly class McpServerHandler
     private function handleConnect(ServerRequestInterface $request, string $name): Response
     {
         return $this->handleRuntimeAction(fn(): array => $this->service->connectServer($name), 'MCP server connected.');
+    }
+
+    private function handlePromote(ServerRequestInterface $request, string $name): Response
+    {
+        return $this->handleLoadingAction(fn(): array => $this->service->promoteServer($name), 'MCP server loading mode set to eager.');
+    }
+
+    private function handleDemote(ServerRequestInterface $request, string $name): Response
+    {
+        return $this->handleLoadingAction(fn(): array => $this->service->demoteServer($name), 'MCP server loading mode set to deferred.');
+    }
+
+    private function handleAuto(ServerRequestInterface $request, string $name): Response
+    {
+        return $this->handleLoadingAction(fn(): array => $this->service->autoServer($name), 'MCP server loading mode reset to auto.');
     }
 
     private function handleDisconnect(ServerRequestInterface $request, string $name): Response
@@ -301,6 +319,27 @@ final readonly class McpServerHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, $e->getMessage());
         } catch (\Throwable $e) {
             return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, $e->getMessage());
+        }
+    }
+
+    /**
+     * @param callable(): array{name: string, loading_mode: string, applied: string} $callback
+     */
+    private function handleLoadingAction(callable $callback, string $message): Response
+    {
+        try {
+            $result = $callback();
+
+            return Router::jsonResponse([
+                'server' => $this->service->getServerSnapshot($result['name']),
+                'runtime' => ['applied' => $result['applied']],
+                'loading_mode' => $result['loading_mode'],
+                'message' => $message,
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $e->getMessage());
+        } catch (\RuntimeException $e) {
+            return Router::errorResponse(ApiErrorCode::NOT_FOUND, $e->getMessage());
         }
     }
 

@@ -177,6 +177,7 @@ final class CoquiDefaults
         'CoquiSourceToolkit',
         'ComposerToolkit',
         'PackagistToolkit',
+        'McpToolkit',
         'LoopToolkit',
         'ScheduleToolkit',
     ];

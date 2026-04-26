@@ -127,10 +127,13 @@ In the interactive REPL, Coqui now auto-renders one low-fidelity ANSI image prev
 | `/mcp remove <server>` | Remove a configured MCP server |
 | `/mcp enable <server>` | Enable a disabled MCP server |
 | `/mcp disable <server>` | Disable and disconnect a configured MCP server |
+| `/mcp promote <server>` | Force one MCP server toolkit to load eagerly on future turns |
+| `/mcp demote <server>` | Force one MCP server toolkit to stay deferred on future turns |
+| `/mcp auto <server>` | Return one MCP server toolkit to automatic budget-gated loading |
 | `/mcp set-env <server> <ENV_KEY>` | Prompt for a secret value and link it into one server's env config |
 | `/mcp auth <server> <auth-url> <token-url> [client-id] [scopes...]` | Run browser-based OAuth and link the resulting access token for one server |
 
-MCP changes apply to future agent turns without a full Coqui restart. Proxied MCP tools stay namespaced as `mcp_{server}_{tool}`, so the existing `/toolkits enable|stub|disable tool:<name>` controls still work for individual MCP tools.
+MCP changes apply to future agent turns without a full Coqui restart. Server loading mode changes reuse Coqui's normal toolkit budget gate: `promote` maps to eager loading, `demote` maps to deferred loading, and `auto` returns the server to budget-managed loading. Proxied MCP tools stay namespaced as `mcp_{server}_{tool}`, so the existing `/toolkits enable|stub|disable tool:<name>` controls still work for individual MCP tools.
 
 ### Background Tasks
 

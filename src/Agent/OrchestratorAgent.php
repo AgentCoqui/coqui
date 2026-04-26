@@ -45,7 +45,9 @@ use CoquiBot\Coqui\Config\SummarizePruningStrategy;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
+use CoquiBot\Coqui\Contract\CompositeToolkitProvider;
 use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
+use CoquiBot\Coqui\Contract\ToolkitLoadingKeyProvider;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
@@ -520,6 +522,7 @@ final class OrchestratorAgent extends AbstractAgent
                 $toolkit = $entry['toolkit'];
                 $vis = $this->visibilityRegistry?->getPackageVisibility($packageName)
                     ?? ToolkitVisibility::Enabled;
+                $discoveredToolkits = $this->expandDiscoveredToolkitCandidates($toolkit);
 
                 // Disabled packages are invisible — skip entirely
                 if ($vis === ToolkitVisibility::Disabled) {
@@ -528,20 +531,24 @@ final class OrchestratorAgent extends AbstractAgent
 
                 // User-explicit Stub visibility always wins — bypass budget gate
                 if ($vis === ToolkitVisibility::Stub) {
-                    $this->addToolkit(new StubToolkit($toolkit), $packageName);
-                    $this->deferredToolkitInfo[] = [
-                        'name' => self::toolkitBasename($toolkit),
-                        'description' => $this->extractToolkitDescription($toolkit),
-                        'package' => $packageName,
-                    ];
+                    foreach ($discoveredToolkits as $discoveredToolkit) {
+                        $this->addToolkit(new StubToolkit($discoveredToolkit), $packageName);
+                        $this->deferredToolkitInfo[] = [
+                            'name' => self::toolkitBasename($discoveredToolkit),
+                            'description' => $this->extractToolkitDescription($discoveredToolkit),
+                            'package' => $packageName,
+                        ];
+                    }
                     continue;
                 }
 
-                $candidateToolkits[] = [
-                    'toolkit' => $toolkit,
-                    'package' => $packageName,
-                    'description' => $this->extractToolkitDescription($toolkit),
-                ];
+                foreach ($discoveredToolkits as $discoveredToolkit) {
+                    $candidateToolkits[] = [
+                        'toolkit' => $discoveredToolkit,
+                        'package' => $packageName,
+                        'description' => $this->extractToolkitDescription($discoveredToolkit),
+                    ];
+                }
             }
         }
 
@@ -2222,7 +2229,19 @@ final class OrchestratorAgent extends AbstractAgent
             $package = $entry['package'];
             $basename = self::toolkitBasename($toolkit);
 
-            if ($mode === ToolkitLoadingMode::Eager) {
+            if ($mode === ToolkitLoadingMode::System) {
+                $this->addToolkit($toolkit, $package);
+                $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::System;
+                $this->recordToolkitLoadingDecision(
+                    name: $basename,
+                    package: $package,
+                    description: $entry['description'],
+                    mode: ToolkitLoadingMode::System,
+                    configuredMode: $mode,
+                    reason: 'system_always_loaded',
+                    tokens: $candidateTokens[$idx],
+                );
+            } elseif ($mode === ToolkitLoadingMode::Eager) {
                 $this->addToolkit($toolkit, $package);
                 $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Eager;
                 $this->recordToolkitLoadingDecision(
@@ -2400,17 +2419,40 @@ final class OrchestratorAgent extends AbstractAgent
      */
     private static function toolkitBasename(ToolkitInterface $toolkit): string
     {
-        $class = $toolkit::class;
+        $resolved = $toolkit;
 
-        if ($toolkit instanceof StubToolkit) {
-            $class = $toolkit->innerClass();
-        } elseif ($toolkit instanceof CredentialGuardToolkit) {
-            $class = $toolkit->innerClass();
+        while ($resolved instanceof StubToolkit || $resolved instanceof CredentialGuardToolkit) {
+            $resolved = $resolved->innerToolkit();
         }
 
-        $parts = explode('\\', $class);
+        if ($resolved instanceof ToolkitLoadingKeyProvider) {
+            return $resolved->toolkitLoadingKey();
+        }
+
+        $parts = explode('\\', $resolved::class);
 
         return end($parts);
+    }
+
+    /**
+     * @return list<ToolkitInterface>
+     */
+    private function expandDiscoveredToolkitCandidates(ToolkitInterface $toolkit): array
+    {
+        $expanded = [$toolkit];
+        $source = $toolkit;
+
+        if ($source instanceof CredentialGuardToolkit) {
+            $source = $source->innerToolkit();
+        }
+
+        if ($source instanceof CompositeToolkitProvider) {
+            foreach ($source->childToolkits() as $childToolkit) {
+                $expanded[] = $childToolkit;
+            }
+        }
+
+        return $expanded;
     }
 
     /**

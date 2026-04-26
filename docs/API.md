@@ -4303,7 +4303,7 @@ Set the visibility of a package or an individual tool.
 
 MCP server management is now available over HTTP and uses the same shared MCP runtime service as the `mcp` tool and `/mcp` REPL command. These endpoints are intended for operator flows such as adding or updating servers, linking credentials, inspecting discovered tools, and verifying connectivity.
 
-The API keeps MCP auditing live-only for now: each server snapshot includes the latest connection attempt, latest connectivity test result, durations, timestamps, and last discovered tool count, but does not persist a historical delivery-style audit ledger.
+The API keeps MCP auditing live-only for now: each server snapshot includes the latest connection attempt, latest connectivity test result, durations, timestamps, the current `loadingMode`, and last discovered tool count, but does not persist a historical delivery-style audit ledger.
 
 #### `GET /api/v1/mcp/servers`
 
@@ -4353,6 +4353,18 @@ Enable a disabled MCP server.
 #### `POST /api/v1/mcp/servers/{name}/disable`
 
 Disable and disconnect an MCP server.
+
+#### `POST /api/v1/mcp/servers/{name}/promote`
+
+Force one MCP server toolkit to load eagerly on future turns. The response includes the refreshed server snapshot, `loading_mode`, and `runtime.applied`.
+
+#### `POST /api/v1/mcp/servers/{name}/demote`
+
+Force one MCP server toolkit to stay deferred on future turns. The response includes the refreshed server snapshot, `loading_mode`, and `runtime.applied`.
+
+#### `POST /api/v1/mcp/servers/{name}/auto`
+
+Return one MCP server toolkit to automatic budget-gated loading. The response includes the refreshed server snapshot, `loading_mode`, and `runtime.applied`.
 
 #### `POST /api/v1/mcp/servers/{name}/connect`
 
@@ -4408,7 +4420,7 @@ Run browser-based OAuth for one server and store the resulting access token as a
 }
 ```
 
-MCP server mutations hot-apply where possible and do not require a full API restart.
+MCP server mutations hot-apply where possible and do not require a full API restart. Loading-mode changes affect future agent assembly, so they take effect on the next turn even when the config write itself is applied immediately.
 
 ---
 
@@ -4779,6 +4791,9 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/mcp remove <name>` | `DELETE /api/v1/mcp/servers/{name}` | Deletes an MCP server definition |
 | `/mcp enable <name>` | `POST /api/v1/mcp/servers/{name}/enable` | Enables an MCP server |
 | `/mcp disable <name>` | `POST /api/v1/mcp/servers/{name}/disable` | Disables an MCP server |
+| `/mcp promote <name>` | `POST /api/v1/mcp/servers/{name}/promote` | Forces eager loading for one MCP server toolkit |
+| `/mcp demote <name>` | `POST /api/v1/mcp/servers/{name}/demote` | Forces deferred loading for one MCP server toolkit |
+| `/mcp auto <name>` | `POST /api/v1/mcp/servers/{name}/auto` | Returns one MCP server toolkit to automatic loading |
 | `/mcp connect <name>` | `POST /api/v1/mcp/servers/{name}/connect` | Connects an MCP server immediately |
 | `/mcp disconnect <name>` | `POST /api/v1/mcp/servers/{name}/disconnect` | Disconnects an MCP server immediately |
 | `/mcp refresh <name>` | `POST /api/v1/mcp/servers/{name}/refresh` | Reconnects and refreshes MCP tools |
@@ -4899,6 +4914,9 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `DELETE` | `/api/v1/mcp/servers/{name}` | Yes | Delete one MCP server |
 | `POST` | `/api/v1/mcp/servers/{name}/enable` | Yes | Enable an MCP server |
 | `POST` | `/api/v1/mcp/servers/{name}/disable` | Yes | Disable an MCP server |
+| `POST` | `/api/v1/mcp/servers/{name}/promote` | Yes | Force eager loading for one MCP server |
+| `POST` | `/api/v1/mcp/servers/{name}/demote` | Yes | Force deferred loading for one MCP server |
+| `POST` | `/api/v1/mcp/servers/{name}/auto` | Yes | Return one MCP server to automatic loading |
 | `POST` | `/api/v1/mcp/servers/{name}/connect` | Yes | Connect an MCP server |
 | `POST` | `/api/v1/mcp/servers/{name}/disconnect` | Yes | Disconnect an MCP server |
 | `POST` | `/api/v1/mcp/servers/{name}/refresh` | Yes | Refresh discovered MCP tools |

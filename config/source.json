@@ -1493,6 +1493,24 @@
             ]
         },
         {
+            "path": "src/Contract/CompositeToolkitProvider.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\CompositeToolkitProvider",
+            "layer": "contract",
+            "description": "Optional interface for toolkits that expose runtime child toolkits. Child toolkits are expanded into the normal discovery and budget pipeline so dynamic toolkit sources can participate in eager, deferred, and auto loading without a second loading system.",
+            "methods": [
+                "childToolkits(): array — returns runtime child toolkits to feed through normal toolkit discovery and budgeting"
+            ]
+        },
+        {
+            "path": "src/Contract/ToolkitLoadingKeyProvider.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitLoadingKeyProvider",
+            "layer": "contract",
+            "description": "Optional interface for toolkits that need a stable loading-registry key that differs from their PHP class basename. Used by dynamic or wrapped toolkits so persisted loading overrides remain stable across turns.",
+            "methods": [
+                "toolkitLoadingKey(): string — returns the canonical loading-registry key for this toolkit"
+            ]
+        },
+        {
             "path": "src/Storage/ToolUsageTracker.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ToolUsageTracker",
             "layer": "storage",

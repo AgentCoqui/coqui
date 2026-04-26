@@ -78,6 +78,7 @@ use CoquiBot\Toolkits\Mcp\Auth\OAuthHandler as McpOAuthHandler;
 use CoquiBot\Toolkits\Mcp\Config\McpConfig;
 use CoquiBot\Toolkits\Mcp\McpManagementService;
 use CoquiBot\Toolkits\Mcp\McpServerManager;
+use CoquiBot\Toolkits\Mcp\Support\ServerLoadingModeStore as McpServerLoadingModeStore;
 use React\EventLoop\Loop;
 use React\Http\HttpServer;
 use React\Http\Middleware\LimitConcurrentRequestsMiddleware;
@@ -415,6 +416,7 @@ final class ApiCommand extends Command
             $mcpConfig,
             $mcpServerManager,
             new McpOAuthHandler($boot->workspacePath()),
+            new McpServerLoadingModeStore($boot->workspacePath()),
         ));
         $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
         $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore, $storage, $artifactStore, $projectStore);
