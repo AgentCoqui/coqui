@@ -96,7 +96,7 @@
             "dist": {
                 "type": "path",
                 "url": "/Users/carmelo/Projects/CoquiBot/Core/php-agents",
-                "reference": "298c23200f81f43d314b7b1748e790c65b5e1199"
+                "reference": "8823812d50218f0bbe34fc233d7fb92e414ec85e"
             },
             "require": {
                 "php": "^8.4",

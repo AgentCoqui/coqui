@@ -25,60 +25,8 @@ use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Tests\Support\Agent\CompositeBudgetTestToolkit;
 use CoquiBot\Coqui\Tool\StubTool;
-
-final class CompositeBudgetTestToolkit implements ToolkitInterface, CompositeToolkitProvider
-{
-    public function tools(): array
-    {
-        return [new Tool(
-            name: 'composite_budget_manage',
-            description: 'Composite management tool.',
-            parameters: [],
-            callback: static fn(array $input): ToolResult => ToolResult::success('ok'),
-        )];
-    }
-
-    public function guidelines(): string
-    {
-        return 'Composite budget test toolkit management surface.';
-    }
-
-    public function childToolkits(): array
-    {
-        return [
-            new CompositeBudgetChildToolkit('alpha'),
-            new CompositeBudgetChildToolkit('beta'),
-        ];
-    }
-}
-
-final class CompositeBudgetChildToolkit implements ToolkitInterface, ToolkitLoadingKeyProvider
-{
-    public function __construct(
-        private readonly string $name,
-    ) {}
-
-    public function toolkitLoadingKey(): string
-    {
-        return 'CompositeChild:' . $this->name;
-    }
-
-    public function tools(): array
-    {
-        return [new Tool(
-            name: 'composite_child_' . $this->name,
-            description: 'Composite child tool ' . $this->name,
-            parameters: [],
-            callback: static fn(array $input): ToolResult => ToolResult::success('ok'),
-        )];
-    }
-
-    public function guidelines(): string
-    {
-        return sprintf('Composite child toolkit %s with server-scoped loading.', $this->name);
-    }
-}
 
 beforeEach(function () {
     $this->workspace = sys_get_temp_dir() . '/coqui-agent-test-' . bin2hex(random_bytes(4));

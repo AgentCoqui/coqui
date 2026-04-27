@@ -1084,10 +1084,6 @@ final class AgentRunner
         }
 
         $lastIndex = array_key_last($messages);
-        if ($lastIndex === null) {
-            return $messages;
-        }
-
         $last = $messages[$lastIndex];
         if (($last['role'] ?? null) !== 'user') {
             return $messages;
@@ -1190,7 +1186,7 @@ final class AgentRunner
 
         $speaker = str_starts_with($actorName, '@') ? $actorName : '@' . $actorName;
 
-        if ($actorRole !== null && $actorRole !== '' && $actorRole !== $role) {
+        if ($actorRole !== null && $actorRole !== $role) {
             return sprintf('%s (%s)', $speaker, $actorRole);
         }
 
