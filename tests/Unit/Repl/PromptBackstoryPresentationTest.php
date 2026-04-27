@@ -70,7 +70,7 @@ function makeReplPromptBackstoryCredentialResolver(string $workspacePath): Crede
     };
 }
 
-function createPromptBackstoryRouterFixture(): array
+function createPromptBackstoryRouterFixture(bool $conversationHistoryInSystemPrompt = false): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-repl-prompt-backstory-' . bin2hex(random_bytes(8));
     $profilePath = $workspacePath . '/profiles/caelum';
@@ -96,6 +96,7 @@ function createPromptBackstoryRouterFixture(): array
             'defaults' => [
                 'model' => ['primary' => 'ollama/qwen3:latest'],
                 'roles' => ['orchestrator' => 'ollama/qwen3:latest'],
+                'context' => ['conversationHistoryInSystemPrompt' => $conversationHistoryInSystemPrompt],
             ],
         ],
     ]);
@@ -157,6 +158,7 @@ function createPromptBackstoryRouterFixture(): array
     return [
         'workspacePath' => $workspacePath,
         'dbPath' => $dbPath,
+        'storage' => $storage,
         'router' => $router,
     ];
 }
@@ -183,6 +185,36 @@ test('slash command router renders prompt output from the shared inspection payl
         expect($display)->toContain('Generated Source');
         expect($display)->toContain('workspace:profiles/caelum');
         expect($display)->toContain('Warm and curious');
+    } finally {
+        cleanupPromptBackstoryRouterFixture($fixture);
+    }
+});
+
+test('slash command router exports prompt with session-aware conversation history', function (): void {
+    $fixture = createPromptBackstoryRouterFixture(conversationHistoryInSystemPrompt: true);
+
+    try {
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $fixture['storage']->addMessage($sessionId, 'user', 'Earlier question');
+        $fixture['storage']->addMessage($sessionId, 'assistant', 'Earlier answer');
+
+        $output = new BufferedOutput();
+        $io = new SymfonyStyle(new ArrayInput([]), $output);
+
+        $result = $fixture['router']->route('/prompt export', SystemRole::Orchestrator->value, $sessionId, $io);
+        $display = $output->fetch();
+        $exports = glob($fixture['workspacePath'] . '/Prompt-*.txt');
+
+        expect($result->shouldContinue)->toBeTrue();
+        expect($display)->toContain('Prompt exported to:');
+        expect($exports)->toBeArray()->toHaveCount(1);
+
+        $content = file_get_contents($exports[0]);
+
+        expect($content)->not->toBeFalse();
+        expect($content)->toContain('## Conversation History');
+        expect($content)->toContain('Earlier question');
+        expect($content)->toContain('Earlier answer');
     } finally {
         cleanupPromptBackstoryRouterFixture($fixture);
     }
