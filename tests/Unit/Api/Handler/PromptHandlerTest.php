@@ -181,3 +181,61 @@ test('prompt handler exposes effective profile policy summary', function () {
         cleanupPromptHandlerFixture($fixture);
     }
 });
+
+test('prompt handler includes conversation history when session_id is provided and mode is enabled', function () {
+    $workspacePath = sys_get_temp_dir() . '/coqui-prompt-handler-history-' . bin2hex(random_bytes(8));
+    mkdir($workspacePath . '/data', 0755, true);
+    file_put_contents($workspacePath . '/.env', '');
+
+    $dbPath = sys_get_temp_dir() . '/coqui-prompt-handler-history-' . bin2hex(random_bytes(8)) . '.db';
+    $storage = new SessionStorage($dbPath);
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'ollama/qwen3:latest'],
+                'roles' => ['orchestrator' => 'ollama/qwen3:latest'],
+                'context' => ['conversationHistoryInSystemPrompt' => true],
+            ],
+        ],
+    ]);
+    $credentialResolver = makePromptHandlerCredentialResolver($workspacePath);
+    $projectRoot = dirname(__DIR__, 4);
+
+    $runner = new AgentRunner(
+        roleResolver: new CoquiBot\Coqui\Config\RoleResolver($config),
+        config: $config,
+        projectRoot: $projectRoot,
+        workspacePath: $workspacePath,
+        storage: $storage,
+        observer: null,
+        discovery: new ToolkitDiscovery(
+            projectRoot: $projectRoot,
+            workspacePath: $workspacePath,
+            credentialResolver: $credentialResolver,
+        ),
+        blacklist: new CatastrophicBlacklist(),
+        credentialResolver: $credentialResolver,
+        providerFactory: new ProviderFactory($config),
+    );
+
+    $handler = new PromptHandler(new PromptInspectionService($runner, $workspacePath, $projectRoot));
+    $sessionId = $storage->createSession('orchestrator', 'ollama/qwen3:latest');
+    $storage->addMessage($sessionId, 'user', 'Earlier question');
+    $storage->addMessage($sessionId, 'assistant', 'Earlier answer');
+
+    try {
+        $response = $handler->get(
+            (new ServerRequest('GET', '/api/v1/server/prompt'))->withQueryParams(['session_id' => $sessionId])
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['session_id'])->toBe($sessionId);
+        expect($body['prompt'])->toContain('## Conversation History');
+        expect($body['prompt'])->toContain('Earlier question');
+        expect(array_column($body['budget']['prompt_sections'] ?? [], 'id'))->toContain('context.conversation-history');
+    } finally {
+        cleanupSqliteTestDb($dbPath);
+        cleanupTestTree($workspacePath);
+    }
+});

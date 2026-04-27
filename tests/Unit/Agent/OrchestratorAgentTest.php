@@ -383,6 +383,40 @@ test('prompt section breakdown includes pending notifications when set', functio
     expect($ids)->toContain('context.pending-notifications');
 });
 
+test('system prompt appends conversation history section when set', function () {
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+    );
+
+    $agent->setConversationHistoryPromptSection("## Conversation History\n\n- [5m] user [full] Earlier question");
+
+    $prompt = $agent->getSystemPromptText();
+
+    expect($prompt)->toContain('## Conversation History');
+    expect($prompt)->toContain('Earlier question');
+});
+
+test('prompt section breakdown includes conversation history when set', function () {
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+    );
+
+    $agent->setConversationHistoryPromptSection("## Conversation History\n\n- [5m] user [full] Earlier question");
+
+    $breakdown = $agent->getPromptSectionBreakdown(new HeuristicCounter());
+    $ids = array_column($breakdown, 'id');
+
+    expect($ids)->toContain('context.conversation-history');
+});
+
 test('instructions include profile preferences and scoped core memories', function () {
     $profilePath = $this->workspace . '/profiles/caelum';
     mkdir($profilePath, 0755, true);

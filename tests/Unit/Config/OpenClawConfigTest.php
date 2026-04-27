@@ -117,3 +117,23 @@ test('getDefaultProfile returns normalized configured profile', function () {
 
     expect($config->getDefaultProfile())->toBe('caelum');
 });
+
+test('conversation history prompt flag defaults to false', function () {
+    $config = OpenClawConfig::fromArray([]);
+
+    expect($config->useConversationHistoryInSystemPrompt())->toBeFalse();
+});
+
+test('conversation history prompt flag returns configured boolean', function () {
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'context' => [
+                    'conversationHistoryInSystemPrompt' => true,
+                ],
+            ],
+        ],
+    ]);
+
+    expect($config->useConversationHistoryInSystemPrompt())->toBeTrue();
+});

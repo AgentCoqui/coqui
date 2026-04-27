@@ -26,6 +26,7 @@ use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\ModelFamilyResolver;
 use CoquiBot\Coqui\Config\MountManager;
+use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
@@ -100,6 +101,7 @@ final class AgentRunner
         private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
         private readonly ?ToolUsageTracker $usageTracker = null,
         private readonly ?NotificationStore $notificationStore = null,
+        private readonly ?\Closure $providerResolver = null,
     ) {}
 
     /**
@@ -337,10 +339,17 @@ final class AgentRunner
                 }
             }
 
+            if ($this->shouldUseConversationHistoryInSystemPrompt()) {
+                $agent->setConversationHistoryPromptSection(
+                    $this->buildConversationHistoryPromptSection($sessionId, $prompt),
+                );
+            }
+
             // Per-iteration pruning is handled by AbstractAgent using the
             // model-aware ContextWindow passed to OrchestratorAgent.
 
-            $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $history);
+            $providerHistory = $this->shouldUseConversationHistoryInSystemPrompt() ? null : $history;
+            $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $providerHistory);
 
             // Resolve usage: prefer provider-reported tokens, fall back to local estimation.
             // Some providers (notably Ollama) report their num_ctx as prompt_tokens
@@ -690,7 +699,14 @@ final class AgentRunner
                 }
             }
 
-            $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $history);
+            if ($this->shouldUseConversationHistoryInSystemPrompt()) {
+                $agent->setConversationHistoryPromptSection(
+                    $this->buildConversationHistoryPromptSection($sessionId),
+                );
+            }
+
+            $providerHistory = $this->shouldUseConversationHistoryInSystemPrompt() ? null : $history;
+            $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $providerHistory);
 
             $usage = ($output->usage !== null && $output->usage->totalTokens > 0)
                 ? $this->sanitizeUsage($output->usage, $output, $modelString)
@@ -903,7 +919,9 @@ final class AgentRunner
         }
 
         $factory = $this->providerFactory;
-        $provider = $factory->create($modelString);
+        $provider = $this->providerResolver !== null
+            ? ($this->providerResolver)($modelString)
+            : $factory->create($modelString);
 
         $budgetExitThreshold = CoquiDefaults::BUDGET_EXIT_THRESHOLD;
         $budgetExitWrapUpIterations = CoquiDefaults::BUDGET_EXIT_WRAP_UP_ITERATIONS;
@@ -994,6 +1012,258 @@ final class AgentRunner
         return $agent;
     }
 
+    private function shouldUseConversationHistoryInSystemPrompt(): bool
+    {
+        if ($this->config instanceof OpenClawConfig) {
+            return $this->config->useConversationHistoryInSystemPrompt();
+        }
+
+        $value = $this->config->get('agents.defaults.context.conversationHistoryInSystemPrompt');
+
+        return is_bool($value) ? $value : CoquiDefaults::CONVERSATION_HISTORY_IN_SYSTEM_PROMPT;
+    }
+
+    private function buildConversationHistoryPromptSection(string $sessionId, ?string $excludeLatestUserPrompt = null): ?string
+    {
+        $messages = $this->storage->getActiveMessages($sessionId);
+
+        if ($excludeLatestUserPrompt !== null) {
+            $messages = $this->excludeTrailingCurrentUserPrompt($messages, $excludeLatestUserPrompt);
+        }
+
+        if ($messages === []) {
+            return null;
+        }
+
+        $toolCallNameById = $this->indexConversationHistoryToolCalls($messages);
+        $lines = [
+            '## Conversation History',
+            '',
+            'Prior turns only. The live user message follows separately.',
+            '',
+        ];
+
+        foreach ($messages as $message) {
+            $role = is_string($message['role'] ?? null) ? $message['role'] : 'unknown';
+            $content = is_string($message['content'] ?? null) ? $message['content'] : '';
+            $toolMarker = $this->formatConversationHistoryToolMarker($message, $toolCallNameById);
+
+            if ($role === 'assistant' && trim($content) === '' && $toolMarker === null) {
+                continue;
+            }
+
+            $parts = [
+                sprintf('[%s]', $this->formatConversationHistoryTimestamp(is_string($message['created_at'] ?? null) ? $message['created_at'] : null)),
+                $this->formatConversationHistorySpeaker($message),
+                sprintf('[%s]', $this->isConversationSummaryMessage($content) ? 'summary' : 'full'),
+            ];
+
+            if ($toolMarker !== null) {
+                $parts[] = sprintf('[%s]', $toolMarker);
+            }
+
+            $normalizedContent = $this->normalizeConversationHistoryContent($content);
+            if ($normalizedContent !== '') {
+                $parts[] = $normalizedContent;
+            }
+
+            $lines[] = '- ' . implode(' ', $parts);
+        }
+
+        return count($lines) > 4 ? implode("\n", $lines) : null;
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $messages
+     * @return array<int, array<string, mixed>>
+     */
+    private function excludeTrailingCurrentUserPrompt(array $messages, string $prompt): array
+    {
+        if ($messages === []) {
+            return $messages;
+        }
+
+        $lastIndex = array_key_last($messages);
+        if ($lastIndex === null) {
+            return $messages;
+        }
+
+        $last = $messages[$lastIndex];
+        if (($last['role'] ?? null) !== 'user') {
+            return $messages;
+        }
+
+        if (!is_string($last['content'] ?? null) || $last['content'] !== $prompt) {
+            return $messages;
+        }
+
+        unset($messages[$lastIndex]);
+
+        return array_values($messages);
+    }
+
+    /**
+     * @param array<int, array<string, mixed>> $messages
+     * @return array<string, string>
+     */
+    private function indexConversationHistoryToolCalls(array $messages): array
+    {
+        $indexed = [];
+
+        foreach ($messages as $message) {
+            if (!is_string($message['tool_calls'] ?? null) || $message['tool_calls'] === '') {
+                continue;
+            }
+
+            $decoded = json_decode($message['tool_calls'], true);
+            if (!is_array($decoded)) {
+                continue;
+            }
+
+            foreach ($decoded as $toolCall) {
+                if (!is_array($toolCall)) {
+                    continue;
+                }
+
+                $callId = is_string($toolCall['id'] ?? null) ? $toolCall['id'] : null;
+                $name = is_string($toolCall['name'] ?? null) ? $toolCall['name'] : null;
+                if ($callId !== null && $name !== null && $name !== '') {
+                    $indexed[$callId] = $name;
+                }
+            }
+        }
+
+        return $indexed;
+    }
+
+    /**
+     * @param array<string, mixed> $message
+     * @param array<string, string> $toolCallNameById
+     */
+    private function formatConversationHistoryToolMarker(array $message, array $toolCallNameById): ?string
+    {
+        $toolCalls = $message['tool_calls'] ?? null;
+        if (is_string($toolCalls) && $toolCalls !== '') {
+            $decoded = json_decode($toolCalls, true);
+            if (is_array($decoded) && $decoded !== []) {
+                $names = [];
+                foreach ($decoded as $toolCall) {
+                    if (is_array($toolCall) && is_string($toolCall['name'] ?? null) && $toolCall['name'] !== '') {
+                        $names[] = $toolCall['name'];
+                    }
+                }
+
+                if ($names !== []) {
+                    return 'tools:' . implode(',', $names);
+                }
+            }
+        }
+
+        if (($message['role'] ?? null) === 'tool') {
+            $callId = is_string($message['tool_call_id'] ?? null) ? $message['tool_call_id'] : null;
+            if ($callId !== null && isset($toolCallNameById[$callId])) {
+                return 'tool-result:' . $toolCallNameById[$callId];
+            }
+
+            return 'tool-result';
+        }
+
+        return null;
+    }
+
+    /**
+     * @param array<string, mixed> $message
+     */
+    private function formatConversationHistorySpeaker(array $message): string
+    {
+        $role = is_string($message['role'] ?? null) ? $message['role'] : 'unknown';
+        $actorName = is_string($message['actor_name'] ?? null) && $message['actor_name'] !== ''
+            ? $message['actor_name']
+            : null;
+
+        return $actorName !== null ? sprintf('%s %s', $actorName, $role) : $role;
+    }
+
+    private function formatConversationHistoryTimestamp(?string $createdAt): string
+    {
+        if ($createdAt === null || $createdAt === '') {
+            return 'unknown';
+        }
+
+        try {
+            $timestamp = new \DateTimeImmutable($createdAt);
+            $now = new \DateTimeImmutable();
+            $recentCutoff = $now->sub(new \DateInterval('PT' . CoquiDefaults::CONVERSATION_HISTORY_RELATIVE_TIME_WINDOW_HOURS . 'H'));
+        } catch (\Throwable) {
+            return 'unknown';
+        }
+
+        if ($timestamp < $recentCutoff) {
+            return $timestamp->format('Y-m-d H:i');
+        }
+
+        $seconds = max(0, $now->getTimestamp() - $timestamp->getTimestamp());
+        if ($seconds < 60) {
+            return 'now';
+        }
+
+        $minutes = intdiv($seconds, 60);
+        if ($minutes < 60) {
+            return $minutes . 'm';
+        }
+
+        $hours = intdiv($minutes, 60);
+
+        return $hours . 'h';
+    }
+
+    private function normalizeConversationHistoryContent(string $content): string
+    {
+        $normalized = trim($content);
+
+        if ($this->isConversationSummaryMessage($normalized)) {
+            $normalized = preg_replace('/^\[CONVERSATION SUMMARY[^\n]*\]\s*/', '', $normalized) ?? $normalized;
+            $normalized = preg_replace(
+                '/\s*Focus on the most recent messages below for the user\'s current intent\..*$/s',
+                '',
+                $normalized,
+            ) ?? $normalized;
+        }
+
+        if (str_starts_with($normalized, '[{"type"')) {
+            $decoded = json_decode($normalized, true);
+            if (is_array($decoded)) {
+                $textParts = [];
+                $imageCount = 0;
+                foreach ($decoded as $item) {
+                    if (!is_array($item)) {
+                        continue;
+                    }
+
+                    if (($item['type'] ?? null) === 'text' && is_string($item['text'] ?? null) && trim($item['text']) !== '') {
+                        $textParts[] = trim($item['text']);
+                    }
+
+                    if (($item['type'] ?? null) === 'image_url') {
+                        $imageCount++;
+                    }
+                }
+
+                $normalized = trim(implode(' ', $textParts));
+                if ($imageCount > 0) {
+                    $normalized .= ($normalized !== '' ? ' ' : '') . sprintf('[images:%d]', $imageCount);
+                }
+            }
+        }
+
+        return preg_replace('/\s+/', ' ', trim($normalized)) ?? trim($normalized);
+    }
+
+    private function isConversationSummaryMessage(string $content): bool
+    {
+        return str_starts_with(ltrim($content), '[CONVERSATION SUMMARY');
+    }
+
     /**
      * Build a preview agent (no session, no storage side-effects) and return
      * its system prompt text, tool/toolkit counts, and token estimates.
@@ -1002,9 +1272,9 @@ final class AgentRunner
      *
         * @return array{effective_role: string, resolved_model: string, prompt: string, tool_count: int, toolkit_count: int, prompt_tokens: int, tool_tokens: int, total_tokens: int, toolkit_breakdown: array<int, array{name: string, class: string, guidelines_tokens: int, tools_tokens: int, total_tokens: int}>, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, applied_loading_modes: array<string, ToolkitLoadingMode>, budget_snapshot: array<string, mixed>, profile_policy: array<string, mixed>|null}
      */
-    public function buildPromptPreview(?string $role = null, ?string $profile = null): array
+    public function buildPromptPreview(?string $role = null, ?string $profile = null, ?string $sessionId = null): array
     {
-        $preview = $this->buildPromptPreviewData($role, $profile);
+        $preview = $this->buildPromptPreviewData($role, $profile, $sessionId);
 
         return [
             'effective_role' => $preview['effective_role'],
@@ -1023,17 +1293,17 @@ final class AgentRunner
         ];
     }
 
-    public function buildBudgetPreview(?string $role = null, ?string $profile = null): PromptBudgetSnapshot
+    public function buildBudgetPreview(?string $role = null, ?string $profile = null, ?string $sessionId = null): PromptBudgetSnapshot
     {
-        return $this->buildPromptPreviewData($role, $profile)['snapshot'];
+        return $this->buildPromptPreviewData($role, $profile, $sessionId)['snapshot'];
     }
 
     /**
      * @return array{effective_role: string, model_string: string, prompt: string, snapshot: PromptBudgetSnapshot, tool_schemas: list<array{type: string, function: array{name: string, description: string, parameters: array<string, mixed>}}>, agent: OrchestratorAgent}
      */
-    private function buildPromptPreviewData(?string $role = null, ?string $profile = null): array
+    private function buildPromptPreviewData(?string $role = null, ?string $profile = null, ?string $sessionId = null): array
     {
-        $previewContext = $this->buildPreviewContext($role, $profile);
+        $previewContext = $this->buildPreviewContext($role, $profile, $sessionId);
         $agent = $previewContext['agent'];
         $counter = $previewContext['counter'];
         $promptText = $agent->getSystemPromptText();
@@ -1076,12 +1346,14 @@ final class AgentRunner
     /**
      * @return array{effective_role: string, model_string: string, agent: OrchestratorAgent, counter: \CarmeloSantana\PHPAgents\Contract\TokenCounterInterface}
      */
-    private function buildPreviewContext(?string $role = null, ?string $profile = null): array
+    private function buildPreviewContext(?string $role = null, ?string $profile = null, ?string $sessionId = null): array
     {
         $effectiveRole = $role ?? 'orchestrator';
         $modelString = $this->roleResolver->resolve($effectiveRole, $profile);
         $factory = $this->providerFactory;
-        $provider = $factory->create($modelString);
+        $provider = $this->providerResolver !== null
+            ? ($this->providerResolver)($modelString)
+            : $factory->create($modelString);
 
         $sanitizer = new ScriptSanitizer(unsafe: false, blacklist: $this->blacklist);
 
@@ -1131,6 +1403,12 @@ final class AgentRunner
             activeProfilePath: $resolvedProfilePath,
             profilePreferences: $resolvedPreferences,
         );
+
+        if ($sessionId !== null && $this->shouldUseConversationHistoryInSystemPrompt()) {
+            $agent->setConversationHistoryPromptSection(
+                $this->buildConversationHistoryPromptSection($sessionId),
+            );
+        }
 
         return [
             'effective_role' => $effectiveRole,

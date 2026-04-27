@@ -421,6 +421,16 @@ final class OpenClawConfig implements ConfigInterface
     }
 
     /**
+     * Whether prior history should be emitted as a system-prompt section instead of replayed messages.
+     */
+    public function useConversationHistoryInSystemPrompt(): bool
+    {
+        $value = $this->get('agents.defaults.context.conversationHistoryInSystemPrompt');
+
+        return is_bool($value) ? $value : CoquiDefaults::CONVERSATION_HISTORY_IN_SYSTEM_PROMPT;
+    }
+
+    /**
      * Whether filesystem-backed artifacts are enabled.
      *
      * When true, eligible artifact types (plan, document, code, config)

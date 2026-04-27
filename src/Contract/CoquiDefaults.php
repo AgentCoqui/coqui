@@ -62,6 +62,12 @@ final class CoquiDefaults
     /** Safety margin percentage applied by fitWithinBudget to account for token estimation inaccuracy (config: agents.defaults.context.budgetSafetyMarginPercent). */
     public const int BUDGET_SAFETY_MARGIN_PERCENT = 20;
 
+    /** Whether prior history is rendered into a system-prompt section instead of replayed provider messages (config: agents.defaults.context.conversationHistoryInSystemPrompt). */
+    public const bool CONVERSATION_HISTORY_IN_SYSTEM_PROMPT = false;
+
+    /** Recent-history window that uses relative timestamps in the conversation-history prompt formatter. */
+    public const int CONVERSATION_HISTORY_RELATIVE_TIME_WINDOW_HOURS = 12;
+
     /** Context window usage threshold (0.0–1.0) that triggers budget-based exit with wrap-up (config: agents.defaults.context.budgetExitThreshold). 0.0 = disabled. */
     public const float BUDGET_EXIT_THRESHOLD = 0.85;
 

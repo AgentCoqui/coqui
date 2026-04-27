@@ -911,6 +911,10 @@ final class ConfigValidator
             }
         }
 
+        if (isset($context['conversationHistoryInSystemPrompt']) && !is_bool($context['conversationHistoryInSystemPrompt'])) {
+            $errors[] = 'agents.defaults.context.conversationHistoryInSystemPrompt must be a boolean';
+        }
+
         return $errors;
     }
 }

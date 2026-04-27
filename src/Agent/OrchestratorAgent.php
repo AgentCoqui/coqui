@@ -170,6 +170,7 @@ final class OrchestratorAgent extends AbstractAgent
     private ?string $cachedProjectId = null;
     private ?string $cachedProfile = null;
     private ?string $notificationPromptSection = null;
+    private ?string $conversationHistoryPromptSection = null;
 
     private readonly RoleToolkitResolver $roleToolkitResolver;
 
@@ -869,6 +870,21 @@ final class OrchestratorAgent extends AbstractAgent
         $this->notificationPromptSection = $trimmed !== '' ? $trimmed : null;
     }
 
+    public function setConversationHistoryPromptSection(?string $conversationHistoryPromptSection): void
+    {
+        $trimmed = $conversationHistoryPromptSection !== null ? trim($conversationHistoryPromptSection) : null;
+        $this->conversationHistoryPromptSection = $trimmed !== '' ? $trimmed : null;
+    }
+
+    protected function finalizeSystemPrompt(string $prompt): string
+    {
+        if ($this->conversationHistoryPromptSection === null || $this->conversationHistoryPromptSection === '') {
+            return $prompt;
+        }
+
+        return rtrim($prompt) . "\n\n---\n\n" . $this->conversationHistoryPromptSection;
+    }
+
     public function instructions(): string
     {
         // Cache key: active role + memory summary hash + active project ID + profile.
@@ -1449,7 +1465,7 @@ final class OrchestratorAgent extends AbstractAgent
             $prompt = SystemPrompt::withToolkits($this->ownToolkits, $prompt);
         }
 
-        return SystemPrompt::render($prompt);
+        return $this->finalizeSystemPrompt(SystemPrompt::render($prompt));
     }
 
     /**
@@ -1591,6 +1607,10 @@ final class OrchestratorAgent extends AbstractAgent
 
         foreach ($this->buildToolkitGuidelinePromptSections() as $section) {
             $sections[] = $section;
+        }
+
+        if (($conversationHistory = $this->buildConversationHistoryPromptSection()) !== null) {
+            $sections[] = $conversationHistory;
         }
 
         return $sections;
@@ -2003,6 +2023,23 @@ final class OrchestratorAgent extends AbstractAgent
             rationale: 'Pending notifications are turn-scoped workflow context that can affect how the agent responds to completed background work.',
             decision: 'pinned_workflow',
             group: 'notifications',
+        );
+    }
+
+    private function buildConversationHistoryPromptSection(): ?PromptSection
+    {
+        if ($this->conversationHistoryPromptSection === null || $this->conversationHistoryPromptSection === '') {
+            return null;
+        }
+
+        return new PromptSection(
+            id: 'context.conversation-history',
+            title: 'Conversation History',
+            content: $this->conversationHistoryPromptSection,
+            priority: PromptSectionPriority::Workflow,
+            rationale: 'When enabled, prior conversation turns move into a final system-prompt section so the provider sees history as prompt context instead of replayed messages.',
+            decision: 'pinned_workflow',
+            group: 'history',
         );
     }
 

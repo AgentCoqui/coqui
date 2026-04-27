@@ -16,17 +16,22 @@ use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CarmeloSantana\PHPAgents\Agent\Output;
 use CarmeloSantana\PHPAgents\Enum\AgentFinishReason;
+use CarmeloSantana\PHPAgents\Enum\ProviderFinishReason;
 use CarmeloSantana\PHPAgents\Enum\Role;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CarmeloSantana\PHPAgents\Message\AssistantMessage;
 use CarmeloSantana\PHPAgents\Message\Conversation;
+use CarmeloSantana\PHPAgents\Message\SystemMessage as ProviderSystemMessage;
 use CarmeloSantana\PHPAgents\Message\SystemMessage;
 use CarmeloSantana\PHPAgents\Message\ToolResultMessage;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use CarmeloSantana\PHPAgents\Provider\Response;
 use CarmeloSantana\PHPAgents\Provider\Usage;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
+use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 
 function makeTestCredentialResolver(string $workspacePath): CredentialResolverInterface
 {
@@ -146,6 +151,16 @@ function makeAgentRunnerFixture(
         projectStore: $projectStore,
         memoryStore: $memoryStore,
     );
+}
+
+function allowAllPolicy(): ToolExecutionPolicyInterface
+{
+    return new class implements ToolExecutionPolicyInterface {
+        public function shouldExecute(string $toolName, array $arguments): true|string
+        {
+            return true;
+        }
+    };
 }
 
 test('buildWorkflowContext returns null when no workflow state exists', function () {
@@ -325,6 +340,233 @@ test('autoExtractMemories returns early when auto extraction is disabled', funct
 
         expect($memoryStore->count())->toBe(0);
         expect($notifications)->toBe([]);
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
+test('run sends prior history in final system prompt section instead of replayed messages when enabled', function () {
+    $fixture = createAgentRunnerFixture();
+
+    try {
+        $config = OpenClawConfig::fromArray([
+            'agents' => [
+                'defaults' => [
+                    'model' => ['primary' => 'ollama/qwen3:latest'],
+                    'roles' => ['orchestrator' => 'ollama/qwen3:latest'],
+                    'context' => ['conversationHistoryInSystemPrompt' => true],
+                ],
+            ],
+        ]);
+
+        $capturedMessages = [];
+        $providerResolver = static function (string $modelString) use (&$capturedMessages): ProviderInterface {
+            return new class($capturedMessages) implements ProviderInterface {
+                /** @var array<int, array<int, mixed>> */
+                private array $capturedMessages;
+
+                public function __construct(array &$capturedMessages)
+                {
+                    $this->capturedMessages = &$capturedMessages;
+                }
+
+                public function chat(array $messages, array $tools = [], array $options = []): Response
+                {
+                    $this->capturedMessages[] = $messages;
+
+                    return new Response(
+                        content: 'Done.',
+                        finishReason: ProviderFinishReason::Stop,
+                        model: 'test/mock',
+                        usage: new Usage(promptTokens: 10, completionTokens: 2, totalTokens: 12),
+                    );
+                }
+
+                public function stream(array $messages, array $tools = [], array $options = []): iterable
+                {
+                    $this->capturedMessages[] = $messages;
+
+                    yield new Response(
+                        content: 'Done.',
+                        finishReason: ProviderFinishReason::Stop,
+                        model: 'test/mock',
+                        usage: new Usage(promptTokens: 10, completionTokens: 2, totalTokens: 12),
+                    );
+                }
+
+                public function structured(array $messages, string $schema, array $options = []): mixed
+                {
+                    return [];
+                }
+
+                public function models(): array
+                {
+                    return [];
+                }
+
+                public function isAvailable(): bool
+                {
+                    return true;
+                }
+
+                public function getModel(): string
+                {
+                    return 'test/mock';
+                }
+
+                public function withModel(string $model): static
+                {
+                    return $this;
+                }
+            };
+        };
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $fixture['storage']->addMessage($sessionId, 'user', 'Earlier question');
+        $fixture['storage']->addMessage(
+            $sessionId,
+            'assistant',
+            'Let me inspect that.',
+            toolCalls: json_encode([
+                ['id' => 'call_1', 'name' => 'read_file', 'arguments' => ['path' => 'README.md']],
+            ], JSON_THROW_ON_ERROR),
+        );
+        $fixture['storage']->addMessage($sessionId, 'tool', 'README contents', toolCallId: 'call_1');
+        $fixture['storage']->addMessage(
+            $sessionId,
+            'user',
+            "[CONVERSATION SUMMARY - 2026-04-26 10:00] (3 messages condensed)\n\nPrior work summary\n\nFocus on the most recent messages below for the user's current intent. This summary provides background context only.",
+        );
+
+        $runner = new AgentRunner(
+            roleResolver: new RoleResolver($config),
+            config: $config,
+            projectRoot: dirname(__DIR__, 3),
+            workspacePath: $fixture['workspacePath'],
+            storage: $fixture['storage'],
+            observer: null,
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+            credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
+            providerFactory: new ProviderFactory($config),
+            providerResolver: $providerResolver,
+        );
+
+        $result = $runner->run('Current request', $sessionId, allowAllPolicy());
+
+        expect($result->error)->toBeNull();
+        expect($capturedMessages)->toHaveCount(1);
+        expect($capturedMessages[0])->toHaveCount(2);
+        expect($capturedMessages[0][0])->toBeInstanceOf(ProviderSystemMessage::class);
+        expect($capturedMessages[0][1])->toBeInstanceOf(UserMessage::class);
+
+        $systemPrompt = $capturedMessages[0][0]->content();
+        expect($systemPrompt)->toContain('## Conversation History')
+            ->toContain('Earlier question')
+            ->toContain('[tool-result:read_file]')
+            ->toContain('[summary]')
+            ->toContain('Prior work summary')
+            ->not->toContain('Current request');
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
+test('run keeps replayed history when conversation history prompt mode is disabled', function () {
+    $fixture = createAgentRunnerFixture();
+
+    try {
+        $capturedMessages = [];
+        $providerResolver = static function (string $modelString) use (&$capturedMessages): ProviderInterface {
+            return new class($capturedMessages) implements ProviderInterface {
+                /** @var array<int, array<int, mixed>> */
+                private array $capturedMessages;
+
+                public function __construct(array &$capturedMessages)
+                {
+                    $this->capturedMessages = &$capturedMessages;
+                }
+
+                public function chat(array $messages, array $tools = [], array $options = []): Response
+                {
+                    $this->capturedMessages[] = $messages;
+
+                    return new Response(
+                        content: 'Done.',
+                        finishReason: ProviderFinishReason::Stop,
+                        model: 'test/mock',
+                        usage: new Usage(promptTokens: 10, completionTokens: 2, totalTokens: 12),
+                    );
+                }
+
+                public function stream(array $messages, array $tools = [], array $options = []): iterable
+                {
+                    $this->capturedMessages[] = $messages;
+
+                    yield new Response(
+                        content: 'Done.',
+                        finishReason: ProviderFinishReason::Stop,
+                        model: 'test/mock',
+                        usage: new Usage(promptTokens: 10, completionTokens: 2, totalTokens: 12),
+                    );
+                }
+
+                public function structured(array $messages, string $schema, array $options = []): mixed
+                {
+                    return [];
+                }
+
+                public function models(): array
+                {
+                    return [];
+                }
+
+                public function isAvailable(): bool
+                {
+                    return true;
+                }
+
+                public function getModel(): string
+                {
+                    return 'test/mock';
+                }
+
+                public function withModel(string $model): static
+                {
+                    return $this;
+                }
+            };
+        };
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $fixture['storage']->addMessage($sessionId, 'user', 'Earlier question');
+        $fixture['storage']->addMessage($sessionId, 'assistant', 'Earlier answer');
+
+        $runner = new AgentRunner(
+            roleResolver: new RoleResolver($fixture['config']),
+            config: $fixture['config'],
+            projectRoot: dirname(__DIR__, 3),
+            workspacePath: $fixture['workspacePath'],
+            storage: $fixture['storage'],
+            observer: null,
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+            credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
+            providerFactory: new ProviderFactory($fixture['config']),
+            providerResolver: $providerResolver,
+        );
+
+        $result = $runner->run('Current request', $sessionId, allowAllPolicy());
+
+        expect($result->error)->toBeNull();
+        expect($capturedMessages)->toHaveCount(1);
+        expect(count($capturedMessages[0]))->toBeGreaterThan(2);
+        expect($capturedMessages[0][0])->toBeInstanceOf(ProviderSystemMessage::class);
+        expect($capturedMessages[0][1])->toBeInstanceOf(UserMessage::class);
+        expect($capturedMessages[0][2])->toBeInstanceOf(AssistantMessage::class);
+
+        $systemPrompt = $capturedMessages[0][0]->content();
+        expect($systemPrompt)->not->toContain('## Conversation History');
     } finally {
         cleanupAgentRunnerFixture($fixture);
     }

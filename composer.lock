@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "aa66229f496698a0e0b4dadf4d33f6e7",
+    "content-hash": "0d104b8c3ba3569f9666fedf96bc3ace",
     "packages": [
         {
             "name": "carmelosantana/coqui-toolkit-images",
@@ -92,17 +92,11 @@
         },
         {
             "name": "carmelosantana/php-agents",
-            "version": "v0.12.3",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "298c23200f81f43d314b7b1748e790c65b5e1199"
-            },
+            "version": "dev-main",
             "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/298c23200f81f43d314b7b1748e790c65b5e1199",
-                "reference": "298c23200f81f43d314b7b1748e790c65b5e1199",
-                "shasum": ""
+                "type": "path",
+                "url": "/Users/carmelo/Projects/CoquiBot/core/php-agents",
+                "reference": "298c23200f81f43d314b7b1748e790c65b5e1199"
             },
             "require": {
                 "php": "^8.4",
@@ -126,7 +120,19 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "autoload-dev": {
+                "psr-4": {
+                    "Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "pest"
+                ],
+                "analyse": [
+                    "phpstan analyse --memory-limit=512M"
+                ]
+            },
             "license": [
                 "MIT"
             ],
@@ -143,26 +149,30 @@
                 "php-agents",
                 "tools"
             ],
-            "support": {
-                "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.12.3"
-            },
-            "time": "2026-04-21T21:03:26+00:00"
+            "transport-options": {
+                "relative": false
+            }
         },
         {
             "name": "coquibot/coqui-toolkit-mcp-client",
-            "version": "dev-main",
+            "version": "v0.1.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/coqui-toolkit-mcp-client.git",
+                "reference": "864ed8da0f492ceac3c522c71309eb05d8306ad2"
+            },
             "dist": {
-                "type": "path",
-                "url": "/Users/carmelo/Projects/CoquiBot/Toolkits/coqui-toolkit-mcp-client",
-                "reference": "9020f680b4886baf0a6fb4d962aa4a65a9021cbb"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-mcp-client/zipball/864ed8da0f492ceac3c522c71309eb05d8306ad2",
+                "reference": "864ed8da0f492ceac3c522c71309eb05d8306ad2",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4"
             },
             "require-dev": {
-                "carmelosantana/php-agents": "^0.12",
-                "pestphp/pest": "^4.0",
+                "carmelosantana/php-agents": "^0.7",
+                "pestphp/pest": "^3.0",
                 "phpstan/phpstan": "^2.0"
             },
             "type": "library",
@@ -179,19 +189,7 @@
                     "CoquiBot\\Toolkits\\Mcp\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "CoquiBot\\Toolkits\\Mcp\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=1G"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -208,9 +206,11 @@
                 "php-agents",
                 "toolkit"
             ],
-            "transport-options": {
-                "relative": false
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/issues",
+                "source": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/tree/v0.1.1"
+            },
+            "time": "2026-04-10T13:22:23+00:00"
         },
         {
             "name": "dflydev/dot-access-data",
@@ -6142,6 +6142,7 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
+        "carmelosantana/php-agents": 20,
         "coquibot/coqui-toolkit-mcp-client": 20
     },
     "prefer-stable": true,

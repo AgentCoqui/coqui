@@ -17,9 +17,9 @@ final readonly class BudgetHandler
         private AgentRunner $agentRunner,
     ) {}
 
-    public function handle(SymfonyStyle $io, ?string $role = null, ?string $profile = null): void
+    public function handle(SymfonyStyle $io, ?string $role = null, ?string $profile = null, ?string $sessionId = null): void
     {
-        $snapshot = $this->agentRunner->buildBudgetPreview($role, $profile);
+        $snapshot = $this->agentRunner->buildBudgetPreview($role, $profile, $sessionId);
         $data = $snapshot->toArray();
         $toolkitBudget = $data['toolkit_budget'];
 

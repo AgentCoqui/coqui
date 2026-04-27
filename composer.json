@@ -14,7 +14,13 @@
       "url": "/Users/carmelo/Projects/CoquiBot/Toolkits/coqui-toolkit-mcp-client"
     }
   ],
-  
+  "repositories": [
+    {
+      "type": "path",
+      "url": "/Users/carmelo/Projects/CoquiBot/core/php-agents"
+    }
+  ],
+    
   "require": {
     "php": "^8.4",
     "ext-dom": "*",
@@ -22,7 +28,7 @@
     "ext-pdo_sqlite": "*",
     "ext-xml": "*",
     "carmelosantana/coqui-toolkit-images": "^0.1",
-    "carmelosantana/php-agents": "^0.12",
+    "carmelosantana/php-agents": "@dev",
     "coquibot/coqui-toolkit-mcp-client": "@dev",
     "dragonmantank/cron-expression": "^3.0",
     "league/commonmark": "^2.8",
