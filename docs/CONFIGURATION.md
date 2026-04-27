@@ -104,6 +104,14 @@ The simplest valid config only needs a primary model:
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
             "allowSudo": false,
             "blacklist": ["/pattern-to-block/i"],
+            "mcp": {
+                "allowedStdioCommands": [
+                    ["npx", "-y", "@modelcontextprotocol/server-github"]
+                ],
+                "deniedStdioCommands": [
+                    ["uvx", "mcp-server-fetch"]
+                ]
+            },
             "mounts": [
                 {
                     "path": "/home/user/data",
@@ -420,6 +428,46 @@ Additional regex patterns to add to the catastrophic blacklist. These patterns b
 }
 ```
 
+### `mcp.allowedStdioCommands`
+
+An optional exact-match allowlist for stdio MCP server launch tuples. Each entry is an array in the form `[command, arg1, arg2, ...]`. When this key is present and non-empty, Coqui only permits MCP servers whose configured command and args exactly match one of the allowed tuples.
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "mcp": {
+                "allowedStdioCommands": [
+                    ["npx", "-y", "@modelcontextprotocol/server-github"],
+                    ["uvx", "mcp-server-sqlite", "--db-path", "/srv/readonly.db"]
+                ]
+            }
+        }
+    }
+}
+```
+
+### `mcp.deniedStdioCommands`
+
+An optional exact-match denylist for stdio MCP server launch tuples. Denied tuples always win over the allowlist. Use this when you want to keep the normal open posture for most MCP servers but explicitly block known-risk launch definitions.
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "mcp": {
+                "deniedStdioCommands": [
+                    ["docker", "run", "--privileged", "dangerous-mcp"],
+                    ["npx", "-y", "unapproved-package"]
+                ]
+            }
+        }
+    }
+}
+```
+
+Both MCP stdio policy keys are enforced by the shared MCP management service, so the same command policy applies to the `/mcp` REPL command, the `mcp` tool, and the MCP HTTP API.
+
 ### `mounts`
 
 Declare external directory mounts that give agents access to directories outside the workspace. Mounts appear as symlinks under `workspace/mnt/{alias}`.
@@ -679,6 +727,8 @@ Coqui adds the following keys under `agents.defaults` that are specific to Coqui
 | `agents.defaults.backgroundTaskMaxIterations` | Per-task background iteration cap |
 | `agents.defaults.childBackgroundTasks` | Allow child agents to spawn background tasks |
 | `agents.defaults.blacklist` | Additional catastrophic blacklist patterns |
+| `agents.defaults.mcp.allowedStdioCommands` | Exact-match allowlist for stdio MCP server command tuples |
+| `agents.defaults.mcp.deniedStdioCommands` | Exact-match denylist for stdio MCP server command tuples |
 | `agents.defaults.memory` | Memory system configuration |
 | `api.*` | HTTP API server settings |
 

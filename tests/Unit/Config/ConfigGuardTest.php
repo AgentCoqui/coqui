@@ -40,6 +40,11 @@ test('denies shellAllowedCommands modification', function () {
     expect($this->guard->canModify('agents.defaults.shellAllowedCommands'))->toBeFalse();
 });
 
+test('denies MCP stdio policy modification', function () {
+    expect($this->guard->canModify('agents.defaults.mcp.allowedStdioCommands'))->toBeFalse();
+    expect($this->guard->canModify('agents.defaults.mcp.deniedStdioCommands'))->toBeFalse();
+});
+
 test('denies workspace path modification', function () {
     expect($this->guard->canModify('agents.defaults.workspace'))->toBeFalse();
 });
@@ -82,6 +87,13 @@ test('denyReason returns specific message for shell commands', function () {
 
     expect($reason)->not->toBeNull();
     expect($reason)->toContain('Shell');
+});
+
+test('denyReason returns specific message for MCP stdio policy', function () {
+    $reason = $this->guard->denyReason('agents.defaults.mcp.allowedStdioCommands');
+
+    expect($reason)->not->toBeNull();
+    expect($reason)->toContain('MCP stdio allowlist');
 });
 
 test('denyReason returns specific message for workspace', function () {

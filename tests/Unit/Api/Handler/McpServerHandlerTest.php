@@ -8,6 +8,7 @@ use CoquiBot\Toolkits\Mcp\Auth\OAuthHandler;
 use CoquiBot\Toolkits\Mcp\Config\McpConfig;
 use CoquiBot\Toolkits\Mcp\McpManagementService;
 use CoquiBot\Toolkits\Mcp\McpServerManager;
+use CoquiBot\Toolkits\Mcp\Support\McpServerPolicy;
 use CoquiBot\Toolkits\Mcp\Support\ServerLoadingModeStore;
 use React\Http\Message\ServerRequest;
 
@@ -41,7 +42,7 @@ function cleanMcpHandlerWorkspace(string $dir): void
     rmdir($dir);
 }
 
-function createMcpHandlerFixture(): array
+function createMcpHandlerFixture(?McpServerPolicy $policy = null): array
 {
     $workspace = createMcpHandlerWorkspace();
     $config = new McpConfig($workspace);
@@ -50,6 +51,7 @@ function createMcpHandlerFixture(): array
         new McpServerManager($config),
         new OAuthHandler($workspace),
         new ServerLoadingModeStore($workspace),
+        $policy,
     );
 
     $router = new Router();
@@ -115,6 +117,33 @@ test('mcp server api updates server loading mode through promote demote and auto
         $autoBody = json_decode((string) $auto->getBody(), true);
         expect($auto->getStatusCode())->toBe(200);
         expect($autoBody['server']['loadingMode'])->toBe('auto');
+    } finally {
+        cleanMcpHandlerWorkspace($fixture['workspace']);
+    }
+});
+
+test('mcp server api rejects create requests blocked by stdio command policy', function () {
+    $fixture = createMcpHandlerFixture(new McpServerPolicy(
+        allowedStdioCommands: [['npx', '-y', '@modelcontextprotocol/server-github']],
+    ));
+
+    try {
+        $response = $fixture['router']->dispatch(new ServerRequest(
+            'POST',
+            '/api/v1/mcp/servers',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'name' => 'fetch',
+                'command' => 'uvx',
+                'args' => ['mcp-server-fetch'],
+            ]) ?: '',
+        ));
+
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['code'])->toBe('validation_error');
+        expect($body['error'])->toContain('allowed policy');
     } finally {
         cleanMcpHandlerWorkspace($fixture['workspace']);
     }

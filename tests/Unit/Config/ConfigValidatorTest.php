@@ -250,6 +250,49 @@ test('valid image model config passes', function () {
     expect($errors)->toBeEmpty();
 });
 
+test('valid MCP stdio policy passes validation', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'mcp' => [
+                    'allowedStdioCommands' => [
+                        ['npx', '-y', '@modelcontextprotocol/server-github'],
+                    ],
+                    'deniedStdioCommands' => [
+                        ['uvx', 'mcp-server-fetch'],
+                    ],
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->toBeEmpty();
+});
+
+test('invalid MCP stdio policy fails validation', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'mcp' => [
+                    'allowedStdioCommands' => [
+                        'npx -y @modelcontextprotocol/server-github',
+                        ['', ''],
+                    ],
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->not->toBeEmpty();
+    expect(implode("\n", $errors))->toContain('agents.defaults.mcp.allowedStdioCommands');
+});
+
 test('invalid image model format fails validation', function () {
     $data = [
         'agents' => [

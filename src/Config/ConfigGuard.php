@@ -37,6 +37,8 @@ final class ConfigGuard
     private const array DENIED_PREFIXES = [
         'agents.defaults.blacklist',
         'agents.defaults.shellAllowedCommands',
+        'agents.defaults.mcp.allowedStdioCommands',
+        'agents.defaults.mcp.deniedStdioCommands',
         'agents.defaults.workspace',
         'agents.defaults.mounts',
         'api.',
@@ -91,6 +93,8 @@ final class ConfigGuard
             return match (true) {
                 str_starts_with($dotKey, 'agents.defaults.blacklist') => 'Security blacklist patterns cannot be modified by the agent',
                 str_starts_with($dotKey, 'agents.defaults.shellAllowedCommands') => 'Shell command allowlist cannot be modified by the agent',
+                str_starts_with($dotKey, 'agents.defaults.mcp.allowedStdioCommands') => 'MCP stdio allowlist cannot be modified by the agent',
+                str_starts_with($dotKey, 'agents.defaults.mcp.deniedStdioCommands') => 'MCP stdio denylist cannot be modified by the agent',
                 str_starts_with($dotKey, 'agents.defaults.workspace') => 'Workspace path cannot be modified by the agent',
                 str_starts_with($dotKey, 'agents.defaults.mounts') => 'Mount definitions cannot be modified by the agent',
                 str_starts_with($dotKey, 'api.') => 'API configuration cannot be modified by the agent',
