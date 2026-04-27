@@ -345,7 +345,7 @@ test('autoExtractMemories returns early when auto extraction is disabled', funct
     }
 });
 
-test('run sends prior history in final system prompt section instead of replayed messages when enabled', function () {
+test('run keeps replayed history and also appends prior history in final system prompt section when enabled', function () {
     $fixture = createAgentRunnerFixture();
 
     try {
@@ -456,9 +456,13 @@ test('run sends prior history in final system prompt section instead of replayed
 
         expect($result->error)->toBeNull();
         expect($capturedMessages)->toHaveCount(1);
-        expect($capturedMessages[0])->toHaveCount(2);
+        expect($capturedMessages[0])->toHaveCount(6);
         expect($capturedMessages[0][0])->toBeInstanceOf(ProviderSystemMessage::class);
         expect($capturedMessages[0][1])->toBeInstanceOf(UserMessage::class);
+        expect($capturedMessages[0][2])->toBeInstanceOf(AssistantMessage::class);
+        expect($capturedMessages[0][3])->toBeInstanceOf(ToolResultMessage::class);
+        expect($capturedMessages[0][4])->toBeInstanceOf(UserMessage::class);
+        expect($capturedMessages[0][5])->toBeInstanceOf(UserMessage::class);
 
         $systemPrompt = $capturedMessages[0][0]->content();
         expect($systemPrompt)->toContain('## Conversation History')
@@ -467,6 +471,9 @@ test('run sends prior history in final system prompt section instead of replayed
             ->toContain('[summary]')
             ->toContain('Prior work summary')
             ->not->toContain('Current request');
+
+        expect($capturedMessages[0][1]->content())->toBe('Earlier question');
+        expect($capturedMessages[0][5]->content())->toBe('Current request');
     } finally {
         cleanupAgentRunnerFixture($fixture);
     }
@@ -693,6 +700,49 @@ test('run renders actor-backed group speakers distinctly in conversation history
             ->toContain('@nova (orchestrator)')
             ->toContain('[tool-result:read_file]')
             ->not->toContain('nova assistant');
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
+test('export prompt to file includes conversation history when session is provided and mode is enabled', function () {
+    $fixture = createAgentRunnerFixture();
+
+    try {
+        $config = OpenClawConfig::fromArray([
+            'agents' => [
+                'defaults' => [
+                    'model' => ['primary' => 'ollama/qwen3:latest'],
+                    'roles' => ['orchestrator' => 'ollama/qwen3:latest'],
+                    'context' => ['conversationHistoryInSystemPrompt' => true],
+                ],
+            ],
+        ]);
+
+        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
+        $fixture['storage']->addMessage($sessionId, 'user', 'Earlier question');
+        $fixture['storage']->addMessage($sessionId, 'assistant', 'Earlier answer');
+
+        $runner = new AgentRunner(
+            roleResolver: new RoleResolver($config),
+            config: $config,
+            projectRoot: dirname(__DIR__, 3),
+            workspacePath: $fixture['workspacePath'],
+            storage: $fixture['storage'],
+            observer: null,
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+            credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
+            providerFactory: new ProviderFactory($config),
+        );
+
+        $filePath = $runner->exportPromptToFile(sessionId: $sessionId);
+        $content = file_get_contents($filePath);
+
+        expect($content)->not->toBeFalse();
+        expect($content)->toContain('## Conversation History');
+        expect($content)->toContain('Earlier question');
+        expect($content)->toContain('Earlier answer');
     } finally {
         cleanupAgentRunnerFixture($fixture);
     }

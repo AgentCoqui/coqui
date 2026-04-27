@@ -276,7 +276,7 @@ final class SlashCommandRouter
         $role = $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null;
 
         if (trim($arg) === 'export') {
-            $filePath = $this->agentRunner->exportPromptToFile($role, $activeProfile);
+            $filePath = $this->agentRunner->exportPromptToFile($role, $activeProfile, $sessionId);
             $io->success('Prompt exported to: ' . $filePath);
             return RouteResult::continue();
         }

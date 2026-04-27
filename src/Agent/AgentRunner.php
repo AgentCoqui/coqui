@@ -348,8 +348,7 @@ final class AgentRunner
             // Per-iteration pruning is handled by AbstractAgent using the
             // model-aware ContextWindow passed to OrchestratorAgent.
 
-            $providerHistory = $this->shouldUseConversationHistoryInSystemPrompt() ? null : $history;
-            $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $providerHistory);
+            $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $history);
 
             // Resolve usage: prefer provider-reported tokens, fall back to local estimation.
             // Some providers (notably Ollama) report their num_ctx as prompt_tokens
@@ -705,8 +704,7 @@ final class AgentRunner
                 );
             }
 
-            $providerHistory = $this->shouldUseConversationHistoryInSystemPrompt() ? null : $history;
-            $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $providerHistory);
+            $output = $agent->run($this->buildUserMessage($prompt, $filePaths), $history);
 
             $usage = ($output->usage !== null && $output->usage->totalTokens > 0)
                 ? $this->sanitizeUsage($output->usage, $output, $modelString)
@@ -1432,9 +1430,9 @@ final class AgentRunner
      *
      * @return string Absolute path to the exported file.
      */
-    public function exportPromptToFile(?string $role = null, ?string $profile = null): string
+    public function exportPromptToFile(?string $role = null, ?string $profile = null, ?string $sessionId = null): string
     {
-        $preview = $this->buildPromptPreview($role, $profile);
+        $preview = $this->buildPromptPreview($role, $profile, $sessionId);
         $effectiveRole = $role ?? 'orchestrator';
         $timestamp = date('Y-m-d_H-i-s');
 

@@ -1628,6 +1628,8 @@ Returns the full Coqui configuration. API keys in provider configs are masked as
 
 Update explicitly allowed context toggles without reopening the full setup wizard. This currently supports `conversationHistoryInSystemPrompt` only.
 
+When enabled, Coqui keeps the normal replayed message history and also appends a final `Conversation History` system-prompt block built from the active stored messages.
+
 The change is written to `openclaw.json`, but the running process still needs a restart before the new mode affects turns.
 
 **Request Body**
@@ -4544,7 +4546,7 @@ Return the fully constructed system prompt that the agent would receive on its n
 }
 ```
 
-When `session_id` is omitted, prompt inspection renders the static role/profile/toolkit context only. When it is provided, session-aware prompt inspection can include the active conversation-history section and corresponding prompt-budget section.
+When `session_id` is omitted, prompt inspection renders the static role/profile/toolkit context only. When it is provided, session-aware prompt inspection can include the active conversation-history section and corresponding prompt-budget section. This is the same session-aware path used by `/prompt export` in the REPL.
 
 | Field | Type | Description |
 |-------|------|-------------|

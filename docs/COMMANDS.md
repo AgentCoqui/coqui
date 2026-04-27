@@ -52,7 +52,7 @@ When the active session is group-enabled, the REPL prompt shows the current memb
 | `/config` | Show current configuration |
 | `/config show` | Show the raw `openclaw.json` file |
 | `/config edit` | Reconfigure via setup wizard, then restart |
-| `/config history [status\|on\|off]` | Show or toggle whether prior turns move into the final `Conversation History` system-prompt block |
+| `/config history [status\|on\|off]` | Show or toggle whether prior turns are also appended into the final `Conversation History` system-prompt block while normal replay stays enabled |
 | `/restart` | Restart the current Coqui REPL process (re-reads config, re-discovers toolkits) |
 | `/update` | Check for and apply dependency updates, then restart |
 | `/help` | Show the command reference table |
