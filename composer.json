@@ -51,6 +51,7 @@
   },
   "suggest": {
     "ext-gd": "Recommended for bundled image previews in coqui-toolkit-images and for release or Docker build parity",
+    "ext-xdebug": "Recommended for optional profiling, Xdebug-backed coverage runs, and step debugging during performance investigations",
     "ext-zip": "Required for optional .odt/.ods/.odp/.xlsx/.pptx backstory extraction",
     "ext-pcntl": "Required for background task cancellation via SIGTERM",
     "ext-posix": "Required for background task process management"
@@ -82,6 +83,7 @@
     "generate:model-defaults": "@php scripts/generate-model-defaults.php --write",
     "test": "pest",
     "test:coverage": "@php scripts/test-coverage.php",
+    "test:profile": "@php scripts/test-profile.php",
     "test-bash": "bash tests/bash/launcher-sigint-test.sh && bash tests/bash/launcher-default-mode-test.sh && bash tests/bash/mock-install-test.sh",
     "lint-bash": "shellcheck bin/coqui-launcher tests/bash/launcher-sigint-test.sh tests/bash/launcher-default-mode-test.sh tests/bash/mock-install-test.sh scripts/build.sh scripts/ci-test.sh scripts/mock-install.sh scripts/sync-workspace-toolkits.sh",
     "analyse": "phpstan analyse --memory-limit=512M"

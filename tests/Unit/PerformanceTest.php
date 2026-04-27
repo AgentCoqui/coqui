@@ -8,6 +8,19 @@ use CarmeloSantana\PHPAgents\Message\DefaultBudgetPruningStrategy;
 use CarmeloSantana\PHPAgents\Message\SystemMessage;
 use CarmeloSantana\PHPAgents\Message\UserMessage;
 
+uses()->group('performance');
+
+function expectPerformanceThreshold(float $elapsed, float $threshold): void
+{
+    if (getenv('COQUI_TEST_PROFILE_ACTIVE') !== false) {
+        expect($elapsed)->toBeGreaterThan(0.0);
+
+        return;
+    }
+
+    expect($elapsed)->toBeLessThan($threshold);
+}
+
 test('token estimation scales linearly with message count', function () {
     $conversation = new Conversation();
     $conversation->add(new SystemMessage(str_repeat('System prompt. ', 200)));
@@ -25,7 +38,7 @@ test('token estimation scales linearly with message count', function () {
     $elapsed = (hrtime(true) - $start) / 1_000_000;
 
     // 500 estimations of an 81-message conversation should complete in under 200ms
-    expect($elapsed)->toBeLessThan(200.0);
+    expectPerformanceThreshold($elapsed, 200.0);
 });
 
 test('budget pruning completes within time limit', function () {
@@ -47,7 +60,7 @@ test('budget pruning completes within time limit', function () {
     $elapsed = (hrtime(true) - $start) / 1_000_000;
 
     // Pruning a 101-message conversation should complete in under 100ms
-    expect($elapsed)->toBeLessThan(100.0);
+    expectPerformanceThreshold($elapsed, 100.0);
     // Pruning should reduce the conversation size significantly
     expect($pruned->estimateTokens())->toBeLessThan($conversation->estimateTokens());
 });
@@ -69,5 +82,5 @@ test('conversation filter by role is efficient', function () {
     $elapsed = (hrtime(true) - $start) / 1_000_000;
 
     // 1000 filter operations on a 201-message conversation should be fast
-    expect($elapsed)->toBeLessThan(200.0);
+    expectPerformanceThreshold($elapsed, 200.0);
 });

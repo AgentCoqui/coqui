@@ -88,6 +88,77 @@ composer test:coverage -- --clover build/coverage/clover.xml
 
 That command writes Clover XML to `build/coverage/clover.xml`.
 
+## Profiling Commands
+
+Xdebug profiling is local-only and intended for short-lived bottleneck investigations. It is slower than normal test runs and should stay out of the default edit loop.
+
+Use the profiling wrapper when you want cachegrind output from a test run:
+
+```bash
+composer test:profile
+composer test:profile -- tests/Unit/Config/ContextWindowResolutionTest.php --filter=context
+COQUI_TEST_PROFILE_OUTPUT_DIR=build/profiles/tests/context-window composer test:profile
+```
+
+The wrapper requires the `xdebug` CLI extension and writes cachegrind files to `build/profiles/tests` by default.
+It excludes the `performance` test group by default because profiler overhead makes wall-clock benchmark thresholds meaningless.
+
+Optional overrides:
+
+```bash
+COQUI_TEST_PROFILE_MEMORY_LIMIT=768M composer test:profile
+COQUI_TEST_PROFILE_OUTPUT_DIR=build/profiles/tests/slow-run composer test:profile
+COQUI_TEST_PROFILE_OUTPUT_NAME=cachegrind.out.%p.%t composer test:profile
+COQUI_TEST_PROFILE_INCLUDE_PERFORMANCE=1 composer test:profile -- tests/Unit/PerformanceTest.php
+```
+
+- `COQUI_TEST_PROFILE_MEMORY_LIMIT` defaults to `512M`.
+- `COQUI_TEST_PROFILE_OUTPUT_DIR` defaults to `build/profiles/tests`.
+- `COQUI_TEST_PROFILE_OUTPUT_NAME` defaults to `cachegrind.out.%p`.
+- `COQUI_TEST_PROFILE_INCLUDE_PERFORMANCE` defaults to `0`, which keeps benchmark-only tests out of profiled runs unless you explicitly opt in.
+
+For application profiling, keep the runtime unchanged and launch the existing entry point under Xdebug only for the run you want to inspect:
+
+```bash
+mkdir -p build/profiles/app
+XDEBUG_MODE=profile \
+XDEBUG_CONFIG="output_dir=$(pwd)/build/profiles/app profiler_output_name=cachegrind.out.%p" \
+./bin/coqui-launcher --repl-only
+```
+
+You can swap `./bin/coqui-launcher --repl-only` for `./bin/coqui-launcher --api-only`, `./bin/coqui-launcher`, or `./bin/coqui --prompt "..."` depending on the slow path you are investigating.
+
+## Analyzing Profile Output
+
+Xdebug profiling writes `cachegrind.out.*` files that can be opened directly by QCacheGrind, KCacheGrind, or Webgrind.
+
+If you want a browser UI without installing a desktop profiler locally, start the bundled Webgrind overlay:
+
+```bash
+make docker-webgrind-up
+open http://localhost:3390
+```
+
+That overlay serves one flat profile directory at a time. By default it points at `build/profiles/tests`, because Webgrind does not reliably browse nested profile trees.
+
+To inspect application profiles instead, start it with a different source directory:
+
+```bash
+COQUI_WEBGRIND_SOURCE_DIR=./build/profiles/app make docker-webgrind-up
+open http://localhost:3390
+```
+
+The overlay does not change the base Coqui image or install Xdebug in Docker; profiling still comes from `composer test:profile` or any direct `XDEBUG_MODE=profile` run that writes into `build/profiles`.
+
+Typical workflow:
+
+1. Run one narrow test or one narrow application flow so the output stays small enough to inspect.
+2. Open the newest file from `build/profiles/tests` or `build/profiles/app` in QCacheGrind or point Webgrind at that directory.
+3. Sort by self cost and inclusive cost to find hot functions, then drill into callees and callers.
+4. Repeat the same run after a change and compare the hottest frames instead of comparing unrelated broad runs.
+
+When both PCOV and Xdebug are installed, keep using PCOV for routine coverage and switch to Xdebug only for profiling or debugger-backed investigations.
+
 ## How Coverage Drivers Work
 
 Pest coverage requires one of these CLI extensions:
@@ -211,6 +282,14 @@ Enable Xdebug with an `.ini` file containing:
 zend_extension=xdebug.so
 ```
 
+For local profiling convenience, many developers also add:
+
+```ini
+xdebug.mode=develop
+```
+
+Then override the mode per run with `XDEBUG_MODE=profile` or `XDEBUG_MODE=coverage` so normal CLI usage stays lighter than a permanently enabled profiler.
+
 Then verify the CLI sees the extension:
 
 ```bash
@@ -248,6 +327,13 @@ If `composer test:coverage` fails with a coverage-driver error:
 If `composer test -- --coverage` fails while Xdebug is installed:
 
 - Run it as `XDEBUG_MODE=coverage composer test -- --coverage`.
+
+If `composer test:profile` does not write any cachegrind files:
+
+- Re-run `php -m | grep -Ei '^xdebug$'` and confirm the active CLI actually loads Xdebug.
+- Re-run `php --ini` and confirm the extension is loaded from the CLI config, not just FPM or Apache.
+- Set an explicit writable directory with `COQUI_TEST_PROFILE_OUTPUT_DIR=build/profiles/tests/debug composer test:profile`.
+- If you are profiling the application directly, include both `XDEBUG_MODE=profile` and an `XDEBUG_CONFIG` value with `output_dir=...`.
 
 If coverage works in CI but not locally:
 
