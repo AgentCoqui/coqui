@@ -88,6 +88,50 @@ test('mcp server api creates servers with auto loading mode', function () {
     }
 });
 
+test('mcp server api persists description and supports rename via patch', function () {
+    $fixture = createMcpHandlerFixture();
+
+    try {
+        $create = $fixture['router']->dispatch(new ServerRequest(
+            'POST',
+            '/api/v1/mcp/servers',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'name' => 'github',
+                'description' => 'GitHub MCP server',
+                'command' => 'npx',
+                'args' => ['-y', '@modelcontextprotocol/server-github'],
+            ]) ?: '',
+        ));
+
+        $createBody = json_decode((string) $create->getBody(), true);
+
+        expect($create->getStatusCode())->toBe(201);
+        expect($createBody['server']['description'])->toBe('GitHub MCP server');
+
+        $update = $fixture['router']->dispatch(new ServerRequest(
+            'PATCH',
+            '/api/v1/mcp/servers/github',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'name' => 'github-primary',
+                'description' => 'Primary GitHub MCP server',
+            ]) ?: '',
+        ));
+
+        $updateBody = json_decode((string) $update->getBody(), true);
+
+        expect($update->getStatusCode())->toBe(200);
+        expect($updateBody['server']['name'])->toBe('github-primary');
+        expect($updateBody['server']['description'])->toBe('Primary GitHub MCP server');
+
+        $old = $fixture['router']->dispatch(new ServerRequest('GET', '/api/v1/mcp/servers/github'));
+        expect($old->getStatusCode())->toBe(404);
+    } finally {
+        cleanMcpHandlerWorkspace($fixture['workspace']);
+    }
+});
+
 test('mcp server api updates server loading mode through promote demote and auto routes', function () {
     $fixture = createMcpHandlerFixture();
 

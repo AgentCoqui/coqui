@@ -57,6 +57,9 @@ final readonly class McpServerHandler
 
         $name = trim((string) ($body['name'] ?? ''));
         $command = trim((string) ($body['command'] ?? ''));
+        $description = array_key_exists('description', $body)
+            ? trim((string) $body['description'])
+            : null;
 
         if ($name === '') {
             return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'name is required');
@@ -67,7 +70,7 @@ final readonly class McpServerHandler
         }
 
         try {
-            $result = $this->service->addServer($name, $command, $this->readArgs($body['args'] ?? []));
+            $result = $this->service->addServer($name, $command, $this->readArgs($body['args'] ?? []), $description);
 
             return Router::jsonResponse([
                 'server' => $this->service->getServerSnapshot($result['name']),
@@ -101,9 +104,12 @@ final readonly class McpServerHandler
 
         $command = array_key_exists('command', $body) ? trim((string) $body['command']) : null;
         $args = array_key_exists('args', $body) ? $this->readArgs($body['args']) : null;
+        $newName = array_key_exists('name', $body) ? trim((string) $body['name']) : null;
+        $descriptionProvided = array_key_exists('description', $body);
+        $description = $descriptionProvided ? trim((string) $body['description']) : null;
 
         try {
-            $result = $this->service->updateServer($name, $command, $args);
+            $result = $this->service->updateServer($name, $command, $args, $newName, $descriptionProvided, $description);
 
             return Router::jsonResponse([
                 'server' => $this->service->getServerSnapshot($result['name']),
@@ -112,6 +118,8 @@ final readonly class McpServerHandler
             ]);
         } catch (\InvalidArgumentException $e) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $e->getMessage());
+        } catch (\DomainException $e) {
+            return Router::errorResponse(ApiErrorCode::CONFLICT, $e->getMessage());
         } catch (\RuntimeException $e) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, $e->getMessage());
         }

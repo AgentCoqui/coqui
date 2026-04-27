@@ -4333,6 +4333,8 @@ MCP server management is now available over HTTP and uses the same shared MCP ru
 
 The API keeps MCP auditing live-only for now: each server snapshot includes the latest connection attempt, latest connectivity test result, durations, timestamps, the current `loadingMode`, and last discovered tool count, but does not persist a historical delivery-style audit ledger.
 
+Server snapshots now also include an optional operator-facing `description`. This is intended for app and dashboard UX where a short human label helps distinguish multiple MCP definitions. `PATCH /api/v1/mcp/servers/{name}` can also rename a server by sending a new `name` value.
+
 #### `GET /api/v1/mcp/servers`
 
 List configured MCP servers with current live status and audit fields.
@@ -4346,6 +4348,7 @@ Create a new MCP server definition.
 ```json
 {
   "name": "github",
+  "description": "Primary GitHub tools",
   "command": "npx",
   "args": ["-y", "@modelcontextprotocol/server-github"]
 }
@@ -4355,16 +4358,18 @@ The response includes the normalized server snapshot plus a `runtime.applied` fi
 
 #### `GET /api/v1/mcp/servers/{name}`
 
-Return one MCP server snapshot including command, args, env links, live connection state, discovered tool count, and the current live audit fields.
+Return one MCP server snapshot including description, command, args, env links, live connection state, discovered tool count, and the current live audit fields.
 
 #### `PATCH /api/v1/mcp/servers/{name}`
 
-Update an existing MCP server command or args.
+Update an existing MCP server. The patch body may rename the server, update its description, or change its command and args.
 
 **Request Body**
 
 ```json
 {
+  "name": "fetch-prod",
+  "description": "Production fetch server",
   "command": "uvx",
   "args": ["mcp-server-fetch"]
 }
