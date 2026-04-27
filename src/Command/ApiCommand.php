@@ -386,6 +386,8 @@ final class ApiCommand extends Command
                 $boot->providerFactory(),
             ),
             $boot->roleResolver(),
+            $boot->configManager(),
+            new \CoquiBot\Coqui\Config\ConfigGuard(),
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->profileDiscovery());
@@ -695,8 +697,9 @@ final class ApiCommand extends Command
         $router->get($v1 . '/sessions/{id}/turns/{turnId}', [$turn, 'get']);
         $router->get($v1 . '/sessions/{id}/turns/{turnId}/events', [$turn, 'events']);
 
-        // Config (read-only — updates are REPL-only)
+        // Config (read-oriented plus narrow safe context mutation)
         $router->get($v1 . '/config', [$config, 'get']);
+        $router->patch($v1 . '/config/context', [$config, 'updateContext']);
         $router->post($v1 . '/config/validate', [$config, 'validate']);
         $router->get($v1 . '/config/models', [$config, 'models']);
         $router->get($v1 . '/config/profiles', [$config, 'profiles']);

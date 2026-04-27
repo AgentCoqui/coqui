@@ -250,3 +250,16 @@ test('set parses integer values', function () {
     $data = json_decode(file_get_contents($this->manager->path()), true);
     expect($data['agents']['defaults']['maxIterations'])->toBe(42);
 });
+
+test('set toggles conversation history prompt mode', function () {
+    $result = $this->tool->execute([
+        'action' => 'set',
+        'key' => 'agents.defaults.context.conversationHistoryInSystemPrompt',
+        'value' => 'true',
+    ]);
+
+    expect($result->status->value)->toBe('success');
+
+    $data = json_decode(file_get_contents($this->manager->path()), true);
+    expect($data['agents']['defaults']['context']['conversationHistoryInSystemPrompt'])->toBeTrue();
+});

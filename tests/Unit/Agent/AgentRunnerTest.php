@@ -572,6 +572,132 @@ test('run keeps replayed history when conversation history prompt mode is disabl
     }
 });
 
+test('run renders actor-backed group speakers distinctly in conversation history prompt mode', function () {
+    $fixture = createAgentRunnerFixture();
+
+    try {
+        $config = OpenClawConfig::fromArray([
+            'agents' => [
+                'defaults' => [
+                    'model' => ['primary' => 'ollama/qwen3:latest'],
+                    'roles' => ['orchestrator' => 'ollama/qwen3:latest'],
+                    'context' => ['conversationHistoryInSystemPrompt' => true],
+                ],
+            ],
+        ]);
+
+        $capturedMessages = [];
+        $providerResolver = static function (string $modelString) use (&$capturedMessages): ProviderInterface {
+            return new class($capturedMessages) implements ProviderInterface {
+                /** @var array<int, array<int, mixed>> */
+                private array $capturedMessages;
+
+                public function __construct(array &$capturedMessages)
+                {
+                    $this->capturedMessages = &$capturedMessages;
+                }
+
+                public function chat(array $messages, array $tools = [], array $options = []): Response
+                {
+                    $this->capturedMessages[] = $messages;
+
+                    return new Response(
+                        content: 'Done.',
+                        finishReason: ProviderFinishReason::Stop,
+                        model: 'test/mock',
+                        usage: new Usage(promptTokens: 10, completionTokens: 2, totalTokens: 12),
+                    );
+                }
+
+                public function stream(array $messages, array $tools = [], array $options = []): iterable
+                {
+                    $this->capturedMessages[] = $messages;
+
+                    yield new Response(
+                        content: 'Done.',
+                        finishReason: ProviderFinishReason::Stop,
+                        model: 'test/mock',
+                        usage: new Usage(promptTokens: 10, completionTokens: 2, totalTokens: 12),
+                    );
+                }
+
+                public function structured(array $messages, string $schema, array $options = []): mixed
+                {
+                    return [];
+                }
+
+                public function models(): array
+                {
+                    return [];
+                }
+
+                public function isAvailable(): bool
+                {
+                    return true;
+                }
+
+                public function getModel(): string
+                {
+                    return 'test/mock';
+                }
+
+                public function withModel(string $model): static
+                {
+                    return $this;
+                }
+            };
+        };
+
+        $sessionId = $fixture['storage']->createGroupSession('orchestrator', 'ollama/qwen3:latest', ['caelum', 'nova'], 2);
+        $fixture['storage']->addMessage($sessionId, 'user', 'Please coordinate this response.');
+        $fixture['storage']->addMessage(
+            $sessionId,
+            'assistant',
+            'I will take the first pass.',
+            toolCalls: json_encode([
+                ['id' => 'call_group_1', 'name' => 'read_file', 'arguments' => ['path' => 'README.md']],
+            ], JSON_THROW_ON_ERROR),
+            actorName: 'nova',
+            actorRole: 'orchestrator',
+        );
+        $fixture['storage']->addMessage(
+            $sessionId,
+            'tool',
+            'README contents',
+            toolCallId: 'call_group_1',
+            actorName: 'nova',
+            actorRole: 'orchestrator',
+        );
+
+        $runner = new AgentRunner(
+            roleResolver: new RoleResolver($config),
+            config: $config,
+            projectRoot: dirname(__DIR__, 3),
+            workspacePath: $fixture['workspacePath'],
+            storage: $fixture['storage'],
+            observer: null,
+            discovery: $fixture['discovery'],
+            blacklist: $fixture['blacklist'],
+            credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
+            providerFactory: new ProviderFactory($config),
+            providerResolver: $providerResolver,
+        );
+
+        $result = $runner->run('Current request', $sessionId, allowAllPolicy());
+
+        expect($result->error)->toBeNull();
+        expect($capturedMessages)->toHaveCount(1);
+
+        $systemPrompt = $capturedMessages[0][0]->content();
+        expect($systemPrompt)
+            ->toContain('@nova (orchestrator)')
+            ->toContain('[tool-result:read_file]')
+            ->not->toContain('nova assistant');
+    } finally {
+        cleanupAgentRunnerFixture($fixture);
+    }
+});
+
 test('resolveExitFlags distinguishes max-iteration exits from budget exhaustion', function () {
     $fixture = createAgentRunnerFixture();
 

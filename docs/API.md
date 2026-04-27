@@ -1587,7 +1587,7 @@ For group-enabled turns, this endpoint exposes the same lifecycle events used du
 
 ### Configuration
 
-The HTTP API exposes configuration inspection plus dry-run validation. Mutating config and role definitions remains REPL-only.
+The HTTP API exposes configuration inspection, one narrow safe context-toggle mutation, plus dry-run validation. Broad config editing and role definition changes remain REPL-first.
 
 #### `GET /api/v1/config`
 
@@ -1621,6 +1621,34 @@ Returns the full Coqui configuration. API keys in provider configs are masked as
       }
     }
   }
+}
+```
+
+#### `PATCH /api/v1/config/context`
+
+Update explicitly allowed context toggles without reopening the full setup wizard. This currently supports `conversationHistoryInSystemPrompt` only.
+
+The change is written to `openclaw.json`, but the running process still needs a restart before the new mode affects turns.
+
+**Request Body**
+
+```json
+{
+  "conversationHistoryInSystemPrompt": true
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "context": {
+    "conversationHistoryInSystemPrompt": true
+  },
+  "updated": [
+    "conversationHistoryInSystemPrompt"
+  ],
+  "restart_required": true
 }
 ```
 
@@ -4434,6 +4462,7 @@ Return the fully constructed system prompt that the agent would receive on its n
 |-------|------|---------|-------------|
 | `role` | string | `orchestrator` | Role scope to resolve before rendering the prompt preview |
 | `profile` | string | `null` | Optional profile scope to apply while rendering the prompt preview |
+| `session_id` | string | `null` | Optional session to inspect. When `conversationHistoryInSystemPrompt` is enabled, Coqui uses this to render the real `Conversation History` block with stored timestamps, summary/full markers, tool markers, and actor-backed `@speaker` labels |
 
 **Response `200`**
 
@@ -4509,6 +4538,8 @@ Return the fully constructed system prompt that the agent would receive on its n
   }
 }
 ```
+
+When `session_id` is omitted, prompt inspection renders the static role/profile/toolkit context only. When it is provided, session-aware prompt inspection can include the active conversation-history section and corresponding prompt-budget section.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -4772,6 +4803,7 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/history` | `GET /api/v1/sessions/{id}/messages` | Lists all messages in a session |
 | `/model` | `GET /api/v1/config/models` | Lists available models and current config |
 | `/config` | `GET /api/v1/config` | Returns current configuration (sanitized) |
+| `/config history on\|off` | `PATCH /api/v1/config/context` | Toggles conversation-history system-prompt mode and requires restart |
 | `/tasks` | `GET /api/v1/tasks` | Lists background tasks |
 | `/task <id>` | `GET /api/v1/tasks/{id}` | Gets task detail |
 | `/task-cancel <id>` | `POST /api/v1/tasks/{id}/cancel` | Cancels a running or pending task |
@@ -4834,7 +4866,7 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/webhooks delete <id>` | `DELETE /api/v1/webhooks/{id}` | Deletes a webhook subscription |
 | `/webhooks rotate <id>` | `POST /api/v1/webhooks/{id}/rotate` | Rotates a webhook signing secret |
 
-Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedule management remain REPL-first by design.
+Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedule management remain REPL-first by design. The narrow `PATCH /api/v1/config/context` route is the exception for safe context toggles that still require restart.
 
 ## Quick Reference
 
@@ -4860,6 +4892,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/sessions/{id}/turns/{turnId}/events` | Yes | List replayable turn events |
 | `GET` | `/api/v1/sessions/{id}/child-runs` | Yes | List child agent runs |
 | `GET` | `/api/v1/config` | Yes | Get config (sanitized) |
+| `PATCH` | `/api/v1/config/context` | Yes | Update supported context toggles such as `conversationHistoryInSystemPrompt` |
 | `POST` | `/api/v1/config/validate` | Yes | Validate a candidate config payload |
 | `GET` | `/api/v1/config/roles` | Yes | List all roles |
 | `GET` | `/api/v1/config/roles/{name}` | Yes | Get role detail |
@@ -4902,9 +4935,9 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/server/info` | Yes | Server capabilities and commands |
 | `POST` | `/api/v1/server/restart` | Yes | Restart a launcher-managed API process |
 | `GET` | `/api/v1/server/commands` | Yes | Get runtime slash-command metadata (`/help` equivalent) |
-| `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt |
+| `GET` | `/api/v1/server/prompt` | Yes | Get the rendered system prompt, optionally session-aware via `session_id` |
 | `GET` | `/api/v1/server/backstory` | Yes | Get generated backstory content and manifest metadata |
-| `GET` | `/api/v1/server/budget` | Yes | Get prompt and toolkit budget state |
+| `GET` | `/api/v1/server/budget` | Yes | Get prompt and toolkit budget state, optionally session-aware via `session_id` |
 | `GET` | `/api/v1/toolkits` | Yes | List toolkits and tools with visibility |
 | `POST` | `/api/v1/toolkits/visibility` | Yes | Set package or tool visibility |
 | `GET` | `/api/v1/mcp/servers` | Yes | List MCP servers with live status and audit fields |

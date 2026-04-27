@@ -23,6 +23,7 @@ final class ConfigGuard
         'agents.defaults.model.primary',
         'agents.defaults.model.fallbacks',
         'agents.defaults.roles.',
+        'agents.defaults.context.conversationHistoryInSystemPrompt',
         'agents.defaults.maxIterations',
         'agents.defaults.maxTools',
         'agents.defaults.hints',

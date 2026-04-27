@@ -6,6 +6,8 @@ namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
+use CoquiBot\Coqui\Config\ConfigGuard;
+use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
 use CoquiBot\Coqui\Config\ModelMetadataResolver;
 use CoquiBot\Coqui\Config\OpenClawConfig;
@@ -16,14 +18,13 @@ use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
 
 /**
- * Configuration read-only endpoints.
+ * Configuration read endpoints plus narrow safe mutations.
  *
  * GET  /api/v1/config           — get full config (sanitized)
+ * PATCH /api/v1/config/context  — update explicitly allowed context toggles
  * POST /api/v1/config/validate  — dry-run validation
  * GET  /api/v1/config/models    — list available models
  * GET  /api/v1/config/profiles  — list available profiles
- *
- * Config updates (PUT /api/v1/config) are REPL-only.
  * Role management moved to RoleHandler (/api/v1/config/roles/*).
  */
 final readonly class ConfigHandler
@@ -34,6 +35,8 @@ final readonly class ConfigHandler
         private ProfileDiscovery $profileDiscovery,
         private ?ModelMetadataResolver $modelMetadataResolver = null,
         private ?RoleResolver $roleResolver = null,
+        private ?ConfigManager $configManager = null,
+        private ?ConfigGuard $configGuard = null,
     ) {}
 
     /**
@@ -43,13 +46,66 @@ final readonly class ConfigHandler
      */
     public function get(ServerRequestInterface $request): Response
     {
+        $config = $this->currentConfig();
         $data = [
-            'agents' => $this->config->get('agents'),
+            'agents' => $config->get('agents'),
             'models' => $this->sanitizeModelsConfig(),
-            'channels' => $this->config->get('channels'),
+            'channels' => $config->get('channels'),
         ];
 
         return Router::jsonResponse($data);
+    }
+
+    /**
+     * PATCH /api/v1/config/context — update explicitly allowed context toggles.
+     */
+    public function updateContext(ServerRequestInterface $request): Response
+    {
+        if ($this->configManager === null || $this->configGuard === null) {
+            return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Config mutation support is not available');
+        }
+
+        $body = (string) $request->getBody();
+        if ($body === '') {
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'Empty request body');
+        }
+
+        $decoded = json_decode($body, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return Router::errorResponse(ApiErrorCode::INVALID_FORMAT, 'Invalid JSON: ' . json_last_error_msg());
+        }
+
+        if (!is_array($decoded)) {
+            return Router::errorResponse(ApiErrorCode::INVALID_FORMAT, 'Context patch must be a JSON object');
+        }
+
+        if (!array_key_exists('conversationHistoryInSystemPrompt', $decoded)) {
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'conversationHistoryInSystemPrompt is required');
+        }
+
+        $value = $decoded['conversationHistoryInSystemPrompt'];
+        if (!is_bool($value)) {
+            return Router::errorResponse(ApiErrorCode::INVALID_FORMAT, 'conversationHistoryInSystemPrompt must be a boolean');
+        }
+
+        $dotKey = 'agents.defaults.context.conversationHistoryInSystemPrompt';
+        $denyReason = $this->configGuard->denyReason($dotKey);
+        if ($denyReason !== null) {
+            return Router::errorResponse(ApiErrorCode::FORBIDDEN, $denyReason);
+        }
+
+        $errors = $this->configManager->set($dotKey, $value);
+        if ($errors !== []) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Validation failed', ['errors' => $errors]);
+        }
+
+        return Router::jsonResponse([
+            'context' => [
+                'conversationHistoryInSystemPrompt' => $this->configManager->config()->useConversationHistoryInSystemPrompt(),
+            ],
+            'updated' => ['conversationHistoryInSystemPrompt'],
+            'restart_required' => true,
+        ]);
     }
 
     /**
@@ -94,6 +150,7 @@ final readonly class ConfigHandler
     public function models(ServerRequestInterface $request): Response
     {
         $models = [];
+        $config = $this->currentConfig();
 
         if ($this->modelMetadataResolver !== null) {
             foreach ($this->modelMetadataResolver->configuredModels() as $fullId => $definition) {
@@ -118,7 +175,7 @@ final readonly class ConfigHandler
         return Router::jsonResponse([
             'models' => $models,
             'count' => count($models),
-            'primary' => $this->config->getPrimaryModel(),
+            'primary' => $config->getPrimaryModel(),
         ]);
     }
 
@@ -135,7 +192,7 @@ final readonly class ConfigHandler
         return Router::jsonResponse([
             'profiles' => $profiles,
             'count' => count($profiles),
-            'default_profile' => $this->config->getDefaultProfile(),
+            'default_profile' => $this->currentConfig()->getDefaultProfile(),
         ]);
     }
 
@@ -159,7 +216,7 @@ final readonly class ConfigHandler
      */
     private function sanitizeModelsConfig(): array
     {
-        $modelsConfig = $this->config->get('models', []);
+        $modelsConfig = $this->currentConfig()->get('models', []);
 
         if (!is_array($modelsConfig) || !isset($modelsConfig['providers'])) {
             return is_array($modelsConfig) ? $modelsConfig : [];
@@ -199,7 +256,7 @@ final readonly class ConfigHandler
             'display_name' => $profile['display_name'],
             'description' => $profile['description'],
             'model' => $this->profileDiscovery->readProfileModel($profile['name']),
-            'is_default' => $this->config->getDefaultProfile() === $profile['name'],
+            'is_default' => $this->currentConfig()->getDefaultProfile() === $profile['name'],
             'allowed_roles' => $allowedRoles,
             'role_restrictions' => [
                 'allow' => $preferences->allowedRoles(),
@@ -222,5 +279,10 @@ final readonly class ConfigHandler
             'preferences' => $preferences->inspectionSummary(),
             'soul' => $this->profileDiscovery->readSoul($profile['name']),
         ];
+    }
+
+    private function currentConfig(): OpenClawConfig
+    {
+        return $this->configManager?->config() ?? $this->config;
     }
 }

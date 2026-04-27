@@ -27,7 +27,13 @@ final class ConfigHandler
 
     public function handle(SymfonyStyle $io, string $subCommand): int|true
     {
-        return match (trim($subCommand)) {
+        $trimmed = trim($subCommand);
+
+        if (str_starts_with($trimmed, 'history')) {
+            return $this->handleConversationHistoryPromptMode($io, trim(substr($trimmed, strlen('history'))));
+        }
+
+        return match ($trimmed) {
             'edit' => $this->runConfigWizard($io),
             'show' => (function () use ($io) {
                 $this->showConfigFile($io);
@@ -178,6 +184,49 @@ final class ConfigHandler
         return false;
     }
 
+    private function handleConversationHistoryPromptMode(SymfonyStyle $io, string $argument): true
+    {
+        $config = $this->boot->configManager()->config();
+        $current = $config->useConversationHistoryInSystemPrompt();
+        $normalized = strtolower(trim($argument));
+
+        if ($normalized === '' || $normalized === 'status') {
+            $io->section('Conversation History Prompt Mode');
+            $io->writeln('<fg=gray>Current:</> ' . ($current ? '<fg=green>enabled</>' : '<fg=yellow>disabled</>'));
+            $io->text('Use /config history on or /config history off to change it. Restart Coqui after changing this setting.');
+
+            return true;
+        }
+
+        $enabled = match ($normalized) {
+            'on', 'true', 'enable', 'enabled' => true,
+            'off', 'false', 'disable', 'disabled' => false,
+            default => null,
+        };
+
+        if ($enabled === null) {
+            $io->warning('Usage: /config history [status|on|off]');
+
+            return true;
+        }
+
+        $errors = $this->boot->configManager()->set('agents.defaults.context.conversationHistoryInSystemPrompt', $enabled);
+        if ($errors !== []) {
+            $io->error($errors);
+
+            return true;
+        }
+
+        $io->success(
+            sprintf(
+                'Conversation history system-prompt mode %s. Restart Coqui to apply the new setting.',
+                $enabled ? 'enabled' : 'disabled',
+            ),
+        );
+
+        return true;
+    }
+
     private function showConfigFile(SymfonyStyle $io): void
     {
         $configPath = $this->boot->configManager()->path();
@@ -203,6 +252,10 @@ final class ConfigHandler
 
         $primary = $this->boot->config()->getPrimaryModel();
         $io->writeln('<fg=gray>Primary model:</> ' . ($primary !== '' ? $primary : '<fg=yellow>not set</>'));
+        $io->writeln(
+            '<fg=gray>Conversation history in system prompt:</> '
+            . ($this->boot->config()->useConversationHistoryInSystemPrompt() ? '<fg=green>enabled</>' : '<fg=yellow>disabled</>')
+        );
 
         $roles = $this->boot->roleResolver()->toArray();
         if (!empty($roles)) {
@@ -218,6 +271,6 @@ final class ConfigHandler
         $io->writeln('<fg=gray>Workspace:</> ' . $this->boot->workspacePath());
         $io->writeln('<fg=gray>Project root:</> ' . $this->workDir);
         $io->newLine();
-        $io->text('<fg=gray>Use <fg=cyan>/config edit</> to re-run the setup wizard, or <fg=cyan>/config show</> to view raw JSON.</>');
+        $io->text('<fg=gray>Use <fg=cyan>/config edit</> to re-run the setup wizard, <fg=cyan>/config show</> to view raw JSON, or <fg=cyan>/config history on|off</> to toggle prompt-history mode.</>');
     }
 }

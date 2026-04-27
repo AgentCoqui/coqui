@@ -12,12 +12,15 @@
     {
       "type": "path",
       "url": "/Users/carmelo/Projects/CoquiBot/Toolkits/coqui-toolkit-mcp-client"
-    }
-  ],
-  "repositories": [
+    },
     {
       "type": "path",
-      "url": "/Users/carmelo/Projects/CoquiBot/core/php-agents"
+      "url": "/Users/carmelo/Projects/CoquiBot/Core/php-agents",
+      "options": {
+        "versions": {
+          "carmelosantana/php-agents": "0.12.x-dev"
+        }
+      }
     }
   ],
     

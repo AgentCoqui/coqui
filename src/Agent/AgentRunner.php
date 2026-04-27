@@ -1180,8 +1180,21 @@ final class AgentRunner
         $actorName = is_string($message['actor_name'] ?? null) && $message['actor_name'] !== ''
             ? $message['actor_name']
             : null;
+        $actorRole = is_string($message['actor_role'] ?? null) && $message['actor_role'] !== ''
+            ? $message['actor_role']
+            : null;
 
-        return $actorName !== null ? sprintf('%s %s', $actorName, $role) : $role;
+        if ($actorName === null) {
+            return $role;
+        }
+
+        $speaker = str_starts_with($actorName, '@') ? $actorName : '@' . $actorName;
+
+        if ($actorRole !== null && $actorRole !== '' && $actorRole !== $role) {
+            return sprintf('%s (%s)', $speaker, $actorRole);
+        }
+
+        return $speaker;
     }
 
     private function formatConversationHistoryTimestamp(?string $createdAt): string
