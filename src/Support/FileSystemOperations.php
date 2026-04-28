@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Support;
 
-use CoquiBot\Coqui\Config\PathHelper;
+use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**

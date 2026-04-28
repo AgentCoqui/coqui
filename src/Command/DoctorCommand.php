@@ -9,7 +9,7 @@ use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\CredentialResolver;
-use CoquiBot\Coqui\Config\PathHelper;
+use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\Config\WorkspaceComposerManager;
 use CoquiBot\Coqui\Config\WorkspaceResolver;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;

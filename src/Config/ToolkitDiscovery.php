@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
+use CarmeloSantana\PathHelper\PathHelper;
+
 use CarmeloSantana\PHPAgents\Contract\PackageEventListenerInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CoquiBot\Coqui\Contract\CredentialRequirement;

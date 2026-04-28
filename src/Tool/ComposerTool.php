@@ -10,7 +10,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
-use CoquiBot\Coqui\Config\PathHelper;
+use CarmeloSantana\PathHelper\PathHelper;
 
 /**
  * Tool that manages Composer dependencies in the workspace.

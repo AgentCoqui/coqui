@@ -9,7 +9,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\MountManager;
-use CoquiBot\Coqui\Config\PathHelper;
+use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use React\ChildProcess\Process as ReactProcess;
 use React\EventLoop\Loop;

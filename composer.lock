@@ -4,23 +4,24 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "4f368345a4c5d4b9f69a90997f71315b",
+    "content-hash": "344c5b99ecfe3976bd1afd895f87b856",
     "packages": [
         {
             "name": "carmelosantana/coqui-toolkit-images",
-            "version": "v0.1.3",
+            "version": "v0.1.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/coqui-toolkit-images.git",
-                "reference": "f5d910d111fc010721aa03d081c46f4d7529c228"
+                "reference": "d1dc9abf11d76500d764786ab9c7dfaee5040f09"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-images/zipball/f5d910d111fc010721aa03d081c46f4d7529c228",
-                "reference": "f5d910d111fc010721aa03d081c46f4d7529c228",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-images/zipball/d1dc9abf11d76500d764786ab9c7dfaee5040f09",
+                "reference": "d1dc9abf11d76500d764786ab9c7dfaee5040f09",
                 "shasum": ""
             },
             "require": {
+                "carmelosantana/php-pathhelper": "^0.1",
                 "php": "^8.4",
                 "symfony/http-client": "^7.4 || ^8.0"
             },
@@ -86,9 +87,9 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/coqui-toolkit-images/issues",
-                "source": "https://github.com/carmelosantana/coqui-toolkit-images/tree/v0.1.3"
+                "source": "https://github.com/carmelosantana/coqui-toolkit-images/tree/v0.1.4"
             },
-            "time": "2026-04-28T11:47:48+00:00"
+            "time": "2026-04-28T20:36:21+00:00"
         },
         {
             "name": "carmelosantana/php-agents",
@@ -150,21 +151,72 @@
             "time": "2026-04-28T16:39:34+00:00"
         },
         {
-            "name": "coquibot/coqui-toolkit-mcp-client",
-            "version": "v0.1.4",
+            "name": "carmelosantana/php-pathhelper",
+            "version": "v0.1.0",
             "source": {
                 "type": "git",
-                "url": "https://github.com/carmelosantana/coqui-toolkit-mcp-client.git",
-                "reference": "658d19b9927ba79f206cb38a305afc6cd1bfc1ed"
+                "url": "https://github.com/carmelosantana/php-pathhelper.git",
+                "reference": "3c8b338e3d006fb5d2b0dec7da56708fcd09cec3"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-mcp-client/zipball/658d19b9927ba79f206cb38a305afc6cd1bfc1ed",
-                "reference": "658d19b9927ba79f206cb38a305afc6cd1bfc1ed",
+                "url": "https://api.github.com/repos/carmelosantana/php-pathhelper/zipball/3c8b338e3d006fb5d2b0dec7da56708fcd09cec3",
+                "reference": "3c8b338e3d006fb5d2b0dec7da56708fcd09cec3",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^8.4"
+            },
+            "require-dev": {
+                "pestphp/pest": "^4.0",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "CarmeloSantana\\PathHelper\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Carmelo Santana"
+                }
+            ],
+            "description": "Cross platform path normalization and comparison helpers for PHP 8.4+.",
+            "keywords": [
+                "filesystem",
+                "path",
+                "paths",
+                "php",
+                "windows"
+            ],
+            "support": {
+                "issues": "https://github.com/carmelosantana/php-pathhelper/issues",
+                "source": "https://github.com/carmelosantana/php-pathhelper/tree/v0.1.0"
+            },
+            "time": "2026-04-28T20:28:37+00:00"
+        },
+        {
+            "name": "coquibot/coqui-toolkit-mcp-client",
+            "version": "v0.1.5",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/coqui-toolkit-mcp-client.git",
+                "reference": "dce03c8067ce344b97178f8393a1f70ecc4ad6a7"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-mcp-client/zipball/dce03c8067ce344b97178f8393a1f70ecc4ad6a7",
+                "reference": "dce03c8067ce344b97178f8393a1f70ecc4ad6a7",
                 "shasum": ""
             },
             "require": {
                 "carmelosantana/php-agents": "^0.13",
+                "carmelosantana/php-pathhelper": "^0.1",
                 "php": "^8.4"
             },
             "require-dev": {
@@ -204,9 +256,9 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/issues",
-                "source": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/tree/v0.1.4"
+                "source": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/tree/v0.1.5"
             },
-            "time": "2026-04-28T16:36:04+00:00"
+            "time": "2026-04-28T20:36:04+00:00"
         },
         {
             "name": "dflydev/dot-access-data",

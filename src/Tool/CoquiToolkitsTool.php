@@ -10,7 +10,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
-use CoquiBot\Coqui\Config\PathHelper;
+use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\CoquiSpace\Installer\ToolkitInstaller;
 
 /**

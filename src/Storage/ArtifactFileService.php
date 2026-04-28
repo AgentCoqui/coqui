@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
-use CoquiBot\Coqui\Config\PathHelper;
+use CarmeloSantana\PathHelper\PathHelper;
 
 /**
  * Filesystem-backed content resolution for hybrid artifacts.

@@ -6,7 +6,7 @@ namespace CoquiBot\Coqui\CoquiSpace;
 
 use Symfony\Contracts\HttpClient\Exception\HttpExceptionInterface;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
-use CoquiBot\Coqui\Config\PathHelper;
+use CarmeloSantana\PathHelper\PathHelper;
 
 /**
  * HTTP client for the Coqui Space REST API.
