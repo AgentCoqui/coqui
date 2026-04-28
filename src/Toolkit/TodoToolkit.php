@@ -198,14 +198,14 @@ final class TodoToolkit implements ToolkitInterface
                     sprintId: $sprintId,
                 );
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'id' => $id,
                     'title' => $title,
                     'status' => 'pending',
                     'priority' => $priority,
                     'artifact_id' => $artifactId,
                     'parent_id' => $parentId,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -251,11 +251,11 @@ final class TodoToolkit implements ToolkitInterface
             sprintId: $sprintId,
         );
 
-        return ToolResult::success(json_encode([
+        return ToolResult::json([
             'created' => count($ids),
             'ids' => $ids,
             'artifact_id' => $artifactId,
-        ], JSON_UNESCAPED_SLASHES) ?: '{}');
+        ]);
     }
 
     private function updateTool(): ToolInterface
@@ -318,13 +318,13 @@ final class TodoToolkit implements ToolkitInterface
 
                 $todo = $this->store->get($id, sessionId: $this->sessionId);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'id' => $id,
                     'title' => $todo['title'] ?? '',
                     'status' => $todo['status'] ?? '',
                     'priority' => $todo['priority'] ?? '',
                     'updated' => true,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -405,11 +405,11 @@ final class TodoToolkit implements ToolkitInterface
         $count = $this->store->bulkUpdate($typedUpdates, sessionId: $this->sessionId);
         $stats = $this->store->getStats($this->sessionId);
 
-        return ToolResult::success(json_encode([
+        return ToolResult::json([
             'updated' => $count,
             'total_requested' => count($updates),
             'progress' => "{$stats['completed']}/{$stats['total']} completed",
-        ], JSON_UNESCAPED_SLASHES) ?: '{}');
+        ]);
     }
 
     private function completeTool(): ToolInterface
@@ -435,10 +435,10 @@ final class TodoToolkit implements ToolkitInterface
                     );
                     $stats = $this->store->getStats($this->sessionId);
 
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'completed' => $completed,
                         'progress' => "{$stats['completed']}/{$stats['total']} completed",
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 }
 
                 // Batch mode
@@ -485,7 +485,7 @@ final class TodoToolkit implements ToolkitInterface
                         $response['failed_ids'] = $failed;
                     }
 
-                    return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
+                    return ToolResult::json($response);
                 }
 
                 // Single-item mode
@@ -508,13 +508,13 @@ final class TodoToolkit implements ToolkitInterface
                 $todo = $this->store->get($id, sessionId: $this->sessionId);
                 $stats = $this->store->getStats($this->sessionId);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'id' => $id,
                     'title' => $todo['title'] ?? '',
                     'status' => 'completed',
                     'completed_by' => $this->currentRole,
                     'progress' => "{$stats['completed']}/{$stats['total']} completed",
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -587,10 +587,10 @@ final class TodoToolkit implements ToolkitInterface
                 $stats = $this->store->getStats($this->sessionId, $artifactId);
                 $checklist = implode("\n", $lines);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'checklist' => $checklist,
                     'stats' => $stats,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -620,7 +620,7 @@ final class TodoToolkit implements ToolkitInterface
                     $todo['subtasks'] = $subtasks;
                 }
 
-                return ToolResult::success(json_encode($todo, JSON_UNESCAPED_SLASHES) ?: '{}');
+                return ToolResult::json($todo);
             },
         );
     }
@@ -645,11 +645,11 @@ final class TodoToolkit implements ToolkitInterface
 
                     $stats = $this->store->getStats($this->sessionId);
 
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'scope' => $scope,
                         'deleted' => $deleted,
                         'remaining' => $stats['total'],
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 }
 
                 // Batch mode
@@ -688,7 +688,7 @@ final class TodoToolkit implements ToolkitInterface
                         $response['failed_ids'] = $failed;
                     }
 
-                    return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
+                    return ToolResult::json($response);
                 }
 
                 // Single-item mode
@@ -707,11 +707,11 @@ final class TodoToolkit implements ToolkitInterface
                     return ToolResult::error("Failed to delete todo {$id}");
                 }
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'id' => $id,
                     'title' => $todo['title'],
                     'deleted' => true,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }

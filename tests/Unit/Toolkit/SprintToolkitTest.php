@@ -142,6 +142,8 @@ test('sprint_create accepts native array acceptance criteria', function () {
     ]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
     $data = json_decode($result->content, true);
     $sprint = $this->projectStore->getSprint($data['id']);
     expect($sprint['acceptance_criteria'])->toBe('["first passes","second passes"]');

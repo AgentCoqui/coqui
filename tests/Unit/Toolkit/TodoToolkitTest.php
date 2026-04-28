@@ -98,6 +98,8 @@ test('todo_add accepts native array items', function () {
     ]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
     $data = json_decode($result->content, true);
     expect($data['created'])->toBe(2);
     expect($this->todoStore->list($this->sessionId))->toHaveCount(2);
@@ -118,6 +120,8 @@ test('todo_update accepts native array updates', function () {
     ]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
     expect($this->todoStore->get($todoId)['status'])->toBe('completed');
 });
 

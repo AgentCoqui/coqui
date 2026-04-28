@@ -259,13 +259,13 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             maxIterations: $maxIterations,
         );
 
-        return ToolResult::success(json_encode([
+        return ToolResult::json([
             'task_id' => $taskId,
             'session_id' => $sessionId,
             'status' => 'pending',
             'title' => $title,
             'message' => 'Task created and queued. Use task_status to monitor progress.',
-        ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: 'Task created');
+        ]);
     }
 
     /**
@@ -321,14 +321,14 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             toolArguments: $argumentsJson,
         );
 
-        return ToolResult::success(json_encode([
+        return ToolResult::json([
             'task_id' => $taskId,
             'session_id' => $sessionId,
             'status' => 'pending',
             'tool_name' => $toolName,
             'title' => $title,
             'message' => 'Background tool execution queued. Use task_status to monitor progress.',
-        ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: 'Tool task created');
+        ]);
     }
 
     private function ensureDispatchReady(): ?string
@@ -414,9 +414,7 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             );
         }
 
-        return ToolResult::success(
-            json_encode($summary, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: 'Task data',
-        );
+        return ToolResult::json($summary);
     }
 
     /**
@@ -447,11 +445,11 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
 
         $counts = $this->storage->getTaskCounts();
 
-        return ToolResult::success(json_encode([
+        return ToolResult::json([
             'tasks' => $taskList,
             'count' => count($taskList),
             'counts' => $counts,
-        ], JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: 'Task list');
+        ]);
     }
 
     /**
@@ -486,11 +484,11 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
                 'message' => 'Cancelled by agent while pending',
             ]);
 
-            return ToolResult::success(json_encode([
+            return ToolResult::json([
                 'task_id' => $taskId,
                 'status' => 'cancelled',
                 'message' => 'Task cancelled successfully',
-            ], JSON_UNESCAPED_SLASHES) ?: 'Cancelled');
+            ]);
         }
 
         // For running tasks, mark as cancelling — the BackgroundTaskManager
@@ -500,11 +498,11 @@ final readonly class BackgroundTaskToolkit implements ToolkitInterface
             'message' => 'Cancellation requested by agent',
         ]);
 
-        return ToolResult::success(json_encode([
+        return ToolResult::json([
             'task_id' => $taskId,
             'status' => 'cancelling',
             'message' => 'Cancellation signal sent. The task will stop after its current iteration.',
-        ], JSON_UNESCAPED_SLASHES) ?: 'Cancel requested');
+        ]);
     }
 
 }

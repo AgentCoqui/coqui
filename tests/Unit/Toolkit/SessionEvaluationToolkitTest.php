@@ -85,6 +85,8 @@ test('evaluation_save_report persists normalized evidence links', function () {
         ]);
 
         $payload = json_decode($result->content, true);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
         expect($payload)->toBeArray();
         expect($payload['evidence_links_count'])->toBe(4);
 
