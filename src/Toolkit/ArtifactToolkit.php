@@ -141,13 +141,13 @@ final class ArtifactToolkit implements ToolkitInterface
                     sprintId: $sprintId,
                 );
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'id' => $id,
                     'title' => $title,
                     'type' => $type,
                     'stage' => 'draft',
                     'version' => 1,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -185,13 +185,13 @@ final class ArtifactToolkit implements ToolkitInterface
 
                 $artifact = $this->store->get($id, sessionId: $this->sessionId);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'id' => $id,
                     'title' => $artifact['title'] ?? '',
                     'version' => $artifact['version'] ?? 0,
                     'stage' => $artifact['stage'] ?? '',
                     'updated' => true,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -221,14 +221,14 @@ final class ArtifactToolkit implements ToolkitInterface
                     }
 
                     $artifact = $this->store->get($id, sessionId: $this->sessionId);
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'id' => $id,
                         'title' => $artifact['title'] ?? '',
                         'version' => $version,
                         'content' => $versionData['content'],
                         'change_summary' => $versionData['change_summary'],
                         'created_at' => $versionData['created_at'],
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 }
 
                 $artifact = $this->store->get($id, sessionId: $this->sessionId);
@@ -236,7 +236,7 @@ final class ArtifactToolkit implements ToolkitInterface
                     return ToolResult::error("Artifact not found: {$id}");
                 }
 
-                return ToolResult::success(json_encode($artifact, JSON_UNESCAPED_SLASHES) ?: '{}');
+                return ToolResult::json($artifact);
             },
         );
     }
@@ -289,10 +289,10 @@ final class ArtifactToolkit implements ToolkitInterface
                     'created_at' => $a['created_at'],
                 ], $artifacts);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'count' => count($summary),
                     'artifacts' => $summary,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -353,7 +353,7 @@ final class ArtifactToolkit implements ToolkitInterface
                         }
                     }
 
-                    return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
+                    return ToolResult::json($response);
                 }
 
                 // Bulk mode
@@ -364,20 +364,20 @@ final class ArtifactToolkit implements ToolkitInterface
                 }
 
                 if ($matchedIds === []) {
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'updated' => 0,
                         'target_stage' => $stage,
                         'failed_ids' => $failedIds,
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 }
 
                 $updated = $this->store->bulkUpdateStage($matchedIds, $stage, $this->sessionId);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'updated' => $updated,
                     'target_stage' => $stage,
                     'failed_ids' => $failedIds,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -412,11 +412,11 @@ final class ArtifactToolkit implements ToolkitInterface
                         return ToolResult::error("Failed to delete artifact {$id}");
                     }
 
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'id' => $id,
                         'title' => $artifact['title'],
                         'deleted' => true,
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 }
 
                 // Bulk mode
@@ -428,10 +428,10 @@ final class ArtifactToolkit implements ToolkitInterface
 
                 $deleted = $this->store->bulkDelete($matchedIds, $this->sessionId);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'deleted' => $deleted,
                     'failed_ids' => $failedIds,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -453,7 +453,7 @@ final class ArtifactToolkit implements ToolkitInterface
         if ($hasIds) {
             $decoded = JsonHelper::decodeJsonList($args['ids']);
             if ($decoded === null || $decoded === []) {
-                return [[], [], 'ids must be a non-empty JSON array of artifact IDs.'];
+                return [[], [], 'ids must be a non-empty array of artifact IDs.'];
             }
             if (count($decoded) > 200) {
                 return [[], [], 'Maximum 200 artifact IDs per bulk operation.'];

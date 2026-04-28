@@ -69,6 +69,8 @@ test('artifact_create tool creates artifact', function () {
     ]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
 
     $data = json_decode($result->content, true);
     expect($data['title'])->toBe('My Script');
@@ -246,18 +248,20 @@ test('artifact_delete tool errors on missing artifact', function () {
     expect($result->status)->toBe(ToolResultStatus::Error);
 });
 
-test('artifact_bulk_stage updates artifacts by explicit ids', function () {
+test('artifact_bulk_stage updates artifacts by explicit ids and returns structured json hints', function () {
     $id1 = $this->store->create($this->sessionId, 'One', 'content');
     $id2 = $this->store->create($this->sessionId, 'Two', 'content');
 
     $tool = toolFromToolkit($this->toolkit, 'artifact_stage');
 
     $result = $tool->execute([
-        'ids' => json_encode([$id1, $id2]),
+        'ids' => [$id1, $id2],
         'stage' => 'review',
     ]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
     $data = json_decode($result->content, true);
     expect($data['updated'])->toBe(2);
     expect($this->store->get($id1)['stage'])->toBe('review');

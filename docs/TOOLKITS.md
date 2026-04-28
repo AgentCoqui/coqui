@@ -394,6 +394,39 @@ new ObjectParameter(
 )
 ```
 
+### Runtime Validation
+
+php-agents now validates declared parameter constraints before your tool callback runs.
+This builds on the schema declarations you were already writing for the model.
+
+What is enforced automatically:
+- required parameters must be present
+- `StringParameter` can enforce `pattern`, `maxLength`, and `enum`
+- `NumberParameter` can enforce `integer`, `minimum`, and `maximum`
+- `EnumParameter` enforces membership in the declared values
+- `ArrayParameter` validates nested item types
+- `ObjectParameter` validates nested required properties and child parameter rules
+
+Example:
+
+```php
+new Tool(
+    name: 'create_project',
+    description: 'Create a project',
+    parameters: [
+        new StringParameter('slug', 'Lowercase slug', pattern: '/^[a-z-]+$/'),
+        new NumberParameter('count', 'Project count', required: false, integer: true, minimum: 1),
+    ],
+    callback: fn(array $args): ToolResult => ToolResult::success(
+        sprintf('Created %s x%d', $args['slug'], $args['count'] ?? 1),
+    ),
+)
+```
+
+This means many manual guard clauses can stay focused on domain rules instead of re-checking
+basic type and shape constraints. Keep custom validation inside the callback for business logic,
+cross-field invariants, or checks that depend on external state.
+
 ## Tool Results
 
 Every tool callback must return a `ToolResult`:
@@ -404,6 +437,23 @@ return ToolResult::success('Operation completed. Result: ...');
 
 // Error — the LLM sees this as a tool error and can retry or inform the user
 return ToolResult::error('Invalid input: query parameter is required.');
+
+// Structured JSON helper — still delivered as string content
+return ToolResult::json([
+    'id' => $id,
+    'status' => 'created',
+]);
+```
+
+`ToolResult` also supports additive metadata and display hints. These do not change the
+provider-facing message format, so existing toolkits remain compatible while Coqui gains
+better internal metadata for future UI or routing work.
+
+```php
+return ToolResult::success('Done')
+    ->withMetadata(['phase' => 'apply'])
+    ->withMimeType('text/plain')
+    ->withDisplayHint('plain-text');
 ```
 
 **Guidelines for results:**
