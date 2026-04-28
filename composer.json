@@ -53,38 +53,6 @@
       "tests/Unit/Config/ToolkitDiscoveryTest.php"
     ]
   },
-  "repositories": [
-    {
-      "type": "path",
-      "url": "../php-agents",
-      "options": {
-        "symlink": true,
-        "versions": {
-          "carmelosantana/php-agents": "0.13.x-dev"
-        }
-      }
-    },
-    {
-      "type": "path",
-      "url": "../../Toolkits/coqui-toolkit-images",
-      "options": {
-        "symlink": true,
-        "versions": {
-          "carmelosantana/coqui-toolkit-images": "0.1.x-dev"
-        }
-      }
-    },
-    {
-      "type": "path",
-      "url": "../../Toolkits/coqui-toolkit-mcp-client",
-      "options": {
-        "symlink": true,
-        "versions": {
-          "coquibot/coqui-toolkit-mcp-client": "0.1.x-dev"
-        }
-      }
-    }
-  ],
   "bin": [
     "bin/coqui"
   ],

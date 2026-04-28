@@ -4,15 +4,21 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "7223d5cbfc3db0989e87cb6a469e583f",
+    "content-hash": "4f368345a4c5d4b9f69a90997f71315b",
     "packages": [
         {
             "name": "carmelosantana/coqui-toolkit-images",
-            "version": "0.1.x-dev",
-            "dist": {
-                "type": "path",
-                "url": "../../Toolkits/coqui-toolkit-images",
+            "version": "v0.1.3",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/coqui-toolkit-images.git",
                 "reference": "f5d910d111fc010721aa03d081c46f4d7529c228"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-images/zipball/f5d910d111fc010721aa03d081c46f4d7529c228",
+                "reference": "f5d910d111fc010721aa03d081c46f4d7529c228",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4",
@@ -29,29 +35,29 @@
             "type": "library",
             "extra": {
                 "php-agents": {
-                    "toolkits": [
-                        "CarmeloSantana\\CoquiToolkitImages\\ImagesToolkit"
-                    ],
-                    "description": "Generate, preview, organize, tag, and search AI-generated images using OpenAI and Ollama backends. Supports PNG metadata embedding, low-fidelity REPL previews, and workspace library management.",
-                    "credentials": {
-                        "OPENAI_API_KEY": {
-                            "description": "OpenAI API key for GPT Image 1.5 image generation.",
-                            "optional": true
-                        },
-                        "OLLAMA_HOST": {
-                            "description": "Optional Ollama host hint for local setup guidance. The current toolkit implementation shells out to the local `ollama` CLI for image generation.",
-                            "optional": true
-                        },
-                        "COQUI_IMAGE_MODEL": {
-                            "description": "Optional fallback image model in vendor/model format, for example openai/gpt-image-1.5 or ollama/x/z-image-turbo.",
-                            "optional": true
-                        }
-                    },
                     "gated": {
                         "image_generate": [
                             "generate"
                         ]
-                    }
+                    },
+                    "toolkits": [
+                        "CarmeloSantana\\CoquiToolkitImages\\ImagesToolkit"
+                    ],
+                    "credentials": {
+                        "OLLAMA_HOST": {
+                            "optional": true,
+                            "description": "Optional Ollama host hint for local setup guidance. The current toolkit implementation shells out to the local `ollama` CLI for image generation."
+                        },
+                        "OPENAI_API_KEY": {
+                            "optional": true,
+                            "description": "OpenAI API key for GPT Image 1.5 image generation."
+                        },
+                        "COQUI_IMAGE_MODEL": {
+                            "optional": true,
+                            "description": "Optional fallback image model in vendor/model format, for example openai/gpt-image-1.5 or ollama/x/z-image-turbo."
+                        }
+                    },
+                    "description": "Generate, preview, organize, tag, and search AI-generated images using OpenAI and Ollama backends. Supports PNG metadata embedding, low-fidelity REPL previews, and workspace library management."
                 }
             },
             "autoload": {
@@ -59,22 +65,7 @@
                     "CarmeloSantana\\CoquiToolkitImages\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "files": [
-                    "stubs/coqui_repl_contracts.php"
-                ],
-                "psr-4": {
-                    "CarmeloSantana\\CoquiToolkitImages\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=1G"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -93,18 +84,25 @@
                 "php-agents",
                 "toolkit"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/coqui-toolkit-images/issues",
+                "source": "https://github.com/carmelosantana/coqui-toolkit-images/tree/v0.1.3"
+            },
+            "time": "2026-04-28T11:47:48+00:00"
         },
         {
             "name": "carmelosantana/php-agents",
-            "version": "0.13.x-dev",
+            "version": "v0.13.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/php-agents.git",
+                "reference": "e8d65639f053fc1a4e6ac287b6564b7784758dcb"
+            },
             "dist": {
-                "type": "path",
-                "url": "../php-agents",
-                "reference": "f5517820f98a2ab8616c2d70158f16376106560d"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/e8d65639f053fc1a4e6ac287b6564b7784758dcb",
+                "reference": "e8d65639f053fc1a4e6ac287b6564b7784758dcb",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4",
@@ -128,19 +126,7 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=512M"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -157,18 +143,25 @@
                 "php-agents",
                 "tools"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/php-agents/issues",
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.13.1"
+            },
+            "time": "2026-04-28T16:39:34+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-mcp-client",
-            "version": "0.1.x-dev",
+            "version": "v0.1.4",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/coqui-toolkit-mcp-client.git",
+                "reference": "658d19b9927ba79f206cb38a305afc6cd1bfc1ed"
+            },
             "dist": {
-                "type": "path",
-                "url": "../../Toolkits/coqui-toolkit-mcp-client",
-                "reference": "01062a356877867b36c3a016181f5438612eadfc"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-mcp-client/zipball/658d19b9927ba79f206cb38a305afc6cd1bfc1ed",
+                "reference": "658d19b9927ba79f206cb38a305afc6cd1bfc1ed",
+                "shasum": ""
             },
             "require": {
                 "carmelosantana/php-agents": "^0.13",
@@ -192,22 +185,7 @@
                     "CoquiBot\\Toolkits\\Mcp\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "files": [
-                    "stubs/coqui_repl_contracts.php"
-                ],
-                "psr-4": {
-                    "CoquiBot\\Toolkits\\Mcp\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=1G"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -224,10 +202,11 @@
                 "php-agents",
                 "toolkit"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": true
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/issues",
+                "source": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/tree/v0.1.4"
+            },
+            "time": "2026-04-28T16:36:04+00:00"
         },
         {
             "name": "dflydev/dot-access-data",
@@ -4365,11 +4344,11 @@
         },
         {
             "name": "phpstan/phpstan",
-            "version": "2.1.51",
+            "version": "2.1.53",
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/dc3b523c45e714c70de2ac5113b958223b55dc59",
-                "reference": "dc3b523c45e714c70de2ac5113b958223b55dc59",
+                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/ef67586798c003274797b288a68b221e4270dca7",
+                "reference": "ef67586798c003274797b288a68b221e4270dca7",
                 "shasum": ""
             },
             "require": {
@@ -4414,7 +4393,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-04-21T18:22:01+00:00"
+            "time": "2026-04-28T16:09:00+00:00"
         },
         {
             "name": "phpunit/php-code-coverage",
