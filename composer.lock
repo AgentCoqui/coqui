@@ -8,16 +8,16 @@
     "packages": [
         {
             "name": "carmelosantana/coqui-toolkit-images",
-            "version": "v0.1.2",
+            "version": "v0.1.3",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/coqui-toolkit-images.git",
-                "reference": "3f8f3e26ed4534802ff01d17e4d383c786befa49"
+                "reference": "f5d910d111fc010721aa03d081c46f4d7529c228"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-images/zipball/3f8f3e26ed4534802ff01d17e4d383c786befa49",
-                "reference": "3f8f3e26ed4534802ff01d17e4d383c786befa49",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-images/zipball/f5d910d111fc010721aa03d081c46f4d7529c228",
+                "reference": "f5d910d111fc010721aa03d081c46f4d7529c228",
                 "shasum": ""
             },
             "require": {
@@ -25,7 +25,7 @@
                 "symfony/http-client": "^7.4 || ^8.0"
             },
             "require-dev": {
-                "carmelosantana/php-agents": "^0.12",
+                "carmelosantana/php-agents": "^0.13",
                 "pestphp/pest": "^3.0",
                 "phpstan/phpstan": "^2.0"
             },
@@ -86,9 +86,9 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/coqui-toolkit-images/issues",
-                "source": "https://github.com/carmelosantana/coqui-toolkit-images/tree/v0.1.2"
+                "source": "https://github.com/carmelosantana/coqui-toolkit-images/tree/v0.1.3"
             },
-            "time": "2026-04-21T14:31:32+00:00"
+            "time": "2026-04-28T11:47:48+00:00"
         },
         {
             "name": "carmelosantana/php-agents",
