@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Toolkit;
 
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
+use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
@@ -387,7 +388,12 @@ final class FileSystemToolkit implements ToolkitInterface
             $info['mime'] = mime_content_type($resolved) ?: 'unknown';
         }
 
-        return ToolResult::success(json_encode($info, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR));
+        return new ToolResult(
+            ToolResultStatus::Success,
+            json_encode($info, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT | JSON_THROW_ON_ERROR),
+            mimeType: 'application/json',
+            displayHint: 'structured-json',
+        );
     }
 
     // =======================================================================
