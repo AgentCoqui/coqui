@@ -7,16 +7,18 @@
 #   bare names   — native (no Docker)
 #   docker-*     — Docker compose operations
 #
-# Port defaults: API=3300
+# Port defaults: API=3300, Webgrind=3390
 ###############################################################################
+
 
 .PHONY: help \
 	start stop status cleanup repl api api-stop restart \
-	test test-coverage analyse \
+	test test-coverage test-profile analyse \
         dev \
         test-launcher \
         docker-build docker-start docker-stop docker-status \
-        docker-repl docker-api docker-api-stop docker-api-logs \
+		docker-repl docker-api docker-api-stop docker-api-logs \
+		docker-webgrind-up docker-webgrind-stop docker-webgrind-logs \
         docker-shell \
         install clean clean-workspace clean-pids \
         composer \
@@ -87,6 +89,9 @@ test: ## Run Pest test suite
 test-coverage: ## Run coverage via the repository Pest wrapper
 	@composer test:coverage $(ARGS)
 
+test-profile: ## Run Pest with Xdebug profiler output under build/profiles/tests
+	@composer test:profile $(ARGS)
+
 analyse: ## Run PHPStan static analysis
 	@composer analyse $(ARGS)
 
@@ -100,6 +105,7 @@ test-launcher: ## Run bash unit tests for the launcher script
 # =============================================================================
 
 COMPOSE_API := -f compose.yaml -f compose.api.yaml
+COMPOSE_DEV := -f compose.yaml -f compose.dev.yaml
 
 docker-build: ## Build the Coqui Docker image
 	@docker compose build
@@ -136,6 +142,17 @@ docker-api-stop: ## Stop the API container
 
 docker-api-logs: ## Follow API server logs
 	@docker compose $(COMPOSE_API) logs -f coqui-api
+
+docker-webgrind-up: ## Start the Webgrind profiling UI on port 3390
+	@docker compose $(COMPOSE_DEV) up -d webgrind
+	@echo "Webgrind: http://localhost:$${COQUI_WEBGRIND_PORT:-3390}"
+
+docker-webgrind-stop: ## Stop the Webgrind profiling UI
+	@docker compose $(COMPOSE_DEV) stop webgrind
+	@echo "Webgrind stopped"
+
+docker-webgrind-logs: ## Follow Webgrind logs
+	@docker compose $(COMPOSE_DEV) logs -f webgrind
 
 docker-shell: ## Open a bash shell in the container
 	@docker compose run --rm --entrypoint /bin/bash coqui

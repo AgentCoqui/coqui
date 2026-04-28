@@ -35,9 +35,9 @@ Exception: channel instance mutations made through the dedicated channel API end
 | ------------- | ------------------- |
 | `coqui --wizard` / `coqui -w` | Edit config without starting the REPL — changes apply on next launch |
 | `/config edit` (setup wizard) | Coqui prompts: "Restart now to apply?" — confirm to restart immediately |
-| API (`POST /api/v1/config/validate`) | Validation only — apply changes through the REPL or a manual edit, then restart |
+| API (`PATCH /api/v1/config/context`) | Saves supported context toggles, but you still need to restart for them to take effect |
 | Manual edit in your editor | Use `/restart` in the REPL, or the `restart_coqui` agent tool |
-| Agent `config` tool (set/switch_model) | Agent can call `restart_coqui`, or you can use `/restart` |
+| Agent `config` tool (set/switch_model/context toggle) | Agent can call `restart_coqui`, or you can use `/restart` |
 
 A restart re-reads `openclaw.json`, re-discovers toolkit packages, re-seeds roles, and reconstructs all providers and resolvers from scratch.
 
@@ -104,6 +104,14 @@ The simplest valid config only needs a primary model:
             "shellAllowedCommands": ["php", "git", "grep", "find", "cat", "ls"],
             "allowSudo": false,
             "blacklist": ["/pattern-to-block/i"],
+            "mcp": {
+                "allowedStdioCommands": [
+                    ["npx", "-y", "@modelcontextprotocol/server-github"]
+                ],
+                "deniedStdioCommands": [
+                    ["uvx", "mcp-server-fetch"]
+                ]
+            },
             "mounts": [
                 {
                     "path": "/home/user/data",
@@ -116,6 +124,7 @@ The simplest valid config only needs a primary model:
                 "embeddingModel": "openai/text-embedding-3-small"
             },
             "context": {
+                "conversationHistoryInSystemPrompt": false,
                 "autoSummarizeMode": "token",
                 "autoSummarizeThreshold": 64,
                 "autoSummarizeTurnThreshold": 20,
@@ -420,6 +429,46 @@ Additional regex patterns to add to the catastrophic blacklist. These patterns b
 }
 ```
 
+### `mcp.allowedStdioCommands`
+
+An optional exact-match allowlist for stdio MCP server launch tuples. Each entry is an array in the form `[command, arg1, arg2, ...]`. When this key is present and non-empty, Coqui only permits MCP servers whose configured command and args exactly match one of the allowed tuples.
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "mcp": {
+                "allowedStdioCommands": [
+                    ["npx", "-y", "@modelcontextprotocol/server-github"],
+                    ["uvx", "mcp-server-sqlite", "--db-path", "/srv/readonly.db"]
+                ]
+            }
+        }
+    }
+}
+```
+
+### `mcp.deniedStdioCommands`
+
+An optional exact-match denylist for stdio MCP server launch tuples. Denied tuples always win over the allowlist. Use this when you want to keep the normal open posture for most MCP servers but explicitly block known-risk launch definitions.
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "mcp": {
+                "deniedStdioCommands": [
+                    ["docker", "run", "--privileged", "dangerous-mcp"],
+                    ["npx", "-y", "unapproved-package"]
+                ]
+            }
+        }
+    }
+}
+```
+
+Both MCP stdio policy keys are enforced by the shared MCP management service, so the same command policy applies to the `/mcp` REPL command, the `mcp` tool, and the MCP HTTP API.
+
 ### `mounts`
 
 Declare external directory mounts that give agents access to directories outside the workspace. Mounts appear as symlinks under `workspace/mnt/{alias}`.
@@ -482,6 +531,7 @@ Configure automatic conversation summarization behavior.
 | Key | Type | Default | Description |
 | --- | ---- | ------- | ----------- |
 | `autoSummarizeMode` | string | `"token"` | Summarization trigger mode: `"token"` (trigger on context window usage), `"turn"` (trigger after N user turns), or `"manual"` (no auto-summarization; use `/summarize` on demand) |
+| `conversationHistoryInSystemPrompt` | bool | `false` | When enabled, prior active messages are also rendered into a final `Conversation History` system-prompt block while normal provider replay remains enabled. This duplicates context intentionally so the model can correlate replayed messages with a compact, timestamped history view. `GET /api/v1/server/prompt`, `GET /api/v1/server/budget`, and `/prompt export` can preview the real section when a session is supplied |
 | `autoSummarizeThreshold` | int/float | `64` | Token usage percentage that triggers auto-summarization (used when mode is `"token"`). Accepts 1–100 (percentage) or 0.0–1.0 (ratio, auto-converted) |
 | `autoSummarizeTurnThreshold` | int | `20` | Number of user turns that triggers auto-summarization (used when mode is `"turn"`) |
 | `autoSummarizeKeepRecent` | int | `15` | Turns preserved during auto-summarization (clamped 1–20) |
@@ -679,6 +729,8 @@ Coqui adds the following keys under `agents.defaults` that are specific to Coqui
 | `agents.defaults.backgroundTaskMaxIterations` | Per-task background iteration cap |
 | `agents.defaults.childBackgroundTasks` | Allow child agents to spawn background tasks |
 | `agents.defaults.blacklist` | Additional catastrophic blacklist patterns |
+| `agents.defaults.mcp.allowedStdioCommands` | Exact-match allowlist for stdio MCP server command tuples |
+| `agents.defaults.mcp.deniedStdioCommands` | Exact-match denylist for stdio MCP server command tuples |
 | `agents.defaults.memory` | Memory system configuration |
 | `api.*` | HTTP API server settings |
 
@@ -720,6 +772,7 @@ The wizard attempts live model discovery first. For providers that expose rich m
 | `/config` | Show current config summary |
 | `/config show` | Display raw `openclaw.json` content |
 | `/config edit` | Re-run the setup wizard |
+| `/config history [status\|on\|off]` | Show or toggle the `conversationHistoryInSystemPrompt` setting |
 | `/restart` | Full restart (re-reads config, re-discovers toolkits, re-seeds roles) |
 
 ### Credential Management

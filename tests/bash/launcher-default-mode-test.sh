@@ -26,6 +26,23 @@ cat > "$tmpdir/bin/coqui-console" <<'STUB'
 
 declare(strict_types=1);
 
+function normalize_test_path(string $path): string
+{
+    $resolved = realpath($path);
+    $normalized = str_replace('\\', '/', $resolved !== false ? $resolved : $path);
+    $normalized = preg_replace('#/+#', '/', $normalized) ?? $normalized;
+    if (strlen($normalized) > 1) {
+        $normalized = rtrim($normalized, '/');
+    }
+
+    return $normalized;
+}
+
+function workspace_fingerprint(string $path): string
+{
+    return substr(hash('sha256', normalize_test_path($path)), 0, 16);
+}
+
 $logfile = getenv('COQUI_TEST_LOG');
 if (!is_string($logfile) || $logfile === '') {
     fwrite(STDERR, "COQUI_TEST_LOG is required\n");
@@ -40,6 +57,8 @@ if ($mode === 'api') {
     array_shift($arguments);
     $host = '127.0.0.1';
     $port = '3300';
+    $workspace = getenv('COQUI_WORKSPACE');
+    $workspace = is_string($workspace) && $workspace !== '' ? $workspace : sys_get_temp_dir() . '/coqui-test-workspace';
 
     while ($arguments !== []) {
         $flag = array_shift($arguments);
@@ -50,6 +69,11 @@ if ($mode === 'api') {
 
         if ($flag === '--port' && $arguments !== []) {
             $port = (string) array_shift($arguments);
+            continue;
+        }
+
+        if ($flag === '--workspace' && $arguments !== []) {
+            $workspace = (string) array_shift($arguments);
             continue;
         }
     }
@@ -65,6 +89,8 @@ if ($mode === 'api') {
         exit(1);
     }
 
+    $healthEnabled = getenv('COQUI_TEST_HEALTH_MODE') !== 'disabled';
+    $workspaceId = workspace_fingerprint($workspace);
     stream_set_blocking($server, false);
     while (true) {
         $read = [$server];
@@ -77,6 +103,26 @@ if ($mode === 'api') {
 
         $connection = @stream_socket_accept($server, 0);
         if (is_resource($connection)) {
+            $requestLine = fgets($connection) ?: '';
+            while (($header = fgets($connection)) !== false) {
+                if (rtrim($header, "\r\n") === '') {
+                    break;
+                }
+            }
+
+            if ($healthEnabled && str_contains($requestLine, 'GET /api/v1/health ')) {
+                $body = json_encode([
+                    'status' => 'ok',
+                    'workspace_id' => $workspaceId,
+                ], JSON_THROW_ON_ERROR);
+
+                fwrite($connection, "HTTP/1.1 200 OK\r\n");
+                fwrite($connection, "Content-Type: application/json\r\n");
+                fwrite($connection, 'Content-Length: ' . strlen($body) . "\r\n");
+                fwrite($connection, "Connection: close\r\n\r\n");
+                fwrite($connection, $body);
+            }
+
             fclose($connection);
         }
     }
@@ -101,6 +147,7 @@ chmod +x "$tmpdir/bin/coqui" "$tmpdir/bin/coqui-launcher" "$tmpdir/bin/coqui-con
 if bash -euo pipefail -c '
     port=$((44000 + ($$ % 1000)))
     export COQUI_TEST_LOG="$1/launcher.log"
+    export COQUI_WORKSPACE="$1/.workspace"
 
     "$1/bin/coqui" --port "$port" --verbose >/tmp/coqui-launcher-default-test.out 2>&1
 
@@ -122,6 +169,7 @@ fi
 
 if bash -euo pipefail -c '
     export COQUI_TEST_LOG="$1/doctor.log"
+    export COQUI_WORKSPACE="$1/.workspace"
     : > "$COQUI_TEST_LOG"
 
     "$1/bin/coqui" doctor >/tmp/coqui-doctor-test.out 2>&1
@@ -137,6 +185,7 @@ fi
 
 if bash -euo pipefail -c '
     export COQUI_TEST_LOG="$1/run-alias.log"
+    export COQUI_WORKSPACE="$1/.workspace"
     : > "$COQUI_TEST_LOG"
 
     "$1/bin/coqui" run --new >/tmp/coqui-run-alias-test.out 2>&1
@@ -151,6 +200,7 @@ fi
 
 if bash -euo pipefail -c '
     export COQUI_TEST_LOG="$1/setup-alias.log"
+    export COQUI_WORKSPACE="$1/.workspace"
     : > "$COQUI_TEST_LOG"
 
     "$1/bin/coqui" setup >/tmp/coqui-setup-alias-test.out 2>&1
@@ -167,6 +217,7 @@ fi
 if bash -euo pipefail -c '
     port=$((45000 + ($$ % 1000)))
     export COQUI_TEST_LOG="$1/api-only.log"
+    export COQUI_WORKSPACE="$1/.workspace"
     : > "$COQUI_TEST_LOG"
 
     "$1/bin/coqui" api --background --port "$port" >/tmp/coqui-api-only-test.out 2>&1
@@ -191,6 +242,25 @@ if bash -euo pipefail -c '
     pass "coqui api routes to launcher-managed API-only mode without starting the REPL"
 else
     fail "coqui api did not behave as launcher-managed API-only mode"
+fi
+
+if bash -euo pipefail -c '
+    port=$((46000 + ($$ % 1000)))
+    export COQUI_TEST_LOG="$1/api-health-missing.log"
+    export COQUI_WORKSPACE="$1/.workspace"
+    export COQUI_TEST_HEALTH_MODE=disabled
+    : > "$COQUI_TEST_LOG"
+
+    "$1/bin/coqui" api --background --port "$port" >/tmp/coqui-api-health-missing-test.out 2>&1
+
+    grep -q "api-start" "$COQUI_TEST_LOG"
+    grep -q "API: starting in background on http://127.0.0.1:${port}" /tmp/coqui-api-health-missing-test.out
+
+    "$1/bin/coqui" stop-api --port "$port" >/tmp/coqui-stop-api-health-missing-test.out 2>&1
+' _ "$tmpdir"; then
+    pass "launcher waits for API health instead of treating a bare TCP listener as ready"
+else
+    fail "launcher still treated a bare TCP listener as a healthy API"
 fi
 
 echo ""

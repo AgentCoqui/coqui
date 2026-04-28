@@ -235,7 +235,9 @@ test('session handler keeps latest active profile session and closes older dupli
         expect($olderSession['is_archived'])->toBe(1);
         expect($visibleSessions)->toHaveCount(1);
         expect($visibleSessions[0]['id'])->toBe($latestSessionId);
-        expect($fixture['output']->fetch())->toContain('Archived 1 older active session(s) for profile "caelum".');
+        $output = preg_replace('/\s+/', ' ', $fixture['output']->fetch()) ?? '';
+
+        expect($output)->toContain('Archived 1 older active session(s) for profile "caelum".');
     } finally {
         cleanupReplSessionHandlerFixture($fixture);
     }
@@ -276,7 +278,9 @@ test('session handler rejects resume for closed sessions', function () {
         $resolvedSessionId = $fixture['handler']->resume($fixture['io'], $sessionId);
 
         expect($resolvedSessionId)->toBeNull();
-        expect($fixture['output']->fetch())->toContain('is closed');
+        $output = preg_replace('/\s+/', ' ', $fixture['output']->fetch()) ?? '';
+
+        expect($output)->toContain('is closed');
     } finally {
         cleanupReplSessionHandlerFixture($fixture);
     }

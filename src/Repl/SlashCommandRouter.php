@@ -123,9 +123,9 @@ final class SlashCommandRouter
             '/task-cancel' => $this->handleTaskCancel($io, $arg),
             '/update' => $this->handleUpdate($io),
             '/toolkits' => $this->handleToolkits($io, $arg),
-            '/budget' => $this->handleBudget($io, $arg, $activeRole, $activeProfile),
+            '/budget' => $this->handleBudget($io, $arg, $activeRole, $activeProfile, $sessionId),
             '/channels' => $this->handleChannels($io, $arg),
-            '/prompt' => $this->handlePrompt($io, $arg, $activeRole, $activeProfile),
+            '/prompt' => $this->handlePrompt($io, $arg, $activeRole, $activeProfile, $sessionId),
             '/summarize' => $this->handleSummarize($io, $arg, $sessionId),
             '/role' => $this->handleRole($io, $arg, $activeRole, $sessionId, $activeProfile),
             '/roles' => $this->handleRoles($io, $arg, $activeRole),
@@ -271,17 +271,17 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handlePrompt(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
+    private function handlePrompt(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile, string $sessionId): RouteResult
     {
         $role = $activeRole !== SystemRole::Orchestrator->value ? $activeRole : null;
 
         if (trim($arg) === 'export') {
-            $filePath = $this->agentRunner->exportPromptToFile($role, $activeProfile);
+            $filePath = $this->agentRunner->exportPromptToFile($role, $activeProfile, $sessionId);
             $io->success('Prompt exported to: ' . $filePath);
             return RouteResult::continue();
         }
 
-        $preview = $this->promptInspection->inspect($role, $activeProfile);
+        $preview = $this->promptInspection->inspect($role, $activeProfile, $sessionId);
         $io->section('System Prompt');
         $this->renderMarkdown($io, $preview['prompt']);
         $io->newLine();
@@ -388,14 +388,14 @@ final class SlashCommandRouter
         }
     }
 
-    private function handleBudget(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
+    private function handleBudget(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile, string $sessionId): RouteResult
     {
         $requestedRole = trim($arg);
         $role = $requestedRole !== ''
             ? $requestedRole
             : ($activeRole !== SystemRole::Orchestrator->value ? $activeRole : null);
 
-        $this->budget->handle($io, $role, $activeProfile);
+        $this->budget->handle($io, $role, $activeProfile, $sessionId);
 
         return RouteResult::continue();
     }

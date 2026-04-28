@@ -250,6 +250,83 @@ test('valid image model config passes', function () {
     expect($errors)->toBeEmpty();
 });
 
+test('conversation history prompt flag must be boolean', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'context' => [
+                    'conversationHistoryInSystemPrompt' => 'yes',
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->toContain('agents.defaults.context.conversationHistoryInSystemPrompt must be a boolean');
+});
+
+test('conversation history prompt flag accepts boolean', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'context' => [
+                    'conversationHistoryInSystemPrompt' => true,
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->toBeEmpty();
+});
+
+test('valid MCP stdio policy passes validation', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'mcp' => [
+                    'allowedStdioCommands' => [
+                        ['npx', '-y', '@modelcontextprotocol/server-github'],
+                    ],
+                    'deniedStdioCommands' => [
+                        ['uvx', 'mcp-server-fetch'],
+                    ],
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->toBeEmpty();
+});
+
+test('invalid MCP stdio policy fails validation', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'mcp' => [
+                    'allowedStdioCommands' => [
+                        'npx -y @modelcontextprotocol/server-github',
+                        ['', ''],
+                    ],
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->not->toBeEmpty();
+    expect(implode("\n", $errors))->toContain('agents.defaults.mcp.allowedStdioCommands');
+});
+
 test('invalid image model format fails validation', function () {
     $data = [
         'agents' => [

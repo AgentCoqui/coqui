@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
+use CarmeloSantana\PathHelper\PathHelper;
+
 /**
  * Manages Coqui self-updates and workspace dependency updates.
  *

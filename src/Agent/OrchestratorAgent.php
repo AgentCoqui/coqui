@@ -45,7 +45,9 @@ use CoquiBot\Coqui\Config\SummarizePruningStrategy;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
+use CoquiBot\Coqui\Contract\CompositeToolkitProvider;
 use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
+use CoquiBot\Coqui\Contract\ToolkitLoadingKeyProvider;
 use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
@@ -64,7 +66,6 @@ use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Toolkit\PackagistToolkit;
 use CoquiBot\Coqui\Toolkit\StubToolkit;
 use CoquiBot\Coqui\Toolkit\TodoToolkit;
-use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
 use CoquiBot\Coqui\Tool\ConfigTool;
 use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
 use CoquiBot\Coqui\Tool\CredentialTool;
@@ -168,6 +169,7 @@ final class OrchestratorAgent extends AbstractAgent
     private ?string $cachedProjectId = null;
     private ?string $cachedProfile = null;
     private ?string $notificationPromptSection = null;
+    private ?string $conversationHistoryPromptSection = null;
 
     private readonly RoleToolkitResolver $roleToolkitResolver;
 
@@ -491,15 +493,6 @@ final class OrchestratorAgent extends AbstractAgent
         /** @var array<int, array{toolkit: ToolkitInterface, package: string, description: string}> */
         $candidateToolkits = [];
 
-        // Toolkit generator — scaffold new toolkit packages
-        if ($this->roleToolkitResolver->isToolkitAllowed(ToolkitGeneratorToolkit::class)) {
-            $candidateToolkits[] = [
-                'toolkit' => new ToolkitGeneratorToolkit(workspacePath: $this->workspacePath),
-                'package' => '',
-                'description' => 'scaffold new toolkit packages',
-            ];
-        }
-
         // Coqui Space toolkit — marketplace integration
         if ($this->spaceToolkit !== null) {
             $candidateToolkits[] = [
@@ -520,6 +513,7 @@ final class OrchestratorAgent extends AbstractAgent
                 $toolkit = $entry['toolkit'];
                 $vis = $this->visibilityRegistry?->getPackageVisibility($packageName)
                     ?? ToolkitVisibility::Enabled;
+                $discoveredToolkits = $this->expandDiscoveredToolkitCandidates($toolkit);
 
                 // Disabled packages are invisible — skip entirely
                 if ($vis === ToolkitVisibility::Disabled) {
@@ -528,20 +522,24 @@ final class OrchestratorAgent extends AbstractAgent
 
                 // User-explicit Stub visibility always wins — bypass budget gate
                 if ($vis === ToolkitVisibility::Stub) {
-                    $this->addToolkit(new StubToolkit($toolkit), $packageName);
-                    $this->deferredToolkitInfo[] = [
-                        'name' => self::toolkitBasename($toolkit),
-                        'description' => $this->extractToolkitDescription($toolkit),
-                        'package' => $packageName,
-                    ];
+                    foreach ($discoveredToolkits as $discoveredToolkit) {
+                        $this->addToolkit(new StubToolkit($discoveredToolkit), $packageName);
+                        $this->deferredToolkitInfo[] = [
+                            'name' => self::toolkitBasename($discoveredToolkit),
+                            'description' => $this->extractToolkitDescription($discoveredToolkit),
+                            'package' => $packageName,
+                        ];
+                    }
                     continue;
                 }
 
-                $candidateToolkits[] = [
-                    'toolkit' => $toolkit,
-                    'package' => $packageName,
-                    'description' => $this->extractToolkitDescription($toolkit),
-                ];
+                foreach ($discoveredToolkits as $discoveredToolkit) {
+                    $candidateToolkits[] = [
+                        'toolkit' => $discoveredToolkit,
+                        'package' => $packageName,
+                        'description' => $this->extractToolkitDescription($discoveredToolkit),
+                    ];
+                }
             }
         }
 
@@ -860,6 +858,21 @@ final class OrchestratorAgent extends AbstractAgent
     {
         $trimmed = $notificationPromptSection !== null ? trim($notificationPromptSection) : null;
         $this->notificationPromptSection = $trimmed !== '' ? $trimmed : null;
+    }
+
+    public function setConversationHistoryPromptSection(?string $conversationHistoryPromptSection): void
+    {
+        $trimmed = $conversationHistoryPromptSection !== null ? trim($conversationHistoryPromptSection) : null;
+        $this->conversationHistoryPromptSection = $trimmed !== '' ? $trimmed : null;
+    }
+
+    protected function finalizeSystemPrompt(string $prompt): string
+    {
+        if ($this->conversationHistoryPromptSection === null || $this->conversationHistoryPromptSection === '') {
+            return $prompt;
+        }
+
+        return rtrim($prompt) . "\n\n---\n\n" . $this->conversationHistoryPromptSection;
     }
 
     public function instructions(): string
@@ -1442,7 +1455,7 @@ final class OrchestratorAgent extends AbstractAgent
             $prompt = SystemPrompt::withToolkits($this->ownToolkits, $prompt);
         }
 
-        return SystemPrompt::render($prompt);
+        return $this->finalizeSystemPrompt(SystemPrompt::render($prompt));
     }
 
     /**
@@ -1584,6 +1597,10 @@ final class OrchestratorAgent extends AbstractAgent
 
         foreach ($this->buildToolkitGuidelinePromptSections() as $section) {
             $sections[] = $section;
+        }
+
+        if (($conversationHistory = $this->buildConversationHistoryPromptSection()) !== null) {
+            $sections[] = $conversationHistory;
         }
 
         return $sections;
@@ -1999,6 +2016,23 @@ final class OrchestratorAgent extends AbstractAgent
         );
     }
 
+    private function buildConversationHistoryPromptSection(): ?PromptSection
+    {
+        if ($this->conversationHistoryPromptSection === null || $this->conversationHistoryPromptSection === '') {
+            return null;
+        }
+
+        return new PromptSection(
+            id: 'context.conversation-history',
+            title: 'Conversation History',
+            content: $this->conversationHistoryPromptSection,
+            priority: PromptSectionPriority::Workflow,
+            rationale: 'When enabled, prior conversation turns move into a final system-prompt section so the provider sees history as prompt context instead of replayed messages.',
+            decision: 'pinned_workflow',
+            group: 'history',
+        );
+    }
+
     private function buildIterationBudgetPromptSection(): ?PromptSection
     {
         if ($this->maxIterations() === 0) {
@@ -2222,7 +2256,19 @@ final class OrchestratorAgent extends AbstractAgent
             $package = $entry['package'];
             $basename = self::toolkitBasename($toolkit);
 
-            if ($mode === ToolkitLoadingMode::Eager) {
+            if ($mode === ToolkitLoadingMode::System) {
+                $this->addToolkit($toolkit, $package);
+                $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::System;
+                $this->recordToolkitLoadingDecision(
+                    name: $basename,
+                    package: $package,
+                    description: $entry['description'],
+                    mode: ToolkitLoadingMode::System,
+                    configuredMode: $mode,
+                    reason: 'system_always_loaded',
+                    tokens: $candidateTokens[$idx],
+                );
+            } elseif ($mode === ToolkitLoadingMode::Eager) {
                 $this->addToolkit($toolkit, $package);
                 $this->appliedLoadingModes[$basename] = ToolkitLoadingMode::Eager;
                 $this->recordToolkitLoadingDecision(
@@ -2400,17 +2446,40 @@ final class OrchestratorAgent extends AbstractAgent
      */
     private static function toolkitBasename(ToolkitInterface $toolkit): string
     {
-        $class = $toolkit::class;
+        $resolved = $toolkit;
 
-        if ($toolkit instanceof StubToolkit) {
-            $class = $toolkit->innerClass();
-        } elseif ($toolkit instanceof CredentialGuardToolkit) {
-            $class = $toolkit->innerClass();
+        while ($resolved instanceof StubToolkit || $resolved instanceof CredentialGuardToolkit) {
+            $resolved = $resolved->innerToolkit();
         }
 
-        $parts = explode('\\', $class);
+        if ($resolved instanceof ToolkitLoadingKeyProvider) {
+            return $resolved->toolkitLoadingKey();
+        }
+
+        $parts = explode('\\', $resolved::class);
 
         return end($parts);
+    }
+
+    /**
+     * @return list<ToolkitInterface>
+     */
+    private function expandDiscoveredToolkitCandidates(ToolkitInterface $toolkit): array
+    {
+        $expanded = [$toolkit];
+        $source = $toolkit;
+
+        if ($source instanceof CredentialGuardToolkit) {
+            $source = $source->innerToolkit();
+        }
+
+        if ($source instanceof CompositeToolkitProvider) {
+            foreach ($source->childToolkits() as $childToolkit) {
+                $expanded[] = $childToolkit;
+            }
+        }
+
+        return $expanded;
     }
 
     /**

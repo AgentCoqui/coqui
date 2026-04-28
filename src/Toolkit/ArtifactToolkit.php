@@ -8,6 +8,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CarmeloSantana\PHPAgents\Tool\Parameter\ArrayParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
@@ -15,6 +16,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CoquiBot\Coqui\Agent\PlanTodoGenerator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\TodoStore;
+use CoquiBot\Coqui\Support\JsonHelper;
 
 /**
  * Agent-facing toolkit for managing structured artifacts.
@@ -139,13 +141,13 @@ final class ArtifactToolkit implements ToolkitInterface
                     sprintId: $sprintId,
                 );
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'id' => $id,
                     'title' => $title,
                     'type' => $type,
                     'stage' => 'draft',
                     'version' => 1,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -183,13 +185,13 @@ final class ArtifactToolkit implements ToolkitInterface
 
                 $artifact = $this->store->get($id, sessionId: $this->sessionId);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'id' => $id,
                     'title' => $artifact['title'] ?? '',
                     'version' => $artifact['version'] ?? 0,
                     'stage' => $artifact['stage'] ?? '',
                     'updated' => true,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -219,14 +221,14 @@ final class ArtifactToolkit implements ToolkitInterface
                     }
 
                     $artifact = $this->store->get($id, sessionId: $this->sessionId);
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'id' => $id,
                         'title' => $artifact['title'] ?? '',
                         'version' => $version,
                         'content' => $versionData['content'],
                         'change_summary' => $versionData['change_summary'],
                         'created_at' => $versionData['created_at'],
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 }
 
                 $artifact = $this->store->get($id, sessionId: $this->sessionId);
@@ -234,7 +236,7 @@ final class ArtifactToolkit implements ToolkitInterface
                     return ToolResult::error("Artifact not found: {$id}");
                 }
 
-                return ToolResult::success(json_encode($artifact, JSON_UNESCAPED_SLASHES) ?: '{}');
+                return ToolResult::json($artifact);
             },
         );
     }
@@ -287,10 +289,10 @@ final class ArtifactToolkit implements ToolkitInterface
                     'created_at' => $a['created_at'],
                 ], $artifacts);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'count' => count($summary),
                     'artifacts' => $summary,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -302,7 +304,7 @@ final class ArtifactToolkit implements ToolkitInterface
             description: 'Transition one or many artifacts to a new stage: draft → review → final. Provide id for single mode, or ids/all/filters for bulk mode.',
             parameters: [
                 new StringParameter('id', 'Artifact ID for single-artifact mode', required: false),
-                new StringParameter('ids', 'JSON array of artifact IDs for bulk mode: ["id1", "id2", ...]. Max 200.', required: false),
+                new ArrayParameter('ids', 'Artifact IDs for bulk mode. Max 200.', required: false, items: new StringParameter('id', 'Artifact ID', required: true)),
                 new EnumParameter('stage', 'Target stage', ['draft', 'review', 'final'], required: true),
                 new EnumParameter('current_stage', 'Filter by current stage (bulk mode)', ['draft', 'review', 'final'], required: false),
                 new EnumParameter('type', 'Filter by artifact type (bulk mode)', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
@@ -351,7 +353,7 @@ final class ArtifactToolkit implements ToolkitInterface
                         }
                     }
 
-                    return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
+                    return ToolResult::json($response);
                 }
 
                 // Bulk mode
@@ -362,20 +364,20 @@ final class ArtifactToolkit implements ToolkitInterface
                 }
 
                 if ($matchedIds === []) {
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'updated' => 0,
                         'target_stage' => $stage,
                         'failed_ids' => $failedIds,
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 }
 
                 $updated = $this->store->bulkUpdateStage($matchedIds, $stage, $this->sessionId);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'updated' => $updated,
                     'target_stage' => $stage,
                     'failed_ids' => $failedIds,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -387,7 +389,7 @@ final class ArtifactToolkit implements ToolkitInterface
             description: 'Delete one or many artifacts and their version history. Provide id for single mode, or ids/all/filters for bulk mode. Irreversible.',
             parameters: [
                 new StringParameter('id', 'Artifact ID for single-artifact mode', required: false),
-                new StringParameter('ids', 'JSON array of artifact IDs for bulk mode: ["id1", "id2", ...]. Max 200.', required: false),
+                new ArrayParameter('ids', 'Artifact IDs for bulk mode. Max 200.', required: false, items: new StringParameter('id', 'Artifact ID', required: true)),
                 new EnumParameter('type', 'Filter by artifact type (bulk mode)', ['code', 'document', 'config', 'plan', 'data', 'loop_output', 'sketch', 'hypothesis', 'other'], required: false),
                 new EnumParameter('stage', 'Filter by stage (bulk mode)', ['draft', 'review', 'final'], required: false),
                 new StringParameter('project_id', 'Filter by project ID (bulk mode)', required: false),
@@ -410,11 +412,11 @@ final class ArtifactToolkit implements ToolkitInterface
                         return ToolResult::error("Failed to delete artifact {$id}");
                     }
 
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'id' => $id,
                         'title' => $artifact['title'],
                         'deleted' => true,
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 }
 
                 // Bulk mode
@@ -426,10 +428,10 @@ final class ArtifactToolkit implements ToolkitInterface
 
                 $deleted = $this->store->bulkDelete($matchedIds, $this->sessionId);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'deleted' => $deleted,
                     'failed_ids' => $failedIds,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -440,7 +442,7 @@ final class ArtifactToolkit implements ToolkitInterface
      */
     private function resolveArtifactTargets(array $args, string $stageFilterKey = 'stage'): array
     {
-        $idsRaw = isset($args['ids']) ? trim((string) $args['ids']) : '';
+        $hasIds = array_key_exists('ids', $args);
         $type = isset($args['type']) && trim((string) $args['type']) !== '' ? trim((string) $args['type']) : null;
         $stage = isset($args[$stageFilterKey]) && trim((string) $args[$stageFilterKey]) !== '' ? trim((string) $args[$stageFilterKey]) : null;
         $projectId = isset($args['project_id']) && trim((string) $args['project_id']) !== '' ? trim((string) $args['project_id']) : null;
@@ -448,10 +450,10 @@ final class ArtifactToolkit implements ToolkitInterface
         $createdAfter = isset($args['created_after']) && trim((string) $args['created_after']) !== '' ? trim((string) $args['created_after']) : null;
         $all = (bool) ($args['all'] ?? false);
 
-        if ($idsRaw !== '') {
-            $decoded = json_decode($idsRaw, true);
-            if (!is_array($decoded) || $decoded === []) {
-                return [[], [], 'ids must be a non-empty JSON array of artifact IDs.'];
+        if ($hasIds) {
+            $decoded = JsonHelper::decodeJsonList($args['ids']);
+            if ($decoded === null || $decoded === []) {
+                return [[], [], 'ids must be a non-empty array of artifact IDs.'];
             }
             if (count($decoded) > 200) {
                 return [[], [], 'Maximum 200 artifact IDs per bulk operation.'];

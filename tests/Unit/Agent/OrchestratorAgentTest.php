@@ -4,19 +4,28 @@ declare(strict_types=1);
 
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CarmeloSantana\PHPAgents\Context\HeuristicCounter;
+use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CarmeloSantana\PHPAgents\Contract\ProviderInterface;
 use CarmeloSantana\PHPAgents\Provider\Response;
+use CarmeloSantana\PHPAgents\Tool\Tool;
+use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
 use CoquiBot\Coqui\Config\MountManager;
+use CoquiBot\Coqui\Config\ToolkitDiscovery;
+use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
+use CoquiBot\Coqui\Contract\CompositeToolkitProvider;
 use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Contract\MountDefinition;
+use CoquiBot\Coqui\Contract\ToolkitLoadingKeyProvider;
+use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
 use CoquiBot\Coqui\Memory\MemoryEntry;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Tests\Support\Agent\CompositeBudgetTestToolkit;
 use CoquiBot\Coqui\Tool\StubTool;
 
 beforeEach(function () {
@@ -192,6 +201,42 @@ test('tools includes restart_coqui when onRestart callback provided', function (
     expect($toolNames)->toContain('restart_coqui');
 });
 
+test('composite toolkits expand child toolkits with independent loading keys', function () {
+    file_put_contents(
+        $this->workspace . '/toolkits.json',
+        json_encode([
+            'vendor/composite-budget-toolkit' => [CompositeBudgetTestToolkit::class],
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}',
+    );
+
+    $loadingRegistry = new ToolkitLoadingRegistry($this->workspace);
+    $loadingRegistry->setMode('CompositeChild:alpha', ToolkitLoadingMode::Deferred);
+    $loadingRegistry->setMode('CompositeChild:beta', ToolkitLoadingMode::Eager);
+
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->workspace,
+        workspacePath: $this->workspace,
+        discovery: new ToolkitDiscovery(projectRoot: $this->workspace, workspacePath: $this->workspace),
+        loadingRegistry: $loadingRegistry,
+    );
+
+    $appliedModes = $agent->getAppliedLoadingModes();
+    $deferredNames = array_column($agent->getDeferredToolkitInfo(), 'name');
+    $decisionsByName = [];
+    foreach ($agent->getToolkitLoadingDecisions() as $decision) {
+        $decisionsByName[$decision['name']] = $decision;
+    }
+
+    expect($appliedModes['CompositeChild:alpha'])->toBe(ToolkitLoadingMode::Deferred);
+    expect($appliedModes['CompositeChild:beta'])->toBe(ToolkitLoadingMode::Eager);
+    expect($deferredNames)->toContain('CompositeChild:alpha');
+    expect($decisionsByName['CompositeChild:alpha']['reason'])->toBe('explicit_deferred');
+    expect($decisionsByName['CompositeChild:beta']['reason'])->toBe('explicit_eager');
+});
+
 test('instructions returns non-empty string', function () {
     $agent = new OrchestratorAgent(
         provider: $this->provider,
@@ -284,6 +329,40 @@ test('prompt section breakdown includes pending notifications when set', functio
     $ids = array_column($breakdown, 'id');
 
     expect($ids)->toContain('context.pending-notifications');
+});
+
+test('system prompt appends conversation history section when set', function () {
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+    );
+
+    $agent->setConversationHistoryPromptSection("## Conversation History\n\n- [5m] user [full] Earlier question");
+
+    $prompt = $agent->getSystemPromptText();
+
+    expect($prompt)->toContain('## Conversation History');
+    expect($prompt)->toContain('Earlier question');
+});
+
+test('prompt section breakdown includes conversation history when set', function () {
+    $agent = new OrchestratorAgent(
+        provider: $this->provider,
+        roleResolver: $this->roleResolver,
+        config: $this->config,
+        projectRoot: $this->projectRoot,
+        workspacePath: $this->workspace,
+    );
+
+    $agent->setConversationHistoryPromptSection("## Conversation History\n\n- [5m] user [full] Earlier question");
+
+    $breakdown = $agent->getPromptSectionBreakdown(new HeuristicCounter());
+    $ids = array_column($breakdown, 'id');
+
+    expect($ids)->toContain('context.conversation-history');
 });
 
 test('instructions include profile preferences and scoped core memories', function () {

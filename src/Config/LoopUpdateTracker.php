@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
+use CarmeloSantana\PathHelper\PathHelper;
+
 /**
  * Tracks content hashes of built-in loop definition files to detect updates.
  *

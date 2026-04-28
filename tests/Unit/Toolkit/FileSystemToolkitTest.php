@@ -153,6 +153,8 @@ test('file_info tool returns file metadata', function () {
     $result = $tool->execute(['path' => 'info.txt']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
     expect($result->content)->toContain('5'); // size
     expect($result->content)->toContain('file');
 })->skip(PHP_OS_FAMILY === 'Windows', 'mime_content_type() unreliable on Windows');

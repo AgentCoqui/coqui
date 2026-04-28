@@ -38,8 +38,11 @@ final readonly class PromptHandler
             $profile = isset($params['profile']) && is_string($params['profile']) && $params['profile'] !== ''
                 ? $params['profile']
                 : null;
+            $sessionId = isset($params['session_id']) && is_string($params['session_id']) && $params['session_id'] !== ''
+                ? $params['session_id']
+                : null;
 
-            return Router::jsonResponse($this->inspectionService->inspect($role, $profile));
+            return Router::jsonResponse($this->inspectionService->inspect($role, $profile, $sessionId));
         } catch (\Throwable $e) {
             return Router::errorResponse(
                 ApiErrorCode::INTERNAL_ERROR,

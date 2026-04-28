@@ -16,6 +16,21 @@ function toolFromToolkit(ToolkitInterface $toolkit, string $name): ToolInterface
 	throw new InvalidArgumentException(sprintf('Tool "%s" not found.', $name));
 }
 
+/**
+	* @return array<string, mixed>
+	*/
+function assertStructuredToolResult(CarmeloSantana\PHPAgents\Tool\ToolResult $result): array
+{
+	expect($result->status)->toBe(CarmeloSantana\PHPAgents\Enum\ToolResultStatus::Success);
+	expect($result->mimeType)->toBe('application/json');
+	expect($result->displayHint)->toBe('structured-json');
+
+	$data = json_decode($result->content, true);
+	expect($data)->toBeArray();
+
+	return $data;
+}
+
 function releaseTestObjectProperties(object $context): void
 {
 	foreach (array_keys(get_object_vars($context)) as $property) {

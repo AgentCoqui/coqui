@@ -20,7 +20,7 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, coqui_toolkits, coqui_skills). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Also builds prompt-section telemetry with pinned-versus-deferrable classification and rationale for budget inspection surfaces. Supports a per-turn notification prompt section injected outside the cached base instructions so transient background-work notifications remain visible to the model without polluting persisted conversation history. Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, coqui_toolkits, coqui_skills). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Also builds prompt-section telemetry with pinned-versus-deferrable classification and rationale for budget inspection surfaces. Supports a per-turn notification prompt section injected outside the cached base instructions so transient background-work notifications remain visible to the model without polluting persisted conversation history. Constructed fresh on every REPL turn.",
             "methods": [
                 "setNotificationPromptSection(?string): void — install or clear the turn-scoped notification prompt section",
                 "instructions(): string — returns the full system prompt with role descriptions, security rules, and operational guidelines",
@@ -1186,7 +1186,7 @@
             "path": "src/Config/ToolkitDiscovery.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\ToolkitDiscovery",
             "layer": "config",
-            "description": "Discovers ToolkitInterface implementations from installed Composer packages. Checks extra.php-agents.toolkits in package composer.json. Persists discovered toolkits in toolkits.json registry. Scans both project and workspace vendor directories. Wraps toolkits with CredentialGuardToolkit when credential requirements are declared. Reads extra.php-agents.gated declarations for destructive-command gating.",
+            "description": "Discovers ToolkitInterface implementations from installed Composer packages. Checks extra.php-agents.toolkits in package composer.json. Persists discovered toolkits in toolkits.json registry. Scans both project and workspace vendor directories. Supports context-aware toolkit factories like fromCoquiContext() when available so standalone toolkit packages can inherit Coqui runtime config without a hard dependency. Wraps toolkits with CredentialGuardToolkit when credential requirements are declared. Reads extra.php-agents.gated declarations for destructive-command gating.",
             "methods": [
                 "discover(string $packageName): string[] — scan a single package for toolkit classes",
                 "discoverAll(): array — scan all installed packages (project + workspace)",
@@ -1277,15 +1277,6 @@
             "description": "Cross-platform home directory resolution. Checks HOME (Unix), USERPROFILE (Windows), guarded POSIX fallback, and sys_get_temp_dir() in order. Used by WorkspaceResolver, SetupWizard, and DoctorCommand to avoid unguarded posix_getpwuid() calls on Windows.",
             "methods": [
                 "resolve(): string — returns the current user's home directory path"
-            ]
-        },
-        {
-            "path": "src/Config/PathHelper.php",
-            "fqcn": "CoquiBot\\Coqui\\Config\\PathHelper",
-            "layer": "config",
-            "description": "Cross-platform path helpers. Centralizes DIRECTORY_SEPARATOR-aware operations so the codebase works correctly on both Unix (/) and Windows (\\) paths. Provides trimTrailingSlash() that handles both separators while preserving root paths.",
-            "methods": [
-                "trimTrailingSlash(string $path): string — trims trailing / and \\ from a path, preserving root paths (/ on Unix, C:\\ on Windows)"
             ]
         },
         {
@@ -1493,6 +1484,24 @@
             ]
         },
         {
+            "path": "src/Contract/CompositeToolkitProvider.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\CompositeToolkitProvider",
+            "layer": "contract",
+            "description": "Optional interface for toolkits that expose runtime child toolkits. Child toolkits are expanded into the normal discovery and budget pipeline so dynamic toolkit sources can participate in eager, deferred, and auto loading without a second loading system.",
+            "methods": [
+                "childToolkits(): array — returns runtime child toolkits to feed through normal toolkit discovery and budgeting"
+            ]
+        },
+        {
+            "path": "src/Contract/ToolkitLoadingKeyProvider.php",
+            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolkitLoadingKeyProvider",
+            "layer": "contract",
+            "description": "Optional interface for toolkits that need a stable loading-registry key that differs from their PHP class basename. Used by dynamic or wrapped toolkits so persisted loading overrides remain stable across turns.",
+            "methods": [
+                "toolkitLoadingKey(): string — returns the canonical loading-registry key for this toolkit"
+            ]
+        },
+        {
             "path": "src/Storage/ToolUsageTracker.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ToolUsageTracker",
             "layer": "storage",
@@ -1540,16 +1549,6 @@
             "methods": [
                 "tools(): ToolInterface[] — returns coqui_source_map, coqui_read, coqui_list, coqui_search, coqui_doc_map, coqui_doc_read",
                 "guidelines(): string — usage instructions for project source and documentation access"
-            ]
-        },
-        {
-            "path": "src/Toolkit/ToolkitGeneratorToolkit.php",
-            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ToolkitGeneratorToolkit",
-            "layer": "toolkit",
-            "description": "Generates complete toolkit package scaffolds for Coqui. Tools: coqui_toolkit_create (scaffolds a new package with composer.json, toolkit class, README, runs composer install), coqui_toolkit_add (inserts a new tool into an existing toolkit class). All generated packages follow Coqui conventions and are auto-discoverable.",
-            "methods": [
-                "tools(): ToolInterface[] — returns coqui_toolkit_create, coqui_toolkit_add",
-                "guidelines(): string — usage instructions for toolkit generation workflow"
             ]
         },
         {
@@ -2291,6 +2290,15 @@
             ]
         },
         {
+            "path": "src/Api/Handler/McpServerHandler.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\McpServerHandler",
+            "layer": "command",
+            "description": "MCP server management API surface. Registers CRUD, connectivity, env-link, OAuth, search, and discovered-tool inspection endpoints under /api/v1/mcp using the shared MCP runtime service from the MCP toolkit package.",
+            "methods": [
+                "register(Router): void — attach all /api/v1/mcp routes"
+            ]
+        },
+        {
             "path": "src/Api/Handler/ServerHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ServerHandler",
             "layer": "command",
@@ -2340,7 +2348,7 @@
             "path": "src/Command/ApiCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\ApiCommand",
             "layer": "command",
-            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Invoked through the internal console binary behind the launcher-managed public entrypoints so background task and turn workers can spawn a stable non-wrapper process path. Boots the system headlessly, creates all handlers including evaluation, role, prompt-inspection, channel CRUD/inspection, channel-health surfaces, and the launcher-aware server restart endpoint, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers plus the channel runtime and channel execution managers, and enters the ReactPHP event loop. Also installs ApiLifecycleController so health/server responses and channel mutations share persistent restart-state metadata.",
+            "description": "Symfony Console command ('api') that starts the ReactPHP HTTP server. Invoked through the internal console binary behind the launcher-managed public entrypoints so background task and turn workers can spawn a stable non-wrapper process path. Boots the system headlessly, creates all handlers including evaluation, role, prompt-inspection, channel CRUD/inspection, channel-health surfaces, the MCP server management API backed by the shared toolkit runtime service, and the launcher-aware server restart endpoint, configures CORS (with PATCH support) and optional API key auth, wires background managers including notification automation processing/reclaim timers plus the channel runtime and channel execution managers, and enters the ReactPHP event loop. Also installs ApiLifecycleController so health/server responses and channel mutations share persistent restart-state metadata.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — boots system, creates server, listens",
                 "registerRoutes(Router, ...handlers): void — registers all API routes including evaluation, prompt, budget, and loop endpoints",

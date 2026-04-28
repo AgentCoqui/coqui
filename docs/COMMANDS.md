@@ -52,6 +52,7 @@ When the active session is group-enabled, the REPL prompt shows the current memb
 | `/config` | Show current configuration |
 | `/config show` | Show the raw `openclaw.json` file |
 | `/config edit` | Reconfigure via setup wizard, then restart |
+| `/config history [status\|on\|off]` | Show or toggle whether prior turns are also appended into the final `Conversation History` system-prompt block while normal replay stays enabled |
 | `/restart` | Restart the current Coqui REPL process (re-reads config, re-discovers toolkits) |
 | `/update` | Check for and apply dependency updates, then restart |
 | `/help` | Show the command reference table |
@@ -107,6 +108,33 @@ Toolkit commands now use the same shared help formatting conventions as the buil
 When the resolved model is an Ollama image model that is not installed locally, Coqui now asks for confirmation before running `ollama pull` and shows a controlled download status instead of dumping the raw pull stream into the REPL.
 
 In the interactive REPL, Coqui now auto-renders one low-fidelity ANSI image preview per turn when a successful tool result returns a workspace-local image path, such as a `browser_capture` screenshot or an image-toolkit output. Streamed assistant markdown also previews one workspace-local markdown image per response. This v1 behavior is intentionally narrow: local workspace files only, first preview only, and graceful fallback when `ext-gd` is unavailable.
+
+### MCP
+
+| Command | Description |
+| --- | --- |
+| `/mcp` | Show the standardized MCP server management command reference |
+| `/mcp help` | Show the same standardized MCP server management command reference |
+| `/mcp list` | List configured MCP servers with live connection state and last connectivity test |
+| `/mcp status <server>` | Show one server's command, env links, discovered tool count, and live audit fields |
+| `/mcp tools <server>` | List discovered MCP tools for one server |
+| `/mcp search <query> [server]` | Search discovered MCP tool names and descriptions |
+| `/mcp test <server>` | Reconnect and verify tool discovery for one server |
+| `/mcp connect <server>` | Connect a configured MCP server immediately |
+| `/mcp disconnect <server>` | Disconnect a configured MCP server immediately |
+| `/mcp refresh <server>` | Reconnect and refresh discovered tools for one server |
+| `/mcp add <server> <command> [args...]` | Add a new MCP server configuration |
+| `/mcp update <server> <command> [args...]` | Update an existing MCP server command or args |
+| `/mcp remove <server>` | Remove a configured MCP server |
+| `/mcp enable <server>` | Enable a disabled MCP server |
+| `/mcp disable <server>` | Disable and disconnect a configured MCP server |
+| `/mcp promote <server>` | Force one MCP server toolkit to load eagerly on future turns |
+| `/mcp demote <server>` | Force one MCP server toolkit to stay deferred on future turns |
+| `/mcp auto <server>` | Return one MCP server toolkit to automatic budget-gated loading |
+| `/mcp set-env <server> <ENV_KEY>` | Prompt for a secret value and link it into one server's env config |
+| `/mcp auth <server> <auth-url> <token-url> [client-id] [scopes...]` | Run browser-based OAuth and link the resulting access token for one server |
+
+MCP config changes are re-read on future agent turns without a full Coqui restart. If a running REPL or API process needs the new server runtime immediately, use `/mcp connect <server>`, `/mcp refresh <server>`, or `/restart`. Server loading mode changes reuse Coqui's normal toolkit budget gate: `promote` maps to eager loading, `demote` maps to deferred loading, and `auto` returns the server to budget-managed loading. Proxied MCP tools stay namespaced as `mcp_{server}_{tool}`, so the existing `/toolkits enable|stub|disable tool:<name>` controls still work for individual MCP tools.
 
 ### Background Tasks
 

@@ -158,6 +158,8 @@ test('start_background_task creates task successfully', function () {
     ]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
     $data = json_decode($result->content, true);
     expect($data)->toHaveKeys(['task_id', 'session_id', 'status', 'title']);
     expect($data['status'])->toBe('pending');
@@ -262,6 +264,8 @@ test('start_background_tool creates tool task successfully', function () {
     ]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
     $data = json_decode($result->content, true);
     expect($data)->toHaveKeys(['task_id', 'session_id', 'status', 'tool_name', 'title']);
     expect($data['status'])->toBe('pending');
@@ -317,6 +321,8 @@ test('task_status returns details for existing task', function () {
     $result = $statusTool->execute(['task_id' => $taskId]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
     expect($result->content)->toContain('pending');
 });
 

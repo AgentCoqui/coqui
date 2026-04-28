@@ -20,14 +20,15 @@ final readonly class PromptInspectionService
     /**
      * @return array<string, mixed>
      */
-    public function inspect(?string $role = null, ?string $profile = null): array
+    public function inspect(?string $role = null, ?string $profile = null, ?string $sessionId = null): array
     {
-        $preview = $this->agentRunner->buildPromptPreview($role, $profile);
+        $preview = $this->agentRunner->buildPromptPreview($role, $profile, $sessionId);
         $budget = $preview['budget_snapshot'];
         $promptSections = is_array($budget['prompt_sections'] ?? null) ? $budget['prompt_sections'] : [];
 
         return [
             'profile' => $profile,
+            'session_id' => $sessionId,
             'role' => $preview['effective_role'],
             'resolved_model' => $preview['resolved_model'],
             'prompt' => $preview['prompt'],

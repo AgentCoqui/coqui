@@ -10,7 +10,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
-use CoquiBot\Coqui\Config\PathHelper;
+use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\CoquiSpace\Installer\ToolkitInstaller;
 
 /**
@@ -98,7 +98,7 @@ final class CoquiToolkitsTool
         if ($sections === []) {
             return ToolResult::success(
                 "No toolkits found. Use `coqui_space_toolkits(action: \"search\", query: \"...\")` to discover community toolkits, "
-                . "or `coqui_toolkit_create` to scaffold a new one.",
+                . "or install a toolkit package with `composer`.",
             );
         }
 

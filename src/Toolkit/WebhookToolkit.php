@@ -279,7 +279,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
         $webhook = $this->webhookStore->get($id);
         $baseUrl = $this->apiBaseUrl !== '' ? $this->apiBaseUrl : 'http://localhost:3300';
 
-        return ToolResult::success((string) json_encode([
+        return ToolResult::json([
             'id' => $id,
             'name' => $name,
             'url' => "{$baseUrl}/api/v1/webhooks/incoming/{$name}",
@@ -287,7 +287,7 @@ final readonly class WebhookToolkit implements ToolkitInterface
             'source' => $source,
             'profile' => $webhook['profile'] ?? null,
             'message' => "Webhook '{$name}' created. Configure the external service with the URL and secret above.",
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        ]);
     }
 
     /**
@@ -337,10 +337,10 @@ final readonly class WebhookToolkit implements ToolkitInterface
         $secret = (string) $webhook['secret'];
         $webhook['secret'] = SecretMasker::mask($secret);
 
-        return ToolResult::success((string) json_encode([
+        return ToolResult::json([
             'webhook' => $webhook,
             'recent_deliveries' => $deliveries,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        ]);
     }
 
     /**
@@ -405,10 +405,10 @@ final readonly class WebhookToolkit implements ToolkitInterface
             $updated['secret'] = SecretMasker::mask((string) $updated['secret']);
         }
 
-        return ToolResult::success((string) json_encode([
+        return ToolResult::json([
             'message' => "Webhook '{$webhook['name']}' updated",
             'webhook' => $updated,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        ]);
     }
 
     /**
@@ -427,11 +427,11 @@ final readonly class WebhookToolkit implements ToolkitInterface
         $newSecret = $this->webhookStore->rotateSecret($id);
         $baseUrl = $this->apiBaseUrl !== '' ? $this->apiBaseUrl : 'http://localhost:3300';
 
-        return ToolResult::success((string) json_encode([
+        return ToolResult::json([
             'message' => "Secret rotated for webhook '{$name}'. Update the external service immediately.",
             'webhook_url' => "{$baseUrl}/api/v1/webhooks/incoming/{$name}",
             'new_secret' => $newSecret,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        ]);
     }
 
     /**

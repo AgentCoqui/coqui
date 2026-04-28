@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Support;
 
 use CarmeloSantana\CoquiToolkitImages\Support\ImagePreviewFormatter;
-use CoquiBot\Coqui\Config\PathHelper;
+use CarmeloSantana\PathHelper\PathHelper;
 
 final class ImagePreviewService
 {

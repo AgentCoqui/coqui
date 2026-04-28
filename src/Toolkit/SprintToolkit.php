@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Toolkit;
 
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
+use CarmeloSantana\PHPAgents\Tool\Parameter\ArrayParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
@@ -16,6 +17,7 @@ use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Support\FileSystemOperations;
+use CoquiBot\Coqui\Support\JsonHelper;
 
 /**
  * Agent-facing toolkit for managing projects and sprints.
@@ -171,13 +173,13 @@ final readonly class SprintToolkit implements ToolkitInterface
                         }
                     }
 
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'id' => $id,
                         'title' => $title,
                         'slug' => $slug,
                         'directory' => $directory,
                         'status' => 'active',
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 } catch (\InvalidArgumentException $e) {
                     return ToolResult::error($e->getMessage());
                 }
@@ -265,7 +267,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                     'sprints' => $sprintLines !== [] ? "\n" . implode("\n", $sprintLines) : 'No sprints yet',
                 ];
 
-                return ToolResult::success(json_encode($result, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: '{}');
+                return ToolResult::json($result);
             },
         );
     }
@@ -340,13 +342,13 @@ final readonly class SprintToolkit implements ToolkitInterface
 
                 $this->storage->setActiveProject($this->sessionId, $project['id']);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'id' => $project['id'],
                     'title' => $project['title'],
                     'slug' => $project['slug'],
                     'directory' => $this->projectStore->getProjectDirectory($project['id']),
                     'status' => 'active_project_set',
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -375,11 +377,11 @@ final readonly class SprintToolkit implements ToolkitInterface
                 if (strtolower($id) === 'all') {
                     $projects = $this->projectStore->listProjects(limit: 1000);
                     if ($projects === []) {
-                        return ToolResult::success(json_encode([
+                        return ToolResult::json([
                             'deleted' => 0,
                             'cleared_active_sessions' => 0,
                             'directories_deleted' => 0,
-                        ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                        ]);
                     }
 
                     $directoriesDeleted = 0;
@@ -398,12 +400,12 @@ final readonly class SprintToolkit implements ToolkitInterface
                     $deleted = $this->projectStore->deleteAllProjects();
                     $cleared = $this->storage?->clearAllActiveProjects() ?? 0;
 
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'deleted' => $deleted,
                         'cleared_active_sessions' => $cleared,
                         'directories_deleted' => $directoriesDeleted,
                         'warnings' => $warnings !== [] ? $warnings : null,
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 }
 
                 $project = $this->projectStore->getProject($id);
@@ -429,14 +431,14 @@ final readonly class SprintToolkit implements ToolkitInterface
 
                 $cleared = $this->storage?->clearActiveProjectReferences((string) $project['id']) ?? 0;
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'id' => $project['id'],
                     'slug' => $project['slug'],
                     'deleted' => true,
                     'cleared_active_sessions' => $cleared,
                     'directory_deleted' => $directoryDeleted,
                     'warning' => $warning,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -453,7 +455,7 @@ final readonly class SprintToolkit implements ToolkitInterface
             parameters: [
                 new StringParameter('project_id', 'Project ID or slug', required: true),
                 new StringParameter('title', 'Sprint title describing the work unit', required: true),
-                new StringParameter('acceptance_criteria', 'JSON array of acceptance criteria for the reviewer', required: false),
+                new ArrayParameter('acceptance_criteria', 'Acceptance criteria for the reviewer', required: false, items: new StringParameter('criterion', 'Acceptance criterion', required: true)),
                 new NumberParameter('max_review_rounds', 'Maximum review→rejected cycles before requiring user intervention (default: 3, max: 5)', required: false),
             ],
             callback: function (array $args): ToolResult {
@@ -473,20 +475,20 @@ final readonly class SprintToolkit implements ToolkitInterface
                     $id = $this->projectStore->createSprint(
                         projectId: $project['id'],
                         title: $title,
-                        acceptanceCriteria: isset($args['acceptance_criteria']) ? trim($args['acceptance_criteria']) : null,
+                        acceptanceCriteria: self::normalizeAcceptanceCriteria($args['acceptance_criteria'] ?? null),
                         lastSessionId: $this->sessionId,
                         maxReviewRounds: isset($args['max_review_rounds']) ? (int) $args['max_review_rounds'] : 3,
                     );
 
                     $sprint = $this->projectStore->getSprint($id);
 
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'id' => $id,
                         'project' => $project['slug'],
                         'title' => $title,
                         'sprint_number' => $sprint['sprint_number'] ?? 0,
                         'status' => 'planned',
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 } catch (\InvalidArgumentException $e) {
                     return ToolResult::error($e->getMessage());
                 }
@@ -586,7 +588,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                     'completed_at' => $sprint['completed_at'] ?? '',
                 ];
 
-                return ToolResult::success(json_encode($result, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT) ?: '{}');
+                return ToolResult::json($result);
             },
         );
     }
@@ -629,13 +631,13 @@ final readonly class SprintToolkit implements ToolkitInterface
                     $sprint = $this->projectStore->getSprint($id);
                     $progress = $this->projectStore->getSprintProgress($id, $this->todoStore, $this->sessionId);
 
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'id' => $id,
                         'status' => $sprint['status'] ?? $status,
                         'progress' => sprintf('%d%%', $progress['percent']),
                         'review_round' => (int) ($sprint['review_round'] ?? 0),
                         'transitioned' => true,
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 } catch (\InvalidArgumentException $e) {
                     return ToolResult::error($e->getMessage());
                 }
@@ -651,7 +653,7 @@ final readonly class SprintToolkit implements ToolkitInterface
             parameters: [
                 new StringParameter('id', 'Sprint ID', required: true),
                 new StringParameter('title', 'New sprint title', required: false),
-                new StringParameter('acceptance_criteria', 'Updated acceptance criteria (JSON)', required: false),
+                new ArrayParameter('acceptance_criteria', 'Updated acceptance criteria', required: false, items: new StringParameter('criterion', 'Acceptance criterion', required: true)),
                 new StringParameter('contract_artifact_id', 'Link to the plan/contract artifact', required: false),
             ],
             callback: function (array $args): ToolResult {
@@ -664,7 +666,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                 $updated = $this->projectStore->updateSprint(
                     id: $id,
                     title: isset($args['title']) ? trim($args['title']) : null,
-                    acceptanceCriteria: isset($args['acceptance_criteria']) ? trim($args['acceptance_criteria']) : null,
+                    acceptanceCriteria: self::normalizeAcceptanceCriteria($args['acceptance_criteria'] ?? null),
                     contractArtifactId: isset($args['contract_artifact_id']) ? trim($args['contract_artifact_id']) : null,
                     lastSessionId: $this->sessionId,
                 );
@@ -674,6 +676,24 @@ final readonly class SprintToolkit implements ToolkitInterface
                     : ToolResult::error("Sprint not found: {$id}");
             },
         );
+    }
+
+    private static function normalizeAcceptanceCriteria(mixed $value): ?string
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_string($value) && trim($value) === '') {
+            return null;
+        }
+
+        $criteria = JsonHelper::decodeJsonList($value);
+        if ($criteria !== null) {
+            return json_encode($criteria, JSON_UNESCAPED_SLASHES) ?: null;
+        }
+
+        return is_string($value) ? trim($value) : null;
     }
 
     private function sprintDeleteTool(): ToolInterface
@@ -706,10 +726,10 @@ final readonly class SprintToolkit implements ToolkitInterface
 
                     $deleted = $this->projectStore->deleteAllSprints($projectId);
 
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'deleted' => $deleted,
                         'project_id' => $projectId,
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 }
 
                 $sprint = $this->projectStore->getSprint($id);
@@ -720,10 +740,10 @@ final readonly class SprintToolkit implements ToolkitInterface
                 $deleted = $this->projectStore->deleteSprint((string) $sprint['id']);
 
                 return $deleted
-                    ? ToolResult::success(json_encode([
+                    ? ToolResult::json([
                         'id' => $sprint['id'],
                         'deleted' => true,
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}')
+                    ])
                     : ToolResult::error('Failed to delete sprint.');
             },
         );

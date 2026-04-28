@@ -7,7 +7,7 @@ namespace CoquiBot\Coqui\CoquiSpace;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
 use CoquiBot\Coqui\Config\BootManager;
-use CoquiBot\Coqui\Config\PathHelper;
+use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\CoquiSpace\Installer\ComposerRunner;
 use CoquiBot\Coqui\CoquiSpace\Installer\SkillInstaller;
 use CoquiBot\Coqui\CoquiSpace\Installer\ToolkitInstaller;

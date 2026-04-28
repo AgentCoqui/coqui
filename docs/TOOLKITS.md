@@ -47,32 +47,8 @@ When Coqui boots, it scans all installed packages for toolkit declarations. Disc
 
 ## Quick Start
 
-The fastest way to create a toolkit is with Coqui's built-in generator:
-
-```
-You: Create a toolkit called "my-api" that integrates with the Example API
-
-Coqui: coqui_toolkit_create(name: "my-api", description: "Example API integration",
-         dependencies: "guzzlehttp/guzzle:^7.0",
-         credentials: '{"EXAMPLE_API_KEY": "API key from https://example.com/keys"}')
-```
-
-This scaffolds the full package structure, generates `composer.json` with auto-discovery declarations, creates the main toolkit class with credential support, and runs `composer install`.
-
-To add tools:
-
-```
-Coqui: coqui_toolkit_add(toolkit_name: "my-api", tool_name: "fetch_items",
-         tool_description: "Fetch items from the Example API",
-         parameters: '[{"name": "query", "type": "string", "description": "Search query", "required": true}]')
-```
-
-Then install and activate:
-
-```
-Coqui: composer(action: "require", package: "coquibot/my-api", target: "workspace")
-Coqui: restart_coqui(reason: "Activate my-api toolkit")
-```
+A toolkit is a normal Composer package with `extra.php-agents.toolkits` metadata.
+Create the package structure manually, declare the toolkit class in `composer.json`, then install it into the target Coqui workspace with Composer.
 
 ## Anatomy of a Toolkit
 
@@ -193,17 +169,7 @@ final class MyToolkit implements ToolkitInterface
 
 ## Creating Your First Toolkit
 
-### Option A: Using the Toolkit Generator
-
-Ask Coqui to create a toolkit:
-
-```
-You: Create a toolkit called "datetime-utils" with tools for working with dates and times
-```
-
-Coqui uses `coqui_toolkit_create` to scaffold the package, then `coqui_toolkit_add` to add specific tools.
-
-### Option B: Manual Creation
+Create the toolkit package manually:
 
 1. Create the package directory:
 
@@ -394,6 +360,39 @@ new ObjectParameter(
 )
 ```
 
+### Runtime Validation
+
+php-agents now validates declared parameter constraints before your tool callback runs.
+This builds on the schema declarations you were already writing for the model.
+
+What is enforced automatically:
+- required parameters must be present
+- `StringParameter` can enforce `pattern`, `maxLength`, and `enum`
+- `NumberParameter` can enforce `integer`, `minimum`, and `maximum`
+- `EnumParameter` enforces membership in the declared values
+- `ArrayParameter` validates nested item types
+- `ObjectParameter` validates nested required properties and child parameter rules
+
+Example:
+
+```php
+new Tool(
+    name: 'create_project',
+    description: 'Create a project',
+    parameters: [
+        new StringParameter('slug', 'Lowercase slug', pattern: '/^[a-z-]+$/'),
+        new NumberParameter('count', 'Project count', required: false, integer: true, minimum: 1),
+    ],
+    callback: fn(array $args): ToolResult => ToolResult::success(
+        sprintf('Created %s x%d', $args['slug'], $args['count'] ?? 1),
+    ),
+)
+```
+
+This means many manual guard clauses can stay focused on domain rules instead of re-checking
+basic type and shape constraints. Keep custom validation inside the callback for business logic,
+cross-field invariants, or checks that depend on external state.
+
 ## Tool Results
 
 Every tool callback must return a `ToolResult`:
@@ -404,6 +403,23 @@ return ToolResult::success('Operation completed. Result: ...');
 
 // Error — the LLM sees this as a tool error and can retry or inform the user
 return ToolResult::error('Invalid input: query parameter is required.');
+
+// Structured JSON helper — still delivered as string content
+return ToolResult::json([
+    'id' => $id,
+    'status' => 'created',
+]);
+```
+
+`ToolResult` also supports additive metadata and display hints. These do not change the
+provider-facing message format, so existing toolkits remain compatible while Coqui gains
+better internal metadata for future UI or routing work.
+
+```php
+return ToolResult::success('Done')
+    ->withMetadata(['phase' => 'apply'])
+    ->withMimeType('text/plain')
+    ->withDisplayHint('plain-text');
 ```
 
 **Guidelines for results:**
@@ -431,19 +447,9 @@ Add dependencies to the `require` section of your toolkit's `composer.json`:
 }
 ```
 
-### Using the Toolkit Generator
+### Declaring Dependencies
 
-Pass dependencies as a comma-separated string when creating a toolkit:
-
-```
-coqui_toolkit_create(
-    name: "my-api",
-    description: "API integration toolkit",
-    dependencies: "guzzlehttp/guzzle:^7.0,symfony/http-client:^7.0"
-)
-```
-
-The generator writes them into `composer.json` and runs `composer install` automatically.
+Add toolkit dependencies directly to the generated package `composer.json`, then run `composer install` in the toolkit package directory.
 
 ### Using Packagist
 

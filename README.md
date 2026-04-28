@@ -445,6 +445,17 @@ Pass API keys from your host environment:
 OPENAI_API_KEY=sk-... make docker-start
 ```
 
+### Profiling UI (Docker)
+
+If you generate Xdebug cachegrind files locally under `build/profiles`, you can inspect them in a browser with Webgrind:
+
+```bash
+make docker-webgrind-up
+open http://localhost:3390
+```
+
+This overlay is UI-only. It reads host-generated profile files and leaves the base Coqui image unchanged.
+
 Or copy `.env.example` to `.env` and fill in your keys:
 
 ```bash

@@ -141,10 +141,10 @@ final class SessionEvaluationToolkit implements ToolkitInterface
                     'created_at' => $s['created_at'],
                 ], $sessions);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'count' => count($result),
                     'sessions' => $result,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -237,7 +237,7 @@ final class SessionEvaluationToolkit implements ToolkitInterface
                     $count++;
                 }
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'session_id' => $sessionId,
                     'title' => $session['title'] ?? '(untitled)',
                     'model' => $session['model'],
@@ -245,7 +245,7 @@ final class SessionEvaluationToolkit implements ToolkitInterface
                     'total_messages' => count($messages),
                     'turn_count' => count($turns),
                     'transcript' => $transcript,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -267,12 +267,12 @@ final class SessionEvaluationToolkit implements ToolkitInterface
                 $childRuns = $this->storage->getChildRuns($sessionId);
 
                 if ($childRuns === []) {
-                    return ToolResult::success(json_encode([
+                    return ToolResult::json([
                         'session_id' => $sessionId,
                         'count' => 0,
                         'child_runs' => [],
                         'note' => 'No child agent runs found for this session.',
-                    ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                    ]);
                 }
 
                 $result = array_map(function (array $run) {
@@ -300,11 +300,11 @@ final class SessionEvaluationToolkit implements ToolkitInterface
                     ];
                 }, $childRuns);
 
-                return ToolResult::success(json_encode([
+                return ToolResult::json([
                     'session_id' => $sessionId,
                     'count' => count($result),
                     'child_runs' => $result,
-                ], JSON_UNESCAPED_SLASHES) ?: '{}');
+                ]);
             },
         );
     }
@@ -429,7 +429,7 @@ final class SessionEvaluationToolkit implements ToolkitInterface
                 $response['metadata'] = $evidenceMetadata->toArray();
                 $response['evidence_links_count'] = count($evidenceLinks);
 
-                return ToolResult::success(json_encode($response, JSON_UNESCAPED_SLASHES) ?: '{}');
+                return ToolResult::json($response);
             },
         );
     }

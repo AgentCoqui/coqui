@@ -36,6 +36,7 @@ final class ConfigValidator
         $errors = [...$errors, ...$this->validateBlacklist($data)];
         $errors = [...$errors, ...$this->validateMounts($data)];
         $errors = [...$errors, ...$this->validateShellAllowedCommands($data)];
+        $errors = [...$errors, ...$this->validateMcp($data)];
         $errors = [...$errors, ...$this->validateWorkspace($data)];
         $errors = [...$errors, ...$this->validateMemory($data)];
         $errors = [...$errors, ...$this->validateQuality($data)];
@@ -592,6 +593,70 @@ final class ConfigValidator
      * @param array<string, mixed> $data
      * @return string[]
      */
+    private function validateMcp(array $data): array
+    {
+        $mcp = $data['agents']['defaults']['mcp'] ?? null;
+        if ($mcp === null) {
+            return [];
+        }
+
+        if (!is_array($mcp)) {
+            return ['agents.defaults.mcp must be an object'];
+        }
+
+        $errors = [];
+        $errors = [...$errors, ...$this->validateMcpCommandTuples(
+            $mcp['allowedStdioCommands'] ?? null,
+            'agents.defaults.mcp.allowedStdioCommands',
+        )];
+        $errors = [...$errors, ...$this->validateMcpCommandTuples(
+            $mcp['deniedStdioCommands'] ?? null,
+            'agents.defaults.mcp.deniedStdioCommands',
+        )];
+
+        return $errors;
+    }
+
+    /**
+     * @return string[]
+     */
+    private function validateMcpCommandTuples(mixed $tuples, string $fieldName): array
+    {
+        if ($tuples === null) {
+            return [];
+        }
+
+        if (!is_array($tuples)) {
+            return [sprintf('%s must be an array of command tuples', $fieldName)];
+        }
+
+        $errors = [];
+
+        foreach ($tuples as $index => $tuple) {
+            if (!is_array($tuple) || !array_is_list($tuple) || $tuple === []) {
+                $errors[] = sprintf('%s[%d] must be a non-empty array of strings', $fieldName, $index);
+                continue;
+            }
+
+            foreach ($tuple as $partIndex => $part) {
+                if (!is_string($part) || trim($part) === '') {
+                    $errors[] = sprintf('%s[%d][%d] must be a non-empty string', $fieldName, $index, $partIndex);
+                    continue;
+                }
+
+                if (preg_match('/[\r\n]/', $part) === 1) {
+                    $errors[] = sprintf('%s[%d][%d] cannot contain line breaks', $fieldName, $index, $partIndex);
+                }
+            }
+        }
+
+        return $errors;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     * @return string[]
+     */
     private function validateWorkspace(array $data): array
     {
         $workspace = $data['agents']['defaults']['workspace'] ?? null;
@@ -844,6 +909,10 @@ final class ConfigValidator
             if (!is_int($margin) || $margin < 0 || $margin > 50) {
                 $errors[] = 'agents.defaults.context.budgetSafetyMarginPercent must be an integer between 0 and 50';
             }
+        }
+
+        if (isset($context['conversationHistoryInSystemPrompt']) && !is_bool($context['conversationHistoryInSystemPrompt'])) {
+            $errors[] = 'agents.defaults.context.conversationHistoryInSystemPrompt must be a boolean';
         }
 
         return $errors;

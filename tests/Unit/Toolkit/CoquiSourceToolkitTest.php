@@ -192,6 +192,8 @@ test('coqui_source_map returns full map', function () {
     $result = $tool->execute([]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
 
     $data = json_decode($result->content, true);
     expect($data)->toHaveKey('version');
@@ -204,6 +206,8 @@ test('coqui_source_map filters by section', function () {
     $result = $tool->execute(['section' => 'layers']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
 
     $data = json_decode($result->content, true);
     expect($data)->toHaveKey('agent');
@@ -369,6 +373,8 @@ test('coqui_doc_map returns full index', function () {
     $result = $tool->execute([]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
 
     $data = json_decode($result->content, true);
     expect($data)->toHaveKey('version');
@@ -382,6 +388,8 @@ test('coqui_doc_map filters by file', function () {
     $result = $tool->execute(['file' => 'docs/CONFIG.md']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
 
     $data = json_decode($result->content, true);
     expect($data['path'])->toBe('docs/CONFIG.md');

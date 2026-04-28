@@ -67,4 +67,9 @@ final class StubToolkit implements ToolkitInterface
     {
         return $this->inner::class;
     }
+
+    public function innerToolkit(): ToolkitInterface
+    {
+        return $this->inner;
+    }
 }

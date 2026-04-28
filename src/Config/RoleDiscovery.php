@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Config;
 
+use CarmeloSantana\PathHelper\PathHelper;
+
 use CoquiBot\Coqui\Contract\RoleProperties;
 use CoquiBot\Coqui\Exception\RoleNotFoundException;
 use CoquiBot\Coqui\Exception\RoleParseException;

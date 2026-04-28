@@ -31,7 +31,7 @@ Mirrors the GitHub Actions CI pipeline locally. Runs Pest tests and PHPStan stat
 
 Cross-platform coverage wrapper for Pest.
 
-### Usage
+### Profiling Usage
 
 ```bash
 # Terminal coverage summary
@@ -53,6 +53,37 @@ COQUI_TEST_COVERAGE_DRIVER=xdebug php scripts/test-coverage.php
 
 - `COQUI_TEST_COVERAGE_MEMORY_LIMIT` defaults to `512M`.
 - `COQUI_TEST_COVERAGE_DRIVER` defaults to `auto`, preferring `pcov` before `xdebug`.
+
+## test-profile.php
+
+Cross-platform Xdebug profiling wrapper for Pest.
+
+### Usage
+
+```bash
+# Write cachegrind files for a targeted test run
+php scripts/test-profile.php -- tests/Unit/Config/ContextWindowResolutionTest.php
+
+# Use a custom output directory for one investigation
+COQUI_TEST_PROFILE_OUTPUT_DIR=build/profiles/tests/context-window php scripts/test-profile.php -- --filter=context
+```
+
+The wrapper requires the `xdebug` CLI extension and writes cachegrind files to `build/profiles/tests` by default.
+It excludes the `performance` test group by default because wall-clock benchmarks are intentionally distorted by profiler overhead.
+
+It also supports optional environment overrides:
+
+```bash
+COQUI_TEST_PROFILE_MEMORY_LIMIT=768M php scripts/test-profile.php
+COQUI_TEST_PROFILE_OUTPUT_DIR=build/profiles/tests/slow-run php scripts/test-profile.php
+COQUI_TEST_PROFILE_OUTPUT_NAME=cachegrind.out.%p.%t php scripts/test-profile.php
+COQUI_TEST_PROFILE_INCLUDE_PERFORMANCE=1 php scripts/test-profile.php -- tests/Unit/PerformanceTest.php
+```
+
+- `COQUI_TEST_PROFILE_MEMORY_LIMIT` defaults to `512M`.
+- `COQUI_TEST_PROFILE_OUTPUT_DIR` defaults to `build/profiles/tests`.
+- `COQUI_TEST_PROFILE_OUTPUT_NAME` defaults to `cachegrind.out.%p`.
+- `COQUI_TEST_PROFILE_INCLUDE_PERFORMANCE` defaults to `0`, which keeps wall-clock benchmark tests out of profiled runs unless you opt in.
 
 See [docs/TESTING.md](../docs/TESTING.md) for local test and coverage setup, and [docs/GITHUB-ACTIONS.md](../docs/GITHUB-ACTIONS.md) for CI workflow details.
 

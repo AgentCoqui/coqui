@@ -19,8 +19,9 @@ use CoquiBot\Coqui\Config\ModelMetadataResolver;
 /**
  * Agent-facing tool for reading and modifying openclaw.json configuration.
  *
- * Write operations are guarded by ConfigGuard — only model, role, and
- * iteration settings can be modified. Security-sensitive keys are denied.
+ * Write operations are guarded by ConfigGuard — only model, role, iteration,
+ * and explicitly allowed context settings can be modified. Security-sensitive
+ * keys are denied.
  */
 final class ConfigTool implements ToolInterface
 {
@@ -44,13 +45,14 @@ final class ConfigTool implements ToolInterface
             
             Available actions:
             - get: Read a config value by dot-notation key (e.g. "agents.defaults.model.primary").
-            - set: Change a config value. Only model, role, and iteration settings can be modified.
+            - set: Change a config value. Only model, role, iteration, and select context settings can be modified.
             - show: Show the full sanitized config (API keys masked).
             - list_models: List all available models from configured providers.
             - switch_model: Change the primary model (shorthand for set with "agents.defaults.model.primary").
             
             Security-sensitive settings (blacklist, shell allowlist, workspace path, mounts,
             API keys, provider configurations) cannot be modified by the agent.
+            Allowed context keys currently include agents.defaults.context.conversationHistoryInSystemPrompt.
             DESC;
     }
 

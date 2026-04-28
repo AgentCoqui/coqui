@@ -3,7 +3,10 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
+use CoquiBot\Coqui\Config\ConfigGuard;
+use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\ConfigValidator;
+use CoquiBot\Coqui\Config\DefaultsLoader;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
@@ -13,7 +16,9 @@ use React\Http\Message\ServerRequest;
 function createApiConfigHandlerFixture(): array
 {
     $workspacePath = sys_get_temp_dir() . '/coqui-config-handler-' . bin2hex(random_bytes(8));
+    $projectRoot = sys_get_temp_dir() . '/coqui-config-handler-project-' . bin2hex(random_bytes(8));
     mkdir($workspacePath, 0755, true);
+    mkdir($projectRoot, 0755, true);
     mkdir($workspacePath . '/profiles/caelum', 0755, true);
     mkdir($workspacePath . '/profiles/trinity', 0755, true);
     mkdir($workspacePath . '/roles', 0755, true);
@@ -50,7 +55,7 @@ is_template: true
 Generate concise titles.
 MD);
 
-    $config = OpenClawConfig::fromArray([
+    $configData = [
         'agents' => [
             'defaults' => [
                 'profile' => 'caelum',
@@ -60,20 +65,38 @@ MD);
                 ],
             ],
         ],
-    ]);
+    ];
+    file_put_contents(
+        $workspacePath . '/openclaw.json',
+        json_encode($configData, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
+    );
+
+    $configManager = new ConfigManager($workspacePath, $projectRoot, new DefaultsLoader(), new ConfigValidator());
+    $config = $configManager->load();
     $profileDiscovery = new ProfileDiscovery($workspacePath);
     $roleDiscovery = new RoleDiscovery($workspacePath, dirname(__DIR__, 4));
     $roleResolver = new RoleResolver($config, roleDiscovery: $roleDiscovery, profileDiscovery: $profileDiscovery);
 
     return [
         'workspacePath' => $workspacePath,
-        'handler' => new ConfigHandler($config, new ConfigValidator(), $profileDiscovery, null, $roleResolver),
+        'projectRoot' => $projectRoot,
+        'configManager' => $configManager,
+        'handler' => new ConfigHandler(
+            $config,
+            new ConfigValidator(),
+            $profileDiscovery,
+            null,
+            $roleResolver,
+            $configManager,
+            new ConfigGuard(),
+        ),
     ];
 }
 
 function cleanupApiConfigHandlerFixture(array $fixture): void
 {
     cleanupTestTree($fixture['workspacePath']);
+    cleanupTestTree($fixture['projectRoot']);
 }
 
 test('config handler lists discovered profiles and default profile', function () {
@@ -110,6 +133,46 @@ test('config handler returns profile detail for picker UIs', function () {
         expect($body['role_restrictions']['allow'])->toBe(['orchestrator', 'analyst']);
         expect($body['preferences']['roles']['allow'])->toBe(['orchestrator', 'analyst']);
         expect($body['soul'])->toContain('A calm companion.');
+    } finally {
+        cleanupApiConfigHandlerFixture($fixture);
+    }
+});
+
+test('config handler updates conversation history prompt mode', function () {
+    $fixture = createApiConfigHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->updateContext(new ServerRequest(
+            'PATCH',
+            '/api/v1/config/context',
+            ['Content-Type' => 'application/json'],
+            json_encode(['conversationHistoryInSystemPrompt' => true], JSON_THROW_ON_ERROR),
+        ));
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['context']['conversationHistoryInSystemPrompt'])->toBeTrue();
+        expect($body['restart_required'])->toBeTrue();
+        expect($fixture['configManager']->config()->useConversationHistoryInSystemPrompt())->toBeTrue();
+    } finally {
+        cleanupApiConfigHandlerFixture($fixture);
+    }
+});
+
+test('config handler rejects invalid conversation history prompt mode payloads', function () {
+    $fixture = createApiConfigHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->updateContext(new ServerRequest(
+            'PATCH',
+            '/api/v1/config/context',
+            ['Content-Type' => 'application/json'],
+            json_encode(['conversationHistoryInSystemPrompt' => 'yes'], JSON_THROW_ON_ERROR),
+        ));
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['error'])->toContain('conversationHistoryInSystemPrompt must be a boolean');
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }

@@ -430,6 +430,95 @@ port_accepting_connections() {
     port_in_use "$port"
 }
 
+api_probe_host() {
+    local host="$1"
+
+    case "$host" in
+        0.0.0.0)
+            printf '127.0.0.1\n'
+            ;;
+        ::|"[::]")
+            printf '::1\n'
+            ;;
+        *)
+            printf '%s\n' "$host"
+            ;;
+    esac
+}
+
+api_health_ready() {
+    local host="$1"
+    local port="$2"
+    local expected_workspace="${3:-}"
+
+    # shellcheck disable=SC2016
+    php -r '
+        $host = $argv[1] ?? "127.0.0.1";
+        $port = $argv[2] ?? "3300";
+        $expectedWorkspace = $argv[3] ?? "";
+        $url = sprintf("http://%s:%s/api/v1/health", $host, $port);
+        $context = stream_context_create([
+            "http" => [
+                "method" => "GET",
+                "timeout" => 1,
+                "ignore_errors" => true,
+            ],
+        ]);
+
+        set_error_handler(static fn(): bool => true);
+        try {
+            $result = file_get_contents($url, false, $context);
+        } finally {
+            restore_error_handler();
+        }
+
+        if (!is_string($result) || $result === "") {
+            exit(1);
+        }
+
+        $status = 0;
+        foreach (($http_response_header ?? []) as $header) {
+            if (preg_match("/^HTTP\\/[\\d.]+ (\\d{3})/", $header, $matches)) {
+                $status = (int) $matches[1];
+                break;
+            }
+        }
+
+        if ($status >= 400) {
+            exit(1);
+        }
+
+        $payload = json_decode($result, true);
+        if (!is_array($payload) || ($payload["status"] ?? null) !== "ok") {
+            exit(1);
+        }
+
+        if ($expectedWorkspace !== "") {
+            $workspaceId = $payload["workspace_id"] ?? null;
+            if (!is_string($workspaceId) || $workspaceId === "") {
+                exit(1);
+            }
+
+            $resolved = realpath($expectedWorkspace);
+            $normalized = str_replace("\\\\", "/", $resolved !== false ? $resolved : $expectedWorkspace);
+            $normalized = preg_replace("#/+#", "/", $normalized) ?? $normalized;
+            if (strlen($normalized) > 1) {
+                $normalized = rtrim($normalized, "/");
+            }
+            if (DIRECTORY_SEPARATOR === "\\\\") {
+                $normalized = strtolower($normalized);
+            }
+
+            $expectedId = substr(hash("sha256", $normalized), 0, 16);
+            if (!hash_equals($expectedId, $workspaceId)) {
+                exit(1);
+            }
+        }
+
+        exit(0);
+    ' "$host" "$port" "$expected_workspace" >/dev/null 2>&1
+}
+
 port_pids() {
     local port="$1"
 
@@ -608,10 +697,14 @@ spawn_api_supervisor() {
 wait_for_api_ready() {
     local pid="$1"
     local port="$2"
+    local expected_workspace="$3"
+    local probe_host
     local waited=0
 
+    probe_host=$(api_probe_host "$api_host")
+
     while [[ $waited -lt $API_READY_POLL_COUNT ]]; do
-        if port_accepting_connections "$api_host" "$port"; then
+        if api_health_ready "$probe_host" "$port" "$expected_workspace"; then
             return 0
         fi
 
@@ -623,7 +716,7 @@ wait_for_api_ready() {
         waited=$((waited + 1))
     done
 
-    if port_accepting_connections "$api_host" "$port"; then
+    if api_health_ready "$probe_host" "$port" "$expected_workspace"; then
         return 0
     fi
 
@@ -813,8 +906,12 @@ start_api_bg() {
     write_pid "api" "$pid"
     session_services+=("api")
 
-    wait_for_api_ready "$pid" "$api_port"
-    case $? in
+    set +e
+    wait_for_api_ready "$pid" "$api_port" "$requested_workspace"
+    local ready_status=$?
+    set -e
+
+    case $ready_status in
         0)
             log "API: running on http://${api_host}:${api_port} (PID ${pid})"
             ;;

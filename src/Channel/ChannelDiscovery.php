@@ -9,7 +9,7 @@ use CoquiBot\Coqui\Channel\Builtin\SignalChannelDriver;
 use CoquiBot\Coqui\Channel\Builtin\TelegramChannelDriver;
 use CoquiBot\Coqui\Contract\ChannelDriverInterface;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
-use CoquiBot\Coqui\Config\PathHelper;
+use CarmeloSantana\PathHelper\PathHelper;
 
 /**
  * Discovers built-in and external channel drivers.

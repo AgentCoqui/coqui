@@ -126,3 +126,43 @@ test('sprint_delete removes all sprints for a project', function () {
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($this->projectStore->listSprints($projectId))->toBeEmpty();
 });
+
+test('sprint_create accepts native array acceptance criteria', function () {
+    $projectId = $this->projectStore->createProject('Omega', 'omega');
+
+    $tool = array_values(array_filter(
+        $this->toolkit->tools(),
+        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'sprint_create',
+    ))[0];
+
+    $result = $tool->execute([
+        'project_id' => $projectId,
+        'title' => 'Sprint Criteria',
+        'acceptance_criteria' => ['first passes', 'second passes'],
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
+    $data = json_decode($result->content, true);
+    $sprint = $this->projectStore->getSprint($data['id']);
+    expect($sprint['acceptance_criteria'])->toBe('["first passes","second passes"]');
+});
+
+test('sprint_update accepts native array acceptance criteria', function () {
+    $projectId = $this->projectStore->createProject('Sigma', 'sigma');
+    $sprintId = $this->projectStore->createSprint($projectId, 'Existing Sprint');
+
+    $tool = array_values(array_filter(
+        $this->toolkit->tools(),
+        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'sprint_update',
+    ))[0];
+
+    $result = $tool->execute([
+        'id' => $sprintId,
+        'acceptance_criteria' => ['updated one', 'updated two'],
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($this->projectStore->getSprint($sprintId)['acceptance_criteria'])->toBe('["updated one","updated two"]');
+});

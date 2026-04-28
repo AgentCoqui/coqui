@@ -4,28 +4,29 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "b9aead33f97beb5f90445fa3de27c48e",
+    "content-hash": "344c5b99ecfe3976bd1afd895f87b856",
     "packages": [
         {
             "name": "carmelosantana/coqui-toolkit-images",
-            "version": "v0.1.2",
+            "version": "v0.1.4",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/coqui-toolkit-images.git",
-                "reference": "3f8f3e26ed4534802ff01d17e4d383c786befa49"
+                "reference": "d1dc9abf11d76500d764786ab9c7dfaee5040f09"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-images/zipball/3f8f3e26ed4534802ff01d17e4d383c786befa49",
-                "reference": "3f8f3e26ed4534802ff01d17e4d383c786befa49",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-images/zipball/d1dc9abf11d76500d764786ab9c7dfaee5040f09",
+                "reference": "d1dc9abf11d76500d764786ab9c7dfaee5040f09",
                 "shasum": ""
             },
             "require": {
+                "carmelosantana/php-pathhelper": "^0.1",
                 "php": "^8.4",
                 "symfony/http-client": "^7.4 || ^8.0"
             },
             "require-dev": {
-                "carmelosantana/php-agents": "^0.12",
+                "carmelosantana/php-agents": "^0.13",
                 "pestphp/pest": "^3.0",
                 "phpstan/phpstan": "^2.0"
             },
@@ -86,22 +87,22 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/coqui-toolkit-images/issues",
-                "source": "https://github.com/carmelosantana/coqui-toolkit-images/tree/v0.1.2"
+                "source": "https://github.com/carmelosantana/coqui-toolkit-images/tree/v0.1.4"
             },
-            "time": "2026-04-21T14:31:32+00:00"
+            "time": "2026-04-28T20:36:21+00:00"
         },
         {
             "name": "carmelosantana/php-agents",
-            "version": "v0.12.3",
+            "version": "v0.13.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "298c23200f81f43d314b7b1748e790c65b5e1199"
+                "reference": "e8d65639f053fc1a4e6ac287b6564b7784758dcb"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/298c23200f81f43d314b7b1748e790c65b5e1199",
-                "reference": "298c23200f81f43d314b7b1748e790c65b5e1199",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/e8d65639f053fc1a4e6ac287b6564b7784758dcb",
+                "reference": "e8d65639f053fc1a4e6ac287b6564b7784758dcb",
                 "shasum": ""
             },
             "require": {
@@ -145,9 +146,119 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.12.3"
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.13.1"
             },
-            "time": "2026-04-21T21:03:26+00:00"
+            "time": "2026-04-28T16:39:34+00:00"
+        },
+        {
+            "name": "carmelosantana/php-pathhelper",
+            "version": "v0.1.0",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/php-pathhelper.git",
+                "reference": "3c8b338e3d006fb5d2b0dec7da56708fcd09cec3"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/php-pathhelper/zipball/3c8b338e3d006fb5d2b0dec7da56708fcd09cec3",
+                "reference": "3c8b338e3d006fb5d2b0dec7da56708fcd09cec3",
+                "shasum": ""
+            },
+            "require": {
+                "php": "^8.4"
+            },
+            "require-dev": {
+                "pestphp/pest": "^4.0",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "autoload": {
+                "psr-4": {
+                    "CarmeloSantana\\PathHelper\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Carmelo Santana"
+                }
+            ],
+            "description": "Cross platform path normalization and comparison helpers for PHP 8.4+.",
+            "keywords": [
+                "filesystem",
+                "path",
+                "paths",
+                "php",
+                "windows"
+            ],
+            "support": {
+                "issues": "https://github.com/carmelosantana/php-pathhelper/issues",
+                "source": "https://github.com/carmelosantana/php-pathhelper/tree/v0.1.0"
+            },
+            "time": "2026-04-28T20:28:37+00:00"
+        },
+        {
+            "name": "coquibot/coqui-toolkit-mcp-client",
+            "version": "v0.1.5",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/coqui-toolkit-mcp-client.git",
+                "reference": "dce03c8067ce344b97178f8393a1f70ecc4ad6a7"
+            },
+            "dist": {
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-mcp-client/zipball/dce03c8067ce344b97178f8393a1f70ecc4ad6a7",
+                "reference": "dce03c8067ce344b97178f8393a1f70ecc4ad6a7",
+                "shasum": ""
+            },
+            "require": {
+                "carmelosantana/php-agents": "^0.13",
+                "carmelosantana/php-pathhelper": "^0.1",
+                "php": "^8.4"
+            },
+            "require-dev": {
+                "pestphp/pest": "^4.0",
+                "phpstan/phpstan": "^2.0"
+            },
+            "type": "library",
+            "extra": {
+                "php-agents": {
+                    "toolkits": [
+                        "CoquiBot\\Toolkits\\Mcp\\McpToolkit"
+                    ],
+                    "description": "MCP (Model Context Protocol) — consume any MCP server as agent tools via stdio transport"
+                }
+            },
+            "autoload": {
+                "psr-4": {
+                    "CoquiBot\\Toolkits\\Mcp\\": "src/"
+                }
+            },
+            "notification-url": "https://packagist.org/downloads/",
+            "license": [
+                "MIT"
+            ],
+            "authors": [
+                {
+                    "name": "Carmelo Santana"
+                }
+            ],
+            "description": "MCP (Model Context Protocol) toolkit for Coqui — consume MCP servers as agent tools",
+            "keywords": [
+                "coqui",
+                "mcp",
+                "model-context-protocol",
+                "php-agents",
+                "toolkit"
+            ],
+            "support": {
+                "issues": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/issues",
+                "source": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/tree/v0.1.5"
+            },
+            "time": "2026-04-28T20:36:04+00:00"
         },
         {
             "name": "dflydev/dot-access-data",
@@ -2269,7 +2380,7 @@
         },
         {
             "name": "symfony/polyfill-ctype",
-            "version": "v1.36.0",
+            "version": "v1.37.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-ctype.git",
@@ -2328,7 +2439,7 @@
                 "portable"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-ctype/tree/v1.36.0"
+                "source": "https://github.com/symfony/polyfill-ctype/tree/v1.37.0"
             },
             "funding": [
                 {
@@ -2352,16 +2463,16 @@
         },
         {
             "name": "symfony/polyfill-intl-grapheme",
-            "version": "v1.36.0",
+            "version": "v1.37.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-intl-grapheme.git",
-                "reference": "ad1b7b9092976d6c948b8a187cec9faaea9ec1df"
+                "reference": "4864388bfbd3001ce88e234fab652acd91fdc57e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/symfony/polyfill-intl-grapheme/zipball/ad1b7b9092976d6c948b8a187cec9faaea9ec1df",
-                "reference": "ad1b7b9092976d6c948b8a187cec9faaea9ec1df",
+                "url": "https://api.github.com/repos/symfony/polyfill-intl-grapheme/zipball/4864388bfbd3001ce88e234fab652acd91fdc57e",
+                "reference": "4864388bfbd3001ce88e234fab652acd91fdc57e",
                 "shasum": ""
             },
             "require": {
@@ -2410,7 +2521,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-intl-grapheme/tree/v1.36.0"
+                "source": "https://github.com/symfony/polyfill-intl-grapheme/tree/v1.37.0"
             },
             "funding": [
                 {
@@ -2430,11 +2541,11 @@
                     "type": "tidelift"
                 }
             ],
-            "time": "2026-04-10T16:19:22+00:00"
+            "time": "2026-04-26T13:13:48+00:00"
         },
         {
             "name": "symfony/polyfill-intl-normalizer",
-            "version": "v1.36.0",
+            "version": "v1.37.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-intl-normalizer.git",
@@ -2495,7 +2606,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-intl-normalizer/tree/v1.36.0"
+                "source": "https://github.com/symfony/polyfill-intl-normalizer/tree/v1.37.0"
             },
             "funding": [
                 {
@@ -2519,7 +2630,7 @@
         },
         {
             "name": "symfony/polyfill-mbstring",
-            "version": "v1.36.0",
+            "version": "v1.37.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-mbstring.git",
@@ -2580,7 +2691,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.36.0"
+                "source": "https://github.com/symfony/polyfill-mbstring/tree/v1.37.0"
             },
             "funding": [
                 {
@@ -2604,7 +2715,7 @@
         },
         {
             "name": "symfony/polyfill-php80",
-            "version": "v1.36.0",
+            "version": "v1.37.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/symfony/polyfill-php80.git",
@@ -2664,7 +2775,7 @@
                 "shim"
             ],
             "support": {
-                "source": "https://github.com/symfony/polyfill-php80/tree/v1.36.0"
+                "source": "https://github.com/symfony/polyfill-php80/tree/v1.37.0"
             },
             "funding": [
                 {
@@ -4285,11 +4396,11 @@
         },
         {
             "name": "phpstan/phpstan",
-            "version": "2.1.51",
+            "version": "2.1.53",
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/dc3b523c45e714c70de2ac5113b958223b55dc59",
-                "reference": "dc3b523c45e714c70de2ac5113b958223b55dc59",
+                "url": "https://api.github.com/repos/phpstan/phpstan/zipball/ef67586798c003274797b288a68b221e4270dca7",
+                "reference": "ef67586798c003274797b288a68b221e4270dca7",
                 "shasum": ""
             },
             "require": {
@@ -4334,7 +4445,7 @@
                     "type": "github"
                 }
             ],
-            "time": "2026-04-21T18:22:01+00:00"
+            "time": "2026-04-28T16:09:00+00:00"
         },
         {
             "name": "phpunit/php-code-coverage",

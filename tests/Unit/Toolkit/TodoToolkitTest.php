@@ -82,3 +82,77 @@ test('todo_delete can wipe the session todo list', function () {
     expect($result->status)->toBe(ToolResultStatus::Success);
     expect($this->todoStore->list($this->sessionId))->toBeEmpty();
 });
+
+test('todo_add accepts native array items', function () {
+    $tool = array_values(array_filter(
+        $this->toolkit->tools(),
+        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'todo_add',
+    ))[0];
+
+    $result = $tool->execute([
+        'artifact_id' => $this->artifactId,
+        'items' => [
+            ['title' => 'First batch todo', 'priority' => 'high'],
+            ['title' => 'Second batch todo', 'notes' => 'detail'],
+        ],
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
+    $data = json_decode($result->content, true);
+    expect($data['created'])->toBe(2);
+    expect($this->todoStore->list($this->sessionId))->toHaveCount(2);
+});
+
+test('todo_update accepts native array updates', function () {
+    $todoId = $this->todoStore->create($this->sessionId, 'Todo A', artifactId: $this->artifactId);
+
+    $tool = array_values(array_filter(
+        $this->toolkit->tools(),
+        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'todo_update',
+    ))[0];
+
+    $result = $tool->execute([
+        'updates' => [
+            ['id' => $todoId, 'status' => 'completed', 'notes' => 'done'],
+        ],
+    ]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
+    expect($this->todoStore->get($todoId)['status'])->toBe('completed');
+});
+
+test('todo_complete accepts native array ids', function () {
+    $todoA = $this->todoStore->create($this->sessionId, 'Todo A', artifactId: $this->artifactId);
+    $todoB = $this->todoStore->create($this->sessionId, 'Todo B', artifactId: $this->artifactId);
+
+    $tool = array_values(array_filter(
+        $this->toolkit->tools(),
+        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'todo_complete',
+    ))[0];
+
+    $result = $tool->execute(['ids' => [$todoA, $todoB]]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($this->todoStore->get($todoA)['status'])->toBe('completed');
+    expect($this->todoStore->get($todoB)['status'])->toBe('completed');
+});
+
+test('todo_delete accepts native array ids', function () {
+    $todoA = $this->todoStore->create($this->sessionId, 'Todo A', artifactId: $this->artifactId);
+    $todoB = $this->todoStore->create($this->sessionId, 'Todo B', artifactId: $this->artifactId);
+
+    $tool = array_values(array_filter(
+        $this->toolkit->tools(),
+        fn($candidate) => $candidate->toFunctionSchema()['function']['name'] === 'todo_delete',
+    ))[0];
+
+    $result = $tool->execute(['ids' => [$todoA, $todoB]]);
+
+    expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($this->todoStore->get($todoA))->toBeNull();
+    expect($this->todoStore->get($todoB))->toBeNull();
+});

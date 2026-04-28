@@ -1,0 +1,33 @@
+###############################################################################
+# Coqui — Developer Overlay
+#
+# Minimal profiling UI overlay. Reuses host-generated Xdebug cachegrind files
+# from build/profiles and exposes a Webgrind interface without changing the
+# base Coqui image or requiring Xdebug inside Docker.
+#
+# Usage:
+#   docker compose -f compose.yaml -f compose.dev.yaml up -d webgrind
+#   open http://localhost:${COQUI_WEBGRIND_PORT:-3390}
+###############################################################################
+
+services:
+  webgrind:
+    image: wodby/webgrind:1.9
+    container_name: coqui-webgrind
+    restart: unless-stopped
+    ports:
+      - "${COQUI_WEBGRIND_PORT:-3390}:8080"
+    volumes:
+      - ${COQUI_WEBGRIND_SOURCE_DIR:-./build/profiles/tests}:/mnt/profiles:ro
+      - .:/mnt/codebase:ro
+      - webgrind_storage:/tmp/webgrind
+    environment:
+      WEBGRIND_PROFILER_DIR: /mnt/profiles
+      WEBGRIND_ORIG_CODEBASE_PATH: ${PWD:-/app}
+      WEBGRIND_MOUNTED_CODEBASE_PATH: /mnt/codebase
+    networks:
+      - coqui
+
+volumes:
+  webgrind_storage:
+    name: coqui_webgrind_storage
