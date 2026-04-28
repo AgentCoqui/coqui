@@ -333,7 +333,7 @@ final readonly class ScheduleToolkit implements ToolkitInterface
 
         $schedule = $this->scheduleStore->get($id);
 
-        return ToolResult::success((string) json_encode([
+        return ToolResult::json([
             'id' => $id,
             'name' => $name,
             'cron' => $cron,
@@ -342,7 +342,7 @@ final readonly class ScheduleToolkit implements ToolkitInterface
             'message' => $isOneShot
                 ? "One-shot schedule '{$name}' created. Will execute within 60 seconds on the next scheduler tick."
                 : "Schedule '{$name}' created. Next run: " . ($schedule['next_run_at'] ?? 'pending'),
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        ]);
     }
 
     /**
@@ -395,7 +395,7 @@ final readonly class ScheduleToolkit implements ToolkitInterface
             return ToolResult::error('Schedule not found');
         }
 
-        return ToolResult::success((string) json_encode($schedule, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        return ToolResult::json($schedule);
     }
 
     /**
@@ -454,10 +454,10 @@ final readonly class ScheduleToolkit implements ToolkitInterface
             return ToolResult::error('Schedule not found after update');
         }
 
-        return ToolResult::success((string) json_encode([
+        return ToolResult::json([
             'message' => "Schedule '{$updated['name']}' updated",
             'schedule' => $updated,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        ]);
     }
 
     /**
@@ -515,10 +515,10 @@ final readonly class ScheduleToolkit implements ToolkitInterface
         $this->scheduleStore->update($scheduleId, enabled: true);
         $this->scheduleStore->forceNextRun($scheduleId, $now);
 
-        return ToolResult::success((string) json_encode([
+        return ToolResult::json([
             'message' => "Schedule '{$name}' will be triggered on next scheduler tick (within 60 seconds)",
             'schedule_id' => $scheduleId,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        ]);
     }
 
     /**
@@ -539,9 +539,9 @@ final readonly class ScheduleToolkit implements ToolkitInterface
             $count++;
         }
 
-        return ToolResult::success((string) json_encode([
+        return ToolResult::json([
             'message' => "{$count} schedule(s) will be triggered on next scheduler tick (within 60 seconds)",
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        ]);
     }
 
     /**
