@@ -47,32 +47,8 @@ When Coqui boots, it scans all installed packages for toolkit declarations. Disc
 
 ## Quick Start
 
-The fastest way to create a toolkit is with Coqui's built-in generator:
-
-```
-You: Create a toolkit called "my-api" that integrates with the Example API
-
-Coqui: coqui_toolkit_create(name: "my-api", description: "Example API integration",
-         dependencies: "guzzlehttp/guzzle:^7.0",
-         credentials: '{"EXAMPLE_API_KEY": "API key from https://example.com/keys"}')
-```
-
-This scaffolds the full package structure, generates `composer.json` with auto-discovery declarations, creates the main toolkit class with credential support, and runs `composer install`.
-
-To add tools:
-
-```
-Coqui: coqui_toolkit_add(toolkit_name: "my-api", tool_name: "fetch_items",
-         tool_description: "Fetch items from the Example API",
-         parameters: '[{"name": "query", "type": "string", "description": "Search query", "required": true}]')
-```
-
-Then install and activate:
-
-```
-Coqui: composer(action: "require", package: "coquibot/my-api", target: "workspace")
-Coqui: restart_coqui(reason: "Activate my-api toolkit")
-```
+A toolkit is a normal Composer package with `extra.php-agents.toolkits` metadata.
+Create the package structure manually, declare the toolkit class in `composer.json`, then install it into the target Coqui workspace with Composer.
 
 ## Anatomy of a Toolkit
 
@@ -193,17 +169,7 @@ final class MyToolkit implements ToolkitInterface
 
 ## Creating Your First Toolkit
 
-### Option A: Using the Toolkit Generator
-
-Ask Coqui to create a toolkit:
-
-```
-You: Create a toolkit called "datetime-utils" with tools for working with dates and times
-```
-
-Coqui uses `coqui_toolkit_create` to scaffold the package, then `coqui_toolkit_add` to add specific tools.
-
-### Option B: Manual Creation
+Create the toolkit package manually:
 
 1. Create the package directory:
 
@@ -481,19 +447,9 @@ Add dependencies to the `require` section of your toolkit's `composer.json`:
 }
 ```
 
-### Using the Toolkit Generator
+### Declaring Dependencies
 
-Pass dependencies as a comma-separated string when creating a toolkit:
-
-```
-coqui_toolkit_create(
-    name: "my-api",
-    description: "API integration toolkit",
-    dependencies: "guzzlehttp/guzzle:^7.0,symfony/http-client:^7.0"
-)
-```
-
-The generator writes them into `composer.json` and runs `composer install` automatically.
+Add toolkit dependencies directly to the generated package `composer.json`, then run `composer install` in the toolkit package directory.
 
 ### Using Packagist
 

@@ -31,11 +31,7 @@ test('webhook_create returns structured json metadata', function () {
         'source' => 'github',
     ]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    expect($result->mimeType)->toBe('application/json');
-    expect($result->displayHint)->toBe('structured-json');
-
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['name'])->toBe('deploy-hook');
     expect($data['url'])->toBe('https://coqui.test/api/v1/webhooks/incoming/deploy-hook');
     expect($data['source'])->toBe('github');
@@ -55,11 +51,7 @@ test('webhook_get returns structured json metadata with masked secret', function
 
     $result = $tool->execute(['id' => $id]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    expect($result->mimeType)->toBe('application/json');
-    expect($result->displayHint)->toBe('structured-json');
-
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['webhook']['id'])->toBe($id);
     expect($data['webhook']['secret'])->not->toBe('super-secret');
     expect($data['recent_deliveries'])->toBeArray();
@@ -80,11 +72,7 @@ test('webhook_update returns structured json metadata', function () {
         'description' => 'Build events only',
     ]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    expect($result->mimeType)->toBe('application/json');
-    expect($result->displayHint)->toBe('structured-json');
-
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['webhook']['id'])->toBe($id);
     expect($data['webhook']['event_filter'])->toBe('push,pull_request');
     expect($data['webhook']['description'])->toBe('Build events only');
@@ -102,11 +90,7 @@ test('webhook_rotate_secret returns structured json metadata', function () {
 
     $result = $tool->execute(['id' => $id]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    expect($result->mimeType)->toBe('application/json');
-    expect($result->displayHint)->toBe('structured-json');
-
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['webhook_url'])->toBe('https://coqui.test/api/v1/webhooks/incoming/rotate-hook');
     expect($data['new_secret'])->not->toBe('old-secret');
     expect($this->store->get($id)['secret'])->toBe($data['new_secret']);

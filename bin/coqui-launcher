@@ -437,7 +437,7 @@ api_probe_host() {
         0.0.0.0)
             printf '127.0.0.1\n'
             ;;
-        ::|[::])
+        ::|"[::]")
             printf '::1\n'
             ;;
         *)
@@ -451,6 +451,7 @@ api_health_ready() {
     local port="$2"
     local expected_workspace="${3:-}"
 
+    # shellcheck disable=SC2016
     php -r '
         $host = $argv[1] ?? "127.0.0.1";
         $port = $argv[2] ?? "3300";

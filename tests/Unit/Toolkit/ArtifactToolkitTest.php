@@ -68,11 +68,7 @@ test('artifact_create tool creates artifact', function () {
         'language' => 'php',
     ]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    expect($result->mimeType)->toBe('application/json');
-    expect($result->displayHint)->toBe('structured-json');
-
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['title'])->toBe('My Script');
     expect($data['version'])->toBe(1);
     expect($data['stage'])->toBe('draft');
@@ -98,9 +94,7 @@ test('artifact_update tool updates content', function () {
         'change_summary' => 'Revised',
     ]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['version'])->toBe(2);
 });
 
@@ -119,8 +113,7 @@ test('artifact_get tool retrieves artifact', function () {
 
     $result = $tool->execute(['id' => $id]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['title'])->toBe('Fetched');
     expect($data['content'])->toBe('body');
 });
@@ -133,8 +126,7 @@ test('artifact_get tool retrieves specific version', function () {
 
     $result = $tool->execute(['id' => $id, 'version' => 1]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['content'])->toBe('original');
     expect($data['version'])->toBe(1);
 });
@@ -147,8 +139,7 @@ test('artifact_list tool returns artifacts', function () {
 
     $result = $tool->execute([]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['count'])->toBe(2);
 });
 
@@ -168,8 +159,7 @@ test('artifact_stage tool transitions stage', function () {
 
     $result = $tool->execute(['id' => $id, 'stage' => 'review']);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['previous_stage'])->toBe('draft');
     expect($data['new_stage'])->toBe('review');
 });
@@ -233,8 +223,7 @@ test('artifact_delete tool deletes artifact', function () {
 
     $result = $deleteTool->execute(['id' => $id]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['deleted'])->toBeTrue();
     expect($this->store->get($id))->toBeNull();
 });
@@ -259,10 +248,7 @@ test('artifact_bulk_stage updates artifacts by explicit ids and returns structur
         'stage' => 'review',
     ]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    expect($result->mimeType)->toBe('application/json');
-    expect($result->displayHint)->toBe('structured-json');
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['updated'])->toBe(2);
     expect($this->store->get($id1)['stage'])->toBe('review');
     expect($this->store->get($id2)['stage'])->toBe('review');
@@ -279,8 +265,7 @@ test('artifact_bulk_stage accepts native array ids', function () {
         'stage' => 'review',
     ]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['updated'])->toBe(2);
     expect($this->store->get($id1)['stage'])->toBe('review');
     expect($this->store->get($id2)['stage'])->toBe('review');
@@ -297,8 +282,7 @@ test('artifact_bulk_delete deletes artifacts selected by filter', function () {
         'type' => 'code',
     ]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['deleted'])->toBe(2);
     expect($this->store->list($this->sessionId))->toHaveCount(1);
     expect($this->store->get($keepId))->not->toBeNull();
@@ -314,8 +298,7 @@ test('artifact_bulk_delete accepts native array ids', function () {
         'ids' => [$id1, $id2],
     ]);
 
-    expect($result->status)->toBe(ToolResultStatus::Success);
-    $data = json_decode($result->content, true);
+    $data = assertStructuredToolResult($result);
     expect($data['deleted'])->toBe(2);
     expect($this->store->get($id1))->toBeNull();
     expect($this->store->get($id2))->toBeNull();

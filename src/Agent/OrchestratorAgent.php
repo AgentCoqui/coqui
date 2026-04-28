@@ -66,7 +66,6 @@ use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Toolkit\PackagistToolkit;
 use CoquiBot\Coqui\Toolkit\StubToolkit;
 use CoquiBot\Coqui\Toolkit\TodoToolkit;
-use CoquiBot\Coqui\Toolkit\ToolkitGeneratorToolkit;
 use CoquiBot\Coqui\Tool\ConfigTool;
 use CoquiBot\Coqui\Tool\CredentialGuardToolkit;
 use CoquiBot\Coqui\Tool\CredentialTool;
@@ -493,15 +492,6 @@ final class OrchestratorAgent extends AbstractAgent
 
         /** @var array<int, array{toolkit: ToolkitInterface, package: string, description: string}> */
         $candidateToolkits = [];
-
-        // Toolkit generator — scaffold new toolkit packages
-        if ($this->roleToolkitResolver->isToolkitAllowed(ToolkitGeneratorToolkit::class)) {
-            $candidateToolkits[] = [
-                'toolkit' => new ToolkitGeneratorToolkit(workspacePath: $this->workspacePath),
-                'package' => '',
-                'description' => 'scaffold new toolkit packages',
-            ];
-        }
 
         // Coqui Space toolkit — marketplace integration
         if ($this->spaceToolkit !== null) {

@@ -20,7 +20,7 @@
             "path": "src/Agent/OrchestratorAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorAgent",
             "layer": "agent",
-            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, ToolkitGeneratorToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, coqui_toolkits, coqui_skills). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Also builds prompt-section telemetry with pinned-versus-deferrable classification and rationale for budget inspection surfaces. Supports a per-turn notification prompt section injected outside the cached base instructions so transient background-work notifications remain visible to the model without polluting persisted conversation history. Constructed fresh on every REPL turn.",
+            "description": "Top-level orchestrator agent. Extends AbstractAgent. Registers all toolkits (FileSystemToolkit, ShellToolkit, MemoryToolkit, CoquiSourceToolkit, auto-discovered toolkits) and all standalone tools (spawn_agent, credentials, package_info, php_execute, vision_analyze, restart_coqui, config, summarize_conversation, extract_memories, coqui_toolkits, coqui_skills). Shell is open by default (empty allowlist — all commands permitted); agents.defaults.shellAllowedCommands enables opt-in restrictive mode; agents.defaults.allowSudo (default false) controls sudo access; allowSudo/allowedCommands are passed to SpawnAgentTool for child agents. Memory is SQLite-backed via MemoryStore with FTS5 full-text search and optional vector embeddings; core memory summary is auto-injected into instructions(). Resolves a ContextWindow from ModelDefinition at construction time and passes it to AbstractAgent for per-iteration token budget enforcement. Budget gate respects explicit Eager/Deferred overrides from ToolkitLoadingRegistry, uses percentage-based promotion for Auto candidates. Also builds prompt-section telemetry with pinned-versus-deferrable classification and rationale for budget inspection surfaces. Supports a per-turn notification prompt section injected outside the cached base instructions so transient background-work notifications remain visible to the model without polluting persisted conversation history. Constructed fresh on every REPL turn.",
             "methods": [
                 "setNotificationPromptSection(?string): void — install or clear the turn-scoped notification prompt section",
                 "instructions(): string — returns the full system prompt with role descriptions, security rules, and operational guidelines",
@@ -1558,16 +1558,6 @@
             "methods": [
                 "tools(): ToolInterface[] — returns coqui_source_map, coqui_read, coqui_list, coqui_search, coqui_doc_map, coqui_doc_read",
                 "guidelines(): string — usage instructions for project source and documentation access"
-            ]
-        },
-        {
-            "path": "src/Toolkit/ToolkitGeneratorToolkit.php",
-            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ToolkitGeneratorToolkit",
-            "layer": "toolkit",
-            "description": "Generates complete toolkit package scaffolds for Coqui. Tools: coqui_toolkit_create (scaffolds a new package with composer.json, toolkit class, README, runs composer install), coqui_toolkit_add (inserts a new tool into an existing toolkit class). All generated packages follow Coqui conventions and are auto-discoverable.",
-            "methods": [
-                "tools(): ToolInterface[] — returns coqui_toolkit_create, coqui_toolkit_add",
-                "guidelines(): string — usage instructions for toolkit generation workflow"
             ]
         },
         {
