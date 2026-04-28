@@ -211,7 +211,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                         // Parse the definition for display (doesn't need substitution for metadata)
                         $definition = $this->loopDiscovery->get($defName);
 
-                        return ToolResult::success((string) json_encode([
+                        return ToolResult::json([
                             'loop_id' => $loopId,
                             'definition' => $defName,
                             'goal' => $goal,
@@ -220,7 +220,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                             'roles' => array_map(fn($r) => $r->role, $definition->roles),
                             'termination' => $definition->terminationCondition->type->value,
                             'message' => "Loop \"{$defName}\" started successfully with ID {$loopId}. Stages will execute as background tasks via the API server. Use loop_status(id: \"{$loopId}\") to monitor progress.",
-                        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                        ]);
                     } catch (\Throwable $e) {
                         return ToolResult::error(sprintf('Failed to start loop: %s', $e->getMessage()));
                     }
@@ -228,7 +228,7 @@ final readonly class LoopToolkit implements ToolkitInterface
 
                 // Fallback: return definition details when executor is not available
                 $definition = $this->loopDiscovery->get($defName);
-                return ToolResult::success((string) json_encode([
+                return ToolResult::json([
                     'action' => 'start_loop',
                     'definition' => $defName,
                     'goal' => $goal,
@@ -236,7 +236,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                     'roles' => array_map(fn($r) => $r->role, $definition->roles),
                     'termination' => $definition->terminationCondition->type->value,
                     'message' => "Loop \"{$defName}\" is ready to start. Stages will execute as background tasks via the API server.",
-                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                ]);
             },
         );
     }
@@ -327,7 +327,7 @@ final readonly class LoopToolkit implements ToolkitInterface
                     ], $stages);
                 }
 
-                return ToolResult::success((string) json_encode($output, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+                return ToolResult::json($output);
             },
         );
     }

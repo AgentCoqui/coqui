@@ -156,6 +156,8 @@ test('loop_start returns action payload for valid definition', function () {
 
     $result = $tool->execute(['definition' => 'harness', 'goal' => 'Build feature X']);
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
 
     $decoded = json_decode($result->content, true);
     expect($decoded)
@@ -252,6 +254,8 @@ test('loop_status returns structured JSON for valid loop', function () {
 
     $result = $statusTool->execute(['id' => $loopId]);
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
 
     $decoded = json_decode($result->content, true);
     expect($decoded)
@@ -566,6 +570,8 @@ test('loop_start passes parameters to executor', function () {
     ]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
     $data = json_decode($result->content, true);
     expect($data['parameters'])->toBe(['subject' => 'authentication']);
 
@@ -611,6 +617,8 @@ test('loop_start passes max_iterations override to executor', function () {
     ]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
     $data = json_decode($result->content, true);
     expect($data['max_iterations'])->toBe(3);
 

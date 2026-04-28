@@ -104,24 +104,25 @@ final class CoquiSourceToolkit implements ToolkitInterface
                     return ToolResult::error('Failed to read source map');
                 }
 
+                $data = json_decode($content, true);
+                if (!is_array($data)) {
+                    return ToolResult::error('Failed to parse source map JSON');
+                }
+
                 $section = $input['section'] ?? '';
                 if ($section !== '') {
-                    $data = json_decode($content, true);
-                    if (!is_array($data)) {
-                        return ToolResult::error('Failed to parse source map JSON');
-                    }
-
                     if (!isset($data[$section])) {
                         $available = implode(', ', array_keys($data));
                         return ToolResult::error("Unknown section '{$section}'. Available: {$available}");
                     }
 
-                    return ToolResult::success(
-                        json_encode($data[$section], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}',
-                    );
+                    /** @var array<string, mixed> $sectionData */
+                    $sectionData = $data[$section];
+
+                    return ToolResult::json($sectionData);
                 }
 
-                return ToolResult::success($content);
+                return ToolResult::json($data);
             },
         );
     }
@@ -301,20 +302,19 @@ final class CoquiSourceToolkit implements ToolkitInterface
                 }
 
                 $file = $input['file'] ?? '';
-                if ($file === '') {
-                    return ToolResult::success($content);
-                }
-
                 $data = json_decode($content, true);
                 if (!is_array($data) || !isset($data['files'])) {
                     return ToolResult::error('Failed to parse documentation map JSON');
                 }
 
+                if ($file === '') {
+                    return ToolResult::json($data);
+                }
+
                 foreach ($data['files'] as $entry) {
                     if (($entry['path'] ?? '') === $file) {
-                        return ToolResult::success(
-                            json_encode($entry, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}',
-                        );
+                        /** @var array<string, mixed> $entry */
+                        return ToolResult::json($entry);
                     }
                 }
 

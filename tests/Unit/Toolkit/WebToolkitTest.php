@@ -98,6 +98,8 @@ test('http_request makes successful GET request', function () {
     $result = $tool->execute(['url' => 'https://api.example.com/test']);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
 
     $data = json_decode($result->content, true);
     expect($data['status'])->toBe(200);
@@ -160,6 +162,8 @@ test('http_request supports json response mode', function () {
     ]);
 
     expect($result->status)->toBe(ToolResultStatus::Success);
+    expect($result->mimeType)->toBe('application/json');
+    expect($result->displayHint)->toBe('structured-json');
     expect(json_decode($result->content, true))->toBe([
         'ok' => true,
         'count' => 2,
@@ -277,6 +281,8 @@ test('http_download saves files into the workspace downloads directory', functio
         ]);
 
         expect($result->status)->toBe(ToolResultStatus::Success);
+        expect($result->mimeType)->toBe('application/json');
+        expect($result->displayHint)->toBe('structured-json');
 
         $data = json_decode($result->content, true);
         expect($data['filename'])->toBe('report.txt');
@@ -309,6 +315,8 @@ test('http_download queues a background task when session context is available',
         ]);
 
         expect($result->status)->toBe(ToolResultStatus::Success);
+        expect($result->mimeType)->toBe('application/json');
+        expect($result->displayHint)->toBe('structured-json');
 
         $data = json_decode($result->content, true);
         expect($data['status'])->toBe('pending');

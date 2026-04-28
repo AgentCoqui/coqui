@@ -317,14 +317,14 @@ final class WebToolkit implements ToolkitInterface
             toolArguments: $argumentsJson,
         );
 
-        return ToolResult::success(json_encode([
+        return ToolResult::json([
             'task_id' => $taskId,
             'session_id' => $sessionId,
             'status' => 'pending',
             'download_dir' => $this->downloadsDirectoryPath(),
             'requested_filename' => $request['filename'] ?? null,
             'message' => 'Background download queued. Use task_status to monitor progress.',
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: 'Download queued');
+        ]);
     }
 
     /**
@@ -361,7 +361,7 @@ final class WebToolkit implements ToolkitInterface
             throw new \RuntimeException(sprintf('Failed to finalize download file: %s', $targetPath));
         }
 
-        return ToolResult::success(json_encode([
+        return ToolResult::json([
             'status' => $statusCode,
             'file_path' => $targetPath,
             'filename' => basename($targetPath),
@@ -369,7 +369,7 @@ final class WebToolkit implements ToolkitInterface
             'url' => $request['url'],
             'final_url' => (string) $response->getInfo('url'),
             'headers' => $headers,
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: 'Download completed');
+        ]);
     }
 
     /**
@@ -408,7 +408,7 @@ final class WebToolkit implements ToolkitInterface
         return match ($responseMode) {
             'body' => ToolResult::success((string) $formatted['body']),
             'json' => $this->formatJsonResponseResult((string) $formatted['full_body']),
-            default => ToolResult::success(json_encode($formatted, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: ''),
+            default => ToolResult::json($formatted),
         };
     }
 
@@ -419,7 +419,7 @@ final class WebToolkit implements ToolkitInterface
             return ToolResult::error('Response body is not valid JSON.');
         }
 
-        return ToolResult::success(json_encode($decoded, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '');
+        return ToolResult::json($decoded);
     }
 
     /**
