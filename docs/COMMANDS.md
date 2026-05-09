@@ -230,17 +230,9 @@ Options can be combined: `/summarize recent 5 focus "database schema"`.
 
 ### Marketplace
 
-| Command | Description |
-| --- | --- |
-| `/space` | Show Coqui Space help |
-| `/space status` | Show Coqui Space connectivity and installed package counts |
-| `/space search <query>` | Search the marketplace for toolkits and skills |
-| `/space install <package>` | Install a package from Coqui Space |
-| `/space remove <package>` | Remove an installed package |
-| `/space installed` | List installed marketplace packages |
-| `/space skills` | List available skills from installed packages |
-| `/space toolkits` | List available toolkits from installed packages |
-| `/space update <package>` | Update one installed skill or toolkit |
+Marketplace management now lives in external toolkits.
+
+Use the toolkit-owned `/mods` command for discovery and install flows, and the `mods_skills`, `mods_toolkits`, `mods`, `mods_publish`, and `mods_account` tool surfaces for agent-driven marketplace actions.
 
 ## CLI Commands
 

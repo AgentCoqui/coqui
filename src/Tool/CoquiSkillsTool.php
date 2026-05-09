@@ -12,9 +12,9 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CoquiBot\Coqui\Config\SkillDiscovery;
 use CoquiBot\Coqui\Config\SkillParser;
-use CoquiBot\Coqui\CoquiSpace\Installer\SkillInstaller;
 use CoquiBot\Coqui\Exception\SkillNotFoundException;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
+use CoquiBot\ModManager\Installer\SkillInstaller;
 
 /**
  * Unified tool for browsing and managing local skills.
@@ -103,7 +103,7 @@ final class CoquiSkillsTool
         if (empty($skills)) {
             return ToolResult::success(
                 "No skills installed. Use `coqui_skills(action: \"create\", ...)` to create one, "
-                . "or `coqui_space_skills(action: \"search\", query: \"...\")` to discover community skills.",
+                . "or `/mods search <query>` to discover community skills.",
             );
         }
 
@@ -329,7 +329,7 @@ final class CoquiSkillsTool
         }
 
         if ($this->installer === null) {
-            return ToolResult::error('Skill lifecycle management is not available (Coqui Space not configured).');
+            return ToolResult::error('Skill lifecycle management is not available (mod manager toolkit not loaded).');
         }
 
         $message = $this->installer->disable($name);
@@ -348,7 +348,7 @@ final class CoquiSkillsTool
         }
 
         if ($this->installer === null) {
-            return ToolResult::error('Skill lifecycle management is not available (Coqui Space not configured).');
+            return ToolResult::error('Skill lifecycle management is not available (mod manager toolkit not loaded).');
         }
 
         $message = $this->installer->enable($name);
@@ -367,7 +367,7 @@ final class CoquiSkillsTool
         }
 
         if ($this->installer === null) {
-            return ToolResult::error('Skill lifecycle management is not available (Coqui Space not configured).');
+            return ToolResult::error('Skill lifecycle management is not available (mod manager toolkit not loaded).');
         }
 
         $purge = (bool) ($input['purge'] ?? false);

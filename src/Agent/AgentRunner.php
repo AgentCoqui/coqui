@@ -37,11 +37,11 @@ use CoquiBot\Coqui\Contract\AgentTurnResult;
 use CoquiBot\Coqui\Contract\BackgroundTaskSummary;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 use CoquiBot\Coqui\Contract\DeferredWorkQueue;
-use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryExtractor;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
+use CoquiBot\ModManager\ModManagerToolkit;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
@@ -90,7 +90,7 @@ final class AgentRunner
         private readonly ?ConfigManager $configManager = null,
         private readonly ?ConfigGuard $configGuard = null,
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
-        private readonly ?SpaceToolkit $spaceToolkit = null,
+        private readonly ?ModManagerToolkit $modsToolkit = null,
         private readonly ?TodoStore $todoStore = null,
         private readonly ?ArtifactStore $artifactStore = null,
         private readonly ?ProjectStore $projectStore = null,
@@ -979,7 +979,7 @@ final class AgentRunner
             configManager: $this->configManager,
             configGuard: $this->configGuard,
             visibilityRegistry: $this->visibilityRegistry,
-            spaceToolkit: $this->spaceToolkit,
+            modsToolkit: $this->modsToolkit,
             activeRole: $role !== 'orchestrator' ? $role : null,
             projectStore: $this->projectStore,
             defaultsLoader: $this->defaultsLoader,
@@ -1396,7 +1396,7 @@ final class AgentRunner
             configManager: $this->configManager,
             configGuard: $this->configGuard,
             visibilityRegistry: $this->visibilityRegistry,
-            spaceToolkit: $this->spaceToolkit,
+            modsToolkit: $this->modsToolkit,
             activeRole: $effectiveRole !== 'orchestrator' ? $effectiveRole : null,
             projectStore: $this->projectStore,
             defaultsLoader: $this->defaultsLoader,

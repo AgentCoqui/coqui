@@ -19,7 +19,7 @@
 <p align="center">
   <a href="https://agentcoqui.com/">Website</a> ·
   <a href="https://agentcoqui.com/docs">Docs</a> ·
-  <a href="https://coqui.space">Toolkits</a> ·
+  <a href="https://agentcoqui.com">Toolkits</a> ·
   <a href="https://github.com/sponsors/carmelosantana">Sponsor</a>
 </p>
 <!-- markdownlint-enable MD033 -->
@@ -28,7 +28,7 @@ Coqui is your personal operating system for AI work: a lightweight, hackable age
 
 Built on [`php-agents`](https://github.com/carmelosantana/php-agents), it gives you a REPL, persistent memory, background tasks, schedules, artifacts, and runtime-extensible toolkits in one PHP 8.4 runtime you can inspect, modify, and self-host.
 
-Start with [Installation](#installation), [Getting Started](https://docs.agentcoqui.com/getting-started), [Features](https://docs.agentcoqui.com/features), or browse [coqui.space](https://coqui.space).
+Start with [Installation](#installation), [Getting Started](https://docs.agentcoqui.com/getting-started), [Features](https://docs.agentcoqui.com/features), or browse [coqui.space](https://agentcoqui.com).
 
 > Coqui is a WIP and under rapid development. Be careful when running this tool. Always test in a safe environment.
 
@@ -56,7 +56,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - 🤖 [**Multi-Model Orchestration**](docs/FEATURES.md#multi-model-orchestration) — route tasks to the right model with automatic failover
 - 🔀 [**Agent Delegation**](docs/FEATURES.md#child-agent-delegation) — spawn specialized agents (coder, researcher, planner, reviewer, muse, philosopher) with role-appropriate models
 - 🧠 [**Memory Persistence**](docs/FEATURES.md#memory-persistence) — cross-session memory with SQLite, FTS5, and optional vector embeddings
-- 📦 [**Runtime Extensibility**](docs/FEATURES.md#runtime-extensibility) — install Composer toolkits at runtime; browse [coqui.space](https://coqui.space)
+- 📦 [**Runtime Extensibility**](docs/FEATURES.md#runtime-extensibility) — install Composer toolkits at runtime; browse [coqui.space](https://agentcoqui.com)
 - 🔐 [**Credential Management**](docs/FEATURES.md#credential-management) — declarative `.env`-based secrets with hot-reload and automatic guards
 - 📋 [**Skills System**](docs/FEATURES.md#skills-system) — teach Coqui any workflow with plain Markdown files — no code required
 - ⏰ [**Scheduled Tasks**](docs/FEATURES.md#scheduled-tasks) — cron-style automation with circuit breakers
@@ -192,7 +192,7 @@ Once you're in the REPL:
 
 1. **Have a conversation** — ask questions, request code changes, or describe a task
 2. **Try a different role** — `/role coder` for focused coding, `/role plan` for structured planning
-3. **Extend with toolkits** — browse [coqui.space](https://coqui.space), install with `/space install <package>`, then restart Coqui to activate newly discovered tools and toolkit-provided REPL commands
+3. **Extend with mods** — browse [agentcoqui.com](https://agentcoqui.com), install with `/mods install <package>`, then restart Coqui to activate newly discovered tools and toolkit-provided REPL commands
 4. **Run API-only mode when needed** — `coqui --api-only` or `./bin/coqui-launcher --api-only`
 5. **Explore models** — map roles to models in `openclaw.json` for cost-optimized routing
 
@@ -233,7 +233,7 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full CLI reference including `a
 | `/todos [status]` | Show session todos |
 | `/schedules` | List scheduled tasks |
 | `/loops` | List and manage automated loops |
-| `/space` | Coqui Space marketplace |
+| `/mods` | Mods marketplace via the external manager toolkit |
 | `/help` | Show the compact command reference |
 | `/summarize` | Summarize conversation for token savings |
 | `/quit` | Exit Coqui |
@@ -363,13 +363,13 @@ Coqui ships with a rich set of tools organized into toolkits:
 | **Packages** | `composer`, `packagist` | Dependency management and package search |
 | **Credentials** | `credentials` | Secure `.env`-based secret storage |
 
-Toolkits from [Coqui Space](https://coqui.space) and local workspace packages add more: GitHub, Brave Search, browser automation, Canva, Cloudflare, image generation, and more.
+Toolkits from the [Coqui Mods marketplace](https://agentcoqui.com) and local workspace packages add more: GitHub, Brave Search, browser automation, Canva, Cloudflare, image generation, and more.
 
 ## Extending Coqui
 
 Coqui auto-discovers toolkits from installed Composer packages. Create a package that implements `ToolkitInterface`, register it in `composer.json`, and Coqui picks it up automatically — including credentials and gated operations.
 
-Toolkit-provided REPL commands follow the same boot-time discovery path. After `/space install <package>` or a manual Composer install, restart Coqui to activate newly discovered tools and slash commands.
+Toolkit-provided REPL commands follow the same boot-time discovery path. After `/mods install <package>` or a manual Composer install, restart Coqui to activate newly discovered tools and slash commands.
 
 See [docs/TOOLKITS.md](docs/TOOLKITS.md) for the full walkthrough with examples.
 
@@ -472,7 +472,7 @@ ollama serve
 
 ### Toolkit Discovery In Docker
 
-Coqui discovers Composer-installed toolkits and toolkit-provided REPL commands on boot inside the container just like it does natively. After installing a toolkit with `/space install <package>` or a workspace Composer command, restart the REPL or API container so the new tools and slash commands are registered.
+Coqui discovers Composer-installed toolkits and toolkit-provided REPL commands on boot inside the container just like it does natively. After installing a toolkit with `/mods install <package>` or a workspace Composer command, restart the REPL or API container so the new tools and slash commands are registered.
 
 ### Useful Commands
 

@@ -7,7 +7,6 @@ namespace CoquiBot\Coqui\Repl;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 use CoquiBot\Coqui\Contract\ToolkitTabCompletionProvider;
-use CoquiBot\Coqui\CoquiSpace\SpaceInstallCompletionCache;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\LoopStore;
@@ -102,7 +101,6 @@ final class TabCompletion
             '/roles' => $this->completeRoles($parts),
             '/group' => $this->completeGroup($parts),
             '/profile' => $this->completeProfile($parts),
-            '/space' => $this->completeSpace($parts),
             default => $this->completeToolkitCommand($spec, $parts),
         };
     }
@@ -504,47 +502,6 @@ final class TabCompletion
 
         if (count($parts) === 3 && $action === 'rounds') {
             return $this->completeChoices(['1', '2', '3', '4', '5'], $parts[2]);
-        }
-
-        return [];
-    }
-
-    /**
-     * @param array<string> $parts
-     * @return list<string>
-     */
-    private function completeSpace(array $parts): array
-    {
-        if (count($parts) === 2) {
-            return $this->completeChoices($this->commandSpec('/space')->firstArguments, $parts[1]);
-        }
-
-        if (count($parts) === 3 && $parts[1] === 'install') {
-            $spaceToolkit = $this->boot->spaceToolkit();
-            if ($spaceToolkit === null) {
-                return [];
-            }
-
-            return (new SpaceInstallCompletionCache($this->boot->workspacePath(), $spaceToolkit->client()))
-                ->suggestTargets($parts[2]);
-        }
-
-        if (count($parts) === 3 && in_array($parts[1], ['remove', 'update'], true)) {
-            $spaceToolkit = $this->boot->spaceToolkit();
-            if ($spaceToolkit === null) {
-                return [];
-            }
-
-            $candidates = array_map(
-                static fn(array $skill): string => (string) $skill['name'],
-                $spaceToolkit->skillInstaller()->list(),
-            );
-
-            foreach ($spaceToolkit->toolkitInstaller()->list() as $toolkit) {
-                $candidates[] = $toolkit['package'];
-            }
-
-            return $this->completeChoices($candidates, $parts[2]);
         }
 
         return [];

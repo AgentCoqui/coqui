@@ -37,7 +37,6 @@ use CoquiBot\Coqui\Repl\Handler\QualityHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
-use CoquiBot\Coqui\Repl\Handler\SpaceHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
@@ -447,7 +446,6 @@ final class RunCommand extends Command
             profile: new ProfileHandler($this->boot, $sessionHandler),
             backstory: new BackstoryHandler($this->boot->profileDiscovery(), $this->boot->workspacePath()),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
-            space: new SpaceHandler($this->boot),
             config: new ConfigHandler($this->boot, $this->workDir),
             conversation: new ConversationHandler($this->boot, $this->storage),
             webhook: new WebhookHandler($this->storage),

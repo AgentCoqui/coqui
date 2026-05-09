@@ -17,8 +17,8 @@ use CoquiBot\Coqui\Contract\MountDefinition;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
-use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Repl\ToolkitCommandCandidate;
+use CoquiBot\ModManager\ModManagerToolkit;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
@@ -67,7 +67,7 @@ final class BootManager
     private ?ArtifactStore $artifactStore = null;
     private ?TodoStore $todoStore = null;
     private ?ProjectStore $projectStore = null;
-    private ?SpaceToolkit $spaceToolkit = null;
+    private ?ModManagerToolkit $modsToolkit = null;
     private ?LoopStore $loopStore = null;
     private ?LoopDiscovery $loopDiscovery = null;
     private ?LoopUpdateTracker $loopUpdateTracker = null;
@@ -112,7 +112,7 @@ final class BootManager
         $this->discoverChannels($io);
         $this->seedPackageContent();
         $this->discoverSkills();
-        $this->initializeSpace();
+        $this->initializeMods();
 
         return true;
     }
@@ -280,9 +280,9 @@ final class BootManager
         return $this->memorySummarizer;
     }
 
-    public function spaceToolkit(): ?SpaceToolkit
+    public function modsToolkit(): ?ModManagerToolkit
     {
-        return $this->spaceToolkit;
+        return $this->modsToolkit;
     }
 
     public function artifactStore(): ?ArtifactStore
@@ -718,9 +718,9 @@ final class BootManager
         }
     }
 
-    private function initializeSpace(): void
+    private function initializeMods(): void
     {
-        $this->spaceToolkit = SpaceToolkit::create($this);
+        $this->modsToolkit = ModManagerToolkit::fromEnv($this->workspacePath);
     }
 
     private function buildDefaultConfig(): CoquiOpenClawConfig
