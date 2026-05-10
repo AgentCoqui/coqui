@@ -399,6 +399,11 @@ Group-session requests use the same endpoint with a group scope instead of `prof
 | `confirm_close_active_profile_session` | bool | No | `false` | Required when `profile` already has an active interactive session and the client explicitly wants to close/archive it before starting a fresh one |
 | `confirm_close_active_group_session` | bool | No | `false` | Required when the requested group composition already has another active interactive session and the client explicitly wants to close/archive it before forcing a fresh one |
 
+Successful session create and resolve responses now include:
+
+- `created`: whether this request created a new session or reused an existing one
+- `closed_session_ids`: any older conflicting sessions that were closed/archived as part of the operation
+
 **Response `201`**
 
 ```json
@@ -407,7 +412,9 @@ Group-session requests use the same endpoint with a group scope instead of `prof
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
   "profile": "caelum",
-  "active_project_id": null
+  "active_project_id": null,
+  "created": true,
+  "closed_session_ids": []
 }
 ```
 
@@ -431,7 +438,9 @@ Group-session requests use the same endpoint with a group scope instead of `prof
       "position": 1
     }
   ],
-  "active_project_id": null
+  "active_project_id": null,
+  "created": true,
+  "closed_session_ids": ["a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"]
 }
 ```
 
@@ -520,7 +529,8 @@ Group-session resolve requests use the same endpoint:
   "model": "openai/gpt-5",
   "profile": "caelum",
   "active_project_id": null,
-  "created": false
+  "created": false,
+  "closed_session_ids": ["f0e1d2c3b4a5968778695a4b3c2d1e0f"]
 }
 ```
 
@@ -545,7 +555,8 @@ Group-session resolve requests use the same endpoint:
     }
   ],
   "active_project_id": null,
-  "created": true
+  "created": true,
+  "closed_session_ids": []
 }
 ```
 

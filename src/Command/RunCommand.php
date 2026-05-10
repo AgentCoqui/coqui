@@ -546,9 +546,9 @@ final class RunCommand extends Command
             $lineReady = false;
             $ctrlCPressed = false;
 
-            $hasReadline = function_exists('readline_callback_handler_install');
+            $useReadlineCallbacks = $this->shouldUseReadlineCallbacks();
 
-            if ($hasReadline) {
+            if ($useReadlineCallbacks) {
                 $readlineCallback = static function (?string $input) use (&$line, &$lineReady): void {
                     $line = $input;
                     $lineReady = true;
@@ -640,6 +640,9 @@ final class RunCommand extends Command
                 }
 
                 $this->removeReadlineHandler();
+            } elseif (function_exists('readline')) {
+                $line = $this->readWithReadlinePrompt($readlinePrompt);
+                $lineReady = true;
             } else {
                 $io->write($readlinePrompt);
                 $raw = fgets(STDIN);
@@ -946,6 +949,26 @@ final class RunCommand extends Command
         }
 
         return $contextParts;
+    }
+
+    private function shouldUseReadlineCallbacks(?string $osFamily = null): bool
+    {
+        if (!function_exists('readline_callback_handler_install')) {
+            return false;
+        }
+
+        return ($osFamily ?? PHP_OS_FAMILY) !== 'Darwin';
+    }
+
+    private function readWithReadlinePrompt(string $prompt): ?string
+    {
+        if (!function_exists('readline')) {
+            return null;
+        }
+
+        $line = readline($prompt);
+
+        return $line === false ? null : $line;
     }
 
     private function installReadlineHandler(string $prompt, callable $callback): void

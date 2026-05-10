@@ -35,7 +35,7 @@ final readonly class GroupSessionTypeHandler implements SessionTypeHandlerInterf
             closureReasonPrefix: 'api_create_group_session',
         );
 
-        return new SessionTypeOperationResult($result->session, true);
+        return new SessionTypeOperationResult($result->session, true, $result->closedSessionIds);
     }
 
     public function resolve(SessionScope $scope): SessionTypeOperationResult
@@ -46,7 +46,7 @@ final readonly class GroupSessionTypeHandler implements SessionTypeHandlerInterf
             groupMaxRounds: $scope->groupMaxRounds ?? GroupSessionService::DEFAULT_MAX_ROUNDS,
         );
 
-        return new SessionTypeOperationResult($result->session, $result->created);
+        return new SessionTypeOperationResult($result->session, $result->created, $result->closedSessionIds);
     }
 
     /**
