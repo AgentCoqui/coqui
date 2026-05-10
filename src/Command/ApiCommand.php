@@ -406,7 +406,11 @@ final class ApiCommand extends Command
         $promptInspectionService = new PromptInspectionService($previewRunner, $boot->workspacePath(), $workDir);
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($promptInspectionService);
-        $backstoryHandler = new BackstoryHandler(new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery()));
+        $backstoryHandler = new BackstoryHandler(
+            new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery()),
+            $boot->profileDiscovery(),
+            $boot->workspacePath(),
+        );
         $budgetHandler = new BudgetHandler($previewRunner);
         $commandCatalogHandler = new CommandCatalogHandler();
         $mcpConfig = new McpConfig($boot->workspacePath());
@@ -712,6 +716,13 @@ final class ApiCommand extends Command
         $router->get($v1 . '/roles/{name}', [$role, 'get']);
         $router->get($v1 . '/profiles', [$config, 'profiles']);
         $router->get($v1 . '/profiles/{name}', [$config, 'profile']);
+        $router->post($v1 . '/profiles', [$config, 'createProfile']);
+        $router->patch($v1 . '/profiles/{name}', [$config, 'updateProfile']);
+        $router->delete($v1 . '/profiles/{name}', [$config, 'deleteProfile']);
+        $router->get($v1 . '/profiles/{name}/backstory', [$backstory, 'getProfile']);
+        $router->post($v1 . '/profiles/{name}/backstory/folders', [$backstory, 'createFolder']);
+        $router->put($v1 . '/profiles/{name}/backstory/entries', [$backstory, 'putEntry']);
+        $router->delete($v1 . '/profiles/{name}/backstory/entries', [$backstory, 'deleteEntry']);
 
         // Credentials
         $router->get($v1 . '/credentials', [$credential, 'list']);

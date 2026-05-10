@@ -1887,6 +1887,209 @@ App-facing alias for `GET /api/v1/config/profiles`.
 
 App-facing alias for `GET /api/v1/config/profiles/{name}`.
 
+#### `POST /api/v1/profiles`
+
+Create a new profile for app onboarding and profile-first setup flows.
+
+This first phase-1 slice supports:
+
+- `name`: required lowercase profile slug using letters, numbers, hyphens, or underscores
+- `description`: optional shortcut used to generate a default `soul.md` when `soul` is omitted
+- `soul`: optional full markdown body for `soul.md`
+- `backstory`: optional markdown content written to `backstory.md`
+- `preferences`: optional typed preferences payload saved to `preferences.json`
+
+Provide either `description` or `soul`.
+
+**Request Body**
+
+```json
+{
+  "name": "nova",
+  "description": "A bold collaborative strategist.",
+  "backstory": "## Origins\n\nBuilt for focused strategic support.",
+  "preferences": {
+    "behavior": {
+      "planning_mode": "structured"
+    },
+    "prompts": {
+      "features": {
+        "projects": false,
+        "todos": true
+      }
+    }
+  }
+}
+```
+
+**Response `201`**
+
+Returns the same profile detail shape as `GET /api/v1/profiles/{name}`. The new profile is immediately visible in subsequent list and detail requests without a server restart.
+
+**Response `409`** — profile already exists.
+
+**Response `400`** — invalid name, invalid JSON body, invalid preferences, or missing `description`/`soul`.
+
+#### `PATCH /api/v1/profiles/{name}`
+
+Update an existing profile for onboarding and profile management flows.
+
+This initial update slice supports:
+
+- `description`: rewrites the generated `soul.md` body while preserving existing frontmatter when present
+- `soul`: replaces the `soul.md` body and preserves existing frontmatter unless the new markdown already includes its own frontmatter
+- `backstory`: string to write `backstory.md`, or `null` to remove it
+- `preferences`: typed preferences object to write `preferences.json`, or `null` to remove it
+
+Profile renaming is not supported by this endpoint yet.
+
+**Request Body**
+
+```json
+{
+  "description": "A calmer guide for long-running conversations.",
+  "backstory": "## Revisions\n\nUpdated during onboarding.",
+  "preferences": {
+    "prompts": {
+      "features": {
+        "projects": false,
+        "todos": true
+      }
+    }
+  }
+}
+```
+
+**Response `200`**
+
+Returns the same profile detail shape as `GET /api/v1/profiles/{name}`.
+
+**Response `400`** — invalid JSON, invalid preferences, unsupported rename attempt, or no supported fields.
+
+**Response `404`** — profile not found.
+
+#### `DELETE /api/v1/profiles/{name}`
+
+Delete a profile directory that is no longer needed.
+
+This initial slice intentionally refuses to delete the configured default profile so the app cannot leave the workspace pointing at a broken default profile.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "name": "trinity"
+}
+```
+
+**Response `404`** — profile not found.
+
+**Response `409`** — the requested profile is still the configured default profile.
+
+#### `GET /api/v1/profiles/{name}/backstory`
+
+Profile-scoped alias for `GET /api/v1/server/backstory?profile={name}`.
+
+This is the app-facing inspection route for the purpose-built backstory builder. It returns generated `backstory.md` content, source file breakdowns, folder summaries, unsupported file visibility, and regeneration metadata for a single profile.
+
+**Response `200`**
+
+Returns the same payload shape as `GET /api/v1/server/backstory?profile={name}`.
+
+**Response `400`** — unknown profile.
+
+#### `POST /api/v1/profiles/{name}/backstory/folders`
+
+Create a folder inside `profiles/{name}/backstory/` for organizing source files used by the backstory generator.
+
+This endpoint is intentionally profile-scoped and path-limited. It does not expose a generic workspace browser.
+
+**Request Body**
+
+```json
+{
+  "path": "timeline/childhood"
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "created": true,
+  "path": "profiles/caelum/backstory/timeline/childhood",
+  "backstory": {
+    "profile": "caelum",
+    "source_folder": "profiles/caelum/backstory",
+    "source_folder_exists": true
+  }
+}
+```
+
+**Response `400`** — invalid path or unknown profile.
+
+#### `PUT /api/v1/profiles/{name}/backstory/entries`
+
+Create or replace a single backstory source entry under `profiles/{name}/backstory/`.
+
+Supported entry paths are limited to the same allowlisted source extensions used by backstory generation. Hidden paths, traversal segments, and unsupported extensions are rejected.
+
+After writing the file, Coqui regenerates `backstory.md` and refreshes the manifest before returning the updated inspection payload.
+
+**Request Body**
+
+```json
+{
+  "path": "timeline/01-origin.md",
+  "content": "# Origin\n\nCaelum first learned through careful observation."
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "updated": true,
+  "path": "profiles/caelum/backstory/timeline/01-origin.md",
+  "backstory": {
+    "profile": "caelum",
+    "generated_backstory_path": "profiles/caelum/backstory.md"
+  }
+}
+```
+
+**Response `400`** — invalid JSON, invalid path, unsupported extension, empty content, or unknown profile.
+
+#### `DELETE /api/v1/profiles/{name}/backstory/entries`
+
+Delete a single backstory source entry under `profiles/{name}/backstory/` and regenerate the generated backstory output.
+
+**Request Body**
+
+```json
+{
+  "path": "timeline/01-origin.md"
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "path": "profiles/caelum/backstory/timeline/01-origin.md",
+  "backstory": {
+    "profile": "caelum",
+    "generated_backstory_path": "profiles/caelum/backstory.md"
+  }
+}
+```
+
+**Response `400`** — invalid JSON, invalid path, unsupported extension, or unknown profile.
+
+**Response `404`** — entry not found.
+
 #### `GET /api/v1/config/models`
 
 Lists all configured models with resolved metadata. Results are enriched from saved model metadata and Coqui's shared fallback resolver.
@@ -4861,6 +5064,10 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/help` | `GET /api/v1/server/commands` | Returns the runtime slash-command catalog |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
 | `/backstory` | `GET /api/v1/server/backstory?profile=<name>` | Returns generated backstory content and source breakdowns |
+| profile backstory inspect | `GET /api/v1/profiles/{name}/backstory` | Returns the same backstory inspection payload through a profile-scoped app route |
+| profile backstory folder create | `POST /api/v1/profiles/{name}/backstory/folders` | Creates a folder inside `profiles/{name}/backstory/` |
+| profile backstory entry upsert | `PUT /api/v1/profiles/{name}/backstory/entries` | Creates or replaces a typed backstory source entry and regenerates output |
+| profile backstory entry delete | `DELETE /api/v1/profiles/{name}/backstory/entries` | Deletes a backstory source entry and regenerates output |
 | `/budget` | `GET /api/v1/server/budget` | Returns prompt and toolkit budget info |
 | `/loops` | `GET /api/v1/loops` | Lists all loops with status and progress |
 | `/loops definitions` | `GET /api/v1/loops/definitions` | Shows available loop definitions |
@@ -4915,6 +5122,15 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/config/roles` | Yes | List all roles |
 | `GET` | `/api/v1/config/roles/{name}` | Yes | Get role detail |
 | `GET` | `/api/v1/config/models` | Yes | List available models |
+| `GET` | `/api/v1/profiles` | Yes | List discovered profiles for app pickers |
+| `GET` | `/api/v1/profiles/{name}` | Yes | Get profile detail |
+| `POST` | `/api/v1/profiles` | Yes | Create a profile |
+| `PATCH` | `/api/v1/profiles/{name}` | Yes | Update soul, backstory, and preferences for a profile |
+| `DELETE` | `/api/v1/profiles/{name}` | Yes | Delete a non-default profile |
+| `GET` | `/api/v1/profiles/{name}/backstory` | Yes | Get profile-scoped backstory inspection data |
+| `POST` | `/api/v1/profiles/{name}/backstory/folders` | Yes | Create a folder inside a profile backstory source tree |
+| `PUT` | `/api/v1/profiles/{name}/backstory/entries` | Yes | Create or replace a backstory source entry and regenerate output |
+| `DELETE` | `/api/v1/profiles/{name}/backstory/entries` | Yes | Delete a backstory source entry and regenerate output |
 | `GET` | `/api/v1/credentials` | Yes | List credential keys |
 | `GET` | `/api/v1/credentials/requirements` | Yes | List declared credential requirements |
 | `POST` | `/api/v1/credentials` | Yes | Set a credential |
