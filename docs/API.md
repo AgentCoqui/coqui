@@ -1826,6 +1826,69 @@ Lists discovered profiles so clients can offer a profile picker instead of manua
 }
 ```
 
+#### `GET /api/v1/config/profile-preferences/schema`
+
+Returns the curated, app-facing schema for the first-class profile preferences editor.
+
+This endpoint exists so the app can render domain-specific sections and controls without exposing raw `preferences.json` structure or internal inspection fields directly.
+
+**Response `200`**
+
+```json
+{
+  "version": 1,
+  "sections": [
+    {
+      "id": "communication_style",
+      "label": "Communication Style",
+      "description": "How the profile speaks, collaborates, and frames feedback.",
+      "fields": [
+        {
+          "id": "response_style",
+          "label": "Response Style",
+          "storage_path": "prompt_directives.response_style",
+          "input": "suggested_text",
+          "description": "Choose how the profile should sound in normal replies.",
+          "suggestions": [
+            "structured and measured",
+            "brief and exact",
+            "commercial and outcome-first"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "planning_reasoning",
+      "label": "Planning and Reasoning",
+      "fields": []
+    },
+    {
+      "id": "capabilities_tools",
+      "label": "Capabilities and Tools",
+      "fields": []
+    },
+    {
+      "id": "roles_autonomy",
+      "label": "Roles and Autonomy",
+      "fields": [
+        {
+          "id": "allow_roles",
+          "input": "multi_select",
+          "options": [
+            {"value": "analyst", "label": "Analyst"},
+            {"value": "orchestrator", "label": "Orchestrator"}
+          ]
+        }
+      ]
+    }
+  ],
+  "deferred": {
+    "advanced_editor": true,
+    "unsupported_fields_hidden": true
+  }
+}
+```
+
 #### `GET /api/v1/config/profiles/{name}`
 
 Return a single profile record with picker-friendly policy details.
@@ -1873,9 +1936,56 @@ Return a single profile record with picker-friendly policy details.
     },
     "labels": []
   },
+  "preference_values": {
+    "prompt_directives": {
+      "response_style": "structured and measured"
+    },
+    "behavior": {
+      "planning_mode": "deliberate"
+    },
+    "prompts": {
+      "features": {
+        "artifacts": true,
+        "projects": true,
+        "loops": true,
+        "todos": true,
+        "background_tasks": true
+      },
+      "roles": {
+        "allow": ["orchestrator", "analyst"],
+        "deny": []
+      }
+    }
+  },
+  "preference_document": {
+    "prompt_directives": {
+      "response_style": "structured and measured"
+    },
+    "behavior": {
+      "planning_mode": "deliberate"
+    },
+    "prompts": {
+      "features": {
+        "artifacts": true,
+        "projects": true,
+        "loops": true,
+        "todos": true,
+        "background_tasks": true
+      },
+      "roles": {
+        "allow": ["orchestrator", "analyst"],
+        "deny": []
+      },
+      "prompt_sections": {
+        "tools": true
+      }
+    }
+  },
   "soul": "# Caelum\n\nA calm companion."
 }
 ```
+
+`preferences` remains the inspection-oriented summary. `preference_values` is the curated value payload intended for app-side preference editors. `preference_document` is the raw persisted preference document for clients that need to merge curated edits without dropping unsupported keys.
 
 **Response `404`** — profile not found.
 
@@ -1998,6 +2108,30 @@ This is the app-facing inspection route for the purpose-built backstory builder.
 Returns the same payload shape as `GET /api/v1/server/backstory?profile={name}`.
 
 **Response `400`** — unknown profile.
+
+#### `GET /api/v1/profiles/{name}/backstory/entries`
+
+Read a single supported backstory source entry under `profiles/{name}/backstory/`.
+
+This exists for the app-side backstory organizer so source files can be viewed and edited without exposing a generic workspace file browser.
+
+**Query Parameters**
+
+- `path` — required relative path to a supported source entry, for example `intro.md` or `timeline/01-origin.md`
+
+**Response `200`**
+
+```json
+{
+  "path": "profiles/caelum/backstory/intro.md",
+  "relative_path": "intro.md",
+  "content": "# Intro\n\nCaelum has a long memory.\n"
+}
+```
+
+**Response `400`** — invalid path or unknown profile.
+
+**Response `404`** — entry not found.
 
 #### `POST /api/v1/profiles/{name}/backstory/folders`
 
@@ -5064,6 +5198,7 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/help` | `GET /api/v1/server/commands` | Returns the runtime slash-command catalog |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
 | `/backstory` | `GET /api/v1/server/backstory?profile=<name>` | Returns generated backstory content and source breakdowns |
+| profile preference schema | `GET /api/v1/config/profile-preferences/schema` | Returns the curated app-facing preference editor schema |
 | profile backstory inspect | `GET /api/v1/profiles/{name}/backstory` | Returns the same backstory inspection payload through a profile-scoped app route |
 | profile backstory folder create | `POST /api/v1/profiles/{name}/backstory/folders` | Creates a folder inside `profiles/{name}/backstory/` |
 | profile backstory entry upsert | `PUT /api/v1/profiles/{name}/backstory/entries` | Creates or replaces a typed backstory source entry and regenerates output |

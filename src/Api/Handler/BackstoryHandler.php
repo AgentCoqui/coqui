@@ -60,6 +60,46 @@ final readonly class BackstoryHandler
         }
     }
 
+    public function getEntry(ServerRequestInterface $request, string $name): Response
+    {
+        try {
+            $profile = $this->profile($name);
+            $params = $request->getQueryParams();
+            $entryPath = $this->normalizeBackstoryEntryPath($params['path'] ?? null);
+
+            if ($entryPath === null) {
+                return Router::errorResponse(
+                    ApiErrorCode::VALIDATION_ERROR,
+                    'path is required and must target a supported backstory source file.',
+                );
+            }
+
+            $relativePath = $this->relativeBackstoryEntry($profile['name'], $entryPath);
+            if (!$this->operations()->exists($relativePath)) {
+                return Router::errorResponse(ApiErrorCode::NOT_FOUND, sprintf('Backstory entry "%s" not found.', $entryPath));
+            }
+
+            $absolutePath = $this->workspacePath . '/' . $relativePath;
+            $content = file_get_contents($absolutePath);
+            if ($content === false) {
+                return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Failed to read backstory entry content.');
+            }
+
+            return Router::jsonResponse([
+                'path' => $this->workspaceBackstoryPath($profile['name'], $entryPath),
+                'relative_path' => $entryPath,
+                'content' => $content,
+            ]);
+        } catch (\InvalidArgumentException $e) {
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $e->getMessage());
+        } catch (\Throwable $e) {
+            return Router::errorResponse(
+                ApiErrorCode::INTERNAL_ERROR,
+                'Failed to read backstory entry: ' . $e->getMessage(),
+            );
+        }
+    }
+
     public function createFolder(ServerRequestInterface $request, string $name): Response
     {
         try {

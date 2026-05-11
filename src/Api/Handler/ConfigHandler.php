@@ -201,6 +201,18 @@ final readonly class ConfigHandler
     }
 
     /**
+     * GET /api/v1/config/profile-preferences/schema — app-facing preference editor schema.
+     */
+    public function profilePreferenceSchema(ServerRequestInterface $request): Response
+    {
+        $availableRoles = $this->roleResolver !== null
+            ? array_values($this->roleResolver->selectableRoles())
+            : [];
+
+        return Router::jsonResponse(ProfilePreferences::appSchema($availableRoles));
+    }
+
+    /**
      * GET /api/v1/config/profiles/{name} — get profile detail for picker UIs.
      */
     public function profile(ServerRequestInterface $request, string $name): Response
@@ -518,6 +530,8 @@ final readonly class ConfigHandler
         return [
             ...$this->normalizeProfileSummary($profile),
             'preferences' => $preferences->inspectionSummary(),
+            'preference_values' => $preferences->editorValues(),
+            'preference_document' => $this->readPreferenceDocument($profile['path']),
             'soul' => $this->profileDiscovery->readSoul($profile['name']),
         ];
     }
@@ -599,6 +613,26 @@ final readonly class ConfigHandler
         $content = @file_get_contents($path);
 
         return is_string($content) ? $content : null;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function readPreferenceDocument(string $profilePath): array
+    {
+        $path = rtrim($profilePath, '/') . '/preferences.json';
+        $content = @file_get_contents($path);
+        if (!is_string($content) || trim($content) === '') {
+            return [];
+        }
+
+        try {
+            $decoded = json_decode($content, true, 16, JSON_THROW_ON_ERROR);
+        } catch (\JsonException) {
+            return [];
+        }
+
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function hasFrontmatter(string $content): bool

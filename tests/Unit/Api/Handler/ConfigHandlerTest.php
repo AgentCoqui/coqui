@@ -121,6 +121,42 @@ test('config handler lists discovered profiles and default profile', function ()
     }
 });
 
+test('config handler returns a curated profile preference schema for the app', function () {
+    $fixture = createApiConfigHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->profilePreferenceSchema(
+            new ServerRequest('GET', '/api/v1/config/profile-preferences/schema'),
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['version'])->toBe(1);
+        expect(array_column($body['sections'], 'id'))->toBe([
+            'communication_style',
+            'planning_reasoning',
+            'capabilities_tools',
+            'roles_autonomy',
+        ]);
+        expect($body['sections'][0]['fields'][0]['storage_path'])->toBe('prompt_directives.response_style');
+        expect($body['sections'][1]['fields'][1]['options'])->toBe(['deliberate', 'structured']);
+        expect($body['sections'][2]['fields'][0]['id'])->toBe('artifacts');
+        expect($body['sections'][3]['fields'][0]['options'])->toContain([
+            'value' => 'analyst',
+            'label' => 'Analyst',
+        ]);
+        expect($body['sections'][3]['fields'][0]['options'])->not->toContain([
+            'value' => 'title-generator',
+            'label' => 'Title Generator',
+        ]);
+        expect($body['deferred']['advanced_editor'])->toBeTrue();
+        expect(json_encode($body, JSON_THROW_ON_ERROR))->not->toContain('prompt_sections');
+        expect(json_encode($body, JSON_THROW_ON_ERROR))->not->toContain('labels');
+    } finally {
+        cleanupApiConfigHandlerFixture($fixture);
+    }
+});
+
 test('config handler returns profile detail for picker UIs', function () {
     $fixture = createApiConfigHandlerFixture();
 
@@ -133,6 +169,9 @@ test('config handler returns profile detail for picker UIs', function () {
         expect($body['model'])->toBe('anthropic/claude-sonnet-4-20250514');
         expect($body['role_restrictions']['allow'])->toBe(['orchestrator', 'analyst']);
         expect($body['preferences']['roles']['allow'])->toBe(['orchestrator', 'analyst']);
+        expect($body['preference_values']['prompts']['roles']['allow'])->toBe(['orchestrator', 'analyst']);
+        expect($body['preference_document']['prompts']['roles']['allow'])->toBe(['orchestrator', 'analyst']);
+        expect($body['preference_values']['prompt_directives'])->toBe([]);
         expect($body['soul'])->toContain('A calm companion.');
     } finally {
         cleanupApiConfigHandlerFixture($fixture);

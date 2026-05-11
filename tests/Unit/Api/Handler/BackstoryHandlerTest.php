@@ -122,6 +122,26 @@ test('backstory handler exposes a profile-scoped inspection alias', function () 
     }
 });
 
+test('backstory handler can read a profile backstory source entry', function () {
+    $fixture = createBackstoryHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->getEntry(
+            (new ServerRequest('GET', '/api/v1/profiles/caelum/backstory/entries'))
+                ->withQueryParams(['path' => 'intro.md']),
+            'caelum',
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['path'])->toBe('profiles/caelum/backstory/intro.md');
+        expect($body['relative_path'])->toBe('intro.md');
+        expect($body['content'])->toContain('Caelum has a long memory.');
+    } finally {
+        cleanupBackstoryHandlerFixture($fixture);
+    }
+});
+
 test('backstory handler can create profile backstory folders', function () {
     $fixture = createBackstoryHandlerFixture();
 

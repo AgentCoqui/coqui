@@ -707,6 +707,7 @@ final class ApiCommand extends Command
         $router->post($v1 . '/config/validate', [$config, 'validate']);
         $router->get($v1 . '/config/models', [$config, 'models']);
         $router->get($v1 . '/config/profiles', [$config, 'profiles']);
+        $router->get($v1 . '/config/profile-preferences/schema', [$config, 'profilePreferenceSchema']);
         $router->get($v1 . '/config/profiles/{name}', [$config, 'profile']);
 
         // Roles (read-only — create/update/delete are REPL-only)
@@ -720,6 +721,7 @@ final class ApiCommand extends Command
         $router->patch($v1 . '/profiles/{name}', [$config, 'updateProfile']);
         $router->delete($v1 . '/profiles/{name}', [$config, 'deleteProfile']);
         $router->get($v1 . '/profiles/{name}/backstory', [$backstory, 'getProfile']);
+        $router->get($v1 . '/profiles/{name}/backstory/entries', [$backstory, 'getEntry']);
         $router->post($v1 . '/profiles/{name}/backstory/folders', [$backstory, 'createFolder']);
         $router->put($v1 . '/profiles/{name}/backstory/entries', [$backstory, 'putEntry']);
         $router->delete($v1 . '/profiles/{name}/backstory/entries', [$backstory, 'deleteEntry']);
