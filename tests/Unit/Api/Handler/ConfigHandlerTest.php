@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigManager;
@@ -11,6 +12,7 @@ use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\RoleDiscovery;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use React\Http\Message\ServerRequest;
 
 function createApiConfigHandlerFixture(): array
@@ -77,11 +79,22 @@ MD);
     $profileDiscovery = new ProfileDiscovery($workspacePath);
     $roleDiscovery = new RoleDiscovery($workspacePath, dirname(__DIR__, 4));
     $roleResolver = new RoleResolver($config, roleDiscovery: $roleDiscovery, profileDiscovery: $profileDiscovery);
+    $pdo = new PDO('sqlite::memory:');
+    $runtimeStateStore = new RuntimeStateStore($pdo);
+    $lifecycle = new ApiLifecycleController(
+        runtimeStateStore: $runtimeStateStore,
+        managedByLauncher: true,
+        startedAt: '2026-05-10T00:00:00Z',
+        pid: 12345,
+    );
+    $lifecycle->configureRestartHandler(static function (string $reason): void {
+    });
 
     return [
         'workspacePath' => $workspacePath,
         'projectRoot' => $projectRoot,
         'configManager' => $configManager,
+        'lifecycle' => $lifecycle,
         'handler' => new ConfigHandler(
             $config,
             new ConfigValidator(),
@@ -90,6 +103,7 @@ MD);
             $roleResolver,
             $configManager,
             new ConfigGuard(),
+            $lifecycle,
         ),
     ];
 }
@@ -410,6 +424,107 @@ test('config handler updates conversation history prompt mode', function () {
     }
 });
 
+test('config handler returns supported context settings metadata', function () {
+    $fixture = createApiConfigHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->getContext(new ServerRequest('GET', '/api/v1/config/context'));
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['context'])->toHaveKeys([
+            'conversationHistoryInSystemPrompt',
+            'autoSummarizeMode',
+            'autoSummarizeThreshold',
+            'autoSummarizeTurnThreshold',
+            'autoSummarizeKeepRecent',
+        ]);
+        expect($body['defaults']['autoSummarizeMode'])->toBe('token');
+        expect($body['defaults']['autoSummarizeThreshold'])->toEqual(64.0);
+        expect($body['defaults']['autoSummarizeTurnThreshold'])->toBe(32);
+        expect($body['fields']['autoSummarizeMode']['options'])->toBe(['token', 'turn', 'manual']);
+        expect($body['fields']['autoSummarizeKeepRecent']['maximum'])->toBe(20);
+        expect($body['restart']['required'])->toBeFalse();
+        expect($body['restart']['managed_by_launcher'])->toBeTrue();
+    } finally {
+        cleanupApiConfigHandlerFixture($fixture);
+    }
+});
+
+test('config handler updates multiple safe context settings and marks restart required', function () {
+    $fixture = createApiConfigHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->updateContext(new ServerRequest(
+            'PATCH',
+            '/api/v1/config/context',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'autoSummarizeMode' => 'turn',
+                'autoSummarizeTurnThreshold' => 12,
+                'autoSummarizeKeepRecent' => 8,
+            ], JSON_THROW_ON_ERROR),
+        ));
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['context']['autoSummarizeMode'])->toBe('turn');
+        expect($body['context']['autoSummarizeTurnThreshold'])->toBe(12);
+        expect($body['context']['autoSummarizeKeepRecent'])->toBe(8);
+        expect($body['updated'])->toBe([
+            'autoSummarizeMode',
+            'autoSummarizeTurnThreshold',
+            'autoSummarizeKeepRecent',
+        ]);
+        expect($body['restart_required'])->toBeTrue();
+        expect($body['restart']['required'])->toBeTrue();
+        expect($body['restart']['source'])->toBe('api.config.context.update');
+        expect($body['restart']['context']['updated_keys'])->toBe([
+            'autoSummarizeMode',
+            'autoSummarizeTurnThreshold',
+            'autoSummarizeKeepRecent',
+        ]);
+    } finally {
+        cleanupApiConfigHandlerFixture($fixture);
+    }
+});
+
+test('config handler can reset supported context settings to defaults', function () {
+    $fixture = createApiConfigHandlerFixture();
+
+    try {
+        $fixture['handler']->updateContext(new ServerRequest(
+            'PATCH',
+            '/api/v1/config/context',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'autoSummarizeMode' => 'manual',
+                'autoSummarizeKeepRecent' => 5,
+            ], JSON_THROW_ON_ERROR),
+        ));
+
+        $response = $fixture['handler']->updateContext(new ServerRequest(
+            'PATCH',
+            '/api/v1/config/context',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'reset' => ['autoSummarizeMode', 'autoSummarizeKeepRecent'],
+            ], JSON_THROW_ON_ERROR),
+        ));
+        $body = json_decode((string) $response->getBody(), true);
+        $configArray = $fixture['configManager']->toArray();
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['context']['autoSummarizeMode'])->toBe('token');
+        expect($body['context']['autoSummarizeKeepRecent'])->toBe(15);
+        expect($body['reset'])->toBe(['autoSummarizeMode', 'autoSummarizeKeepRecent']);
+        expect(isset($configArray['agents']['defaults']['context']['autoSummarizeMode']))->toBeFalse();
+        expect(isset($configArray['agents']['defaults']['context']['autoSummarizeKeepRecent']))->toBeFalse();
+    } finally {
+        cleanupApiConfigHandlerFixture($fixture);
+    }
+});
+
 test('config handler rejects invalid conversation history prompt mode payloads', function () {
     $fixture = createApiConfigHandlerFixture();
 
@@ -424,6 +539,30 @@ test('config handler rejects invalid conversation history prompt mode payloads',
 
         expect($response->getStatusCode())->toBe(400);
         expect($body['error'])->toContain('conversationHistoryInSystemPrompt must be a boolean');
+    } finally {
+        cleanupApiConfigHandlerFixture($fixture);
+    }
+});
+
+test('config handler rejects invalid auto summarize payloads', function () {
+    $fixture = createApiConfigHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->updateContext(new ServerRequest(
+            'PATCH',
+            '/api/v1/config/context',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'autoSummarizeMode' => 'always',
+                'autoSummarizeKeepRecent' => 40,
+            ], JSON_THROW_ON_ERROR),
+        ));
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['error'])->toBe('Validation failed');
+        expect($body['details']['errors'])->toContain('autoSummarizeMode must be one of: token, turn, manual');
+        expect($body['details']['errors'])->toContain('autoSummarizeKeepRecent must be an integer between 1 and 20');
     } finally {
         cleanupApiConfigHandlerFixture($fixture);
     }

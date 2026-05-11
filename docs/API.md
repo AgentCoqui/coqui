@@ -1635,19 +1635,97 @@ Returns the full Coqui configuration. API keys in provider configs are masked as
 }
 ```
 
+#### `GET /api/v1/config/context`
+
+Get the supported app-facing context settings from `openclaw.json` with their effective values, runtime defaults, field metadata, and current API restart state.
+
+This endpoint is intentionally narrow. It only exposes the high-impact context settings that are safe to edit from client applications.
+
+**Response `200`**
+
+```json
+{
+  "context": {
+    "conversationHistoryInSystemPrompt": false,
+    "autoSummarizeMode": "token",
+    "autoSummarizeThreshold": 64,
+    "autoSummarizeTurnThreshold": 32,
+    "autoSummarizeKeepRecent": 15
+  },
+  "defaults": {
+    "conversationHistoryInSystemPrompt": false,
+    "autoSummarizeMode": "token",
+    "autoSummarizeThreshold": 64,
+    "autoSummarizeTurnThreshold": 32,
+    "autoSummarizeKeepRecent": 15
+  },
+  "fields": {
+    "autoSummarizeMode": {
+      "key": "autoSummarizeMode",
+      "dot_key": "agents.defaults.context.autoSummarizeMode",
+      "label": "Auto-Summarize Mode",
+      "description": "Choose whether Coqui summarizes based on token budget, turn count, or only when you request it manually.",
+      "type": "enum",
+      "options": ["token", "turn", "manual"],
+      "configured": false,
+      "default": "token",
+      "value": "token",
+      "resettable": true,
+      "restart_required": true,
+      "requires_restart": true
+    }
+  },
+  "restart": {
+    "required": false,
+    "reason": null,
+    "source": null,
+    "required_at": null,
+    "context": [],
+    "supported": true,
+    "managed_by_launcher": true,
+    "pid": 12345,
+    "started_at": "2026-05-10T00:00:00Z"
+  }
+}
+```
+
 #### `PATCH /api/v1/config/context`
 
-Update explicitly allowed context toggles without reopening the full setup wizard. This currently supports `conversationHistoryInSystemPrompt` only.
+Update explicitly allowed context settings without reopening the full setup wizard.
+
+This endpoint currently supports:
+
+- `conversationHistoryInSystemPrompt`
+- `autoSummarizeMode`
+- `autoSummarizeThreshold`
+- `autoSummarizeTurnThreshold`
+- `autoSummarizeKeepRecent`
 
 When enabled, Coqui keeps the normal replayed message history and also appends a final `Conversation History` system-prompt block built from the active stored messages.
 
-The change is written to `openclaw.json`, but the running process still needs a restart before the new mode affects turns.
+Changes are written to `openclaw.json`, but the running process still needs a restart before the new settings affect turns.
+
+Use the optional `reset` array to remove specific keys from `openclaw.json` and fall back to runtime defaults.
 
 **Request Body**
 
 ```json
 {
-  "conversationHistoryInSystemPrompt": true
+  "conversationHistoryInSystemPrompt": true,
+  "autoSummarizeMode": "turn",
+  "autoSummarizeTurnThreshold": 12,
+  "autoSummarizeKeepRecent": 8
+}
+```
+
+Reset selected values to defaults:
+
+```json
+{
+  "reset": [
+    "autoSummarizeMode",
+    "autoSummarizeKeepRecent"
+  ]
 }
 ```
 
@@ -1656,12 +1734,38 @@ The change is written to `openclaw.json`, but the running process still needs a 
 ```json
 {
   "context": {
-    "conversationHistoryInSystemPrompt": true
+    "conversationHistoryInSystemPrompt": true,
+    "autoSummarizeMode": "turn",
+    "autoSummarizeThreshold": 64,
+    "autoSummarizeTurnThreshold": 12,
+    "autoSummarizeKeepRecent": 8
   },
   "updated": [
-    "conversationHistoryInSystemPrompt"
+    "conversationHistoryInSystemPrompt",
+    "autoSummarizeMode",
+    "autoSummarizeTurnThreshold",
+    "autoSummarizeKeepRecent"
   ],
-  "restart_required": true
+  "reset": [],
+  "restart_required": true,
+  "restart": {
+    "required": true,
+    "reason": "Agent context configuration changed. Restart the API server to apply the new behavior cleanly.",
+    "source": "api.config.context.update",
+    "required_at": "2026-05-10T00:00:00Z",
+    "context": {
+      "updated_keys": [
+        "conversationHistoryInSystemPrompt",
+        "autoSummarizeMode",
+        "autoSummarizeTurnThreshold",
+        "autoSummarizeKeepRecent"
+      ]
+    },
+    "supported": true,
+    "managed_by_launcher": true,
+    "pid": 12345,
+    "started_at": "2026-05-10T00:00:00Z"
+  }
 }
 ```
 
@@ -5252,7 +5356,8 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/sessions/{id}/turns/{turnId}/events` | Yes | List replayable turn events |
 | `GET` | `/api/v1/sessions/{id}/child-runs` | Yes | List child agent runs |
 | `GET` | `/api/v1/config` | Yes | Get config (sanitized) |
-| `PATCH` | `/api/v1/config/context` | Yes | Update supported context toggles such as `conversationHistoryInSystemPrompt` |
+| `GET` | `/api/v1/config/context` | Yes | Get the supported app-facing context settings with defaults, metadata, and restart state |
+| `PATCH` | `/api/v1/config/context` | Yes | Update supported context settings such as `conversationHistoryInSystemPrompt` and auto-summarize controls |
 | `POST` | `/api/v1/config/validate` | Yes | Validate a candidate config payload |
 | `GET` | `/api/v1/config/roles` | Yes | List all roles |
 | `GET` | `/api/v1/config/roles/{name}` | Yes | Get role detail |

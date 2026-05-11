@@ -388,6 +388,7 @@ final class ApiCommand extends Command
             $boot->roleResolver(),
             $boot->configManager(),
             new \CoquiBot\Coqui\Config\ConfigGuard(),
+            $lifecycle,
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->profileDiscovery());
@@ -703,6 +704,7 @@ final class ApiCommand extends Command
 
         // Config (read-oriented plus narrow safe context mutation)
         $router->get($v1 . '/config', [$config, 'get']);
+        $router->get($v1 . '/config/context', [$config, 'getContext']);
         $router->patch($v1 . '/config/context', [$config, 'updateContext']);
         $router->post($v1 . '/config/validate', [$config, 'validate']);
         $router->get($v1 . '/config/models', [$config, 'models']);

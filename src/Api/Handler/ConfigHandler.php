@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Api\Handler;
 
 use CoquiBot\Coqui\Api\ApiErrorCode;
+use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigManager;
@@ -14,6 +15,7 @@ use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\ProfileDiscovery;
 use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\RoleResolver;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Support\FileSystemOperations;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
@@ -33,6 +35,59 @@ use React\Http\Message\Response;
  */
 final readonly class ConfigHandler
 {
+    private const string CONTEXT_RESTART_REASON = 'Agent context configuration changed. Restart the API server to apply the new behavior cleanly.';
+
+    /** @var array<string, array{dotKey: string, type: string, label: string, description: string, resettable: bool, restart_required: bool, options?: list<string>, minimum?: int|float, maximum?: int|float, presentation?: string}> */
+    private const array CONTEXT_FIELDS = [
+        'conversationHistoryInSystemPrompt' => [
+            'dotKey' => 'agents.defaults.context.conversationHistoryInSystemPrompt',
+            'type' => 'boolean',
+            'label' => 'Conversation History In System Prompt',
+            'description' => 'Render prior active messages into a compact Conversation History system-prompt block in addition to normal message replay.',
+            'resettable' => true,
+            'restart_required' => true,
+        ],
+        'autoSummarizeMode' => [
+            'dotKey' => 'agents.defaults.context.autoSummarizeMode',
+            'type' => 'enum',
+            'label' => 'Auto-Summarize Mode',
+            'description' => 'Choose whether Coqui summarizes based on token budget, turn count, or only when you request it manually.',
+            'resettable' => true,
+            'restart_required' => true,
+            'options' => ['token', 'turn', 'manual'],
+        ],
+        'autoSummarizeThreshold' => [
+            'dotKey' => 'agents.defaults.context.autoSummarizeThreshold',
+            'type' => 'number',
+            'label' => 'Auto-Summarize Threshold',
+            'description' => 'Token usage percentage that triggers auto-summarization when Auto-Summarize Mode is set to token.',
+            'resettable' => true,
+            'restart_required' => true,
+            'minimum' => 0.0,
+            'maximum' => 100.0,
+            'presentation' => 'percent',
+        ],
+        'autoSummarizeTurnThreshold' => [
+            'dotKey' => 'agents.defaults.context.autoSummarizeTurnThreshold',
+            'type' => 'integer',
+            'label' => 'Auto-Summarize Turn Threshold',
+            'description' => 'Number of user turns that triggers auto-summarization when Auto-Summarize Mode is set to turn.',
+            'resettable' => true,
+            'restart_required' => true,
+            'minimum' => 1,
+        ],
+        'autoSummarizeKeepRecent' => [
+            'dotKey' => 'agents.defaults.context.autoSummarizeKeepRecent',
+            'type' => 'integer',
+            'label' => 'Auto-Summarize Keep Recent',
+            'description' => 'How many recent turns are preserved when Coqui auto-summarizes a conversation.',
+            'resettable' => true,
+            'restart_required' => true,
+            'minimum' => 1,
+            'maximum' => 20,
+        ],
+    ];
+
     public function __construct(
         private OpenClawConfig $config,
         private ConfigValidator $validator,
@@ -41,6 +96,7 @@ final readonly class ConfigHandler
         private ?RoleResolver $roleResolver = null,
         private ?ConfigManager $configManager = null,
         private ?ConfigGuard $configGuard = null,
+        private ?ApiLifecycleController $lifecycle = null,
     ) {}
 
     /**
@@ -58,6 +114,67 @@ final readonly class ConfigHandler
         ];
 
         return Router::jsonResponse($data);
+    }
+
+    /**
+     * GET /api/v1/config/context — return supported context settings with metadata.
+     */
+    public function getContext(ServerRequestInterface $request): Response
+    {
+        $config = $this->currentConfig();
+        $stored = $this->configManager?->toArray() ?? [];
+
+        $fields = [];
+        $values = [];
+        $defaults = [];
+
+        foreach (self::CONTEXT_FIELDS as $apiKey => $definition) {
+            $dotKey = $definition['dotKey'];
+            $current = $this->contextValue($apiKey, $config);
+            $default = $this->contextDefault($apiKey);
+            $isConfigured = $this->nestedValueExists($stored, $dotKey);
+
+            $values[$apiKey] = $current;
+            $defaults[$apiKey] = $default;
+            $field = [
+                'key' => $apiKey,
+                'dot_key' => $dotKey,
+                'label' => $definition['label'],
+                'description' => $definition['description'],
+                'type' => $definition['type'],
+                'resettable' => $definition['resettable'],
+                'restart_required' => $definition['restart_required'],
+                'configured' => $isConfigured,
+                'default' => $default,
+                'value' => $current,
+                'requires_restart' => true,
+            ];
+
+            if (isset($definition['options'])) {
+                $field['options'] = $definition['options'];
+            }
+
+            if (isset($definition['minimum'])) {
+                $field['minimum'] = $definition['minimum'];
+            }
+
+            if (isset($definition['maximum'])) {
+                $field['maximum'] = $definition['maximum'];
+            }
+
+            if (isset($definition['presentation'])) {
+                $field['presentation'] = $definition['presentation'];
+            }
+
+            $fields[$apiKey] = $field;
+        }
+
+        return Router::jsonResponse([
+            'context' => $values,
+            'defaults' => $defaults,
+            'fields' => $fields,
+            'restart' => $this->restartState(),
+        ]);
     }
 
     /**
@@ -83,32 +200,104 @@ final readonly class ConfigHandler
             return Router::errorResponse(ApiErrorCode::INVALID_FORMAT, 'Context patch must be a JSON object');
         }
 
-        if (!array_key_exists('conversationHistoryInSystemPrompt', $decoded)) {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'conversationHistoryInSystemPrompt is required');
+        if ($decoded === []) {
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'Provide at least one supported context setting or reset entry');
         }
 
-        $value = $decoded['conversationHistoryInSystemPrompt'];
-        if (!is_bool($value)) {
-            return Router::errorResponse(ApiErrorCode::INVALID_FORMAT, 'conversationHistoryInSystemPrompt must be a boolean');
+        $reset = [];
+        if (array_key_exists('reset', $decoded)) {
+            $resetPayload = $decoded['reset'];
+            if (!is_array($resetPayload) || !array_is_list($resetPayload)) {
+                return Router::errorResponse(ApiErrorCode::INVALID_FORMAT, 'reset must be an array of supported context keys');
+            }
+
+            foreach ($resetPayload as $entry) {
+                if (!is_string($entry) || !isset(self::CONTEXT_FIELDS[$entry])) {
+                    return Router::errorResponse(ApiErrorCode::INVALID_FORMAT, 'reset contains an unsupported context key');
+                }
+
+                $reset[] = $entry;
+            }
+
+            unset($decoded['reset']);
         }
 
-        $dotKey = 'agents.defaults.context.conversationHistoryInSystemPrompt';
-        $denyReason = $this->configGuard->denyReason($dotKey);
-        if ($denyReason !== null) {
-            return Router::errorResponse(ApiErrorCode::FORBIDDEN, $denyReason);
+        $updates = [];
+        foreach ($decoded as $key => $value) {
+            if (!is_string($key) || !isset(self::CONTEXT_FIELDS[$key])) {
+                return Router::errorResponse(ApiErrorCode::INVALID_FORMAT, sprintf('Unsupported context key "%s"', (string) $key));
+            }
+
+            $updates[$key] = $value;
         }
 
-        $errors = $this->configManager->set($dotKey, $value);
-        if ($errors !== []) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Validation failed', ['errors' => $errors]);
+        if ($updates === [] && $reset === []) {
+            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'Provide at least one supported context setting or reset entry');
+        }
+
+        foreach (array_keys($updates) as $key) {
+            $dotKey = self::CONTEXT_FIELDS[$key]['dotKey'];
+            $denyReason = $this->configGuard->denyReason($dotKey);
+            if ($denyReason !== null) {
+                return Router::errorResponse(ApiErrorCode::FORBIDDEN, $denyReason);
+            }
+        }
+
+        foreach ($reset as $key) {
+            $dotKey = self::CONTEXT_FIELDS[$key]['dotKey'];
+            $denyReason = $this->configGuard->denyReason($dotKey);
+            if ($denyReason !== null) {
+                return Router::errorResponse(ApiErrorCode::FORBIDDEN, $denyReason);
+            }
+        }
+
+        /** @var list<string> $validationErrors */
+        $validationErrors = [];
+        $normalized = [];
+
+        foreach ($updates as $key => $value) {
+            [$valid, $normalizedValue, $error] = $this->normalizeContextValue($key, $value);
+            if (!$valid) {
+                $validationErrors[] = $error ?? sprintf('Invalid value for "%s"', $key);
+                continue;
+            }
+
+            $normalized[$key] = $normalizedValue;
+        }
+
+        if ($validationErrors !== []) {
+            $message = count($validationErrors) === 1 ? $validationErrors[0] : 'Validation failed';
+
+            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, $message, ['errors' => $validationErrors]);
+        }
+
+        foreach ($normalized as $key => $value) {
+            $errors = $this->configManager->set(self::CONTEXT_FIELDS[$key]['dotKey'], $value);
+            if ($errors !== []) {
+                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Validation failed', ['errors' => $errors]);
+            }
+        }
+
+        foreach ($reset as $key) {
+            $errors = $this->configManager->remove(self::CONTEXT_FIELDS[$key]['dotKey']);
+            if ($errors !== []) {
+                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Validation failed', ['errors' => $errors]);
+            }
+        }
+
+        $updatedKeys = array_values(array_unique([...array_keys($normalized), ...$reset]));
+        $config = $this->currentConfig();
+        $context = [];
+        foreach (array_keys(self::CONTEXT_FIELDS) as $key) {
+            $context[$key] = $this->contextValue($key, $config);
         }
 
         return Router::jsonResponse([
-            'context' => [
-                'conversationHistoryInSystemPrompt' => $this->configManager->config()->useConversationHistoryInSystemPrompt(),
-            ],
-            'updated' => ['conversationHistoryInSystemPrompt'],
+            'context' => $context,
+            'updated' => array_values(array_intersect(array_keys(self::CONTEXT_FIELDS), array_keys($normalized))),
+            'reset' => array_values(array_intersect(array_keys(self::CONTEXT_FIELDS), $reset)),
             'restart_required' => true,
+            'restart' => $this->markRestartRequired($updatedKeys),
         ]);
     }
 
@@ -291,7 +480,7 @@ final readonly class ConfigHandler
                 );
                 $operations->write($profileDir . '/preferences.json', $encodedPreferences . "\n");
             }
-        } catch (\JsonException | \Throwable $e) {
+        } catch (\Throwable $e) {
             return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Failed to create profile', ['error' => $e->getMessage()]);
         }
 
@@ -421,7 +610,7 @@ final readonly class ConfigHandler
                     $operations->write($profileDir . '/preferences.json', $encodedPreferences . "\n");
                 }
             }
-        } catch (\JsonException | \Throwable $e) {
+        } catch (\Throwable $e) {
             return Router::errorResponse(ApiErrorCode::INTERNAL_ERROR, 'Failed to update profile', ['error' => $e->getMessage()]);
         }
 
@@ -539,6 +728,190 @@ final readonly class ConfigHandler
     private function currentConfig(): OpenClawConfig
     {
         return $this->configManager?->config() ?? $this->config;
+    }
+
+    /**
+     * @return array{0: bool, 1: mixed, 2: ?string}
+     */
+    private function normalizeContextValue(string $key, mixed $value): array
+    {
+        return match ($key) {
+            'conversationHistoryInSystemPrompt' => is_bool($value)
+                ? [true, $value, null]
+                : [false, null, 'conversationHistoryInSystemPrompt must be a boolean'],
+            'autoSummarizeMode' => is_string($value) && in_array($value, ['token', 'turn', 'manual'], true)
+                ? [true, $value, null]
+                : [false, null, 'autoSummarizeMode must be one of: token, turn, manual'],
+            'autoSummarizeThreshold' => $this->normalizeAutoSummarizeThreshold($value),
+            'autoSummarizeTurnThreshold' => $this->normalizePositiveInteger(
+                $value,
+                'autoSummarizeTurnThreshold must be an integer greater than or equal to 1',
+            ),
+            'autoSummarizeKeepRecent' => $this->normalizeBoundedInteger(
+                $value,
+                1,
+                20,
+                'autoSummarizeKeepRecent must be an integer between 1 and 20',
+            ),
+            default => [false, null, sprintf('Unsupported context key "%s"', $key)],
+        };
+    }
+
+    /**
+     * @return array{0: bool, 1: mixed, 2: ?string}
+     */
+    private function normalizeAutoSummarizeThreshold(mixed $value): array
+    {
+        if (!is_int($value) && !is_float($value) && !is_string($value)) {
+            return [false, null, 'autoSummarizeThreshold must be numeric'];
+        }
+
+        if (!is_numeric($value)) {
+            return [false, null, 'autoSummarizeThreshold must be numeric'];
+        }
+
+        $float = (float) $value;
+        if ($float > 0.0 && $float <= 1.0) {
+            return [true, $float, null];
+        }
+
+        if ($float >= 1.0 && $float <= 100.0) {
+            return [true, $float, null];
+        }
+
+        return [false, null, 'autoSummarizeThreshold must be between 0.0 and 1.0, or between 1 and 100'];
+    }
+
+    /**
+     * @return array{0: bool, 1: mixed, 2: ?string}
+     */
+    private function normalizePositiveInteger(mixed $value, string $error): array
+    {
+        if (!is_int($value)) {
+            return [false, null, $error];
+        }
+
+        return $value >= 1
+            ? [true, $value, null]
+            : [false, null, $error];
+    }
+
+    /**
+     * @return array{0: bool, 1: mixed, 2: ?string}
+     */
+    private function normalizeBoundedInteger(mixed $value, int $minimum, int $maximum, string $error): array
+    {
+        if (!is_int($value)) {
+            return [false, null, $error];
+        }
+
+        return $value >= $minimum && $value <= $maximum
+            ? [true, $value, null]
+            : [false, null, $error];
+    }
+
+    private function contextValue(string $key, OpenClawConfig $config): mixed
+    {
+        return match ($key) {
+            'conversationHistoryInSystemPrompt' => $config->useConversationHistoryInSystemPrompt(),
+            'autoSummarizeMode' => $this->normalizedMode($config->get('agents.defaults.context.autoSummarizeMode')),
+            'autoSummarizeThreshold' => $this->normalizedThreshold($config->get('agents.defaults.context.autoSummarizeThreshold')),
+            'autoSummarizeTurnThreshold' => $this->normalizedInteger(
+                $config->get('agents.defaults.context.autoSummarizeTurnThreshold'),
+                CoquiDefaults::AUTO_SUMMARIZE_TURN_THRESHOLD,
+            ),
+            'autoSummarizeKeepRecent' => $this->normalizedInteger(
+                $config->get('agents.defaults.context.autoSummarizeKeepRecent'),
+                CoquiDefaults::AUTO_SUMMARIZE_KEEP_RECENT,
+            ),
+            default => null,
+        };
+    }
+
+    private function contextDefault(string $key): mixed
+    {
+        return match ($key) {
+            'conversationHistoryInSystemPrompt' => CoquiDefaults::CONVERSATION_HISTORY_IN_SYSTEM_PROMPT,
+            'autoSummarizeMode' => CoquiDefaults::AUTO_SUMMARIZE_MODE,
+            'autoSummarizeThreshold' => CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD,
+            'autoSummarizeTurnThreshold' => CoquiDefaults::AUTO_SUMMARIZE_TURN_THRESHOLD,
+            'autoSummarizeKeepRecent' => CoquiDefaults::AUTO_SUMMARIZE_KEEP_RECENT,
+            default => null,
+        };
+    }
+
+    private function normalizedMode(mixed $value): string
+    {
+        return is_string($value) && in_array($value, ['token', 'turn', 'manual'], true)
+            ? $value
+            : CoquiDefaults::AUTO_SUMMARIZE_MODE;
+    }
+
+    private function normalizedThreshold(mixed $value): float
+    {
+        $threshold = is_numeric($value) ? (float) $value : CoquiDefaults::AUTO_SUMMARIZE_THRESHOLD;
+
+        return $threshold > 0.0 && $threshold <= 1.0
+            ? $threshold * 100.0
+            : $threshold;
+    }
+
+    private function normalizedInteger(mixed $value, int $default): int
+    {
+        return is_numeric($value) ? (int) $value : $default;
+    }
+
+    /**
+     * @param array<string, mixed> $data
+     */
+    private function nestedValueExists(array $data, string $dotKey): bool
+    {
+        $value = $data;
+
+        foreach (explode('.', $dotKey) as $segment) {
+            if (!is_array($value) || !array_key_exists($segment, $value)) {
+                return false;
+            }
+
+            $value = $value[$segment];
+        }
+
+        return true;
+    }
+
+    /**
+     * @param list<string> $updatedKeys
+     * @return array<string, mixed>
+     */
+    private function markRestartRequired(array $updatedKeys): array
+    {
+        if ($this->lifecycle === null) {
+            return $this->restartState();
+        }
+
+        return $this->lifecycle->markRestartRequired(
+            self::CONTEXT_RESTART_REASON,
+            'api.config.context.update',
+            ['updated_keys' => $updatedKeys],
+        );
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function restartState(): array
+    {
+        return $this->lifecycle?->restartState() ?? [
+            'required' => false,
+            'reason' => null,
+            'source' => null,
+            'required_at' => null,
+            'context' => [],
+            'supported' => false,
+            'managed_by_launcher' => false,
+            'pid' => null,
+            'started_at' => null,
+        ];
     }
 
     /**
