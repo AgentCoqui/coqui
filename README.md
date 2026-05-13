@@ -1,4 +1,4 @@
-# Coqui Bot
+# Coqui
 
 <!-- markdownlint-disable MD033 -->
 <p align="center">
@@ -28,9 +28,7 @@ Coqui is your personal operating system for AI work: a lightweight, hackable age
 
 Built on [`php-agents`](https://github.com/carmelosantana/php-agents), it gives you a REPL, persistent memory, background tasks, schedules, artifacts, and runtime-extensible toolkits in one PHP 8.4 runtime you can inspect, modify, and self-host.
 
-Start with [Installation](#installation), [Getting Started](https://docs.agentcoqui.com/getting-started), [Features](https://docs.agentcoqui.com/features), or browse [coqui.space](https://agentcoqui.com).
-
-> Coqui is a WIP and under rapid development. Be careful when running this tool. Always test in a safe environment.
+Start with [Installation](#installation), [Getting Started](https://docs.agentcoqui.com/getting-started), [Features](https://docs.agentcoqui.com/features), or browse the docs at [docs.agentcoqui.com](https://docs.agentcoqui.com).
 
 Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask questions, and share your creations!
 
