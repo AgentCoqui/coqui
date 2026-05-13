@@ -18,8 +18,7 @@
     "carmelosantana/php-agents": "^0.13",
     "carmelosantana/php-pathhelper": "^0.1",
     "coquibot/coqui-toolkit-mcp-client": "^0.1",
-    "coquibot/coqui-toolkit-mod-manager": "@dev",
-    "coquibot/coqui-toolkit-mod-publish": "@dev",
+    "coquibot/coqui-toolkit-mod-manager": "^0.1",
     "dragonmantank/cron-expression": "^3.0",
     "league/commonmark": "^2.8",
     "league/html-to-markdown": "^5.1",
@@ -58,22 +57,6 @@
   },
   "bin": [
     "bin/coqui"
-  ],
-  "repositories": [
-    {
-      "type": "path",
-      "url": "../coqui-space-manager",
-      "options": {
-        "symlink": false
-      }
-    },
-    {
-      "type": "path",
-      "url": "../coqui-toolkit-mod-publish",
-      "options": {
-        "symlink": false
-      }
-    }
   ],
   "config": {
     "optimize-autoloader": true,

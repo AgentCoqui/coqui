@@ -13,16 +13,16 @@
 
 .PHONY: help \
 	start stop status cleanup repl api api-stop restart \
-	test test-coverage test-profile analyse \
-        dev \
-        test-launcher \
-        docker-build docker-start docker-stop docker-status \
+	test test-compact test-problems test-coverage test-profile analyse \
+		dev \
+		test-launcher \
+		docker-build docker-start docker-stop docker-status \
 		docker-repl docker-api docker-api-stop docker-api-logs \
 		docker-webgrind-up docker-webgrind-stop docker-webgrind-logs \
-        docker-shell \
-        install clean clean-workspace clean-pids \
-        composer \
-        build build-clean
+		docker-shell \
+		install clean clean-workspace clean-pids \
+		composer \
+		build build-clean
 
 # Default target
 help: ## Show this help message
@@ -85,6 +85,20 @@ dev: ## Start REPL + API in dev mode
 
 test: ## Run Pest test suite
 	@composer test $(ARGS)
+
+test-compact: ## Run Pest with compact output
+	@composer test -- --compact $(ARGS)
+
+test-problems: ## Show only warnings, deprecations, risky tests, and failures
+	@tmp=$$(mktemp); \
+	if composer test -- --compact $(ARGS) >"$$tmp" 2>&1; then \
+		status=0; \
+	else \
+		status=$$?; \
+	fi; \
+	rg -i 'warning|deprecated|risky|error|fail(ed)?' "$$tmp" || true; \
+	rm -f "$$tmp"; \
+	exit $$status
 
 test-coverage: ## Run coverage via the repository Pest wrapper
 	@composer test:coverage $(ARGS)

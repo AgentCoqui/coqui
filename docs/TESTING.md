@@ -41,6 +41,18 @@ composer test-bash
 make test-launcher
 ```
 
+Compact test commands reducing output noise:
+
+```bash
+composer test -- --compact
+make test-compact
+```
+
+```bash
+composer test -- --compact 2>&1 | rg -i 'warning|deprecated|risky|error|fail(ed)?'
+make test-problems
+```
+
 ## Developer Policy
 
 During active development, the default local gate is:
