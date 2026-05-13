@@ -85,3 +85,16 @@ test('run command exposes group membership in the user prompt context line', fun
         }
     }
 });
+
+test('run command disables readline callbacks on macOS to avoid callback-handler churn', function () {
+    $command = new RunCommand();
+
+    $supportsCallbacks = function (string $osFamily): bool {
+        return $this->shouldUseReadlineCallbacks($osFamily);
+    };
+
+    $result = \Closure::bind($supportsCallbacks, $command, RunCommand::class);
+
+    expect($result('Darwin'))->toBeFalse();
+    expect($result('Linux'))->toBe(function_exists('readline_callback_handler_install'));
+});

@@ -388,6 +388,7 @@ final class ApiCommand extends Command
             $boot->roleResolver(),
             $boot->configManager(),
             new \CoquiBot\Coqui\Config\ConfigGuard(),
+            $lifecycle,
         );
         $credentialHandler = new CredentialHandler($boot->credentialResolver(), $boot->discovery());
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->profileDiscovery());
@@ -406,7 +407,11 @@ final class ApiCommand extends Command
         $promptInspectionService = new PromptInspectionService($previewRunner, $boot->workspacePath(), $workDir);
         $toolkitHandler = new ToolkitHandler($boot->discovery(), $boot->visibilityRegistry(), $previewRunner);
         $promptHandler = new PromptHandler($promptInspectionService);
-        $backstoryHandler = new BackstoryHandler(new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery()));
+        $backstoryHandler = new BackstoryHandler(
+            new BackstoryInspectionService($boot->workspacePath(), $boot->profileDiscovery()),
+            $boot->profileDiscovery(),
+            $boot->workspacePath(),
+        );
         $budgetHandler = new BudgetHandler($previewRunner);
         $commandCatalogHandler = new CommandCatalogHandler();
         $mcpConfig = new McpConfig($boot->workspacePath());
@@ -699,10 +704,12 @@ final class ApiCommand extends Command
 
         // Config (read-oriented plus narrow safe context mutation)
         $router->get($v1 . '/config', [$config, 'get']);
+        $router->get($v1 . '/config/context', [$config, 'getContext']);
         $router->patch($v1 . '/config/context', [$config, 'updateContext']);
         $router->post($v1 . '/config/validate', [$config, 'validate']);
         $router->get($v1 . '/config/models', [$config, 'models']);
         $router->get($v1 . '/config/profiles', [$config, 'profiles']);
+        $router->get($v1 . '/config/profile-preferences/schema', [$config, 'profilePreferenceSchema']);
         $router->get($v1 . '/config/profiles/{name}', [$config, 'profile']);
 
         // Roles (read-only — create/update/delete are REPL-only)
@@ -712,6 +719,14 @@ final class ApiCommand extends Command
         $router->get($v1 . '/roles/{name}', [$role, 'get']);
         $router->get($v1 . '/profiles', [$config, 'profiles']);
         $router->get($v1 . '/profiles/{name}', [$config, 'profile']);
+        $router->post($v1 . '/profiles', [$config, 'createProfile']);
+        $router->patch($v1 . '/profiles/{name}', [$config, 'updateProfile']);
+        $router->delete($v1 . '/profiles/{name}', [$config, 'deleteProfile']);
+        $router->get($v1 . '/profiles/{name}/backstory', [$backstory, 'getProfile']);
+        $router->get($v1 . '/profiles/{name}/backstory/entries', [$backstory, 'getEntry']);
+        $router->post($v1 . '/profiles/{name}/backstory/folders', [$backstory, 'createFolder']);
+        $router->put($v1 . '/profiles/{name}/backstory/entries', [$backstory, 'putEntry']);
+        $router->delete($v1 . '/profiles/{name}/backstory/entries', [$backstory, 'deleteEntry']);
 
         // Credentials
         $router->get($v1 . '/credentials', [$credential, 'list']);

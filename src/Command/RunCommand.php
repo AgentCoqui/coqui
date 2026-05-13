@@ -37,7 +37,6 @@ use CoquiBot\Coqui\Repl\Handler\QualityHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
-use CoquiBot\Coqui\Repl\Handler\SpaceHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
@@ -447,7 +446,6 @@ final class RunCommand extends Command
             profile: new ProfileHandler($this->boot, $sessionHandler),
             backstory: new BackstoryHandler($this->boot->profileDiscovery(), $this->boot->workspacePath()),
             toolkitVisibility: new ToolkitVisibilityHandler($this->boot, $this->agentRunner),
-            space: new SpaceHandler($this->boot),
             config: new ConfigHandler($this->boot, $this->workDir),
             conversation: new ConversationHandler($this->boot, $this->storage),
             webhook: new WebhookHandler($this->storage),
@@ -548,9 +546,9 @@ final class RunCommand extends Command
             $lineReady = false;
             $ctrlCPressed = false;
 
-            $hasReadline = function_exists('readline_callback_handler_install');
+            $useReadlineCallbacks = $this->shouldUseReadlineCallbacks();
 
-            if ($hasReadline) {
+            if ($useReadlineCallbacks) {
                 $readlineCallback = static function (?string $input) use (&$line, &$lineReady): void {
                     $line = $input;
                     $lineReady = true;
@@ -642,6 +640,9 @@ final class RunCommand extends Command
                 }
 
                 $this->removeReadlineHandler();
+            } elseif (function_exists('readline')) {
+                $line = $this->readWithReadlinePrompt($readlinePrompt);
+                $lineReady = true;
             } else {
                 $io->write($readlinePrompt);
                 $raw = fgets(STDIN);
@@ -948,6 +949,26 @@ final class RunCommand extends Command
         }
 
         return $contextParts;
+    }
+
+    private function shouldUseReadlineCallbacks(?string $osFamily = null): bool
+    {
+        if (!function_exists('readline_callback_handler_install')) {
+            return false;
+        }
+
+        return ($osFamily ?? PHP_OS_FAMILY) !== 'Darwin';
+    }
+
+    private function readWithReadlinePrompt(string $prompt): ?string
+    {
+        if (!function_exists('readline')) {
+            return null;
+        }
+
+        $line = readline($prompt);
+
+        return $line === false ? null : $line;
     }
 
     private function installReadlineHandler(string $prompt, callable $callback): void

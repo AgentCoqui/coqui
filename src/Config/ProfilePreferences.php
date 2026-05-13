@@ -150,6 +150,124 @@ final readonly class ProfilePreferences
         return new self();
     }
 
+    /**
+     * Curated app-facing schema for the profile preferences workspace.
+     *
+     * @param list<string> $availableRoles
+     * @return array<string, mixed>
+     */
+    public static function appSchema(array $availableRoles = []): array
+    {
+        $roleOptions = array_map(
+            static fn(string $role): array => [
+                'value' => $role,
+                'label' => ucwords(str_replace(['-', '_'], ' ', $role)),
+            ],
+            $availableRoles,
+        );
+
+        return [
+            'version' => 1,
+            'sections' => [
+                [
+                    'id' => 'communication_style',
+                    'label' => 'Communication Style',
+                    'description' => 'How the profile speaks, collaborates, and frames feedback.',
+                    'fields' => [
+                        self::suggestedTextField(
+                            'response_style',
+                            'Response Style',
+                            'prompt_directives.response_style',
+                            'Choose how the profile should sound in normal replies.',
+                            ['structured and measured', 'brief and exact', 'commercial and outcome-first'],
+                        ),
+                        self::suggestedTextField(
+                            'collaboration',
+                            'Collaboration Style',
+                            'prompt_directives.collaboration',
+                            'Guide how the profile should work with the user while solving problems.',
+                            ['call out risks and assumptions early'],
+                        ),
+                        self::suggestedTextField(
+                            'feedback',
+                            'Feedback Style',
+                            'prompt_directives.feedback',
+                            'Shape how direct or soft the profile should be when critiquing work.',
+                            ['favor direct critique over soft framing'],
+                        ),
+                    ],
+                ],
+                [
+                    'id' => 'planning_reasoning',
+                    'label' => 'Planning and Reasoning',
+                    'description' => 'How the profile evaluates tradeoffs, plans work, and applies critique.',
+                    'fields' => [
+                        self::suggestedTextField(
+                            'decision_making',
+                            'Decision Making',
+                            'prompt_directives.decision_making',
+                            'Guide how the profile should choose between competing options.',
+                            [
+                                'state tradeoffs before recommending a path',
+                                'prefer the option with the clearest measurable upside',
+                            ],
+                        ),
+                        self::selectField(
+                            'planning_mode',
+                            'Planning Mode',
+                            'behavior.planning_mode',
+                            'Choose how structured the profile should be before acting.',
+                            ['deliberate', 'structured'],
+                        ),
+                        self::toggleField(
+                            'critique_mode',
+                            'Critique Mode',
+                            'behavior.critique_mode',
+                            'When enabled, the profile leans harder into critical review and challenge.',
+                        ),
+                    ],
+                ],
+                [
+                    'id' => 'capabilities_tools',
+                    'label' => 'Capabilities and Tools',
+                    'description' => 'Control which major workflow features this profile can actively use.',
+                    'fields' => [
+                        self::toggleField('artifacts', 'Artifacts', 'prompts.features.artifacts', 'Allow artifact creation and artifact-aware workflows.'),
+                        self::toggleField('projects', 'Projects', 'prompts.features.projects', 'Allow project context and project-aware workflows.'),
+                        self::toggleField('loops', 'Loops', 'prompts.features.loops', 'Allow loop orchestration and loop-aware execution.'),
+                        self::toggleField('todos', 'Todos', 'prompts.features.todos', 'Allow todo planning and todo-aware execution.'),
+                        self::toggleField('background_tasks', 'Background Tasks', 'prompts.features.background_tasks', 'Allow background tasks and deferred execution.'),
+                    ],
+                ],
+                [
+                    'id' => 'roles_autonomy',
+                    'label' => 'Roles and Autonomy',
+                    'description' => 'Constrain which roles the profile can use or explicitly block.',
+                    'fields' => [
+                        self::multiSelectField(
+                            'allow_roles',
+                            'Allowed Roles',
+                            'prompts.roles.allow',
+                            'If set, the profile is restricted to this role allow-list. Orchestrator must remain available.',
+                            $roleOptions,
+                        ),
+                        self::multiSelectField(
+                            'deny_roles',
+                            'Denied Roles',
+                            'prompts.roles.deny',
+                            'Use deny-list rules to block roles that should never be used by this profile.',
+                            $roleOptions,
+                        ),
+                    ],
+                ],
+            ],
+            'deferred' => [
+                'advanced_editor' => true,
+                'unsupported_fields_hidden' => true,
+            ],
+        ];
+    }
+
     public function isEmpty(): bool
     {
         return $this->promptDirectives === [] && $this->behavior === [] && $this->hasPromptPolicy() === false;
@@ -311,6 +429,26 @@ final readonly class ProfilePreferences
                 'deny' => $this->deniedRoles(),
             ],
             'labels' => $this->effectivePrompts()['labels'] ?? [],
+        ];
+    }
+
+    /**
+     * Curated values for app-facing preference editors.
+     *
+     * @return array<string, mixed>
+     */
+    public function editorValues(): array
+    {
+        return [
+            'prompt_directives' => $this->promptDirectives,
+            'behavior' => $this->behavior,
+            'prompts' => [
+                'features' => $this->effectivePrompts()['features'] ?? [],
+                'roles' => [
+                    'allow' => $this->allowedRoles(),
+                    'deny' => $this->deniedRoles(),
+                ],
+            ],
         ];
     }
 
@@ -569,6 +707,87 @@ final readonly class ProfilePreferences
         $normalized = ltrim($normalized, "# \t");
 
         return $normalized !== '' ? $normalized : null;
+    }
+
+    /**
+     * @param list<string> $suggestions
+     * @return array<string, mixed>
+     */
+    private static function suggestedTextField(
+        string $id,
+        string $label,
+        string $path,
+        string $description,
+        array $suggestions,
+    ): array {
+        return [
+            'id' => $id,
+            'label' => $label,
+            'storage_path' => $path,
+            'input' => 'suggested_text',
+            'description' => $description,
+            'suggestions' => $suggestions,
+        ];
+    }
+
+    /**
+     * @param list<string> $options
+     * @return array<string, mixed>
+     */
+    private static function selectField(
+        string $id,
+        string $label,
+        string $path,
+        string $description,
+        array $options,
+    ): array {
+        return [
+            'id' => $id,
+            'label' => $label,
+            'storage_path' => $path,
+            'input' => 'select',
+            'description' => $description,
+            'options' => $options,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function toggleField(
+        string $id,
+        string $label,
+        string $path,
+        string $description,
+    ): array {
+        return [
+            'id' => $id,
+            'label' => $label,
+            'storage_path' => $path,
+            'input' => 'toggle',
+            'description' => $description,
+        ];
+    }
+
+    /**
+     * @param list<array{value: string, label: string}> $options
+     * @return array<string, mixed>
+     */
+    private static function multiSelectField(
+        string $id,
+        string $label,
+        string $path,
+        string $description,
+        array $options,
+    ): array {
+        return [
+            'id' => $id,
+            'label' => $label,
+            'storage_path' => $path,
+            'input' => 'multi_select',
+            'description' => $description,
+            'options' => $options,
+        ];
     }
 
     /**

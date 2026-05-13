@@ -399,6 +399,11 @@ Group-session requests use the same endpoint with a group scope instead of `prof
 | `confirm_close_active_profile_session` | bool | No | `false` | Required when `profile` already has an active interactive session and the client explicitly wants to close/archive it before starting a fresh one |
 | `confirm_close_active_group_session` | bool | No | `false` | Required when the requested group composition already has another active interactive session and the client explicitly wants to close/archive it before forcing a fresh one |
 
+Successful session create and resolve responses now include:
+
+- `created`: whether this request created a new session or reused an existing one
+- `closed_session_ids`: any older conflicting sessions that were closed/archived as part of the operation
+
 **Response `201`**
 
 ```json
@@ -407,7 +412,9 @@ Group-session requests use the same endpoint with a group scope instead of `prof
   "model_role": "orchestrator",
   "model": "openai/gpt-5",
   "profile": "caelum",
-  "active_project_id": null
+  "active_project_id": null,
+  "created": true,
+  "closed_session_ids": []
 }
 ```
 
@@ -431,7 +438,9 @@ Group-session requests use the same endpoint with a group scope instead of `prof
       "position": 1
     }
   ],
-  "active_project_id": null
+  "active_project_id": null,
+  "created": true,
+  "closed_session_ids": ["a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6"]
 }
 ```
 
@@ -520,7 +529,8 @@ Group-session resolve requests use the same endpoint:
   "model": "openai/gpt-5",
   "profile": "caelum",
   "active_project_id": null,
-  "created": false
+  "created": false,
+  "closed_session_ids": ["f0e1d2c3b4a5968778695a4b3c2d1e0f"]
 }
 ```
 
@@ -545,7 +555,8 @@ Group-session resolve requests use the same endpoint:
     }
   ],
   "active_project_id": null,
-  "created": true
+  "created": true,
+  "closed_session_ids": []
 }
 ```
 
@@ -1624,19 +1635,97 @@ Returns the full Coqui configuration. API keys in provider configs are masked as
 }
 ```
 
+#### `GET /api/v1/config/context`
+
+Get the supported app-facing context settings from `openclaw.json` with their effective values, runtime defaults, field metadata, and current API restart state.
+
+This endpoint is intentionally narrow. It only exposes the high-impact context settings that are safe to edit from client applications.
+
+**Response `200`**
+
+```json
+{
+  "context": {
+    "conversationHistoryInSystemPrompt": false,
+    "autoSummarizeMode": "token",
+    "autoSummarizeThreshold": 64,
+    "autoSummarizeTurnThreshold": 32,
+    "autoSummarizeKeepRecent": 15
+  },
+  "defaults": {
+    "conversationHistoryInSystemPrompt": false,
+    "autoSummarizeMode": "token",
+    "autoSummarizeThreshold": 64,
+    "autoSummarizeTurnThreshold": 32,
+    "autoSummarizeKeepRecent": 15
+  },
+  "fields": {
+    "autoSummarizeMode": {
+      "key": "autoSummarizeMode",
+      "dot_key": "agents.defaults.context.autoSummarizeMode",
+      "label": "Auto-Summarize Mode",
+      "description": "Choose whether Coqui summarizes based on token budget, turn count, or only when you request it manually.",
+      "type": "enum",
+      "options": ["token", "turn", "manual"],
+      "configured": false,
+      "default": "token",
+      "value": "token",
+      "resettable": true,
+      "restart_required": true,
+      "requires_restart": true
+    }
+  },
+  "restart": {
+    "required": false,
+    "reason": null,
+    "source": null,
+    "required_at": null,
+    "context": [],
+    "supported": true,
+    "managed_by_launcher": true,
+    "pid": 12345,
+    "started_at": "2026-05-10T00:00:00Z"
+  }
+}
+```
+
 #### `PATCH /api/v1/config/context`
 
-Update explicitly allowed context toggles without reopening the full setup wizard. This currently supports `conversationHistoryInSystemPrompt` only.
+Update explicitly allowed context settings without reopening the full setup wizard.
+
+This endpoint currently supports:
+
+- `conversationHistoryInSystemPrompt`
+- `autoSummarizeMode`
+- `autoSummarizeThreshold`
+- `autoSummarizeTurnThreshold`
+- `autoSummarizeKeepRecent`
 
 When enabled, Coqui keeps the normal replayed message history and also appends a final `Conversation History` system-prompt block built from the active stored messages.
 
-The change is written to `openclaw.json`, but the running process still needs a restart before the new mode affects turns.
+Changes are written to `openclaw.json`, but the running process still needs a restart before the new settings affect turns.
+
+Use the optional `reset` array to remove specific keys from `openclaw.json` and fall back to runtime defaults.
 
 **Request Body**
 
 ```json
 {
-  "conversationHistoryInSystemPrompt": true
+  "conversationHistoryInSystemPrompt": true,
+  "autoSummarizeMode": "turn",
+  "autoSummarizeTurnThreshold": 12,
+  "autoSummarizeKeepRecent": 8
+}
+```
+
+Reset selected values to defaults:
+
+```json
+{
+  "reset": [
+    "autoSummarizeMode",
+    "autoSummarizeKeepRecent"
+  ]
 }
 ```
 
@@ -1645,12 +1734,38 @@ The change is written to `openclaw.json`, but the running process still needs a 
 ```json
 {
   "context": {
-    "conversationHistoryInSystemPrompt": true
+    "conversationHistoryInSystemPrompt": true,
+    "autoSummarizeMode": "turn",
+    "autoSummarizeThreshold": 64,
+    "autoSummarizeTurnThreshold": 12,
+    "autoSummarizeKeepRecent": 8
   },
   "updated": [
-    "conversationHistoryInSystemPrompt"
+    "conversationHistoryInSystemPrompt",
+    "autoSummarizeMode",
+    "autoSummarizeTurnThreshold",
+    "autoSummarizeKeepRecent"
   ],
-  "restart_required": true
+  "reset": [],
+  "restart_required": true,
+  "restart": {
+    "required": true,
+    "reason": "Agent context configuration changed. Restart the API server to apply the new behavior cleanly.",
+    "source": "api.config.context.update",
+    "required_at": "2026-05-10T00:00:00Z",
+    "context": {
+      "updated_keys": [
+        "conversationHistoryInSystemPrompt",
+        "autoSummarizeMode",
+        "autoSummarizeTurnThreshold",
+        "autoSummarizeKeepRecent"
+      ]
+    },
+    "supported": true,
+    "managed_by_launcher": true,
+    "pid": 12345,
+    "started_at": "2026-05-10T00:00:00Z"
+  }
 }
 ```
 
@@ -1815,6 +1930,69 @@ Lists discovered profiles so clients can offer a profile picker instead of manua
 }
 ```
 
+#### `GET /api/v1/config/profile-preferences/schema`
+
+Returns the curated, app-facing schema for the first-class profile preferences editor.
+
+This endpoint exists so the app can render domain-specific sections and controls without exposing raw `preferences.json` structure or internal inspection fields directly.
+
+**Response `200`**
+
+```json
+{
+  "version": 1,
+  "sections": [
+    {
+      "id": "communication_style",
+      "label": "Communication Style",
+      "description": "How the profile speaks, collaborates, and frames feedback.",
+      "fields": [
+        {
+          "id": "response_style",
+          "label": "Response Style",
+          "storage_path": "prompt_directives.response_style",
+          "input": "suggested_text",
+          "description": "Choose how the profile should sound in normal replies.",
+          "suggestions": [
+            "structured and measured",
+            "brief and exact",
+            "commercial and outcome-first"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "planning_reasoning",
+      "label": "Planning and Reasoning",
+      "fields": []
+    },
+    {
+      "id": "capabilities_tools",
+      "label": "Capabilities and Tools",
+      "fields": []
+    },
+    {
+      "id": "roles_autonomy",
+      "label": "Roles and Autonomy",
+      "fields": [
+        {
+          "id": "allow_roles",
+          "input": "multi_select",
+          "options": [
+            {"value": "analyst", "label": "Analyst"},
+            {"value": "orchestrator", "label": "Orchestrator"}
+          ]
+        }
+      ]
+    }
+  ],
+  "deferred": {
+    "advanced_editor": true,
+    "unsupported_fields_hidden": true
+  }
+}
+```
+
 #### `GET /api/v1/config/profiles/{name}`
 
 Return a single profile record with picker-friendly policy details.
@@ -1862,9 +2040,56 @@ Return a single profile record with picker-friendly policy details.
     },
     "labels": []
   },
+  "preference_values": {
+    "prompt_directives": {
+      "response_style": "structured and measured"
+    },
+    "behavior": {
+      "planning_mode": "deliberate"
+    },
+    "prompts": {
+      "features": {
+        "artifacts": true,
+        "projects": true,
+        "loops": true,
+        "todos": true,
+        "background_tasks": true
+      },
+      "roles": {
+        "allow": ["orchestrator", "analyst"],
+        "deny": []
+      }
+    }
+  },
+  "preference_document": {
+    "prompt_directives": {
+      "response_style": "structured and measured"
+    },
+    "behavior": {
+      "planning_mode": "deliberate"
+    },
+    "prompts": {
+      "features": {
+        "artifacts": true,
+        "projects": true,
+        "loops": true,
+        "todos": true,
+        "background_tasks": true
+      },
+      "roles": {
+        "allow": ["orchestrator", "analyst"],
+        "deny": []
+      },
+      "prompt_sections": {
+        "tools": true
+      }
+    }
+  },
   "soul": "# Caelum\n\nA calm companion."
 }
 ```
+
+`preferences` remains the inspection-oriented summary. `preference_values` is the curated value payload intended for app-side preference editors. `preference_document` is the raw persisted preference document for clients that need to merge curated edits without dropping unsupported keys.
 
 **Response `404`** — profile not found.
 
@@ -1875,6 +2100,233 @@ App-facing alias for `GET /api/v1/config/profiles`.
 #### `GET /api/v1/profiles/{name}`
 
 App-facing alias for `GET /api/v1/config/profiles/{name}`.
+
+#### `POST /api/v1/profiles`
+
+Create a new profile for app onboarding and profile-first setup flows.
+
+This first phase-1 slice supports:
+
+- `name`: required lowercase profile slug using letters, numbers, hyphens, or underscores
+- `description`: optional shortcut used to generate a default `soul.md` when `soul` is omitted
+- `soul`: optional full markdown body for `soul.md`
+- `backstory`: optional markdown content written to `backstory.md`
+- `preferences`: optional typed preferences payload saved to `preferences.json`
+
+Provide either `description` or `soul`.
+
+**Request Body**
+
+```json
+{
+  "name": "nova",
+  "description": "A bold collaborative strategist.",
+  "backstory": "## Origins\n\nBuilt for focused strategic support.",
+  "preferences": {
+    "behavior": {
+      "planning_mode": "structured"
+    },
+    "prompts": {
+      "features": {
+        "projects": false,
+        "todos": true
+      }
+    }
+  }
+}
+```
+
+**Response `201`**
+
+Returns the same profile detail shape as `GET /api/v1/profiles/{name}`. The new profile is immediately visible in subsequent list and detail requests without a server restart.
+
+**Response `409`** — profile already exists.
+
+**Response `400`** — invalid name, invalid JSON body, invalid preferences, or missing `description`/`soul`.
+
+#### `PATCH /api/v1/profiles/{name}`
+
+Update an existing profile for onboarding and profile management flows.
+
+This initial update slice supports:
+
+- `description`: rewrites the generated `soul.md` body while preserving existing frontmatter when present
+- `soul`: replaces the `soul.md` body and preserves existing frontmatter unless the new markdown already includes its own frontmatter
+- `backstory`: string to write `backstory.md`, or `null` to remove it
+- `preferences`: typed preferences object to write `preferences.json`, or `null` to remove it
+
+Profile renaming is not supported by this endpoint yet.
+
+**Request Body**
+
+```json
+{
+  "description": "A calmer guide for long-running conversations.",
+  "backstory": "## Revisions\n\nUpdated during onboarding.",
+  "preferences": {
+    "prompts": {
+      "features": {
+        "projects": false,
+        "todos": true
+      }
+    }
+  }
+}
+```
+
+**Response `200`**
+
+Returns the same profile detail shape as `GET /api/v1/profiles/{name}`.
+
+**Response `400`** — invalid JSON, invalid preferences, unsupported rename attempt, or no supported fields.
+
+**Response `404`** — profile not found.
+
+#### `DELETE /api/v1/profiles/{name}`
+
+Delete a profile directory that is no longer needed.
+
+This initial slice intentionally refuses to delete the configured default profile so the app cannot leave the workspace pointing at a broken default profile.
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "name": "trinity"
+}
+```
+
+**Response `404`** — profile not found.
+
+**Response `409`** — the requested profile is still the configured default profile.
+
+#### `GET /api/v1/profiles/{name}/backstory`
+
+Profile-scoped alias for `GET /api/v1/server/backstory?profile={name}`.
+
+This is the app-facing inspection route for the purpose-built backstory builder. It returns generated `backstory.md` content, source file breakdowns, folder summaries, unsupported file visibility, and regeneration metadata for a single profile.
+
+**Response `200`**
+
+Returns the same payload shape as `GET /api/v1/server/backstory?profile={name}`.
+
+**Response `400`** — unknown profile.
+
+#### `GET /api/v1/profiles/{name}/backstory/entries`
+
+Read a single supported backstory source entry under `profiles/{name}/backstory/`.
+
+This exists for the app-side backstory organizer so source files can be viewed and edited without exposing a generic workspace file browser.
+
+**Query Parameters**
+
+- `path` — required relative path to a supported source entry, for example `intro.md` or `timeline/01-origin.md`
+
+**Response `200`**
+
+```json
+{
+  "path": "profiles/caelum/backstory/intro.md",
+  "relative_path": "intro.md",
+  "content": "# Intro\n\nCaelum has a long memory.\n"
+}
+```
+
+**Response `400`** — invalid path or unknown profile.
+
+**Response `404`** — entry not found.
+
+#### `POST /api/v1/profiles/{name}/backstory/folders`
+
+Create a folder inside `profiles/{name}/backstory/` for organizing source files used by the backstory generator.
+
+This endpoint is intentionally profile-scoped and path-limited. It does not expose a generic workspace browser.
+
+**Request Body**
+
+```json
+{
+  "path": "timeline/childhood"
+}
+```
+
+**Response `201`**
+
+```json
+{
+  "created": true,
+  "path": "profiles/caelum/backstory/timeline/childhood",
+  "backstory": {
+    "profile": "caelum",
+    "source_folder": "profiles/caelum/backstory",
+    "source_folder_exists": true
+  }
+}
+```
+
+**Response `400`** — invalid path or unknown profile.
+
+#### `PUT /api/v1/profiles/{name}/backstory/entries`
+
+Create or replace a single backstory source entry under `profiles/{name}/backstory/`.
+
+Supported entry paths are limited to the same allowlisted source extensions used by backstory generation. Hidden paths, traversal segments, and unsupported extensions are rejected.
+
+After writing the file, Coqui regenerates `backstory.md` and refreshes the manifest before returning the updated inspection payload.
+
+**Request Body**
+
+```json
+{
+  "path": "timeline/01-origin.md",
+  "content": "# Origin\n\nCaelum first learned through careful observation."
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "updated": true,
+  "path": "profiles/caelum/backstory/timeline/01-origin.md",
+  "backstory": {
+    "profile": "caelum",
+    "generated_backstory_path": "profiles/caelum/backstory.md"
+  }
+}
+```
+
+**Response `400`** — invalid JSON, invalid path, unsupported extension, empty content, or unknown profile.
+
+#### `DELETE /api/v1/profiles/{name}/backstory/entries`
+
+Delete a single backstory source entry under `profiles/{name}/backstory/` and regenerate the generated backstory output.
+
+**Request Body**
+
+```json
+{
+  "path": "timeline/01-origin.md"
+}
+```
+
+**Response `200`**
+
+```json
+{
+  "deleted": true,
+  "path": "profiles/caelum/backstory/timeline/01-origin.md",
+  "backstory": {
+    "profile": "caelum",
+    "generated_backstory_path": "profiles/caelum/backstory.md"
+  }
+}
+```
+
+**Response `400`** — invalid JSON, invalid path, unsupported extension, or unknown profile.
+
+**Response `404`** — entry not found.
 
 #### `GET /api/v1/config/models`
 
@@ -4850,6 +5302,11 @@ The API overlaps with the REPL, but it does **not** mirror every slash command. 
 | `/help` | `GET /api/v1/server/commands` | Returns the runtime slash-command catalog |
 | `/prompt` | `GET /api/v1/server/prompt` | Outputs the fully constructed system prompt |
 | `/backstory` | `GET /api/v1/server/backstory?profile=<name>` | Returns generated backstory content and source breakdowns |
+| profile preference schema | `GET /api/v1/config/profile-preferences/schema` | Returns the curated app-facing preference editor schema |
+| profile backstory inspect | `GET /api/v1/profiles/{name}/backstory` | Returns the same backstory inspection payload through a profile-scoped app route |
+| profile backstory folder create | `POST /api/v1/profiles/{name}/backstory/folders` | Creates a folder inside `profiles/{name}/backstory/` |
+| profile backstory entry upsert | `PUT /api/v1/profiles/{name}/backstory/entries` | Creates or replaces a typed backstory source entry and regenerates output |
+| profile backstory entry delete | `DELETE /api/v1/profiles/{name}/backstory/entries` | Deletes a backstory source entry and regenerates output |
 | `/budget` | `GET /api/v1/server/budget` | Returns prompt and toolkit budget info |
 | `/loops` | `GET /api/v1/loops` | Lists all loops with status and progress |
 | `/loops definitions` | `GET /api/v1/loops/definitions` | Shows available loop definitions |
@@ -4899,11 +5356,21 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/sessions/{id}/turns/{turnId}/events` | Yes | List replayable turn events |
 | `GET` | `/api/v1/sessions/{id}/child-runs` | Yes | List child agent runs |
 | `GET` | `/api/v1/config` | Yes | Get config (sanitized) |
-| `PATCH` | `/api/v1/config/context` | Yes | Update supported context toggles such as `conversationHistoryInSystemPrompt` |
+| `GET` | `/api/v1/config/context` | Yes | Get the supported app-facing context settings with defaults, metadata, and restart state |
+| `PATCH` | `/api/v1/config/context` | Yes | Update supported context settings such as `conversationHistoryInSystemPrompt` and auto-summarize controls |
 | `POST` | `/api/v1/config/validate` | Yes | Validate a candidate config payload |
 | `GET` | `/api/v1/config/roles` | Yes | List all roles |
 | `GET` | `/api/v1/config/roles/{name}` | Yes | Get role detail |
 | `GET` | `/api/v1/config/models` | Yes | List available models |
+| `GET` | `/api/v1/profiles` | Yes | List discovered profiles for app pickers |
+| `GET` | `/api/v1/profiles/{name}` | Yes | Get profile detail |
+| `POST` | `/api/v1/profiles` | Yes | Create a profile |
+| `PATCH` | `/api/v1/profiles/{name}` | Yes | Update soul, backstory, and preferences for a profile |
+| `DELETE` | `/api/v1/profiles/{name}` | Yes | Delete a non-default profile |
+| `GET` | `/api/v1/profiles/{name}/backstory` | Yes | Get profile-scoped backstory inspection data |
+| `POST` | `/api/v1/profiles/{name}/backstory/folders` | Yes | Create a folder inside a profile backstory source tree |
+| `PUT` | `/api/v1/profiles/{name}/backstory/entries` | Yes | Create or replace a backstory source entry and regenerate output |
+| `DELETE` | `/api/v1/profiles/{name}/backstory/entries` | Yes | Delete a backstory source entry and regenerate output |
 | `GET` | `/api/v1/credentials` | Yes | List credential keys |
 | `GET` | `/api/v1/credentials/requirements` | Yes | List declared credential requirements |
 | `POST` | `/api/v1/credentials` | Yes | Set a credential |

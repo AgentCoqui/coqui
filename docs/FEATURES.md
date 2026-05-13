@@ -113,8 +113,8 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 **How to use it:**
 - Tell Coqui: "Install the coqui-toolkit-brave-search package"
-- Or use the marketplace: `/space search brave` → `/space install carmelosantana/coqui-toolkit-brave-search`
-- Browse available packages at [coqui.space](https://coqui.space)
+- Or use the marketplace toolkit: `/mods search brave` → `/mods install carmelosantana/coqui-toolkit-brave-search`
+- Browse available packages at [agentcoqui.com](https://agentcoqui.com)
 - See [TOOLKITS.md](TOOLKITS.md) for creating your own.
 
 ## <a id="credential-management"></a> 🔐 Credential Management
@@ -133,7 +133,7 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 **How to use it:**
 - Place `.md` files in `workspace/skills/` with the required frontmatter.
-- Install community skills via Coqui Space: `/space skills` to browse, `/space install` to add.
+- Install community skills via the marketplace toolkit: `/mods search <query>` and `/mods install owner/skill`.
 - The agent discovers and reads skills via `SkillToolkit`.
 - See [SKILLS.md](SKILLS.md) for the schema and best practices.
 
@@ -407,18 +407,18 @@ coqui doctor --json       # Machine-readable output
 
 Child agents always get read-only mount access regardless of the mount's declared access level.
 
-## <a id="coqui-space"></a> 🏪 Coqui Space Marketplace
+## <a id="coqui-mods"></a> 🏪 Mods Marketplace
 
-**What it does:** A package marketplace for discovering, installing, and managing community toolkits and skills.
+**What it does:** External toolkit packages provide marketplace discovery, install, publish, and account flows for community mods.
 
 **How it helps:** Find and install capabilities with a single command. Browse what the community has built and extend Coqui without writing code.
 
 **How to use it:**
-- Search: `/space search github`
-- Install: `/space install carmelosantana/coqui-toolkit-brave-search`
-- Browse installed: `/space installed`
-- Update all: `/space update`
-- Web: [coqui.space](https://coqui.space)
+- Search: `/mods search github`
+- Install: `/mods install carmelosantana/coqui-toolkit-brave-search`
+- Browse installed: `/mods installed`
+- Update all: `/mods update`
+- Web: [agentcoqui.com](https://agentcoqui.com)
 
 ## <a id="soul"></a> 🪶 Soul
 

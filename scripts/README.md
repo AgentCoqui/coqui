@@ -2,6 +2,12 @@
 
 Utility scripts for development and maintenance of the Coqui project.
 
+## Report Extraction
+
+The codebase report generators were extracted into the standalone `code-report` package under `/Users/carmelo/Projects/CoquiBot/Scripts/code-report`.
+
+Use that package for file inventory, complexity, churn, dependency fan-in, and suite generation.
+
 ## ci-test.sh
 
 Mirrors the GitHub Actions CI pipeline locally. Runs Pest tests and PHPStan static analysis in sequence, exiting on the first failure.

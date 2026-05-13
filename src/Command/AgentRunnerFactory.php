@@ -54,7 +54,7 @@ final class AgentRunnerFactory
             configManager: $includeConfigManager ? $boot->configManager() : null,
             configGuard: $includeConfigManager ? new ConfigGuard() : null,
             visibilityRegistry: $includeVisibilityRegistry ? $boot->visibilityRegistry() : null,
-            spaceToolkit: $boot->spaceToolkit(),
+            modsToolkit: $boot->modsToolkit(),
             todoStore: $boot->todoStore(),
             artifactStore: $boot->artifactStore(),
             projectStore: $boot->projectStore(),

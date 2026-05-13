@@ -23,7 +23,6 @@ use CoquiBot\Coqui\Repl\Handler\QualityHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
-use CoquiBot\Coqui\Repl\Handler\SpaceHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
@@ -66,7 +65,6 @@ final class SlashCommandRouter
         private readonly GroupHandler $group,
         private readonly ProfileHandler $profile,
         private readonly ToolkitVisibilityHandler $toolkitVisibility,
-        private readonly SpaceHandler $space,
         private readonly ConfigHandler $config,
         private readonly ConversationHandler $conversation,
         private readonly WebhookHandler $webhook,
@@ -133,7 +131,6 @@ final class SlashCommandRouter
             '/profile' => $this->handleProfile($io, $arg, $activeRole, $activeProfile),
             '/profiles' => $this->handleProfiles($io, $activeProfile),
             '/backstory' => $this->handleBackstory($io, $arg, $activeProfile),
-            '/space' => $this->handleSpace($io, $arg),
             '/schedules' => $this->handleSchedules($io, $arg),
             '/quality' => $this->handleQuality($io),
             '/webhooks' => $this->handleWebhooks($io, $arg),
@@ -439,12 +436,6 @@ final class SlashCommandRouter
     private function handleBackstory(SymfonyStyle $io, string $arg, ?string $activeProfile): RouteResult
     {
         return $this->backstory->handle($io, $arg, $activeProfile);
-    }
-
-    private function handleSpace(SymfonyStyle $io, string $arg): RouteResult
-    {
-        $this->space->handle($io, $arg);
-        return RouteResult::continue();
     }
 
     private function handleSchedules(SymfonyStyle $io, string $arg): RouteResult

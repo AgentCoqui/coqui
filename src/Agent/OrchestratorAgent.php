@@ -48,11 +48,11 @@ use CoquiBot\Coqui\Config\ToolkitLoadingRegistry;
 use CoquiBot\Coqui\Contract\CompositeToolkitProvider;
 use CoquiBot\Coqui\Contract\ToolkitLoadingMode;
 use CoquiBot\Coqui\Contract\ToolkitLoadingKeyProvider;
-use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Memory\ConversationSummarizer;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Memory\MemoryEntry;
+use CoquiBot\ModManager\ModManagerToolkit;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
@@ -200,7 +200,7 @@ final class OrchestratorAgent extends AbstractAgent
         ?ConfigManager $configManager = null,
         ?ConfigGuard $configGuard = null,
         private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
-        private readonly ?SpaceToolkit $spaceToolkit = null,
+        private readonly ?ModManagerToolkit $modsToolkit = null,
         private readonly ?string $activeRole = null,
         private readonly ?\CoquiBot\Coqui\Storage\ProjectStore $projectStore = null,
         private readonly ?DefaultsLoader $defaultsLoader = null,
@@ -493,10 +493,10 @@ final class OrchestratorAgent extends AbstractAgent
         /** @var array<int, array{toolkit: ToolkitInterface, package: string, description: string}> */
         $candidateToolkits = [];
 
-        // Coqui Space toolkit — marketplace integration
-        if ($this->spaceToolkit !== null) {
+        // Mods toolkit — marketplace integration
+        if ($this->modsToolkit !== null) {
             $candidateToolkits[] = [
-                'toolkit' => $this->spaceToolkit,
+                'toolkit' => $this->modsToolkit,
                 'package' => '',
                 'description' => 'marketplace integration',
             ];
@@ -754,13 +754,13 @@ final class OrchestratorAgent extends AbstractAgent
         // Coqui toolkits tool — always-loaded system tool for browsing/managing installed toolkits
         $this->coquiToolkitsTool = new CoquiToolkitsTool(
             workspacePath: $this->workspacePath,
-            installer: $this->spaceToolkit?->toolkitInstaller(),
+            installer: $this->modsToolkit?->toolkitInstaller(),
         );
 
         // Coqui skills tool — always-loaded system tool for browsing/managing local skills
         $this->coquiSkillsTool = new CoquiSkillsTool(
             discovery: $this->skillDiscovery ?? new SkillDiscovery($this->workspacePath),
-            installer: $this->spaceToolkit?->skillInstaller(),
+            installer: $this->modsToolkit?->skillInstaller(),
             lifecycleStore: $this->storage !== null ? new SkillLifecycleStore($this->storage->getPdo()) : null,
             sessionId: $this->sessionId,
             turnId: $this->currentTurnId,

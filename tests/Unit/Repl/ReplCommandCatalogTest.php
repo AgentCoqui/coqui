@@ -12,8 +12,8 @@ test('repl command catalog exposes top-level aliases without nested pseudo comma
     expect($commands)->toContain('/quit');
     expect($commands)->toContain('/exit');
     expect($commands)->toContain('/q');
-    expect($commands)->not->toContain('/space skills');
-    expect($commands)->not->toContain('/space toolkits');
+    expect($commands)->not->toContain('/toolkits enable');
+    expect($commands)->not->toContain('/loops start');
 });
 
 test('repl command catalog help rows surface critical command variants', function (): void {

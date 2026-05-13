@@ -13,12 +13,6 @@ use CoquiBot\Coqui\Config\ToolkitDiscovery;
 use CoquiBot\Coqui\Contract\ToolkitCommandHandler;
 use CoquiBot\Coqui\Config\ToolkitVisibilityRegistry;
 use CoquiBot\Coqui\Contract\ToolkitVisibility;
-use CoquiBot\Coqui\CoquiSpace\Installer\ComposerRunner;
-use CoquiBot\Coqui\CoquiSpace\Installer\SkillInstaller;
-use CoquiBot\Coqui\CoquiSpace\Installer\ToolkitInstaller;
-use CoquiBot\Coqui\CoquiSpace\SpaceClient;
-use CoquiBot\Coqui\CoquiSpace\SpaceRegistry;
-use CoquiBot\Coqui\CoquiSpace\SpaceToolkit;
 use CoquiBot\Coqui\Repl\ReplCommandCatalog;
 use CoquiBot\Coqui\Repl\TabCompletion;
 use CoquiBot\Coqui\Repl\ToolkitCommandCandidate;
@@ -29,8 +23,8 @@ use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Storage\WebhookStore;
-use Symfony\Component\HttpClient\MockHttpClient;
-use Symfony\Component\HttpClient\Response\MockResponse;
+use CoquiBot\ModManager\Config\ModRegistry;
+use CoquiBot\ModManager\ModManagerToolkit;
 
 function createTabCompletionFixture(): array
 {
@@ -45,8 +39,8 @@ function createTabCompletionFixture(): array
     file_put_contents($workspacePath . '/profiles/nova/soul.md', "# Nova\n\nA direct collaborator.\n");
     file_put_contents($workspacePath . '/profiles/iris/soul.md', "# Iris\n\nA careful reviewer.\n");
     copy(dirname(__DIR__, 3) . '/config/roles/coder.md', $workspacePath . '/roles/coder.md');
-    file_put_contents($workspacePath . '/skills/review-skill/' . SpaceRegistry::ORIGIN_FILE, json_encode([
-        'source' => 'coqui.space',
+    file_put_contents($workspacePath . '/skills/review-skill/' . ModRegistry::ORIGIN_FILE, json_encode([
+        'source' => 'coqui.mods',
         'owner' => 'coquibot',
         'name' => 'review-skill',
         'version' => '1.2.3',
@@ -90,45 +84,6 @@ function createTabCompletionFixture(): array
     $discovery = new ToolkitDiscovery(dirname(__DIR__, 3), $workspacePath, null, $visibilityRegistry);
     $discovery->register('coquibot/coqui-test-toolkit', ['Acme\\ReviewToolkit']);
 
-    $spaceSearchRequests = 0;
-    $http = new MockHttpClient(function (string $method, string $url, array $options) use (&$spaceSearchRequests): MockResponse {
-        $spaceSearchRequests++;
-
-        $query = (string) (($options['query']['q'] ?? ''));
-        if ($method !== 'GET' || !str_ends_with((string) parse_url($url, PHP_URL_PATH), '/search/all')) {
-            throw new RuntimeException('Unexpected Coqui Space request during completion test.');
-        }
-
-        if ($query !== 'coq') {
-            throw new RuntimeException('Unexpected Coqui Space completion query: ' . $query);
-        }
-
-        return new MockResponse(json_encode([
-            'skills' => [
-                'results' => [
-                    ['owner' => 'coquibot', 'name' => 'review-skill'],
-                ],
-            ],
-            'toolkits' => [
-                'results' => [
-                    ['name' => 'coquibot/coqui-test-toolkit'],
-                ],
-            ],
-        ], JSON_THROW_ON_ERROR), ['http_code' => 200]);
-    });
-
-    $client = new SpaceClient(
-        static fn(): string => 'https://coqui.space/api/v1',
-        static fn(): string => '',
-        $http,
-    );
-    $spaceToolkit = new SpaceToolkit(
-        $client,
-        new SkillInstaller($client, $skillDiscovery, $skillDiscovery->skillsDir()),
-        new ToolkitInstaller($client, new ComposerRunner($workspacePath), $discovery, $workspacePath),
-        static fn(): string => '',
-    );
-
     $boot = testBootManagerForTabCompletion(
         workspacePath: $workspacePath,
         roleResolver: $roleResolver,
@@ -139,7 +94,7 @@ function createTabCompletionFixture(): array
         loopDiscovery: $loopDiscovery,
         discovery: $discovery,
         visibilityRegistry: $visibilityRegistry,
-        spaceToolkit: $spaceToolkit,
+        modsToolkit: null,
     );
 
     $sessionId = $storage->createSession('orchestrator', 'ollama/qwen3:latest');
@@ -173,9 +128,6 @@ function createTabCompletionFixture(): array
         'webhookId' => $webhookId,
         'pendingTaskId' => $pendingTaskId,
         'completedTaskId' => $completedTaskId,
-        'getSpaceSearchRequestCount' => static function () use (&$spaceSearchRequests): int {
-            return $spaceSearchRequests;
-        },
     ];
 }
 
@@ -195,7 +147,7 @@ function testBootManagerForTabCompletion(
     LoopDiscovery $loopDiscovery,
     ToolkitDiscovery $discovery,
     ToolkitVisibilityRegistry $visibilityRegistry,
-    SpaceToolkit $spaceToolkit,
+    ?ModManagerToolkit $modsToolkit,
 ): BootManager {
     $reflection = new ReflectionClass(BootManager::class);
     /** @var BootManager $boot */
@@ -211,7 +163,7 @@ function testBootManagerForTabCompletion(
         $loopDiscovery,
         $discovery,
         $visibilityRegistry,
-        $spaceToolkit,
+        $modsToolkit,
     ): void {
         $this->workspacePath = $workspacePath;
         $this->roleResolver = $roleResolver;
@@ -222,7 +174,7 @@ function testBootManagerForTabCompletion(
         $this->loopDiscovery = $loopDiscovery;
         $this->discovery = $discovery;
         $this->visibilityRegistry = $visibilityRegistry;
-        $this->spaceToolkit = $spaceToolkit;
+        $this->modsToolkit = $modsToolkit;
     };
 
     \Closure::bind($initializer, $boot, BootManager::class)();
@@ -240,8 +192,8 @@ test('top-level completion includes every catalog command and omits nested space
             expect($suggestions)->toContain($command);
         }
 
-        expect($suggestions)->not->toContain('/space skills');
-        expect($suggestions)->not->toContain('/space toolkits');
+        expect($suggestions)->not->toContain('/toolkits enable');
+        expect($suggestions)->not->toContain('/loops start');
     } finally {
         cleanupTabCompletionFixture($fixture);
     }
@@ -262,7 +214,6 @@ test('static command completion covers catalog argument hints', function (): voi
             '/summarize ' => ['recent', 'focus'],
             '/roles ' => ['list', 'update', 'ignore', 'unignore'],
             '/backstory ' => ['generate', 'failed'],
-            '/space ' => ['status', 'search', 'install', 'remove', 'installed', 'skills', 'toolkits', 'update'],
             '/evaluations ' => ['A', 'B', 'C', 'D', 'F'],
             '/multiline ' => ['on', 'off'],
         ];
@@ -357,31 +308,13 @@ test('project, schedule, loop, and webhook completion cover filters and live ide
     }
 });
 
-test('toolkit and space completion cover local installs and cached remote install suggestions', function (): void {
+test('toolkit completion covers local installs', function (): void {
     $fixture = createTabCompletionFixture();
 
     try {
         expect($fixture['completion']->complete('/toolkits enable '))->toContain('coquibot/coqui-test-toolkit');
         expect($fixture['completion']->complete('/toolkits enable '))->toContain('tool:shell');
         expect($fixture['completion']->complete('/toolkits promote '))->toContain('ReviewToolkit');
-
-        $removeSuggestions = $fixture['completion']->complete('/space remove ');
-        expect($removeSuggestions)->toContain('review-skill');
-        expect($removeSuggestions)->toContain('coquibot/coqui-test-toolkit');
-
-        $updateSuggestions = $fixture['completion']->complete('/space update ');
-        expect($updateSuggestions)->toContain('review-skill');
-        expect($updateSuggestions)->toContain('coquibot/coqui-test-toolkit');
-
-        $installSuggestions = $fixture['completion']->complete('/space install coq');
-        expect($installSuggestions)->toContain('coquibot/review-skill');
-        expect($installSuggestions)->toContain('coquibot/coqui-test-toolkit');
-        expect(($fixture['getSpaceSearchRequestCount'])())->toBe(1);
-
-        $cachedInstallSuggestions = $fixture['completion']->complete('/space install coq');
-        expect($cachedInstallSuggestions)->toContain('coquibot/review-skill');
-        expect($cachedInstallSuggestions)->toContain('coquibot/coqui-test-toolkit');
-        expect(($fixture['getSpaceSearchRequestCount'])())->toBe(1);
     } finally {
         cleanupTabCompletionFixture($fixture);
     }

@@ -523,6 +523,8 @@ test('session handler create closes active group session when confirmation is su
 
         expect($response->getStatusCode())->toBe(201);
         expect($body['id'])->not->toBe($activeSessionId);
+        expect($body['created'])->toBeTrue();
+        expect($body['closed_session_ids'])->toBe([$activeSessionId]);
         expect($oldSession['is_closed'])->toBe(1);
         expect($oldSession['closure_reason'])->toBe('api_create_group_session:caelum|nova');
     } finally {
@@ -749,6 +751,8 @@ test('session handler create closes active profiled session when confirmation is
 
         expect($response->getStatusCode())->toBe(201);
         expect($body['id'])->not->toBe($activeSessionId);
+        expect($body['created'])->toBeTrue();
+        expect($body['closed_session_ids'])->toBe([$activeSessionId]);
         expect($oldSession['is_closed'])->toBe(1);
         expect($oldSession['closure_reason'])->toBe('api_create_profile_session:caelum');
         expect($visibleSessions)->toHaveCount(1);
@@ -788,6 +792,8 @@ test('session handler resolve closes older duplicate active sessions for a profi
 
         expect($response->getStatusCode())->toBe(200);
         expect($body['id'])->toBe($latestSessionId);
+        expect($body['created'])->toBeFalse();
+        expect($body['closed_session_ids'])->toBe([$olderSessionId]);
         expect($olderSession['is_closed'])->toBe(1);
         expect($olderSession['closure_reason'])->toBe('api_profile_duplicate_cleanup:caelum');
     } finally {

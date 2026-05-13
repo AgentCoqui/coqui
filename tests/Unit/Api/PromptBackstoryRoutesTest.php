@@ -106,7 +106,21 @@ function createPromptBackstoryRouteFixture(): array
     );
     $router->get(
         '/api/v1/server/backstory',
-        [new BackstoryHandler(new BackstoryInspectionService($workspacePath, new ProfileDiscovery($workspacePath), $assembler)), 'get'],
+        [new BackstoryHandler(
+            new BackstoryInspectionService($workspacePath, new ProfileDiscovery($workspacePath), $assembler),
+            new ProfileDiscovery($workspacePath),
+            $workspacePath,
+            $assembler,
+        ), 'get'],
+    );
+    $router->get(
+        '/api/v1/profiles/{name}/backstory',
+        [new BackstoryHandler(
+            new BackstoryInspectionService($workspacePath, new ProfileDiscovery($workspacePath), $assembler),
+            new ProfileDiscovery($workspacePath),
+            $workspacePath,
+            $assembler,
+        ), 'getProfile'],
     );
 
     return [
@@ -150,6 +164,22 @@ test('router dispatches backstory inspection endpoint', function () {
         expect($body['profile'])->toBe('caelum');
         expect($body['content'])->toContain('## Backstory');
         expect($body['files'])->toHaveCount(1);
+    } finally {
+        cleanupPromptBackstoryRouteFixture($fixture);
+    }
+});
+
+test('router dispatches profile backstory inspection alias', function () {
+    $fixture = createPromptBackstoryRouteFixture();
+
+    try {
+        $request = new ServerRequest('GET', '/api/v1/profiles/caelum/backstory');
+        $response = $fixture['router']->dispatch($request);
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['profile'])->toBe('caelum');
+        expect($body['content'])->toContain('## Backstory');
     } finally {
         cleanupPromptBackstoryRouteFixture($fixture);
     }

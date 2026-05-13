@@ -27,7 +27,7 @@ final readonly class InteractiveSessionTypeHandler implements SessionTypeHandler
             closureReasonPrefix: 'api_create_profile_session',
         );
 
-        return new SessionTypeOperationResult($result->session, $result->created);
+        return new SessionTypeOperationResult($result->session, $result->created, $result->closedSessionIds);
     }
 
     public function resolve(SessionScope $scope): SessionTypeOperationResult
@@ -38,7 +38,7 @@ final readonly class InteractiveSessionTypeHandler implements SessionTypeHandler
             duplicateCleanupReasonPrefix: 'api_profile_duplicate_cleanup',
         );
 
-        return new SessionTypeOperationResult($result->session, $result->created);
+        return new SessionTypeOperationResult($result->session, $result->created, $result->closedSessionIds);
     }
 
     /**

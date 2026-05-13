@@ -26,7 +26,7 @@ function createBackstoryHandlerFixture(): array
 
     return [
         'workspacePath' => $workspacePath,
-        'handler' => new BackstoryHandler($inspectionService),
+        'handler' => new BackstoryHandler($inspectionService, $profileDiscovery, $workspacePath, $assembler),
     ];
 }
 
@@ -102,6 +102,134 @@ test('backstory handler rejects unknown profiles', function () {
         expect($response->getStatusCode())->toBe(400);
         expect($body['code'])->toBe('validation_error');
         expect($body['error'])->toContain('Unknown profile');
+    } finally {
+        cleanupBackstoryHandlerFixture($fixture);
+    }
+});
+
+test('backstory handler exposes a profile-scoped inspection alias', function () {
+    $fixture = createBackstoryHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->getProfile(new ServerRequest('GET', '/api/v1/profiles/caelum/backstory'), 'caelum');
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['profile'])->toBe('caelum');
+        expect($body['source_folder'])->toBe('profiles/caelum/backstory');
+    } finally {
+        cleanupBackstoryHandlerFixture($fixture);
+    }
+});
+
+test('backstory handler can read a profile backstory source entry', function () {
+    $fixture = createBackstoryHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->getEntry(
+            (new ServerRequest('GET', '/api/v1/profiles/caelum/backstory/entries'))
+                ->withQueryParams(['path' => 'intro.md']),
+            'caelum',
+        );
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['path'])->toBe('profiles/caelum/backstory/intro.md');
+        expect($body['relative_path'])->toBe('intro.md');
+        expect($body['content'])->toContain('Caelum has a long memory.');
+    } finally {
+        cleanupBackstoryHandlerFixture($fixture);
+    }
+});
+
+test('backstory handler can create profile backstory folders', function () {
+    $fixture = createBackstoryHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->createFolder(new ServerRequest(
+            'POST',
+            '/api/v1/profiles/caelum/backstory/folders',
+            ['Content-Type' => 'application/json'],
+            json_encode(['path' => 'timeline/childhood'], JSON_THROW_ON_ERROR),
+        ), 'caelum');
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(201);
+        expect($body['created'])->toBeTrue();
+        expect($body['path'])->toBe('profiles/caelum/backstory/timeline/childhood');
+        expect($body['backstory']['source_folder_exists'])->toBeTrue();
+        expect(is_dir($fixture['workspacePath'] . '/profiles/caelum/backstory/timeline/childhood'))->toBeTrue();
+    } finally {
+        cleanupBackstoryHandlerFixture($fixture);
+    }
+});
+
+test('backstory handler can create or update profile backstory entries and regenerate output', function () {
+    $fixture = createBackstoryHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->putEntry(new ServerRequest(
+            'PUT',
+            '/api/v1/profiles/caelum/backstory/entries',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'path' => 'timeline/01-origin.md',
+                'content' => "# Origin\n\nCaelum first learned through careful observation.",
+            ], JSON_THROW_ON_ERROR),
+        ), 'caelum');
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['updated'])->toBeTrue();
+        expect($body['path'])->toBe('profiles/caelum/backstory/timeline/01-origin.md');
+        expect($body['backstory']['files'])->toHaveCount(3);
+        expect($body['backstory']['content'])->toContain('Caelum first learned through careful observation.');
+        expect(file_get_contents($fixture['workspacePath'] . '/profiles/caelum/backstory.md'))->toContain('Caelum first learned through careful observation.');
+    } finally {
+        cleanupBackstoryHandlerFixture($fixture);
+    }
+});
+
+test('backstory handler can delete profile backstory entries and regenerate output', function () {
+    $fixture = createBackstoryHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->deleteEntry(new ServerRequest(
+            'DELETE',
+            '/api/v1/profiles/caelum/backstory/entries',
+            ['Content-Type' => 'application/json'],
+            json_encode(['path' => 'intro.md'], JSON_THROW_ON_ERROR),
+        ), 'caelum');
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(200);
+        expect($body['deleted'])->toBeTrue();
+        expect($body['path'])->toBe('profiles/caelum/backstory/intro.md');
+        expect($body['backstory']['files'])->toHaveCount(1);
+        expect(is_file($fixture['workspacePath'] . '/profiles/caelum/backstory/intro.md'))->toBeFalse();
+        expect(file_get_contents($fixture['workspacePath'] . '/profiles/caelum/backstory.md'))->not->toContain('Caelum has a long memory.');
+    } finally {
+        cleanupBackstoryHandlerFixture($fixture);
+    }
+});
+
+test('backstory handler rejects invalid backstory mutation paths', function () {
+    $fixture = createBackstoryHandlerFixture();
+
+    try {
+        $response = $fixture['handler']->putEntry(new ServerRequest(
+            'PUT',
+            '/api/v1/profiles/caelum/backstory/entries',
+            ['Content-Type' => 'application/json'],
+            json_encode([
+                'path' => '../secret.txt',
+                'content' => 'nope',
+            ], JSON_THROW_ON_ERROR),
+        ), 'caelum');
+        $body = json_decode((string) $response->getBody(), true);
+
+        expect($response->getStatusCode())->toBe(400);
+        expect($body['code'])->toBe('validation_error');
     } finally {
         cleanupBackstoryHandlerFixture($fixture);
     }

@@ -11,7 +11,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PathHelper\PathHelper;
-use CoquiBot\Coqui\CoquiSpace\Installer\ToolkitInstaller;
+use CoquiBot\ModManager\Installer\ToolkitInstaller;
 
 /**
  * Unified tool for browsing and managing installed toolkits.
@@ -97,7 +97,7 @@ final class CoquiToolkitsTool
 
         if ($sections === []) {
             return ToolResult::success(
-                "No toolkits found. Use `coqui_space_toolkits(action: \"search\", query: \"...\")` to discover community toolkits, "
+                "No toolkits found. Use `/mods search <query>` to discover community toolkits, "
                 . "or install a toolkit package with `composer`.",
             );
         }
@@ -231,7 +231,7 @@ final class CoquiToolkitsTool
         }
 
         if ($this->installer === null) {
-            return ToolResult::error('Toolkit management is not available (Coqui Space not configured).');
+            return ToolResult::error('Toolkit management is not available (mod manager toolkit not loaded).');
         }
 
         $message = $this->installer->disable($name);
@@ -250,7 +250,7 @@ final class CoquiToolkitsTool
         }
 
         if ($this->installer === null) {
-            return ToolResult::error('Toolkit management is not available (Coqui Space not configured).');
+            return ToolResult::error('Toolkit management is not available (mod manager toolkit not loaded).');
         }
 
         $message = $this->installer->enable($name);
@@ -269,7 +269,7 @@ final class CoquiToolkitsTool
         }
 
         if ($this->installer === null) {
-            return ToolResult::error('Toolkit management is not available (Coqui Space not configured).');
+            return ToolResult::error('Toolkit management is not available (mod manager toolkit not loaded).');
         }
 
         $message = $this->installer->remove($name);

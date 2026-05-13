@@ -9,6 +9,7 @@ use CoquiBot\Coqui\Api\Session\GroupSessionEndpointHandlerInterface;
 use CoquiBot\Coqui\Api\Session\GroupSessionTypeHandler;
 use CoquiBot\Coqui\Api\Session\InteractiveSessionTypeHandler;
 use CoquiBot\Coqui\Api\Session\SessionScopeResolver;
+use CoquiBot\Coqui\Api\Session\SessionTypeOperationResult;
 use CoquiBot\Coqui\Api\Session\SessionUpdateRequestResolver;
 use CoquiBot\Coqui\Api\Session\SessionTypeRegistry;
 use CoquiBot\Coqui\Api\Router;
@@ -120,7 +121,7 @@ final readonly class SessionHandler
             return $this->sessionTypeErrorResponse($e);
         }
 
-        return Router::jsonResponse($result->session, 201);
+        return Router::jsonResponse($this->operationResponseBody($result), 201);
     }
 
     /**
@@ -140,7 +141,7 @@ final readonly class SessionHandler
             return $this->sessionTypeErrorResponse($e);
         }
 
-        return Router::jsonResponse($result->session + ['created' => $result->created], $result->created ? 201 : 200);
+        return Router::jsonResponse($this->operationResponseBody($result), $result->created ? 201 : 200);
     }
 
     /**
@@ -358,6 +359,20 @@ final readonly class SessionHandler
     private function sessionTypeErrorResponse(SessionTypeException $e): Response
     {
         return Router::errorResponse($e->errorCode, $e->getMessage(), $e->details);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function operationResponseBody(SessionTypeOperationResult $result): array
+    {
+        /** @var array{session?: array<string, mixed>, created?: bool, closedSessionIds?: list<string>} $resultData */
+        $resultData = get_object_vars($result);
+
+        return $result->session + [
+            'created' => $result->created,
+            'closed_session_ids' => $resultData['closedSessionIds'] ?? [],
+        ];
     }
 
     private function sessionScopeResolver(): SessionScopeResolver

@@ -284,6 +284,94 @@ test('conversation history prompt flag accepts boolean', function () {
     expect($errors)->toBeEmpty();
 });
 
+test('auto summarize context settings accept valid values', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'context' => [
+                    'autoSummarizeMode' => 'turn',
+                    'autoSummarizeThreshold' => 64,
+                    'autoSummarizeTurnThreshold' => 12,
+                    'autoSummarizeKeepRecent' => 10,
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect($errors)->toBeEmpty();
+});
+
+test('auto summarize mode must be a supported string', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'context' => [
+                    'autoSummarizeMode' => 'always',
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect(implode("\n", $errors))->toContain('agents.defaults.context.autoSummarizeMode');
+});
+
+test('auto summarize threshold must be numeric and within supported range', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'context' => [
+                    'autoSummarizeThreshold' => 120,
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect(implode("\n", $errors))->toContain('agents.defaults.context.autoSummarizeThreshold');
+});
+
+test('auto summarize turn threshold must be an integer greater than zero', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'context' => [
+                    'autoSummarizeTurnThreshold' => 0,
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect(implode("\n", $errors))->toContain('agents.defaults.context.autoSummarizeTurnThreshold');
+});
+
+test('auto summarize keep recent must stay within the supported range', function () {
+    $data = [
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'openai/gpt-4o'],
+                'context' => [
+                    'autoSummarizeKeepRecent' => 25,
+                ],
+            ],
+        ],
+    ];
+
+    $errors = validator()->validate($data);
+
+    expect(implode("\n", $errors))->toContain('agents.defaults.context.autoSummarizeKeepRecent');
+});
+
 test('valid MCP stdio policy passes validation', function () {
     $data = [
         'agents' => [
