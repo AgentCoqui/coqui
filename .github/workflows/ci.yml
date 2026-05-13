@@ -25,6 +25,7 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           extensions: pdo_sqlite, mbstring, curl, xml, zip, gd${{ matrix.os != 'windows-latest' && ', pcntl' || '' }}
+          tools: composer:v2.9.8
           coverage: none
 
       - name: Get Composer cache directory
@@ -58,6 +59,7 @@ jobs:
         with:
           php-version: '8.4'
           extensions: pdo_sqlite, mbstring, curl, xml, zip, gd, pcntl
+          tools: composer:v2.9.8
           coverage: pcov
 
       - name: Get Composer cache directory
@@ -103,6 +105,7 @@ jobs:
         with:
           php-version: ${{ matrix.php }}
           extensions: pdo_sqlite, mbstring, curl, xml, zip, gd${{ matrix.os != 'windows-latest' && ', pcntl' || '' }}
+          tools: composer:v2.9.8
           coverage: none
 
       - name: Get Composer cache directory
