@@ -27,6 +27,7 @@ use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
+use CoquiBot\Coqui\Repl\Handler\ThinkingHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
@@ -66,6 +67,7 @@ function createSlashCommandRouterForToolkitTest(array $toolkitCommandHandlers = 
         $instantiate(ProfileHandler::class),
         $instantiate(ToolkitVisibilityHandler::class),
         $instantiate(ConfigHandler::class),
+        $instantiate(ThinkingHandler::class),
         $instantiate(ConversationHandler::class),
         $instantiate(WebhookHandler::class),
         $instantiate(EvaluationHandler::class),
@@ -211,6 +213,7 @@ test('slash command router renders local markdown previews through its markdown 
             $instantiate(ProfileHandler::class),
             $instantiate(ToolkitVisibilityHandler::class),
             $instantiate(ConfigHandler::class),
+            $instantiate(ThinkingHandler::class),
             $instantiate(ConversationHandler::class),
             $instantiate(WebhookHandler::class),
             $instantiate(EvaluationHandler::class),

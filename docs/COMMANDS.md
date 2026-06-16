@@ -40,6 +40,9 @@ All REPL commands start with `/`. Type `/help` during a session to see a quick r
 | `/group replace <member1,member2,...> [--rounds=N]` | Replace the current group membership, optionally updating the round cap |
 | `/group rounds <n>` | Update the maximum per-turn coordination rounds for the current group session |
 | `/model [role]` | Show model configuration (optionally for a specific role) |
+| `/thinking` | Show thinking capability and current reasoning effort for the active model |
+| `/thinking off\|low\|medium\|high` | Set reasoning effort for the active model (`off` disables thinking on thinking-capable Ollama models); persists to `openclaw.json` and applies on the next message |
+| `/thinking clear` | Remove the reasoning-effort override and restore the model default |
 
 Group sessions stay orchestrator-managed and clear any single active profile scope. Starting or reshaping a group session reuses the same membership validation and duplicate-composition rules as the HTTP API.
 

@@ -35,6 +35,7 @@ final class ReplCommandCatalog
             new ReplCommandSpec('/profile', '/profile [name|default|reset]', 'Show or switch the active profile, set a default with default <name|none>, or clear it.', firstArguments: ['default', 'reset', 'none'], section: 'Core Commands'),
             new ReplCommandSpec('/profiles', '/profiles', 'List available profiles.', section: 'Core Commands'),
             new ReplCommandSpec('/model', '/model [role]', 'Show resolved model configuration, optionally for one role.', section: 'Context & Inspection'),
+            new ReplCommandSpec('/thinking', '/thinking [off|low|medium|high|clear]', 'Show or set reasoning effort for the active model (off disables thinking).', firstArguments: ['off', 'low', 'medium', 'high', 'clear'], section: 'Context & Inspection'),
             new ReplCommandSpec('/budget', '/budget [role]', 'Show prompt-budget and toolkit loading decisions.', section: 'Context & Inspection'),
             new ReplCommandSpec('/prompt', '/prompt [export]', 'Show the rendered system prompt, source breakdowns, or export it to the workspace.', firstArguments: ['export'], section: 'Context & Inspection'),
             new ReplCommandSpec('/backstory', '/backstory [generate|failed]', 'Show backstory generation status and source breakdowns for the active profile.', firstArguments: ['generate', 'failed'], section: 'Context & Inspection'),

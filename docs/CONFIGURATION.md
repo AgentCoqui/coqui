@@ -349,6 +349,30 @@ Set to `0` for unlimited iterations (the agent runs until it calls the `done` to
 
 Per-role overrides are configured in role `.md` files via the `max_iterations` frontmatter field.
 
+### `emptyResponse`
+
+Policy for turns where the model returns no content and no tool calls. Some serving stacks (notably Ollama with qwen/gemma thinking models) route the entire completion into the reasoning channel and leave content empty; without a policy the agent would silently retry until `maxIterations`.
+
+```json
+{
+    "agents": {
+        "defaults": {
+            "emptyResponse": {
+                "handling": "nudge_then_fallback",
+                "maxRetries": 2
+            }
+        }
+    }
+}
+```
+
+| Key | Type | Default | Description |
+| --- | ---- | ------- | ----------- |
+| `handling` | string | `nudge_then_fallback` | `ignore` (legacy silent retry), `nudge` (corrective retry, then fail with `empty_response`), `nudge_then_fallback` (corrective retry, then surface accumulated reasoning as the answer), or `fallback` (immediately surface reasoning as the answer) |
+| `maxRetries` | int | `2` | Corrective retries before the policy gives up or falls back |
+
+For thinking-capable Ollama models you can also disable thinking entirely with the per-model `reasoningEffort` field (see [Model Catalog](#model-catalog)) or the `/thinking` REPL command.
+
 ### `backgroundTaskMaxIterations`
 
 Maximum iterations any single background task can run. This is a per-task safety limit that prevents unattended tasks from running indefinitely. Default: `512`.
@@ -658,6 +682,7 @@ Each model entry describes capabilities and parameters:
 | `fieldSources` | object | — | Optional per-field source map for resolved limits |
 | `alias` | string | — | Short alias for quick reference (e.g., `"opus"`) |
 | `numCtx` | int | — | Ollama-specific context override (useful for memory-constrained setups) |
+| `reasoningEffort` | string | — | Reasoning effort for thinking-capable models: `high`, `medium`, `low`, or `none` (disables thinking). Ollama only; also settable from the REPL with `/thinking` |
 | `cost` | object | — | Token pricing for cost tracking |
 
 ### `models.mode`

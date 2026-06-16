@@ -8692,7 +8692,7 @@
         }
     },
     "defaults": {
-        "model": "ollama/qwen3.5:latest",
+        "model": "ollama/qwen3.5:9b",
         "imageModel": "ollama/jmorgan/z-image-turbo:fp8",
         "imageFallbacks": [
             "openai/gpt-image-1.5",

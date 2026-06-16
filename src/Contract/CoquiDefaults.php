@@ -74,6 +74,12 @@ final class CoquiDefaults
     /** Number of iterations allowed after budget threshold for the agent to wrap up (config: agents.defaults.context.budgetExitWrapUpIterations). */
     public const int BUDGET_EXIT_WRAP_UP_ITERATIONS = 2;
 
+    /** Policy when a model turn yields no content and no tool calls — one of ignore|nudge|nudge_then_fallback|fallback (config: agents.defaults.emptyResponse.handling). */
+    public const string EMPTY_RESPONSE_HANDLING = 'nudge_then_fallback';
+
+    /** Corrective retries before the empty-response policy gives up or falls back to reasoning (config: agents.defaults.emptyResponse.maxRetries). */
+    public const int EMPTY_RESPONSE_MAX_RETRIES = 2;
+
     /** Whether automated code review is enabled globally (config: agents.defaults.codeReview.enabled). */
     public const bool CODE_REVIEW_ENABLED = true;
 

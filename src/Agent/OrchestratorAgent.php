@@ -15,6 +15,7 @@ use CarmeloSantana\PHPAgents\Contract\ToolExecutionPolicyInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolkitInterface;
+use CarmeloSantana\PHPAgents\Enum\EmptyResponseHandling;
 use CarmeloSantana\PHPAgents\Enum\ModelCapability;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -281,7 +282,34 @@ final class OrchestratorAgent extends AbstractAgent
         $safetyMarginCfg = $config->get('agents.defaults.context.budgetSafetyMarginPercent');
         $safetyMarginPercent = is_numeric($safetyMarginCfg) ? max(0, min(50, (int) $safetyMarginCfg)) : CoquiDefaults::BUDGET_SAFETY_MARGIN_PERCENT;
 
-        parent::__construct($effectiveProvider, $maxIterations, $executionPolicy, $cancellationToken, $pendingInputProvider, $contextWindow, $pruningStrategy, $safetyMarginPercent, $this->budgetExitThreshold, $this->budgetExitWrapUpIterations, $toolExecutor, $tickCallback);
+        // Resolve empty-response policy. Coqui defaults to nudge-then-fallback
+        // so Ollama thinking models that route the whole answer into reasoning
+        // still surface a response instead of burning the iteration budget.
+        $handlingCfg = $config->get('agents.defaults.emptyResponse.handling');
+        $emptyResponseHandling = (is_string($handlingCfg) ? EmptyResponseHandling::tryFrom($handlingCfg) : null)
+            ?? EmptyResponseHandling::from(CoquiDefaults::EMPTY_RESPONSE_HANDLING);
+
+        $emptyRetriesCfg = $config->get('agents.defaults.emptyResponse.maxRetries');
+        $maxEmptyResponseRetries = is_numeric($emptyRetriesCfg)
+            ? max(0, min(10, (int) $emptyRetriesCfg))
+            : CoquiDefaults::EMPTY_RESPONSE_MAX_RETRIES;
+
+        parent::__construct(
+            provider: $effectiveProvider,
+            maxIter: $maxIterations,
+            executionPolicy: $executionPolicy,
+            cancellationToken: $cancellationToken,
+            pendingInputProvider: $pendingInputProvider,
+            contextWindow: $contextWindow,
+            pruningStrategy: $pruningStrategy,
+            safetyMarginPercent: $safetyMarginPercent,
+            budgetExitThreshold: $this->budgetExitThreshold,
+            budgetExitWrapUpIterations: $this->budgetExitWrapUpIterations,
+            toolExecutor: $toolExecutor,
+            tickCallback: $tickCallback,
+            emptyResponseHandling: $emptyResponseHandling,
+            maxEmptyResponseRetries: $maxEmptyResponseRetries,
+        );
 
         // Use injected resolver or create one (backward compat for standalone use)
         $credentialResolver ??= new \CoquiBot\Coqui\Config\CredentialResolver(workspacePath: $this->workspacePath);

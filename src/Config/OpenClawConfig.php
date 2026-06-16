@@ -238,6 +238,43 @@ final class OpenClawConfig implements ConfigInterface
     }
 
     /**
+     * Apply a single setting to a model entry in place.
+     *
+     * Mutates this shared runtime instance so long-lived consumers
+     * (ProviderFactory, AgentRunner) pick up the change on the next
+     * provider construction without a restart. Pass null to remove
+     * the key. Returns false when the model entry does not exist.
+     */
+    public function applyModelSetting(string $provider, string $modelId, string $key, mixed $value): bool
+    {
+        $models = $this->data['models']['providers'][$provider]['models'] ?? null;
+        if (!is_array($models)) {
+            return false;
+        }
+
+        foreach ($models as $index => $modelData) {
+            if (!is_array($modelData) || ($modelData['id'] ?? null) !== $modelId) {
+                continue;
+            }
+
+            if ($value === null) {
+                unset($this->data['models']['providers'][$provider]['models'][$index][$key]);
+            } else {
+                $this->data['models']['providers'][$provider]['models'][$index][$key] = $value;
+            }
+
+            $this->modelDefinitions["{$provider}/{$modelId}"] = ModelDefinition::fromOpenClaw(
+                $provider,
+                $this->data['models']['providers'][$provider]['models'][$index],
+            );
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * Get notification system configuration.
      *
      * @return array{

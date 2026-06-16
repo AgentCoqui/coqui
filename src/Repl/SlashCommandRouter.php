@@ -24,6 +24,7 @@ use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
+use CoquiBot\Coqui\Repl\Handler\ThinkingHandler;
 use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
@@ -66,6 +67,7 @@ final class SlashCommandRouter
         private readonly ProfileHandler $profile,
         private readonly ToolkitVisibilityHandler $toolkitVisibility,
         private readonly ConfigHandler $config,
+        private readonly ThinkingHandler $thinking,
         private readonly ConversationHandler $conversation,
         private readonly WebhookHandler $webhook,
         private readonly EvaluationHandler $evaluation,
@@ -112,6 +114,7 @@ final class SlashCommandRouter
             '/sessions' => $this->handleSessions($io, $sessionId),
             '/resume' => $this->handleResume($io, $arg),
             '/model' => $this->handleModel($io, $arg),
+            '/thinking' => $this->handleThinking($io, $arg, $activeRole, $activeProfile),
             '/config' => $this->handleConfig($io, $arg),
             '/tasks' => $this->handleTasks($io, $arg),
             '/todos' => $this->handleTodos($io, $arg, $sessionId),
@@ -190,6 +193,12 @@ final class SlashCommandRouter
     private function handleModel(SymfonyStyle $io, string $arg): RouteResult
     {
         $this->session->showModelInfo($io, $arg);
+        return RouteResult::continue();
+    }
+
+    private function handleThinking(SymfonyStyle $io, string $arg, string $activeRole, ?string $activeProfile): RouteResult
+    {
+        $this->thinking->handle($io, $arg, $activeRole, $activeProfile);
         return RouteResult::continue();
     }
 

@@ -150,6 +150,8 @@ final class TerminalObserver implements SplObserver
 
             'agent.budget_warning' => $this->handleBudgetWarning($data, $indent),
 
+            'agent.empty_response' => $this->handleEmptyResponse($data, $indent),
+
             'agent.summary' => $this->handleSummary($data, $indent),
 
             'agent.memory_extraction' => $this->handleMemoryExtraction($data, $indent),
@@ -179,6 +181,30 @@ final class TerminalObserver implements SplObserver
 
             default => null,
         };
+    }
+
+    private function handleEmptyResponse(mixed $data, string $indent): void
+    {
+        if (!is_array($data)) {
+            return;
+        }
+
+        $attempt = is_numeric($data['attempt'] ?? null) ? (int) $data['attempt'] : 0;
+        $maxRetries = is_numeric($data['maxRetries'] ?? null) ? (int) $data['maxRetries'] : 0;
+        $detail = ($data['hasReasoning'] ?? false) === true ? ' (reasoning only)' : '';
+
+        if ($this->hasStreamedReasoning) {
+            $this->output->writeln('');
+            $this->hasStreamedReasoning = false;
+        }
+
+        $this->output->writeln(sprintf(
+            '%s<fg=gray>  ⛭ empty response from model%s — retrying (%d/%d)</>',
+            $indent,
+            $detail,
+            min($attempt, $maxRetries),
+            $maxRetries,
+        ));
     }
 
     private function handleReasoningDelta(mixed $data): void
