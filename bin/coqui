@@ -46,7 +46,6 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "${SCRIPT_DIR}")"
 COQUI_BIN="${SCRIPT_DIR}/coqui-console"
 
 # ─── Console dispatch helpers ─────────────────────────────────────────────────
