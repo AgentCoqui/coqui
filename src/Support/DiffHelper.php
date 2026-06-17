@@ -115,7 +115,7 @@ final class DiffHelper
             } elseif ($j > 0 && ($i === 0 || $lcs[$i][$j - 1] >= $lcs[$i - 1][$j])) {
                 array_unshift($result, ['op' => 'add', 'new' => $new[$j - 1], 'newIdx' => $j - 1]);
                 $j--;
-            } elseif ($i > 0) {
+            } else {
                 array_unshift($result, ['op' => 'remove', 'old' => $old[$i - 1], 'oldIdx' => $i - 1]);
                 $i--;
             }

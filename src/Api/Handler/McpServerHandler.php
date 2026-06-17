@@ -309,7 +309,7 @@ final readonly class McpServerHandler
     }
 
     /**
-     * @param callable(): array{name: string, duration_ms: int, snapshot: array<string, mixed>} $callback
+     * @param callable(): array{duration_ms: int, snapshot: array<string, mixed>, ...} $callback
      */
     private function handleRuntimeAction(callable $callback, string $message): Response
     {

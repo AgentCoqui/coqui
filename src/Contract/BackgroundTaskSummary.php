@@ -84,7 +84,7 @@ final readonly class BackgroundTaskSummary
      *
      * Running tasks show elapsed time from started_at. Pending tasks show "pending".
      *
-     * @param array{status: string, started_at: ?string, created_at: string} $task
+     * @param array{status: string, started_at: ?string, created_at: string, ...} $task
      */
     public static function formatDuration(array $task): string
     {

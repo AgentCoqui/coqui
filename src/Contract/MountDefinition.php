@@ -60,7 +60,7 @@ final readonly class MountDefinition
     /**
      * Build from a config array (as read from openclaw.json).
      *
-     * @param array{path: string, alias: string, access?: string, description?: string} $config
+     * @param array<string, mixed> $config
      */
     public static function fromArray(array $config): self
     {

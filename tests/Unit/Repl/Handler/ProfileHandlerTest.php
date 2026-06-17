@@ -27,6 +27,10 @@ function createProfileHandlerFixture(): array
     mkdir($workspacePath . '/profiles/caelum', 0755, true);
     file_put_contents($workspacePath . '/profiles/caelum/soul.md', "# Caelum\n\nA calm companion.");
 
+    file_put_contents($workspacePath . '/openclaw.json', json_encode([
+        'agents' => ['defaults' => ['model' => ['primary' => 'ollama/qwen3:latest']]],
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+
     $dbPath = $workspacePath . '/coqui.db';
     $storage = new SessionStorage($dbPath);
     $profileDiscovery = new ProfileDiscovery($workspacePath);
