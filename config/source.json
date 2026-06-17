@@ -883,7 +883,7 @@
             "path": "src/Command/DoctorCommand.php",
             "fqcn": "CoquiBot\\Coqui\\Command\\DoctorCommand",
             "layer": "command",
-            "description": "Diagnostic 'doctor' command that checks 10 health categories: PHP environment (version, extensions, memory, putenv), config (openclaw.json validity, primary model, roles), workspace (directory, writable, composer.json, autoloader), database (existence, connection, tables, stats, message integrity with per-session UTF-8 scan), credentials (.env existence, permissions), providers (Ollama connectivity + model listing, cloud API key presence), toolkits (installed.json validity, class autoloadability), skills (directory, SKILL.md presence), launcher (bin/coqui-launcher executable), and disk space. Supports --repair flag to auto-fix issues (create missing dirs, init composer.json, fix .env permissions, repair malformed UTF-8 in messages, delete unfixable rows). Supports --json for machine-readable output.",
+            "description": "Diagnostic 'doctor' command that checks 10 health categories: PHP environment (version, extensions, memory, putenv), config (openclaw.json validity, primary model, roles), workspace (directory, writable, composer.json, autoloader), database (existence, connection, tables, stats, message integrity with per-session UTF-8 scan), credentials (.env existence, permissions), providers (Ollama connectivity + model listing, cloud API key presence), toolkits (installed.json validity, class autoloadability), skills (directory, SKILL.md presence), launcher (bin/coqui executable), and disk space. Supports --repair flag to auto-fix issues (create missing dirs, init composer.json, fix .env permissions, repair malformed UTF-8 in messages, delete unfixable rows). Supports --json for machine-readable output.",
             "methods": [
                 "execute(InputInterface, OutputInterface): int — runs all checks and prints results; exit 0=OK, 1=warnings, 2=errors",
                 "checkPhpEnvironment(): void — PHP version, required extensions, memory_limit, putenv availability",
@@ -894,7 +894,7 @@
                 "checkProviders(): void — Ollama HTTP connectivity + model listing, cloud API key presence",
                 "checkToolkits(): void — installed.json validity, toolkit class autoloadability",
                 "checkSkills(): void — skills directory, SKILL.md presence per skill",
-                "checkLauncher(): void — bin/coqui-launcher existence and executable permission",
+                "checkLauncher(): void — bin/coqui existence and executable permission",
                 "checkDiskSpace(): void — free disk space on workspace partition",
                 "checkPerformance(): void — OPcache status, JIT status and buffer size, realpath cache"
             ]

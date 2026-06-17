@@ -239,7 +239,7 @@ Use the toolkit-owned `/mods` command for discovery and install flows, and the `
 
 ## CLI Commands
 
-Coqui is invoked via `coqui`. By default, `coqui` starts the launcher-managed app: REPL in the foreground plus the API in the background. `coqui-launcher` is the explicit equivalent. Advanced console commands such as `doctor`, `benchmark`, `task:run`, and `turn:run` remain available when explicitly requested.
+Coqui is invoked via `coqui`. By default, `coqui` starts the launcher-managed app: REPL in the foreground plus the API in the background. Advanced console commands such as `doctor`, `benchmark`, `task:run`, and `turn:run` remain available when explicitly requested.
 
 ### `coqui`
 
@@ -370,18 +370,18 @@ coqui benchmark --json
 
 ## Launcher
 
-`coqui-launcher` is the explicit launcher name for the same public entrypoint surface exposed through `coqui`.
+`coqui` is the unified entrypoint and launcher. All service lifecycle operations go through it.
 
 ### Modes
 
 ```bash
-coqui-launcher                   # Start REPL (foreground) + API (background)
-coqui-launcher --repl-only       # Start REPL only, no API
-coqui-launcher --api-only        # Start API only (foreground)
-coqui-launcher --wizard          # Run setup wizard directly
-coqui-launcher stop              # Stop all background services
-coqui-launcher stop-api          # Stop the background API only
-coqui-launcher status            # Show which services are running
+coqui                   # Start REPL (foreground) + API (background)
+coqui --repl-only       # Start REPL only, no API
+coqui --api-only        # Start API only (foreground)
+coqui --wizard          # Run setup wizard directly
+coqui stop              # Stop all background services
+coqui stop-api          # Stop the background API only
+coqui status            # Show which services are running
 ```
 
 ### Launcher Flags

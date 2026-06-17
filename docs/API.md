@@ -30,7 +30,7 @@ coqui --api-only --config /path/to/openclaw.json
 coqui --api-only --cors-origin "http://localhost:3000,https://app.example.com"
 
 # Explicit launcher name
-./bin/coqui-launcher --api-only --host 0.0.0.0
+./bin/coqui --api-only --host 0.0.0.0
 
 # Via environment variable
 COQUI_API_HOST=0.0.0.0 coqui
@@ -2573,7 +2573,7 @@ The `tasks` field is only present when the background task manager is enabled.
 
 #### `POST /api/v1/server/restart`
 
-Request a launcher-managed API restart. This endpoint is accepted only when the API process was started under `coqui-launcher` with restart support enabled.
+Request a launcher-managed API restart. This endpoint is accepted only when the API process was started under `coqui` with restart support enabled.
 
 **Response `202`**
 

@@ -103,14 +103,14 @@ final class AnimatedTickCallback implements TickCallbackInterface
     }
 
     /**
-     * Draw the current spinner frame on the status line.
+     * Draw the current spinner frame on the status line. "Working on"
      */
     private function draw(): void
     {
         $frame = self::FRAMES[$this->frameIndex % count(self::FRAMES)];
         $this->frameIndex++;
 
-        $label = $this->context !== '' ? "Working on {$this->context}" : 'Working';
+        $label = $this->context !== '' ? "{$this->context}" : 'Processing';
         $this->output->write("\r\033[K  <fg=cyan>{$frame}</> <fg=gray>{$label}...</> <fg=#666666>(press ESC to cancel)</>");
         $this->statusLineVisible = true;
     }

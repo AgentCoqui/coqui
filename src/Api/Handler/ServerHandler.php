@@ -117,7 +117,7 @@ final readonly class ServerHandler
         if (!$accepted) {
             return Router::errorResponse(
                 ApiErrorCode::CONFLICT,
-                'API restart is only supported when the server is running under coqui-launcher.',
+                'API restart is only supported when the server is running under the Coqui launcher.',
                 $this->lifecycle->restartState(),
             );
         }

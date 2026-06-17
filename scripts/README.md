@@ -141,7 +141,7 @@ This step is opt-in so offline builds and release packaging without provider key
 
 ## mock-install.sh
 
-Creates a dev-only mock install by symlinking a local checkout into the normal install path and refreshing the public `coqui` and `coqui-launcher` command symlinks.
+Creates a dev-only mock install by symlinking a local checkout into the normal install path and refreshing the public `coqui` command symlink.
 
 ### Mock Install Usage
 
@@ -160,5 +160,5 @@ COQUI_INSTALL_DIR=/tmp/coqui-dev COQUI_BIN_DIR=/tmp/bin ./scripts/mock-install.s
 
 1. Validates that the source directory looks like a Coqui checkout
 2. Replaces the install path with a symlink to that checkout
-3. Refreshes `coqui` and `coqui-launcher` command symlinks in a writable bin directory
+3. Refreshes the `coqui` command symlink in a writable bin directory
 4. Writes a separate `.mock-install.env` marker next to the install path so the repo itself is not modified

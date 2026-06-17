@@ -15,7 +15,7 @@
     "ext-pdo_sqlite": "*",
     "ext-xml": "*",
     "carmelosantana/coqui-toolkit-images": "^0.1",
-    "carmelosantana/php-agents": "dev-main",
+    "carmelosantana/php-agents": "dev-main as 0.13.0",
     "carmelosantana/php-pathhelper": "^0.1",
     "coquibot/coqui-toolkit-mcp-client": "^0.1",
     "coquibot/coqui-toolkit-mod-manager": "^0.1",
@@ -39,6 +39,13 @@
     {
       "type": "path",
       "url": "/Users/carmelo/Projects/CoquiBot/Core/php-agents",
+      "options": {
+        "symlink": true
+      }
+    },
+    {
+      "type": "path",
+      "url": "/Users/carmelo/Projects/CoquiBot/Core/coqui-toolkit-mcp-client",
       "options": {
         "symlink": true
       }
@@ -80,7 +87,7 @@
     "test:coverage": "@php scripts/test-coverage.php",
     "test:profile": "@php scripts/test-profile.php",
     "test-bash": "bash tests/bash/launcher-sigint-test.sh && bash tests/bash/launcher-default-mode-test.sh && bash tests/bash/mock-install-test.sh",
-    "lint-bash": "shellcheck bin/coqui-launcher tests/bash/launcher-sigint-test.sh tests/bash/launcher-default-mode-test.sh tests/bash/mock-install-test.sh scripts/build.sh scripts/ci-test.sh scripts/mock-install.sh scripts/sync-workspace-toolkits.sh",
+    "lint-bash": "shellcheck bin/coqui tests/bash/launcher-sigint-test.sh tests/bash/launcher-default-mode-test.sh tests/bash/mock-install-test.sh scripts/build.sh scripts/ci-test.sh scripts/mock-install.sh scripts/sync-workspace-toolkits.sh",
     "analyse": "phpstan analyse --memory-limit=512M"
   },
   "minimum-stability": "dev",

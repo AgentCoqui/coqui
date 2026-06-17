@@ -148,8 +148,6 @@ Alternatively, use the `--dev` flag with the installer to clone and set up in on
 
 `./bin/coqui` is the main entry point. It starts the launcher-managed app: REPL in the foreground plus the API server in the background on port 3300.
 
-Use `./bin/coqui-launcher` when you want the explicit launcher name. Both entry points share the same launcher-managed behavior.
-
 The launcher-managed app handles:
 
 - **Clean exit** (exit code 0) — `/quit` stops the launcher and all background services
@@ -191,7 +189,7 @@ Once you're in the REPL:
 1. **Have a conversation** — ask questions, request code changes, or describe a task
 2. **Try a different role** — `/role coder` for focused coding, `/role plan` for structured planning
 3. **Extend with mods** — browse [agentcoqui.com](https://agentcoqui.com), install with `/mods install <package>`, then restart Coqui to activate newly discovered tools and toolkit-provided REPL commands
-4. **Run API-only mode when needed** — `coqui --api-only` or `./bin/coqui-launcher --api-only`
+4. **Run API-only mode when needed** — `coqui --api-only`
 5. **Explore models** — map roles to models in `openclaw.json` for cost-optimized routing
 
 See [docs/ROLES.md](docs/ROLES.md) for all built-in roles and [docs/COMMANDS.md](docs/COMMANDS.md) for the full command reference.

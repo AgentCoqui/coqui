@@ -269,7 +269,7 @@ final class ConfigHandler
 
         $io->writeln('<fg=gray>Config:</> ' . $this->boot->configManager()->path());
         $io->writeln('<fg=gray>Workspace:</> ' . $this->boot->workspacePath());
-        $io->writeln('<fg=gray>Project root:</> ' . $this->workDir);
+        $io->writeln('<fg=gray>Server:</> ' . $this->workDir);
         $io->newLine();
         $io->text('<fg=gray>Use <fg=cyan>/config edit</> to re-run the setup wizard, <fg=cyan>/config show</> to view raw JSON, or <fg=cyan>/config history on|off</> to toggle prompt-history mode.</>');
     }

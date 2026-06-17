@@ -174,7 +174,10 @@ final class RunCommand extends Command
         }
 
         $this->boot = new BootManager($this->workDir, $workspaceOverride);
-        $this->boot->boot($noTerminal ? null : $io, $configPath);
+
+        if (!$this->boot->boot($noTerminal ? null : $io, $configPath)) {
+            return Command::SUCCESS;
+        }
 
         if ($requestedProfile !== null) {
             $profileDiscovery = $this->boot->profileDiscovery();
@@ -322,7 +325,7 @@ final class RunCommand extends Command
         $bannerLines = [
             '<fg=gray>Session:</> ' . substr($this->sessionId, 0, 8) . '...',
             '<fg=gray>Model:</> ' . $this->boot->roleResolver()->resolve(SystemRole::Orchestrator->value),
-            '<fg=gray>Project root:</> ' . $this->workDir,
+            '<fg=gray>Server:</> ' . $this->workDir,
             '<fg=gray>Workspace:</> ' . $this->boot->workspacePath(),
         ];
 

@@ -10,7 +10,7 @@ pass() { PASS=$((PASS + 1)); echo "  ✓  $1"; }
 fail() { FAIL=$((FAIL + 1)); ERRORS+=("$1"); echo "  ✗  $1"; }
 
 echo ""
-echo "  coqui-launcher — default mode end-to-end test"
+echo "  coqui — default mode end-to-end test"
 echo ""
 
 tmpdir=$(mktemp -d)
@@ -18,7 +18,6 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 mkdir -p "$tmpdir/bin" "$tmpdir/.workspace"
 cp bin/coqui "$tmpdir/bin/coqui"
-cp bin/coqui-launcher "$tmpdir/bin/coqui-launcher"
 
 cat > "$tmpdir/bin/coqui-console" <<'STUB'
 #!/usr/bin/env php
@@ -142,14 +141,14 @@ file_put_contents($logfile, sprintf("repl-run %d\n", getmypid()), FILE_APPEND);
 exit(0);
 STUB
 
-chmod +x "$tmpdir/bin/coqui" "$tmpdir/bin/coqui-launcher" "$tmpdir/bin/coqui-console"
+chmod +x "$tmpdir/bin/coqui" "$tmpdir/bin/coqui-console"
 
 if bash -euo pipefail -c '
     port=$((44000 + ($$ % 1000)))
     export COQUI_TEST_LOG="$1/launcher.log"
     export COQUI_WORKSPACE="$1/.workspace"
 
-    "$1/bin/coqui" --port "$port" --verbose >/tmp/coqui-launcher-default-test.out 2>&1
+    "$1/bin/coqui" --port "$port" --verbose >/tmp/coqui-default-test.out 2>&1
 
     grep -q "repl-run" "$COQUI_TEST_LOG"
     grep -q "api-start" "$COQUI_TEST_LOG"

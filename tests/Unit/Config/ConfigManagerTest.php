@@ -48,11 +48,13 @@ test('workspacePath returns workspace directory', function () {
     expect($this->manager->workspacePath())->toBe($this->tmpDir . '/workspace');
 });
 
-test('load creates default config when none exists', function () {
+test('load returns in-memory default config when none exists without writing to disk', function () {
     $config = $this->manager->load();
 
     expect($config)->toBeInstanceOf(\CoquiBot\Coqui\Config\OpenClawConfig::class);
-    expect(file_exists($this->manager->path()))->toBeTrue();
+    // Default config must NOT be written to disk — the REPL wizard gate depends on
+    // the absence of the file to know when to prompt the user on first boot.
+    expect(file_exists($this->manager->path()))->toBeFalse();
 });
 
 test('load seeds from project root config', function () {

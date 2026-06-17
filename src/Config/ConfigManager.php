@@ -64,9 +64,11 @@ final class ConfigManager
             return $this->config;
         }
 
-        // Fallback: build minimal config from defaults
+        // Fallback: build minimal config from defaults.
+        // Intentionally not written to disk so the REPL wizard gate can fire
+        // on the next interactive boot and isn't bypassed by a concurrent
+        // headless/API process that boots before the user has configured anything.
         $this->config = $this->buildDefaultConfig();
-        $this->saveRaw($this->config);
         return $this->config;
     }
 

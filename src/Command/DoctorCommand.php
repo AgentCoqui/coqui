@@ -965,18 +965,18 @@ final class DoctorCommand extends Command
     private function checkLauncher(SymfonyStyle $io, bool $jsonOutput): array
     {
         $results = [];
-        $launcherPath = dirname(__DIR__, 2) . '/bin/coqui-launcher';
+        $launcherPath = dirname(__DIR__, 2) . '/bin/coqui';
 
         if (file_exists($launcherPath)) {
             if (is_executable($launcherPath)) {
-                $this->ok($io, 'Launcher: bin/coqui-launcher exists and is executable', $jsonOutput);
+                $this->ok($io, 'Launcher: bin/coqui exists and is executable', $jsonOutput);
                 $results['launcher'] = ['status' => 'ok'];
             } else {
-                $this->warn($io, 'Launcher: bin/coqui-launcher exists but is not executable', $jsonOutput);
+                $this->warn($io, 'Launcher: bin/coqui exists but is not executable', $jsonOutput);
                 $results['launcher'] = ['status' => 'warn'];
             }
         } else {
-            $this->warn($io, 'Launcher: bin/coqui-launcher not found', $jsonOutput);
+            $this->warn($io, 'Launcher: bin/coqui not found', $jsonOutput);
             $results['launcher'] = ['status' => 'warn'];
         }
 

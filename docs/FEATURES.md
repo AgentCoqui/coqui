@@ -340,7 +340,7 @@ In the interactive REPL, successful screenshot-producing tools can now render on
 **How to use it:**
 - Start the full app: `coqui`
 - API only: `coqui --api-only` (default `127.0.0.1:3300`)
-- Explicit launcher name: `coqui-launcher` or `coqui-launcher --api-only`
+- See [docs/COMMANDS.md](COMMANDS.md) for the full launcher flag reference.
 - See [API.md](API.md) for the full endpoint reference.
 
 ## <a id="persistent-sessions"></a> 💾 Persistent Sessions

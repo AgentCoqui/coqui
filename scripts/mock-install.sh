@@ -18,7 +18,7 @@ expected install path and refreshing the public command symlinks.
 Options:
   --source PATH         Source checkout to install (default: current directory)
   --install-dir PATH    Install path to replace with a symlink (default: ~/.coqui)
-  --bin-dir PATH        Directory for coqui/coqui-launcher command symlinks
+  --bin-dir PATH        Directory for the coqui command symlink
   --force               Replace an existing install path without prompting
   --quiet, -q           Minimal output
   --help, -h            Show this help
@@ -121,7 +121,6 @@ validate_source_dir() {
 
     [ -f "$COQUI_SOURCE_DIR/composer.json" ] || fatal "Source directory is missing composer.json: $COQUI_SOURCE_DIR"
     [ -x "$COQUI_SOURCE_DIR/bin/coqui" ] || fatal "Source directory is missing bin/coqui: $COQUI_SOURCE_DIR"
-    [ -x "$COQUI_SOURCE_DIR/bin/coqui-launcher" ] || fatal "Source directory is missing bin/coqui-launcher: $COQUI_SOURCE_DIR"
 }
 
 detect_bin_dir() {
@@ -246,7 +245,6 @@ create_command_symlinks() {
 
     mkdir -p "$COQUI_BIN_DIR"
     ln -sf "$COQUI_INSTALL_DIR/bin/coqui" "$COQUI_BIN_DIR/coqui"
-    ln -sf "$COQUI_INSTALL_DIR/bin/coqui-launcher" "$COQUI_BIN_DIR/coqui-launcher"
 
     status "Updated command symlinks in $COQUI_BIN_DIR"
 
@@ -261,7 +259,7 @@ print_summary() {
     printf '\n'
     success "Mock install ready"
     printf '     install: %s -> %s\n' "$COQUI_INSTALL_DIR" "$COQUI_SOURCE_DIR"
-    printf '     commands: %s/coqui, %s/coqui-launcher\n' "$COQUI_BIN_DIR" "$COQUI_BIN_DIR"
+    printf '     commands: %s/coqui\n' "$COQUI_BIN_DIR"
     printf '     marker: %s\n' "$marker_path"
     printf '\n'
     printf '     This is a dev-only symlinked install. Because the install root is a symlink,\n'

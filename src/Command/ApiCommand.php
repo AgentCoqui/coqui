@@ -548,7 +548,7 @@ final class ApiCommand extends Command
 
         $output->writeln('');
         $output->writeln(sprintf('Listening on <info>http://%s</info>', $listenAddress));
-        $output->writeln(sprintf('Project root: <fg=gray>%s</>', $workDir));
+        $output->writeln(sprintf('Server: <fg=gray>%s</>', $workDir));
         $output->writeln(sprintf('Workspace: <fg=gray>%s</>', $boot->workspacePath()));
         $output->writeln(sprintf('PID: <fg=gray>%s</>', getmypid()));
         $output->writeln('');
