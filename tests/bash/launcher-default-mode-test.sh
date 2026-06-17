@@ -262,6 +262,33 @@ else
     fail "launcher still treated a bare TCP listener as a healthy API"
 fi
 
+# Isolated project dir so the negative "no project-root .workspace" assertion is
+# meaningful — the shared fixture above uses $tmpdir/.workspace as a real workspace.
+pidtmp=$(mktemp -d)
+mkdir -p "$pidtmp/bin"
+cp "$tmpdir/bin/coqui" "$pidtmp/bin/coqui"
+cp "$tmpdir/bin/coqui-console" "$pidtmp/bin/coqui-console"
+
+if bash -euo pipefail -c '
+    port=$((47000 + ($$ % 1000)))
+    export COQUI_TEST_LOG="$1/pidloc.log"
+    export COQUI_WORKSPACE="$1/resolved-ws"          # workspace outside the project dir
+    : > "$COQUI_TEST_LOG"
+
+    "$1/bin/coqui" api --background --port "$port" >/tmp/coqui-pidloc-test.out 2>&1
+
+    test -f "$1/resolved-ws/pids/api.pid"            # pid under RESOLVED workspace
+    if [ -e "$1/.workspace" ]; then exit 1; fi       # project root must stay clean
+
+    "$1/bin/coqui" stop-api --port "$port" >/tmp/coqui-pidloc-stop.out 2>&1
+' _ "$pidtmp"; then
+    pass "launcher writes PID files under the resolved workspace, not the project root"
+else
+    fail "launcher wrote PID files outside the resolved workspace or created project-root .workspace"
+fi
+
+rm -rf "$pidtmp"
+
 echo ""
 echo "  Results: ${PASS} passed, ${FAIL} failed"
 

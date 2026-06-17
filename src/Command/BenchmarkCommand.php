@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Config\BootManager;
-use CoquiBot\Coqui\Config\WorkspaceResolver;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -139,16 +138,8 @@ final class BenchmarkCommand extends Command
                 $configPath = dirname(__DIR__, 2) . '/openclaw.json';
             }
 
-            if (file_exists($configPath)) {
-                $config = \CoquiBot\Coqui\Config\OpenClawConfig::fromFile($configPath);
-            } else {
-                $config = \CoquiBot\Coqui\Config\OpenClawConfig::fromArray([]);
-            }
-
-            $resolver = new WorkspaceResolver($config, $workDir);
-            $workspacePath = $resolver->resolve();
-
-            $boot = new BootManager($workDir, $workspacePath);
+            // BootManager resolves the workspace itself via WorkspaceResolver.
+            $boot = new BootManager($workDir);
             $boot->boot(configPath: $configPath);
 
             $elapsed = (hrtime(true) - $start) / 1_000_000;

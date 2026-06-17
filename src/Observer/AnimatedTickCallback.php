@@ -110,7 +110,7 @@ final class AnimatedTickCallback implements TickCallbackInterface
         $frame = self::FRAMES[$this->frameIndex % count(self::FRAMES)];
         $this->frameIndex++;
 
-        $label = $this->context !== '' ? "{$this->context}" : 'Processing';
+        $label = $this->context !== '' ? "{$this->context}" : 'Working';
         $this->output->write("\r\033[K  <fg=cyan>{$frame}</> <fg=gray>{$label}...</> <fg=#666666>(press ESC to cancel)</>");
         $this->statusLineVisible = true;
     }

@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "ad4a9f77dd9b2651ccbf09b6f02e5c4f",
+    "content-hash": "81187bd57f350c480e415e5c98b6d0eb",
     "packages": [
         {
             "name": "carmelosantana/coqui-toolkit-images",
-            "version": "v0.1.4",
+            "version": "v0.1.5",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/coqui-toolkit-images.git",
-                "reference": "d1dc9abf11d76500d764786ab9c7dfaee5040f09"
+                "reference": "6b9de3e52cad4d0b03e24447330783ad04b2358e"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-images/zipball/d1dc9abf11d76500d764786ab9c7dfaee5040f09",
-                "reference": "d1dc9abf11d76500d764786ab9c7dfaee5040f09",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-images/zipball/6b9de3e52cad4d0b03e24447330783ad04b2358e",
+                "reference": "6b9de3e52cad4d0b03e24447330783ad04b2358e",
                 "shasum": ""
             },
             "require": {
@@ -26,7 +26,7 @@
                 "symfony/http-client": "^7.4 || ^8.0"
             },
             "require-dev": {
-                "carmelosantana/php-agents": "^0.13",
+                "carmelosantana/php-agents": ">=0.14",
                 "pestphp/pest": "^3.0",
                 "phpstan/phpstan": "^2.0"
             },
@@ -87,17 +87,23 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/coqui-toolkit-images/issues",
-                "source": "https://github.com/carmelosantana/coqui-toolkit-images/tree/v0.1.4"
+                "source": "https://github.com/carmelosantana/coqui-toolkit-images/tree/v0.1.5"
             },
-            "time": "2026-04-28T20:36:21+00:00"
+            "time": "2026-06-16T20:08:47+00:00"
         },
         {
             "name": "carmelosantana/php-agents",
-            "version": "dev-main",
+            "version": "v0.14.1",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/php-agents.git",
+                "reference": "6eda8fc75769365a1fde4e1885fb282053383a3e"
+            },
             "dist": {
-                "type": "path",
-                "url": "/Users/carmelo/Projects/CoquiBot/Core/php-agents",
-                "reference": "d23432cba34c9b542550eef90951075b7100faad"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/6eda8fc75769365a1fde4e1885fb282053383a3e",
+                "reference": "6eda8fc75769365a1fde4e1885fb282053383a3e",
+                "shasum": ""
             },
             "require": {
                 "php": "^8.4",
@@ -121,39 +127,7 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "psr-4": {
-                    "Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=512M"
-                ],
-                "benchmark:llama-cpp-runtime": [
-                    "Composer\\Config::disableProcessTimeout",
-                    "php scripts/benchmark-llama-cpp-runtime.php"
-                ],
-                "benchmark:llama-cpp-cache": [
-                    "Composer\\Config::disableProcessTimeout",
-                    "php scripts/benchmark-llama-cpp-cache.php"
-                ],
-                "compare:llama-cpp-vs-ollama": [
-                    "Composer\\Config::disableProcessTimeout",
-                    "php scripts/compare-llama-cpp-vs-ollama.php"
-                ],
-                "setup:llama-cpp": [
-                    "Composer\\Config::disableProcessTimeout",
-                    "./scripts/setup-llama-cpp.sh"
-                ],
-                "test:llama-cpp-runtime": [
-                    "Composer\\Config::disableProcessTimeout",
-                    "./scripts/test-llama-cpp-runtime.sh"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -170,10 +144,11 @@
                 "php-agents",
                 "tools"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": false
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/php-agents/issues",
+                "source": "https://github.com/carmelosantana/php-agents/tree/v0.14.1"
+            },
+            "time": "2026-06-16T19:03:38+00:00"
         },
         {
             "name": "carmelosantana/php-pathhelper",
@@ -227,14 +202,20 @@
         },
         {
             "name": "coquibot/coqui-toolkit-mcp-client",
-            "version": "0.1.5",
+            "version": "v0.1.6",
+            "source": {
+                "type": "git",
+                "url": "https://github.com/carmelosantana/coqui-toolkit-mcp-client.git",
+                "reference": "ecf6e1b0e1cabec49697124da2ce1f15f0581cc5"
+            },
             "dist": {
-                "type": "path",
-                "url": "/Users/carmelo/Projects/CoquiBot/Core/coqui-toolkit-mcp-client",
-                "reference": "b7b54e9210ca88e434106c9d73989cadb923738c"
+                "type": "zip",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-mcp-client/zipball/ecf6e1b0e1cabec49697124da2ce1f15f0581cc5",
+                "reference": "ecf6e1b0e1cabec49697124da2ce1f15f0581cc5",
+                "shasum": ""
             },
             "require": {
-                "carmelosantana/php-agents": "^0.13",
+                "carmelosantana/php-agents": ">=0.14",
                 "carmelosantana/php-pathhelper": "^0.1",
                 "php": "^8.4"
             },
@@ -256,22 +237,7 @@
                     "CoquiBot\\Toolkits\\Mcp\\": "src/"
                 }
             },
-            "autoload-dev": {
-                "files": [
-                    "stubs/coqui_repl_contracts.php"
-                ],
-                "psr-4": {
-                    "CoquiBot\\Toolkits\\Mcp\\Tests\\": "tests/"
-                }
-            },
-            "scripts": {
-                "test": [
-                    "pest"
-                ],
-                "analyse": [
-                    "phpstan analyse --memory-limit=1G"
-                ]
-            },
+            "notification-url": "https://packagist.org/downloads/",
             "license": [
                 "MIT"
             ],
@@ -288,23 +254,24 @@
                 "php-agents",
                 "toolkit"
             ],
-            "transport-options": {
-                "symlink": true,
-                "relative": false
-            }
+            "support": {
+                "issues": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/issues",
+                "source": "https://github.com/carmelosantana/coqui-toolkit-mcp-client/tree/v0.1.6"
+            },
+            "time": "2026-06-16T20:09:08+00:00"
         },
         {
             "name": "coquibot/coqui-toolkit-mod-manager",
-            "version": "v0.1.1",
+            "version": "v0.01.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/coqui-toolkit-mod-manager.git",
-                "reference": "027d10091a8b165ac560c2fa0fa7af563bbfe8e6"
+                "reference": "68320aadaed5155ca32c9480f68d11d64f6d23f9"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-mod-manager/zipball/027d10091a8b165ac560c2fa0fa7af563bbfe8e6",
-                "reference": "027d10091a8b165ac560c2fa0fa7af563bbfe8e6",
+                "url": "https://api.github.com/repos/carmelosantana/coqui-toolkit-mod-manager/zipball/68320aadaed5155ca32c9480f68d11d64f6d23f9",
+                "reference": "68320aadaed5155ca32c9480f68d11d64f6d23f9",
                 "shasum": ""
             },
             "require": {
@@ -314,7 +281,7 @@
                 "symfony/http-client": "^7.4 || ^8.0"
             },
             "require-dev": {
-                "carmelosantana/php-agents": "^0.12 || ^0.13",
+                "carmelosantana/php-agents": ">=0.14",
                 "pestphp/pest": "^3.0",
                 "phpstan/phpstan": "^2.0"
             },
@@ -391,9 +358,9 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/coqui-toolkit-mod-manager/issues",
-                "source": "https://github.com/carmelosantana/coqui-toolkit-mod-manager/tree/v0.1.1"
+                "source": "https://github.com/carmelosantana/coqui-toolkit-mod-manager/tree/v0.01.2"
             },
-            "time": "2026-05-12T15:19:50+00:00"
+            "time": "2026-06-16T20:08:57+00:00"
         },
         {
             "name": "dflydev/dot-access-data",
@@ -6527,16 +6494,16 @@
         },
         {
             "name": "webmozart/assert",
-            "version": "2.4.0",
+            "version": "2.4.1",
             "source": {
                 "type": "git",
                 "url": "https://github.com/webmozarts/assert.git",
-                "reference": "9007ea6f45ecf352a9422b36644e4bfc039b9155"
+                "reference": "2ccb7c2e821038c03a3e6e1700c570c158c55f70"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/webmozarts/assert/zipball/9007ea6f45ecf352a9422b36644e4bfc039b9155",
-                "reference": "9007ea6f45ecf352a9422b36644e4bfc039b9155",
+                "url": "https://api.github.com/repos/webmozarts/assert/zipball/2ccb7c2e821038c03a3e6e1700c570c158c55f70",
+                "reference": "2ccb7c2e821038c03a3e6e1700c570c158c55f70",
                 "shasum": ""
             },
             "require": {
@@ -6587,23 +6554,14 @@
             ],
             "support": {
                 "issues": "https://github.com/webmozarts/assert/issues",
-                "source": "https://github.com/webmozarts/assert/tree/2.4.0"
+                "source": "https://github.com/webmozarts/assert/tree/2.4.1"
             },
-            "time": "2026-05-20T13:07:01+00:00"
+            "time": "2026-06-15T15:31:57+00:00"
         }
     ],
-    "aliases": [
-        {
-            "package": "carmelosantana/php-agents",
-            "version": "dev-main",
-            "alias": "0.13.0",
-            "alias_normalized": "0.13.0.0"
-        }
-    ],
+    "aliases": [],
     "minimum-stability": "dev",
-    "stability-flags": {
-        "carmelosantana/php-agents": 20
-    },
+    "stability-flags": {},
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {

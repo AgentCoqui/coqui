@@ -121,7 +121,6 @@ fi
 readonly RESTART_EXIT_CODE=10
 readonly MAX_CRASHES=3
 readonly API_DEFAULT_PORT=3300
-readonly PID_DIR="${PROJECT_DIR}/.workspace/pids"
 readonly DEFAULT_WORKSPACE="${HOME}/.coqui/.workspace"
 readonly API_READY_POLL_COUNT=8
 readonly API_READY_POLL_INTERVAL='0.25'
@@ -131,6 +130,8 @@ config_path=""
 workspace_override=""
 requested_workdir="${launch_cwd}"
 spawned_pid=""
+PID_DIR=""                 # resolved from the workspace after argument parsing
+resolved_workspace=""
 
 # ─── Parse arguments ─────────────────────────────────────────────────────────
 
@@ -853,6 +854,17 @@ log_dim() {
     printf '  \e[2m%s\e[0m\n' "$*"
 }
 
+# ─── Resolve workspace-derived paths ──────────────────────────────────────────
+#
+# PID files live inside the resolved workspace (default ~/.coqui/.workspace) so
+# all runtime state stays in a single location. Resolved here — after argument
+# parsing and before subcommand dispatch — so stop/status and the start path
+# share the same PID_DIR. ensure_pid_dir() may still fall back to a /tmp dir if
+# the workspace pids/ directory is not writable (e.g. Docker root-owned mounts).
+
+resolved_workspace="$(resolve_requested_workspace)"
+PID_DIR="${resolved_workspace%/}/pids"
+
 # ─── Subcommands ──────────────────────────────────────────────────────────────
 
 if [[ -n "$subcommand" ]]; then
@@ -984,7 +996,7 @@ start_api_bg() {
     local requested_workspace
     local existing_pid
 
-    requested_workspace=$(resolve_requested_workspace)
+    requested_workspace="$resolved_workspace"
     cleanup_stale_coqui_processes || true
     cleanup_workspace_conflicts "$requested_workspace" || true
 

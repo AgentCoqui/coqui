@@ -210,6 +210,7 @@ clean-workspace: ## Remove only the workspace volume
 	@echo "Workspace volume removed"
 
 clean-pids: ## Remove PID files and kill orphaned processes on known ports
+	@rm -f "$${COQUI_WORKSPACE:-$$HOME/.coqui/.workspace}/pids"/*.pid 2>/dev/null || true
 	@rm -f .workspace/pids/*.pid 2>/dev/null || true
 	@rm -f /tmp/coqui-pids-$$(id -u)/*.pid 2>/dev/null || true
 	@for port in 3300; do \
