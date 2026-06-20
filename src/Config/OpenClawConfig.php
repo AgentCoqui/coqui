@@ -31,7 +31,7 @@ final class OpenClawConfig implements ConfigInterface
             throw ConfigNotFoundException::unreadable($path);
         }
 
-        $data = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        $data = json_decode($json, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
 
         return new self($data);
     }

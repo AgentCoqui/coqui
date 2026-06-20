@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Config;
 use CarmeloSantana\PathHelper\PathHelper;
 
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Resolves the workspace directory from openclaw.json config.
@@ -83,7 +84,7 @@ final readonly class WorkspaceResolver
     private function ensureDirectory(string $path): void
     {
         if (!is_dir($path)) {
-            mkdir($path, 0755, true);
+            mkdir($path, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         // Create .gitkeep so the directory can be committed (but contents ignored)

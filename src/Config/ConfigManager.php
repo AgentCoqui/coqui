@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PathHelper\PathHelper;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Single source of truth for openclaw.json configuration.
@@ -220,7 +221,7 @@ final class ConfigManager
     {
         $dir = dirname($this->configPath);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
     }
 

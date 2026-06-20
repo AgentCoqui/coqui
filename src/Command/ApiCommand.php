@@ -278,7 +278,7 @@ final class ApiCommand extends Command
         $watcher = new WorkspaceWatcher();
         $schedulesDir = $boot->workspacePath() . '/schedules';
         if (!is_dir($schedulesDir)) {
-            @mkdir($schedulesDir, 0755, true);
+            @mkdir($schedulesDir, CoquiDefaults::DIRECTORY_MODE, true);
         }
         $watcher->register(new ScheduleFileWatchJob($schedulesDir, $scheduleStore));
         $watcher->initialSync();

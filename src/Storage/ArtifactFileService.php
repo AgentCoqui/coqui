@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Storage;
 
 use CarmeloSantana\PathHelper\PathHelper;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Filesystem-backed content resolution for hybrid artifacts.
@@ -112,7 +113,7 @@ final class ArtifactFileService
         $dir = dirname($absolutePath);
 
         if (!is_dir($dir)) {
-            if (!mkdir($dir, 0755, true) && !is_dir($dir)) {
+            if (!mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true) && !is_dir($dir)) {
                 return false;
             }
         }

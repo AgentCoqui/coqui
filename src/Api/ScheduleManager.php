@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\SystemRole;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -155,7 +156,7 @@ final class ScheduleManager
         }
 
         try {
-            $decoded = json_decode($metadata, true, 512, JSON_THROW_ON_ERROR);
+            $decoded = json_decode($metadata, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return null;
         }

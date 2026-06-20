@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PathHelper\PathHelper;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Tool that manages Composer dependencies in the workspace.
@@ -780,7 +781,7 @@ final class ComposerTool implements ToolInterface
         $backupPath = $this->backupDir . '/' . $timestamp;
 
         if (!is_dir($backupPath)) {
-            if (!mkdir($backupPath, 0755, true)) {
+            if (!mkdir($backupPath, CoquiDefaults::DIRECTORY_MODE, true)) {
                 return null;
             }
         }

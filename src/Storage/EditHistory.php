@@ -52,7 +52,7 @@ final class EditHistory
 
         // Ensure backup directory exists
         if (!is_dir($this->backupDir)) {
-            @mkdir($this->backupDir, 0755, true);
+            @mkdir($this->backupDir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         if (@file_put_contents($backupPath, $originalContent) === false) {

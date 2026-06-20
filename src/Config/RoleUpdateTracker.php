@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PathHelper\PathHelper;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 
 /**
  * Tracks content hashes of built-in role files to detect updates.
@@ -134,7 +135,7 @@ final class RoleUpdateTracker
             // so we backup manually
             $backupsDir = PathHelper::trimTrailingSlash($this->workspacePath) . '/backups/roles';
             if (!is_dir($backupsDir)) {
-                mkdir($backupsDir, 0755, true);
+                mkdir($backupsDir, CoquiDefaults::DIRECTORY_MODE, true);
             }
             $timestamp = date('Ymd-His');
             $backupName = sprintf('%s-v%d-%s.md', $role->name, $role->version, $timestamp);
@@ -229,7 +230,7 @@ final class RoleUpdateTracker
     {
         $dir = dirname($this->hashFilePath);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         file_put_contents(

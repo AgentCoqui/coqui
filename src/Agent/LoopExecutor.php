@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Agent;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\IterationOutcome;
 use CoquiBot\Coqui\Contract\LoopDefinition;
 use CoquiBot\Coqui\Contract\LoopStageHandoffMetadata;
@@ -217,7 +218,7 @@ final class LoopExecutor
         }
 
         $definition = LoopDefinition::fromArray(
-            json_decode($loop['configuration'], true, 512, JSON_THROW_ON_ERROR),
+            json_decode($loop['configuration'], true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR),
         );
 
         // Find the next pending stage
@@ -447,7 +448,7 @@ final class LoopExecutor
         }
 
         $definition = LoopDefinition::fromArray(
-            json_decode($loop['configuration'], true, 512, JSON_THROW_ON_ERROR),
+            json_decode($loop['configuration'], true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR),
         );
 
         $iterationNumber = (int) $iteration['iteration_number'];
@@ -1013,7 +1014,7 @@ final class LoopExecutor
      */
     private function extractResolvedParameters(string $configurationJson): array
     {
-        $config = json_decode($configurationJson, true, 512, JSON_THROW_ON_ERROR);
+        $config = json_decode($configurationJson, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
 
         return $config['resolved_parameters'] ?? [];
     }

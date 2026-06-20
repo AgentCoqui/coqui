@@ -13,6 +13,7 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
@@ -169,7 +170,7 @@ final readonly class SprintToolkit implements ToolkitInterface
                     if ($this->workspacePath !== null) {
                         $projectDir = $this->workspacePath . '/projects/' . $directory;
                         if (!is_dir($projectDir)) {
-                            mkdir($projectDir, 0755, true);
+                            mkdir($projectDir, CoquiDefaults::DIRECTORY_MODE, true);
                         }
                     }
 

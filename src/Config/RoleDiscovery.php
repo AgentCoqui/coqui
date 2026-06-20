@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PathHelper\PathHelper;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\RoleProperties;
 use CoquiBot\Coqui\Exception\RoleNotFoundException;
 use CoquiBot\Coqui\Exception\RoleParseException;
@@ -179,7 +180,7 @@ final class RoleDiscovery
     public function ensureRolesDir(): void
     {
         if (!is_dir($this->rolesDir)) {
-            mkdir($this->rolesDir, 0755, true);
+            mkdir($this->rolesDir, CoquiDefaults::DIRECTORY_MODE, true);
         }
     }
 
@@ -379,7 +380,7 @@ final class RoleDiscovery
     private function backupRole(RoleProperties $role): void
     {
         if (!is_dir($this->backupsDir)) {
-            mkdir($this->backupsDir, 0755, true);
+            mkdir($this->backupsDir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         $timestamp = date('Ymd-His');

@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PathHelper\PathHelper;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\MountDefinition;
 
 /**
@@ -52,7 +53,7 @@ final class MountManager
         }
 
         if (!is_dir($this->mountDir)) {
-            mkdir($this->mountDir, 0755, true);
+            mkdir($this->mountDir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         // Track declared aliases to detect stale symlinks

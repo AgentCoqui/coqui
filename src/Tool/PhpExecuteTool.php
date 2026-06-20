@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\MountManager;
 use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Support\IdGenerator;
 use React\ChildProcess\Process as ReactProcess;
 use React\EventLoop\Loop;
@@ -183,7 +184,7 @@ final class PhpExecuteTool implements ToolInterface
             return $tmpDir;
         }
 
-        if (!mkdir($tmpDir, 0755, true) && !is_dir($tmpDir)) {
+        if (!mkdir($tmpDir, CoquiDefaults::DIRECTORY_MODE, true) && !is_dir($tmpDir)) {
             throw new \RuntimeException('Failed to create php_execute temp directory.');
         }
 

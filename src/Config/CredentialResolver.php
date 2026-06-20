@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Config;
 
 use CarmeloSantana\PathHelper\PathHelper;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\CredentialResolverInterface;
 
 /**
@@ -153,7 +154,7 @@ final class CredentialResolver implements CredentialResolverInterface
     {
         $dir = dirname($this->envPath);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         $lines = ["# Coqui workspace credentials — managed by CredentialTool\n"];

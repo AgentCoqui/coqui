@@ -167,7 +167,7 @@ final readonly class FileSystemOperations
 
         $dir = dirname($path);
         if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
+            @mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         $tmp = $path . '.tmp-' . IdGenerator::hex(6);
@@ -214,7 +214,7 @@ final readonly class FileSystemOperations
 
         $dir = dirname($path);
         if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
+            @mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         $bytes = @file_put_contents($path, $content, FILE_APPEND | LOCK_EX);
@@ -262,7 +262,7 @@ final readonly class FileSystemOperations
             return; // Already exists
         }
 
-        if (!@mkdir($path, 0755, true)) {
+        if (!@mkdir($path, CoquiDefaults::DIRECTORY_MODE, true)) {
             throw FileSystemException::directoryCreationFailed($relativePath);
         }
     }
@@ -331,7 +331,7 @@ final readonly class FileSystemOperations
         // Attempt rename (atomic, same filesystem)
         $dstDir = dirname($dstPath);
         if (!is_dir($dstDir)) {
-            @mkdir($dstDir, 0755, true);
+            @mkdir($dstDir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         if (@rename($srcPath, $dstPath)) {
@@ -392,7 +392,7 @@ final readonly class FileSystemOperations
     {
         $dstDir = dirname($dstPath);
         if (!is_dir($dstDir)) {
-            @mkdir($dstDir, 0755, true);
+            @mkdir($dstDir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         if (!@copy($srcPath, $dstPath)) {
@@ -405,7 +405,7 @@ final readonly class FileSystemOperations
     private function copyDirectory(string $srcPath, string $dstPath, string $srcDisplay, string $dstDisplay): int
     {
         if (!is_dir($dstPath)) {
-            if (!@mkdir($dstPath, 0755, true)) {
+            if (!@mkdir($dstPath, CoquiDefaults::DIRECTORY_MODE, true)) {
                 throw FileSystemException::directoryCreationFailed($dstDisplay);
             }
         }
@@ -429,14 +429,14 @@ final readonly class FileSystemOperations
 
             if ($item->isDir()) {
                 if (!is_dir($target)) {
-                    if (!@mkdir($target, 0755, true)) {
+                    if (!@mkdir($target, CoquiDefaults::DIRECTORY_MODE, true)) {
                         throw FileSystemException::directoryCreationFailed($subPath);
                     }
                 }
             } else {
                 $targetDir = dirname($target);
                 if (!is_dir($targetDir)) {
-                    @mkdir($targetDir, 0755, true);
+                    @mkdir($targetDir, CoquiDefaults::DIRECTORY_MODE, true);
                 }
 
                 if (!@copy($item->getPathname(), $target)) {

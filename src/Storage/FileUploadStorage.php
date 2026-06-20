@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Storage;
 
 use CarmeloSantana\PathHelper\PathHelper;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\FileUploadMetadata;
 use CoquiBot\Coqui\Support\IdGenerator;
 
@@ -239,7 +240,7 @@ final class FileUploadStorage
     private function ensureDirectory(string $dir): void
     {
         if (!is_dir($dir)) {
-            mkdir($dir, 0o755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
     }
 

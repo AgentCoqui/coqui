@@ -13,6 +13,7 @@ use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\Config\WorkspaceComposerManager;
 use CoquiBot\Coqui\Config\WorkspaceResolver;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
@@ -287,7 +288,7 @@ final class DoctorCommand extends Command
         }
 
         try {
-            $data = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+            $data = json_decode($content, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
             $this->ok($io, 'Config: valid JSON', $jsonOutput);
             $results['valid_json'] = ['status' => 'ok'];
         } catch (\JsonException $e) {
@@ -338,7 +339,7 @@ final class DoctorCommand extends Command
             $this->ok($io, "Workspace: {$workspacePath}", $jsonOutput);
             $results['exists'] = ['status' => 'ok', 'path' => $workspacePath];
         } elseif ($repair) {
-            mkdir($workspacePath, 0755, true);
+            mkdir($workspacePath, CoquiDefaults::DIRECTORY_MODE, true);
             $this->ok($io, "Workspace: created {$workspacePath} (repaired)", $jsonOutput);
             $results['exists'] = ['status' => 'ok', 'repaired' => true];
         } else {
@@ -362,7 +363,7 @@ final class DoctorCommand extends Command
             $content = file_get_contents($composerJson);
             if ($content !== false) {
                 try {
-                    json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+                    json_decode($content, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
                     $this->ok($io, 'Workspace: composer.json valid', $jsonOutput);
                     $results['composer_json'] = ['status' => 'ok'];
                 } catch (\JsonException $e) {
@@ -396,7 +397,7 @@ final class DoctorCommand extends Command
             if (is_dir($path)) {
                 $results["dir_{$subdir}"] = ['status' => 'ok'];
             } elseif ($repair) {
-                mkdir($path, 0755, true);
+                mkdir($path, CoquiDefaults::DIRECTORY_MODE, true);
                 $results["dir_{$subdir}"] = ['status' => 'ok', 'repaired' => true];
             } else {
                 $this->warn($io, "Workspace: {$subdir}/ directory missing", $jsonOutput);
@@ -708,7 +709,7 @@ final class DoctorCommand extends Command
         }
 
         try {
-            $data = json_decode($content, true, 512, JSON_THROW_ON_ERROR);
+            $data = json_decode($content, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             return $results;
         }
@@ -811,7 +812,7 @@ final class DoctorCommand extends Command
         }
 
         try {
-            $data = json_decode($response, true, 512, JSON_THROW_ON_ERROR);
+            $data = json_decode($response, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
             $models = $data['models'] ?? [];
             $modelNames = array_map(fn(array $m): string => $m['name'] ?? 'unknown', $models);
             $count = count($modelNames);

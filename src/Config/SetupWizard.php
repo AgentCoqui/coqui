@@ -147,7 +147,7 @@ final class SetupWizard
 
         $dir = dirname($outputPath);
         if (!is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         file_put_contents($outputPath, $json);

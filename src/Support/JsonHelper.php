@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Support;
 
+
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 /**
  * Shared JSON decode helpers.
  *
@@ -31,7 +33,7 @@ final class JsonHelper
         }
 
         try {
-            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+            $decoded = json_decode($value, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
         } catch (\Throwable) {
             return null;
         }
@@ -58,7 +60,7 @@ final class JsonHelper
         }
 
         try {
-            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+            $decoded = json_decode($value, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
         } catch (\Throwable) {
             return null;
         }
@@ -84,7 +86,7 @@ final class JsonHelper
         }
 
         try {
-            $decoded = json_decode($value, true, 512, JSON_THROW_ON_ERROR);
+            $decoded = json_decode($value, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
         } catch (\Throwable) {
             return null;
         }

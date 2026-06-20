@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Channel\Builtin;
 
 use CoquiBot\Coqui\Contract\ChannelRuntimeInterface;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Support\Clock;
 use React\ChildProcess\Process as ReactProcess;
@@ -334,7 +335,7 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
     private function handleJsonLine(string $line): void
     {
         try {
-            $payload = json_decode($line, true, 512, JSON_THROW_ON_ERROR);
+            $payload = json_decode($line, true, CoquiDefaults::JSON_DECODE_DEPTH, JSON_THROW_ON_ERROR);
         } catch (\JsonException) {
             $this->lastError = $this->truncate(sprintf('signal-cli emitted non-JSON output: %s', $line));
             return;
