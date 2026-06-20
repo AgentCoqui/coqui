@@ -39,6 +39,7 @@ use CoquiBot\Coqui\Config\RoleToolkitResolver;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\MountManager;
+use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
 use CoquiBot\Coqui\Config\ShellConfigResolver;
 use CoquiBot\Coqui\Config\SkillDiscovery;
@@ -54,6 +55,7 @@ use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Memory\MemoryEntry;
 use CoquiBot\ModManager\ModManagerToolkit;
+use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\SkillLifecycleStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
@@ -117,6 +119,37 @@ final class OrchestratorAgent extends AbstractAgent
     private ?SummarizePruningStrategy $pruningStrategyInstance = null;
     private readonly ?ToolExecutorInterface $childToolExecutor;
 
+    // Optional collaborators and context, unpacked from OrchestratorDependencies in the constructor.
+    private readonly ?SessionStorage $storage;
+    private readonly ?string $sessionId;
+    private readonly ?string $currentTurnId;
+    private readonly ?SplObserver $observer;
+    private readonly ?ScriptSanitizer $sanitizer;
+    private readonly ?SkillDiscovery $skillDiscovery;
+    private readonly ?RoleDiscovery $roleDiscovery;
+    private readonly ?MemoryStore $memoryStore;
+    private readonly ?MemorySummarizer $memorySummarizer;
+    private readonly ?MountManager $mountManager;
+    private readonly ?ToolkitVisibilityRegistry $visibilityRegistry;
+    private readonly ?ModManagerToolkit $modsToolkit;
+    private readonly ?string $activeRole;
+    private readonly ?ProjectStore $projectStore;
+    private readonly ?DefaultsLoader $defaultsLoader;
+    private readonly ?ModelFamilyResolver $familyResolver;
+    private readonly bool $unsafeMode;
+    private readonly ?HttpClientInterface $httpClient;
+    private readonly ?ToolkitLoadingRegistry $loadingRegistry;
+    private readonly ?ProviderFactory $providerFactory;
+    private readonly ?ToolUsageTracker $usageTracker;
+    private readonly ?string $workScopeSessionId;
+    private readonly ?string $defaultProjectId;
+    private readonly ?string $defaultSprintId;
+    private readonly float $budgetExitThreshold;
+    private readonly int $budgetExitWrapUpIterations;
+    private readonly ?string $activeProfile;
+    private readonly ?string $activeProfilePath;
+    private readonly ?ProfilePreferences $profilePreferences;
+
     /** @var ToolkitInterface[] Toolkits added to parent — mirrors AbstractAgent's private $toolkits */
     private array $ownToolkits = [];
 
@@ -178,48 +211,53 @@ final class OrchestratorAgent extends AbstractAgent
         private readonly ConfigInterface $config,
         private readonly string $projectRoot,
         private readonly string $workspacePath,
-        private readonly ?SessionStorage $storage = null,
-        private readonly ?string $sessionId = null,
-        private readonly ?string $currentTurnId = null,
-        private readonly ?SplObserver $observer = null,
-        ?ToolkitDiscovery $discovery = null,
-        int $maxIterations = AbstractAgent::DEFAULT_MAX_ITERATIONS,
-        ?ToolExecutionPolicyInterface $executionPolicy = null,
-        private readonly ?ScriptSanitizer $sanitizer = null,
-        ?\Closure $onRestart = null,
-        ?CredentialResolverInterface $credentialResolver = null,
-        private readonly ?SkillDiscovery $skillDiscovery = null,
-        private readonly ?RoleDiscovery $roleDiscovery = null,
-        ?CancellationTokenInterface $cancellationToken = null,
-        ?PendingInputProviderInterface $pendingInputProvider = null,
-        ?BackgroundTaskToolkit $backgroundTaskToolkit = null,
-        private readonly ?MemoryStore $memoryStore = null,
-        private readonly ?MemorySummarizer $memorySummarizer = null,
-        private readonly ?MountManager $mountManager = null,
-        ?ConfigManager $configManager = null,
-        ?ConfigGuard $configGuard = null,
-        private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
-        private readonly ?ModManagerToolkit $modsToolkit = null,
-        private readonly ?string $activeRole = null,
-        private readonly ?\CoquiBot\Coqui\Storage\ProjectStore $projectStore = null,
-        private readonly ?DefaultsLoader $defaultsLoader = null,
-        private readonly ?ModelFamilyResolver $familyResolver = null,
-        private readonly bool $unsafeMode = false,
-        ?ToolExecutorInterface $toolExecutor = null,
-        ?TickCallbackInterface $tickCallback = null,
-        private readonly ?HttpClientInterface $httpClient = null,
-        private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
-        private readonly ?ProviderFactory $providerFactory = null,
-        private readonly ?ToolUsageTracker $usageTracker = null,
-        private readonly ?string $workScopeSessionId = null,
-        private readonly ?string $defaultProjectId = null,
-        private readonly ?string $defaultSprintId = null,
-        private readonly float $budgetExitThreshold = 0.0,
-        private readonly int $budgetExitWrapUpIterations = 2,
-        private readonly ?string $activeProfile = null,
-        private readonly ?string $activeProfilePath = null,
-        private readonly ?\CoquiBot\Coqui\Config\ProfilePreferences $profilePreferences = null,
+        OrchestratorDependencies $deps = new OrchestratorDependencies(),
     ) {
+        // Stored collaborators and context.
+        $this->storage = $deps->storage;
+        $this->sessionId = $deps->sessionId;
+        $this->currentTurnId = $deps->currentTurnId;
+        $this->observer = $deps->observer;
+        $this->sanitizer = $deps->sanitizer;
+        $this->skillDiscovery = $deps->skillDiscovery;
+        $this->roleDiscovery = $deps->roleDiscovery;
+        $this->memoryStore = $deps->memoryStore;
+        $this->memorySummarizer = $deps->memorySummarizer;
+        $this->mountManager = $deps->mountManager;
+        $this->visibilityRegistry = $deps->visibilityRegistry;
+        $this->modsToolkit = $deps->modsToolkit;
+        $this->activeRole = $deps->activeRole;
+        $this->projectStore = $deps->projectStore;
+        $this->defaultsLoader = $deps->defaultsLoader;
+        $this->familyResolver = $deps->familyResolver;
+        $this->unsafeMode = $deps->unsafeMode;
+        $this->httpClient = $deps->httpClient;
+        $this->loadingRegistry = $deps->loadingRegistry;
+        $this->providerFactory = $deps->providerFactory;
+        $this->usageTracker = $deps->usageTracker;
+        $this->workScopeSessionId = $deps->workScopeSessionId;
+        $this->defaultProjectId = $deps->defaultProjectId;
+        $this->defaultSprintId = $deps->defaultSprintId;
+        $this->budgetExitThreshold = $deps->budgetExitThreshold;
+        $this->budgetExitWrapUpIterations = $deps->budgetExitWrapUpIterations;
+        $this->activeProfile = $deps->activeProfile;
+        $this->activeProfilePath = $deps->activeProfilePath;
+        $this->profilePreferences = $deps->profilePreferences;
+
+        // Locals consumed below for parent setup and tool wiring.
+        $discovery = $deps->discovery;
+        $maxIterations = $deps->maxIterations;
+        $executionPolicy = $deps->executionPolicy;
+        $onRestart = $deps->onRestart;
+        $credentialResolver = $deps->credentialResolver;
+        $cancellationToken = $deps->cancellationToken;
+        $pendingInputProvider = $deps->pendingInputProvider;
+        $backgroundTaskToolkit = $deps->backgroundTaskToolkit;
+        $configManager = $deps->configManager;
+        $configGuard = $deps->configGuard;
+        $toolExecutor = $deps->toolExecutor;
+        $tickCallback = $deps->tickCallback;
+
         $this->childToolExecutor = $toolExecutor;
 
         // Initialise the registry before parent::__construct() so that our

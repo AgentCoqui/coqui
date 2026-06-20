@@ -6,6 +6,7 @@ use CarmeloSantana\CoquiToolkitImages\ImagesToolkit;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
 use CoquiBot\Coqui\Agent\OrchestratorAgent;
+use CoquiBot\Coqui\Agent\OrchestratorDependencies;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\ToolkitDiscovery;
@@ -84,8 +85,10 @@ function createExternalToolkitSurfaceAgent(string $chatModel, string $workspaceP
         config: $config,
         projectRoot: $projectRoot,
         workspacePath: $workspacePath,
-        discovery: $discovery,
-        loadingRegistry: $loadingRegistry,
+        deps: new OrchestratorDependencies(
+            discovery: $discovery,
+            loadingRegistry: $loadingRegistry,
+        ),
     );
 }
 

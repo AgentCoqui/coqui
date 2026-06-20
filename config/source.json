@@ -35,6 +35,13 @@
             ]
         },
         {
+            "path": "src/Agent/OrchestratorDependencies.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorDependencies",
+            "layer": "agent",
+            "description": "Immutable value object that groups OrchestratorAgent's optional collaborators (discovery, storage, memory services, role/skill discovery, mods toolkit, provider factory, HTTP client, usage tracker, registries) together with its session/turn context (session id, turn id, observer, active role, profile, work-scope and default project/sprint ids) and tuning knobs (max iterations, execution policy, budget-exit threshold). Some fields are forwarded to AbstractAgent's constructor (max iterations, execution policy, cancellation token, pending-input provider, tool executor, tick callback) and the rest are stored on the agent. OrchestratorAgent keeps its required core (provider, role resolver, config, project root, workspace path) as direct constructor parameters.",
+            "methods": []
+        },
+        {
             "path": "src/Agent/ChildAgent.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\ChildAgent",
             "layer": "agent",
