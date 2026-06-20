@@ -101,7 +101,7 @@ final class ApiCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('port', null, InputOption::VALUE_REQUIRED, 'Port to listen on', '3300')
+            ->addOption('port', null, InputOption::VALUE_REQUIRED, 'Port to listen on', (string) CoquiDefaults::API_DEFAULT_PORT)
             ->addOption('host', null, InputOption::VALUE_REQUIRED, 'Host to bind to', '127.0.0.1')
             ->addOption('config', 'c', InputOption::VALUE_REQUIRED, 'Path to openclaw.json')
             ->addOption('workdir', 'w', InputOption::VALUE_REQUIRED, 'Working directory (project root)', getcwd() ?: '.')
@@ -123,7 +123,7 @@ final class ApiCommand extends Command
             $host = $envHost;
         }
 
-        $port = is_string($input->getOption('port')) ? $input->getOption('port') : '3300';
+        $port = is_string($input->getOption('port')) ? $input->getOption('port') : (string) CoquiDefaults::API_DEFAULT_PORT;
         $unsafeMode = (bool) $input->getOption('unsafe')
             || filter_var(getenv('COQUI_UNSAFE'), FILTER_VALIDATE_BOOLEAN);
         $corsOrigin = is_string($input->getOption('cors-origin'))
@@ -453,7 +453,7 @@ final class ApiCommand extends Command
         // Create ReactPHP HTTP server with explicit middleware for file upload support.
         // The default auto-registered middleware caps body at 64 KiB which is too small
         // for file uploads. We configure a 50 MiB buffer and multipart parser.
-        $maxUploadBytes = 50 * 1024 * 1024; // 50 MiB
+        $maxUploadBytes = CoquiDefaults::MAX_UPLOAD_FILE_SIZE; // 50 MiB
         $server = new HttpServer(
             new StreamingRequestMiddleware(),
             new LimitConcurrentRequestsMiddleware(100),

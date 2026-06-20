@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Command;
 
 use CoquiBot\Coqui\Config\BootManager;
+use CoquiBot\Coqui\Support\SqlitePragmas;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -176,35 +177,27 @@ final class BenchmarkCommand extends Command
     private function benchmarkSqlitePragmas(SymfonyStyle $io, int $iterations, bool $jsonOutput): array
     {
         $dbPath = ':memory:';
-        $pragmas = [
-            'PRAGMA journal_mode=WAL',
-            'PRAGMA foreign_keys=ON',
-            'PRAGMA synchronous=NORMAL',
-            'PRAGMA cache_size=-8000',
-            'PRAGMA temp_store=MEMORY',
-        ];
+        $pragmaCount = 5;
 
         $start = hrtime(true);
         for ($i = 0; $i < $iterations; $i++) {
             $db = new \PDO("sqlite:{$dbPath}");
             $db->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
-            foreach ($pragmas as $pragma) {
-                $db->exec($pragma);
-            }
+            SqlitePragmas::applyTo($db);
             unset($db);
         }
         $elapsed = (hrtime(true) - $start) / 1_000_000;
         $perOp = $elapsed / $iterations;
 
         if (!$jsonOutput) {
-            $io->text(sprintf('  SQLite PRAGMAs (%d pragmas): <info>%.2f ms</info> total, <info>%.4f ms</info>/connection', count($pragmas), $elapsed, $perOp));
+            $io->text(sprintf('  SQLite PRAGMAs (%d pragmas): <info>%.2f ms</info> total, <info>%.4f ms</info>/connection', $pragmaCount, $elapsed, $perOp));
         }
 
         return [
             'total_ms' => round($elapsed, 2),
             'per_connection_ms' => round($perOp, 4),
             'iterations' => $iterations,
-            'pragmas' => count($pragmas),
+            'pragmas' => $pragmaCount,
         ];
     }
 

@@ -13,13 +13,14 @@ use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\MapParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\HttpClient\HttpClient;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 final class WebToolkit implements ToolkitInterface
 {
-    private const DEFAULT_TIMEOUT_SECONDS = 30.0;
+    private const DEFAULT_TIMEOUT_SECONDS = CoquiDefaults::HTTP_TIMEOUT_SECONDS;
     private const DEFAULT_RETRIES = 0;
     private const MAX_RETRIES = 5;
     private const RESPONSE_PREVIEW_BYTES = 10000;
@@ -80,7 +81,7 @@ final class WebToolkit implements ToolkitInterface
                 new MapParameter('query', 'Query parameters to append to the request URL', required: false),
                 new MapParameter('body', 'Structured request body. Object bodies are JSON-encoded automatically unless raw_body is provided.', required: false),
                 new StringParameter('raw_body', 'Raw request body to send as-is. Use this for plain text, XML, or pre-encoded JSON.', required: false),
-                new NumberParameter('timeout', 'Request timeout in seconds (default: 30)', required: false, minimum: 0.1, maximum: 300),
+                new NumberParameter('timeout', 'Request timeout in seconds (default: 30)', required: false, minimum: 0.1, maximum: CoquiDefaults::HTTP_MAX_TIMEOUT_SECONDS),
                 new NumberParameter('retries', 'Number of retries for transient failures or retryable HTTP statuses (default: 0, max: 5)', required: false, integer: true, minimum: 0, maximum: self::MAX_RETRIES),
                 new EnumParameter('response_mode', 'How to format the response', ['full', 'body', 'json'], required: false),
                 new BoolParameter('fail_on_http_error', 'Return a tool error when the server responds with HTTP 4xx or 5xx', required: false),
@@ -129,7 +130,7 @@ final class WebToolkit implements ToolkitInterface
                 new StringParameter('filename', 'Optional filename to use instead of deriving one from the response', required: false),
                 new MapParameter('headers', 'Headers to send as an object map', required: false, additionalProperties: (new StringParameter('value', 'Header value'))->toSchema()),
                 new MapParameter('query', 'Query parameters to append to the download URL', required: false),
-                new NumberParameter('timeout', 'Request timeout in seconds (default: 30)', required: false, minimum: 0.1, maximum: 300),
+                new NumberParameter('timeout', 'Request timeout in seconds (default: 30)', required: false, minimum: 0.1, maximum: CoquiDefaults::HTTP_MAX_TIMEOUT_SECONDS),
                 new NumberParameter('retries', 'Number of retries for transient failures or retryable HTTP statuses (default: 0, max: 5)', required: false, integer: true, minimum: 0, maximum: self::MAX_RETRIES),
             ],
             callback: function (array $input): ToolResult {

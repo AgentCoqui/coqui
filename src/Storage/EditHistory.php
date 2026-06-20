@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Support\DiffHelper;
+use CoquiBot\Coqui\Support\SqlitePragmas;
 
 /**
  * SQLite-backed edit history with file backups for undo support.
@@ -311,13 +313,12 @@ final class EditHistory
 
         $dir = dirname($this->dbPath);
         if (!is_dir($dir)) {
-            @mkdir($dir, 0755, true);
+            @mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         $this->db = new \PDO('sqlite:' . $this->dbPath);
         $this->db->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
-        $this->db->exec('PRAGMA journal_mode=WAL');
-        $this->db->exec('PRAGMA foreign_keys=ON');
+        SqlitePragmas::applyTo($this->db);
 
         $this->db->exec(
             'CREATE TABLE IF NOT EXISTS edits (

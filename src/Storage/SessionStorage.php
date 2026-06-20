@@ -13,8 +13,10 @@ use CarmeloSantana\PHPAgents\Message\UserMessage;
 use CarmeloSantana\PHPAgents\Tool\ToolCall;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\SessionType;
 use CoquiBot\Coqui\Support\ProcessSpawner;
+use CoquiBot\Coqui\Support\SqlitePragmas;
 use PDO;
 use PDOException;
 
@@ -35,16 +37,12 @@ final class SessionStorage
 
         $dir = dirname($dbPath);
         if ($dir !== '' && $dir !== '.' && !is_dir($dir)) {
-            mkdir($dir, 0755, true);
+            mkdir($dir, CoquiDefaults::DIRECTORY_MODE, true);
         }
 
         $this->db = new PDO("sqlite:{$dbPath}");
         $this->db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $this->db->exec('PRAGMA journal_mode=WAL');
-        $this->db->exec('PRAGMA foreign_keys=ON');
-        $this->db->exec('PRAGMA synchronous=NORMAL');
-        $this->db->exec('PRAGMA cache_size=-8000');
-        $this->db->exec('PRAGMA temp_store=MEMORY');
+        SqlitePragmas::applyTo($this->db);
 
         $this->createTables();
     }

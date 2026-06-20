@@ -259,7 +259,7 @@ final class SpawnAgentTool implements ToolInterface
                     workDir: $this->workspacePath,
                     allowedCommands: $this->shellAllowedCommands,
                     deniedCommands: $this->shellDeniedCommands,
-                    timeout: 60,
+                    timeout: CoquiDefaults::SHELL_TIMEOUT_SECONDS,
                     unsafe: $this->unsafeMode,
                     rootPath: $this->workspacePath,
                     allowedPaths: $mountPaths,
@@ -279,7 +279,7 @@ final class SpawnAgentTool implements ToolInterface
                 new ShellToolkit(
                     workDir: $this->workspacePath,
                     allowedCommands: ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
-                    timeout: 60,
+                    timeout: CoquiDefaults::SHELL_TIMEOUT_SECONDS,
                     rootPath: $this->workspacePath,
                     allowedPaths: $mountPaths,
                     sandboxWrites: ShellConfigResolver::resolveSandboxWrites($this->config),

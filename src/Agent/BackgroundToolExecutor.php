@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Agent;
 use CarmeloSantana\PHPAgents\Contract\ConfigInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolInterface;
 use CoquiBot\Coqui\Config\ShellConfigResolver;
+use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Toolkit\FileSystemToolkit;
 use CoquiBot\Coqui\Toolkit\ShellToolkit;
@@ -105,7 +106,7 @@ final class BackgroundToolExecutor implements ToolExecutorInterface
             workDir: $workspacePath,
             allowedCommands: $shellAllowed,
             deniedCommands: $shellDenied,
-            timeout: 60,
+            timeout: CoquiDefaults::SHELL_TIMEOUT_SECONDS,
             unsafe: $this->unsafeMode,
             rootPath: $workspacePath,
             allowedPaths: $this->boot->mountManager()->allowedPaths(),

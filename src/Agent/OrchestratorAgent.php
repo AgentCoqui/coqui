@@ -357,7 +357,7 @@ final class OrchestratorAgent extends AbstractAgent
                 workDir: $this->workspacePath,
                 allowedCommands: $shellAllowed,
                 deniedCommands: $shellDenied,
-                timeout: 60,
+                timeout: CoquiDefaults::SHELL_TIMEOUT_SECONDS,
                 unsafe: $this->unsafeMode,
                 cancellationToken: $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken ? $cancellationToken : null,
                 rootPath: $this->workspacePath,
@@ -369,7 +369,7 @@ final class OrchestratorAgent extends AbstractAgent
             $this->addToolkit(new ShellToolkit(
                 workDir: $this->workspacePath,
                 allowedCommands: ShellConfigResolver::READ_ONLY_SHELL_COMMANDS,
-                timeout: 60,
+                timeout: CoquiDefaults::SHELL_TIMEOUT_SECONDS,
                 cancellationToken: $cancellationToken instanceof \CoquiBot\Coqui\Api\ProcessCancellationToken ? $cancellationToken : null,
                 rootPath: $this->workspacePath,
                 allowedPaths: $this->mountManager?->allowedPathsReadOnly() ?? [],
