@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
-use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\AgentTurnManager;
@@ -35,7 +34,6 @@ final readonly class ServerHandler
         private ?BackgroundTaskManager $taskManager = null,
         private ?LoopManager $loopManager = null,
         private ?ChannelManager $channelManager = null,
-        private ?QualityAutomationStatusService $qualityAutomation = null,
         private ?ApiLifecycleController $lifecycle = null,
     ) {}
 
@@ -88,11 +86,6 @@ final readonly class ServerHandler
             ];
         }
 
-        $quality = $this->qualitySummary();
-        if ($quality !== null) {
-            $data['quality_automation'] = $quality;
-        }
-
         if ($this->lifecycle !== null) {
             $data['restart'] = $this->lifecycle->restartState();
         }
@@ -130,18 +123,6 @@ final readonly class ServerHandler
     }
 
     /**
-     * GET /api/v1/server/quality — detailed quality automation state.
-     */
-    public function quality(ServerRequestInterface $request): Response
-    {
-        if ($this->qualityAutomation === null) {
-            return Router::jsonResponse(['available' => false]);
-        }
-
-        return Router::jsonResponse($this->qualityAutomation->summary());
-    }
-
-    /**
      * GET /api/v1/server/stats — persistent database statistics.
      */
     public function stats(ServerRequestInterface $request): Response
@@ -158,33 +139,5 @@ final readonly class ServerHandler
     private static function version(): string
     {
         return AppVersion::current();
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function qualitySummary(): ?array
-    {
-        if ($this->qualityAutomation === null) {
-            return null;
-        }
-
-        $summary = $this->qualityAutomation->summary();
-        $presentSchedules = array_values(array_filter(
-            $summary['schedules'],
-            static fn(array $schedule): bool => (bool) $schedule['exists'],
-        ));
-
-        return [
-            'enabled' => $summary['enabled'],
-            'configured_schedules' => count($summary['schedules']),
-            'present_schedules' => count($presentSchedules),
-            'enabled_schedules' => count(array_filter(
-                $presentSchedules,
-                static fn(array $schedule): bool => (bool) $schedule['enabled'],
-            )),
-            'linked_follow_ups' => $summary['follow_ups']['counts']['linked'],
-            'active_follow_ups' => count($summary['follow_ups']['active']),
-        ];
     }
 }

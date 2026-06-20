@@ -15,8 +15,6 @@ use CoquiBot\Coqui\Api\ScheduleManager;
 use CoquiBot\Coqui\Api\WatchJob\ScheduleFileWatchJob;
 use CoquiBot\Coqui\Api\WorkspaceWatcher;
 use CoquiBot\Coqui\Agent\LoopExecutor;
-use CoquiBot\Coqui\Agent\QualityAutomationCoordinator;
-use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\Handler\ArtifactHandler;
 use CoquiBot\Coqui\Api\Handler\BackstoryHandler;
 use CoquiBot\Coqui\Api\Handler\BudgetHandler;
@@ -24,7 +22,6 @@ use CoquiBot\Coqui\Api\Handler\ChannelHandler;
 use CoquiBot\Coqui\Api\Handler\CommandCatalogHandler;
 use CoquiBot\Coqui\Api\Handler\ConfigHandler;
 use CoquiBot\Coqui\Api\Handler\CredentialHandler;
-use CoquiBot\Coqui\Api\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Api\Handler\FileUploadHandler;
 use CoquiBot\Coqui\Api\Handler\HealthHandler;
 use CoquiBot\Coqui\Api\Handler\LoopHandler as ApiLoopHandler;
@@ -66,7 +63,6 @@ use CoquiBot\Coqui\Agent\GoalEvaluator;
 use CoquiBot\Coqui\Agent\ToolBoundEvaluator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ChannelStore;
-use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
@@ -277,22 +273,6 @@ final class ApiCommand extends Command
             $storage,
             $boot->roleResolver(),
         );
-        $qualityAutomation = new QualityAutomationCoordinator(
-            config: $boot->config(),
-            storage: $storage,
-            scheduleStore: $scheduleStore,
-        );
-        $createdQualitySchedules = $qualityAutomation->ensureDefaultSchedules();
-        if ($createdQualitySchedules !== []) {
-            $output->writeln(
-                sprintf(
-                    '<fg=gray>Bootstrapped quality schedules: %s</>',
-                    implode(', ', $createdQualitySchedules),
-                ),
-                OutputInterface::VERBOSITY_VERBOSE,
-            );
-        }
-
         // Workspace file watcher — polls directories for changes
         $watcher = new WorkspaceWatcher();
         $schedulesDir = $boot->workspacePath() . '/schedules';
@@ -354,15 +334,7 @@ final class ApiCommand extends Command
         }
 
         // Create handlers
-        $evaluationStore = new EvaluationStore($storage->getPdo());
-        $qualityStatus = new QualityAutomationStatusService(
-            config: $boot->config(),
-            storage: $storage,
-            evaluationStore: $evaluationStore,
-            scheduleStore: $scheduleStore,
-        );
-
-        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $channelManager, $qualityStatus, $lifecycle);
+        $healthHandler = new HealthHandler($startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $scheduleStore, $webhookStore, $channelManager, $lifecycle);
         $profileSessionLifecycle = new ProfileSessionLifecycleManager(
             storage: $storage,
             providerFactory: $boot->providerFactory(),
@@ -394,8 +366,7 @@ final class ApiCommand extends Command
         $roleHandler = new RoleHandler($boot->roleDiscovery(), $boot->roleResolver(), $boot->profileDiscovery());
         $taskHandler = new TaskHandler($storage, $taskManager, $boot->roleResolver(), $boot->profileDiscovery(), $projectStore);
         $fileUploadHandler = new FileUploadHandler($storage, $uploadStorage);
-        $evaluationHandler = new EvaluationHandler($evaluationStore);
-        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $channelManager, $qualityStatus, $lifecycle);
+        $serverHandler = new ServerHandler($storage, $startTime, $turnManager, $boot->workspacePath(), $dbPath, $taskManager, $loopManager, $channelManager, $lifecycle);
 
         $previewRunner = AgentRunnerFactory::create(
             boot: $boot,
@@ -453,7 +424,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $evaluationHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -646,7 +617,6 @@ final class ApiCommand extends Command
         RoleHandler $role,
         TaskHandler $task,
         FileUploadHandler $fileUpload,
-        EvaluationHandler $evaluation,
         ServerHandler $server,
         ToolkitHandler $toolkit,
         PromptHandler $prompt,
@@ -763,15 +733,9 @@ final class ApiCommand extends Command
         // Child runs
         $router->get($v1 . '/sessions/{id}/child-runs', [$session, 'childRuns']);
 
-        // Evaluations (read-only — creation is evaluator-role/tool driven)
-        $router->get($v1 . '/evaluations', [$evaluation, 'list']);
-        $router->get($v1 . '/evaluations/stats', [$evaluation, 'stats']);
-        $router->get($v1 . '/evaluations/{id}', [$evaluation, 'get']);
-
         // Server
         $router->get($v1 . '/server/info', [$server, 'info']);
         $router->get($v1 . '/server/stats', [$server, 'stats']);
-        $router->get($v1 . '/server/quality', [$server, 'quality']);
         $router->post($v1 . '/server/restart', [$server, 'restart']);
         $router->get($v1 . '/server/prompt', [$prompt, 'get']);
         $router->get($v1 . '/server/backstory', [$backstory, 'get']);

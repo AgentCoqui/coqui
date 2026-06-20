@@ -15,12 +15,10 @@ use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
-use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Repl\Handler\GroupHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
-use CoquiBot\Coqui\Repl\Handler\QualityHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
@@ -133,7 +131,6 @@ function createPromptBackstoryRouterFixture(bool $conversationHistoryInSystemPro
         $instantiate(ScheduleHandler::class),
         $instantiate(BudgetHandler::class),
         $instantiate(ChannelHandler::class),
-        $instantiate(QualityHandler::class),
         $instantiate(ProjectHandler::class),
         $instantiate(RoleHandler::class),
         $instantiate(GroupHandler::class),
@@ -143,7 +140,6 @@ function createPromptBackstoryRouterFixture(bool $conversationHistoryInSystemPro
         $instantiate(ThinkingHandler::class),
         $instantiate(ConversationHandler::class),
         $instantiate(WebhookHandler::class),
-        $instantiate(EvaluationHandler::class),
         $instantiate(LoopHandler::class),
         new BackstoryHandler(new ProfileDiscovery($workspacePath), $workspacePath, $assembler),
         $runner,

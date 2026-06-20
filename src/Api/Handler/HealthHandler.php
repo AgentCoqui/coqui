@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Api\Handler;
 
-use CoquiBot\Coqui\Agent\QualityAutomationStatusService;
 use CoquiBot\Coqui\Api\ApiLifecycleController;
 use CoquiBot\Coqui\Api\AgentTurnManager;
 use CoquiBot\Coqui\Api\BackgroundTaskManager;
@@ -33,7 +32,6 @@ final readonly class HealthHandler
         private ?ScheduleStore $scheduleStore = null,
         private ?WebhookStore $webhookStore = null,
         private ?ChannelManager $channelManager = null,
-        private ?QualityAutomationStatusService $qualityAutomation = null,
         private ?ApiLifecycleController $lifecycle = null,
     ) {}
 
@@ -74,15 +72,6 @@ final readonly class HealthHandler
 
         if ($this->channelManager !== null) {
             $data['channels'] = $this->channelManager->stats();
-        }
-
-        if ($this->qualityAutomation !== null) {
-            $summary = $this->qualityAutomation->summary();
-            $data['quality_automation'] = [
-                'enabled' => $summary['enabled'],
-                'linked_follow_ups' => $summary['follow_ups']['counts']['linked'],
-                'active_follow_ups' => count($summary['follow_ups']['active']),
-            ];
         }
 
         if ($this->lifecycle !== null) {

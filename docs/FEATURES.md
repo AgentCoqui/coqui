@@ -27,7 +27,7 @@ Coqui is not limited to coding workflows — any use case that benefits from LLM
             "roles": {
                 "coder": "anthropic/claude-sonnet-4-20250514",
                 "explorer": "ollama/qwen3:8b",
-                "evaluator": "ollama/gemma3:4b"
+                "reviewer": "ollama/gemma3:4b"
             }
         }
     }
@@ -141,10 +141,10 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 **What it does:** Cron-style scheduling with circuit breakers. Create recurring or one-shot tasks that execute as background tasks inside the ReactPHP event loop. Supports standard cron expressions and the special `@once` expression.
 
-**How it helps:** Automate recurring work — nightly evaluations, daily learning runs, periodic health checks — without external schedulers.
+**How it helps:** Automate recurring work — nightly summaries, daily reports, periodic health checks — without external schedulers.
 
 **How to use it:**
-- The agent calls `schedule_create(name: "nightly-eval", expression: "0 2 * * *", prompt: "...", role: "evaluator")`.
+- The agent calls `schedule_create(name: "nightly-report", expression: "0 2 * * *", prompt: "...", role: "coder")`.
 - Manage via REPL: `/schedules` to list all schedules.
 - Inspect via API: `GET /api/v1/schedules`.
 - Failed schedules are automatically disabled after 3 consecutive failures (circuit breaker). Re-enable after investigating.
@@ -209,27 +209,6 @@ For use cases that require preserving large identity scaffolds or long-running d
 
 In the interactive REPL, successful screenshot-producing tools can now render one automatic ANSI block preview per turn when they return a workspace-local image path. Streamed assistant markdown can also render one workspace-local markdown image preview per response. The current scope is intentionally local-first: no remote image fetching, no bulk preview dumps, and graceful fallback when `ext-gd` is unavailable.
 
-## <a id="session-evaluation"></a> 📊 Session Evaluation
-
-**What it does:** An autonomous evaluator agent reviews completed sessions and grades them on three criteria: completion (40%), hallucination absence (40%), and tool efficiency (20%). Produces structured reports with A-F grades.
-
-**How it helps:** Track agent quality over time. Identify patterns of failure, wasted tool calls, or hallucinated APIs. The evaluation data feeds into the self-learning loop.
-
-**How to use it:**
-- Run on-demand: `spawn_agent(role: "evaluator")`.
-- Run on a schedule: create a nightly evaluation schedule.
-- View reports: `/evaluations` in the REPL or `GET /api/v1/sessions/{id}/evaluation` via API.
-
-## <a id="self-learning"></a> 📚 Self-Learning Loop
-
-**What it does:** A `learner` role analyzes sessions with poor evaluation grades (C, D, F) and synthesizes corrective Skills — structured SOPs that prevent the system from repeating the same mistakes.
-
-**How it helps:** Coqui improves autonomously. Each failure becomes a documented procedure that future agents follow, creating a continuous improvement cycle: evaluate → learn → improve.
-
-**How to use it:**
-- Schedule the learner: `schedule_create(name: "daily-learning", expression: "0 3 * * *", prompt: "Analyze recent poor evaluations", role: "learner")`.
-- The learner reads evaluation reports, identifies failure patterns (hallucination, incomplete work, tool inefficiency), and creates or updates Skills via `SkillToolkit`.
-
 ## <a id="cognitive-flexibility"></a> 🧠 Cognitive Flexibility
 
 **What it does:** Coqui supports both analytical and intuitive cognitive modes. Two creative roles — **muse** (divergent brainstorming) and **philosopher** (reflective synthesis) — complement the analytical roles. Sketch and hypothesis artifact types support rough ideation and testable ideas. Two new loop definitions — **diverge-converge** and **reflection** — encode whole-brain workflows.
@@ -287,7 +266,7 @@ In the interactive REPL, successful screenshot-producing tools can now render on
 
 **What it does:** Declarative `toolkits:` field in role frontmatter controls which toolkits and tools are available to each role. Uses allow/deny pattern syntax evaluated left-to-right.
 
-**How it helps:** Keeps each role focused. The `plan` role can't access shell commands, the `evaluator` only sees evaluation tools, and the `explorer` can't spawn sub-agents.
+**How it helps:** Keeps each role focused. The `plan` role can't access shell commands, the `reviewer` runs read-only, and the `explorer` can't spawn sub-agents.
 
 **How to use it:** Set the `toolkits` field in your role's `.md` file. See [ROLES.md](ROLES.md) for the pattern syntax and examples.
 

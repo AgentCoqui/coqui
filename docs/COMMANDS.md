@@ -214,8 +214,6 @@ Inspection commands in this section are user-facing. Mutation and lifecycle cont
 | `/webhooks disable <name\|id>` | Advanced operator control: disable a webhook subscription |
 | `/webhooks delete <name\|id>` | Advanced operator control: delete a webhook subscription |
 | `/webhooks rotate <name\|id>` | Advanced operator control: rotate a webhook signing secret |
-| `/evaluations [grade]` | List session evaluation reports, optionally filtered by grade |
-| `/quality` | Show quality automation schedules and learner follow-up state |
 | `/hints` | Toggle command hints in the input area |
 | `/multiline` | Toggle multiline compose mode (double-Enter submits, bracketed paste auto-detected) |
 | `/multiline on` | Enable multiline compose mode |

@@ -305,7 +305,7 @@ Hidden sessions are internal execution lanes for background work. They are exclu
 
 List sessions, ordered by most recently updated.
 
-This endpoint is user-facing and only returns surfaced sessions (`visibility = visible`). Hidden background sessions such as learner, evaluator, scheduled, loop, webhook, and task execution lanes are intentionally excluded.
+This endpoint is user-facing and only returns surfaced sessions (`visibility = visible`). Hidden background sessions such as scheduled, loop, webhook, and task execution lanes are intentionally excluded.
 
 **Query Parameters**
 
@@ -5401,11 +5401,7 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/projects/{idOrSlug}` | Yes | Get project detail |
 | `GET` | `/api/v1/projects/{idOrSlug}/sprints` | Yes | List sprints for a project |
 | `GET` | `/api/v1/sprints/{id}` | Yes | Get sprint detail |
-| `GET` | `/api/v1/evaluations` | Yes | List saved evaluation reports |
-| `GET` | `/api/v1/evaluations/stats` | Yes | Get evaluation aggregates |
-| `GET` | `/api/v1/evaluations/{id}` | Yes | Get evaluation detail |
 | `GET` | `/api/v1/server/stats` | Yes | Database and server statistics |
-| `GET` | `/api/v1/server/quality` | Yes | Quality and health summary |
 | `GET` | `/api/v1/server/info` | Yes | Server capabilities and commands |
 | `POST` | `/api/v1/server/restart` | Yes | Restart a launcher-managed API process |
 | `GET` | `/api/v1/server/commands` | Yes | Get runtime slash-command metadata (`/help` equivalent) |

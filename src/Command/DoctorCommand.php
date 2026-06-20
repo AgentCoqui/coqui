@@ -14,7 +14,6 @@ use CoquiBot\Coqui\Config\WorkspaceComposerManager;
 use CoquiBot\Coqui\Config\WorkspaceResolver;
 use CoquiBot\Coqui\Command\WorkspaceOverrideResolver;
 use CoquiBot\Coqui\Storage\ArtifactStore;
-use CoquiBot\Coqui\Storage\EvaluationStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\ScheduleStore;
@@ -460,7 +459,6 @@ final class DoctorCommand extends Command
         $pdo = $storage->getPdo();
 
         $storeChecks = [
-            'evaluation_store' => static fn(PDO $db): mixed => new EvaluationStore($db),
             'artifact_store' => static fn(PDO $db): mixed => new ArtifactStore($db),
             'todo_store' => static fn(PDO $db): mixed => new TodoStore($db),
             'project_store' => static fn(PDO $db): mixed => new ProjectStore($db),
@@ -488,7 +486,6 @@ final class DoctorCommand extends Command
         $results['stats'] = ['status' => 'ok', 'data' => $stats];
 
         $extendedStats = [
-            'evaluations' => $this->queryTableCount($pdo, 'evaluations'),
             'artifacts' => $this->queryTableCount($pdo, 'artifacts'),
             'todos' => $this->queryTableCount($pdo, 'todos'),
             'projects' => $this->queryTableCount($pdo, 'projects'),
@@ -500,8 +497,7 @@ final class DoctorCommand extends Command
         $this->ok(
             $io,
             sprintf(
-                'Database: %d evaluations, %d artifacts, %d todos, %d projects, %d loops, %d schedules, %d webhooks',
-                $extendedStats['evaluations'],
+                'Database: %d artifacts, %d todos, %d projects, %d loops, %d schedules, %d webhooks',
                 $extendedStats['artifacts'],
                 $extendedStats['todos'],
                 $extendedStats['projects'],

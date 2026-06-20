@@ -6,7 +6,7 @@ use CoquiBot\Coqui\Command\DoctorCommand;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use Symfony\Component\Console\Tester\CommandTester;
 
-test('doctor validates legacy evaluation schemas through the full database check path', function () {
+test('doctor tolerates a leftover legacy evaluations table through the full database check path', function () {
     $workspace = sys_get_temp_dir() . '/coqui-doctor-' . bin2hex(random_bytes(8));
     mkdir($workspace, 0755, true);
 
@@ -51,7 +51,6 @@ test('doctor validates legacy evaluation schemas through the full database check
 
         expect($exitCode)->not->toBe(2);
         expect($output['checks']['database']['connection']['status'])->toBe('ok');
-        expect($output['checks']['database']['evaluation_store']['status'])->toBe('ok');
         expect($output['checks']['database']['extended_stats']['status'])->toBe('ok');
         expect($output['checks']['database']['session_integrity_scope']['mode'])->toBe('all_sessions');
     } finally {

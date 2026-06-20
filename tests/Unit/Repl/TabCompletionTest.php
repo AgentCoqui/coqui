@@ -214,7 +214,6 @@ test('static command completion covers catalog argument hints', function (): voi
             '/summarize ' => ['recent', 'focus'],
             '/roles ' => ['list', 'update', 'ignore', 'unignore'],
             '/backstory ' => ['generate', 'failed'],
-            '/evaluations ' => ['A', 'B', 'C', 'D', 'F'],
             '/multiline ' => ['on', 'off'],
         ];
 

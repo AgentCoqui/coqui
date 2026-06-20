@@ -54,17 +54,17 @@ test('allow-all allows everything', function () {
 // --- Deny-all with explicit allows ---
 
 test('deny-all with explicit toolkit allow', function () {
-    $resolver = new RoleToolkitResolver('-*, +SessionEvaluationToolkit');
+    $resolver = new RoleToolkitResolver('-*, +WebToolkit');
 
-    expect($resolver->isToolkitAllowed('SessionEvaluationToolkit'))->toBeTrue();
+    expect($resolver->isToolkitAllowed('WebToolkit'))->toBeTrue();
     expect($resolver->isToolkitAllowed('FilesystemToolkit'))->toBeFalse();
     expect($resolver->isToolkitAllowed('ShellToolkit'))->toBeFalse();
 });
 
 test('deny-all with multiple explicit allows', function () {
-    $resolver = new RoleToolkitResolver('-*, +LearningToolkit, +SkillToolkit, +CoquiSourceToolkit');
+    $resolver = new RoleToolkitResolver('-*, +MemoryToolkit, +SkillToolkit, +CoquiSourceToolkit');
 
-    expect($resolver->isToolkitAllowed('LearningToolkit'))->toBeTrue();
+    expect($resolver->isToolkitAllowed('MemoryToolkit'))->toBeTrue();
     expect($resolver->isToolkitAllowed('SkillToolkit'))->toBeTrue();
     expect($resolver->isToolkitAllowed('CoquiSourceToolkit'))->toBeTrue();
     expect($resolver->isToolkitAllowed('FilesystemToolkit'))->toBeFalse();
@@ -92,9 +92,9 @@ test('allow-all with multiple denies', function () {
 // --- FQCN matching (basename extraction) ---
 
 test('matches FQCN by class basename', function () {
-    $resolver = new RoleToolkitResolver('-*, +SessionEvaluationToolkit');
+    $resolver = new RoleToolkitResolver('-*, +WebToolkit');
 
-    expect($resolver->isToolkitAllowed('CoquiBot\\Coqui\\Toolkit\\SessionEvaluationToolkit'))->toBeTrue();
+    expect($resolver->isToolkitAllowed('CoquiBot\\Coqui\\Toolkit\\WebToolkit'))->toBeTrue();
     expect($resolver->isToolkitAllowed('CoquiBot\\Coqui\\Toolkit\\FilesystemToolkit'))->toBeFalse();
 });
 

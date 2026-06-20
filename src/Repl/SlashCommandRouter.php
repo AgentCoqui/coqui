@@ -14,12 +14,10 @@ use CoquiBot\Coqui\Repl\Handler\BudgetHandler;
 use CoquiBot\Coqui\Repl\Handler\ChannelHandler;
 use CoquiBot\Coqui\Repl\Handler\ConfigHandler;
 use CoquiBot\Coqui\Repl\Handler\ConversationHandler;
-use CoquiBot\Coqui\Repl\Handler\EvaluationHandler;
 use CoquiBot\Coqui\Repl\Handler\GroupHandler;
 use CoquiBot\Coqui\Repl\Handler\LoopHandler;
 use CoquiBot\Coqui\Repl\Handler\ProfileHandler;
 use CoquiBot\Coqui\Repl\Handler\ProjectHandler;
-use CoquiBot\Coqui\Repl\Handler\QualityHandler;
 use CoquiBot\Coqui\Repl\Handler\RoleHandler;
 use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
@@ -60,7 +58,6 @@ final class SlashCommandRouter
         private readonly ScheduleHandler $schedule,
         private readonly BudgetHandler $budget,
         private readonly ChannelHandler $channel,
-        private readonly QualityHandler $quality,
         private readonly ProjectHandler $project,
         private readonly RoleHandler $role,
         private readonly GroupHandler $group,
@@ -70,7 +67,6 @@ final class SlashCommandRouter
         private readonly ThinkingHandler $thinking,
         private readonly ConversationHandler $conversation,
         private readonly WebhookHandler $webhook,
-        private readonly EvaluationHandler $evaluation,
         private readonly LoopHandler $loop,
         private readonly BackstoryHandler $backstory,
         private readonly AgentRunner $agentRunner,
@@ -135,9 +131,7 @@ final class SlashCommandRouter
             '/profiles' => $this->handleProfiles($io, $activeProfile),
             '/backstory' => $this->handleBackstory($io, $arg, $activeProfile),
             '/schedules' => $this->handleSchedules($io, $arg),
-            '/quality' => $this->handleQuality($io),
             '/webhooks' => $this->handleWebhooks($io, $arg),
-            '/evaluations' => $this->handleEvaluations($io, $arg),
             '/loops' => $this->handleLoops($io, $arg, $sessionId),
             '/multiline' => $this->handleMultiline($io, $arg),
             '/hints' => $this->handleHints($io),
@@ -453,21 +447,9 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleQuality(SymfonyStyle $io): RouteResult
-    {
-        $this->quality->handle($io);
-        return RouteResult::continue();
-    }
-
     private function handleWebhooks(SymfonyStyle $io, string $arg): RouteResult
     {
         $this->webhook->handle($io, $arg);
-        return RouteResult::continue();
-    }
-
-    private function handleEvaluations(SymfonyStyle $io, string $arg): RouteResult
-    {
-        $this->evaluation->handle($io, $arg);
         return RouteResult::continue();
     }
 

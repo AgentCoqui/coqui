@@ -60,7 +60,6 @@ use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use CoquiBot\Coqui\Support\StringHelper;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\ArtifactToolkit;
-use CoquiBot\Coqui\Toolkit\LearningToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\ComposerToolkit;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
@@ -82,7 +81,6 @@ use CoquiBot\Coqui\Tool\CoquiSkillsTool;
 use CoquiBot\Coqui\Tool\ToolRegistry;
 use CoquiBot\Coqui\Tool\ToolSearchTool;
 use CoquiBot\Coqui\Tool\VisionTool;
-use CoquiBot\Coqui\Toolkit\SessionEvaluationToolkit;
 use CarmeloSantana\PHPAgents\Context\ContextWindow;
 use CarmeloSantana\PHPAgents\Context\HeuristicCounter;
 use CarmeloSantana\PHPAgents\Contract\ContextWindowInterface;
@@ -592,45 +590,6 @@ final class OrchestratorAgent extends AbstractAgent
                     'description' => 'webhook subscription management',
                 ];
             }
-        }
-
-        // Session evaluation toolkit
-        if ($this->roleToolkitResolver->isToolkitAllowed(SessionEvaluationToolkit::class) && $this->storage !== null) {
-            $evaluationStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
-            $skillLifecycleStore = new SkillLifecycleStore($this->storage->getPdo());
-            $lookbackHours = (int) ($this->config->get('agents.defaults.evaluation.lookbackHours') ?? 24);
-            $inactivityHours = (int) ($this->config->get('agents.defaults.evaluation.inactivityHours') ?? 3);
-            $qualityAutomation = new QualityAutomationCoordinator(
-                config: $this->config,
-                storage: $this->storage,
-                evaluationStore: $evaluationStore,
-            );
-            $candidateToolkits[] = [
-                'toolkit' => new SessionEvaluationToolkit(
-                    evaluationStore: $evaluationStore,
-                    storage: $this->storage,
-                    defaultLookbackHours: $lookbackHours,
-                    defaultInactivityHours: $inactivityHours,
-                    qualityAutomation: $qualityAutomation,
-                    artifactStore: $artifactStore ?? null,
-                    skillLifecycleStore: $skillLifecycleStore,
-                ),
-                'package' => '',
-                'description' => 'session evaluation and grading',
-            ];
-        }
-
-        // Learning toolkit
-        if ($this->roleToolkitResolver->isToolkitAllowed(LearningToolkit::class) && $this->storage !== null) {
-            $learnerEvalStore = new \CoquiBot\Coqui\Storage\EvaluationStore($this->storage->getPdo());
-            $candidateToolkits[] = [
-                'toolkit' => new LearningToolkit(
-                    evaluationStore: $learnerEvalStore,
-                    skillLifecycleStore: new SkillLifecycleStore($this->storage->getPdo()),
-                ),
-                'package' => '',
-                'description' => 'autonomous learning from evaluations',
-            ];
         }
 
         // --- Budget gate: decide which candidates load eagerly vs deferred ---

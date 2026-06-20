@@ -25,7 +25,7 @@ The default role. Receives user messages directly, delegates specialized work to
 | --- | --- |
 | Access Level | `full` |
 | Max Iterations | Global default (configurable via `agents.defaults.maxIterations`) |
-| Toolkits | `+*, -SessionEvaluationToolkit, -LearningToolkit` |
+| Toolkits | `+*` |
 
 Activate: This is the default role. Switch back with `/role orchestrator` or `/role reset`.
 
@@ -63,7 +63,7 @@ Researches the codebase and creates detailed, multi-step implementation plans as
 | --- | --- |
 | Access Level | `readonly` |
 | Max Iterations | `30` |
-| Toolkits | `+*, -ShellToolkit, -MemoryToolkit, -php_execute, -LearningToolkit, -SessionEvaluationToolkit` |
+| Toolkits | `+*, -ShellToolkit, -MemoryToolkit, -php_execute` |
 
 Activate: `/role plan` or delegated via `spawn_agent(role: "plan")`.
 
@@ -75,7 +75,7 @@ Strict code evaluator that judges quality, catches hallucinations, and verifies 
 | --- | --- |
 | Access Level | `readonly` |
 | Max Iterations | `15` |
-| Toolkits | `+*, -MemoryToolkit, -LearningToolkit, -SessionEvaluationToolkit, -php_execute` |
+| Toolkits | `+*, -MemoryToolkit, -php_execute` |
 
 Activate: `/role reviewer` or delegated via `spawn_agent(role: "reviewer")`.
 
@@ -99,7 +99,7 @@ Creative divergent thinking agent for brainstorming, associative exploration, an
 | --- | --- |
 | Access Level | `readonly-shell` |
 | Max Iterations | `32` |
-| Toolkits | `+*, -SessionEvaluationToolkit, -LearningToolkit, -ShellToolkit, -php_execute` |
+| Toolkits | `+*, -ShellToolkit, -php_execute` |
 
 Activate: `/role muse` or delegated via `spawn_agent(role: "muse")`. Also used as the divergence stage in the `diverge-converge` and `reflection` loops.
 
@@ -111,33 +111,9 @@ Reflective synthesis agent for examining assumptions, shifting perspectives, and
 | --- | --- |
 | Access Level | `readonly` |
 | Max Iterations | `24` |
-| Toolkits | `+*, -SessionEvaluationToolkit, -LearningToolkit, -ShellToolkit, -php_execute` |
+| Toolkits | `+*, -ShellToolkit, -php_execute` |
 
 Activate: `/role philosopher` or delegated via `spawn_agent(role: "philosopher")`. Also used as the synthesis stage in the `diverge-converge` and `reflection` loops.
-
-### evaluator
-
-Autonomous session evaluator that grades past sessions on completion, hallucinations, and tool efficiency. Produces structured evaluation reports with A-F grades. Typically runs on a schedule.
-
-| Property | Value |
-| --- | --- |
-| Access Level | `readonly` |
-| Max Iterations | `48` |
-| Toolkits | `-*, +SessionEvaluationToolkit, +CoquiSourceToolkit` |
-
-Activate: Delegated via `spawn_agent(role: "evaluator")` or triggered by a schedule.
-
-### learner
-
-Autonomous learning agent that analyzes poor evaluation reports and creates or updates Skills (SOPs) to prevent the system from repeating the same mistakes. Closes the evaluate→learn feedback loop.
-
-| Property | Value |
-| --- | --- |
-| Access Level | `readonly` |
-| Max Iterations | `48` |
-| Toolkits | `-*, +LearningToolkit, +SkillToolkit, +CoquiSourceToolkit` |
-
-Activate: Delegated via `spawn_agent(role: "learner")` or triggered by a schedule.
 
 ### vision
 
@@ -186,7 +162,6 @@ By default, all roles use the primary model configured in `openclaw.json`. You c
                 "coder": "anthropic/claude-sonnet-4-20250514",
                 "reviewer": "openai/gpt-4.1",
                 "explorer": "ollama/qwen3:8b",
-                "evaluator": "ollama/gemma3:4b",
                 "vision": "openai/gpt-4.1"
             }
         }

@@ -133,11 +133,6 @@ The simplest valid config only needs a primary model:
                 "budgetSafetyMarginPercent": 20,
                 "budgetExitThreshold": 0.85,
                 "budgetExitWrapUpIterations": 2
-            },
-            "evaluation": {
-                "lookbackHours": 24,
-                "inactivityHours": 3,
-                "minTurns": 2
             }
         }
     },
@@ -590,28 +585,6 @@ Regardless of mode, the per-iteration budget pruning strategy always runs as a s
 When `budgetExitThreshold` is set (default `0.85`), the agent monitors the latest provider-reported context usage for each iteration as a percentage of the effective context window. When usage crosses the threshold, php-agents emits a generic budget warning event and Coqui reacts by injecting a workflow-aware wrap-up instruction that preserves todos, artifacts, and sprint state. The agent then has `budgetExitWrapUpIterations` iterations to call `done()`. If it does not exit gracefully within that wrap-up window, the turn ends with a `budget_exhausted` finish reason.
 
 This budget-based exit complements `maxIterations`; it does not replace the iteration limit. A turn can still stop because the configured iteration cap was reached before or after any budget warning.
-
-### `evaluation`
-
-Configure the session evaluation system.
-
-| Key | Type | Default | Description |
-| --- | ---- | ------- | ----------- |
-| `lookbackHours` | int | `24` | How far back to search for sessions to evaluate |
-| `inactivityHours` | int | `3` | Minimum hours since last activity before a session is eligible |
-| `minTurns` | int | `2` | Minimum turns for a session to be worth evaluating |
-
-```json
-{
-    "evaluation": {
-        "lookbackHours": 24,
-        "inactivityHours": 3,
-        "minTurns": 2
-    }
-}
-```
-
-The evaluator model is configured via the roles mapping: `"roles": {"evaluator": "ollama/gemma3:4b"}`.
 
 ## Model Providers (`models.providers`)
 

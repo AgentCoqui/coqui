@@ -124,21 +124,21 @@ MD);
 })->throws(RoleParseException::class);
 
 test('parses toolkits field from frontmatter', function () {
-    $path = $this->tmpDir . '/evaluator.md';
+    $path = $this->tmpDir . '/scoped.md';
     file_put_contents($path, <<<'MD'
 ---
-name: evaluator
-display_name: Evaluator
-description: Grades past sessions
+name: scoped
+display_name: Scoped
+description: Uses a restricted toolkit set
 access_level: readonly
-toolkits: "-*, +SessionEvaluationToolkit, +CoquiSourceToolkit"
+toolkits: "-*, +MemoryToolkit, +CoquiSourceToolkit"
 ---
 Instructions here.
 MD);
 
     $props = $this->parser->readProperties($path);
 
-    expect($props->toolkits)->toBe('-*, +SessionEvaluationToolkit, +CoquiSourceToolkit');
+    expect($props->toolkits)->toBe('-*, +MemoryToolkit, +CoquiSourceToolkit');
 });
 
 test('falls back to allowed-tools when toolkits is absent', function () {
@@ -188,5 +188,5 @@ test('parses orchestrator role file from config/roles', function () {
     expect($props->name)->toBe('orchestrator');
     expect($props->accessLevel)->toBe('full');
     expect($props->isBuiltin)->toBeTrue();
-    expect($props->toolkits)->toBe('+*, -SessionEvaluationToolkit, -LearningToolkit');
+    expect($props->toolkits)->toBe('+*');
 });
