@@ -25,6 +25,8 @@ use React\Http\Message\Response;
  */
 final readonly class ArtifactHandler
 {
+    use DecodesRequestBody;
+
     /** @var list<string> */
     private const array ALLOWED_STAGES = ['draft', 'review', 'final'];
 
@@ -103,7 +105,7 @@ final readonly class ArtifactHandler
             return $session;
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -175,7 +177,7 @@ final readonly class ArtifactHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -345,7 +347,7 @@ final readonly class ArtifactHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -532,16 +534,6 @@ final readonly class ArtifactHandler
         }
 
         return null;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function requestBody(ServerRequestInterface $request): ?array
-    {
-        $decoded = json_decode((string) $request->getBody(), true);
-
-        return is_array($decoded) ? $decoded : null;
     }
 
     /**

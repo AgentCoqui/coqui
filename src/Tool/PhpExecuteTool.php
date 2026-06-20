@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Config\MountManager;
 use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\Config\ScriptSanitizer;
+use CoquiBot\Coqui\Support\IdGenerator;
 use React\ChildProcess\Process as ReactProcess;
 use React\EventLoop\Loop;
 use React\Promise\Deferred;
@@ -154,7 +155,7 @@ final class PhpExecuteTool implements ToolInterface
 
         try {
             $tmpDir = $this->ensureTempDirectory();
-            $identifier = bin2hex(random_bytes(8));
+            $identifier = IdGenerator::hex(8);
             $lintFile = $this->writeTempScript($tmpDir, self::LINT_FILE_PREFIX, $identifier, $this->buildLintScript($code));
             $executionFile = $this->writeTempScript($tmpDir, self::EXECUTION_FILE_PREFIX, $identifier, $this->buildScript($code));
         } catch (\RuntimeException $e) {

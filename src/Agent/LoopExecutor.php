@@ -16,6 +16,8 @@ use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Storage\ArtifactStore;
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\IdGenerator;
 
 /**
  * Core orchestration engine for loop workflows.
@@ -180,7 +182,7 @@ final class LoopExecutor
                 'dispatch' => [
                     'status' => 'pending',
                     'message' => 'Waiting for the API loop manager to create the first stage background task.',
-                    'updated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                    'updated_at' => Clock::nowUtc(),
                 ],
             ],
         );
@@ -586,7 +588,7 @@ final class LoopExecutor
         }
 
         // 4. Auto-create a new project
-        $slug = 'loop-' . $definition->name . '-' . substr(bin2hex(random_bytes(4)), 0, 8);
+        $slug = 'loop-' . $definition->name . '-' . substr(IdGenerator::hex(4), 0, 8);
         return $this->projectStore->createProject(
             title: sprintf('Loop: %s', $definition->name),
             slug: $slug,

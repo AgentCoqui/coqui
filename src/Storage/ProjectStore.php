@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\IdGenerator;
+use CoquiBot\Coqui\Support\SchemaHelper;
 use PDO;
 
 /**
@@ -85,18 +88,7 @@ final class ProjectStore
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
     {
-        $stmt = $this->db->query("PRAGMA table_info({$table})");
-
-        if ($stmt === false) {
-            return;
-        }
-
-        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $exists = array_any($columns, fn(array $col): bool => $col['name'] === $column);
-
-        if (!$exists) {
-            $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
-        }
+        SchemaHelper::addColumnIfMissing($this->db, $table, $column, $definition);
     }
 
     // =========================================================================
@@ -124,8 +116,8 @@ final class ProjectStore
             throw new \InvalidArgumentException(sprintf('Project slug "%s" already exists.', $slug));
         }
 
-        $id = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $id = IdGenerator::hex();
+        $now = Clock::nowUtc();
 
         // Compute project directory name: {slug}-{first 8 chars of id}
         $directory = $slug . '-' . substr($id, 0, 8);
@@ -220,7 +212,7 @@ final class ProjectStore
         }
 
         $sets = ['updated_at = ?'];
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $params = [$now];
 
         if ($title !== null) {
@@ -294,8 +286,8 @@ final class ProjectStore
             throw new \InvalidArgumentException(sprintf('Project "%s" not found.', $projectId));
         }
 
-        $id = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $id = IdGenerator::hex();
+        $now = Clock::nowUtc();
         $sprintNumber = $this->nextSprintNumber($projectId);
         $maxReviewRounds = min($maxReviewRounds, self::MAX_REVIEW_ROUNDS_CAP);
 
@@ -378,7 +370,7 @@ final class ProjectStore
         }
 
         $sets = ['updated_at = ?'];
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $params = [$now];
 
         if ($title !== null) {
@@ -447,7 +439,7 @@ final class ProjectStore
             ));
         }
 
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $sets = ['status = ?', 'updated_at = ?'];
         $params = [$newStatus, $now];
 

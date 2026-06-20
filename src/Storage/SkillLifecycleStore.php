@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\IdGenerator;
 use PDO;
 
 final class SkillLifecycleStore
@@ -47,7 +49,7 @@ final class SkillLifecycleStore
         ?string $agentRole = null,
         ?array $metadata = null,
     ): string {
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO skill_usage_events (id, skill_name, action, source_tool, session_id, turn_id, agent_role, metadata, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -61,7 +63,7 @@ final class SkillLifecycleStore
             $turnId,
             $agentRole,
             $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
-            gmdate('Y-m-d\TH:i:s\Z'),
+            Clock::nowUtc(),
         ]);
 
         return $id;

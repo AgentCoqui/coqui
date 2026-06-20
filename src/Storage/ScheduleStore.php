@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\IdGenerator;
 use Cron\CronExpression;
 use PDO;
 
@@ -107,8 +109,8 @@ final class ScheduleStore
         int $maxFailures = 3,
         ?string $metadata = null,
     ): string {
-        $id = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $id = IdGenerator::hex();
+        $now = Clock::nowUtc();
 
         $nextRunAt = $this->computeNextRun($scheduleExpression, $timezone);
 
@@ -161,7 +163,7 @@ final class ScheduleStore
         ?string $metadata = null,
     ): string {
         $existing = $this->getByName($name);
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         if ($existing !== null) {
             // Update only static definition columns, preserve runtime state
@@ -195,7 +197,7 @@ final class ScheduleStore
         }
 
         // Create new filesystem schedule
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $nextRunAt = $this->computeNextRun($scheduleExpression, $timezone);
 
         $stmt = $this->db->prepare(<<<'SQL'
@@ -317,7 +319,7 @@ final class ScheduleStore
         }
 
         $sets = ['updated_at = ?'];
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $params = [$now];
 
         if ($name !== null) {
@@ -492,7 +494,7 @@ final class ScheduleStore
             return;
         }
 
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $isOneShot = $schedule['schedule_expression'] === '@once';
 
         if ($isOneShot) {
@@ -530,7 +532,7 @@ final class ScheduleStore
      */
     public function markSuccess(string $id): void
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE scheduled_tasks
             SET failure_count = 0, last_status = 'completed', updated_at = ?
@@ -552,7 +554,7 @@ final class ScheduleStore
             return false;
         }
 
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $newFailureCount = (int) $schedule['failure_count'] + 1;
         $shouldDisable = $newFailureCount >= (int) $schedule['max_failures'];
 
@@ -582,7 +584,7 @@ final class ScheduleStore
             return false;
         }
 
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $nextRun = $this->computeNextRun($schedule['schedule_expression'], $schedule['timezone']);
 
         $stmt = $this->db->prepare(<<<'SQL'
@@ -600,7 +602,7 @@ final class ScheduleStore
      */
     public function disable(string $id): bool
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE scheduled_tasks
             SET enabled = 0, updated_at = ?
@@ -667,7 +669,7 @@ final class ScheduleStore
      */
     public function forceNextRun(string $id, string $nextRunAt): void
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE scheduled_tasks SET next_run_at = ?, updated_at = ? WHERE id = ?
         SQL);
@@ -694,7 +696,7 @@ final class ScheduleStore
      */
     public function disableAll(): int
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE scheduled_tasks SET enabled = 0, updated_at = ?
             WHERE enabled = 1 AND source = ?

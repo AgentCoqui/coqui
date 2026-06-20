@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Memory;
 use CarmeloSantana\PHPAgents\Contract\EmbeddingProviderInterface;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Memory\MemoryEntry;
+use CoquiBot\Coqui\Support\IdGenerator;
 use CoquiBot\Coqui\Support\SqlitePragmas;
 use DateTimeImmutable;
 use PDO;
@@ -96,7 +97,7 @@ final class MemoryStore
     {
         $this->ensureTables();
 
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $now = (new DateTimeImmutable())->format('Y-m-d\TH:i:s');
         $tags = $entry->metadata['tags'] ?? '';
         $importance = (float) ($entry->metadata['importance'] ?? self::AREA_DEFAULT_IMPORTANCE[$entry->area] ?? 0.5);

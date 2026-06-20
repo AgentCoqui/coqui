@@ -15,7 +15,9 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\SessionType;
+use CoquiBot\Coqui\Support\IdGenerator;
 use CoquiBot\Coqui\Support\ProcessSpawner;
+use CoquiBot\Coqui\Support\SchemaHelper;
 use CoquiBot\Coqui\Support\SqlitePragmas;
 use PDO;
 use PDOException;
@@ -321,18 +323,7 @@ final class SessionStorage
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
     {
-        $stmt = $this->db->query("PRAGMA table_info({$table})");
-
-        if ($stmt === false) {
-            return;
-        }
-
-        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $exists = array_any($columns, fn(array $col): bool => $col['name'] === $column);
-
-        if (!$exists) {
-            $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
-        }
+        SchemaHelper::addColumnIfMissing($this->db, $table, $column, $definition);
     }
 
     public function createSession(
@@ -346,7 +337,7 @@ final class SessionStorage
         string $visibility = 'visible',
     ): string
     {
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $now = date('c');
         $resolvedSessionType = $sessionType instanceof SessionType
             ? $sessionType
@@ -895,7 +886,7 @@ final class SessionStorage
             return null;
         }
 
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
@@ -1058,7 +1049,7 @@ final class SessionStorage
         ?string $actorName = null,
         ?string $actorRole = null,
     ): string {
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
@@ -1747,7 +1738,7 @@ final class SessionStorage
         int $tokenCount = 0,
         ?array $metadata = null,
     ): string {
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
@@ -1807,7 +1798,7 @@ final class SessionStorage
         ?string $reason = null,
         ?string $turnId = null,
     ): string {
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
@@ -1915,7 +1906,7 @@ final class SessionStorage
         ?string $model = null,
         ?string $turnProcessId = null,
     ): string {
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $now = date('c');
 
         // Calculate next turn number for this session
@@ -2677,7 +2668,7 @@ final class SessionStorage
         ?string $sprintId = null,
         ?array $metadata = null,
     ): string {
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
@@ -3142,7 +3133,7 @@ final class SessionStorage
      */
     public function addTaskInput(string $taskId, string $content): string
     {
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
 
         $stmt = $this->db->prepare(<<<SQL
             INSERT INTO task_inputs (id, task_id, content, consumed, created_at)
@@ -3371,7 +3362,7 @@ final class SessionStorage
      */
     public function createTurnProcess(string $sessionId, string $prompt, ?array $filePaths = null): string
     {
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL

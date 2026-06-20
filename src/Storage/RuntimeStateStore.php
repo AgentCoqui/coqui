@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Support\Clock;
 use PDO;
 
 /**
@@ -50,7 +51,7 @@ final class RuntimeStateStore
         $this->put('api.restart_required', [
             'reason' => $reason,
             'source' => $source,
-            'required_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'required_at' => Clock::nowUtc(),
             'context' => $context,
         ]);
     }
@@ -94,7 +95,7 @@ final class RuntimeStateStore
         $stmt->execute([
             $key,
             json_encode($value, JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR),
-            gmdate('Y-m-d\TH:i:s\Z'),
+            Clock::nowUtc(),
         ]);
     }
 

@@ -8,6 +8,7 @@ use CoquiBot\Coqui\Api\ApiErrorCode;
 use CoquiBot\Coqui\Api\Router;
 use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\JsonHelper;
 use CoquiBot\Coqui\Utility\ScheduleValidator;
 use Psr\Http\Message\ServerRequestInterface;
@@ -374,7 +375,7 @@ final readonly class ScheduleHandler
             return $schedule;
         }
 
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $this->store->forceNextRun($id, $now);
 
         return Router::jsonResponse([

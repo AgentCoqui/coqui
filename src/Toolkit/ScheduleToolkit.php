@@ -13,6 +13,7 @@ use CarmeloSantana\PHPAgents\Tool\Tool;
 use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Storage\ScheduleStore;
+use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Utility\ScheduleValidator;
 
 /**
@@ -511,7 +512,7 @@ final readonly class ScheduleToolkit implements ToolkitInterface
         $name = (string) $schedule['name'];
 
         // Fallback: force next_run_at to now so the scheduler picks it up on next tick
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $this->scheduleStore->update($scheduleId, enabled: true);
         $this->scheduleStore->forceNextRun($scheduleId, $now);
 
@@ -532,7 +533,7 @@ final readonly class ScheduleToolkit implements ToolkitInterface
         }
 
         // Fallback: force next_run_at to now
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $count = 0;
         foreach ($enabled as $s) {
             $this->scheduleStore->forceNextRun((string) $s['id'], $now);

@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Channel\Builtin;
 
 use CoquiBot\Coqui\Contract\ChannelRuntimeInterface;
 use CoquiBot\Coqui\Storage\ChannelStore;
+use CoquiBot\Coqui\Support\Clock;
 use React\ChildProcess\Process as ReactProcess;
 use React\Stream\WritableStreamInterface;
 
@@ -65,7 +66,7 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
     {
         $this->started = true;
         $this->stopRequested = false;
-        $this->lastHeartbeatAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastHeartbeatAt = Clock::nowUtc();
 
         if (!$this->runPreflight()) {
             return;
@@ -76,7 +77,7 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
 
     public function tick(): void
     {
-        $this->lastHeartbeatAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastHeartbeatAt = Clock::nowUtc();
         $this->inboundBacklog = $this->channelStore->countInboundBacklog($this->channelInstanceId);
         $this->outboundBacklog = $this->channelStore->countQueuedDeliveries($this->channelInstanceId);
 
@@ -101,7 +102,7 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
         $this->started = false;
         $this->ready = false;
         $this->summary = 'Signal runtime stopped.';
-        $this->lastHeartbeatAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastHeartbeatAt = Clock::nowUtc();
 
         if ($this->process !== null) {
             $this->process->terminate();
@@ -278,12 +279,12 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
         $this->summary = sprintf('Signal JSON-RPC runtime active for %s.', $this->instanceName());
 
         $process->stdout?->on('data', function (string $chunk): void {
-            $this->lastHeartbeatAt = gmdate('Y-m-d\TH:i:s\Z');
+            $this->lastHeartbeatAt = Clock::nowUtc();
             $this->handleStdoutChunk($chunk);
         });
 
         $process->stderr?->on('data', function (string $chunk): void {
-            $this->lastHeartbeatAt = gmdate('Y-m-d\TH:i:s\Z');
+            $this->lastHeartbeatAt = Clock::nowUtc();
             $this->stderrBuffer .= $chunk;
             $trimmed = trim($chunk);
             if ($trimmed !== '') {
@@ -294,7 +295,7 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
         $process->on('exit', function (?int $exitCode, ?int $termSignal = null): void {
             $this->process = null;
             $this->ready = false;
-            $this->lastHeartbeatAt = gmdate('Y-m-d\TH:i:s\Z');
+            $this->lastHeartbeatAt = Clock::nowUtc();
 
             if ($this->stopRequested) {
                 $this->summary = 'Signal runtime stopped.';
@@ -394,7 +395,7 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
             providerResponseBody: $this->truncate(json_encode($payload, JSON_UNESCAPED_SLASHES) ?: ''),
         );
         $this->channelStore->markDeliverySent($deliveryId, $attemptCount, $providerMessageId);
-        $this->lastSendAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastSendAt = Clock::nowUtc();
         $this->lastError = null;
         $this->consecutiveFailures = 0;
         $this->summary = sprintf(
@@ -521,7 +522,7 @@ final class SignalCliChannelRuntime implements ChannelRuntimeInterface
         $timestampMs = $this->coerceInt($dataMessage['timestamp'] ?? $envelope['timestamp'] ?? null) ?? 0;
         $receivedAt = $timestampMs > 0
             ? gmdate('Y-m-d\TH:i:s\Z', (int) floor($timestampMs / 1000))
-            : gmdate('Y-m-d\TH:i:s\Z');
+            : Clock::nowUtc();
         $remoteUserKey = $this->firstNonEmptyString([
             $envelope['sourceNumber'] ?? null,
             $envelope['source'] ?? null,

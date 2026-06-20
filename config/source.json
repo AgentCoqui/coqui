@@ -2112,6 +2112,16 @@
             ]
         },
         {
+            "path": "src/Api/Handler/DecodesRequestBody.php",
+            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\DecodesRequestBody",
+            "layer": "command",
+            "description": "Trait providing shared JSON request-body decoding for API handlers, in both the null-returning (decodeJsonObjectOrNull) and error-Response-returning (decodeJsonObjectOrError) shapes. Used by ProjectHandler, ArtifactHandler, SessionHandler, ConfigHandler, TodoHandler, and McpServerHandler.",
+            "methods": [
+                "decodeJsonObjectOrNull(ServerRequestInterface): ?array — decode body to a JSON object or null",
+                "decodeJsonObjectOrError(ServerRequestInterface): array|Response — decode body to a JSON object or a 422 error Response"
+            ]
+        },
+        {
             "path": "src/Api/Handler/ConfigHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ConfigHandler",
             "layer": "command",
@@ -3355,6 +3365,42 @@
             "description": "Centralized JSON decode helper. Provides decodeJsonObject() which safely decodes a mixed value into an associative array or null. Handles array passthrough, null/empty/non-string rejection, and type verification. Replaces 11 identical private methods formerly scattered across toolkits, handlers, and agents.",
             "methods": [
                 "static decodeJsonObject(mixed): ?array — decode mixed value to associative array or null"
+            ]
+        },
+        {
+            "path": "src/Support/Clock.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\Clock",
+            "layer": "support",
+            "description": "Time helper centralizing the ISO-8601 UTC timestamp format used for every persisted created_at/updated_at value. Replaces ~104 inline gmdate('Y-m-d\\TH:i:s\\Z') calls across stores, handlers, and managers.",
+            "methods": [
+                "static nowUtc(): string — current time as an ISO-8601 UTC timestamp with trailing Z"
+            ]
+        },
+        {
+            "path": "src/Support/IdGenerator.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\IdGenerator",
+            "layer": "support",
+            "description": "Random hexadecimal ID generator centralizing the bin2hex(random_bytes(...)) idiom used across the storage layer for primary keys. Replaces ~40 inline call sites; default width is 16 bytes (32 hex chars).",
+            "methods": [
+                "static hex(int $bytes = 16): string — generate a random lowercase hex ID"
+            ]
+        },
+        {
+            "path": "src/Support/SchemaHelper.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\SchemaHelper",
+            "layer": "support",
+            "description": "SQLite schema-migration helper. Centralizes the add-column-if-missing idiom that the storage classes previously reimplemented with stylistic drift (foreach vs array_any). Used by SessionStorage, ArtifactStore, TodoStore, LoopStore, ProjectStore, ChannelStore, and NotificationStore.",
+            "methods": [
+                "static addColumnIfMissing(PDO $db, string $table, string $column, string $definition): void — ALTER TABLE ADD COLUMN only when the column is absent"
+            ]
+        },
+        {
+            "path": "src/Support/SqlitePragmas.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\SqlitePragmas",
+            "layer": "support",
+            "description": "Applies Coqui's standard SQLite tuning pragmas (WAL, foreign_keys, synchronous=NORMAL, cache_size, temp_store=MEMORY) to a PDO connection. Centralizes the pragma set previously duplicated across SessionStorage, MemoryStore, EditHistory, and ToolkitDatabaseFactory; cache size is parameterized so toolkit databases use a smaller cache.",
+            "methods": [
+                "static applyTo(PDO $db, int $cacheSizeKb = CoquiDefaults::SQLITE_CACHE_SIZE_KB): void — apply the standard pragma set"
             ]
         },
         {

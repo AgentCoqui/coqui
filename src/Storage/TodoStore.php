@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\IdGenerator;
+use CoquiBot\Coqui\Support\SchemaHelper;
 use PDO;
 
 /**
@@ -73,18 +76,7 @@ final class TodoStore
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
     {
-        $stmt = $this->db->query("PRAGMA table_info({$table})");
-
-        if ($stmt === false) {
-            return;
-        }
-
-        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $exists = array_any($columns, fn(array $col): bool => $col['name'] === $column);
-
-        if (!$exists) {
-            $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
-        }
+        SchemaHelper::addColumnIfMissing($this->db, $table, $column, $definition);
     }
 
     /**
@@ -101,8 +93,8 @@ final class TodoStore
         ?int $sortOrder = null,
         ?string $sprintId = null,
     ): string {
-        $id = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $id = IdGenerator::hex();
+        $now = Clock::nowUtc();
 
         // Auto-assign sort order if not specified
         if ($sortOrder === null) {
@@ -206,7 +198,7 @@ final class TodoStore
         }
 
         $sets = ['updated_at = ?'];
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $params = [$now];
 
         if (array_key_exists('title', $patch)) {
@@ -303,7 +295,7 @@ final class TodoStore
             return false;
         }
 
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         $sets = ["status = 'completed'", 'completed_at = ?', 'updated_at = ?'];
         $params = [$now, $now];
@@ -561,7 +553,7 @@ final class TodoStore
      */
     public function reorder(array $ordering, ?string $sessionId = null): void
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         if ($sessionId !== null) {
             $stmt = $this->db->prepare('UPDATE todos SET sort_order = ?, updated_at = ? WHERE id = ? AND session_id = ?');
@@ -590,7 +582,7 @@ final class TodoStore
         ?string $sprintId = null,
     ): array {
         $ids = [];
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $baseSortOrder = $this->nextSortOrder($sessionId, $artifactId);
 
         $this->db->beginTransaction();
@@ -602,7 +594,7 @@ final class TodoStore
             SQL);
 
             foreach ($items as $i => $item) {
-                $id = bin2hex(random_bytes(16));
+                $id = IdGenerator::hex();
                 $stmt->execute([
                     $id,
                     $sessionId,
@@ -792,7 +784,7 @@ final class TodoStore
      */
     public function completeAllBySession(string $sessionId, ?string $completedBy = null): int
     {
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $stmt = $this->db->prepare(<<<'SQL'
             UPDATE todos
             SET status = 'completed', completed_by = ?, completed_at = ?, updated_at = ?

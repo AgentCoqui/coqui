@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Api;
 use CoquiBot\Coqui\Notification\NotificationPublisher;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
+use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\ProcessSpawner;
 
 /**
@@ -62,7 +63,7 @@ final class BackgroundTaskManager
      */
     public function tick(): void
     {
-        $this->lastTickAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastTickAt = Clock::nowUtc();
         $this->reapFinishedProcesses();
         $this->processCancelRequests();
         $this->startPendingTasks();

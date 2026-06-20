@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace CoquiBot\Coqui\Storage;
 
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\IdGenerator;
+use CoquiBot\Coqui\Support\SchemaHelper;
 use PDO;
 
 /**
@@ -87,18 +90,7 @@ final class ArtifactStore
 
     private function migrateAddColumn(string $table, string $column, string $definition): void
     {
-        $stmt = $this->db->query("PRAGMA table_info({$table})");
-
-        if ($stmt === false) {
-            return;
-        }
-
-        $columns = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $exists = array_any($columns, fn(array $col): bool => $col['name'] === $column);
-
-        if (!$exists) {
-            $this->db->exec("ALTER TABLE {$table} ADD COLUMN {$column} {$definition}");
-        }
+        SchemaHelper::addColumnIfMissing($this->db, $table, $column, $definition);
     }
 
     /**
@@ -120,8 +112,8 @@ final class ArtifactStore
         ?string $sprintId = null,
         bool $persistent = false,
     ): string {
-        $id = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $id = IdGenerator::hex();
+        $now = Clock::nowUtc();
 
         // Auto-persist artifacts linked to projects — project-linked artifacts
         // survive cleanupFinalized() so they remain available to later loop stages
@@ -187,7 +179,7 @@ final class ArtifactStore
         }
 
         $newVersion = (int) $artifact['version'] + 1;
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         $sets = ['content = ?', 'version = ?', 'updated_at = ?'];
         $params = [$content, $newVersion, $now];
@@ -236,7 +228,7 @@ final class ArtifactStore
         }
 
         $sets = ['updated_at = ?'];
-        $params = [gmdate('Y-m-d\TH:i:s\Z')];
+        $params = [Clock::nowUtc()];
 
         if (array_key_exists('title', $patch)) {
             $sets[] = 'title = ?';
@@ -526,7 +518,7 @@ final class ArtifactStore
             }
         }
 
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
 
         if ($sessionId !== null) {
             $stmt = $this->db->prepare(
@@ -586,7 +578,7 @@ final class ArtifactStore
             return 0;
         }
 
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $now = Clock::nowUtc();
         $count = 0;
 
         $this->db->beginTransaction();
@@ -646,8 +638,8 @@ final class ArtifactStore
         string $content,
         ?string $changeSummary,
     ): void {
-        $versionId = bin2hex(random_bytes(16));
-        $now = gmdate('Y-m-d\TH:i:s\Z');
+        $versionId = IdGenerator::hex();
+        $now = Clock::nowUtc();
 
         $stmt = $this->db->prepare(<<<'SQL'
             INSERT INTO artifact_versions (id, artifact_id, version, content, change_summary, created_at)

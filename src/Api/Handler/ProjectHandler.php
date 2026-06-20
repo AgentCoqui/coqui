@@ -21,6 +21,8 @@ use React\Http\Message\Response;
  */
 final readonly class ProjectHandler
 {
+    use DecodesRequestBody;
+
     public function __construct(
         private ProjectStore $store,
         private ?SessionStorage $sessionStorage = null,
@@ -31,7 +33,7 @@ final readonly class ProjectHandler
      */
     public function create(ServerRequestInterface $request): Response
     {
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -115,7 +117,7 @@ final readonly class ProjectHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Project not found');
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -241,7 +243,7 @@ final readonly class ProjectHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Project not found');
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -312,7 +314,7 @@ final readonly class ProjectHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Sprint not found');
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -425,7 +427,7 @@ final readonly class ProjectHandler
      */
     public function rejectSprint(ServerRequestInterface $request, string $id): Response
     {
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         $notes = null;
         if (is_array($body) && array_key_exists('reviewer_notes', $body)) {
             $notes = trim((string) ($body['reviewer_notes'] ?? ''));
@@ -532,16 +534,6 @@ final readonly class ProjectHandler
         }
 
         return $this->sprintDetailResponse($id);
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function requestBody(ServerRequestInterface $request): ?array
-    {
-        $decoded = json_decode((string) $request->getBody(), true);
-
-        return is_array($decoded) ? $decoded : null;
     }
 
     /**

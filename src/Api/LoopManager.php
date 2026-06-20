@@ -10,6 +10,7 @@ use CoquiBot\Coqui\Notification\NotificationPublisher;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\Clock;
 
 /**
  * Advances running loops by creating background tasks for each stage.
@@ -53,7 +54,7 @@ final class LoopManager
      */
     public function tick(): void
     {
-        $this->lastTickAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastTickAt = Clock::nowUtc();
         $runningLoops = $this->loopStore->listLoops('running');
 
         foreach ($runningLoops as $loop) {
@@ -79,7 +80,7 @@ final class LoopManager
      */
     public function reconcile(): void
     {
-        $this->lastReconcileAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastReconcileAt = Clock::nowUtc();
         $runningLoops = $this->loopStore->listLoops('running');
 
         foreach ($runningLoops as $loop) {
@@ -186,7 +187,7 @@ final class LoopManager
                 'task_id' => $taskId,
                 'stage_id' => $stageResult->stageId,
                 'stage_index' => $stageResult->stageIndex,
-                'updated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                'updated_at' => Clock::nowUtc(),
             ],
         ]);
     }
@@ -322,7 +323,7 @@ final class LoopManager
                     'status' => 'failed',
                     'message' => sprintf('Loop dispatch failed during %s.', $phase),
                     'error' => mb_substr($e->getMessage(), 0, 200),
-                    'updated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                    'updated_at' => Clock::nowUtc(),
                 ],
             ]);
             $this->loopStore->updateLoopStatus($loopId, 'failed');

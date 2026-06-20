@@ -25,6 +25,8 @@ use React\Http\Message\Response;
  */
 final readonly class TodoHandler
 {
+    use DecodesRequestBody;
+
     /** @var list<string> */
     private const array ALLOWED_STATUSES = ['pending', 'in_progress', 'completed', 'cancelled'];
 
@@ -109,7 +111,7 @@ final readonly class TodoHandler
             return $session;
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -192,7 +194,7 @@ final readonly class TodoHandler
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Todo not found');
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -359,7 +361,7 @@ final readonly class TodoHandler
             return $session;
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -446,7 +448,7 @@ final readonly class TodoHandler
             return $session;
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -557,7 +559,7 @@ final readonly class TodoHandler
             return Router::errorResponse(ApiErrorCode::CONFLICT, sprintf('Cannot cancel todo while status is "%s".', $currentStatus));
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         $notes = is_array($body) && array_key_exists('notes', $body) ? $this->nullableString($body['notes']) : null;
         $completedBy = is_array($body) && array_key_exists('completed_by', $body) ? $this->nullableString($body['completed_by']) : null;
 
@@ -591,16 +593,6 @@ final readonly class TodoHandler
         }
 
         return null;
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function requestBody(ServerRequestInterface $request): ?array
-    {
-        $decoded = json_decode((string) $request->getBody(), true);
-
-        return is_array($decoded) ? $decoded : null;
     }
 
     private function nullableId(mixed $value): ?string

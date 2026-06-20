@@ -10,6 +10,7 @@ use CoquiBot\Coqui\Config\ConfigManager;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Contract\ChannelRuntimeInterface;
 use CoquiBot\Coqui\Storage\ChannelStore;
+use CoquiBot\Coqui\Support\Clock;
 
 /**
  * Reconciles configured channel instances into long-lived runtimes and health state.
@@ -39,7 +40,7 @@ final class ChannelManager
 
     public function tick(): void
     {
-        $this->lastTickAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastTickAt = Clock::nowUtc();
         $this->reconcile();
 
         foreach ($this->runtimes as $name => $runtime) {
@@ -58,7 +59,7 @@ final class ChannelManager
                     'worker_status' => 'error',
                     'ready' => false,
                     'summary' => 'Channel runtime tick failed.',
-                    'last_heartbeat_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                    'last_heartbeat_at' => Clock::nowUtc(),
                     'last_error' => $e->getMessage(),
                     'inbound_backlog' => 0,
                     'outbound_backlog' => 0,
@@ -70,7 +71,7 @@ final class ChannelManager
 
     public function reconcile(): void
     {
-        $this->lastReconcileAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastReconcileAt = Clock::nowUtc();
         $config = $this->configManager?->config() ?? $this->config;
         $channelConfig = ChannelConfig::fromArray($config->getChannelConfig());
         $instanceNames = [];

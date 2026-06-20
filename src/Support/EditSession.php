@@ -33,7 +33,7 @@ final class EditSession
     public function __construct(
         int $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS,
     ) {
-        $this->id = bin2hex(random_bytes(16));
+        $this->id = IdGenerator::hex();
         $this->createdAt = microtime(true);
         $this->expiresAt = $this->createdAt + $timeoutSeconds;
     }

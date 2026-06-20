@@ -12,6 +12,7 @@ use CoquiBot\Coqui\Config\LoopDiscovery;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
+use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\JsonHelper;
 use Psr\Http\Message\ServerRequestInterface;
 use React\Http\Message\Response;
@@ -593,7 +594,7 @@ final readonly class LoopHandler
                     'message' => 'Operator skipped a stage. The loop manager will dispatch the next stage on the next tick.',
                     'stage_id' => (string) $nextPendingStage['id'],
                     'stage_index' => (int) ($nextPendingStage['stage_index'] ?? 0),
-                    'updated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                    'updated_at' => Clock::nowUtc(),
                 ],
             ]);
         } else {
@@ -601,7 +602,7 @@ final readonly class LoopHandler
                 'dispatch' => [
                     'status' => 'pending',
                     'message' => 'Operator skipped the final actionable stage. The loop will be re-evaluated now.',
-                    'updated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                    'updated_at' => Clock::nowUtc(),
                 ],
             ]);
             $this->executor->evaluateIteration($id);
@@ -696,7 +697,7 @@ final readonly class LoopHandler
                 'message' => 'Operator retried the latest iteration. The loop manager will dispatch stage 0 on the next tick.',
                 'iteration_id' => $iterationId,
                 'stage_index' => 0,
-                'updated_at' => gmdate('Y-m-d\TH:i:s\Z'),
+                'updated_at' => Clock::nowUtc(),
             ],
         ]);
 

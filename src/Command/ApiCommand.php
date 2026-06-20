@@ -68,6 +68,7 @@ use CoquiBot\Coqui\Storage\ScheduleStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use CoquiBot\Coqui\Storage\RuntimeStateStore;
 use CoquiBot\Coqui\Storage\WebhookStore;
+use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\PromptInspectionService;
 use CoquiBot\Coqui\Support\ProfileSessionLifecycleManager;
 use CoquiBot\Toolkits\Mcp\Auth\OAuthHandler as McpOAuthHandler;
@@ -237,7 +238,7 @@ final class ApiCommand extends Command
         $lifecycle = new ApiLifecycleController(
             runtimeStateStore: $runtimeStateStore,
             managedByLauncher: getenv('COQUI_LAUNCHER_MANAGED') === '1',
-            startedAt: gmdate('Y-m-d\TH:i:s\Z'),
+            startedAt: Clock::nowUtc(),
             pid: getmypid() ?: 0,
         );
         $lifecycle->markBooted();

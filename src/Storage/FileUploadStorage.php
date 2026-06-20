@@ -6,6 +6,7 @@ namespace CoquiBot\Coqui\Storage;
 
 use CarmeloSantana\PathHelper\PathHelper;
 use CoquiBot\Coqui\Contract\FileUploadMetadata;
+use CoquiBot\Coqui\Support\IdGenerator;
 
 /**
  * Manages uploaded file storage for API sessions.
@@ -89,7 +90,7 @@ final class FileUploadStorage
         $sessionDir = $this->sessionDir($sessionId);
         $this->ensureDirectory($sessionDir);
 
-        $id = bin2hex(random_bytes(16));
+        $id = IdGenerator::hex();
         $extension = $this->extractExtension($originalName);
         $storedFilename = $extension !== '' ? "{$id}.{$extension}" : $id;
         $storedPath = $sessionDir . '/' . $storedFilename;

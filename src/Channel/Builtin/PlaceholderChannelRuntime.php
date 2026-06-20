@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace CoquiBot\Coqui\Channel\Builtin;
 
 use CoquiBot\Coqui\Contract\ChannelRuntimeInterface;
+use CoquiBot\Coqui\Support\Clock;
 
 /**
  * Placeholder runtime used while first-party channel drivers are scaffolded.
@@ -26,7 +27,7 @@ final class PlaceholderChannelRuntime implements ChannelRuntimeInterface
     public function start(): void
     {
         $this->started = true;
-        $this->lastHeartbeatAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastHeartbeatAt = Clock::nowUtc();
     }
 
     public function tick(): void
@@ -35,13 +36,13 @@ final class PlaceholderChannelRuntime implements ChannelRuntimeInterface
             return;
         }
 
-        $this->lastHeartbeatAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastHeartbeatAt = Clock::nowUtc();
     }
 
     public function stop(): void
     {
         $this->started = false;
-        $this->lastHeartbeatAt = gmdate('Y-m-d\TH:i:s\Z');
+        $this->lastHeartbeatAt = Clock::nowUtc();
     }
 
     public function healthReport(): array

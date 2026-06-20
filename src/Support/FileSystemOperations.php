@@ -170,7 +170,7 @@ final readonly class FileSystemOperations
             @mkdir($dir, 0755, true);
         }
 
-        $tmp = $path . '.tmp-' . bin2hex(random_bytes(6));
+        $tmp = $path . '.tmp-' . IdGenerator::hex(6);
 
         if (@file_put_contents($tmp, $content) === false) {
             @unlink($tmp);

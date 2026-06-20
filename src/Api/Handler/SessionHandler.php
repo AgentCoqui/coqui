@@ -39,6 +39,8 @@ use React\Http\Message\Response;
  */
 final readonly class SessionHandler
 {
+    use DecodesRequestBody;
+
     public function __construct(
         private SessionStorage $storage,
         private RoleResolver $roleResolver,
@@ -109,7 +111,7 @@ final readonly class SessionHandler
      */
     public function create(ServerRequestInterface $request): Response
     {
-        $body = $this->requestBody($request) ?? [];
+        $body = $this->decodeJsonObjectOrNull($request) ?? [];
         $scope = $this->sessionScopeResolver()->resolve($body);
         if ($scope instanceof Response) {
             return $scope;
@@ -129,7 +131,7 @@ final readonly class SessionHandler
      */
     public function resolve(ServerRequestInterface $request): Response
     {
-        $body = $this->requestBody($request) ?? [];
+        $body = $this->decodeJsonObjectOrNull($request) ?? [];
         $scope = $this->sessionScopeResolver()->resolve($body);
         if ($scope instanceof Response) {
             return $scope;
@@ -185,7 +187,7 @@ final readonly class SessionHandler
             return $session;
         }
 
-        $body = $this->requestBody($request);
+        $body = $this->decodeJsonObjectOrNull($request);
         if (!is_array($body)) {
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
@@ -234,7 +236,7 @@ final readonly class SessionHandler
         }
 
         try {
-            $updated = $this->groupSessionEndpointHandler($session)->replaceMembers($session, $this->requestBody($request));
+            $updated = $this->groupSessionEndpointHandler($session)->replaceMembers($session, $this->decodeJsonObjectOrNull($request));
         } catch (SessionTypeException $e) {
             return $this->sessionTypeErrorResponse($e);
         }
@@ -253,7 +255,7 @@ final readonly class SessionHandler
         }
 
         try {
-            $updated = $this->groupSessionEndpointHandler($session)->addMember($session, $this->requestBody($request));
+            $updated = $this->groupSessionEndpointHandler($session)->addMember($session, $this->decodeJsonObjectOrNull($request));
         } catch (SessionTypeException $e) {
             return $this->sessionTypeErrorResponse($e);
         }
@@ -272,7 +274,7 @@ final readonly class SessionHandler
         }
 
         try {
-            $updated = $this->groupSessionEndpointHandler($session)->removeMember($session, $profile, $this->requestBody($request));
+            $updated = $this->groupSessionEndpointHandler($session)->removeMember($session, $profile, $this->decodeJsonObjectOrNull($request));
         } catch (SessionTypeException $e) {
             return $this->sessionTypeErrorResponse($e);
         }
@@ -312,16 +314,6 @@ final readonly class SessionHandler
             'child_runs' => $runs,
             'count' => count($runs),
         ]);
-    }
-
-    /**
-     * @return array<string, mixed>|null
-     */
-    private function requestBody(ServerRequestInterface $request): ?array
-    {
-        $decoded = json_decode((string) $request->getBody(), true);
-
-        return is_array($decoded) ? $decoded : null;
     }
 
     private function interactiveSessions(): InteractiveSessionService
