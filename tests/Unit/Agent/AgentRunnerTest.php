@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\AgentRunnerDependencies;
 use CoquiBot\Coqui\Config\CatastrophicBlacklist;
 use CoquiBot\Coqui\Config\OpenClawConfig;
 use CoquiBot\Coqui\Config\RoleResolver;
@@ -146,10 +147,12 @@ function makeAgentRunnerFixture(
         blacklist: $blacklist,
         credentialResolver: makeTestCredentialResolver($workspacePath),
         providerFactory: new ProviderFactory($config),
-        todoStore: $todoStore,
-        artifactStore: $artifactStore,
-        projectStore: $projectStore,
-        memoryStore: $memoryStore,
+        deps: new AgentRunnerDependencies(
+            memoryStore: $memoryStore,
+            todoStore: $todoStore,
+            artifactStore: $artifactStore,
+            projectStore: $projectStore,
+        ),
     );
 }
 
@@ -449,7 +452,9 @@ test('run keeps replayed history and also appends prior history in final system 
             blacklist: $fixture['blacklist'],
             credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
             providerFactory: new ProviderFactory($config),
-            providerResolver: $providerResolver,
+            deps: new AgentRunnerDependencies(
+                providerResolver: $providerResolver,
+            ),
         );
 
         $result = $runner->run('Current request', $sessionId, allowAllPolicy());
@@ -560,7 +565,9 @@ test('run keeps replayed history when conversation history prompt mode is disabl
             blacklist: $fixture['blacklist'],
             credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
             providerFactory: new ProviderFactory($fixture['config']),
-            providerResolver: $providerResolver,
+            deps: new AgentRunnerDependencies(
+                providerResolver: $providerResolver,
+            ),
         );
 
         $result = $runner->run('Current request', $sessionId, allowAllPolicy());
@@ -687,7 +694,9 @@ test('run renders actor-backed group speakers distinctly in conversation history
             blacklist: $fixture['blacklist'],
             credentialResolver: makeTestCredentialResolver($fixture['workspacePath']),
             providerFactory: new ProviderFactory($config),
-            providerResolver: $providerResolver,
+            deps: new AgentRunnerDependencies(
+                providerResolver: $providerResolver,
+            ),
         );
 
         $result = $runner->run('Current request', $sessionId, allowAllPolicy());

@@ -7,6 +7,7 @@ namespace CoquiBot\Coqui\Command;
 use CarmeloSantana\PHPAgents\Contract\TickCallbackInterface;
 use CarmeloSantana\PHPAgents\Contract\ToolExecutorInterface;
 use CoquiBot\Coqui\Agent\AgentRunner;
+use CoquiBot\Coqui\Agent\AgentRunnerDependencies;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ConfigGuard;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
@@ -43,28 +44,30 @@ final class AgentRunnerFactory
             discovery: $boot->discovery(),
             blacklist: $boot->blacklist(),
             credentialResolver: $boot->credentialResolver(),
-            skillDiscovery: $boot->skillDiscovery(),
-            roleDiscovery: $boot->roleDiscovery(),
-            unsafeMode: $unsafeMode,
             providerFactory: $providerFactory,
-            backgroundTasksEnabled: $backgroundTasksEnabled,
-            memoryStore: $boot->memoryStore(),
-            memorySummarizer: $boot->memorySummarizer(),
-            mountManager: $boot->mountManager(),
-            configManager: $includeConfigManager ? $boot->configManager() : null,
-            configGuard: $includeConfigManager ? new ConfigGuard() : null,
-            visibilityRegistry: $includeVisibilityRegistry ? $boot->visibilityRegistry() : null,
-            modsToolkit: $boot->modsToolkit(),
-            todoStore: $boot->todoStore(),
-            artifactStore: $boot->artifactStore(),
-            projectStore: $boot->projectStore(),
-            defaultsLoader: $boot->defaultsLoader(),
-            tickCallback: $tickCallback,
-            toolExecutor: $toolExecutor,
-            httpClient: $httpClient,
-            loadingRegistry: $includeLoadingData ? $boot->loadingRegistry() : null,
-            usageTracker: $includeLoadingData ? $boot->usageTracker() : null,
-            notificationStore: $boot->notificationStore(),
+            deps: new AgentRunnerDependencies(
+                skillDiscovery: $boot->skillDiscovery(),
+                roleDiscovery: $boot->roleDiscovery(),
+                unsafeMode: $unsafeMode,
+                backgroundTasksEnabled: $backgroundTasksEnabled,
+                memoryStore: $boot->memoryStore(),
+                memorySummarizer: $boot->memorySummarizer(),
+                mountManager: $boot->mountManager(),
+                configManager: $includeConfigManager ? $boot->configManager() : null,
+                configGuard: $includeConfigManager ? new ConfigGuard() : null,
+                visibilityRegistry: $includeVisibilityRegistry ? $boot->visibilityRegistry() : null,
+                modsToolkit: $boot->modsToolkit(),
+                todoStore: $boot->todoStore(),
+                artifactStore: $boot->artifactStore(),
+                projectStore: $boot->projectStore(),
+                defaultsLoader: $boot->defaultsLoader(),
+                tickCallback: $tickCallback,
+                toolExecutor: $toolExecutor,
+                httpClient: $httpClient,
+                loadingRegistry: $includeLoadingData ? $boot->loadingRegistry() : null,
+                usageTracker: $includeLoadingData ? $boot->usageTracker() : null,
+                notificationStore: $boot->notificationStore(),
+            ),
         );
     }
 }

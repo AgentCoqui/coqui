@@ -63,6 +63,13 @@
             ]
         },
         {
+            "path": "src/Agent/AgentRunnerDependencies.php",
+            "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunnerDependencies",
+            "layer": "agent",
+            "description": "Immutable value object that groups AgentRunner's optional collaborators (discoveries, stores, memory services, mods toolkit, HTTP client, tick/tool-executor callbacks, provider resolver, and the unsafe/background-task flags) into a single named-argument bag. All fields default to null/false so callers pass only what they need; AgentRunner keeps its required core (role resolver, config, roots, storage, observer, discovery, blacklist, credential resolver, provider factory) as direct constructor parameters and assigns these into its own readonly properties.",
+            "methods": []
+        },
+        {
             "path": "src/Agent/GroupTurnCoordinator.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\GroupTurnCoordinator",
             "layer": "agent",

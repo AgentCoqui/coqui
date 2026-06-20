@@ -69,6 +69,30 @@ use CoquiBot\Coqui\Storage\ToolUsageTracker;
  */
 final class AgentRunner
 {
+    private readonly ?SkillDiscovery $skillDiscovery;
+    private readonly ?RoleDiscovery $roleDiscovery;
+    private readonly bool $unsafeMode;
+    private readonly bool $backgroundTasksEnabled;
+    private readonly ?MemoryStore $memoryStore;
+    private readonly ?MemorySummarizer $memorySummarizer;
+    private readonly ?MountManager $mountManager;
+    private readonly ?ConfigManager $configManager;
+    private readonly ?ConfigGuard $configGuard;
+    private readonly ?ToolkitVisibilityRegistry $visibilityRegistry;
+    private readonly ?ModManagerToolkit $modsToolkit;
+    private readonly ?TodoStore $todoStore;
+    private readonly ?ArtifactStore $artifactStore;
+    private readonly ?ProjectStore $projectStore;
+    private readonly ?DefaultsLoader $defaultsLoader;
+    private readonly ?TickCallbackInterface $tickCallback;
+    private readonly ?ToolExecutorInterface $toolExecutor;
+    private readonly ?HttpClientInterface $httpClient;
+    private readonly ?ToolkitLoadingRegistry $loadingRegistry;
+    private readonly ?ToolUsageTracker $usageTracker;
+    private readonly ?NotificationStore $notificationStore;
+    /** @var \Closure(string):mixed|null */
+    private readonly ?\Closure $providerResolver;
+
     public function __construct(
         private readonly RoleResolver $roleResolver,
         private readonly ConfigInterface $config,
@@ -80,29 +104,31 @@ final class AgentRunner
         private readonly CatastrophicBlacklist $blacklist,
         private readonly CredentialResolverInterface $credentialResolver,
         private readonly ProviderFactory $providerFactory,
-        private readonly ?SkillDiscovery $skillDiscovery = null,
-        private readonly ?RoleDiscovery $roleDiscovery = null,
-        private readonly bool $unsafeMode = false,
-        private readonly bool $backgroundTasksEnabled = false,
-        private readonly ?MemoryStore $memoryStore = null,
-        private readonly ?MemorySummarizer $memorySummarizer = null,
-        private readonly ?MountManager $mountManager = null,
-        private readonly ?ConfigManager $configManager = null,
-        private readonly ?ConfigGuard $configGuard = null,
-        private readonly ?ToolkitVisibilityRegistry $visibilityRegistry = null,
-        private readonly ?ModManagerToolkit $modsToolkit = null,
-        private readonly ?TodoStore $todoStore = null,
-        private readonly ?ArtifactStore $artifactStore = null,
-        private readonly ?ProjectStore $projectStore = null,
-        private readonly ?DefaultsLoader $defaultsLoader = null,
-        private readonly ?TickCallbackInterface $tickCallback = null,
-        private readonly ?ToolExecutorInterface $toolExecutor = null,
-        private readonly ?HttpClientInterface $httpClient = null,
-        private readonly ?ToolkitLoadingRegistry $loadingRegistry = null,
-        private readonly ?ToolUsageTracker $usageTracker = null,
-        private readonly ?NotificationStore $notificationStore = null,
-        private readonly ?\Closure $providerResolver = null,
-    ) {}
+        AgentRunnerDependencies $deps = new AgentRunnerDependencies(),
+    ) {
+        $this->skillDiscovery = $deps->skillDiscovery;
+        $this->roleDiscovery = $deps->roleDiscovery;
+        $this->unsafeMode = $deps->unsafeMode;
+        $this->backgroundTasksEnabled = $deps->backgroundTasksEnabled;
+        $this->memoryStore = $deps->memoryStore;
+        $this->memorySummarizer = $deps->memorySummarizer;
+        $this->mountManager = $deps->mountManager;
+        $this->configManager = $deps->configManager;
+        $this->configGuard = $deps->configGuard;
+        $this->visibilityRegistry = $deps->visibilityRegistry;
+        $this->modsToolkit = $deps->modsToolkit;
+        $this->todoStore = $deps->todoStore;
+        $this->artifactStore = $deps->artifactStore;
+        $this->projectStore = $deps->projectStore;
+        $this->defaultsLoader = $deps->defaultsLoader;
+        $this->tickCallback = $deps->tickCallback;
+        $this->toolExecutor = $deps->toolExecutor;
+        $this->httpClient = $deps->httpClient;
+        $this->loadingRegistry = $deps->loadingRegistry;
+        $this->usageTracker = $deps->usageTracker;
+        $this->notificationStore = $deps->notificationStore;
+        $this->providerResolver = $deps->providerResolver;
+    }
 
     /**
      * Run a single agent turn with a per-turn observer override.
