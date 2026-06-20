@@ -2204,7 +2204,7 @@
             "path": "src/Storage/SessionStorage.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\SessionStorage",
             "layer": "storage",
-            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events, session_title_jobs. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, queued session-title generation, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. Session rows now expose explicit visibility for hiding synthetic worker sessions, derived channel metadata for channel-bound or conversation-backed sessions, a canonical session_type discriminator alongside compatibility group fields, and aggregate lifecycle counts so archived history can be inspected without reactivating it. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. session_title_jobs is an internal queue for first-turn title generation that avoids blocking REPL/API response delivery while preserving replayable title events for turn inspection. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, closed/archive lifecycle metadata, visibility, and the additive session_type column used by the new session-type architecture.",
+            "description": "SQLite-backed session persistence. Tables: sessions, messages, child_runs, audit_log, turns, background_tasks, task_events, task_inputs, turn_processes, turn_events, session_title_jobs. WAL mode + foreign keys enabled. Supports creating/listing sessions, adding/loading messages, logging child runs, audit logging, token counts, turn lifecycle, interactive API turn-process tracking, queued session-title generation, profile-aware interactive session lookup, and session lifecycle state for active vs closed/archived conversations. Session rows now expose explicit visibility for hiding synthetic worker sessions, derived channel metadata for channel-bound or conversation-backed sessions, a canonical session_type discriminator alongside compatibility group fields, and aggregate lifecycle counts so archived history can be inspected without reactivating it. child_runs and background_tasks include structured metadata columns for typed coordination and provenance, including JSON metadata lookups used by notification automation for idempotent retry/escalation task creation. session_title_jobs is an internal queue for first-turn title generation that avoids blocking REPL/API response delivery while preserving replayable title events for turn inspection. Idempotent migrations add turn_id FK columns, title/profile columns, summarized-message flags, closed/archive lifecycle metadata, visibility, and the additive session_type column used by the new session-type architecture. Background-task persistence (records, events, inputs) is delegated to BackgroundTaskRecordStore; process-liveness checks use CoquiProcessChecker.",
             "methods": [
                 "createSession(string $modelRole, string $model): string — creates new session, returns ID",
                 "listSessions(int $limit, bool $excludeTaskSessions=true, bool $activeOnly=true, ?string $status=null): array — lists recent sessions with optional lifecycle filtering",
@@ -2234,6 +2234,21 @@
                 "findRecentTaskByTitle(string $title, ?string $role, array $statuses, int $lookbackHours): ?array — finds the newest matching background task for dedupe/orchestration",
                 "getTasksByStatus(string $status): array — returns all tasks with a given status",
                 "purgeOldTaskEvents(int $maxAgeDays): int — deletes old events for terminal tasks, returns count"
+            ]
+        },
+        {
+            "path": "src/Storage/BackgroundTaskRecordStore.php",
+            "fqcn": "CoquiBot\\Coqui\\Storage\\BackgroundTaskRecordStore",
+            "layer": "storage",
+            "description": "Persistence for background-task records, events, and inputs (background_tasks, task_events, task_inputs tables). Extracted from SessionStorage to keep that class focused on session, message, and turn state. Shares the same PDO connection and CoquiProcessChecker; SessionStorage delegates its task methods here so callers are unaffected.",
+            "methods": [
+                "createTask(...): string — insert a pending background task",
+                "updateTaskStatus / updateTaskStatusConditional / updateTaskHeartbeat — task status and heartbeat updates",
+                "getTask / getTaskByScheduleId / listTasks / listTasksForSchedule / getTasksByStatus / getPendingTasks / findTaskByAutomationNotificationId / findRecentTaskByTitle — task queries",
+                "appendTaskEvent / getTaskEvents / purgeOldTaskEvents — task event log",
+                "addTaskInput / consumeTaskInputs — pending task input queue",
+                "getStaleRunningTasks / getTimedOutRunningTasks / markOrphanedTasksFailed — liveness reconciliation",
+                "isTaskSession / getTaskCounts / getActiveBackgroundSummary — task introspection"
             ]
         },
         {
@@ -3365,6 +3380,15 @@
             "description": "Centralized JSON decode helper. Provides decodeJsonObject() which safely decodes a mixed value into an associative array or null. Handles array passthrough, null/empty/non-string rejection, and type verification. Replaces 11 identical private methods formerly scattered across toolkits, handlers, and agents.",
             "methods": [
                 "static decodeJsonObject(mixed): ?array — decode mixed value to associative array or null"
+            ]
+        },
+        {
+            "path": "src/Support/CoquiProcessChecker.php",
+            "fqcn": "CoquiBot\\Coqui\\Support\\CoquiProcessChecker",
+            "layer": "support",
+            "description": "Determines whether a recorded PID still belongs to a live Coqui worker running `bin/coqui <subcommand>`. Extracted from SessionStorage so the storage layer can decide whether an orphaned task, turn, or title-job process can be safely requeued. An optional checker closure lets tests override the OS-level probe.",
+            "methods": [
+                "isExpectedCoquiProcessAlive(int $pid, string $subcommand): bool — whether the PID is a live Coqui worker for the given subcommand"
             ]
         },
         {

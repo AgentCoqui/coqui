@@ -15,8 +15,9 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Enum\ToolResultStatus;
 use CoquiBot\Coqui\Contract\CoquiDefaults;
 use CoquiBot\Coqui\Contract\SessionType;
+use CoquiBot\Coqui\Support\Clock;
+use CoquiBot\Coqui\Support\CoquiProcessChecker;
 use CoquiBot\Coqui\Support\IdGenerator;
-use CoquiBot\Coqui\Support\ProcessSpawner;
 use CoquiBot\Coqui\Support\SchemaHelper;
 use CoquiBot\Coqui\Support\SqlitePragmas;
 use PDO;
@@ -31,11 +32,12 @@ use PDOException;
 final class SessionStorage
 {
     private PDO $db;
-    private ?\Closure $expectedCoquiProcessChecker;
+    private CoquiProcessChecker $processChecker;
+    private BackgroundTaskRecordStore $taskStore;
 
     public function __construct(string $dbPath, ?\Closure $expectedCoquiProcessChecker = null)
     {
-        $this->expectedCoquiProcessChecker = $expectedCoquiProcessChecker;
+        $this->processChecker = new CoquiProcessChecker($expectedCoquiProcessChecker);
 
         $dir = dirname($dbPath);
         if ($dir !== '' && $dir !== '.' && !is_dir($dir)) {
@@ -47,6 +49,8 @@ final class SessionStorage
         SqlitePragmas::applyTo($this->db);
 
         $this->createTables();
+
+        $this->taskStore = new BackgroundTaskRecordStore($this->db, $this->processChecker);
     }
 
     private function createTables(): void
@@ -2668,33 +2672,7 @@ final class SessionStorage
         ?string $sprintId = null,
         ?array $metadata = null,
     ): string {
-        $id = IdGenerator::hex();
-        $now = date('c');
-
-        $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, metadata, max_iterations, tool_name, tool_arguments, schedule_id, max_execution_seconds, project_id, sprint_id, created_at)
-            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :metadata, :max_iterations, :tool_name, :tool_arguments, :schedule_id, :max_execution_seconds, :project_id, :sprint_id, :created_at)
-        SQL);
-
-        $stmt->execute([
-            'id' => $id,
-            'session_id' => $sessionId,
-            'parent_session_id' => $parentSessionId,
-            'title' => $title,
-            'prompt' => $prompt,
-            'role' => $role,
-            'metadata' => $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
-            'max_iterations' => $maxIterations,
-            'tool_name' => $toolName,
-            'tool_arguments' => $toolArguments,
-            'schedule_id' => $scheduleId,
-            'max_execution_seconds' => $maxExecutionSeconds,
-            'project_id' => $projectId,
-            'sprint_id' => $sprintId,
-            'created_at' => $now,
-        ]);
-
-        return $id;
+        return $this->taskStore->createTask($sessionId, $prompt, $role, $parentSessionId, $title, $maxIterations, $toolName, $toolArguments, $scheduleId, $maxExecutionSeconds, $projectId, $sprintId, $metadata);
     }
 
     /**
@@ -2704,38 +2682,7 @@ final class SessionStorage
      */
     public function updateTaskStatus(string $taskId, string $status, array $extra = []): void
     {
-        $sets = ['status = :status'];
-        $params = ['status' => $status, 'id' => $taskId];
-
-        $now = date('c');
-
-        // Auto-set timestamp columns based on status transition
-        match ($status) {
-            'running' => $sets[] = 'started_at = :started_at',
-            'completed', 'failed' => $sets[] = 'completed_at = :completed_at',
-            'cancelled' => $sets[] = 'cancelled_at = :cancelled_at',
-            default => null,
-        };
-
-        if ($status === 'running') {
-            $params['started_at'] = $now;
-        } elseif ($status === 'completed' || $status === 'failed') {
-            $params['completed_at'] = $now;
-        } elseif ($status === 'cancelled') {
-            $params['cancelled_at'] = $now;
-        }
-
-        foreach ($extra as $col => $val) {
-            if (in_array($col, ['result', 'error', 'pid'], true)) {
-                $sets[] = "{$col} = :{$col}";
-                $params[$col] = $val;
-            }
-        }
-
-        $setClause = implode(', ', $sets);
-
-        $stmt = $this->db->prepare("UPDATE background_tasks SET {$setClause} WHERE id = :id");
-        $stmt->execute($params);
+        $this->taskStore->updateTaskStatus($taskId, $status, $extra);
     }
 
     /**
@@ -2748,39 +2695,7 @@ final class SessionStorage
      */
     public function updateTaskStatusConditional(string $taskId, string $newStatus, string $expectedCurrentStatus, array $extra = []): bool
     {
-        $sets = ['status = :new_status'];
-        $params = ['new_status' => $newStatus, 'expected_status' => $expectedCurrentStatus, 'id' => $taskId];
-
-        $now = date('c');
-
-        match ($newStatus) {
-            'running' => $sets[] = 'started_at = :started_at',
-            'completed', 'failed' => $sets[] = 'completed_at = :completed_at',
-            'cancelled' => $sets[] = 'cancelled_at = :cancelled_at',
-            default => null,
-        };
-
-        if ($newStatus === 'running') {
-            $params['started_at'] = $now;
-        } elseif ($newStatus === 'completed' || $newStatus === 'failed') {
-            $params['completed_at'] = $now;
-        } elseif ($newStatus === 'cancelled') {
-            $params['cancelled_at'] = $now;
-        }
-
-        foreach ($extra as $col => $val) {
-            if (in_array($col, ['result', 'error', 'pid'], true)) {
-                $sets[] = "{$col} = :{$col}";
-                $params[$col] = $val;
-            }
-        }
-
-        $setClause = implode(', ', $sets);
-
-        $stmt = $this->db->prepare("UPDATE background_tasks SET {$setClause} WHERE id = :id AND status = :expected_status");
-        $stmt->execute($params);
-
-        return $stmt->rowCount() > 0;
+        return $this->taskStore->updateTaskStatusConditional($taskId, $newStatus, $expectedCurrentStatus, $extra);
     }
 
     /**
@@ -2788,10 +2703,7 @@ final class SessionStorage
      */
     public function updateTaskHeartbeat(string $taskId): void
     {
-        $stmt = $this->db->prepare(<<<SQL
-            UPDATE background_tasks SET last_heartbeat_at = :now WHERE id = :id AND status = 'running'
-        SQL);
-        $stmt->execute(['now' => date('c'), 'id' => $taskId]);
+        $this->taskStore->updateTaskHeartbeat($taskId);
     }
 
     /**
@@ -2803,18 +2715,7 @@ final class SessionStorage
      */
     public function getStaleRunningTasks(int $staleThresholdSeconds = 300): array
     {
-        $cutoff = date('c', time() - $staleThresholdSeconds);
-
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT id, pid, started_at, last_heartbeat_at
-            FROM background_tasks
-            WHERE status = 'running'
-              AND last_heartbeat_at IS NOT NULL
-              AND last_heartbeat_at < :cutoff
-        SQL);
-        $stmt->execute(['cutoff' => $cutoff]);
-
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->taskStore->getStaleRunningTasks($staleThresholdSeconds);
     }
 
     /**
@@ -2824,28 +2725,7 @@ final class SessionStorage
      */
     public function getTimedOutRunningTasks(): array
     {
-        $now = time();
-
-        $stmt = $this->db->query(<<<SQL
-            SELECT id, pid, started_at, max_execution_seconds
-            FROM background_tasks
-            WHERE status = 'running'
-              AND started_at IS NOT NULL
-              AND max_execution_seconds > 0
-        SQL);
-
-        if ($stmt === false) {
-            return [];
-        }
-
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        // Filter in PHP since SQLite date arithmetic is limited
-        return array_values(array_filter($rows, function (array $row) use ($now): bool {
-            $started = strtotime($row['started_at']);
-
-            return $started !== false && ($now - $started) > (int) $row['max_execution_seconds'];
-        }));
+        return $this->taskStore->getTimedOutRunningTasks();
     }
 
     /**
@@ -2853,14 +2733,7 @@ final class SessionStorage
      */
     public function getTask(string $id): ?array
     {
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT * FROM background_tasks WHERE id = :id
-        SQL);
-
-        $stmt->execute(['id' => $id]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        return $row === false ? null : $row;
+        return $this->taskStore->getTask($id);
     }
 
     /**
@@ -2870,14 +2743,7 @@ final class SessionStorage
      */
     public function getTaskByScheduleId(string $scheduleId): ?array
     {
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT * FROM background_tasks WHERE schedule_id = :schedule_id ORDER BY created_at DESC LIMIT 1
-        SQL);
-
-        $stmt->execute(['schedule_id' => $scheduleId]);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        return $row === false ? null : $row;
+        return $this->taskStore->getTaskByScheduleId($scheduleId);
     }
 
     /**
@@ -2887,21 +2753,7 @@ final class SessionStorage
      */
     public function listTasksForSchedule(string $scheduleId, int $limit = 20): array
     {
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT id, session_id, parent_session_id, pid, status, title, prompt, role,
-                   metadata, result, error, max_iterations, schedule_id, project_id, sprint_id,
-                   created_at, started_at, completed_at, cancelled_at
-            FROM background_tasks
-            WHERE schedule_id = :schedule_id
-            ORDER BY created_at DESC
-            LIMIT :limit
-        SQL);
-
-        $stmt->bindValue('schedule_id', $scheduleId);
-        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-        $stmt->execute();
-
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->taskStore->listTasksForSchedule($scheduleId, $limit);
     }
 
     /**
@@ -2914,26 +2766,7 @@ final class SessionStorage
         string $notificationId,
         array $statuses = ['pending', 'running', 'completed'],
     ): ?array {
-        if ($statuses === []) {
-            return null;
-        }
-
-        $statusPlaceholders = implode(', ', array_fill(0, count($statuses), '?'));
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT *
-            FROM background_tasks
-            WHERE metadata IS NOT NULL
-              AND json_extract(metadata, '$.automation.notification_id') = ?
-              AND status IN ({$statusPlaceholders})
-            ORDER BY created_at DESC
-            LIMIT 1
-        SQL);
-
-        $params = [$notificationId, ...$statuses];
-        $stmt->execute($params);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        return $row === false ? null : $row;
+        return $this->taskStore->findTaskByAutomationNotificationId($notificationId, $statuses);
     }
 
     /**
@@ -2948,35 +2781,7 @@ final class SessionStorage
         array $statuses = ['pending', 'running', 'completed'],
         int $lookbackHours = 24,
     ): ?array {
-        if ($statuses === []) {
-            return null;
-        }
-
-        $cutoff = date('c', time() - ($lookbackHours * 3600));
-        $statusPlaceholders = implode(', ', array_fill(0, count($statuses), '?'));
-        $roleClause = $role !== null ? 'AND role = ?' : '';
-
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT *
-            FROM background_tasks
-            WHERE title = ?
-              {$roleClause}
-              AND status IN ({$statusPlaceholders})
-              AND created_at >= ?
-            ORDER BY created_at DESC
-            LIMIT 1
-        SQL);
-
-        $params = [$title];
-        if ($role !== null) {
-            $params[] = $role;
-        }
-        $params = [...$params, ...$statuses, $cutoff];
-
-        $stmt->execute($params);
-        $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-        return $row === false ? null : $row;
+        return $this->taskStore->findRecentTaskByTitle($title, $role, $statuses, $lookbackHours);
     }
 
     /**
@@ -2986,13 +2791,7 @@ final class SessionStorage
      */
     public function getTasksByStatus(string $status): array
     {
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT * FROM background_tasks WHERE status = :status ORDER BY created_at ASC
-        SQL);
-
-        $stmt->execute(['status' => $status]);
-
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->taskStore->getTasksByStatus($status);
     }
 
     /**
@@ -3002,30 +2801,7 @@ final class SessionStorage
      */
     public function listTasks(?string $status = null, int $limit = 50): array
     {
-        $where = '';
-        $params = [];
-
-        if ($status !== null && $status !== 'all') {
-            $where = 'WHERE status = :status';
-            $params['status'] = $status;
-        }
-
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT id, session_id, parent_session_id, pid, status, title, prompt, role,
-                   metadata, max_iterations, created_at, started_at, completed_at, cancelled_at
-            FROM background_tasks
-            {$where}
-            ORDER BY created_at DESC
-            LIMIT :limit
-        SQL);
-
-        foreach ($params as $key => $val) {
-            $stmt->bindValue($key, $val);
-        }
-        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-        $stmt->execute();
-
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->taskStore->listTasks($status, $limit);
     }
 
     /**
@@ -3033,17 +2809,7 @@ final class SessionStorage
      */
     public function appendTaskEvent(string $taskId, string $eventType, mixed $data = null): void
     {
-        $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO task_events (task_id, event_type, data, created_at)
-            VALUES (:task_id, :event_type, :data, :created_at)
-        SQL);
-
-        $stmt->execute([
-            'task_id' => $taskId,
-            'event_type' => $eventType,
-            'data' => json_encode($data ?? new \stdClass(), JSON_UNESCAPED_SLASHES) ?: '{}',
-            'created_at' => date('c'),
-        ]);
+        $this->taskStore->appendTaskEvent($taskId, $eventType, $data);
     }
 
     /**
@@ -3053,29 +2819,7 @@ final class SessionStorage
      */
     public function getTaskEvents(string $taskId, ?int $sinceId = null, int $limit = 100): array
     {
-        $where = 'task_id = :task_id';
-        $params = ['task_id' => $taskId];
-
-        if ($sinceId !== null) {
-            $where .= ' AND id > :since_id';
-            $params['since_id'] = $sinceId;
-        }
-
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT id, event_type, data, created_at
-            FROM task_events
-            WHERE {$where}
-            ORDER BY id ASC
-            LIMIT :limit
-        SQL);
-
-        foreach ($params as $key => $val) {
-            $stmt->bindValue($key, $val);
-        }
-        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-        $stmt->execute();
-
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->taskStore->getTaskEvents($taskId, $sinceId, $limit);
     }
 
     /**
@@ -3133,21 +2877,7 @@ final class SessionStorage
      */
     public function addTaskInput(string $taskId, string $content): string
     {
-        $id = IdGenerator::hex();
-
-        $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO task_inputs (id, task_id, content, consumed, created_at)
-            VALUES (:id, :task_id, :content, 0, :created_at)
-        SQL);
-
-        $stmt->execute([
-            'id' => $id,
-            'task_id' => $taskId,
-            'content' => $content,
-            'created_at' => date('c'),
-        ]);
-
-        return $id;
+        return $this->taskStore->addTaskInput($taskId, $content);
     }
 
     /**
@@ -3159,34 +2889,7 @@ final class SessionStorage
      */
     public function consumeTaskInputs(string $taskId): array
     {
-        $this->db->beginTransaction();
-
-        try {
-            $stmt = $this->db->prepare(<<<SQL
-                SELECT id, content FROM task_inputs
-                WHERE task_id = :task_id AND consumed = 0
-                ORDER BY created_at ASC
-            SQL);
-            $stmt->execute(['task_id' => $taskId]);
-            $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-            if (empty($rows)) {
-                $this->db->commit();
-                return [];
-            }
-
-            $ids = array_column($rows, 'id');
-            $placeholders = implode(',', array_fill(0, count($ids), '?'));
-            $update = $this->db->prepare("UPDATE task_inputs SET consumed = 1 WHERE id IN ({$placeholders})");
-            $update->execute($ids);
-
-            $this->db->commit();
-
-            return array_column($rows, 'content');
-        } catch (\Throwable $e) {
-            $this->db->rollBack();
-            throw $e;
-        }
+        return $this->taskStore->consumeTaskInputs($taskId);
     }
 
     /**
@@ -3197,35 +2900,7 @@ final class SessionStorage
      */
     public function markOrphanedTasksFailed(string $error = 'Server restarted — task process was lost'): int
     {
-        $stmt = $this->db->query(<<<SQL
-            SELECT id, pid FROM background_tasks WHERE status IN ('running', 'cancelling')
-        SQL);
-
-        if ($stmt === false) {
-            return 0;
-        }
-
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        $count = 0;
-        $now = date('c');
-
-        $update = $this->db->prepare(<<<SQL
-            UPDATE background_tasks SET status = 'failed', error = :error, completed_at = :now WHERE id = :id
-        SQL);
-
-        foreach ($rows as $row) {
-            $pid = (int) ($row['pid'] ?? 0);
-
-            // Only keep the task if the PID is alive AND still belongs to Coqui task:run.
-            if ($this->isExpectedCoquiProcessAlive($pid, 'task:run')) {
-                continue;
-            }
-
-            $update->execute(['error' => $error, 'now' => $now, 'id' => $row['id']]);
-            $count++;
-        }
-
-        return $count;
+        return $this->taskStore->markOrphanedTasksFailed($error);
     }
 
     /**
@@ -3235,18 +2910,7 @@ final class SessionStorage
      */
     public function getPendingTasks(int $limit = 10): array
     {
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT id, session_id, prompt, role, max_iterations, title
-            FROM background_tasks
-            WHERE status = 'pending'
-            ORDER BY created_at ASC
-            LIMIT :limit
-        SQL);
-
-        $stmt->bindValue('limit', $limit, PDO::PARAM_INT);
-        $stmt->execute();
-
-        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+        return $this->taskStore->getPendingTasks($limit);
     }
 
     /**
@@ -3254,12 +2918,7 @@ final class SessionStorage
      */
     public function isTaskSession(string $sessionId): bool
     {
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT COUNT(*) FROM background_tasks WHERE session_id = :session_id
-        SQL);
-        $stmt->execute(['session_id' => $sessionId]);
-
-        return (int) $stmt->fetchColumn() > 0;
+        return $this->taskStore->isTaskSession($sessionId);
     }
 
     /**
@@ -3269,20 +2928,7 @@ final class SessionStorage
      */
     public function getTaskCounts(): array
     {
-        $stmt = $this->db->query(<<<SQL
-            SELECT status, COUNT(*) as count FROM background_tasks GROUP BY status
-        SQL);
-
-        if ($stmt === false) {
-            return [];
-        }
-
-        $counts = [];
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $counts[$row['status']] = (int) $row['count'];
-        }
-
-        return $counts;
+        return $this->taskStore->getTaskCounts();
     }
 
     /**
@@ -3296,19 +2942,7 @@ final class SessionStorage
      */
     public function purgeOldTaskEvents(int $maxAgeDays = 7): int
     {
-        $cutoff = date('c', time() - ($maxAgeDays * 86400));
-
-        $stmt = $this->db->prepare(<<<SQL
-            DELETE FROM task_events
-            WHERE task_id IN (
-                SELECT id FROM background_tasks WHERE status IN ('completed', 'failed', 'cancelled')
-            )
-            AND created_at < :cutoff
-        SQL);
-
-        $stmt->execute(['cutoff' => $cutoff]);
-
-        return $stmt->rowCount();
+        return $this->taskStore->purgeOldTaskEvents($maxAgeDays);
     }
 
     /**
@@ -3321,16 +2955,7 @@ final class SessionStorage
      */
     public function getActiveBackgroundSummary(): array
     {
-        $stmt = $this->db->prepare(<<<SQL
-            SELECT id, status, title, role, tool_name, started_at, created_at
-            FROM background_tasks
-            WHERE status IN ('running', 'pending')
-            ORDER BY created_at ASC
-        SQL);
-
-        $stmt->execute();
-
-        return $stmt->fetchAll(\PDO::FETCH_ASSOC);
+        return $this->taskStore->getActiveBackgroundSummary();
     }
 
     /**
@@ -3529,51 +3154,6 @@ final class SessionStorage
 
     private function isExpectedCoquiProcessAlive(int $pid, string $subcommand): bool
     {
-        if ($this->expectedCoquiProcessChecker !== null) {
-            return (bool) ($this->expectedCoquiProcessChecker)($pid, $subcommand);
-        }
-
-        if ($pid <= 0 || !ProcessSpawner::isProcessAlive($pid)) {
-            return false;
-        }
-
-        $command = PHP_OS_FAMILY === 'Windows'
-            ? $this->windowsProcessCommandLine($pid)
-            : shell_exec(sprintf('ps -o command= -p %d 2>/dev/null', $pid));
-
-        if (!is_string($command) || trim($command) === '') {
-            return false;
-        }
-
-        return str_contains($command, 'bin/coqui')
-            && str_contains($command, $subcommand);
-    }
-
-    private function windowsProcessCommandLine(int $pid): ?string
-    {
-        $descriptors = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-
-        $process = @proc_open([
-            'powershell',
-            '-NoProfile',
-            '-Command',
-            sprintf('(Get-CimInstance Win32_Process -Filter "ProcessId = %d" -ErrorAction SilentlyContinue).CommandLine', $pid),
-        ], $descriptors, $pipes, null, null);
-
-        if (!is_resource($process)) {
-            return null;
-        }
-
-        fclose($pipes[0]);
-        $stdout = stream_get_contents($pipes[1]);
-        fclose($pipes[1]);
-        fclose($pipes[2]);
-        proc_close($process);
-
-        return $stdout === false ? null : trim($stdout);
+        return $this->processChecker->isExpectedCoquiProcessAlive($pid, $subcommand);
     }
 }
