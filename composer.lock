@@ -262,7 +262,7 @@
         },
         {
             "name": "coquibot/coqui-toolkit-mod-manager",
-            "version": "v0.01.2",
+            "version": "v0.1.2",
             "source": {
                 "type": "git",
                 "url": "https://github.com/carmelosantana/coqui-toolkit-mod-manager.git",
@@ -358,7 +358,7 @@
             ],
             "support": {
                 "issues": "https://github.com/carmelosantana/coqui-toolkit-mod-manager/issues",
-                "source": "https://github.com/carmelosantana/coqui-toolkit-mod-manager/tree/v0.01.2"
+                "source": "https://github.com/carmelosantana/coqui-toolkit-mod-manager/tree/v0.1.2"
             },
             "time": "2026-06-16T20:08:57+00:00"
         },
