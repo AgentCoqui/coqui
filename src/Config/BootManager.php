@@ -11,6 +11,7 @@ use CarmeloSantana\PHPAgents\Embedding\OllamaEmbeddingProvider;
 use CarmeloSantana\PHPAgents\Embedding\OpenAIEmbeddingProvider;
 
 use CarmeloSantana\PHPAgents\Provider\ProviderFactory;
+use CoquiBot\Coqui\Provider\ReactCliRuntime;
 use CoquiBot\Coqui\Channel\ChannelDiscovery;
 use CoquiBot\Coqui\Config\OpenClawConfig as CoquiOpenClawConfig;
 use CoquiBot\Coqui\Contract\MountDefinition;
@@ -151,7 +152,11 @@ final class BootManager
     public function providerFactory(?HttpClientInterface $httpClient = null): ProviderFactory
     {
         if ($this->providerFactory === null) {
-            $this->providerFactory = new ProviderFactory($this->config, $httpClient);
+            $this->providerFactory = new ProviderFactory(
+                config: $this->config,
+                httpClient: $httpClient,
+                cliRuntime: new ReactCliRuntime(),
+            );
         }
 
         return $this->providerFactory;

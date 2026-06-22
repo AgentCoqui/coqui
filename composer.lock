@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "81187bd57f350c480e415e5c98b6d0eb",
+    "content-hash": "3ed28c8f4e11c33e543175d4cb9e335b",
     "packages": [
         {
             "name": "carmelosantana/coqui-toolkit-images",
@@ -93,17 +93,11 @@
         },
         {
             "name": "carmelosantana/php-agents",
-            "version": "v0.14.1",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/carmelosantana/php-agents.git",
-                "reference": "6eda8fc75769365a1fde4e1885fb282053383a3e"
-            },
+            "version": "dev-feat_claude-cli",
             "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/carmelosantana/php-agents/zipball/6eda8fc75769365a1fde4e1885fb282053383a3e",
-                "reference": "6eda8fc75769365a1fde4e1885fb282053383a3e",
-                "shasum": ""
+                "type": "path",
+                "url": "../php-agents",
+                "reference": "6eda8fc75769365a1fde4e1885fb282053383a3e"
             },
             "require": {
                 "php": "^8.4",
@@ -127,7 +121,39 @@
                     "CarmeloSantana\\PHPAgents\\": "src/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
+            "autoload-dev": {
+                "psr-4": {
+                    "Tests\\": "tests/"
+                }
+            },
+            "scripts": {
+                "test": [
+                    "pest"
+                ],
+                "analyse": [
+                    "phpstan analyse --memory-limit=512M"
+                ],
+                "benchmark:llama-cpp-runtime": [
+                    "Composer\\Config::disableProcessTimeout",
+                    "php scripts/benchmark-llama-cpp-runtime.php"
+                ],
+                "benchmark:llama-cpp-cache": [
+                    "Composer\\Config::disableProcessTimeout",
+                    "php scripts/benchmark-llama-cpp-cache.php"
+                ],
+                "compare:llama-cpp-vs-ollama": [
+                    "Composer\\Config::disableProcessTimeout",
+                    "php scripts/compare-llama-cpp-vs-ollama.php"
+                ],
+                "setup:llama-cpp": [
+                    "Composer\\Config::disableProcessTimeout",
+                    "./scripts/setup-llama-cpp.sh"
+                ],
+                "test:llama-cpp-runtime": [
+                    "Composer\\Config::disableProcessTimeout",
+                    "./scripts/test-llama-cpp-runtime.sh"
+                ]
+            },
             "license": [
                 "MIT"
             ],
@@ -144,11 +170,10 @@
                 "php-agents",
                 "tools"
             ],
-            "support": {
-                "issues": "https://github.com/carmelosantana/php-agents/issues",
-                "source": "https://github.com/carmelosantana/php-agents/tree/v0.14.1"
-            },
-            "time": "2026-06-16T19:03:38+00:00"
+            "transport-options": {
+                "symlink": true,
+                "relative": true
+            }
         },
         {
             "name": "carmelosantana/php-pathhelper",
@@ -6559,9 +6584,18 @@
             "time": "2026-06-15T15:31:57+00:00"
         }
     ],
-    "aliases": [],
+    "aliases": [
+        {
+            "package": "carmelosantana/php-agents",
+            "version": "dev-feat_claude-cli",
+            "alias": "0.14.1",
+            "alias_normalized": "0.14.1.0"
+        }
+    ],
     "minimum-stability": "dev",
-    "stability-flags": {},
+    "stability-flags": {
+        "carmelosantana/php-agents": 20
+    },
     "prefer-stable": true,
     "prefer-lowest": false,
     "platform": {

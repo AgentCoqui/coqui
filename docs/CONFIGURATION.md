@@ -613,8 +613,17 @@ When available, Coqui hydrates model metadata from the provider API during setup
 | Google Gemini | `gemini` | `GEMINI_API_KEY` | `https://generativelanguage.googleapis.com/v1beta` |
 | Mistral | `mistral` | `MISTRAL_API_KEY` | `https://api.mistral.ai/v1` |
 | MiniMax | `openai-completions` | `MINIMAX_API_KEY` | `https://api.minimax.chat/v1` |
+| Claude Code CLI | `claude-cli` | — (uses the binary's own login) | — (local binary) |
 
 Any OpenAI-compatible provider can be added using `openai-completions` as the API protocol.
+
+#### Claude Code CLI provider
+
+The `claude-cli` provider drives the locally installed `claude` binary instead of an HTTP API. Select it with model strings like `claude-cli/sonnet`, `claude-cli/opus`, or `claude-cli/haiku` (a full id such as `claude-cli/claude-opus-4-8` also works). It runs `claude` headless as a raw chat completion (`--tools "" --bare --no-session-persistence`), so Coqui's own toolkits and safety model stay in control and provider-reported token usage feeds normal budgeting.
+
+Authentication is delegated entirely to your `claude` install — Coqui does not manage an API key for this provider, so no env var or `apiKey` is required. **Authenticate the binary with an Anthropic API key** (`ANTHROPIC_API_KEY`, or a token from `claude setup-token` / `CLAUDE_CODE_OAUTH_TOKEN`). Coqui does **not** use a claude.ai Pro/Max subscription login on your behalf: Anthropic's terms forbid programmatic/third-party use of consumer subscription auth, and the Agent SDK docs state *"Unless previously approved, Anthropic does not allow third party developers to offer claude.ai login or rate limits for their products … Please use the API key authentication methods instead."* Override the binary path with a `"binary"` field on the provider config if `claude` is not on `PATH`.
+
+Model discovery is **curated, not live** — the `claude` CLI exposes no model-list command, so only the stable aliases (`fable`/`opus`/`sonnet`/`haiku`) plus anything in this catalog are listed. A full model id still works in the model string (`claude-cli/claude-opus-4-8`).
 
 ### Model Catalog
 

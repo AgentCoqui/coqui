@@ -2838,6 +2838,17 @@
             ]
         },
         {
+            "path": "src/Provider/ReactCliRuntime.php",
+            "fqcn": "CoquiBot\\Coqui\\Provider\\ReactCliRuntime",
+            "layer": "provider",
+            "description": "Host implementation of php-agents' CliRuntimeInterface that spawns CLI vendor binaries (e.g. the `claude` CLI) via ReactPHP child processes. Suspends the current Fiber with React\\Async\\await so the REPL spinner keeps animating during a CLI-backed LLM call, mirroring ReactHttpClientAdapter for HTTP. Injected into ProviderFactory by BootManager to enable the 'claude-cli' provider type. Authentication is delegated entirely to the user's own claude binary.",
+            "methods": [
+                "isAvailable(string): bool — cheap, memoized PATH probe for the binary",
+                "run(CliProcessRequest): CliProcessResult — execute to completion, aggregate stdout/stderr",
+                "stream(CliProcessRequest): iterable<CliProcessChunk> — yield stdout fragments as they arrive"
+            ]
+        },
+        {
             "path": "src/Provider/FallbackProvider.php",
             "fqcn": "CoquiBot\\Coqui\\Provider\\FallbackProvider",
             "layer": "agent",
