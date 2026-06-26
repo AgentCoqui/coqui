@@ -103,11 +103,6 @@ final readonly class LoopHandler
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Specify either project_id or project_slug, not both');
         }
 
-        $sprintId = isset($body['sprint_id']) ? trim((string) $body['sprint_id']) : null;
-        if ($sprintId === '') {
-            $sprintId = null;
-        }
-
         if ($this->projectStore !== null) {
             if ($projectId !== null && $this->projectStore->getProject($projectId) === null) {
                 return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Project not found');
@@ -115,10 +110,6 @@ final readonly class LoopHandler
 
             if ($projectSlug !== null && $this->projectStore->getProject($projectSlug) === null) {
                 return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Project not found');
-            }
-
-            if ($sprintId !== null && $this->projectStore->getSprint($sprintId) === null) {
-                return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Sprint not found');
             }
         }
 
@@ -156,7 +147,6 @@ final readonly class LoopHandler
                 parameters: $parameters,
                 projectId: $projectId,
                 projectSlug: $projectSlug,
-                sprintId: $sprintId,
                 maxIterationsOverride: $maxIterations,
             );
         } catch (\InvalidArgumentException $e) {

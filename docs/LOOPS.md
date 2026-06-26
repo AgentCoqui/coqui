@@ -54,8 +54,8 @@ loop_start(definition: "harness", goal: "...", max_iterations: 3)
 loop_start(definition: "harness", goal: "Build caching layer")
   ↓
 LoopExecutor:
-  1. Validates parameters, auto-creates a project
-  2. Creates loop record → first iteration → sprint → stage records
+  1. Validates parameters, resolves or auto-creates a project
+  2. Creates loop record → first iteration → stage records
   ↓
 Iteration 1:
   Stage 0: plan (role: plan)
@@ -124,10 +124,10 @@ OrchestratorAgent sessionId
       → loops.session_id
         → LoopStageResult.sessionId
           → LoopManager.advanceLoop()
-            → ArtifactToolkit, TodoToolkit, SprintToolkit
+            → ArtifactToolkit
 ```
 
-This means stage agents can read and create artifacts, track todos, and update sprint progress — all within the parent session's context. After each successful stage, `LoopManager` creates a `loop_output` artifact with the stage's result.
+This means stage agents can read and create artifacts — all within the parent session's context. After each successful stage, `LoopManager` creates a `loop_output` artifact with the stage's result.
 
 ## Stage Agent Capabilities
 
@@ -140,7 +140,7 @@ Stage agents receive toolkits based on their role's access level:
 | `readonly` (e.g., plan, reviewer) | Read-only files only |
 | `minimal` | No toolkits |
 
-All access levels receive: `ArtifactToolkit`, `TodoToolkit`, `SprintToolkit`, and `SkillToolkit` (except minimal).
+All access levels receive: `ArtifactToolkit` and `SkillToolkit` (except minimal).
 
 ### Excluded from Stage Agents
 
@@ -297,5 +297,4 @@ Both modes use `LoopExecutor` as the shared orchestration engine for state manag
 
 - [DATA_FLOW.md](DATA_FLOW.md) — How all components connect
 - [ARTIFACTS.md](ARTIFACTS.md) — Artifacts created by loop stages
-- [TODOS.md](TODOS.md) — Todos that loop stages can track
 - [PROJECTS.md](PROJECTS.md) — Projects auto-created by loops

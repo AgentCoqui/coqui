@@ -48,7 +48,6 @@ use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\EditHistory;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Repl\NotificationPresenter;
 use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use SplObserver;
@@ -80,7 +79,6 @@ final class AgentRunner
     private readonly ?ConfigGuard $configGuard;
     private readonly ?ToolkitVisibilityRegistry $visibilityRegistry;
     private readonly ?ModManagerToolkit $modsToolkit;
-    private readonly ?TodoStore $todoStore;
     private readonly ?ArtifactStore $artifactStore;
     private readonly ?ProjectStore $projectStore;
     private readonly ?DefaultsLoader $defaultsLoader;
@@ -117,7 +115,6 @@ final class AgentRunner
         $this->configGuard = $deps->configGuard;
         $this->visibilityRegistry = $deps->visibilityRegistry;
         $this->modsToolkit = $deps->modsToolkit;
-        $this->todoStore = $deps->todoStore;
         $this->artifactStore = $deps->artifactStore;
         $this->projectStore = $deps->projectStore;
         $this->defaultsLoader = $deps->defaultsLoader;
@@ -168,7 +165,6 @@ final class AgentRunner
         ?int $maxIterations = null,
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
-        ?string $defaultSprintId = null,
         ?string $profile = null,
     ): AgentTurnResult {
         return $this->doRun(
@@ -183,7 +179,6 @@ final class AgentRunner
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
-            defaultSprintId: $defaultSprintId,
             profile: $profile,
         );
     }
@@ -257,7 +252,6 @@ final class AgentRunner
         ?array $filePaths = null,
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
-        ?string $defaultSprintId = null,
         ?string $profile = null,
         ?string $turnProcessId = null,
     ): AgentTurnResult {
@@ -317,7 +311,6 @@ final class AgentRunner
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
-            defaultSprintId: $defaultSprintId,
             activeProfile: $profile,
             activeProfilePath: $resolvedProfilePath,
             profilePreferences: $resolvedPreferences,
@@ -647,7 +640,6 @@ final class AgentRunner
         ?array $filePaths = null,
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
-        ?string $defaultSprintId = null,
         ?string $profile = null,
         ?string $turnId = null,
         ?Conversation $history = null,
@@ -685,7 +677,6 @@ final class AgentRunner
             maxIterations: $maxIterations,
             workScopeSessionId: $workScopeSessionId,
             defaultProjectId: $defaultProjectId,
-            defaultSprintId: $defaultSprintId,
             activeProfile: $profile,
             activeProfilePath: $resolvedProfilePath,
             profilePreferences: $resolvedPreferences,
@@ -931,7 +922,6 @@ final class AgentRunner
         ?int $maxIterations = null,
         ?string $workScopeSessionId = null,
         ?string $defaultProjectId = null,
-        ?string $defaultSprintId = null,
         ?string $activeProfile = null,
         ?string $activeProfilePath = null,
         ?\CoquiBot\Coqui\Config\ProfilePreferences $profilePreferences = null,
@@ -1022,7 +1012,6 @@ final class AgentRunner
                 usageTracker: $this->usageTracker,
                 workScopeSessionId: $workScopeSessionId,
                 defaultProjectId: $defaultProjectId,
-                defaultSprintId: $defaultSprintId,
                 budgetExitThreshold: $budgetExitThreshold,
                 budgetExitWrapUpIterations: $budgetExitWrapUpIterations,
                 activeProfile: $activeProfile,
@@ -2042,7 +2031,7 @@ final class AgentRunner
     }
 
     /**
-     * Build a workflow context string summarizing active todos and artifacts.
+     * Build a workflow context string summarizing active artifacts.
      *
      * Injected into the summarization prompt so the LLM preserves
      * structured workflow state when compressing conversation history.
@@ -2050,34 +2039,6 @@ final class AgentRunner
     private function buildWorkflowContext(string $sessionId): ?string
     {
         $sections = [];
-
-        if ($this->todoStore !== null) {
-            try {
-                $stats = $this->todoStore->getStats($sessionId);
-                $total = $stats['total'];
-
-                if ($total > 0) {
-                    $lines = ["Todos: {$stats['completed']}/{$total} completed"];
-
-                    $activeTodos = $this->todoStore->list($sessionId, status: 'in_progress');
-                    foreach ($activeTodos as $todo) {
-                        $lines[] = "  - [in_progress] {$todo['title']}";
-                    }
-
-                    $pendingTodos = $this->todoStore->list($sessionId, status: 'pending');
-                    foreach (array_slice($pendingTodos, 0, 5) as $todo) {
-                        $lines[] = "  - [pending] {$todo['title']}";
-                    }
-                    if (count($pendingTodos) > 5) {
-                        $lines[] = '  - ... and ' . (count($pendingTodos) - 5) . ' more pending';
-                    }
-
-                    $sections[] = implode("\n", $lines);
-                }
-            } catch (\Throwable) {
-                // Non-critical — skip if store errors
-            }
-        }
 
         if ($this->artifactStore !== null) {
             try {
@@ -2099,45 +2060,8 @@ final class AgentRunner
                 // Non-critical
             }
         }
-        $this->appendSprintContext($sessionId, $sections);
+
         return $sections !== [] ? implode("\n", $sections) : null;
-    }
-
-    /**
-     * Append active sprint context to workflow sections.
-     *
-     * @param string[] $sections Mutable reference to sections array.
-     */
-    private function appendSprintContext(string $sessionId, array &$sections): void
-    {
-        if ($this->projectStore === null) {
-            return;
-        }
-
-        try {
-            $sprints = $this->projectStore->getActiveSprintsForSession($sessionId);
-            if ($sprints === []) {
-                return;
-            }
-
-            $lines = ['Active sprints:'];
-            foreach (array_slice($sprints, 0, 3) as $sprint) {
-                $title = $sprint['title'];
-                $number = $sprint['sprint_number'];
-                $status = $sprint['status'];
-                $round = $sprint['review_round'] ?? 0;
-                $maxRounds = $sprint['max_review_rounds'] ?? 3;
-                $progress = '';
-                if ($this->todoStore !== null) {
-                    $stats = $this->projectStore->getSprintProgress($sprint['id'], $this->todoStore, $sessionId);
-                    $progress = " — {$stats['percent']}% complete";
-                }
-                $lines[] = "  - Sprint #{$number} '{$title}' ({$status}{$progress}, round {$round}/{$maxRounds})";
-            }
-            $sections[] = implode("\n", $lines);
-        } catch (\Throwable) {
-            // Non-critical
-        }
     }
 
     /**

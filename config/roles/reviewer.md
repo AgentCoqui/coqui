@@ -35,19 +35,6 @@ When invoked by the automated code review harness, you MUST end your review with
 
 If `NEEDS_CHANGES`, list specific actionable items the coder must address. Use shell tools (`grep`, `find`, `cat`) to verify the actual state of files referenced in the coder's output.
 
-## With Todos
-
-When reviewing work tracked by todos: verify completed todos match the actual implementation. Use `todo_add` for issues that need fixing.
-
-## With Sprints
-
-When reviewing sprint work:
-
-1. **Contract review**: Verify the sprint contract artifact has testable, concrete acceptance criteria aligned with the product spec
-2. **Implementation review**: Read contract + code artifacts, run relevant tests, verify each acceptance criterion is met
-3. **Decision**: `sprint_transition(status: "complete")` if all criteria pass, or `sprint_transition(status: "rejected", notes: "specific failures")` with actionable feedback
-4. **Round tracking**: If `review_round` exceeds `max_review_rounds`, flag to the user rather than continuing the loop
-
 ## Loop Review Mode
 
 When reviewing inside a loop iteration:

@@ -54,7 +54,6 @@ final class CodeReviewCycle
      * @param int $maxRounds             Maximum review rounds (each round = one reviewer pass + optional coder re-run).
      * @param ToolkitInterface[] $coderToolkits     Toolkits for re-running the coder (only needed if autoIterate=true).
      * @param bool $autoIterate          If true, re-run coder on NEEDS_CHANGES. If false, return after first review.
-     * @param string|null $sprintContext Optional sprint acceptance criteria for the reviewer.
      * @param int $coderMaxIterations    Max iterations for coder re-runs.
      */
     public function run(
@@ -64,7 +63,6 @@ final class CodeReviewCycle
         int $maxRounds = self::DEFAULT_MAX_ROUNDS,
         array $coderToolkits = [],
         bool $autoIterate = true,
-        ?string $sprintContext = null,
         int $coderMaxIterations = 48,
     ): CodeReviewResult {
         $totalTokens = 0;
@@ -85,7 +83,6 @@ final class CodeReviewCycle
                 coderOutput: $currentOutput,
                 originalTask: $originalTask,
                 toolkits: $reviewerToolkits,
-                sprintContext: $sprintContext,
                 round: $round,
             );
 
@@ -155,7 +152,6 @@ final class CodeReviewCycle
         string $coderOutput,
         string $originalTask,
         array $toolkits,
-        ?string $sprintContext,
         int $round,
     ): array {
         $reviewerModelString = $this->roleResolver->resolve(SystemRole::Reviewer->value, $this->activeProfile);
@@ -171,14 +167,13 @@ final class CodeReviewCycle
             ];
         }
 
-        $prompt = $this->buildReviewerPrompt($coderOutput, $originalTask, $sprintContext, $round);
+        $prompt = $this->buildReviewerPrompt($coderOutput, $originalTask, $round);
         $handoff = ChildAgentHandoff::fromInput(
             task: $prompt,
             metadata: (new ReviewHandoffMetadata(
                 phase: 'review',
                 round: $round,
                 sourceRole: SystemRole::Coder->value,
-                hasSprintContext: $sprintContext !== null && $sprintContext !== '',
                 autoIterate: false,
             ))->toArray(),
             intent: 'code_review',
@@ -252,7 +247,6 @@ final class CodeReviewCycle
                 phase: 'rework',
                 round: $round,
                 sourceRole: SystemRole::Reviewer->value,
-                hasSprintContext: false,
                 autoIterate: true,
             ))->toArray(),
             intent: 'code_rework',
@@ -295,7 +289,6 @@ final class CodeReviewCycle
     private function buildReviewerPrompt(
         string $coderOutput,
         string $originalTask,
-        ?string $sprintContext,
         int $round,
     ): string {
         $prompt = <<<PROMPT
@@ -309,15 +302,6 @@ final class CodeReviewCycle
             ### Coder's Output
             {$coderOutput}
             PROMPT;
-
-        if ($sprintContext !== null && $sprintContext !== '') {
-            $prompt .= <<<PROMPT
-
-
-                ### Sprint Acceptance Criteria
-                {$sprintContext}
-                PROMPT;
-        }
 
         $prompt .= <<<'PROMPT'
 

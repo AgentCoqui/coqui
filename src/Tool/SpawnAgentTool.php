@@ -17,7 +17,6 @@ use CoquiBot\Coqui\Toolkit\ShellToolkit;
 use CoquiBot\Coqui\Toolkit\WebToolkit;
 use CoquiBot\Coqui\Agent\ChildAgent;
 use CoquiBot\Coqui\Agent\CodeReviewCycle;
-use CoquiBot\Coqui\Agent\PlanTodoGenerator;
 use CoquiBot\Coqui\Agent\VisionAnalyzer;
 use CoquiBot\Coqui\Config\MountManager;
 use CoquiBot\Coqui\Config\ProfilePreferences;
@@ -41,8 +40,6 @@ use CoquiBot\Coqui\Toolkit\BackgroundTaskToolkit;
 use CoquiBot\Coqui\Toolkit\MemoryToolkit;
 use CoquiBot\Coqui\Toolkit\CoquiSourceToolkit;
 use CoquiBot\Coqui\Toolkit\SkillToolkit;
-use CoquiBot\Coqui\Toolkit\TodoToolkit;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Storage\SessionStorage;
 use SplObserver;
@@ -317,46 +314,22 @@ final class SpawnAgentTool implements ToolInterface
         // Non-full access levels get read-only artifact access (no delete).
         if ($this->storage !== null && $this->sessionId !== null && $this->isFeatureEnabled('artifacts')) {
             $artifactStore = new ArtifactStore($this->storage->getPdo());
-            $todoStore = $this->isFeatureEnabled('todos') ? new TodoStore($this->storage->getPdo()) : null;
-
-            $planTodoGenerator = $todoStore !== null
-                ? new PlanTodoGenerator(
-                    roleResolver: $this->roleResolver,
-                    config: $this->config,
-                    todoStore: $todoStore,
-                    roleDiscovery: $this->roleDiscovery,
-                )
-                : null;
 
             $toolkits[] = new ArtifactToolkit(
                 $artifactStore,
                 $this->sessionId,
                 readOnly: $accessLevel !== 'full',
-                planTodoGenerator: $planTodoGenerator,
-                todoStore: $todoStore,
             );
         }
 
-        // Todo toolkit — session-scoped task tracking shared with child agents.
-        if ($this->storage !== null && $this->sessionId !== null && $this->isFeatureEnabled('todos')) {
-            $todoStore ??= new TodoStore($this->storage->getPdo());
-            $toolkits[] = new TodoToolkit(
-                $todoStore,
-                $this->sessionId,
-                $role,
-                $accessLevel,
-                $artifactStore ?? null,
-            );
-        }
-
-        // Sprint toolkit — project/sprint management shared with child agents.
+        // Project toolkit — lightweight project (working-directory) management shared with child agents.
         if ($this->projectStore !== null && $this->storage !== null && $this->isFeatureEnabled('projects')) {
-            $todoStore ??= new TodoStore($this->storage->getPdo());
-            $toolkits[] = new \CoquiBot\Coqui\Toolkit\SprintToolkit(
+            $toolkits[] = new \CoquiBot\Coqui\Toolkit\ProjectToolkit(
                 $this->projectStore,
-                $todoStore,
                 $this->sessionId,
                 $this->workspacePath,
+                null,
+                $this->storage,
             );
         }
 

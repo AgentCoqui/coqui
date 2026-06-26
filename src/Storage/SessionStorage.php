@@ -212,8 +212,9 @@ final class SessionStorage
         // Migration: per-task max execution time (seconds, 0 = no limit)
         $this->migrateAddColumn('background_tasks', 'max_execution_seconds', 'INTEGER DEFAULT 3600');
 
-        // Migration: project/sprint context for loop stage tasks (artifact auto-scoping)
+        // Migration: project context for loop stage tasks (artifact auto-scoping)
         $this->migrateAddColumn('background_tasks', 'project_id', 'TEXT DEFAULT NULL');
+        // sprint_id is a dormant column from the removed sprint subsystem; never written/read.
         $this->migrateAddColumn('background_tasks', 'sprint_id', 'TEXT DEFAULT NULL');
 
         // Migration: soft-delete flag for summarized messages
@@ -709,45 +710,6 @@ final class SessionStorage
             $artifactStages = [];
         }
 
-        $todoStats = [
-            'total' => 0,
-            'pending' => 0,
-            'in_progress' => 0,
-            'completed' => 0,
-            'cancelled' => 0,
-        ];
-        try {
-            $todoStmt = $this->db->prepare(<<<SQL
-                SELECT
-                    COUNT(*) as total,
-                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
-                    SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
-                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-                    SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
-                FROM todos
-                WHERE session_id = :session_id
-            SQL);
-            $todoStmt->execute(['session_id' => $id]);
-            $todoRow = $todoStmt->fetch(PDO::FETCH_ASSOC);
-            if (is_array($todoRow)) {
-                $todoStats = [
-                    'total' => (int) ($todoRow['total'] ?? 0),
-                    'pending' => (int) ($todoRow['pending'] ?? 0),
-                    'in_progress' => (int) ($todoRow['in_progress'] ?? 0),
-                    'completed' => (int) ($todoRow['completed'] ?? 0),
-                    'cancelled' => (int) ($todoRow['cancelled'] ?? 0),
-                ];
-            }
-        } catch (PDOException) {
-            $todoStats = [
-                'total' => 0,
-                'pending' => 0,
-                'in_progress' => 0,
-                'completed' => 0,
-                'cancelled' => 0,
-            ];
-        }
-
         $latestTurn = null;
         try {
             $latestTurnStmt = $this->db->prepare(<<<SQL
@@ -794,7 +756,6 @@ final class SessionStorage
                     'persistent' => $artifactPersistent,
                     'by_stage' => $artifactStages,
                 ],
-                'todos' => $todoStats,
             ],
             'latest_turn' => $latestTurn,
             'latest_message_at' => $latestMessageAt,
@@ -2669,10 +2630,9 @@ final class SessionStorage
         ?string $scheduleId = null,
         int $maxExecutionSeconds = 3600,
         ?string $projectId = null,
-        ?string $sprintId = null,
         ?array $metadata = null,
     ): string {
-        return $this->taskStore->createTask($sessionId, $prompt, $role, $parentSessionId, $title, $maxIterations, $toolName, $toolArguments, $scheduleId, $maxExecutionSeconds, $projectId, $sprintId, $metadata);
+        return $this->taskStore->createTask($sessionId, $prompt, $role, $parentSessionId, $title, $maxIterations, $toolName, $toolArguments, $scheduleId, $maxExecutionSeconds, $projectId, $metadata);
     }
 
     /**

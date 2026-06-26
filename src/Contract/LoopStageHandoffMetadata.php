@@ -22,10 +22,8 @@ final readonly class LoopStageHandoffMetadata
         public string $role,
         public array $artifactIds = [],
         public array $completedStageRoles = [],
-        public bool $requiresExplicitEvidence = false,
         public ?string $sessionId = null,
         public ?string $projectId = null,
-        public ?string $sprintId = null,
     ) {}
 
     /**
@@ -42,10 +40,8 @@ final readonly class LoopStageHandoffMetadata
             'role' => $this->role,
             'artifact_ids' => $this->artifactIds,
             'completed_stage_roles' => $this->completedStageRoles,
-            'requires_explicit_evidence' => $this->requiresExplicitEvidence,
             'session_id' => $this->sessionId,
             'project_id' => $this->projectId,
-            'sprint_id' => $this->sprintId,
         ];
     }
 }

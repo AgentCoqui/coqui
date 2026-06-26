@@ -32,29 +32,25 @@
             "name": "synthesize",
             "role": "philosopher",
             "prompt": "Review the muse's creative output from the previous stage. Find themes, patterns, tensions, and unexpected connections across the ideas. Identify which ideas have the deepest potential — not just the most practical, but the ones with the most interesting implications. Surface the key questions and tradeoffs. Propose 2-3 promising directions with rationale for each, saved as hypothesis artifacts. Do NOT narrow to a single answer — preserve optionality for the planner.",
-            "order": 1,
-            "requires_artifact_from": 0
+            "order": 1
         },
         {
             "name": "plan",
             "role": "plan",
             "prompt": "Review the philosopher's synthesis and the muse's original ideas. Choose the most promising direction and create a structured implementation plan. Justify your choice by referencing both practical considerations and the deeper insights from the synthesis. If multiple promising directions exist, note what was set aside and why — this context helps if a rework iteration is needed.",
-            "order": 2,
-            "requires_artifact_from": 1
+            "order": 2
         },
         {
             "name": "implement",
             "role": "coder",
             "prompt": "Implement the plan from the previous stage. Follow the plan's steps precisely while honoring the creative intent from the divergence and synthesis phases. After implementation, run verification commands and summarize what was done.",
-            "order": 3,
-            "requires_artifact_from": 2
+            "order": 3
         },
         {
             "name": "evaluate",
             "role": "reviewer",
             "prompt": "Review the implementation against the original goal, the plan, and the creative synthesis. Verify correctness and completeness. Also consider whether the implementation captures the creative intent — did the translation from idea to code lose anything important? If approving, note it. If not, provide specific feedback that helps both the coder and the muse in the next iteration.",
-            "order": 4,
-            "requires_artifact_from": 3
+            "order": 4
         }
     ],
     "termination_condition": {

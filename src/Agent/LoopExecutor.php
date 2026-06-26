@@ -15,8 +15,6 @@ use CoquiBot\Coqui\Contract\TerminationType;
 use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Storage\TodoStore;
-use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Support\Clock;
 use CoquiBot\Coqui\Support\IdGenerator;
 
@@ -33,8 +31,6 @@ final class LoopExecutor
         private readonly LoopStore $loopStore,
         private readonly ProjectStore $projectStore,
         private readonly ?SessionStorage $sessionStorage = null,
-        private readonly ?TodoStore $todoStore = null,
-        private readonly ?ArtifactStore $artifactStore = null,
         private readonly ?GoalEvaluator $goalEvaluator = null,
         private readonly ?ToolBoundEvaluator $toolBoundEvaluator = null,
     ) {}
@@ -61,36 +57,8 @@ final class LoopExecutor
         array $parameters = [],
         ?string $projectId = null,
         ?string $projectSlug = null,
-        ?string $sprintId = null,
         ?int $maxIterationsOverride = null,
     ): string {
-        if ($sprintId !== null && $sprintId !== '') {
-            $sprint = $this->projectStore->getSprint($sprintId);
-            if ($sprint === null) {
-                throw new \InvalidArgumentException(sprintf('Sprint "%s" not found', $sprintId));
-            }
-
-            $sprintProjectId = (string) $sprint['project_id'];
-
-            if ($projectId !== null && $projectId !== '' && $projectId !== $sprintProjectId) {
-                throw new \InvalidArgumentException('Sprint does not belong to the specified project');
-            }
-
-            if ($projectSlug !== null && $projectSlug !== '') {
-                $project = $this->projectStore->getProject($projectSlug);
-                if ($project === null) {
-                    throw new \InvalidArgumentException(sprintf('Project with slug "%s" not found', $projectSlug));
-                }
-
-                if ((string) $project['id'] !== $sprintProjectId) {
-                    throw new \InvalidArgumentException('Sprint does not belong to the specified project');
-                }
-            }
-
-            $projectId ??= $sprintProjectId;
-            $projectSlug = null;
-        }
-
         // Extract declared parameters from the raw definition
         $declaredParams = [];
         foreach ($rawDefinition['parameters'] ?? [] as $paramData) {
@@ -188,8 +156,8 @@ final class LoopExecutor
             ],
         );
 
-        // Create the first iteration and its sprint
-        $this->advanceIteration($loopId, $definition, $resolvedProjectId, $goal, $sprintId);
+        // Create the first iteration
+        $this->advanceIteration($loopId, $definition, $resolvedProjectId, $goal);
 
         return $loopId;
     }
@@ -241,87 +209,6 @@ final class LoopExecutor
             return null;
         }
 
-        // Enforce artifact contract: if this stage requires an artifact from a prior stage,
-        // verify it was produced before allowing advancement
-        if ($roleDefinition->requiresArtifactFrom !== null) {
-            $requiredIndex = $roleDefinition->requiresArtifactFrom;
-            $requiredStage = null;
-            foreach ($stages as $stage) {
-                if ((int) $stage['stage_index'] === $requiredIndex && $stage['status'] === 'completed') {
-                    $requiredStage = $stage;
-                    break;
-                }
-            }
-
-            if ($requiredStage === null || !isset($requiredStage['artifact_id']) || $requiredStage['artifact_id'] === '') {
-                $requiredRole = $definition->roles[$requiredIndex]->role ?? "stage {$requiredIndex}";
-                $this->failStage(
-                    $nextStage['id'],
-                    sprintf(
-                        'Required artifact from stage %d (%s) was not produced. '
-                        . 'The %s stage must create an artifact via artifact_create or have one auto-created from its output.',
-                        $requiredIndex,
-                        $requiredRole,
-                        $requiredRole,
-                    ),
-                );
-
-                return null;
-            }
-        }
-
-        // Enforce explicit evidence contract: when requires_explicit_evidence is set,
-        // the referenced stage must have produced at least one non-loop_output artifact
-        // (i.e. the agent explicitly called artifact_create, not just auto-created output)
-        if (
-            $roleDefinition->requiresExplicitEvidence
-            && $roleDefinition->requiresArtifactFrom !== null
-            && $this->artifactStore !== null
-        ) {
-            $projectId = $loop['project_id'] ?? null;
-            $sessionId = $loop['session_id'] ?? null;
-            $iterationCreatedAt = $iteration['started_at'] ?? null;
-
-            // Query by session + createdAfter (always available for loop stages).
-            // Optionally narrow by project_id when available, but never skip the
-            // check entirely — missing project_id used to silently bypass this
-            // contract, allowing reviewers to proceed without evidence.
-            if ($sessionId !== null && $sessionId !== '') {
-                $artifacts = $this->artifactStore->list(
-                    sessionId: $sessionId,
-                    projectId: ($projectId !== null && $projectId !== '') ? $projectId : null,
-                    createdAfter: $iterationCreatedAt,
-                );
-
-                $hasExplicitEvidence = false;
-                foreach ($artifacts as $artifact) {
-                    if (($artifact['type'] ?? '') !== 'loop_output') {
-                        $hasExplicitEvidence = true;
-                        break;
-                    }
-                }
-
-                if (!$hasExplicitEvidence) {
-                    $requiredIndex = $roleDefinition->requiresArtifactFrom;
-                    $requiredRole = $definition->roles[$requiredIndex]->role ?? "stage {$requiredIndex}";
-                    $this->failStage(
-                        $nextStage['id'],
-                        sprintf(
-                            'Explicit evidence artifact missing from %s stage (stage %d). '
-                            . 'The %s must create a review artifact via artifact_create summarizing: '
-                            . 'changed files, verification results, and any known gaps. '
-                            . 'Auto-created loop_output artifacts do not satisfy this requirement.',
-                            $requiredRole,
-                            $requiredIndex,
-                            $requiredRole,
-                        ),
-                    );
-
-                    return null;
-                }
-            }
-        }
-
         // Build the context prompt
         $completedStages = $this->loopStore->getCompletedStages($iteration['id']);
 
@@ -338,9 +225,6 @@ final class LoopExecutor
             terminationCriteria: $loop['termination_criteria'],
             resolvedParameters: $this->extractResolvedParameters($loop['configuration']),
             projectId: $loop['project_id'] ?? null,
-            sprintId: $iteration['sprint_id'] ?? null,
-            sessionId: $loop['session_id'] ?? null,
-            iterationCreatedAt: $iteration['started_at'] ?? null,
         );
 
         $handoffMetadata = new LoopStageHandoffMetadata(
@@ -358,10 +242,8 @@ final class LoopExecutor
                 static fn(array $stage): string => (string) ($stage['role'] ?? ''),
                 $completedStages,
             ),
-            requiresExplicitEvidence: $roleDefinition->requiresExplicitEvidence,
             sessionId: $loop['session_id'] ?? null,
             projectId: $loop['project_id'] ?? null,
-            sprintId: $iteration['sprint_id'] ?? null,
         );
 
         return new LoopStageResult(
@@ -372,7 +254,6 @@ final class LoopExecutor
             role: $roleDefinition->role,
             prompt: $prompt,
             maxIterations: $roleDefinition->maxIterations,
-            sprintId: $iteration['sprint_id'],
             sessionId: $loop['session_id'],
             projectId: $loop['project_id'] ?? null,
             handoffMetadata: $handoffMetadata,
@@ -476,24 +357,6 @@ final class LoopExecutor
 
         $summary = $this->buildIterationSummary($stages);
         $this->loopStore->updateIterationStatus($iteration['id'], $iterationStatus, $summary);
-
-        // Auto-transition sprint based on iteration outcome
-        $sprintId = $iteration['sprint_id'] ?? null;
-        if ($sprintId !== null && $sprintId !== '') {
-            try {
-                if ($outcome === IterationOutcome::Complete || $outcome === IterationOutcome::LimitReached) {
-                    // Iteration accepted → in_progress → review → complete
-                    $this->projectStore->transitionSprint($sprintId, 'review');
-                    $this->projectStore->transitionSprint($sprintId, 'complete');
-                } elseif ($outcome === IterationOutcome::Continue) {
-                    // Iteration needs another round → review → rejected
-                    $this->projectStore->transitionSprint($sprintId, 'review');
-                    $this->projectStore->transitionSprint($sprintId, 'rejected', $summary);
-                }
-            } catch (\Throwable) {
-                // Sprint transition failures are non-fatal — the loop continues
-            }
-        }
 
         // If loop should continue, advance to next iteration
         if ($outcome === IterationOutcome::Continue) {
@@ -602,55 +465,21 @@ final class LoopExecutor
     // ──────────────────────────────────────────────
 
     /**
-     * Create a new iteration with its sprint and pre-create all stage records.
+     * Create a new iteration and pre-create all stage records.
      */
     private function advanceIteration(
         string $loopId,
         LoopDefinition $definition,
         ?string $projectId,
         string $goal,
-        ?string $initialSprintId = null,
     ): void {
         // Determine next iteration number
         $iterations = $this->loopStore->listIterations($loopId);
         $nextNumber = count($iterations) + 1;
 
-        // Create a sprint for this iteration (or reuse the provided one for the first iteration)
-        $sprintId = null;
-        if ($initialSprintId !== null && $nextNumber === 1) {
-            // Use the explicitly provided sprint for the first iteration
-            $sprintId = $initialSprintId;
-            try {
-                $this->projectStore->transitionSprint($sprintId, 'in_progress');
-            } catch (\Throwable) {
-                // Sprint may already be in_progress — non-fatal
-            }
-        } elseif ($projectId !== null) {
-            // Verify the project still exists — it may have been deleted
-            // (e.g. concurrent project_delete + loop_start race condition).
-            $project = $this->projectStore->getProject($projectId);
-            if ($project === null) {
-                // Project gone — continue without sprint tracking
-                $projectId = null;
-            } else {
-                $sprintTitle = sprintf('%s — iteration %d', $definition->name, $nextNumber);
-                $criteria = $definition->terminationCondition->criteria;
-
-                $sprintId = $this->projectStore->createSprint(
-                    projectId: $projectId,
-                    title: $sprintTitle,
-                    acceptanceCriteria: $criteria,
-                );
-
-                // Auto-transition: planned → in_progress when the iteration starts executing
-                $this->projectStore->transitionSprint($sprintId, 'in_progress');
-            }
-        }
-
         $iterationId = $this->loopStore->createIteration(
             loopId: $loopId,
             iterationNumber: $nextNumber,
-            sprintId: $sprintId,
         );
 
         // Pre-create stage records for all roles in the definition
@@ -853,9 +682,6 @@ final class LoopExecutor
         ?string $terminationCriteria,
         array $resolvedParameters = [],
         ?string $projectId = null,
-        ?string $sprintId = null,
-        ?string $sessionId = null,
-        ?string $iterationCreatedAt = null,
     ): string {
         $iterationLabel = $maxIterations !== null
             ? "{$iterationNumber}/{$maxIterations}"
@@ -905,42 +731,6 @@ final class LoopExecutor
             $sections[] = "## Previous Stages This Cycle\n" . implode("\n\n", $stageLines);
         }
 
-        // Inject evidence artifact IDs directly into the prompt for stages that
-        // require explicit evidence. This ensures the reviewer sees the exact
-        // artifact IDs the coder created, rather than relying on artifact_list
-        // discovery (which may filter incorrectly or miss evidence artifacts).
-        if (
-            $roleDefinition->requiresExplicitEvidence
-            && $this->artifactStore !== null
-            && $sessionId !== null
-            && $sessionId !== ''
-        ) {
-            $evidenceArtifacts = $this->artifactStore->list(
-                sessionId: $sessionId,
-                projectId: ($projectId !== null && $projectId !== '') ? $projectId : null,
-                createdAfter: $iterationCreatedAt,
-            );
-
-            $evidenceLines = [];
-            foreach ($evidenceArtifacts as $artifact) {
-                if (($artifact['type'] ?? '') === 'loop_output') {
-                    continue; // Skip auto-created loop output artifacts
-                }
-                $title = $artifact['title'] ?? '(untitled)';
-                $type = $artifact['type'] ?? 'unknown';
-                $stage = $artifact['stage'] ?? 'unknown';
-                $evidenceLines[] = "- **`{$artifact['id']}`** — {$title} (type: {$type}, stage: {$stage})";
-            }
-
-            if ($evidenceLines !== []) {
-                $evidenceSection = "## Evidence Artifacts\n"
-                    . "The following artifacts were explicitly created during this iteration. "
-                    . "Use `artifact_get(id: \"...\")` to read their full content.\n\n"
-                    . implode("\n", $evidenceLines);
-                $sections[] = $evidenceSection;
-            }
-        }
-
         // Previous iteration outcomes
         if ($previousOutcomes !== []) {
             $outcomeLines = [];
@@ -979,27 +769,9 @@ final class LoopExecutor
             $sections[] = "## Parameters\n" . implode("\n", $paramLines);
         }
 
-        // Add loop scoping context with full project/sprint details
+        // Add loop scoping context with project details
         if ($projectId !== null && $projectId !== '') {
-            $sections[] = $this->buildProjectContextSection($projectId, $sprintId);
-        }
-
-        // Inject required deliverables when the next stage requires explicit evidence.
-        // This tells the coder (or whichever stage precedes the evidence-requiring stage)
-        // that it MUST create an artifact via artifact_create or the next stage will fail.
-        $nextStageIndex = $stageIndex + 1;
-        if ($nextStageIndex < $totalStages) {
-            $nextRole = $definition->roles[$nextStageIndex] ?? null;
-            if ($nextRole !== null && $nextRole->requiresExplicitEvidence) {
-                $deliverables = "## Required Deliverables\n"
-                    . "You **MUST** create at least one artifact via `artifact_create` before completing this stage.\n"
-                    . "Summarize: changed files, verification results, and known gaps.\n"
-                    . "Failure to create an artifact will cause the next stage ({$nextRole->role}) to fail automatically.";
-                if ($projectId !== null && $projectId !== '') {
-                    $deliverables .= "\n\n> Project and sprint IDs are applied automatically — you do not need to specify `project_id` or `sprint_id`.";
-                }
-                $sections[] = $deliverables;
-            }
+            $sections[] = $this->buildProjectContextSection($projectId);
         }
 
         $sections[] = "## Your Task\n{$rolePrompt}";
@@ -1045,13 +817,13 @@ final class LoopExecutor
     }
 
     /**
-     * Build a rich project/sprint context section for stage prompts.
+     * Build a project context section for stage prompts.
      *
      * Mirrors the OrchestratorAgent::injectProjectContext() pattern so
-     * loop stage agents get full project awareness — name, slug, description,
-     * directory, sprint roster, and scoping IDs.
+     * loop stage agents get project awareness — name, slug, description,
+     * and directory.
      */
-    private function buildProjectContextSection(?string $projectId, ?string $sprintId): string
+    private function buildProjectContextSection(?string $projectId): string
     {
         $lines = ['## Project Context'];
 
@@ -1061,16 +833,10 @@ final class LoopExecutor
         }
 
         try {
-            $context = $this->projectStore->getProjectContext(
-                $projectId,
-                $this->todoStore,
-            );
+            $context = $this->projectStore->getProjectContext($projectId);
         } catch (\Throwable) {
-            // Fallback to raw IDs if context resolution fails
+            // Fallback to raw ID if context resolution fails
             $lines[] = "- **project_id**: `{$projectId}`";
-            if ($sprintId !== null && $sprintId !== '') {
-                $lines[] = "- **sprint_id**: `{$sprintId}`";
-            }
             return implode("\n", $lines);
         }
 
@@ -1085,36 +851,6 @@ final class LoopExecutor
         $lines[] = '';
         $lines[] = "**IDs for filtering:**";
         $lines[] = "- `project_id`: `{$projectId}`";
-        if ($sprintId !== null && $sprintId !== '') {
-            $lines[] = "- `sprint_id`: `{$sprintId}`";
-        }
-
-        // Sprint roster
-        if ($context['sprints'] !== []) {
-            $lines[] = '';
-            $lines[] = '**Sprints:**';
-            foreach ($context['sprints'] as $sprint) {
-                $progress = '';
-                if (isset($sprint['progress']['percent'])) {
-                    $progress = sprintf(
-                        ' %d%% (%d/%d)',
-                        $sprint['progress']['percent'],
-                        $sprint['progress']['completed'],
-                        $sprint['progress']['total'],
-                    );
-                }
-                $active = ($sprintId !== null && $sprint['id'] === $sprintId) ? ' ← current' : '';
-                $lines[] = sprintf(
-                    '- #%d %s [%s]%s%s',
-                    $sprint['sprint_number'],
-                    $sprint['title'],
-                    $sprint['status'],
-                    $progress,
-                    $active,
-                );
-            }
-        }
-
         $lines[] = '';
         $lines[] = 'Use `artifact_list(project_id: "' . $projectId . '", type: "loop_output")` to find loop-specific artifacts.';
 

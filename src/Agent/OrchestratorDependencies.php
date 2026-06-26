@@ -88,7 +88,6 @@ final readonly class OrchestratorDependencies
         public ?ToolUsageTracker $usageTracker = null,
         public ?string $workScopeSessionId = null,
         public ?string $defaultProjectId = null,
-        public ?string $defaultSprintId = null,
         public float $budgetExitThreshold = 0.0,
         public int $budgetExitWrapUpIterations = 2,
         public ?string $activeProfile = null,

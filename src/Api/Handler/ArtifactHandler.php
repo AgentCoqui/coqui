@@ -132,10 +132,9 @@ final readonly class ArtifactHandler
         $language = array_key_exists('language', $body) ? $this->nullableString($body['language']) : null;
         $filepath = array_key_exists('filepath', $body) ? $this->nullableString($body['filepath']) : null;
         $projectId = array_key_exists('project_id', $body) ? $this->nullableId($body['project_id']) : null;
-        $sprintId = array_key_exists('sprint_id', $body) ? $this->nullableId($body['sprint_id']) : null;
         $persistent = array_key_exists('persistent', $body) ? filter_var($body['persistent'], FILTER_VALIDATE_BOOLEAN) : false;
 
-        $linkValidation = $this->validateArtifactLinks($projectId, $sprintId);
+        $linkValidation = $this->validateArtifactLinks($projectId);
         if ($linkValidation instanceof Response) {
             return $linkValidation;
         }
@@ -155,7 +154,6 @@ final readonly class ArtifactHandler
             stage: $stage,
             metadata: $metadata,
             projectId: $projectId,
-            sprintId: $sprintId,
             persistent: $persistent,
         );
 
@@ -182,7 +180,7 @@ final readonly class ArtifactHandler
             return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
         }
 
-        $allowedKeys = ['title', 'content', 'change_summary', 'stage', 'metadata', 'tags', 'summary', 'language', 'project_id', 'sprint_id', 'persistent'];
+        $allowedKeys = ['title', 'content', 'change_summary', 'stage', 'metadata', 'tags', 'summary', 'language', 'project_id', 'persistent'];
         $unknownKeys = array_values(array_filter(
             array_keys($body),
             static fn(string $key): bool => !in_array($key, $allowedKeys, true),
@@ -215,9 +213,8 @@ final readonly class ArtifactHandler
 
         $language = array_key_exists('language', $body) ? $this->nullableString($body['language']) : null;
         $projectId = array_key_exists('project_id', $body) ? $this->nullableId($body['project_id']) : null;
-        $sprintId = array_key_exists('sprint_id', $body) ? $this->nullableId($body['sprint_id']) : null;
 
-        $linkValidation = $this->validateArtifactLinks(array_key_exists('project_id', $body) ? $projectId : null, array_key_exists('sprint_id', $body) ? $sprintId : null, $artifact);
+        $linkValidation = $this->validateArtifactLinks(array_key_exists('project_id', $body) ? $projectId : null, $artifact);
         if ($linkValidation instanceof Response) {
             return $linkValidation;
         }
@@ -262,10 +259,6 @@ final readonly class ArtifactHandler
                 $patch['project_id'] = $projectId;
             }
 
-            if (array_key_exists('sprint_id', $body)) {
-                $patch['sprint_id'] = $sprintId;
-            }
-
             if (array_key_exists('persistent', $body)) {
                 $patch['persistent'] = filter_var($body['persistent'], FILTER_VALIDATE_BOOLEAN);
             } elseif (array_key_exists('project_id', $body) && $projectId !== null) {
@@ -290,10 +283,6 @@ final readonly class ArtifactHandler
 
             if (array_key_exists('project_id', $body)) {
                 $patch['project_id'] = $projectId;
-            }
-
-            if (array_key_exists('sprint_id', $body)) {
-                $patch['sprint_id'] = $sprintId;
             }
 
             if (array_key_exists('persistent', $body)) {
@@ -503,34 +492,14 @@ final readonly class ArtifactHandler
     /**
      * @param array<string, mixed>|null $existingArtifact
      */
-    private function validateArtifactLinks(?string $projectId, ?string $sprintId, ?array $existingArtifact = null): ?Response
+    private function validateArtifactLinks(?string $projectId, ?array $existingArtifact = null): ?Response
     {
         if ($this->projectStore === null) {
             return null;
         }
 
-        $resolvedProjectId = $projectId;
-        if ($resolvedProjectId !== null && $this->projectStore->getProject($resolvedProjectId) === null) {
+        if ($projectId !== null && $this->projectStore->getProject($projectId) === null) {
             return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Project not found');
-        }
-
-        if ($sprintId !== null) {
-            $sprint = $this->projectStore->getSprint($sprintId);
-            if ($sprint === null) {
-                return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Sprint not found');
-            }
-
-            $sprintProjectId = (string) ($sprint['project_id'] ?? '');
-            if ($resolvedProjectId !== null && $resolvedProjectId !== '' && $sprintProjectId !== '' && $resolvedProjectId !== $sprintProjectId) {
-                return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'sprint_id does not belong to project_id');
-            }
-
-            if ($resolvedProjectId === null && $existingArtifact !== null) {
-                $existingProjectId = is_string($existingArtifact['project_id'] ?? null) ? (string) $existingArtifact['project_id'] : null;
-                if ($existingProjectId !== null && $existingProjectId !== '' && $existingProjectId !== $sprintProjectId) {
-                    return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'sprint_id does not belong to the artifact project');
-                }
-            }
         }
 
         return null;

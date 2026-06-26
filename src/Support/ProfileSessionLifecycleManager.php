@@ -12,7 +12,6 @@ use CoquiBot\Coqui\Memory\MemoryExtractor;
 use CoquiBot\Coqui\Memory\MemoryStore;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Config\RoleResolver;
 
 /**
@@ -25,7 +24,6 @@ final readonly class ProfileSessionLifecycleManager
         private ProviderFactory $providerFactory,
         private RoleResolver $roleResolver,
         private ?MemoryStore $memoryStore = null,
-        private ?TodoStore $todoStore = null,
         private ?ArtifactStore $artifactStore = null,
     ) {}
 
@@ -128,34 +126,6 @@ final readonly class ProfileSessionLifecycleManager
     private function buildWorkflowContext(string $sessionId): ?string
     {
         $sections = [];
-
-        try {
-            if ($this->todoStore !== null) {
-                $stats = $this->todoStore->getStats($sessionId);
-                $total = (int) $stats['total'];
-
-                if ($total > 0) {
-                    $lines = [sprintf('Todos: %d/%d completed', (int) $stats['completed'], $total)];
-
-                    foreach ($this->todoStore->list($sessionId, 'in_progress') as $todo) {
-                        $lines[] = '  - [in_progress] ' . (string) ($todo['title'] ?? 'Untitled');
-                    }
-
-                    $pending = $this->todoStore->list($sessionId, 'pending');
-                    foreach (array_slice($pending, 0, 5) as $todo) {
-                        $lines[] = '  - [pending] ' . (string) ($todo['title'] ?? 'Untitled');
-                    }
-
-                    if (count($pending) > 5) {
-                        $lines[] = '  - ... and ' . (count($pending) - 5) . ' more pending';
-                    }
-
-                    $sections[] = implode("\n", $lines);
-                }
-            }
-        } catch (\Throwable) {
-            // Non-critical context.
-        }
 
         try {
             if ($this->artifactStore !== null) {

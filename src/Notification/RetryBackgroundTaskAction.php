@@ -88,7 +88,6 @@ final readonly class RetryBackgroundTaskAction implements NotificationAutomation
             toolArguments: isset($task['tool_arguments']) && is_string($task['tool_arguments']) && $task['tool_arguments'] !== '' ? $task['tool_arguments'] : null,
             maxExecutionSeconds: max(1, (int) ($task['max_execution_seconds'] ?? 3600)),
             projectId: isset($task['project_id']) && is_string($task['project_id']) && $task['project_id'] !== '' ? $task['project_id'] : null,
-            sprintId: isset($task['sprint_id']) && is_string($task['sprint_id']) && $task['sprint_id'] !== '' ? $task['sprint_id'] : null,
             metadata: $metadata,
         );
 

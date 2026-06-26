@@ -17,5 +17,4 @@ enum SystemRole: string
     case Coder = 'coder';
     case Reviewer = 'reviewer';
     case TitleGenerator = 'title-generator';
-    case PlanTodoGenerator = 'plan-todo-generator';
 }

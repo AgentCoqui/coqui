@@ -29,7 +29,7 @@
                 "resolveContextWindow(): ?ContextWindowInterface — resolves ContextWindow from ModelDefinition with 128K/4K fallback",
                 "getContextWindow(): ?ContextWindowInterface — accessor for the resolved context window",
                 "resolveActiveProjectId(): ?string — reads active project from SessionStorage",
-                "injectProjectContext(string): string — appends # ACTIVE PROJECT section with metadata, sprints, and directory to system prompt",
+                "injectProjectContext(string): string — appends # ACTIVE PROJECT section with metadata and directory to system prompt",
                 "getPromptSectionBreakdown(TokenCounterInterface): array — returns typed prompt-section telemetry with priority, pinning, rationale, and token counts",
                 "getAppliedLoadingModes(): array<string, ToolkitLoadingMode> — applied runtime loading modes (toolkit basename => mode) for REPL display"
             ]
@@ -38,7 +38,7 @@
             "path": "src/Agent/OrchestratorDependencies.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\OrchestratorDependencies",
             "layer": "agent",
-            "description": "Immutable value object that groups OrchestratorAgent's optional collaborators (discovery, storage, memory services, role/skill discovery, mods toolkit, provider factory, HTTP client, usage tracker, registries) together with its session/turn context (session id, turn id, observer, active role, profile, work-scope and default project/sprint ids) and tuning knobs (max iterations, execution policy, budget-exit threshold). Some fields are forwarded to AbstractAgent's constructor (max iterations, execution policy, cancellation token, pending-input provider, tool executor, tick callback) and the rest are stored on the agent. OrchestratorAgent keeps its required core (provider, role resolver, config, project root, workspace path) as direct constructor parameters.",
+            "description": "Immutable value object that groups OrchestratorAgent's optional collaborators (discovery, storage, memory services, role/skill discovery, mods toolkit, provider factory, HTTP client, usage tracker, registries) together with its session/turn context (session id, turn id, observer, active role, profile, work-scope and default project ids) and tuning knobs (max iterations, execution policy, budget-exit threshold). Some fields are forwarded to AbstractAgent's constructor (max iterations, execution policy, cancellation token, pending-input provider, tool executor, tick callback) and the rest are stored on the agent. OrchestratorAgent keeps its required core (provider, role resolver, config, project root, workspace path) as direct constructor parameters.",
             "methods": []
         },
         {
@@ -56,7 +56,7 @@
             "path": "src/Agent/AgentRunner.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\AgentRunner",
             "layer": "agent",
-            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Includes autoSummarizeIfNeeded() for pre-turn budget checks with workflow context injection, and autoExtractMemories() which runs LLM-based memory extraction after each successful turn (configurable via agents.defaults.memory.autoExtract). Snapshots unread informational notifications into a transient prompt section and applies it to the live OrchestratorAgent for the current turn instead of injecting synthetic transcript messages. Also builds prompt-preview and prompt-budget snapshots used by the REPL and API inspection surfaces, including prompt-section rationale and pinning metadata. Accepts optional TodoStore and ArtifactStore to build workflow context for summarization.",
+            "description": "Handles agent creation, execution, and turn message persistence. Manages the full turn lifecycle: creates a turn record before execution, tracks timing, extracts tool usage and child agent counts, and completes the turn with all metadata after execution. Includes autoSummarizeIfNeeded() for pre-turn budget checks with workflow context injection, and autoExtractMemories() which runs LLM-based memory extraction after each successful turn (configurable via agents.defaults.memory.autoExtract). Snapshots unread informational notifications into a transient prompt section and applies it to the live OrchestratorAgent for the current turn instead of injecting synthetic transcript messages. Also builds prompt-preview and prompt-budget snapshots used by the REPL and API inspection surfaces, including prompt-section rationale and pinning metadata. Queries ArtifactStore to build workflow context for summarization.",
             "methods": [
                 "run(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy): AgentTurnResult — runs a single agent turn using the default observer",
                 "runWithObserver(string $prompt, string $sessionId, ToolExecutionPolicyInterface $executionPolicy, SplObserver $observer): AgentTurnResult — runs a turn with a per-turn observer override",
@@ -64,7 +64,7 @@
                 "createAgent(..., ?SplObserver $observer, string $role, ?int $maxIterations): OrchestratorAgent — builds the orchestrator agent with role-resolved model and iteration limit",
                 "autoSummarizeIfNeeded(OrchestratorAgent, Conversation, string $sessionId, ?SplObserver): Conversation — checks token budget and auto-summarizes with workflow context if threshold exceeded",
                 "autoExtractMemories(Conversation, string $sessionId): void — runs LLM-based memory extraction from completed turn",
-                "buildWorkflowContext(string $sessionId): ?string — queries TodoStore and ArtifactStore to build workflow context for summarization",
+                "buildWorkflowContext(string $sessionId): ?string — queries ArtifactStore to build workflow context for summarization",
                 "buildPromptPreview(?string): array — builds prompt text, token counts, schemas, and budget snapshot for REPL/API prompt inspection",
                 "buildBudgetPreview(?string): PromptBudgetSnapshot — builds role/model prompt-budget telemetry without the full prompt body"
             ]
@@ -100,7 +100,7 @@
             "layer": "agent",
             "description": "Coordinates coder-reviewer-rework loops for automated code review. Builds typed ChildAgentHandoff envelopes with structured ReviewHandoffMetadata for reviewer and coder rework passes, and accepts an injected ToolExecutorInterface so child review runs can reuse the same executor mode as their parent context.",
             "methods": [
-                "run(string $coderOutput, string $originalTask, array $reviewerToolkits, int $maxRounds, array $coderToolkits, bool $autoIterate, ?string $sprintContext, int $coderMaxIterations): CodeReviewResult — runs review and optional rework rounds until approved or exhausted"
+                "run(string $coderOutput, string $originalTask, array $reviewerToolkits, int $maxRounds, array $coderToolkits, bool $autoIterate, int $coderMaxIterations): CodeReviewResult — runs review and optional rework rounds until approved or exhausted"
             ]
         },
         {
@@ -154,14 +154,14 @@
             "path": "src/Agent/LoopExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
             "layer": "agent",
-            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Supports project resolution in startLoop via 3-tier fallback: explicit project_id/slug → active session project → auto-create. Creates sprints with auto-transitions. Snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound, goal_bound, tool_bound). Supports template parameters with {{placeholder}} substitution. Enforces inter-stage artifact contracts via requires_artifact_from and explicit evidence verification via requires_explicit_evidence — queries ArtifactStore by session+createdAfter (optionally narrowing by projectId when available), never silently bypasses when projectId is null. Injects Required Deliverables into coder prompts when next stage requires explicit evidence. Injects Evidence Artifacts section into reviewer prompts with explicit artifact IDs, titles, and types for deterministic discovery. Injects rich project context into stage prompts. Prepared stages now carry typed LoopStageHandoffMetadata for persistence and observability. Does not execute child agents directly — LoopManager handles execution via background tasks.",
+            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Supports project resolution in startLoop via 3-tier fallback: explicit project_id/slug → active session project → auto-create. Snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound, goal_bound, tool_bound, manual). Supports template parameters with {{placeholder}} substitution. Injects rich project context into stage prompts. Prepared stages now carry typed LoopStageHandoffMetadata for persistence and observability. Constructor takes loopStore, projectStore, optional sessionStorage, goalEvaluator, and toolBoundEvaluator. Does not execute child agents directly — LoopManager handles execution via background tasks.",
             "methods": [
-                "startLoop(array $rawDefinition, string $goal, ?string $sessionId, array $parameters, ?string $projectId, ?string $projectSlug, ?string $sprintId): string — validates/substitutes parameters, resolves project via 3-tier fallback, creates loop and first iteration",
-                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, enforces artifact contract gate, enforces explicit evidence contract, builds context prompt with rich project context",
+                "startLoop(array $rawDefinition, string $goal, ?string $sessionId, array $parameters, ?string $projectId, ?string $projectSlug): string — validates/substitutes parameters, resolves project via 3-tier fallback, creates loop and first iteration",
+                "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, builds context prompt with rich project context",
                 "completeStage(string $stageId, string $result, ?string $artifactId, ?string $taskId): void — records stage result with 2000-char truncation",
-                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition (dispatches to goal/tool evaluators for new types), auto-transitions sprints, advances if continuing",
+                "evaluateIteration(string $loopId): IterationOutcome — evaluates termination condition (dispatches to goal/tool evaluators for new types), advances if continuing",
                 "resolveProject(?string $projectId, ?string $projectSlug, ?string $sessionId, string $goal): string — 3-tier project resolution: explicit ID/slug → session active project → auto-create",
-                "buildProjectContextSection(?string $projectId, ?string $sprintId): string — renders rich project context with sprint roster and progress for stage prompts"
+                "buildProjectContextSection(?string $projectId): string — renders rich project context for stage prompts"
             ]
         },
         {
@@ -204,7 +204,7 @@
             "path": "src/Repl/AgentTurnResult.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\AgentTurnResult",
             "layer": "command",
-            "description": "Value object returned by AgentTurnExecutor. Carries optional exit code and optional continuation prompt for sprint flow.",
+            "description": "Value object returned by AgentTurnExecutor. Carries optional exit code and optional continuation prompt.",
             "methods": [
                 "shouldExit(): bool — true when exitCode is set"
             ]
@@ -330,10 +330,10 @@
             "path": "src/Repl/TabCompletion.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\TabCompletion",
             "layer": "command",
-            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, todos, projects, profiles, group-session membership, schedules, channel instances, loop definitions, toolkit visibility metadata, and toolkit-provided completion handlers.",
+            "description": "Readline tab-completion for REPL slash commands. Uses ReplCommandCatalog for canonical top-level commands and aliases, then resolves command-specific completions from live stores and discovery services such as sessions, tasks, projects, profiles, group-session membership, schedules, channel instances, loop definitions, toolkit visibility metadata, and toolkit-provided completion handlers.",
             "methods": [
                 "register(): void — installs readline_completion_function",
-                "setSessionId(string): void — updates session for todo completions",
+                "setSessionId(string): void — updates session for session-scoped completions",
                 "complete(string): array — returns suggestions for a command line buffer"
             ]
         },
@@ -537,15 +537,6 @@
             ]
         },
         {
-            "path": "src/Repl/Handler/TodoHandler.php",
-            "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\TodoHandler",
-            "layer": "command",
-            "description": "Handles /todos REPL command with subcommands: list (with status filter), delete, complete, cancel, clear.",
-            "methods": [
-                "handle(SymfonyStyle, string, string): void — dispatches todo subcommand"
-            ]
-        },
-        {
             "path": "src/Repl/Handler/ScheduleHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ScheduleHandler",
             "layer": "command",
@@ -567,10 +558,9 @@
             "path": "src/Repl/Handler/ProjectHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Repl\\Handler\\ProjectHandler",
             "layer": "command",
-            "description": "Handles /projects and /sprints REPL commands. Supports project listing with active marker (●), switching via /projects <slug>, clearing via /projects clear, and status filtering.",
+            "description": "Handles the /projects REPL command. Supports project listing with active marker (●), switching via /projects <slug>, clearing via /projects clear, and status filtering.",
             "methods": [
-                "handleProjects(SymfonyStyle, string, string, ?string): array — lists/switches/clears project context; returns [projectId, projectSlug] or [null, null]",
-                "handleSprints(SymfonyStyle, string): void — lists or manages sprints"
+                "handleProjects(SymfonyStyle, string, string, ?string): array — lists/switches/clears project context; returns [projectId, projectSlug] or [null, null]"
             ]
         },
         {
@@ -974,9 +964,9 @@
             "path": "src/Contract/LoopRoleDefinition.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\LoopRoleDefinition",
             "layer": "contract",
-            "description": "Value object for a single stage in a loop definition. Contains role name, prompt template, optional skills array, optional per-stage maxIterations override, optional requiresArtifactFrom index for inter-stage artifact contract enforcement, and optional requiresExplicitEvidence flag that strengthens the artifact contract to require non-loop_output artifacts.",
+            "description": "Value object for a single stage in a loop definition. Contains role name, prompt template, optional skills array, and optional per-stage maxIterations override.",
             "methods": [
-                "fromArray(array): self — factory from JSON config, parses requires_artifact_from and requires_explicit_evidence"
+                "fromArray(array): self — factory from JSON config"
             ]
         },
         {
@@ -992,14 +982,14 @@
             "path": "src/Contract/LoopStageResult.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\LoopStageResult",
             "layer": "contract",
-            "description": "Value object returned by LoopExecutor::prepareNextStage(). Contains the role name, composed prompt, skills, max iterations, session/sprint/project IDs for the next stage to execute, and optional typed LoopStageHandoffMetadata for persistence on loop stages and spawned background tasks. The projectId field enables pipeline propagation of the loop's project context through LoopManager -> background task -> TaskRunCommand -> AgentRunner -> OrchestratorAgent -> ArtifactToolkit for auto-scoping.",
+            "description": "Value object returned by LoopExecutor::prepareNextStage(). Contains the role name, composed prompt, skills, max iterations, session/project IDs for the next stage to execute, and optional typed LoopStageHandoffMetadata for persistence on loop stages and spawned background tasks. The projectId field enables pipeline propagation of the loop's project context through LoopManager -> background task -> TaskRunCommand -> AgentRunner -> OrchestratorAgent -> ArtifactToolkit for auto-scoping.",
             "methods": []
         },
         {
             "path": "src/Contract/ReviewHandoffMetadata.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\ReviewHandoffMetadata",
             "layer": "contract",
-            "description": "Typed review-cycle metadata attached to reviewer and coder rework child handoffs. Captures review phase, round number, source role, sprint-context presence, and whether automated rework iteration is enabled.",
+            "description": "Typed review-cycle metadata attached to reviewer and coder rework child handoffs. Captures review phase, round number, source role, and whether automated rework iteration is enabled.",
             "methods": [
                 "toArray(): array - serialize structured review handoff metadata"
             ]
@@ -1008,7 +998,7 @@
             "path": "src/Contract/LoopStageHandoffMetadata.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\LoopStageHandoffMetadata",
             "layer": "contract",
-            "description": "Typed loop-stage coordination metadata built by LoopExecutor and persisted through LoopStore and SessionStorage background tasks. Captures loop, iteration, stage, role, prior-stage artifact IDs, completed roles, and work-scope project/session/sprint context.",
+            "description": "Typed loop-stage coordination metadata built by LoopExecutor and persisted through LoopStore and SessionStorage background tasks. Captures loop, iteration, stage, role, prior-stage artifact IDs, completed roles, and work-scope project/session context.",
             "methods": [
                 "toArray(): array - serialize structured loop-stage handoff metadata"
             ]
@@ -1024,7 +1014,7 @@
             "path": "src/Contract/SystemRole.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\SystemRole",
             "layer": "contract",
-            "description": "String-backed enum centralizing built-in role name constants: Orchestrator, Coder, Reviewer, TitleGenerator, PlanTodoGenerator. Eliminates magic role strings scattered across the codebase.",
+            "description": "String-backed enum centralizing built-in role name constants: Orchestrator, Coder, Reviewer, TitleGenerator. Eliminates magic role strings scattered across the codebase.",
             "methods": []
         },
         {
@@ -1363,7 +1353,7 @@
             "path": "src/Tool/SummarizeConversationTool.php",
             "fqcn": "CoquiBot\\Coqui\\Tool\\SummarizeConversationTool",
             "layer": "tool",
-            "description": "Agent-facing tool for on-demand conversation summarization. Exposes a summarize_conversation tool with scope (all/recent), keep_recent (1-20), and focus parameters. Resolves a cheap provider via utility model resolution. Accepts optional TodoStore and ArtifactStore to build workflow context injected into the summarization prompt. Delegates to ConversationSummarizer for the actual compression.",
+            "description": "Agent-facing tool for on-demand conversation summarization. Exposes a summarize_conversation tool with scope (all/recent), keep_recent (1-20), and focus parameters. Resolves a cheap provider via utility model resolution. Queries ArtifactStore to build workflow context injected into the summarization prompt. Delegates to ConversationSummarizer for the actual compression.",
             "methods": [
                 "execute(array $input): ToolResult — validates parameters, resolves provider, builds workflow context, delegates to ConversationSummarizer, returns summary metrics"
             ]
@@ -1612,7 +1602,7 @@
             "path": "src/Observer/BudgetExitObserver.php",
             "fqcn": "CoquiBot\\Coqui\\Observer\\BudgetExitObserver",
             "layer": "observer",
-            "description": "Implements both SplObserver and PendingInputProviderInterface. Listens for agent.budget_warning events and queues a workflow-aware wrap-up instruction as a UserMessage. The instruction includes current context budget usage, remaining wrap-up iterations, and workflow context (todos, artifacts, sprints) from an optional closure. CompositePendingInputProvider consumes the queued message on the next agent iteration.",
+            "description": "Implements both SplObserver and PendingInputProviderInterface. Listens for agent.budget_warning events and queues a workflow-aware wrap-up instruction as a UserMessage. The instruction includes current context budget usage, remaining wrap-up iterations, and workflow context (artifacts) from an optional closure. CompositePendingInputProvider consumes the queued message on the next agent iteration.",
             "methods": [
                 "update(SplSubject $subject): void — listens for agent.budget_warning and queues wrap-up instruction",
                 "consumePendingInputs(): array — returns and clears queued wrap-up messages"
@@ -1731,7 +1721,7 @@
             "path": "src/Renderer/ProgressBar.php",
             "fqcn": "CoquiBot\\Coqui\\Renderer\\ProgressBar",
             "layer": "observer",
-            "description": "Generic terminal progress bar renderer with colored proportional segments. Renders Unicode block characters with each segment styled via Symfony Console tags. Supports configurable width, percentage labels, and legend rows. Designed for context window usage, sprint progress, and other visualizations.",
+            "description": "Generic terminal progress bar renderer with colored proportional segments. Renders Unicode block characters with each segment styled via Symfony Console tags. Supports configurable width, percentage labels, and legend rows. Designed for context window usage and other visualizations.",
             "methods": [
                 "render(SymfonyStyle $io, int|float $total, array $segments, ...): void — render progress bar to terminal",
                 "build(int|float $total, array $segments, ...): string — build bar as styled string",
@@ -1765,7 +1755,7 @@
             "path": "src/Contract/ChildAgentHandoff.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\ChildAgentHandoff",
             "layer": "contract",
-            "description": "Typed envelope for parent-to-child task coordination. Carries the child task, optional context, metadata, workflow intent, artifact and todo references, and parent/work-scope project/session/sprint context. Used by SpawnAgentTool, ChildAgent, and CodeReviewCycle to normalize cross-agent handoffs while preserving a rendered user prompt for current child execution paths.",
+            "description": "Typed envelope for parent-to-child task coordination. Carries the child task, optional context, metadata, workflow intent, artifact references, and parent/work-scope project/session context. Used by SpawnAgentTool, ChildAgent, and CodeReviewCycle to normalize cross-agent handoffs while preserving a rendered user prompt for current child execution paths.",
             "methods": [
                 "fromTask(string): self — build a handoff from a bare task string",
                 "fromInput(string, string, array): self — normalize spawn_agent inputs into a typed envelope",
@@ -2036,21 +2026,6 @@
             ]
         },
         {
-            "path": "src/Api/Handler/TodoHandler.php",
-            "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\TodoHandler",
-            "layer": "command",
-            "description": "Todo CRUD API endpoints. GET /api/v1/sessions/{id}/todos (list with status/priority/artifact_id filters), POST /api/v1/sessions/{id}/todos (create), GET /api/v1/sessions/{id}/todos/stats (session stats), GET /api/v1/sessions/{id}/todos/{todoId} (detail with subtasks), PATCH /api/v1/sessions/{id}/todos/{todoId} (update), POST /api/v1/sessions/{id}/todos/{todoId}/complete (mark complete), DELETE /api/v1/sessions/{id}/todos/{todoId} (delete).",
-            "methods": [
-                "list(request, id): Response — list session todos with filters",
-                "create(request, id): Response — create todo",
-                "stats(request, id): Response — session todo statistics",
-                "get(request, id, todoId): Response — get todo with subtasks",
-                "update(request, id, todoId): Response — update todo fields",
-                "complete(request, id, todoId): Response — mark todo complete",
-                "delete(request, id, todoId): Response — delete todo"
-            ]
-        },
-        {
             "path": "src/Api/Handler/TurnHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\TurnHandler",
             "layer": "command",
@@ -2064,7 +2039,7 @@
             "path": "src/Api/Handler/SummarizeHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\SummarizeHandler",
             "layer": "command",
-            "description": "POST /api/v1/sessions/{id}/summarize — triggers conversation summarization for a session. Accepts optional keep_recent (1-20) and focus parameters. Resolves a cheap provider via utility model resolution. Accepts optional TodoStore and ArtifactStore to inject workflow context into summarization. Returns summary text, message count, and token metrics.",
+            "description": "POST /api/v1/sessions/{id}/summarize — triggers conversation summarization for a session. Accepts optional keep_recent (1-20) and focus parameters. Resolves a cheap provider via utility model resolution. Queries ArtifactStore to inject workflow context into summarization. Returns summary text, message count, and token metrics.",
             "methods": [
                 "summarize(request, id): Response — validates session, builds workflow context, summarizes conversation, returns JSON metrics"
             ]
@@ -2129,7 +2104,7 @@
             "path": "src/Api/Handler/DecodesRequestBody.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\DecodesRequestBody",
             "layer": "command",
-            "description": "Trait providing shared JSON request-body decoding for API handlers, in both the null-returning (decodeJsonObjectOrNull) and error-Response-returning (decodeJsonObjectOrError) shapes. Used by ProjectHandler, ArtifactHandler, SessionHandler, ConfigHandler, TodoHandler, and McpServerHandler.",
+            "description": "Trait providing shared JSON request-body decoding for API handlers, in both the null-returning (decodeJsonObjectOrNull) and error-Response-returning (decodeJsonObjectOrError) shapes. Used by ProjectHandler, ArtifactHandler, SessionHandler, ConfigHandler, and McpServerHandler.",
             "methods": [
                 "decodeJsonObjectOrNull(ServerRequestInterface): ?array — decode body to a JSON object or null",
                 "decodeJsonObjectOrError(ServerRequestInterface): array|Response — decode body to a JSON object or a 422 error Response"
@@ -2269,12 +2244,12 @@
             "path": "src/Storage/ArtifactStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ArtifactStore",
             "layer": "storage",
-            "description": "SQLite-backed artifact persistence. Tables: artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, sprint_id, persistent, timestamps), artifact_versions (id, artifact_id, version, content, change_summary, created_at). Shares PDO connection from SessionStorage. Supports CRUD, automatic versioning on update, stage transitions (draft/review/final), and per-session listing with type/stage/project_id/sprint_id/created_after filters. cleanupFinalized() excludes loop_output and persistent artifacts. create() auto-sets persistent=true when projectId is non-null, ensuring project-linked artifacts survive cleanup across background task process boundaries.",
+            "description": "SQLite-backed artifact persistence. Tables: artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, persistent, timestamps), artifact_versions (id, artifact_id, version, content, change_summary, created_at). Shares PDO connection from SessionStorage. Supports CRUD, automatic versioning on update, stage transitions (draft/review/final), and per-session listing with type/stage/project_id/created_after filters. cleanupFinalized() excludes loop_output and persistent artifacts. create() auto-sets persistent=true when projectId is non-null, ensuring project-linked artifacts survive cleanup across background task process boundaries.",
             "methods": [
-                "create(sessionId, title, content, type, language, filepath, stage, turnId, metadata, projectId, sprintId, persistent): string — creates artifact + initial version; auto-sets persistent=true when projectId is non-null; returns ID",
+                "create(sessionId, title, content, type, language, filepath, stage, turnId, metadata, projectId, persistent): string — creates artifact + initial version; auto-sets persistent=true when projectId is non-null; returns ID",
                 "update(id, content, changeSummary, title, stage): bool — updates content, bumps version, saves snapshot",
                 "get(id): ?array — retrieves artifact by ID",
-                "list(sessionId, type, stage, limit, projectId, sprintId, createdAfter): array — lists artifacts with optional filters",
+                "list(sessionId, type, stage, limit, projectId, createdAfter): array — lists artifacts with optional filters",
                 "delete(id): bool — deletes artifact and cascaded versions",
                 "getVersions(artifactId): array — returns version history ordered desc",
                 "getVersion(artifactId, version): ?array — retrieves specific version",
@@ -2283,47 +2258,19 @@
             ]
         },
         {
-            "path": "src/Storage/TodoStore.php",
-            "fqcn": "CoquiBot\\Coqui\\Storage\\TodoStore",
-            "layer": "storage",
-            "description": "SQLite-backed session-scoped todo persistence. Table: todos (id, session_id, artifact_id, parent_id, title, status, priority, created_by, completed_by, notes, sort_order, timestamps). Shares PDO connection from SessionStorage. Supports CRUD, subtask hierarchy, artifact linking, status transitions (pending/in_progress/completed/cancelled), priority levels, session-scoped statistics, and boot-time cleanup of orphaned and stale todos.",
-            "methods": [
-                "create(sessionId, title, priority, artifactId, parentId, createdBy, notes): string — creates todo, returns ID",
-                "get(id): ?array — retrieves todo by ID",
-                "update(id, title, status, priority, notes, artifactId): bool — updates todo fields",
-                "complete(id, completedBy, notes): bool — marks todo completed with timestamp",
-                "delete(id): bool — deletes todo (cascades subtasks)",
-                "list(filters, includeCompleted, limit): array — lists todos with session/status/priority/artifact filters",
-                "listByArtifact(artifactId, includeSubtasks): array — lists todos linked to an artifact",
-                "getSubtasks(parentId): array — returns child todos",
-                "getStats(sessionId, artifactId): array — returns total/pending/in_progress/completed/cancelled counts",
-                "reorder(ordering): void — bulk-updates sort_order",
-                "cleanupOrphaned(): int — removes todos whose session no longer exists, returns count deleted",
-                "cleanupStale(staleDays, inactiveDays): int — removes old completed/cancelled todos from inactive sessions"
-            ]
-        },
-        {
             "path": "src/Storage/ProjectStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ProjectStore",
             "layer": "storage",
-            "description": "SQLite-backed session-independent project and sprint persistence. Tables: projects (id, title, slug UNIQUE, description, status, directory, timestamps) and sprints (id, project_id FK CASCADE, title, sprint_number, status, contract_artifact_id, acceptance_criteria, reviewer_notes, review_round, max_review_rounds, last_session_id, timestamps, completed_at). Enforces a 4-state sprint lifecycle (planned→in_progress→review→complete/rejected) via transitionSprint() with validation and review round tracking. Supports project directories at workspace/projects/{slug}-{hash(8)} and project context retrieval for system prompt injection.",
+            "description": "SQLite-backed session-independent project persistence. Table: projects (id, title, slug UNIQUE, description, status, directory, timestamps). Shares PDO connection from SessionStorage. Supports project directories at workspace/projects/{slug}-{hash(8)} and project context retrieval for system prompt injection. A migration drops the legacy sprints table.",
             "methods": [
                 "createProject(title, slug, description): string — creates project, returns ID",
                 "getProject(idOrSlug): ?array — retrieves project by ID or slug",
                 "listProjects(status, limit): array — lists projects with optional status filter",
                 "updateProject(id, title, description, status): bool — updates project fields",
-                "deleteProject(id): bool — cascade-deletes project and sprints",
-                "createSprint(projectId, title, acceptanceCriteria): string — creates sprint with auto sprint_number",
-                "getSprint(id): ?array — retrieves sprint by ID",
-                "listSprints(projectId, status): array — lists sprints with optional status filter",
-                "transitionSprint(id, newStatus, notes): bool — enforces lifecycle transitions with review round tracking",
-                "updateSprint(id, title, acceptanceCriteria, contractArtifactId, lastSessionId): bool — updates sprint fields",
-                "getActiveSprintForProject(projectId): ?array — first in_progress or review sprint",
-                "getActiveSprintsForSession(sessionId): array — sprints linked to a session via last_session_id",
-                "getSprintProgress(sprintId, TodoStore): array — aggregates todo stats for a sprint",
-                "deleteSprint(id): bool — deletes a sprint",
+                "deleteProject(id): bool — deletes project",
+                "deleteAllProjects(): int — deletes all projects, returns count",
                 "getProjectDirectory(projectId): string — returns the project directory name from DB or computes fallback",
-                "getProjectContext(projectId, ?TodoStore, ?sessionId): array — returns project metadata, sprint roster with progress, and directory for system prompt injection"
+                "getProjectContext(projectId): array — returns project metadata and directory for system prompt injection"
             ]
         },
         {
@@ -2386,7 +2333,7 @@
             "path": "src/Memory/ConversationSummarizer.php",
             "fqcn": "CoquiBot\\Coqui\\Memory\\ConversationSummarizer",
             "layer": "storage",
-            "description": "Summarizes conversation history to reduce token usage while preserving context. Runs automatic memory extraction before summarization to preserve facts before they are compressed. Splits conversations into a segment to summarize and recent turns to keep, compresses the older segment via a cheap LLM provider, and rebuilds the conversation with a summary marker persisted back into the session transcript as a user message so it survives provider replay. Accepts optional workflowContext parameter to inject active todo/artifact state into the LLM compression prompt.",
+            "description": "Summarizes conversation history to reduce token usage while preserving context. Runs automatic memory extraction before summarization to preserve facts before they are compressed. Splits conversations into a segment to summarize and recent turns to keep, compresses the older segment via a cheap LLM provider, and rebuilds the conversation with a summary marker persisted back into the session transcript as a user message so it survives provider replay. Accepts optional workflowContext parameter to inject active artifact state into the LLM compression prompt.",
             "methods": [
                 "summarize(Conversation, ProviderInterface, keepRecentTurns, ?focus, ?workflowContext): ConversationSummaryResult — compresses older messages into a structured summary, preserving workflow context",
                 "summarizeAndPersist(sessionId, provider, keepRecentTurns, ?focus, ?workflowContext): ConversationSummaryResult — extracts durable memories, summarizes with workflow context, marks older session rows summarized, and persists the summary marker back into the session transcript"
@@ -2416,30 +2363,20 @@
             "path": "src/Toolkit/ArtifactToolkit.php",
             "fqcn": "CoquiBot\\Coqui\\Toolkit\\ArtifactToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing artifact management toolkit providing 6 tools: artifact_create (new versioned artifact with project_id/sprint_id linking and auto-scoping from defaultProjectId/defaultSprintId), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage/project_id/sprint_id/created_after filters), artifact_stage (single or bulk stage transitions with auto todo generation for plans), artifact_delete (single or bulk deletion with filters). Types include code, document, config, plan, data, loop_output, sketch (rough ideation), hypothesis (testable ideas), and other. Accepts optional TodoStore to show todo progress next to plan artifacts in guidelines. Constructor accepts defaultProjectId/defaultSprintId for auto-scoping artifact_create in loop stage contexts.",
+            "description": "Agent-facing artifact management toolkit providing 6 tools: artifact_create (new versioned artifact with project_id linking and auto-scoping from defaultProjectId), artifact_update (content update with auto-versioning), artifact_get (retrieve by ID, optionally specific version), artifact_list (session artifacts with type/stage/project_id/created_after filters), artifact_stage (single or bulk stage transitions draft→review→final with no side effects), artifact_delete (single or bulk deletion with filters). Types include code, document, config, plan, data, loop_output, sketch (rough ideation), hypothesis (testable ideas), and other. Constructor accepts defaultProjectId for auto-scoping artifact_create in loop stage contexts.",
             "methods": [
                 "tools(): array — returns 5-6 Tool instances for artifact CRUD + staging + optional delete",
-                "guidelines(): string — dynamic guidelines showing existing artifact listing with todo progress for plans"
+                "guidelines(): string — dynamic guidelines showing existing artifact listing"
             ]
         },
         {
-            "path": "src/Toolkit/TodoToolkit.php",
-            "fqcn": "CoquiBot\\Coqui\\Toolkit\\TodoToolkit",
+            "path": "src/Toolkit/ProjectToolkit.php",
+            "fqcn": "CoquiBot\\Coqui\\Toolkit\\ProjectToolkit",
             "layer": "toolkit",
-            "description": "Agent-facing session-scoped todo management toolkit providing 6 tools: todo_add (single or bulk via items param), todo_update (single or bulk via updates param), todo_complete (single id, multiple ids, or all), todo_list, todo_get, todo_delete (single id, multiple ids, or scoped clear). Role-aware permissions. Accepts optional ArtifactStore to resolve artifact titles for linked todos. Guidelines dynamically show progress bar, active/pending listing with artifact cross-references, and post-summarization recovery hints.",
+            "description": "Lean project (working-directory) management toolkit providing 6 tools: project_create, project_list, project_get, project_update, project_delete, project_switch. A project is a named working scope backed by a workspace directory (projects/{slug}-{id}/). Projects persist across sessions. No sprints, no todos. Dynamic guidelines show active project marker (●). project_switch changes the active project context.",
             "methods": [
-                "tools(): array — returns filtered Tool instances based on access level",
-                "guidelines(): string — dynamic progress summary with bar visualization, artifact cross-refs, and recovery hints"
-            ]
-        },
-        {
-            "path": "src/Toolkit/SprintToolkit.php",
-            "fqcn": "CoquiBot\\Coqui\\Toolkit\\SprintToolkit",
-            "layer": "toolkit",
-            "description": "Agent-facing project and sprint management toolkit providing 10 tools: project_create, project_list, project_get, project_update, project_switch, sprint_create, sprint_list, sprint_get, sprint_transition, sprint_update. Projects persist across sessions with dedicated directories at workspace/projects/{slug}-{hash}. Sprints follow a 4-state lifecycle (planned→in_progress→review→complete/rejected). Dynamic guidelines show active project marker (●) and sprint progress. project_switch tool allows agent to change active project context.",
-            "methods": [
-                "tools(): array — returns 9 project and sprint management Tool instances",
-                "guidelines(): string — dynamic active project/sprint summary with progress bar, empty when no active sprint"
+                "tools(): array — returns 6 project management Tool instances",
+                "guidelines(): string — dynamic active project summary, empty when no active project"
             ]
         },
         {
@@ -2449,15 +2386,6 @@
             "description": "Generates a concise session title from the first user prompt using a lightweight model. Single-shot LLM call with title_generator role instructions. Best-effort — returns null on failure, never blocks the main response.",
             "methods": [
                 "generate(string $userPrompt): ?string — generates title or returns null on failure"
-            ]
-        },
-        {
-            "path": "src/Agent/PlanTodoGenerator.php",
-            "fqcn": "CoquiBot\\Coqui\\Agent\\PlanTodoGenerator",
-            "layer": "agent",
-            "description": "Automatically generates todos from finalized plan artifacts. Follows the TitleGenerator pattern: single-shot LLM call via utility model, best-effort, never propagates errors. Loads instructions from the plan-todo-generator role file via RoleDiscovery (falling back to FALLBACK_INSTRUCTIONS). Extracts actionable implementation steps as structured JSON and creates linked todos via TodoStore::bulkCreate(). Invoked automatically by ArtifactToolkit when a plan artifact reaches 'final' stage.",
-            "methods": [
-                "generate(string $artifactId, string $sessionId, string $planContent): array — extracts steps from plan and creates todos, returns created IDs (empty on failure)"
             ]
         },
         {
@@ -3438,7 +3366,7 @@
             "path": "src/Support/SchemaHelper.php",
             "fqcn": "CoquiBot\\Coqui\\Support\\SchemaHelper",
             "layer": "support",
-            "description": "SQLite schema-migration helper. Centralizes the add-column-if-missing idiom that the storage classes previously reimplemented with stylistic drift (foreach vs array_any). Used by SessionStorage, ArtifactStore, TodoStore, LoopStore, ProjectStore, ChannelStore, and NotificationStore.",
+            "description": "SQLite schema-migration helper. Centralizes the add-column-if-missing idiom that the storage classes previously reimplemented with stylistic drift (foreach vs array_any). Used by SessionStorage, ArtifactStore, LoopStore, ProjectStore, ChannelStore, and NotificationStore.",
             "methods": [
                 "static addColumnIfMissing(PDO $db, string $table, string $column, string $definition): void — ALTER TABLE ADD COLUMN only when the column is absent"
             ]
@@ -3498,7 +3426,7 @@
             "path": "src/Support/ProfileSessionLifecycleManager.php",
             "fqcn": "CoquiBot\\Coqui\\Support\\ProfileSessionLifecycleManager",
             "layer": "support",
-            "description": "Shared continuity-preserving session finalizer for profiled conversations. Reuses the utility/orchestrator provider fallback path to summarize old conversation state, force a final memory extraction pass, build compact workflow context from todos and artifacts, and then mark sessions closed/archived so REPL and API profile lifecycle rules stay aligned.",
+            "description": "Shared continuity-preserving session finalizer for profiled conversations. Reuses the utility/orchestrator provider fallback path to summarize old conversation state, force a final memory extraction pass, build compact workflow context from artifacts, and then mark sessions closed/archived so REPL and API profile lifecycle rules stay aligned.",
             "methods": [
                 "finalizeOtherActiveInteractiveSessionsForProfile(string $profile, string $keepSessionId, string $reason): array — summarize/extract/close all other active interactive sessions for a profile",
                 "finalizeSession(string $sessionId, string $reason): void — preserve continuity and then close/archive a session"

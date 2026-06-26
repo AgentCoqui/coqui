@@ -79,6 +79,8 @@ final class ArtifactStore
 
         // Harness columns — added to existing installations via migration
         $this->migrateAddColumn('artifacts', 'project_id', "TEXT");
+        // sprint_id is a dormant column retained from the removed sprint subsystem;
+        // it is never written or read. Kept because SQLite cannot cheaply drop columns.
         $this->migrateAddColumn('artifacts', 'sprint_id', "TEXT");
         $this->migrateAddColumn('artifacts', 'persistent', 'INTEGER NOT NULL DEFAULT 0');
 
@@ -109,7 +111,6 @@ final class ArtifactStore
         ?string $turnId = null,
         ?array $metadata = null,
         ?string $projectId = null,
-        ?string $sprintId = null,
         bool $persistent = false,
     ): string {
         $id = IdGenerator::hex();
@@ -121,8 +122,8 @@ final class ArtifactStore
         $isPersistent = $persistent || ($projectId !== null && $projectId !== '');
 
         $stmt = $this->db->prepare(<<<'SQL'
-            INSERT INTO artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, sprint_id, persistent, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+            INSERT INTO artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, persistent, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
         SQL);
         $stmt->execute([
             $id,
@@ -136,7 +137,6 @@ final class ArtifactStore
             $stage,
             $metadata !== null ? json_encode($metadata, JSON_UNESCAPED_SLASHES) : null,
             $projectId,
-            $sprintId,
             $isPersistent ? 1 : 0,
             $now,
             $now,
@@ -215,7 +215,7 @@ final class ArtifactStore
     /**
      * Patch non-versioned artifact fields.
      *
-     * Supported keys: title, language, metadata, project_id, sprint_id, persistent.
+     * Supported keys: title, language, metadata, project_id, persistent.
      *
      * @param array<string, mixed> $patch
      * @param string|null $sessionId When provided, validates the artifact belongs to this session.
@@ -259,15 +259,6 @@ final class ArtifactStore
             } else {
                 $sets[] = 'project_id = ?';
                 $params[] = $patch['project_id'];
-            }
-        }
-
-        if (array_key_exists('sprint_id', $patch)) {
-            if ($patch['sprint_id'] === null) {
-                $sets[] = 'sprint_id = NULL';
-            } else {
-                $sets[] = 'sprint_id = ?';
-                $params[] = $patch['sprint_id'];
             }
         }
 
@@ -352,7 +343,6 @@ final class ArtifactStore
         ?string $stage = null,
         int $limit = 50,
         ?string $projectId = null,
-        ?string $sprintId = null,
         ?string $createdAfter = null,
     ): array {
         $where = ['session_id = ?'];
@@ -371,11 +361,6 @@ final class ArtifactStore
         if ($projectId !== null) {
             $where[] = 'project_id = ?';
             $params[] = $projectId;
-        }
-
-        if ($sprintId !== null) {
-            $where[] = 'sprint_id = ?';
-            $params[] = $sprintId;
         }
 
         if ($createdAfter !== null) {
@@ -503,8 +488,8 @@ final class ArtifactStore
     public function updateStage(string $id, string $stage, ?string $sessionId = null): bool
     {
         // For filesystem-backed artifacts, sync disk content to DB before stage transition.
-        // This ensures PlanTodoGenerator and other post-finalization consumers see the
-        // latest content even if the file was edited externally.
+        // This ensures post-finalization consumers see the latest content even if the
+        // file was edited externally.
         // Uses getRaw() to avoid the disk-content overlay that get() applies.
         if ($this->fileService !== null) {
             $artifact = $this->getRaw($id, $sessionId);

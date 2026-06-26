@@ -211,7 +211,7 @@ test('config handler creates a profile and makes it immediately discoverable', f
                     'prompts' => [
                         'features' => [
                             'projects' => false,
-                            'todos' => true,
+                            'loops' => true,
                         ],
                     ],
                 ],
@@ -227,7 +227,7 @@ test('config handler creates a profile and makes it immediately discoverable', f
         expect($body['description'])->toBe('A bold collaborative strategist.');
         expect($body['soul'])->toContain('# Nova');
         expect($body['preferences']['features']['projects'])->toBeFalse();
-        expect($body['preferences']['features']['todos'])->toBeTrue();
+        expect($body['preferences']['features']['loops'])->toBeTrue();
         expect($profilesBody['count'])->toBe(3);
         expect(array_column($profilesBody['profiles'], 'name'))->toBe(['caelum', 'nova', 'trinity']);
         expect(file_get_contents($fixture['workspacePath'] . '/profiles/nova/soul.md'))->toContain('A bold collaborative strategist.');
@@ -288,7 +288,7 @@ test('config handler updates a profile and preserves existing frontmatter', func
                     'prompts' => [
                         'features' => [
                             'projects' => false,
-                            'todos' => true,
+                            'loops' => true,
                         ],
                     ],
                 ],
@@ -301,7 +301,7 @@ test('config handler updates a profile and preserves existing frontmatter', func
         expect($body['description'])->toBe('A calmer guide for long-running conversations.');
         expect($body['model'])->toBe('anthropic/claude-sonnet-4-20250514');
         expect($body['preferences']['features']['projects'])->toBeFalse();
-        expect($body['preferences']['features']['todos'])->toBeTrue();
+        expect($body['preferences']['features']['loops'])->toBeTrue();
         expect($soulFile)->toContain('model: anthropic/claude-sonnet-4-20250514');
         expect($soulFile)->toContain('A calmer guide for long-running conversations.');
         expect(file_get_contents($fixture['workspacePath'] . '/profiles/caelum/backstory.md'))->toContain('## Revisions');

@@ -39,7 +39,7 @@ Join the [Discord community](https://discord.gg/TaCpZVqbbT) to follow along, ask
 - **Fast load times** — cold boot in ~78 ms with OPcache and JIT.
 - **Low memory footprint** — 10–30 MB per process, even with dozens of tools loaded.
 - **Scheduled tasks & background processes** — cron-style automation and isolated long-running agents that work while you don't.
-- **Project management built in** — projects, sprints, todos, versioned artifacts, and multi-iteration loops for structured work of any kind.
+- **Lean projects built in** — named working scopes backed by workspace directories, plus versioned artifacts and multi-iteration loops for structured work of any kind.
 
 ## Why PHP?
 
@@ -226,7 +226,6 @@ See [docs/COMMANDS.md](docs/COMMANDS.md) for the full CLI reference including `a
 | `/image` | Generate and manage workspace images |
 | `/projects` | List projects or switch the active project |
 | `/tasks [status]` | List background tasks |
-| `/todos [status]` | Show session todos |
 | `/schedules` | List scheduled tasks |
 | `/loops` | List and manage automated loops |
 | `/mods` | Mods marketplace via the external manager toolkit |
@@ -352,7 +351,8 @@ Coqui ships with a rich set of tools organized into toolkits:
 | **Code** | `php_execute` | Execute PHP in a sandboxed subprocess |
 | **Memory** | `memory_save`, `memory_search` | Persistent cross-session memory |
 | **Background** | `start_background_task`, `start_background_tool` | Isolated processes for long-running work |
-| **Planning** | `artifact_create`, `todo_add` | Versioned artifacts and task tracking |
+| **Planning** | `artifact_create` | Versioned artifacts |
+| **Projects** | `project_create`, `project_switch` | Lean working scopes backed by workspace directories |
 | **Scheduling** | `schedule_create`, `webhook_create` | Cron-style automation and incoming webhooks |
 | **Loops** | `loop_start`, `loop_status`, `loop_definitions` | Automated multi-iteration workflows chaining roles |
 | **Vision** | `vision_analyze` | Multi-provider image analysis |
@@ -523,7 +523,7 @@ docker compose run --rm -v ./openclaw.json:/app/openclaw.json:ro coqui
 | [API](docs/API.md) | Canonical HTTP API reference and client integration guide |
 | [Background Tasks](docs/BACKGROUND-TASKS.md) | Background task architecture and usage |
 | [Loops](docs/LOOPS.md) | Loop definitions, runtime model, and inspection |
-| [Todos](docs/TODOS.md) | Planning and todo workflow |
+| [Projects](docs/PROJECTS.md) | Lean project working scopes |
 | [Artifacts](docs/ARTIFACTS.md) | Artifact lifecycle and versioning |
 | [Testing](docs/TESTING.md) | Test layout, local commands, coverage, and PCOV/Xdebug setup |
 | [Toolkits](docs/TOOLKITS.md) | Creating toolkit packages |

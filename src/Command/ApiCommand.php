@@ -244,7 +244,6 @@ final class ApiCommand extends Command
         $lifecycle->markBooted();
 
         $artifactStore = new ArtifactStore($storage->getPdo());
-        $todoStore = new \CoquiBot\Coqui\Storage\TodoStore($storage->getPdo());
         // Schedule & webhook infrastructure
         $verifierRegistry = new WebhookVerifierRegistry();
 
@@ -326,8 +325,6 @@ final class ApiCommand extends Command
                 loopStore: $loopStore,
                 projectStore: $projectStore,
                 sessionStorage: $storage,
-                todoStore: $todoStore,
-                artifactStore: $artifactStore,
                 goalEvaluator: $goalEvaluator,
                 toolBoundEvaluator: $toolBoundEvaluator,
             );
@@ -341,7 +338,6 @@ final class ApiCommand extends Command
             providerFactory: $boot->providerFactory(),
             roleResolver: $boot->roleResolver(),
             memoryStore: $boot->memoryStore(),
-            todoStore: $boot->todoStore(),
             artifactStore: $boot->artifactStore(),
         );
 
@@ -403,7 +399,6 @@ final class ApiCommand extends Command
             ),
         ));
         $artifactHandler = new ArtifactHandler($artifactStore, $storage, $projectStore);
-        $todoHandler = new \CoquiBot\Coqui\Api\Handler\TodoHandler($todoStore, $storage, $artifactStore, $projectStore);
         $scheduleHandler = new ScheduleHandler($scheduleStore, $storage);
         $webhookDispatcher = new \CoquiBot\Coqui\Api\Webhook\WebhookDispatchService($webhookStore, $storage);
         $webhookHandler = new WebhookHandler($webhookStore, $storage, $verifierRegistry, $webhookDispatcher);
@@ -425,7 +420,7 @@ final class ApiCommand extends Command
 
         // Build router
         $router = new Router();
-        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $todoHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
+        $this->registerRoutes($router, $healthHandler, $sessionHandler, $messageHandler, $turnHandler, $configHandler, $credentialHandler, $roleHandler, $taskHandler, $fileUploadHandler, $serverHandler, $toolkitHandler, $promptHandler, $backstoryHandler, $budgetHandler, $commandCatalogHandler, $mcpServerHandler, $artifactHandler, $scheduleHandler, $webhookHandler, $webhookMgmtHandler, $channelHandler, $loopApiHandler, $projectHandler, $sessionProjectHandler);
 
         // Build middleware stack (order: CORS → rate limit → request size → content type → auth)
         $corsOrigins = array_map('trim', explode(',', $corsOrigin));
@@ -626,7 +621,6 @@ final class ApiCommand extends Command
         CommandCatalogHandler $commands,
         McpServerHandler $mcp,
         ArtifactHandler $artifact,
-        \CoquiBot\Coqui\Api\Handler\TodoHandler $todo,
         ScheduleHandler $schedule,
         WebhookHandler $webhook,
         WebhookManagementHandler $webhookMgmt,
@@ -720,15 +714,6 @@ final class ApiCommand extends Command
             $router->delete($v1 . '/projects/{idOrSlug}', [$project, 'delete']);
             $router->post($v1 . '/projects/{idOrSlug}/archive', [$project, 'archive']);
             $router->post($v1 . '/projects/{idOrSlug}/activate', [$project, 'activate']);
-            $router->post($v1 . '/projects/{idOrSlug}/sprints', [$project, 'createSprint']);
-            $router->get($v1 . '/projects/{idOrSlug}/sprints', [$project, 'sprints']);
-            $router->get($v1 . '/sprints/{id}', [$project, 'sprint']);
-            $router->patch($v1 . '/sprints/{id}', [$project, 'updateSprint']);
-            $router->delete($v1 . '/sprints/{id}', [$project, 'deleteSprint']);
-            $router->post($v1 . '/sprints/{id}/start', [$project, 'startSprint']);
-            $router->post($v1 . '/sprints/{id}/submit-review', [$project, 'submitReview']);
-            $router->post($v1 . '/sprints/{id}/complete', [$project, 'completeSprint']);
-            $router->post($v1 . '/sprints/{id}/reject', [$project, 'rejectSprint']);
         }
 
         // Child runs
@@ -752,19 +737,6 @@ final class ApiCommand extends Command
         $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'get']);
         $router->patch($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'update']);
         $router->delete($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'delete']);
-
-        // Todos
-        $router->post($v1 . '/sessions/{id}/todos', [$todo, 'create']);
-        $router->get($v1 . '/sessions/{id}/todos', [$todo, 'list']);
-        $router->get($v1 . '/sessions/{id}/todos/stats', [$todo, 'stats']);
-        $router->patch($v1 . '/sessions/{id}/todos/bulk', [$todo, 'bulkUpdate']);
-        $router->post($v1 . '/sessions/{id}/todos/reorder', [$todo, 'reorder']);
-        $router->get($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'get']);
-        $router->patch($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'update']);
-        $router->delete($v1 . '/sessions/{id}/todos/{todoId}', [$todo, 'delete']);
-        $router->post($v1 . '/sessions/{id}/todos/{todoId}/complete', [$todo, 'complete']);
-        $router->post($v1 . '/sessions/{id}/todos/{todoId}/reopen', [$todo, 'reopen']);
-        $router->post($v1 . '/sessions/{id}/todos/{todoId}/cancel', [$todo, 'cancel']);
 
         // Toolkit visibility management
         $router->get($v1 . '/toolkits', [$toolkit, 'list']);

@@ -122,10 +122,6 @@ final class TaskRunCommand extends Command
         if ($taskProjectId === '') {
             $taskProjectId = null;
         }
-        $taskSprintId = $task['sprint_id'] ?? null;
-        if ($taskSprintId === '') {
-            $taskSprintId = null;
-        }
         $session = $storage->getSession($sessionId);
         $taskProfile = is_array($session) && is_string($session['profile'] ?? null) && $session['profile'] !== ''
             ? $session['profile']
@@ -197,7 +193,6 @@ final class TaskRunCommand extends Command
                 maxIterations: $maxIterations,
                 workScopeSessionId: $workScopeSessionId,
                 defaultProjectId: $taskProjectId,
-                defaultSprintId: $taskSprintId,
                 profile: $taskProfile,
             );
 

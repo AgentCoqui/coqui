@@ -641,7 +641,6 @@ test('profile policy can disable project toolkits and stub non-core standalone t
                     'prompts' => [
                         'features' => [
                             'artifacts' => false,
-                            'todos' => false,
                             'projects' => false,
                             'loops' => false,
                         ],
@@ -664,13 +663,11 @@ test('profile policy can disable project toolkits and stub non-core standalone t
         expect($toolNames)->toContain('spawn_agent');
         expect($stubbedTools)->not->toBeEmpty();
         expect($breakdownClasses)->not->toContain('CoquiBot\\Coqui\\Toolkit\\ArtifactToolkit');
-        expect($breakdownClasses)->not->toContain('CoquiBot\\Coqui\\Toolkit\\TodoToolkit');
-        expect($breakdownClasses)->not->toContain('CoquiBot\\Coqui\\Toolkit\\SprintToolkit');
+        expect($breakdownClasses)->not->toContain('CoquiBot\\Coqui\\Toolkit\\ProjectToolkit');
         expect($policy)->not->toBeNull();
         expect($policy['tools_stubbed'])->toBeTrue();
         expect($policy['excluded_tool_prompt_slugs'])->toContain('artifacts');
-        expect($policy['excluded_tool_prompt_slugs'])->toContain('todos');
-        expect($policy['excluded_tool_prompt_slugs'])->toContain('sprints');
+        expect($policy['excluded_tool_prompt_slugs'])->toContain('projects');
         expect($policy['excluded_tool_prompt_slugs'])->toContain('loops');
     } finally {
         cleanupSqliteTestDb($dbPath);

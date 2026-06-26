@@ -39,7 +39,6 @@ test('artifact handler creates and updates versioned artifacts with metadata', f
     try {
         $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
         $projectId = $fixture['projectStore']->createProject('Career Ops', 'career-ops');
-        $sprintId = $fixture['projectStore']->createSprint($projectId, 'Artifact Sprint');
 
         $createResponse = $fixture['handler']->create(
             new ServerRequest(
@@ -51,7 +50,6 @@ test('artifact handler creates and updates versioned artifacts with metadata', f
                     'content' => 'Initial contract draft',
                     'type' => 'document',
                     'project_id' => $projectId,
-                    'sprint_id' => $sprintId,
                     'tags' => ['api', 'flutter'],
                     'summary' => 'App contract draft',
                 ]) ?: '',
@@ -86,7 +84,6 @@ test('artifact handler creates and updates versioned artifacts with metadata', f
         expect($createBody['metadata']['tags'])->toBe(['api', 'flutter']);
         expect($createBody['metadata']['summary'])->toBe('App contract draft');
         expect($createBody['project_id'])->toBe($projectId);
-        expect($createBody['sprint_id'])->toBe($sprintId);
 
         expect($updateResponse->getStatusCode())->toBe(200);
         expect($updateBody['title'])->toBe('API Contract v2');

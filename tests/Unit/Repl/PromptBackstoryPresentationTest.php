@@ -24,7 +24,6 @@ use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\ThinkingHandler;
-use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
 use CoquiBot\Coqui\Repl\SlashCommandRouter;
@@ -127,7 +126,6 @@ function createPromptBackstoryRouterFixture(bool $conversationHistoryInSystemPro
     $router = new SlashCommandRouter(
         $instantiate(SessionHandler::class),
         $instantiate(TaskHandler::class),
-        $instantiate(TodoHandler::class),
         $instantiate(ScheduleHandler::class),
         $instantiate(BudgetHandler::class),
         $instantiate(ChannelHandler::class),

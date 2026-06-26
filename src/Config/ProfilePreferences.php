@@ -17,7 +17,7 @@ final readonly class ProfilePreferences
 {
     private const array ALLOWED_TOP_LEVEL_FIELDS = ['prompt_directives', 'behavior', 'prompts'];
     private const array ALLOWED_PROMPTS_FIELDS = ['features', 'prompt_sections', 'roles', 'labels'];
-    private const array ALLOWED_FEATURES = ['artifacts', 'projects', 'loops', 'todos', 'background_tasks'];
+    private const array ALLOWED_FEATURES = ['artifacts', 'projects', 'loops', 'background_tasks'];
     private const array SECTION_ALIASES = [
         'deferred' => 'deferred_toolkits',
         'project' => 'project_context',
@@ -235,7 +235,6 @@ final readonly class ProfilePreferences
                         self::toggleField('artifacts', 'Artifacts', 'prompts.features.artifacts', 'Allow artifact creation and artifact-aware workflows.'),
                         self::toggleField('projects', 'Projects', 'prompts.features.projects', 'Allow project context and project-aware workflows.'),
                         self::toggleField('loops', 'Loops', 'prompts.features.loops', 'Allow loop orchestration and loop-aware execution.'),
-                        self::toggleField('todos', 'Todos', 'prompts.features.todos', 'Allow todo planning and todo-aware execution.'),
                         self::toggleField('background_tasks', 'Background Tasks', 'prompts.features.background_tasks', 'Allow background tasks and deferred execution.'),
                     ],
                 ],

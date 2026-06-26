@@ -23,7 +23,6 @@ use CoquiBot\Coqui\Repl\Handler\ScheduleHandler;
 use CoquiBot\Coqui\Repl\Handler\SessionHandler;
 use CoquiBot\Coqui\Repl\Handler\TaskHandler;
 use CoquiBot\Coqui\Repl\Handler\ThinkingHandler;
-use CoquiBot\Coqui\Repl\Handler\TodoHandler;
 use CoquiBot\Coqui\Repl\Handler\ToolkitVisibilityHandler;
 use CoquiBot\Coqui\Repl\Handler\WebhookHandler;
 use CoquiBot\Coqui\Support\ImagePreviewService;
@@ -54,7 +53,6 @@ final class SlashCommandRouter
     public function __construct(
         private readonly SessionHandler $session,
         private readonly TaskHandler $task,
-        private readonly TodoHandler $todo,
         private readonly ScheduleHandler $schedule,
         private readonly BudgetHandler $budget,
         private readonly ChannelHandler $channel,
@@ -113,9 +111,7 @@ final class SlashCommandRouter
             '/thinking' => $this->handleThinking($io, $arg, $activeRole, $activeProfile),
             '/config' => $this->handleConfig($io, $arg),
             '/tasks' => $this->handleTasks($io, $arg),
-            '/todos' => $this->handleTodos($io, $arg, $sessionId),
             '/projects' => $this->handleProjects($io, $arg, $sessionId, $activeProjectId),
-            '/sprints' => $this->handleSprints($io, $arg, $sessionId),
             '/task' => $this->handleTask($io, $arg),
             '/task-cancel' => $this->handleTaskCancel($io, $arg),
             '/update' => $this->handleUpdate($io),
@@ -211,12 +207,6 @@ final class SlashCommandRouter
         return RouteResult::continue();
     }
 
-    private function handleTodos(SymfonyStyle $io, string $arg, string $sessionId): RouteResult
-    {
-        $this->todo->handle($io, $arg, $sessionId);
-        return RouteResult::continue();
-    }
-
     private function handleProjects(SymfonyStyle $io, string $arg, string $sessionId, ?string $activeProjectId): RouteResult
     {
         [$projectId, $projectSlug] = $this->project->handleProjects($io, $arg, $sessionId, $activeProjectId);
@@ -229,12 +219,6 @@ final class SlashCommandRouter
             return RouteResult::stateChange(newActiveProjectId: $projectId);
         }
 
-        return RouteResult::continue();
-    }
-
-    private function handleSprints(SymfonyStyle $io, string $arg, string $sessionId): RouteResult
-    {
-        $this->project->handleSprints($io, $arg, $sessionId);
         return RouteResult::continue();
     }
 

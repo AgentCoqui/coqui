@@ -147,17 +147,7 @@ MCP config changes are re-read on future agent turns without a full Coqui restar
 | `/task <id>` | Show a background task's status and recent events |
 | `/task-cancel <id>` | Cancel a pending or running background task |
 
-### Planning & Todos
-
-| Command | Description |
-| --- | --- |
-| `/todos [status]` | Show session todos with progress stats. Filter by `pending`, `in_progress`, `completed`, or `cancelled` |
-| `/todos delete <id\|all>` | Delete one todo by ID prefix, or all todos in the current session |
-| `/todos complete <id\|all>` | Mark one todo, or all actionable todos, as completed |
-| `/todos cancel <id>` | Mark a todo as cancelled |
-| `/todos clear` | Remove completed and cancelled todos |
-
-### Projects & Sprints
+### Projects
 
 | Command | Description |
 | --- | --- |
@@ -167,7 +157,6 @@ MCP config changes are re-read on future agent turns without a full Coqui restar
 | `/projects archived` | List only archived projects |
 | `/projects <slug\|id>` | Switch the active project for the current session |
 | `/projects clear` | Clear the active project for the current session |
-| `/sprints [project_slug]` | List sprints for active projects, or one project when a slug is provided |
 
 ### Scheduling & Automation
 

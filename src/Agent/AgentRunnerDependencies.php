@@ -19,7 +19,6 @@ use CoquiBot\Coqui\Memory\MemorySummarizer;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use CoquiBot\ModManager\ModManagerToolkit;
 use Symfony\Contracts\HttpClient\HttpClientInterface;
@@ -49,7 +48,6 @@ final readonly class AgentRunnerDependencies
         public ?ConfigGuard $configGuard = null,
         public ?ToolkitVisibilityRegistry $visibilityRegistry = null,
         public ?ModManagerToolkit $modsToolkit = null,
-        public ?TodoStore $todoStore = null,
         public ?ArtifactStore $artifactStore = null,
         public ?ProjectStore $projectStore = null,
         public ?DefaultsLoader $defaultsLoader = null,

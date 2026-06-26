@@ -228,27 +228,24 @@ In the interactive REPL, successful screenshot-producing tools can now render on
 
 **What it does:** Versioned artifacts that flow through a `draft` → `review` → `final` lifecycle. The `plan` role creates detailed implementation plans as artifacts, which are then handed off to the `coder` role for execution. Types include `code`, `document`, `config`, `plan`, `data`, `sketch` (rough ideation), `hypothesis` (testable ideas), and `other`.
 
-**How it helps:** Complex work gets a structured plan before anyone writes code. Plans are versioned, reviewable, and shareable between agents within a session. Sketch and hypothesis artifacts support creative exploration without lifecycle pressure — they don't auto-generate todos and can stay in draft indefinitely.
+**How it helps:** Complex work gets a structured plan before anyone writes code. Plans are versioned, reviewable, and shareable between agents within a session. Sketch and hypothesis artifacts support creative exploration without lifecycle pressure — they can stay in draft indefinitely.
 
 **How to use it:**
 - Switch to the plan role: `/role plan` and describe what you need.
 - The plan agent creates an artifact, iterates on it, and stages it to `final`.
-- When a plan artifact reaches `final`, todos are automatically extracted.
 - The coder reads the plan via `artifact_get` and follows it step by step.
 - See [ARTIFACTS.md](ARTIFACTS.md) for versioning, persistence, and cross-agent sharing.
 
-## <a id="todo-system"></a> ✅ Todo System
+## <a id="projects"></a> 📁 Projects
 
-**What it does:** Session-scoped task tracking with support for subtasks, priorities, bulk operations, and artifact linking. Todos are auto-generated from finalized plan artifacts and visible to all agents in a session.
+**What it does:** Lean project working scopes. A project is a named scope backed by its own workspace directory (`projects/<slug>-<id>/`), giving related work a stable home without heavyweight planning machinery.
 
-**How it helps:** Agents track their progress through complex multi-step work. After conversation summarization, agents can check `todo_list` to recover their place.
+**How it helps:** Keeps multi-step work organized under a clear scope and working directory, and lets agents switch context between scopes cleanly.
 
 **How to use it:**
-- View todos: `/todos` in the REPL.
-- The agent manages todos via `todo_add`, `todo_update`, `todo_complete`, and `todo_delete`, with batch and session-wide modes exposed through parameters.
-- Auto-generated from plans: when `artifact_stage(stage: "final")` is called, `PlanTodoGenerator` extracts implementation steps automatically.
-- See [TODOS.md](TODOS.md) for bulk operations, role permissions, and progress tracking.
-- See [DATA_FLOW.md](DATA_FLOW.md) for how Projects, Sprints, Artifacts, Todos, and Loops interconnect.
+- The agent manages projects via `project_create`, `project_list`, `project_get`, `project_update`, `project_delete`, and `project_switch`.
+- List or switch the active project: `/projects` in the REPL.
+- See [PROJECTS.md](PROJECTS.md) for the working-scope model.
 
 ## <a id="toolkit-visibility"></a> 🔧 Toolkit Visibility
 
@@ -272,7 +269,7 @@ In the interactive REPL, successful screenshot-producing tools can now render on
 
 ## <a id="conversation-summarization"></a> 🔄 Conversation Summarization
 
-**What it does:** Automatic and on-demand conversation compression. When token usage exceeds a configurable threshold (default 64%), older messages are summarized via LLM while preserving recent turns and workflow state (todos, artifacts).
+**What it does:** Automatic and on-demand conversation compression. When token usage exceeds a configurable threshold (default 64%), older messages are summarized via LLM while preserving recent turns and workflow state (artifacts).
 
 **How it helps:** Long sessions never hit token limits. The agent maintains awareness of earlier work through structured summaries while staying within budget.
 

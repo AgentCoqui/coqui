@@ -38,15 +38,14 @@ final class BackgroundTaskRecordStore
         ?string $scheduleId = null,
         int $maxExecutionSeconds = 3600,
         ?string $projectId = null,
-        ?string $sprintId = null,
         ?array $metadata = null,
     ): string {
         $id = IdGenerator::hex();
         $now = date('c');
 
         $stmt = $this->db->prepare(<<<SQL
-            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, metadata, max_iterations, tool_name, tool_arguments, schedule_id, max_execution_seconds, project_id, sprint_id, created_at)
-            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :metadata, :max_iterations, :tool_name, :tool_arguments, :schedule_id, :max_execution_seconds, :project_id, :sprint_id, :created_at)
+            INSERT INTO background_tasks (id, session_id, parent_session_id, status, title, prompt, role, metadata, max_iterations, tool_name, tool_arguments, schedule_id, max_execution_seconds, project_id, created_at)
+            VALUES (:id, :session_id, :parent_session_id, 'pending', :title, :prompt, :role, :metadata, :max_iterations, :tool_name, :tool_arguments, :schedule_id, :max_execution_seconds, :project_id, :created_at)
         SQL);
 
         $stmt->execute([
@@ -63,7 +62,6 @@ final class BackgroundTaskRecordStore
             'schedule_id' => $scheduleId,
             'max_execution_seconds' => $maxExecutionSeconds,
             'project_id' => $projectId,
-            'sprint_id' => $sprintId,
             'created_at' => $now,
         ]);
 

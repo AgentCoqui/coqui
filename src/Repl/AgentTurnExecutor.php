@@ -9,8 +9,6 @@ use CoquiBot\Coqui\Agent\GroupTurnCoordinator;
 use CoquiBot\Coqui\Api\ProcessCancellationToken;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Contract\AgentTurnResult as ContractAgentTurnResult;
-use CoquiBot\Coqui\Exception\InteractionCancelledException;
-use CoquiBot\Coqui\Exception\ShutdownRequestedException;
 use CoquiBot\Coqui\Observer\AnimatedTickCallback;
 use CoquiBot\Coqui\Observer\EscCancellationObserver;
 use CoquiBot\Coqui\Contract\SessionType;
@@ -26,7 +24,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 /**
  * Executes a single agent turn: builds policy, manages cancellation tokens,
  * switches terminal to raw mode for ESC detection, runs the agent, renders
- * output, and handles post-turn tasks plus sprint continuation.
+ * output, and handles post-turn tasks.
  */
 final class AgentTurnExecutor
 {
@@ -166,38 +164,7 @@ final class AgentTurnExecutor
             return new AgentTurnResult(exitCode: self::RESTART_EXIT_CODE);
         }
 
-        // Offer continuation when iteration limit or budget was reached and an active sprint exists
-        $continuationPrompt = null;
-        $shouldOfferContinuation = $result->iterationLimitReached || $result->budgetExhausted;
-        if ($shouldOfferContinuation && $this->boot->projectStore() !== null) {
-            $sprints = $this->boot->projectStore()->getActiveSprintsForSession($sessionId);
-            if ($sprints !== []) {
-                $sprint = $sprints[0];
-                $todoStore = $this->boot->todoStore();
-                $progress = $todoStore !== null
-                    ? $this->boot->projectStore()->getSprintProgress($sprint['id'], $todoStore, $sessionId)
-                    : ['percent' => 0, 'completed' => 0, 'total' => 0];
-                $title = $sprint['title'];
-                $pct = $progress['percent'];
-                $done = $progress['completed'];
-                $total = $progress['total'];
-                $io->newLine();
-                $prompter = new InterruptiblePrompt($io, $this->terminalState);
-                try {
-                    $reason = $result->budgetExhausted ? 'Context budget reached' : 'Iteration limit reached';
-                    if ($prompter->confirm("{$reason}. Sprint '{$title}' is {$pct}% complete ({$done}/{$total} todos). Continue?", true)) {
-                        $continuationPrompt = "Continue working on sprint '{$title}'. Check todo_list for remaining items."
-                            . " Review the summary above for what was accomplished and what remains.";
-                    }
-                } catch (InteractionCancelledException) {
-                    return new AgentTurnResult();
-                } catch (ShutdownRequestedException) {
-                    return new AgentTurnResult(exitCode: 0);
-                }
-            }
-        }
-
-        return new AgentTurnResult(continuationPrompt: $continuationPrompt);
+        return new AgentTurnResult();
     }
 
     /**

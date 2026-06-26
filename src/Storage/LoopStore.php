@@ -53,7 +53,6 @@ final class LoopStore
                 id TEXT PRIMARY KEY,
                 loop_id TEXT NOT NULL,
                 iteration_number INTEGER NOT NULL,
-                sprint_id TEXT,
                 status TEXT NOT NULL DEFAULT 'pending',
                 outcome_summary TEXT,
                 started_at TEXT,
@@ -274,15 +273,14 @@ final class LoopStore
     public function createIteration(
         string $loopId,
         int $iterationNumber,
-        ?string $sprintId = null,
     ): string {
         $id = IdGenerator::hex();
 
         $stmt = $this->db->prepare(<<<'SQL'
-            INSERT INTO loop_iterations (id, loop_id, iteration_number, sprint_id, status)
-            VALUES (?, ?, ?, ?, 'pending')
+            INSERT INTO loop_iterations (id, loop_id, iteration_number, status)
+            VALUES (?, ?, ?, 'pending')
         SQL);
-        $stmt->execute([$id, $loopId, $iterationNumber, $sprintId]);
+        $stmt->execute([$id, $loopId, $iterationNumber]);
 
         return $id;
     }

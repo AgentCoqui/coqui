@@ -424,12 +424,11 @@ test('task handler cancel updates pending task state through the manager', funct
     }
 });
 
-test('task handler create accepts project and sprint context', function () {
+test('task handler create accepts project context', function () {
     $fixture = createTaskHandlerFixture();
 
     try {
         $projectId = $fixture['projectStore']->createProject('Career Ops', 'career-ops');
-        $sprintId = $fixture['projectStore']->createSprint($projectId, 'Pipeline Sprint');
 
         $request = new ServerRequest(
             'POST',
@@ -439,7 +438,6 @@ test('task handler create accepts project and sprint context', function () {
                 'prompt' => 'Review pipeline progress',
                 'role' => 'coder',
                 'project_id' => $projectId,
-                'sprint_id' => $sprintId,
             ]) ?: '',
         );
 
@@ -449,22 +447,16 @@ test('task handler create accepts project and sprint context', function () {
 
         expect($response->getStatusCode())->toBe(201);
         expect($body['project_id'])->toBe($projectId);
-        expect($body['sprint_id'])->toBe($sprintId);
         expect($task['project_id'])->toBe($projectId);
-        expect($task['sprint_id'])->toBe($sprintId);
     } finally {
         cleanupTaskHandlerFixture($fixture);
     }
 });
 
-test('task handler create rejects mismatched sprint and project context', function () {
+test('task handler create rejects unknown project context', function () {
     $fixture = createTaskHandlerFixture();
 
     try {
-        $projectId = $fixture['projectStore']->createProject('Career Ops', 'career-ops');
-        $otherProjectId = $fixture['projectStore']->createProject('Marketing', 'marketing');
-        $sprintId = $fixture['projectStore']->createSprint($otherProjectId, 'Campaign Sprint');
-
         $request = new ServerRequest(
             'POST',
             '/api/v1/tasks',
@@ -472,16 +464,15 @@ test('task handler create rejects mismatched sprint and project context', functi
             json_encode([
                 'prompt' => 'Review pipeline progress',
                 'role' => 'coder',
-                'project_id' => $projectId,
-                'sprint_id' => $sprintId,
+                'project_id' => 'nonexistent-project',
             ]) ?: '',
         );
 
         $response = $fixture['handler']->create($request);
         $body = json_decode((string) $response->getBody(), true);
 
-        expect($response->getStatusCode())->toBe(400);
-        expect($body['code'])->toBe('validation_error');
+        expect($response->getStatusCode())->toBe(404);
+        expect($body['code'])->toBe('not_found');
     } finally {
         cleanupTaskHandlerFixture($fixture);
     }

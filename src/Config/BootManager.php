@@ -29,7 +29,6 @@ use CoquiBot\Coqui\Storage\LoopStore;
 use CoquiBot\Coqui\Storage\NotificationStore;
 use CoquiBot\Coqui\Storage\ProjectStore;
 use CoquiBot\Coqui\Storage\SessionStorage;
-use CoquiBot\Coqui\Storage\TodoStore;
 use CoquiBot\Coqui\Storage\ToolUsageTracker;
 use CoquiBot\Coqui\Exception\InteractionCancelledException;
 use CoquiBot\Coqui\Exception\ShutdownRequestedException;
@@ -65,7 +64,6 @@ final class BootManager
     private MemorySummarizer $memorySummarizer;
     private ConfigManager $configManager;
     private ?ArtifactStore $artifactStore = null;
-    private ?TodoStore $todoStore = null;
     private ?ProjectStore $projectStore = null;
     private ?ModManagerToolkit $modsToolkit = null;
     private ?LoopStore $loopStore = null;
@@ -297,11 +295,6 @@ final class BootManager
     public function artifactStore(): ?ArtifactStore
     {
         return $this->artifactStore;
-    }
-
-    public function todoStore(): ?TodoStore
-    {
-        return $this->todoStore;
     }
 
     public function projectStore(): ?ProjectStore
@@ -586,7 +579,6 @@ final class BootManager
             $fileService = new ArtifactFileService($this->workspacePath);
         }
         $this->artifactStore = new ArtifactStore($pdo, $fileService, $this->projectStore);
-        $this->todoStore = new TodoStore($pdo);
         $this->loopStore = new LoopStore($pdo);
         $this->notificationStore = new NotificationStore($pdo);
         $this->usageTracker = new ToolUsageTracker($pdo);
@@ -594,9 +586,6 @@ final class BootManager
 
         if (!$skipMaintenance) {
             $this->artifactStore->cleanupFinalized();
-            $this->todoStore->cleanupOrphaned();
-            $this->todoStore->cleanupStale();
-            $this->todoStore->cleanupUnlinked();
 
             $notifConfig = $this->config->getNotificationConfig();
             $this->notificationStore->prune(

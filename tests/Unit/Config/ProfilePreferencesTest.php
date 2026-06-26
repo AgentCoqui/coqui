@@ -94,7 +94,7 @@ test('fromFile parses prompts policy and backstory label', function () {
         'prompts' => [
             'features' => [
                 'artifacts' => false,
-                'todos' => true,
+                'loops' => true,
                 'background_tasks' => false,
             ],
             'prompt_sections' => [
@@ -115,7 +115,7 @@ test('fromFile parses prompts policy and backstory label', function () {
 
     expect($prefs->isValid())->toBeTrue();
     expect($prefs->isFeatureEnabled('artifacts'))->toBeFalse();
-    expect($prefs->isFeatureEnabled('todos'))->toBeTrue();
+    expect($prefs->isFeatureEnabled('loops'))->toBeTrue();
     expect($prefs->isFeatureEnabled('background_tasks'))->toBeFalse();
     expect($prefs->isPromptSectionStubbed('tools'))->toBeTrue();
     expect($prefs->isPromptSectionEnabled('project_context'))->toBeFalse();

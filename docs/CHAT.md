@@ -278,7 +278,7 @@ Background tasks and loop stages use the same summarization and prompt-building 
 
 1. Background tasks execute in separate processes managed by the API server.
 2. Loop stages run as separate background task sessions.
-3. Each stage gets its own execution session, but loop work can still share artifacts, todos, and sprint context through the work-scope session model.
+3. Each stage gets its own execution session, but loop work can still share artifacts and project context through the work-scope session model.
 
 Those differences change where chat context is sourced from, but they do not change the internal ordering inside a single turn once `AgentRunner` starts running.
 

@@ -13,7 +13,6 @@ final readonly class ReviewHandoffMetadata
         public string $phase,
         public int $round,
         public string $sourceRole,
-        public bool $hasSprintContext = false,
         public bool $autoIterate = false,
     ) {}
 
@@ -26,7 +25,6 @@ final readonly class ReviewHandoffMetadata
             'phase' => $this->phase,
             'round' => $this->round,
             'source_role' => $this->sourceRole,
-            'has_sprint_context' => $this->hasSprintContext,
             'auto_iterate' => $this->autoIterate,
         ];
     }

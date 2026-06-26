@@ -137,16 +137,6 @@ Generates concise 3-8 word session titles from conversation content. Internal ut
 | Max Iterations | `5` |
 | Toolkits | `-*` (no tools) |
 
-### plan-todo-generator *(template)*
-
-Extracts actionable implementation steps from plan artifacts as structured todo items. Internal utility role — not shown in role selection.
-
-| Property | Value |
-| --- | --- |
-| Access Level | `minimal` |
-| Max Iterations | `5` |
-| Toolkits | `-*` (no tools) |
-
 ## Role-to-Model Mapping
 
 By default, all roles use the primary model configured in `openclaw.json`. You can assign specific models to roles for cost optimization:

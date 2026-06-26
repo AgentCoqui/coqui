@@ -27,8 +27,8 @@ use CoquiBot\Coqui\Support\Clock;
  *
  * Each stage runs in its own isolated session for clean context windows,
  * but the loop's parent session ID is propagated as parent_session_id so
- * that ArtifactToolkit, TodoToolkit, and SprintToolkit scope to the shared
- * work-scope session. This ensures all stages can see each other's artifacts.
+ * that ArtifactToolkit scopes to the shared work-scope session. This ensures
+ * all stages can see each other's artifacts.
  */
 final class LoopManager
 {
@@ -127,11 +127,10 @@ final class LoopManager
 
         $this->advancingLoops[$loopId] = true;
 
-        // The loop's parent session is the work-scope session — artifacts, todos,
-        // and sprints are scoped here. Each stage gets its own execution session
-        // for clean context windows, but parent_session_id links back to the
-        // shared work scope so ArtifactToolkit/TodoToolkit/SprintToolkit can
-        // access cross-stage data.
+        // The loop's parent session is the work-scope session — artifacts are
+        // scoped here. Each stage gets its own execution session for clean
+        // context windows, but parent_session_id links back to the shared work
+        // scope so ArtifactToolkit can access cross-stage data.
         $workScopeSessionId = $stageResult->sessionId;
         $workScopeSession = $workScopeSessionId !== null ? $this->storage->getSession($workScopeSessionId) : null;
         $activeProfile = is_array($workScopeSession) && is_string($workScopeSession['profile'] ?? null) && $workScopeSession['profile'] !== ''
@@ -168,7 +167,6 @@ final class LoopManager
             ),
             maxIterations: min($stageResult->maxIterations ?? 48, 100),
             projectId: $stageResult->projectId,
-            sprintId: $stageResult->sprintId,
             metadata: $stageResult->handoffMetadata?->toArray(),
         );
 
@@ -381,10 +379,9 @@ final class LoopManager
         $iterationNumber = (int) ($state['iteration']['iteration_number'] ?? 0);
         $stageIndex = (int) ($stage['stage_index'] ?? 0);
 
-        // Resolve project_id and sprint_id from the loop and iteration records
+        // Resolve project_id from the loop record
         $loop = $this->loopStore->getLoop($loopId);
         $projectId = $loop['project_id'] ?? null;
-        $sprintId = $state['iteration']['sprint_id'] ?? null;
 
         return $this->artifactStore->create(
             sessionId: $workScopeSessionId,
@@ -393,7 +390,6 @@ final class LoopManager
             type: 'loop_output',
             stage: 'final',
             projectId: $projectId !== '' ? $projectId : null,
-            sprintId: $sprintId !== '' ? $sprintId : null,
             metadata: [
                 'loop_id' => $loopId,
                 'stage_id' => (string) ($stage['id'] ?? ''),

@@ -14,7 +14,6 @@
       "artifacts": true,
       "projects": false,
       "loops": true,
-      "todos": true,
       "background_tasks": false
     },
     "prompt_sections": {

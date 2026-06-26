@@ -42,23 +42,6 @@ final readonly class LoopDefinition
         if ($roles === []) {
             throw new \InvalidArgumentException('Loop must define at least one role stage');
         }
-
-        // Validate cross-stage artifact dependencies
-        foreach ($roles as $index => $role) {
-            if ($role->requiresArtifactFrom !== null) {
-                if ($role->requiresArtifactFrom >= $index) {
-                    throw new \InvalidArgumentException(
-                        sprintf(
-                            'Loop role "%s" (stage %d) has requires_artifact_from=%d, which must reference a prior stage (< %d)',
-                            $role->role,
-                            $index,
-                            $role->requiresArtifactFrom,
-                            $index,
-                        ),
-                    );
-                }
-            }
-        }
     }
 
     /**

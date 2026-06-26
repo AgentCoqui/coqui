@@ -505,7 +505,7 @@
                     "line_end": 2622
                 },
                 {
-                    "heading": "Projects & Sprints",
+                    "heading": "Projects",
                     "level": 3,
                     "line_start": 2623,
                     "line_end": 2626
@@ -553,60 +553,6 @@
                     "line_end": 2713
                 },
                 {
-                    "heading": "`GET /api/v1/projects/{idOrSlug}/sprints`",
-                    "level": 4,
-                    "line_start": 2714,
-                    "line_end": 2723
-                },
-                {
-                    "heading": "`POST /api/v1/projects/{idOrSlug}/sprints`",
-                    "level": 4,
-                    "line_start": 2724,
-                    "line_end": 2756
-                },
-                {
-                    "heading": "`GET /api/v1/sprints/{id}`",
-                    "level": 4,
-                    "line_start": 2757,
-                    "line_end": 2760
-                },
-                {
-                    "heading": "`PATCH /api/v1/sprints/{id}`",
-                    "level": 4,
-                    "line_start": 2761,
-                    "line_end": 2776
-                },
-                {
-                    "heading": "`DELETE /api/v1/sprints/{id}`",
-                    "level": 4,
-                    "line_start": 2777,
-                    "line_end": 2789
-                },
-                {
-                    "heading": "`POST /api/v1/sprints/{id}/start`",
-                    "level": 4,
-                    "line_start": 2790,
-                    "line_end": 2793
-                },
-                {
-                    "heading": "`POST /api/v1/sprints/{id}/submit-review`",
-                    "level": 4,
-                    "line_start": 2794,
-                    "line_end": 2797
-                },
-                {
-                    "heading": "`POST /api/v1/sprints/{id}/complete`",
-                    "level": 4,
-                    "line_start": 2798,
-                    "line_end": 2801
-                },
-                {
-                    "heading": "`POST /api/v1/sprints/{id}/reject`",
-                    "level": 4,
-                    "line_start": 2802,
-                    "line_end": 2815
-                },
-                {
                     "heading": "Background Tasks",
                     "level": 3,
                     "line_start": 2816,
@@ -647,78 +593,6 @@
                     "level": 4,
                     "line_start": 3042,
                     "line_end": 3080
-                },
-                {
-                    "heading": "Todos",
-                    "level": 3,
-                    "line_start": 3081,
-                    "line_end": 3084
-                },
-                {
-                    "heading": "`GET /api/v1/sessions/{id}/todos`",
-                    "level": 4,
-                    "line_start": 3085,
-                    "line_end": 3122
-                },
-                {
-                    "heading": "`POST /api/v1/sessions/{id}/todos`",
-                    "level": 4,
-                    "line_start": 3123,
-                    "line_end": 3177
-                },
-                {
-                    "heading": "`GET /api/v1/sessions/{id}/todos/stats`",
-                    "level": 4,
-                    "line_start": 3178,
-                    "line_end": 3193
-                },
-                {
-                    "heading": "`GET /api/v1/sessions/{id}/todos/{todoId}`",
-                    "level": 4,
-                    "line_start": 3194,
-                    "line_end": 3218
-                },
-                {
-                    "heading": "`PATCH /api/v1/sessions/{id}/todos/{todoId}`",
-                    "level": 4,
-                    "line_start": 3219,
-                    "line_end": 3254
-                },
-                {
-                    "heading": "`PATCH /api/v1/sessions/{id}/todos/bulk`",
-                    "level": 4,
-                    "line_start": 3255,
-                    "line_end": 3286
-                },
-                {
-                    "heading": "`POST /api/v1/sessions/{id}/todos/reorder`",
-                    "level": 4,
-                    "line_start": 3287,
-                    "line_end": 3309
-                },
-                {
-                    "heading": "`POST /api/v1/sessions/{id}/todos/{todoId}/complete`",
-                    "level": 4,
-                    "line_start": 3310,
-                    "line_end": 3323
-                },
-                {
-                    "heading": "`POST /api/v1/sessions/{id}/todos/{todoId}/reopen`",
-                    "level": 4,
-                    "line_start": 3324,
-                    "line_end": 3337
-                },
-                {
-                    "heading": "`POST /api/v1/sessions/{id}/todos/{todoId}/cancel`",
-                    "level": 4,
-                    "line_start": 3338,
-                    "line_end": 3351
-                },
-                {
-                    "heading": "`DELETE /api/v1/sessions/{id}/todos/{todoId}`",
-                    "level": 4,
-                    "line_start": 3352,
-                    "line_end": 3364
                 },
                 {
                     "heading": "Artifacts",
@@ -1557,13 +1431,7 @@
                     "line_end": 149
                 },
                 {
-                    "heading": "Planning & Todos",
-                    "level": 3,
-                    "line_start": 150,
-                    "line_end": 159
-                },
-                {
-                    "heading": "Projects & Sprints",
+                    "heading": "Projects",
                     "level": 3,
                     "line_start": 160,
                     "line_end": 171
@@ -2045,12 +1913,6 @@
                     "line_end": 239
                 },
                 {
-                    "heading": "<a id=\"todo-system\"></a> \u2705 Todo System",
-                    "level": 2,
-                    "line_start": 240,
-                    "line_end": 252
-                },
-                {
                     "heading": "<a id=\"toolkit-visibility\"></a> \ud83d\udd27 Toolkit Visibility",
                     "level": 2,
                     "line_start": 253,
@@ -2369,12 +2231,6 @@
                     "level": 3,
                     "line_start": 130,
                     "line_end": 139
-                },
-                {
-                    "heading": "plan-todo-generator *(template)*",
-                    "level": 3,
-                    "line_start": 140,
-                    "line_end": 149
                 },
                 {
                     "heading": "Role-to-Model Mapping",

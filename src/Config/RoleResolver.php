@@ -212,7 +212,7 @@ final class RoleResolver
      * Get roles that users can switch to or spawn as child agents.
      *
      * Excludes template roles (is_template=true) which are only used
-     * by internal utility classes (e.g. TitleGenerator, PlanTodoGenerator).
+     * by internal utility classes (e.g. TitleGenerator).
      *
      * @return string[]
      */

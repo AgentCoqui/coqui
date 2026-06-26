@@ -88,9 +88,7 @@ final class TabCompletion
             '/config', '/tasks', '/prompt', '/backstory', '/evaluations', '/multiline' => $this->completeStaticArguments($spec, $parts),
             '/task' => $this->completeTask($parts),
             '/task-cancel' => $this->completeTaskCancel($parts),
-            '/todos' => $this->completeTodos($parts),
             '/projects' => $this->completeProjects($parts),
-            '/sprints' => $this->completeSprints($parts),
             '/toolkits' => $this->completeToolkits($parts),
             '/channels' => $this->completeChannels($parts),
             '/schedules' => $this->completeSchedules($parts),
@@ -144,32 +142,6 @@ final class TabCompletion
             }
 
             return $this->completeChoices(array_values(array_unique($candidates)), $parts[2]);
-        }
-
-        return [];
-    }
-
-    /**
-     * @param array<string> $parts
-     * @return list<string>
-     */
-    private function completeTodos(array $parts): array
-    {
-        if (count($parts) === 2) {
-            return $this->completeChoices($this->commandSpec('/todos')->firstArguments, $parts[1]);
-        }
-
-        if (count($parts) === 3 && in_array($parts[1], ['delete', 'complete', 'cancel'], true)) {
-            $candidates = $parts[1] !== 'cancel' ? ['all'] : [];
-            $todoStore = $this->boot->todoStore();
-
-            if ($todoStore !== null) {
-                foreach ($todoStore->list(sessionId: $this->sessionId, limit: 50) as $todo) {
-                    $candidates[] = $todo['id'];
-                }
-            }
-
-            return $this->completeChoices($candidates, $parts[2]);
         }
 
         return [];
@@ -410,27 +382,6 @@ final class TabCompletion
 
         return $this->completeChoices(
             array_values(array_map(static fn(array $task): string => (string) $task['id'], $tasks)),
-            $parts[1],
-        );
-    }
-
-    /**
-     * @param array<string> $parts
-     * @return list<string>
-     */
-    private function completeSprints(array $parts): array
-    {
-        if (count($parts) !== 2) {
-            return [];
-        }
-
-        $projectStore = $this->boot->projectStore();
-        if ($projectStore === null) {
-            return [];
-        }
-
-        return $this->completeChoices(
-            array_map(static fn(array $project): string => (string) $project['slug'], $projectStore->listProjects(limit: 50)),
             $parts[1],
         );
     }

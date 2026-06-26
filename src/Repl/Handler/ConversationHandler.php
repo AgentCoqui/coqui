@@ -116,34 +116,6 @@ final class ConversationHandler
         $sections = [];
 
         try {
-            $todoStore = $this->boot->todoStore();
-            if ($todoStore !== null) {
-                $stats = $todoStore->getStats($sessionId);
-                $total = $stats['total'];
-
-                if ($total > 0) {
-                    $lines = ["Todos: {$stats['completed']}/{$total} completed"];
-
-                    foreach ($todoStore->list($sessionId, 'in_progress') as $todo) {
-                        $lines[] = "  - [in_progress] {$todo['title']}";
-                    }
-
-                    $pending = $todoStore->list($sessionId, 'pending');
-                    foreach (array_slice($pending, 0, 5) as $todo) {
-                        $lines[] = "  - [pending] {$todo['title']}";
-                    }
-                    if (count($pending) > 5) {
-                        $lines[] = '  - ... and ' . (count($pending) - 5) . ' more pending';
-                    }
-
-                    $sections[] = implode("\n", $lines);
-                }
-            }
-        } catch (\Throwable) {
-            // Non-critical
-        }
-
-        try {
             $artifactStore = $this->boot->artifactStore();
             if ($artifactStore !== null) {
                 $artifacts = $artifactStore->list($sessionId);
