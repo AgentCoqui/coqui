@@ -91,18 +91,66 @@ final class SpawnAgentTool implements ToolInterface
 
     public function description(): string
     {
-        $roles = implode(', ', $this->selectableRolesForProfile());
+        $roles = $this->describeSelectableRoles();
 
         return <<<DESC
             Spawn a specialized child agent to handle a specific task.
-            
+
             Use this when a task requires expertise or capabilities better suited to a different model.
             For example, spawn a 'coder' agent to write complex code, or a 'reviewer' agent to analyze code quality.
-            
-            Available roles: {$roles}
-            
+
+            Available roles (grouped by category):
+            {$roles}
+
             The child agent will run independently and return its result.
             DESC;
+    }
+
+    /**
+     * Build a compact, category-grouped listing of selectable roles with their
+     * descriptions so the model can pick the right one without a separate lookup.
+     *
+     * Falls back to a bare comma list of names when role metadata is unavailable.
+     */
+    private function describeSelectableRoles(): string
+    {
+        $names = $this->selectableRolesForProfile();
+
+        if ($this->roleDiscovery === null) {
+            return implode(', ', $names);
+        }
+
+        /** @var array<string, list<string>> $byCategory */
+        $byCategory = [];
+        foreach ($names as $name) {
+            try {
+                $props = $this->roleDiscovery->getRole($name, $this->activeProfilePath);
+            } catch (\Throwable) {
+                $byCategory['general'][] = "- {$name}";
+                continue;
+            }
+
+            $description = trim($props->description);
+            $byCategory[$props->category][] = $description !== ''
+                ? "- {$name}: {$description}"
+                : "- {$name}";
+        }
+
+        if ($byCategory === []) {
+            return implode(', ', $names);
+        }
+
+        ksort($byCategory);
+
+        $lines = [];
+        foreach ($byCategory as $category => $entries) {
+            $lines[] = "{$category}:";
+            foreach ($entries as $entry) {
+                $lines[] = "  {$entry}";
+            }
+        }
+
+        return implode("\n", $lines);
     }
 
     public function parameters(): array

@@ -4,6 +4,7 @@ display_name: Muse
 description: Divergent thinking agent for brainstorming, associative exploration, and creative ideation — generates many ideas without evaluating them
 version: 1
 access_level: readonly-shell
+category: create
 is_builtin: true
 max_iterations: 32
 toolkits: "+*, -ShellToolkit, -php_execute"

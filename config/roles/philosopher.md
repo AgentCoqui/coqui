@@ -4,6 +4,7 @@ display_name: Philosopher
 description: Reflective synthesis agent — examines assumptions, shifts perspectives, finds meaning, and asks questions that open new directions
 version: 1
 access_level: readonly
+category: reflect
 is_builtin: true
 max_iterations: 24
 toolkits: "+*, -ShellToolkit, -php_execute"

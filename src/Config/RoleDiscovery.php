@@ -458,6 +458,9 @@ final class RoleDiscovery
             path: $path,
             version: isset($data['version']) ? (int) $data['version'] : 1,
             accessLevel: (string) ($data['access_level'] ?? 'readonly'),
+            category: isset($data['category']) && is_string($data['category']) && $data['category'] !== ''
+                ? $data['category']
+                : 'general',
             isBuiltin: (bool) ($data['is_builtin'] ?? false),
             isTemplate: (bool) ($data['is_template'] ?? false),
             ignoreUpdates: (bool) ($data['ignore_updates'] ?? false),

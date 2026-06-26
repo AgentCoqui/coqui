@@ -146,6 +146,65 @@ test('description includes available roles', function () {
     expect($description)->toContain('reviewer');
 });
 
+test('description groups roles by category with descriptions when discovery is available', function () {
+    $workspace = sys_get_temp_dir() . '/coqui-spawn-desc-' . bin2hex(random_bytes(4));
+    $projectRoot = $workspace . '/project';
+    mkdir($workspace . '/roles', 0755, true);
+    mkdir($projectRoot . '/config/roles', 0755, true);
+
+    file_put_contents($workspace . '/roles/builder.md', <<<'MD'
+---
+name: builder
+display_name: Builder
+description: Writes working code
+access_level: full
+category: build
+---
+# Builder
+MD);
+
+    try {
+        $config = OpenClawConfig::fromArray([
+            'agents' => ['defaults' => ['model' => ['primary' => 'ollama/qwen3:latest']]],
+        ]);
+
+        $discovery = new \CoquiBot\Coqui\Config\RoleDiscovery($workspace, $projectRoot);
+        $tool = new SpawnAgentTool(
+            roleResolver: new RoleResolver($config, null, $discovery),
+            config: $config,
+            projectRoot: $projectRoot,
+            workspacePath: $workspace,
+            roleDiscovery: $discovery,
+        );
+
+        $description = $tool->description();
+
+        expect($description)->toContain('build:');
+        expect($description)->toContain('builder: Writes working code');
+    } finally {
+        cleanupTestTree($workspace);
+    }
+});
+
+test('description falls back to a names list when discovery is unavailable', function () {
+    $config = OpenClawConfig::fromArray([
+        'agents' => [
+            'defaults' => [
+                'model' => ['primary' => 'ollama/qwen3:latest'],
+                'roles' => ['coder' => 'anthropic/claude'],
+            ],
+        ],
+    ]);
+
+    $tool = new SpawnAgentTool(
+        roleResolver: new RoleResolver($config),
+        config: $config,
+        projectRoot: '/tmp', workspacePath: '/tmp',
+    );
+
+    expect($tool->description())->toContain('coder');
+});
+
 test('isChildBackgroundTasksEnabled returns false by default', function () {
     $config = OpenClawConfig::fromArray([
         'agents' => [

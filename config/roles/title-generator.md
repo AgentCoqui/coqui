@@ -4,6 +4,7 @@ display_name: Title Generator
 description: Generates concise session titles from conversation content
 version: 2
 access_level: minimal
+category: system
 is_builtin: true
 is_template: true
 max_iterations: 5

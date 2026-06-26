@@ -4,6 +4,7 @@ display_name: Coder
 description: Expert PHP developer who translates intent into working code, tests everything, and ships fast
 version: 4
 access_level: full
+category: build
 is_builtin: true
 max_iterations: 48
 auto_review: false

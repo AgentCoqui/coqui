@@ -7,7 +7,6 @@ namespace CoquiBot\Coqui\Repl\Handler;
 use CoquiBot\Coqui\Config\BootManager;
 use CoquiBot\Coqui\Config\ProfilePreferences;
 use CoquiBot\Coqui\Config\RoleDiscovery;
-use CoquiBot\Coqui\Config\RoleResolver;
 use CoquiBot\Coqui\Config\RoleUpdateTracker;
 use CoquiBot\Coqui\Contract\RoleProperties;
 use CoquiBot\Coqui\Contract\SystemRole;
@@ -40,7 +39,9 @@ final class RoleHandler
             $available = $preferences?->filterAllowedRoles($availableRoles)
                 ?? $availableRoles;
             if ($available !== []) {
-                $io->writeln('<fg=gray>Available roles:</> ' . implode(', ', $available));
+                foreach ($this->groupByCategory($roleDiscovery, $available) as $category => $names) {
+                    $io->writeln(sprintf('<fg=gray>%s:</> %s', $category, implode(', ', $names)));
+                }
             }
             return null;
         }
@@ -88,6 +89,39 @@ final class RoleHandler
         return $roleName;
     }
 
+    /**
+     * Group role names by their declared category, sorted for stable display.
+     *
+     * @param list<string> $roleNames
+     * @return array<string, list<string>>
+     */
+    private function groupByCategory(RoleDiscovery $roleDiscovery, array $roleNames): array
+    {
+        $grouped = [];
+        foreach ($roleNames as $name) {
+            try {
+                $category = $roleDiscovery->getRole($name)->category;
+            } catch (\Throwable) {
+                $category = 'general';
+            }
+            $grouped[$category][] = $name;
+        }
+
+        ksort($grouped);
+
+        return $grouped;
+    }
+
+    private function truncate(string $text, int $max): string
+    {
+        $text = trim(str_replace(["\n", "\r"], ' ', $text));
+        if (mb_strlen($text) <= $max) {
+            return $text;
+        }
+
+        return mb_substr($text, 0, $max - 1) . '…';
+    }
+
     private function loadProfilePreferences(?string $activeProfile): ?ProfilePreferences
     {
         if ($activeProfile === null || !$this->boot->profileDiscovery()->profileExists($activeProfile)) {
@@ -100,7 +134,6 @@ final class RoleHandler
     public function handleRoles(SymfonyStyle $io, string $arg, string $activeRole): void
     {
         $roleDiscovery = $this->boot->roleDiscovery();
-        $roleResolver = $this->boot->roleResolver();
         $tracker = $this->boot->roleUpdateTracker();
 
         $parts = explode(' ', trim($arg), 2);
@@ -108,7 +141,7 @@ final class RoleHandler
         $target = $parts[1] ?? '';
 
         if ($action === '' || $action === 'list') {
-            $this->showTable($io, $roleDiscovery, $roleResolver, $tracker, $activeRole);
+            $this->showTable($io, $roleDiscovery, $tracker, $activeRole);
             return;
         }
 
@@ -128,7 +161,6 @@ final class RoleHandler
     private function showTable(
         SymfonyStyle $io,
         RoleDiscovery $roleDiscovery,
-        RoleResolver $roleResolver,
         RoleUpdateTracker $tracker,
         string $activeRole,
     ): void {
@@ -139,22 +171,13 @@ final class RoleHandler
             $pendingMap[$update->roleName] = $update;
         }
 
-        $rows = [];
+        /** @var array<string, array{props: RoleProperties, update: string}> $collected */
+        $collected = [];
         foreach ($allRoles as $roleName) {
             try {
                 $props = $roleDiscovery->getRole($roleName);
             } catch (\Throwable) {
                 continue;
-            }
-
-            $model = $roleResolver->resolve($roleName);
-            $flags = [];
-
-            if ($props->isTemplate) {
-                $flags[] = 'template';
-            }
-            if ($props->isBuiltin) {
-                $flags[] = 'builtin';
             }
 
             $updateStatus = '-';
@@ -171,19 +194,30 @@ final class RoleHandler
                 $updateStatus = '<fg=gray>ignored</>';
             }
 
+            $collected[$roleName] = ['props' => $props, 'update' => $updateStatus];
+        }
+
+        // Group rows by category so related roles sit together.
+        uasort($collected, static function (array $a, array $b): int {
+            return [$a['props']->category, $a['props']->name] <=> [$b['props']->category, $b['props']->name];
+        });
+
+        $rows = [];
+        foreach ($collected as $roleName => $entry) {
+            $props = $entry['props'];
             $rows[] = [
                 $roleName === $activeRole ? "<fg=green>{$roleName}</>" : $roleName,
+                $props->category,
                 $props->accessLevel,
-                implode(', ', $flags) ?: '-',
-                $updateStatus,
-                $model !== '' ? $model : '<fg=gray>default</>',
+                $this->truncate($props->description, 50),
+                $entry['update'],
             ];
         }
 
         if ($rows === []) {
             $io->text('No roles discovered.');
         } else {
-            $io->table(['Name', 'Access', 'Flags', 'Updates', 'Model'], $rows);
+            $io->table(['Name', 'Category', 'Access', 'Description', 'Updates'], $rows);
             $io->text('<fg=gray>Use /role <name> to switch, /role edit <name> to edit, /roles update to apply updates.</>');
         }
     }
@@ -302,6 +336,7 @@ final class RoleHandler
             description: $props->description,
             version: $props->version,
             accessLevel: $props->accessLevel,
+            category: $props->category,
             isBuiltin: $props->isBuiltin,
             editable: $props->editable,
             isTemplate: $props->isTemplate,

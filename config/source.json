@@ -2421,7 +2421,7 @@
             "path": "src/Config/RoleParser.php",
             "fqcn": "CoquiBot\\Coqui\\Config\\RoleParser",
             "layer": "config",
-            "description": "Stateless parser for role .md files with YAML frontmatter. Reads properties (metadata only) and body (instructions) separately for progressive disclosure. Validates names, access levels, parses max_iterations and toolkits from frontmatter (with backward-compat fallback to allowed-tools), and can build role files from properties+instructions.",
+            "description": "Stateless parser for role .md files with YAML frontmatter. Reads properties (metadata only) and body (instructions) separately for progressive disclosure. Validates names, access levels, parses category (free-form grouping label, defaults to 'general'), max_iterations and toolkits from frontmatter (with backward-compat fallback to allowed-tools), and can build role files from properties+instructions.",
             "methods": [
                 "readProperties(string $filePath): RoleProperties — parses frontmatter into value object",
                 "readBody(string $filePath): string — returns instruction text after frontmatter",
@@ -2523,7 +2523,7 @@
             "path": "src/Contract/RoleProperties.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\RoleProperties",
             "layer": "contract",
-            "description": "Readonly value object for parsed role file frontmatter. Holds name, displayName, description, path, version, accessLevel (full/readonly/minimal), isBuiltin flag, isTemplate flag (hides from selectableRoles), ignoreUpdates flag (skips update notifications), optional model overrides, and optional maxIterations (0 = unlimited, null = inherit global default).",
+            "description": "Readonly value object for parsed role file frontmatter. Holds name, displayName, description, path, version, accessLevel (full/readonly/minimal), category (free-form grouping label for selection UX, defaults to 'general'), isBuiltin flag, isTemplate flag (hides from selectableRoles), ignoreUpdates flag (skips update notifications), optional model overrides, and optional maxIterations (0 = unlimited, null = inherit global default).",
             "methods": [
                 "toArray(): array — serializes to API-friendly associative array"
             ]

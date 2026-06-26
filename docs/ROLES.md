@@ -1,6 +1,8 @@
 # Roles Reference
 
-Roles control how Coqui agents behave. Each role defines an access level, available toolkits, iteration budget, and instruction set. The orchestrator delegates work to child agents by spawning them with a specific role.
+Roles control how Coqui agents behave. Each role defines an access level, a category, available toolkits, iteration budget, and instruction set. The orchestrator delegates work to child agents by spawning them with a specific role.
+
+A role's `category` and `description` drive selection: they are shown grouped in the `/roles` table and in the `/role` listing, and they are surfaced to the model in the `spawn_agent` tool description so an agent can pick the right specialist without opening the file.
 
 The orchestrator is the only role that uses the full orchestrator prompt stack, including `prompts/soul.md`. When you switch the main session to a specialized role with `/role <name>`, Coqui uses that role's markdown instructions instead of layering them on top of the soul. Spawned child agents follow the same rule and use role instructions directly.
 
@@ -23,6 +25,7 @@ The default role. Receives user messages directly, delegates specialized work to
 
 | Property | Value |
 | --- | --- |
+| Category | `system` |
 | Access Level | `full` |
 | Max Iterations | Global default (configurable via `agents.defaults.maxIterations`) |
 | Toolkits | `+*` |
@@ -35,6 +38,7 @@ Expert developer that translates intent into working, tested code. Searches the 
 
 | Property | Value |
 | --- | --- |
+| Category | `build` |
 | Access Level | `full` |
 | Max Iterations | `48` |
 | Toolkits | All enabled |
@@ -49,6 +53,7 @@ Automation-focused assistant that breaks down complex tasks into structured plan
 
 | Property | Value |
 | --- | --- |
+| Category | `general` |
 | Access Level | `readonly` |
 | Max Iterations | Global default |
 | Toolkits | All enabled |
@@ -61,6 +66,7 @@ Researches the codebase and creates detailed, multi-step implementation plans as
 
 | Property | Value |
 | --- | --- |
+| Category | `plan` |
 | Access Level | `readonly` |
 | Max Iterations | `30` |
 | Toolkits | `+*, -ShellToolkit, -MemoryToolkit, -php_execute` |
@@ -73,6 +79,7 @@ Strict code evaluator that judges quality, catches hallucinations, and verifies 
 
 | Property | Value |
 | --- | --- |
+| Category | `review` |
 | Access Level | `readonly` |
 | Max Iterations | `15` |
 | Toolkits | `+*, -MemoryToolkit, -php_execute` |
@@ -85,6 +92,7 @@ Fast, read-only codebase analyst. Investigates specific areas using filesystem r
 
 | Property | Value |
 | --- | --- |
+| Category | `explore` |
 | Access Level | `readonly-shell` |
 | Max Iterations | `20` |
 | Toolkits | `+*, -MemoryToolkit, -spawn_agent, -php_execute` |
@@ -97,6 +105,7 @@ Creative divergent thinking agent for brainstorming, associative exploration, an
 
 | Property | Value |
 | --- | --- |
+| Category | `create` |
 | Access Level | `readonly-shell` |
 | Max Iterations | `32` |
 | Toolkits | `+*, -ShellToolkit, -php_execute` |
@@ -109,6 +118,7 @@ Reflective synthesis agent for examining assumptions, shifting perspectives, and
 
 | Property | Value |
 | --- | --- |
+| Category | `reflect` |
 | Access Level | `readonly` |
 | Max Iterations | `24` |
 | Toolkits | `+*, -ShellToolkit, -php_execute` |
@@ -121,6 +131,7 @@ Single-shot image analyzer. Accepts images from file paths, URLs, or base64 data
 
 | Property | Value |
 | --- | --- |
+| Category | `system` |
 | Access Level | `minimal` |
 | Max Iterations | `5` |
 | Toolkits | `-*` (no tools) |
@@ -133,9 +144,25 @@ Generates concise 3-8 word session titles from conversation content. Internal ut
 
 | Property | Value |
 | --- | --- |
+| Category | `system` |
 | Access Level | `minimal` |
 | Max Iterations | `5` |
 | Toolkits | `-*` (no tools) |
+
+### identity-curator *(template)*
+
+Autonomous identity-maintenance agent. Reviews recent conversations and curates the persistent memory entries that form an identity scaffold (developmental, relational, and phenomenological context). It is a **template** role — hidden from `/role` and `spawn_agent` — and is meant to be driven by an autonomous maintenance process rather than selected interactively. Its capability is preserved for that use; customize it with `/role edit identity-curator`.
+
+| Property | Value |
+| --- | --- |
+| Category | `system` |
+| Access Level | `full` |
+| Max Iterations | `64` |
+| Toolkits | All enabled |
+
+## Evaluation and Reflection
+
+`reviewer` is the single evaluative role: it renders pass/fail judgments on code (`VERDICT: APPROVED` / `NEEDS_CHANGES`). `philosopher` is **not** an evaluator — it works in meaning and coherence, not pass/fail, and is the reflection counterpart to `muse`'s divergence. There is intentionally no separate session-grading or learning role; those subsystems were removed.
 
 ## Role-to-Model Mapping
 
@@ -186,6 +213,7 @@ toolkits: "+*, -MemoryToolkit"
 | `description` | Yes | string | | One-line description |
 | `version` | No | integer | `1` | Version number for update tracking |
 | `access_level` | Yes | string | | `full`, `readonly`, `readonly-shell`, or `minimal` |
+| `category` | No | string | `general` | Free-form grouping label for selection (e.g. `build`, `plan`, `review`, `explore`, `create`, `reflect`, `system`) |
 | `is_builtin` | No | boolean | `false` | Reserved for built-in roles |
 | `is_template` | No | boolean | `false` | Hides from role selection UI |
 | `ignore_updates` | No | boolean | `false` | Skip built-in update notifications |
@@ -215,6 +243,16 @@ Examples:
 - `"-*, +MyToolkit"` — deny all, only allow a specific toolkit
 
 > **Note:** `tool_search` and `credentials` are always enabled regardless of toolkit filters.
+
+### Roles and Internal Coupling
+
+Role files intentionally know very little about Coqui internals. There are three places a role can reference an internal concept, all of them stable, documented surfaces — a custom role never needs to know about implementation classes beyond these:
+
+1. **`toolkits:` filter** — matches a toolkit class basename (`MemoryToolkit`), a Composer package name (`vendor/package`), or a tool name (`php_execute`). The tool-name and package-name forms are the preferred way to scope a role without depending on class names; the class-basename form is supported for convenience. This filter is the single intended coupling point between a role and the toolkit layer (`RoleToolkitResolver`).
+2. **Tool names in the body** — instructions refer to capabilities by tool name (`memory_save`, `artifact_create`, `memory_search`), never by class. Keep it that way: tool names are the public contract.
+3. **Memory areas and artifact types in the body** — a few roles name memory areas (`identity`, `developmental`, `phenomenological`) or artifact types (`sketch`, `hypothesis`, `plan`). These are conventions, not enforced enums; treat them as suggested vocabulary.
+
+When authoring a custom role, prefer tool names and the `toolkits:` filter over any assumption about internal structure.
 
 ### Writing Role Instructions
 

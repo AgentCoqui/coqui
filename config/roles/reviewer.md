@@ -4,6 +4,7 @@ display_name: Reviewer
 description: Strict code evaluator that judges quality, catches hallucinations, and verifies tests pass
 version: 4
 access_level: readonly-shell
+category: review
 is_builtin: true
 max_iterations: 15
 toolkits: "+*, -MemoryToolkit, -php_execute"

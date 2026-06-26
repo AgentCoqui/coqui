@@ -4,6 +4,7 @@ display_name: Assistant
 description: Automation-focused AI assistant that breaks down complex tasks and delegates to specialists
 version: 2
 access_level: readonly
+category: general
 is_builtin: true
 ---
 

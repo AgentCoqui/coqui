@@ -176,6 +176,41 @@ MD);
     expect($props->toolkits)->toBeNull();
 });
 
+test('parses category field from frontmatter', function () {
+    $path = $this->tmpDir . '/categorized.md';
+    file_put_contents($path, <<<'MD'
+---
+name: categorized
+display_name: Categorized
+description: Has an explicit category
+access_level: full
+category: build
+---
+Instructions here.
+MD);
+
+    $props = $this->parser->readProperties($path);
+
+    expect($props->category)->toBe('build');
+});
+
+test('defaults category to general when omitted', function () {
+    $path = $this->tmpDir . '/uncategorized.md';
+    file_put_contents($path, <<<'MD'
+---
+name: uncategorized
+display_name: Uncategorized
+description: No category specified
+access_level: readonly
+---
+Instructions here.
+MD);
+
+    $props = $this->parser->readProperties($path);
+
+    expect($props->category)->toBe('general');
+});
+
 test('parses orchestrator role file from config/roles', function () {
     $path = dirname(__DIR__, 3) . '/config/roles/orchestrator.md';
 

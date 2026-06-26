@@ -4,6 +4,7 @@ display_name: Architect & Planner
 description: Researches codebase and outlines detailed, multi-step implementation plans as versioned artifacts
 version: 3
 access_level: readonly
+category: plan
 is_builtin: true
 max_iterations: 30
 pre_summarize: true

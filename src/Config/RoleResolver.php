@@ -247,6 +247,7 @@ final class RoleResolver
             'display_name' => 'Orchestrator',
             'description' => 'Primary system role with full tool access. Routes tasks, manages sessions, and delegates to child agents. All conversations start with this role.',
             'access_level' => 'full',
+            'category' => 'system',
         ],
     ];
 
@@ -271,6 +272,7 @@ final class RoleResolver
                 'display_name' => $meta['display_name'],
                 'description' => $meta['description'],
                 'access_level' => $meta['access_level'],
+                'category' => $meta['category'],
                 'is_builtin' => true,
                 'is_system' => true,
                 'is_template' => false,
@@ -312,6 +314,7 @@ final class RoleResolver
                     'display_name' => $properties->displayName,
                     'description' => $properties->description,
                     'access_level' => $properties->accessLevel,
+                    'category' => $properties->category,
                     'is_builtin' => $properties->isBuiltin,
                     'is_system' => false,
                     'is_template' => $properties->isTemplate,
