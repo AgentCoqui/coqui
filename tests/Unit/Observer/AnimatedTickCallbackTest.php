@@ -28,7 +28,7 @@ test('start() with context includes context in label', function () {
 
     $cb->start('exec');
 
-    expect($output->fetch())->toContain('Working on exec');
+    expect($output->fetch())->toContain('exec');
 });
 
 test('stop() clears status line', function () {
@@ -77,7 +77,7 @@ test('setContext() changes displayed label', function () {
     $cb->stop();
     $cb->start('read_file');
 
-    expect($output->fetch())->toContain('Working on read_file');
+    expect($output->fetch())->toContain('read_file');
 });
 
 test('suspend() clears status line and prevents further draws', function () {
@@ -124,7 +124,7 @@ test('suspend then resume preserves context', function () {
     $cb->resume();
     $cb->start('exec');
 
-    expect($output->fetch())->toContain('Working on exec');
+    expect($output->fetch())->toContain('exec');
 });
 
 test('suspend is idempotent', function () {

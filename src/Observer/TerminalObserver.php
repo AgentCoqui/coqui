@@ -816,13 +816,13 @@ final class TerminalObserver implements SplObserver
     }
 
     /**
-     * Show the status line at the bottom of the terminal output. "Working on"
+     * Show the status line at the bottom of the terminal output.
      *
      * Uses carriage return + clear to maintain a single in-place line.
      */
     private function showStatusLine(string $context = ''): void
     {
-        $label = $context !== '' ? "{$context}" : 'Thinking';
+        $label = $context !== '' ? $context : 'Working';
         if ($this->currentActorName !== null) {
             $label .= sprintf(' (@%s)', $this->currentActorName);
         }

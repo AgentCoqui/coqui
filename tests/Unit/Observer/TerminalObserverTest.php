@@ -322,7 +322,7 @@ test('showStatusLine via tool_call resumes tick callback after text streaming', 
     $ticker->start('read_file');
     $text = $output->fetch();
 
-    expect($text)->toContain('Working on read_file');
+    expect($text)->toContain('read_file');
 });
 
 test('text_delta does not suspend on subsequent chunks', function () {
