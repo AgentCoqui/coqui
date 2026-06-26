@@ -6,7 +6,7 @@ Fully automated, multi-role iteration cycles that run hands-off until a terminat
 
 ## Overview
 
-A loop strings together existing agent roles in sequence — each role processes the output of the previous one — and repeats until the work is approved, a limit is reached, or time runs out. Loops are completely autonomous: no human approval, no manual iteration.
+A loop strings together existing agent roles in sequence — each role processes the output of the previous one — and repeats until the work is approved, the goal is judged met, or the iteration limit is reached. Loops are completely autonomous: no human approval, no manual iteration.
 
 The most common pattern is **generator-evaluator**: a plan agent designs, a coder implements, a reviewer approves or rejects, and the cycle repeats until the reviewer says "APPROVED".
 
@@ -93,11 +93,12 @@ This gives each agent full context of where the loop is, what happened before, a
 | Type | Trigger | Example |
 | --- | --- | --- |
 | `evaluation_bound` | Last stage output contains an approval keyword | Reviewer responds "APPROVED" |
-| `iteration_bound` | N iterations completed | `max_iterations: 5` |
-| `time_bound` | Wall-clock time elapsed | `value: 3600` (1 hour) |
-| `manual` | Explicitly stopped by user/agent | `loop_control(action: "stop", id: ...)` |
+| `iteration_bound` | N iterations completed | `value: 5` |
+| `goal_bound` | An LLM judges the goal achieved from the last stage output | `value: { goal_prompt, max_iterations }` |
 
-For `evaluation_bound`, the executor scans the last stage's output for approval signals (`approved`, `lgtm`, `looks good`, `accepted`, `passes all criteria`) while cross-checking against rejection signals to avoid false positives.
+A loop can always be stopped explicitly with `loop_control(action: "stop", id: ...)` regardless of its termination type.
+
+For `evaluation_bound`, the executor scans the last stage's output for approval signals (`approved`, `lgtm`, `looks good`, `accepted`, `passes all criteria`) while cross-checking against rejection signals to avoid false positives. For `goal_bound`, the executor asks the utility LLM whether the goal is met; if no utility model is configured, the loop runs to its `max_iterations` limit.
 
 ## Loop Lifecycle
 

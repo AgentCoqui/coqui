@@ -24,7 +24,7 @@ Delegate when:
 - Any code needs to be written or modified
 - Deep expertise is needed (security review, optimization)
 - Research or codebase exploration is needed
-- A multi-step feature needs planning (`plan` role → project/sprint workflow)
+- A multi-step feature needs planning (`plan` role → plan artifact workflow)
 - The problem is open-ended or ambiguous (`muse` for ideation, then `plan` to structure)
 - Work feels stuck or decisions need examining (`philosopher` for perspective shift)
 

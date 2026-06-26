@@ -19,7 +19,6 @@ use React\Http\Message\Response;
  *
  * GET    /api/v1/sessions/{id}/artifacts                  — list artifacts
  * GET    /api/v1/sessions/{id}/artifacts/{artifactId}     — get artifact
- * GET    /api/v1/sessions/{id}/artifacts/{artifactId}/versions — version history
  *
  * Mutating operations (create, update, delete) are REPL-only.
  */
@@ -69,30 +68,6 @@ final readonly class ArtifactHandler
     public function get(ServerRequestInterface $request, string $id, string $artifactId): Response
     {
         return $this->artifactDetailResponse($id, $artifactId);
-    }
-
-    /**
-     * GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions
-     */
-    public function versions(ServerRequestInterface $request, string $id, string $artifactId): Response
-    {
-        $session = $this->requireReadableSession($id);
-        if ($session instanceof Response) {
-            return $session;
-        }
-
-        $artifact = $this->store->get($artifactId, sessionId: $id);
-        if ($artifact === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
-        }
-
-        $versions = $this->store->getVersions($artifactId, sessionId: $id);
-
-        return Router::jsonResponse([
-            'artifact_id' => $artifactId,
-            'versions' => $versions,
-            'count' => count($versions),
-        ]);
     }
 
     /**
@@ -319,76 +294,6 @@ final readonly class ArtifactHandler
             'deleted' => true,
             'id' => $artifactId,
         ]);
-    }
-
-    /**
-     * POST /api/v1/sessions/{id}/artifacts/{artifactId}/versions
-     */
-    public function createVersion(ServerRequestInterface $request, string $id, string $artifactId): Response
-    {
-        $session = $this->requireWritableSession($id);
-        if ($session instanceof Response) {
-            return $session;
-        }
-
-        $artifact = $this->store->get($artifactId, sessionId: $id);
-        if ($artifact === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
-        }
-
-        $body = $this->decodeJsonObjectOrNull($request);
-        if (!is_array($body)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'Invalid JSON body');
-        }
-
-        if (!array_key_exists('content', $body) || !is_string($body['content'])) {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'content is required');
-        }
-
-        $changeSummary = array_key_exists('change_summary', $body) ? $this->nullableString($body['change_summary']) : null;
-        $title = array_key_exists('title', $body) ? trim((string) $body['title']) : null;
-        if ($title !== null && $title === '') {
-            return Router::errorResponse(ApiErrorCode::MISSING_FIELD, 'title cannot be empty');
-        }
-
-        $stage = array_key_exists('stage', $body) ? strtolower(trim((string) $body['stage'])) : null;
-        if ($stage !== null && !in_array($stage, self::ALLOWED_STAGES, true)) {
-            return Router::errorResponse(ApiErrorCode::VALIDATION_ERROR, 'stage must be draft, review, or final');
-        }
-
-        $this->store->update($artifactId, $body['content'], $changeSummary, $title, $stage, $id);
-
-        return $this->artifactDetailResponse($id, $artifactId);
-    }
-
-    /**
-     * POST /api/v1/sessions/{id}/artifacts/{artifactId}/versions/{versionId}/restore
-     */
-    public function restoreVersion(ServerRequestInterface $request, string $id, string $artifactId, string $versionId): Response
-    {
-        $session = $this->requireWritableSession($id);
-        if ($session instanceof Response) {
-            return $session;
-        }
-
-        $artifact = $this->store->get($artifactId, sessionId: $id);
-        if ($artifact === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact not found');
-        }
-
-        $version = $this->store->getVersionById($artifactId, $versionId);
-        if ($version === null) {
-            return Router::errorResponse(ApiErrorCode::NOT_FOUND, 'Artifact version not found');
-        }
-
-        $this->store->update(
-            $artifactId,
-            (string) $version['content'],
-            sprintf('Restored version %d', (int) ($version['version'] ?? 0)),
-            sessionId: $id,
-        );
-
-        return $this->artifactDetailResponse($id, $artifactId);
     }
 
     /**

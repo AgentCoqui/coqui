@@ -142,19 +142,10 @@
             ]
         },
         {
-            "path": "src/Agent/ToolBoundEvaluator.php",
-            "fqcn": "CoquiBot\\Coqui\\Agent\\ToolBoundEvaluator",
-            "layer": "agent",
-            "description": "Direct tool execution evaluator for tool_bound loop termination. Delegates tool resolution and execution to BackgroundToolExecutor, parses numeric output, and compares against a threshold using the configured operator. No LLM involved — zero token cost. Valid operators: >=, >, <=, <, ==, !=.",
-            "methods": [
-                "evaluate(string $toolName, array $arguments, string $operator, float $threshold): ToolBoundEvaluationResult — execute tool and compare numeric output"
-            ]
-        },
-        {
             "path": "src/Agent/LoopExecutor.php",
             "fqcn": "CoquiBot\\Coqui\\Agent\\LoopExecutor",
             "layer": "agent",
-            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Supports project resolution in startLoop via 3-tier fallback: explicit project_id/slug → active session project → auto-create. Snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, time_bound, goal_bound, tool_bound, manual). Supports template parameters with {{placeholder}} substitution. Injects rich project context into stage prompts. Prepared stages now carry typed LoopStageHandoffMetadata for persistence and observability. Constructor takes loopStore, projectStore, optional sessionStorage, goalEvaluator, and toolBoundEvaluator. Does not execute child agents directly — LoopManager handles execution via background tasks.",
+            "description": "Core loop orchestration engine. Drives entire loop lifecycle (start, stage preparation, completion, iteration evaluation, advancement). Supports project resolution in startLoop via 3-tier fallback: explicit project_id/slug → active session project → auto-create. Snapshots definitions, evaluates termination conditions (evaluation_bound, iteration_bound, goal_bound). Supports template parameters with {{placeholder}} substitution. Injects rich project context into stage prompts. Prepared stages carry typed LoopStageHandoffMetadata for persistence and observability. Constructor takes loopStore, projectStore, optional sessionStorage and goalEvaluator. Does not execute child agents directly — LoopManager handles execution via background tasks.",
             "methods": [
                 "startLoop(array $rawDefinition, string $goal, ?string $sessionId, array $parameters, ?string $projectId, ?string $projectSlug): string — validates/substitutes parameters, resolves project via 3-tier fallback, creates loop and first iteration",
                 "prepareNextStage(string $loopId): ?LoopStageResult — finds next pending stage, builds context prompt with rich project context",
@@ -933,14 +924,14 @@
             "path": "src/Contract/TerminationType.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\TerminationType",
             "layer": "contract",
-            "description": "Backed string enum defining loop termination strategies: EvaluationBound (stage output evaluated for done signal), IterationBound (fixed iteration count), TimeBound (wall-clock duration), Manual (user-controlled stop), GoalBound (LLM-evaluated goal achievement), ToolBound (tool execution with numeric threshold comparison).",
+            "description": "Backed string enum defining loop termination strategies: EvaluationBound (stage output evaluated against criteria by an evaluator), IterationBound (fixed iteration count), GoalBound (LLM-evaluated goal achievement).",
             "methods": []
         },
         {
             "path": "src/Contract/TerminationCondition.php",
             "fqcn": "CoquiBot\\Coqui\\Contract\\TerminationCondition",
             "layer": "contract",
-            "description": "Value object pairing a TerminationType with its configuration. Supports type-specific fields: goalPrompt for GoalBound, toolName/toolArguments/operator/threshold for ToolBound, maxIterations for both. Factory method fromArray() parses JSON config format {type, value}. VALID_OPERATORS constant defines allowed comparison operators for tool_bound.",
+            "description": "Value object pairing a TerminationType with its configuration. Supports type-specific fields: criteria/maxReviewRounds for EvaluationBound, goalPrompt/maxIterations for GoalBound, maxIterations for IterationBound. Factory method fromArray() parses JSON config format {type, value}.",
             "methods": [
                 "fromArray(array): self — factory from JSON config",
                 "toArray(): array — serialize to JSON-compatible array"
@@ -951,13 +942,6 @@
             "fqcn": "CoquiBot\\Coqui\\Contract\\GoalEvaluationResult",
             "layer": "contract",
             "description": "Value object for LLM goal achievement evaluation result. Contains bool achieved and string rationale.",
-            "methods": []
-        },
-        {
-            "path": "src/Contract/ToolBoundEvaluationResult.php",
-            "fqcn": "CoquiBot\\Coqui\\Contract\\ToolBoundEvaluationResult",
-            "layer": "contract",
-            "description": "Value object for direct tool execution evaluation result. Contains bool met, float actualValue, string operator, float threshold, and optional error string.",
             "methods": []
         },
         {
@@ -2015,14 +1999,13 @@
             "path": "src/Api/Handler/ArtifactHandler.php",
             "fqcn": "CoquiBot\\Coqui\\Api\\Handler\\ArtifactHandler",
             "layer": "command",
-            "description": "Artifact CRUD API endpoints. GET /api/v1/sessions/{id}/artifacts (list with type/stage filters), POST /api/v1/sessions/{id}/artifacts (create), GET /api/v1/sessions/{id}/artifacts/{artifactId} (detail), PATCH /api/v1/sessions/{id}/artifacts/{artifactId} (update content or stage), DELETE /api/v1/sessions/{id}/artifacts/{artifactId} (delete), GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions (version history).",
+            "description": "Artifact CRUD API endpoints. GET /api/v1/sessions/{id}/artifacts (list with type/stage filters), POST /api/v1/sessions/{id}/artifacts (create), GET /api/v1/sessions/{id}/artifacts/{artifactId} (detail), PATCH /api/v1/sessions/{id}/artifacts/{artifactId} (update content or stage), DELETE /api/v1/sessions/{id}/artifacts/{artifactId} (delete).",
             "methods": [
                 "list(request, id): Response — list session artifacts",
                 "create(request, id): Response — create artifact",
                 "get(request, id, artifactId): Response — get artifact by ID",
                 "update(request, id, artifactId): Response — update content or stage",
-                "delete(request, id, artifactId): Response — delete artifact",
-                "versions(request, id, artifactId): Response — version history"
+                "delete(request, id, artifactId): Response — delete artifact"
             ]
         },
         {
@@ -2244,17 +2227,15 @@
             "path": "src/Storage/ArtifactStore.php",
             "fqcn": "CoquiBot\\Coqui\\Storage\\ArtifactStore",
             "layer": "storage",
-            "description": "SQLite-backed artifact persistence. Tables: artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version, metadata, project_id, persistent, timestamps), artifact_versions (id, artifact_id, version, content, change_summary, created_at). Shares PDO connection from SessionStorage. Supports CRUD, automatic versioning on update, stage transitions (draft/review/final), and per-session listing with type/stage/project_id/created_after filters. cleanupFinalized() excludes loop_output and persistent artifacts. create() auto-sets persistent=true when projectId is non-null, ensuring project-linked artifacts survive cleanup across background task process boundaries.",
+            "description": "SQLite-backed artifact index. Table: artifacts (id, session_id, turn_id, title, type, content, language, filepath, stage, version counter, metadata, project_id, persistent, storage_mode, canonical_path, content_hash, timestamps; dormant sprint_id). Shares PDO connection from SessionStorage. For filesystem-backed types (plan/document/code/config) the canonical content lives on disk via ArtifactFileService and the DB content column is left empty (the file is the source of truth; history comes from the user's VCS); DB-only types (loop_output/data/other) store content inline. No per-version snapshot table — only a monotonic version counter on the row. A migration drops the legacy artifact_versions table. Supports CRUD, stage transitions (draft/review/final), and per-session listing with type/stage/project_id/created_after filters. cleanupFinalized() excludes loop_output and persistent artifacts (and removes their canonical files). create() auto-sets persistent=true when projectId is non-null, ensuring project-linked artifacts survive cleanup across background task process boundaries.",
             "methods": [
-                "create(sessionId, title, content, type, language, filepath, stage, turnId, metadata, projectId, persistent): string — creates artifact + initial version; auto-sets persistent=true when projectId is non-null; returns ID",
-                "update(id, content, changeSummary, title, stage): bool — updates content, bumps version, saves snapshot",
-                "get(id): ?array — retrieves artifact by ID",
+                "create(sessionId, title, content, type, language, filepath, stage, turnId, metadata, projectId, persistent): string — creates artifact (writes file + empties DB content for filesystem-backed types); auto-sets persistent=true when projectId is non-null; returns ID",
+                "update(id, content, changeSummary, title, stage): bool — replaces content, bumps version counter, writes the canonical file for filesystem-backed artifacts",
+                "get(id): ?array — retrieves artifact by ID, overlaying disk content for filesystem-backed artifacts",
                 "list(sessionId, type, stage, limit, projectId, createdAfter): array — lists artifacts with optional filters",
-                "delete(id): bool — deletes artifact and cascaded versions",
-                "getVersions(artifactId): array — returns version history ordered desc",
-                "getVersion(artifactId, version): ?array — retrieves specific version",
-                "updateStage(id, stage): bool — updates stage only",
-                "cleanupFinalized(): int — deletes non-persistent final artifacts except loop_output type"
+                "delete(id): bool — deletes artifact and its canonical file",
+                "updateStage(id, stage): bool — updates stage only (syncing disk content first for filesystem-backed artifacts)",
+                "cleanupFinalized(): int — deletes non-persistent final artifacts (and their files) except loop_output type"
             ]
         },
         {

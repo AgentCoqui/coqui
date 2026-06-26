@@ -1,10 +1,10 @@
 # Artifacts
 
-Versioned, structured outputs that flow through a draft-review-final lifecycle.
+Structured outputs that flow through a draft-review-final lifecycle, backed by files on disk.
 
 ## Overview
 
-Artifacts are session-scoped documents — plans, code snippets, configs, data — that persist across agent turns within a session. They support versioning (every update snapshots the previous content), stage transitions through a draft-review-final lifecycle, and optional project linking for cross-session persistence.
+Artifacts are session-scoped documents — plans, code snippets, configs, data — that persist across agent turns within a session. For filesystem-backed types (`plan`, `document`, `code`, `config`), the canonical content lives as a **file** under the project's `artifacts/` directory; the database holds a lightweight index (title, type, stage, path, hash) and the file is the source of truth, so content history comes from the user's own version control. DB-only types (`loop_output`, `data`, `other`) store their content inline in the database. Artifacts support stage transitions through a draft-review-final lifecycle and optional project linking for cross-session persistence.
 
 ## Creating Artifacts
 
@@ -28,21 +28,15 @@ artifact_create(
 
 Artifacts start at stage `draft` and version `1`.
 
-## Versioning
+## Updating
 
-Every call to `artifact_update` bumps the version number and snapshots the previous content in the `artifact_versions` table. You can retrieve any past version:
-
-```
-artifact_get(id: "art123", version: 2)
-```
-
-Or list all versions through the API: `GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions`.
-
-The `change_summary` parameter on `artifact_update` records what changed:
+Each call to `artifact_update` rewrites the artifact's content and bumps a monotonic `version` counter (shown in listings). For filesystem-backed artifacts the content is written to the canonical file — full per-version snapshots are **not** retained; recover prior states from your version control (e.g. `git`) for files on disk.
 
 ```
 artifact_update(id: "art123", content: "...", change_summary: "Added error handling section")
 ```
+
+The optional `change_summary` parameter documents what changed for the human in the loop.
 
 ## Stage Lifecycle
 
@@ -85,8 +79,8 @@ All agent types (regardless of access level) receive `ArtifactToolkit`. The `art
 | Tool | Read-Only | Description |
 | --- | --- | --- |
 | `artifact_create` | yes | Create a new artifact |
-| `artifact_update` | yes | Update content (bumps version) |
-| `artifact_get` | yes | Retrieve artifact or specific version |
+| `artifact_update` | yes | Update content (bumps the version counter) |
+| `artifact_get` | yes | Retrieve an artifact's current content and metadata |
 | `artifact_list` | yes | List session artifacts with filters |
 | `artifact_stage` | yes | Transition one or many artifacts (single id or bulk ids/filters) |
 | `artifact_delete` | no | Delete one or many artifacts (single id or bulk ids/filters) |
@@ -102,7 +96,6 @@ All routes under `/api/v1/sessions/{id}/artifacts`:
 | `GET` | `/artifacts/{artifactId}` | Get artifact |
 | `PATCH` | `/artifacts/{artifactId}` | Update content, title, or stage |
 | `DELETE` | `/artifacts/{artifactId}` | Delete artifact |
-| `GET` | `/artifacts/{artifactId}/versions` | Version history |
 
 ## Dynamic Guidelines
 

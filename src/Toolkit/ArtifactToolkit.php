@@ -11,7 +11,6 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
 use CarmeloSantana\PHPAgents\Tool\Parameter\ArrayParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\BoolParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\EnumParameter;
-use CarmeloSantana\PHPAgents\Tool\Parameter\NumberParameter;
 use CarmeloSantana\PHPAgents\Tool\Parameter\StringParameter;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Support\JsonHelper;
@@ -19,13 +18,15 @@ use CoquiBot\Coqui\Support\JsonHelper;
 /**
  * Agent-facing toolkit for managing structured artifacts.
  *
- * Artifacts are versioned, staged outputs (code, documents, configs)
- * that persist across turns within a session. The toolkit provides
- * CRUD operations plus version history and stage transitions.
+ * Artifacts are staged outputs (code, documents, configs) that persist
+ * across turns within a session. Filesystem-backed types live as files
+ * under the project's artifacts/ directory (the file is the source of
+ * truth; history comes from the user's VCS); DB-only types store content
+ * inline. The toolkit provides CRUD operations and stage transitions.
  *
  * Tools:
  * - artifact_create: Create a new artifact
- * - artifact_update: Update content (auto-versions)
+ * - artifact_update: Update content
  * - artifact_get: Retrieve an artifact by ID
  * - artifact_list: List session artifacts with optional filters
  * - artifact_stage: Transition one or many artifacts to a new stage
@@ -66,8 +67,8 @@ final class ArtifactToolkit implements ToolkitInterface
             return <<<'GUIDELINES'
             <ARTIFACT-GUIDELINES>
             You can create **artifacts** to track structured outputs (code files, documents, configs).
-            Artifacts are versioned automatically on each update and support staging: draft → review → final.
-            Use `artifact_create` when producing significant code or content that the user may want to iterate on.
+            Artifacts support staging: draft → review → final. Use `artifact_create` when producing
+            significant code or content that the user may want to iterate on.
             </ARTIFACT-GUIDELINES>
             GUIDELINES;
         }
@@ -88,7 +89,7 @@ final class ArtifactToolkit implements ToolkitInterface
         return <<<GUIDELINES
         <ARTIFACT-GUIDELINES>
         This session has **{$count} artifact(s)**. Use `artifact_get` to retrieve content, `artifact_update` to revise.
-        Artifacts are versioned automatically — each update creates a snapshot. Stages: draft → review → final.
+        Stages: draft → review → final.
 
         Current artifacts:
         {$listing}
@@ -100,7 +101,7 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_create',
-            description: 'Create a new versioned artifact (code, document, config). Returns the artifact ID for future reference.',
+            description: 'Create a new artifact (code, document, config). Filesystem-backed types are written to the project artifacts/ directory. Returns the artifact ID for future reference.',
             parameters: [
                 new StringParameter('title', 'Short descriptive title for the artifact', required: true),
                 new StringParameter('content', 'The full content of the artifact', required: true),
@@ -146,7 +147,7 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_update',
-            description: 'Update an artifact\'s content. Automatically creates a new version snapshot.',
+            description: 'Update an artifact\'s content. Filesystem-backed artifacts are written to their canonical file; the version counter is bumped.',
             parameters: [
                 new StringParameter('id', 'Artifact ID (from artifact_create or artifact_list)', required: true),
                 new StringParameter('content', 'The updated full content', required: true),
@@ -190,35 +191,15 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_get',
-            description: 'Retrieve an artifact by ID, including its content and metadata. Optionally retrieve a specific version.',
+            description: 'Retrieve an artifact by ID, including its current content and metadata.',
             parameters: [
                 new StringParameter('id', 'Artifact ID', required: true),
-                new NumberParameter('version', 'Specific version number to retrieve (omit for latest)', required: false),
             ],
             callback: function (array $args): ToolResult {
                 $id = trim($args['id'] ?? '');
 
                 if ($id === '') {
                     return ToolResult::error('Artifact ID is required.');
-                }
-
-                // If a specific version is requested, fetch from version history
-                if (isset($args['version'])) {
-                    $version = (int) $args['version'];
-                    $versionData = $this->store->getVersion($id, $version);
-                    if ($versionData === null) {
-                        return ToolResult::error("Version {$version} not found for artifact {$id}");
-                    }
-
-                    $artifact = $this->store->get($id, sessionId: $this->sessionId);
-                    return ToolResult::json([
-                        'id' => $id,
-                        'title' => $artifact['title'] ?? '',
-                        'version' => $version,
-                        'content' => $versionData['content'],
-                        'change_summary' => $versionData['change_summary'],
-                        'created_at' => $versionData['created_at'],
-                    ]);
                 }
 
                 $artifact = $this->store->get($id, sessionId: $this->sessionId);
@@ -356,7 +337,7 @@ final class ArtifactToolkit implements ToolkitInterface
     {
         return new Tool(
             name: 'artifact_delete',
-            description: 'Delete one or many artifacts and their version history. Provide id for single mode, or ids/all/filters for bulk mode. Irreversible.',
+            description: 'Delete one or many artifacts (and their canonical files, if filesystem-backed). Provide id for single mode, or ids/all/filters for bulk mode. Irreversible.',
             parameters: [
                 new StringParameter('id', 'Artifact ID for single-artifact mode', required: false),
                 new ArrayParameter('ids', 'Artifact IDs for bulk mode. Max 200.', required: false, items: new StringParameter('id', 'Artifact ID', required: true)),

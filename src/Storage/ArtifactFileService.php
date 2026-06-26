@@ -12,8 +12,8 @@ use CoquiBot\Coqui\Contract\CoquiDefaults;
  *
  * Handles canonical path generation, file I/O, and drift detection
  * for artifacts whose content lives on disk as the source of truth.
- * The DB remains the index/coordination layer (stage, version history,
- * project/sprint linking), while the filesystem holds canonical content.
+ * The DB remains the index/coordination layer (stage, project linking),
+ * while the filesystem holds canonical content.
  *
  * Artifact types eligible for filesystem backing:
  * - plan, document: auto-generate canonical paths under project or session dirs

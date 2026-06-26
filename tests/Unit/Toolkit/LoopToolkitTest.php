@@ -535,7 +535,7 @@ test('loop_start passes parameters to executor', function () {
         'name' => 'parameterized',
         'description' => 'Test parameterized loop',
         'roles' => [['role' => 'coder', 'prompt' => 'Work on {{subject}}.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
         'parameters' => [
             ['name' => 'subject', 'description' => 'Subject', 'required' => true],
         ],
@@ -657,7 +657,7 @@ test('loop_definitions shows parameter info', function () {
         'name' => 'parameterized',
         'description' => 'Test parameterized loop',
         'roles' => [['role' => 'coder', 'prompt' => 'Work on {{subject}}.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
         'parameters' => [
             ['name' => 'subject', 'description' => 'Subject', 'required' => true],
             ['name' => 'format', 'description' => 'Format', 'required' => false, 'default' => 'md'],

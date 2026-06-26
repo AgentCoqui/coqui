@@ -40,13 +40,13 @@ test('discoverAll reads JSON files from loops directory', function () {
         'name' => 'harness',
         'description' => 'Generator-evaluator',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
     file_put_contents($this->loopsDir . '/research.json', json_encode([
         'name' => 'research',
         'description' => 'Research pattern',
         'roles' => [['role' => 'explorer', 'prompt' => 'Explore.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     $discovery = new LoopDiscovery($this->workspacePath);
@@ -61,7 +61,7 @@ test('discoverAll silently skips malformed JSON', function () {
         'name' => 'good',
         'description' => 'Valid definition',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
     file_put_contents($this->loopsDir . '/bad.json', 'this is not valid json{{{');
 
@@ -78,7 +78,7 @@ test('discoverAll silently skips definitions with validation errors', function (
         'name' => 'invalid',
         'description' => '',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     $discovery = new LoopDiscovery($this->workspacePath);
@@ -103,7 +103,7 @@ test('discoverAll ignores non-json files', function () {
         'name' => 'valid',
         'description' => 'A loop',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     $discovery = new LoopDiscovery($this->workspacePath);
@@ -121,7 +121,7 @@ test('discoverAll caches results on second call', function () {
         'name' => 'first',
         'description' => 'First loop',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     $discovery = new LoopDiscovery($this->workspacePath);
@@ -132,7 +132,7 @@ test('discoverAll caches results on second call', function () {
         'name' => 'second',
         'description' => 'Second loop',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     $result2 = $discovery->discoverAll();
@@ -147,7 +147,7 @@ test('invalidateCache forces re-scan', function () {
         'name' => 'first',
         'description' => 'First loop',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     $discovery = new LoopDiscovery($this->workspacePath);
@@ -157,7 +157,7 @@ test('invalidateCache forces re-scan', function () {
         'name' => 'second',
         'description' => 'Second loop',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     $discovery->invalidateCache();
@@ -175,7 +175,7 @@ test('get returns definition by name', function () {
         'name' => 'harness',
         'description' => 'Test loop',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     $discovery = new LoopDiscovery($this->workspacePath);
@@ -195,7 +195,7 @@ test('exists returns true for known loop', function () {
         'name' => 'harness',
         'description' => 'Test',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     $discovery = new LoopDiscovery($this->workspacePath);
@@ -214,13 +214,13 @@ test('availableLoops returns all names', function () {
         'name' => 'alpha',
         'description' => 'Alpha',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
     file_put_contents($this->loopsDir . '/b.json', json_encode([
         'name' => 'bravo',
         'description' => 'Bravo',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     $discovery = new LoopDiscovery($this->workspacePath);
@@ -241,7 +241,7 @@ test('seedBuiltinLoops copies from builtin dir to workspace', function () {
         'name' => 'harness',
         'description' => 'Built-in harness',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     $discovery = new LoopDiscovery($this->workspacePath, $this->builtinDir);
@@ -258,7 +258,7 @@ test('seedBuiltinLoops does not overwrite existing user files', function () {
         'name' => 'harness',
         'description' => 'Built-in version',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     // Create user version first
@@ -266,7 +266,7 @@ test('seedBuiltinLoops does not overwrite existing user files', function () {
         'name' => 'harness',
         'description' => 'User customized version',
         'roles' => [['role' => 'coder', 'prompt' => 'Custom code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ]));
 
     $discovery = new LoopDiscovery($this->workspacePath, $this->builtinDir);
@@ -314,7 +314,7 @@ test('getRawDefinition returns raw array for existing definition', function () {
         'name' => 'harness',
         'description' => 'Generator-evaluator',
         'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => ['type' => 'manual'],
+        'termination_condition' => ['type' => 'iteration_bound', 'value' => 100],
     ];
     file_put_contents($this->loopsDir . '/harness.json', json_encode($data));
 
@@ -323,7 +323,7 @@ test('getRawDefinition returns raw array for existing definition', function () {
 
     expect($raw)->toBe($data);
     expect($raw['name'])->toBe('harness');
-    expect($raw['termination_condition']['type'])->toBe('manual');
+    expect($raw['termination_condition']['type'])->toBe('iteration_bound');
 });
 
 test('getRawDefinition throws for unknown name', function () {
@@ -355,31 +355,3 @@ test('getRawDefinition preserves goal_bound with all fields', function () {
     expect($raw['termination_condition']['value']['max_iterations'])->toBe(5);
 });
 
-test('getRawDefinition preserves tool_bound with all fields', function () {
-    $data = [
-        'name' => 'tool-test',
-        'description' => 'Tool bound',
-        'roles' => [['role' => 'coder', 'prompt' => 'Code.']],
-        'termination_condition' => [
-            'type' => 'tool_bound',
-            'value' => [
-                'tool' => 'test_coverage',
-                'arguments' => ['suite' => 'unit'],
-                'operator' => '>=',
-                'threshold' => 80,
-                'max_iterations' => 10,
-            ],
-        ],
-    ];
-    file_put_contents($this->loopsDir . '/tool-test.json', json_encode($data));
-
-    $discovery = new LoopDiscovery($this->workspacePath);
-    $raw = $discovery->getRawDefinition('tool-test');
-
-    expect($raw['termination_condition']['type'])->toBe('tool_bound');
-    expect($raw['termination_condition']['value']['tool'])->toBe('test_coverage');
-    expect($raw['termination_condition']['value']['arguments'])->toBe(['suite' => 'unit']);
-    expect($raw['termination_condition']['value']['operator'])->toBe('>=');
-    expect($raw['termination_condition']['value']['threshold'])->toBe(80);
-    expect($raw['termination_condition']['value']['max_iterations'])->toBe(10);
-});

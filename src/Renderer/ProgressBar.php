@@ -14,7 +14,7 @@ use Symfony\Component\Console\Style\SymfonyStyle;
  * to be reusable across different progress visualization contexts:
  *
  * - Context window usage (system/user/assistant/tool/summary breakdown)
- * - Sprint progress (completed/remaining todos, review rounds)
+ * - Loop progress (completed/remaining iterations, review rounds)
  * - Summarization analytics (before/after compression ratios)
  *
  * The bar itself is a pure renderer — callers build the data model and
@@ -36,7 +36,7 @@ final class ProgressBar
      * Render the progress bar directly to a SymfonyStyle output.
      *
      * @param ProgressBarSegment[] $segments  Ordered segments to display.
-     * @param int|float            $total     Maximum value (e.g. total tokens, total todos).
+     * @param int|float            $total     Maximum value (e.g. total tokens, total iterations).
      * @param string               $emptyStyle Style for the unfilled portion (default: fg=gray).
      * @param bool                 $showPercent Whether to append an overall percentage label.
      * @param bool                 $showLegend  Whether to render a legend row below the bar.

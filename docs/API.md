@@ -3061,7 +3061,7 @@ Returns the full artifact object including content.
 
 Patch artifact metadata, stage, links, or content.
 
-If `content` is included, the patch creates a new artifact version. Without `content`, metadata-only changes stay on the current version row.
+If `content` is included, the artifact's content is replaced and its `version` counter is bumped (for filesystem-backed artifacts the canonical file is rewritten). Without `content`, only metadata changes.
 
 **Request Body**
 
@@ -3080,66 +3080,9 @@ If `content` is included, the patch creates a new artifact version. Without `con
 
 Returns the full current artifact object.
 
-#### `GET /api/v1/sessions/{id}/artifacts/{artifactId}/versions`
-
-List all versions of an artifact.
-
-**Response `200`**
-
-```json
-{
-  "artifact_id": "art_1a2b3c4d",
-  "versions": [
-    {
-      "id": "ver_123",
-      "version": 1,
-      "content": "## Steps\n1. ...",
-      "change_summary": "Initial version",
-      "created_by": "plan",
-      "created_at": "2026-02-16T14:30:00Z"
-    },
-    {
-      "version": 2,
-      "content": "## Updated Steps\n1. ...",
-      "change_summary": "Added error handling steps",
-      "created_by": "coder",
-      "created_at": "2026-02-16T15:00:00Z"
-    }
-  ],
-  "count": 2
-}
-```
-
-#### `POST /api/v1/sessions/{id}/artifacts/{artifactId}/versions`
-
-Create a new artifact version directly.
-
-**Request Body**
-
-```json
-{
-  "content": "## Updated Steps\n1. ...",
-  "change_summary": "Added rollback notes",
-  "title": "Database migration plan v2",
-  "stage": "review"
-}
-```
-
-**Response `200`**
-
-Returns the full current artifact object.
-
-#### `POST /api/v1/sessions/{id}/artifacts/{artifactId}/versions/{versionId}/restore`
-
-Restore an older artifact version by version row id.
-
-**Response `200`**
-
-Returns the full current artifact object with a newly created version containing the restored content.
-
 #### `DELETE /api/v1/sessions/{id}/artifacts/{artifactId}`
 
-Delete an artifact and its version history.
+Delete an artifact (and its canonical file, if filesystem-backed).
 
 **Response `200`**
 
@@ -5064,8 +5007,5 @@ Mutating REPL workflows such as `/config edit`, `/roles update`, and most schedu
 | `GET` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Get artifact |
 | `PATCH` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Update artifact metadata or content |
 | `DELETE` | `/api/v1/sessions/{id}/artifacts/{artifactId}` | Yes | Delete artifact |
-| `GET` | `/api/v1/sessions/{id}/artifacts/{artifactId}/versions` | Yes | List artifact versions |
-| `POST` | `/api/v1/sessions/{id}/artifacts/{artifactId}/versions` | Yes | Create artifact version |
-| `POST` | `/api/v1/sessions/{id}/artifacts/{artifactId}/versions/{versionId}/restore` | Yes | Restore artifact version |
 
 Mutation-heavy workflows for roles, summarization, and update continue to live primarily in the REPL and agent tool layer. API restart and channel CRUD now expose explicit restart-state metadata over HTTP for app clients.

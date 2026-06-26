@@ -66,7 +66,7 @@ erDiagram
 | Component | Purpose | Scope | Storage |
 | --- | --- | --- | --- |
 | [Projects](PROJECTS.md) | Named working scope backed by a workspace directory | Persistent | `projects` table |
-| [Artifacts](ARTIFACTS.md) | Versioned structured outputs (plans, docs, code) | Session or persistent | `artifacts` + `artifact_versions` tables |
+| [Artifacts](ARTIFACTS.md) | Structured outputs (plans, docs, code) — files on disk for filesystem-backed types, indexed in the DB | Session or persistent | `artifacts` table + canonical files under `projects/{dir}/artifacts/` |
 | [Loops](LOOPS.md) | Automated multi-role iteration cycles | Session-linked | `loops` + `loop_iterations` + `loop_stages` tables |
 
 All tables reside in a shared SQLite database (WAL mode) managed by `SessionStorage`.

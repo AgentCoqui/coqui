@@ -58,9 +58,7 @@ use CoquiBot\Coqui\Notification\NotificationAutomationRunner;
 use CoquiBot\Coqui\Notification\RetryBackgroundTaskAction;
 use CoquiBot\Coqui\Notification\EscalateLoopFailureAction;
 use CoquiBot\Coqui\Provider\ReactHttpClientAdapter;
-use CoquiBot\Coqui\Agent\BackgroundToolExecutor;
 use CoquiBot\Coqui\Agent\GoalEvaluator;
-use CoquiBot\Coqui\Agent\ToolBoundEvaluator;
 use CoquiBot\Coqui\Storage\ArtifactStore;
 use CoquiBot\Coqui\Storage\ChannelStore;
 use CoquiBot\Coqui\Storage\FileUploadStorage;
@@ -313,20 +311,14 @@ final class ApiCommand extends Command
                     $goalEvaluator = new GoalEvaluator($factory->create($utilityModel));
                 }
             } catch (\Throwable) {
-                // Goal evaluation degrades gracefully — loops fall back to manual
+                // Goal evaluation degrades gracefully — goal_bound loops run to their iteration limit
             }
-
-            // Build tool executor for tool_bound evaluation
-            $toolBoundEvaluator = new ToolBoundEvaluator(
-                new BackgroundToolExecutor($boot, $workDir, $unsafeMode),
-            );
 
             $loopExecutor = new LoopExecutor(
                 loopStore: $loopStore,
                 projectStore: $projectStore,
                 sessionStorage: $storage,
                 goalEvaluator: $goalEvaluator,
-                toolBoundEvaluator: $toolBoundEvaluator,
             );
             $loopManager = new LoopManager($storage, $loopStore, $loopExecutor, $artifactStore, $notificationPublisher);
         }
@@ -731,9 +723,6 @@ final class ApiCommand extends Command
         // Artifacts
         $router->post($v1 . '/sessions/{id}/artifacts', [$artifact, 'create']);
         $router->get($v1 . '/sessions/{id}/artifacts', [$artifact, 'list']);
-        $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}/versions', [$artifact, 'versions']);
-        $router->post($v1 . '/sessions/{id}/artifacts/{artifactId}/versions', [$artifact, 'createVersion']);
-        $router->post($v1 . '/sessions/{id}/artifacts/{artifactId}/versions/{versionId}/restore', [$artifact, 'restoreVersion']);
         $router->get($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'get']);
         $router->patch($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'update']);
         $router->delete($v1 . '/sessions/{id}/artifacts/{artifactId}', [$artifact, 'delete']);

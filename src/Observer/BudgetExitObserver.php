@@ -15,7 +15,7 @@ use SplSubject;
  * wrap-up instruction via `PendingInputProviderInterface`.
  *
  * This bridges php-agents' mechanical budget detection with Coqui's
- * domain-specific context (todos, artifacts, sprints). The queued message
+ * domain-specific context (artifacts, project). The queued message
  * is consumed by `AbstractAgent::run()` at the top of the next iteration.
  */
 final class BudgetExitObserver implements SplObserver, PendingInputProviderInterface
@@ -24,7 +24,7 @@ final class BudgetExitObserver implements SplObserver, PendingInputProviderInter
     private array $pendingMessages = [];
 
     /**
-     * @param ?\Closure(): string $workflowContextBuilder Returns workflow state (todos, artifacts, sprints)
+     * @param ?\Closure(): string $workflowContextBuilder Returns workflow state (artifacts, project)
      */
     public function __construct(
         private readonly ?\Closure $workflowContextBuilder = null,

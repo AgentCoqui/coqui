@@ -32,7 +32,6 @@ final class LoopExecutor
         private readonly ProjectStore $projectStore,
         private readonly ?SessionStorage $sessionStorage = null,
         private readonly ?GoalEvaluator $goalEvaluator = null,
-        private readonly ?ToolBoundEvaluator $toolBoundEvaluator = null,
     ) {}
 
     /**
@@ -122,20 +121,16 @@ final class LoopExecutor
         /** @var int|null $maxIterations */
         $maxIterations = $maxIterationsOverride ?? match ($definition->terminationCondition->type) {
             TerminationType::IterationBound,
-            TerminationType::GoalBound,
-            TerminationType::ToolBound => $definition->terminationCondition->maxIterations,
+            TerminationType::GoalBound => $definition->terminationCondition->maxIterations,
             TerminationType::EvaluationBound => $definition->terminationCondition->maxReviewRounds,
-            default => null,
         };
 
-        $deadline = $definition->terminationCondition->type === TerminationType::TimeBound
-            ? $definition->terminationCondition->deadline
-            : null;
+        $deadline = null;
 
         $terminationCriteria = match ($definition->terminationCondition->type) {
             TerminationType::EvaluationBound => $definition->terminationCondition->criteria,
             TerminationType::GoalBound => $definition->terminationCondition->goalPrompt,
-            default => null,
+            TerminationType::IterationBound => null,
         };
 
         $loopId = $this->loopStore->createLoop(
@@ -341,10 +336,7 @@ final class LoopExecutor
             $outcome = match ($definition->terminationCondition->type) {
                 TerminationType::EvaluationBound => $this->evaluateEvaluationBound($stages, $iterationNumber, $loop),
                 TerminationType::IterationBound => $this->evaluateIterationBound($iterationNumber, $loop),
-                TerminationType::TimeBound => $this->evaluateTimeBound($loop),
                 TerminationType::GoalBound => $this->evaluateGoalBound($definition, $stages, $iterationNumber, $loop),
-                TerminationType::ToolBound => $this->evaluateToolBound($definition, $iterationNumber, $loop),
-                TerminationType::Manual => IterationOutcome::Continue,
             };
         }
 
@@ -556,29 +548,10 @@ final class LoopExecutor
     }
 
     /**
-     * Evaluate a time_bound loop — check deadline.
-     *
-     * @param array<string, mixed> $loop
-     */
-    private function evaluateTimeBound(array $loop): IterationOutcome
-    {
-        $deadline = $loop['deadline'] ?? null;
-        if ($deadline === null) {
-            return IterationOutcome::Continue;
-        }
-
-        $now = new \DateTimeImmutable('now', new \DateTimeZone('UTC'));
-        $deadlineTime = new \DateTimeImmutable($deadline, new \DateTimeZone('UTC'));
-
-        return $now >= $deadlineTime
-            ? IterationOutcome::LimitReached
-            : IterationOutcome::Continue;
-    }
-
-    /**
      * Evaluate a goal_bound loop — delegate to GoalEvaluator for LLM judgment.
      *
-     * Falls back to Continue when GoalEvaluator is not available (loop acts as Manual).
+     * Falls back to Continue when GoalEvaluator is not available (the loop then
+     * runs until it reaches its iteration limit).
      *
      * @param list<array<string, mixed>> $stages
      * @param array<string, mixed> $loop
@@ -610,40 +583,6 @@ final class LoopExecutor
         );
 
         return $result->achieved
-            ? IterationOutcome::Complete
-            : IterationOutcome::Continue;
-    }
-
-    /**
-     * Evaluate a tool_bound loop — delegate to ToolBoundEvaluator for direct tool execution.
-     *
-     * Falls back to Continue when ToolBoundEvaluator is not available (loop acts as Manual).
-     *
-     * @param array<string, mixed> $loop
-     */
-    private function evaluateToolBound(
-        LoopDefinition $definition,
-        int $iterationNumber,
-        array $loop,
-    ): IterationOutcome {
-        // If no evaluator available, act as manual
-        if ($this->toolBoundEvaluator === null) {
-            return IterationOutcome::Continue;
-        }
-
-        $tc = $definition->terminationCondition;
-        if ($tc->toolName === null || $tc->operator === null || $tc->threshold === null) {
-            return IterationOutcome::Continue;
-        }
-
-        $result = $this->toolBoundEvaluator->evaluate(
-            toolName: $tc->toolName,
-            arguments: $tc->toolArguments ?? [],
-            operator: $tc->operator,
-            threshold: $tc->threshold,
-        );
-
-        return $result->met
             ? IterationOutcome::Complete
             : IterationOutcome::Continue;
     }

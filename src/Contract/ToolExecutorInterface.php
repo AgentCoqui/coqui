@@ -10,7 +10,7 @@ use CarmeloSantana\PHPAgents\Tool\ToolResult;
  * Executes a tool by name with the given arguments.
  *
  * Implementations resolve tools from registered toolkits and call execute() directly.
- * Used by ToolBoundEvaluator for tool_bound loop termination.
+ * Used by BackgroundToolExecutor for direct tool execution (e.g. the task_run path).
  */
 interface ToolExecutorInterface
 {

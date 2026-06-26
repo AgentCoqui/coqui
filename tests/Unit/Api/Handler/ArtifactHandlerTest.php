@@ -98,58 +98,6 @@ test('artifact handler creates and updates versioned artifacts with metadata', f
     }
 });
 
-test('artifact handler creates versions and restores an older version', function () {
-    $fixture = createArtifactHandlerFixture();
-
-    try {
-        $sessionId = $fixture['storage']->createSession('orchestrator', 'ollama/qwen3:latest');
-        $artifactId = $fixture['artifactStore']->create($sessionId, 'Plan', 'Version 1 content');
-
-        $versionResponse = $fixture['handler']->createVersion(
-            new ServerRequest(
-                'POST',
-                '/api/v1/sessions/' . $sessionId . '/artifacts/' . $artifactId . '/versions',
-                ['Content-Type' => 'application/json'],
-                json_encode([
-                    'content' => 'Version 2 content',
-                    'change_summary' => 'Expanded the plan',
-                ]) ?: '',
-            ),
-            $sessionId,
-            $artifactId,
-        );
-        $versionsResponse = $fixture['handler']->versions(
-            new ServerRequest('GET', '/api/v1/sessions/' . $sessionId . '/artifacts/' . $artifactId . '/versions'),
-            $sessionId,
-            $artifactId,
-        );
-        $versionsBody = json_decode((string) $versionsResponse->getBody(), true);
-        $versionOneId = $versionsBody['versions'][1]['id'];
-
-        $restoreResponse = $fixture['handler']->restoreVersion(
-            new ServerRequest(
-                'POST',
-                '/api/v1/sessions/' . $sessionId . '/artifacts/' . $artifactId . '/versions/' . $versionOneId . '/restore',
-            ),
-            $sessionId,
-            $artifactId,
-            $versionOneId,
-        );
-        $restoreBody = json_decode((string) $restoreResponse->getBody(), true);
-
-        expect($versionResponse->getStatusCode())->toBe(200);
-        expect(json_decode((string) $versionResponse->getBody(), true)['content'])->toBe('Version 2 content');
-        expect($versionsResponse->getStatusCode())->toBe(200);
-        expect($versionsBody['count'])->toBe(2);
-
-        expect($restoreResponse->getStatusCode())->toBe(200);
-        expect($restoreBody['content'])->toBe('Version 1 content');
-        expect((int) $restoreBody['version'])->toBe(3);
-    } finally {
-        cleanupArtifactHandlerFixture($fixture);
-    }
-});
-
 test('artifact handler deletes session scoped artifacts', function () {
     $fixture = createArtifactHandlerFixture();
 
